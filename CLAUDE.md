@@ -1,6 +1,6 @@
-# swe-skills
+# agent-skills
 
-This is the swe-skills project — a collection of production-grade engineering skills for AI coding agents.
+This is the agent-skills project — a collection of production-grade engineering skills for AI coding agents.
 
 ## Project Structure
 

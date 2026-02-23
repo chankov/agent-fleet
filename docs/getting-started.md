@@ -1,6 +1,6 @@
-# Getting Started with swe-skills
+# Getting Started with agent-skills
 
-swe-skills works with any AI coding agent that accepts Markdown instructions. This guide covers the universal approach. For tool-specific setup, see the dedicated guides.
+agent-skills works with any AI coding agent that accepts Markdown instructions. This guide covers the universal approach. For tool-specific setup, see the dedicated guides.
 
 ## How Skills Work
 
@@ -13,7 +13,7 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/addyosmani/swe-skills.git
+git clone https://github.com/addyosmani/agent-skills.git
 ```
 
 ### 2. Choose a skill
@@ -37,7 +37,7 @@ Copy the relevant `SKILL.md` content into your agent's system prompt, rules file
 
 ### 4. Use the meta-skill for discovery
 
-Start with the `using-swe-skills` skill loaded. It contains a flowchart that maps task types to the appropriate skill.
+Start with the `using-agent-skills` skill loaded. It contains a flowchart that maps task types to the appropriate skill.
 
 ## Recommended Setup
 

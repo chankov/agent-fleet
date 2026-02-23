@@ -1,4 +1,4 @@
-# Using swe-skills with Cursor
+# Using agent-skills with Cursor
 
 ## Setup
 
@@ -11,9 +11,9 @@ Cursor supports a `.cursor/rules/` directory for project-specific rules:
 mkdir -p .cursor/rules
 
 # Copy skills you want as rules
-cp /path/to/swe-skills/skills/test-driven-development/SKILL.md .cursor/rules/test-driven-development.md
-cp /path/to/swe-skills/skills/code-review-and-quality/SKILL.md .cursor/rules/code-review-and-quality.md
-cp /path/to/swe-skills/skills/incremental-implementation/SKILL.md .cursor/rules/incremental-implementation.md
+cp /path/to/agent-skills/skills/test-driven-development/SKILL.md .cursor/rules/test-driven-development.md
+cp /path/to/agent-skills/skills/code-review-and-quality/SKILL.md .cursor/rules/code-review-and-quality.md
+cp /path/to/agent-skills/skills/incremental-implementation/SKILL.md .cursor/rules/incremental-implementation.md
 ```
 
 Rules in this directory are automatically loaded into Cursor's context.
@@ -24,9 +24,9 @@ Create a `.cursorrules` file in your project root with the essential skills inli
 
 ```bash
 # Generate a combined rules file
-cat /path/to/swe-skills/skills/test-driven-development/SKILL.md > .cursorrules
+cat /path/to/agent-skills/skills/test-driven-development/SKILL.md > .cursorrules
 echo "\n---\n" >> .cursorrules
-cat /path/to/swe-skills/skills/code-review-and-quality/SKILL.md >> .cursorrules
+cat /path/to/agent-skills/skills/code-review-and-quality/SKILL.md >> .cursorrules
 ```
 
 ### Option 3: Notepads

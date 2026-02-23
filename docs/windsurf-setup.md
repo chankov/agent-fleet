@@ -1,4 +1,4 @@
-# Using swe-skills with Windsurf
+# Using agent-skills with Windsurf
 
 ## Setup
 
@@ -8,11 +8,11 @@ Windsurf uses `.windsurfrules` for project-specific agent instructions:
 
 ```bash
 # Create a combined rules file from your most important skills
-cat /path/to/swe-skills/skills/test-driven-development/SKILL.md > .windsurfrules
+cat /path/to/agent-skills/skills/test-driven-development/SKILL.md > .windsurfrules
 echo "\n---\n" >> .windsurfrules
-cat /path/to/swe-skills/skills/incremental-implementation/SKILL.md >> .windsurfrules
+cat /path/to/agent-skills/skills/incremental-implementation/SKILL.md >> .windsurfrules
 echo "\n---\n" >> .windsurfrules
-cat /path/to/swe-skills/skills/code-review-and-quality/SKILL.md >> .windsurfrules
+cat /path/to/agent-skills/skills/code-review-and-quality/SKILL.md >> .windsurfrules
 ```
 
 ### Global Rules
@@ -28,7 +28,7 @@ Keep `.windsurfrules` focused on 2-3 essential skills to stay within context lim
 
 ```
 # .windsurfrules
-# Essential swe-skills for this project
+# Essential agent-skills for this project
 
 [Paste test-driven-development SKILL.md]
 

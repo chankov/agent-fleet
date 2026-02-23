@@ -186,7 +186,7 @@ agent-skills/
 │   └── commands/                      # Slash commands
 ├── skills/                            # Core skills (SKILL.md per directory)
 │   ├── idea-refine/                   # Define phase: Idea refinement
-│   ├── using-swe-skills/              # Meta: how to use this pack
+│   ├── using-agent-skills/            # Meta: how to use this pack
 │   ├── spec-driven-development/       # Define phase
 │   ├── planning-and-task-breakdown/   # Plan phase
 │   ├── context-engineering/           # Build phase

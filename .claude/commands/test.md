@@ -2,7 +2,7 @@
 description: Run TDD workflow — write failing tests, implement, verify. For bugs, use the Prove-It pattern.
 ---
 
-Invoke the swe-skills:test-driven-development skill.
+Invoke the agent-skills:test-driven-development skill.
 
 For new features:
 1. Write tests that describe the expected behavior (they should FAIL)
@@ -16,4 +16,4 @@ For bug fixes (Prove-It pattern):
 4. Confirm the test passes
 5. Run the full test suite for regressions
 
-For browser-related issues, also invoke swe-skills:browser-testing-with-devtools to verify with Chrome DevTools MCP.
+For browser-related issues, also invoke agent-skills:browser-testing-with-devtools to verify with Chrome DevTools MCP.
