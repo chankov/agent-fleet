@@ -23,26 +23,29 @@ AI coding agents are powerful, but they default to taking the shortest path — 
 
 ### Claude Code (Recommended)
 
+**Via marketplace** — add and install directly from Claude Code:
+
+```
+/plugin marketplace add addyosmani/agent-skills
+/plugin install agent-skills@addy-agent-skills
+```
+
+**Local / development use** — clone and load with `--plugin-dir`:
+
 ```bash
-# Install as a Claude Code plugin
-claude plugin add agent-skills
-
-# Or clone and reference directly
 git clone https://github.com/addyosmani/agent-skills.git
-cd your-project
-# Add to your CLAUDE.md:
-# Import skills from /path/to/agent-skills/skills/
+claude --plugin-dir /path/to/agent-skills
 ```
 
-Once installed, skills are available via slash commands:
+Once loaded, skills activate automatically based on context. Slash commands are also available under the `agent-skills:` namespace:
 
 ```
-/spec      → Start spec-driven development
-/plan      → Break work into tasks
-/build     → Implement incrementally
-/test      → Run TDD workflow
-/review    → Trigger code review
-/ship      → Pre-launch checklist
+/agent-skills:spec      → Start spec-driven development
+/agent-skills:plan      → Break work into tasks
+/agent-skills:build     → Implement incrementally
+/agent-skills:test      → Run TDD workflow
+/agent-skills:review    → Trigger code review
+/agent-skills:ship      → Pre-launch checklist
 ```
 
 ### Cursor
@@ -182,8 +185,11 @@ agent-skills/
 ├── AGENTS.md                          # Guidance for AI agents
 ├── CLAUDE.md                          # Claude Code configuration
 ├── LICENSE                            # MIT License
+├── .claude-plugin/
+│   ├── plugin.json                    # Claude Code plugin manifest
+│   └── marketplace.json               # Claude Code marketplace catalog
 ├── .claude/
-│   └── commands/                      # Slash commands
+│   └── commands/                      # Slash commands (standalone use)
 ├── skills/                            # Core skills (SKILL.md per directory)
 │   ├── idea-refine/                   # Define phase: Idea refinement
 │   ├── using-agent-skills/            # Meta: how to use this pack
