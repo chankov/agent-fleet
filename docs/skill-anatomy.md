@@ -1,6 +1,6 @@
 # Skill Anatomy
 
-This document describes the structure and format of swe-skills skill files. Use this as a guide when contributing new skills or understanding existing ones.
+This document describes the structure and format of agent-skills skill files. Use this as a guide when contributing new skills or understanding existing ones.
 
 ## File Location
 

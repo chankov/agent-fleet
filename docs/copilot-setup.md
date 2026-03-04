@@ -1,4 +1,4 @@
-# Using swe-skills with GitHub Copilot
+# Using agent-skills with GitHub Copilot
 
 ## Setup
 
@@ -10,20 +10,20 @@ GitHub Copilot supports project-level instructions via `.github/copilot-instruct
 mkdir -p .github
 
 # Create instructions file with essential skills
-cat /path/to/swe-skills/skills/test-driven-development/SKILL.md > .github/copilot-instructions.md
+cat /path/to/agent-skills/skills/test-driven-development/SKILL.md > .github/copilot-instructions.md
 echo "\n---\n" >> .github/copilot-instructions.md
-cat /path/to/swe-skills/skills/code-review-and-quality/SKILL.md >> .github/copilot-instructions.md
+cat /path/to/agent-skills/skills/code-review-and-quality/SKILL.md >> .github/copilot-instructions.md
 ```
 
 ### Agent Personas (agents.md)
 
-Copilot supports specialized agent personas. Use the swe-skills agents:
+Copilot supports specialized agent personas. Use the agent-skills agents:
 
 ```bash
 # Copy agent definitions
-cp /path/to/swe-skills/agents/code-reviewer.md .github/agents/code-reviewer.md
-cp /path/to/swe-skills/agents/test-engineer.md .github/agents/test-engineer.md
-cp /path/to/swe-skills/agents/security-auditor.md .github/agents/security-auditor.md
+cp /path/to/agent-skills/agents/code-reviewer.md .github/agents/code-reviewer.md
+cp /path/to/agent-skills/agents/test-engineer.md .github/agents/test-engineer.md
+cp /path/to/agent-skills/agents/security-auditor.md .github/agents/security-auditor.md
 ```
 
 Invoke agents in Copilot Chat:
