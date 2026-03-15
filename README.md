@@ -10,8 +10,26 @@ Skills encode the workflows, quality gates, and best practices that senior engin
  │ Idea │ ───▶ │ Spec │ ───▶ │ Code │ ───▶ │ Test │ ───▶ │  QA  │ ───▶ │  Go  │
  │Refine│      │  PRD │      │ Impl │      │Debug │      │ Gate │      │ Live │
  └──────┘      └──────┘      └──────┘      └──────┘      └──────┘      └──────┘
-  2 skills      1 skill       4 skills      3 skills      4 skills      4 skills
+  /spec          /plan          /build        /test         /review       /ship
 ```
+
+---
+
+## Commands
+
+7 slash commands that map to the development lifecycle. Each one activates the right skills automatically — you don't need to memorize 18 skill names.
+
+| Command | Phase | What It Does |
+|---------|-------|-------------|
+| `/spec` | Define | Write a structured specification before writing code — objectives, constraints, boundaries |
+| `/plan` | Plan | Break a spec into small, verifiable tasks with acceptance criteria and dependency order |
+| `/build` | Build | Implement the next task incrementally — thin vertical slices, test each piece, commit |
+| `/test` | Verify | Run TDD workflow (Red-Green-Refactor). For bugs, use the Prove-It pattern: failing test first |
+| `/review` | Review | Five-axis code review: correctness, readability, architecture, security, performance |
+| `/code-simplify` | Review | Reduce complexity without changing behavior — structural, naming, and redundancy patterns |
+| `/ship` | Ship | Pre-launch checklist: security, performance, accessibility, monitoring, rollback plan |
+
+Skills also activate automatically based on what you're doing — designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`, and so on.
 
 ---
 
@@ -31,15 +49,6 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 ```bash
 git clone https://github.com/addyosmani/agent-skills.git
 claude --plugin-dir /path/to/agent-skills
-```
-
-Skills activate automatically based on context. Slash commands are also available:
-
-```
-/spec    → Start spec-driven development       /review        → Five-axis code review
-/plan    → Break work into tasks               /code-simplify → Simplify without changing behavior
-/build   → Implement incrementally             /ship          → Pre-launch checklist
-/test    → TDD workflow / Prove-It pattern
 ```
 
 </details>
@@ -74,9 +83,9 @@ Skills are plain Markdown - they work with any agent that accepts system prompts
 
 ---
 
-## Skills Across the SDLC
+## All 18 Skills
 
-18 skills organized into 6 development phases. Each skill is a structured workflow with steps, verification gates, and anti-rationalization tables.
+The commands above are the entry points. Under the hood, they activate these 18 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
 
 ### Define - Clarify what to build
 
