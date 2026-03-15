@@ -2,7 +2,7 @@
 
 **Production-grade engineering skills for AI coding agents.**
 
-Skills encode the workflows, quality gates, and best practices that senior engineers use when building software — packaged so AI agents follow them consistently across every phase of development.
+Skills encode the workflows, quality gates, and best practices that senior engineers use when building software. These ones are packaged so AI agents follow them consistently across every phase of development.
 
 ```
   DEFINE          PLAN           BUILD          VERIFY         REVIEW          SHIP
@@ -68,7 +68,7 @@ Use agent definitions from `agents/` as Copilot personas and skill content in `.
 <details>
 <summary><b>Codex / Other Agents</b></summary>
 
-Skills are plain Markdown — they work with any agent that accepts system prompts or instruction files. See [docs/getting-started.md](docs/getting-started.md).
+Skills are plain Markdown - they work with any agent that accepts system prompts or instruction files. See [docs/getting-started.md](docs/getting-started.md).
 
 </details>
 
@@ -78,52 +78,52 @@ Skills are plain Markdown — they work with any agent that accepts system promp
 
 18 skills organized into 6 development phases. Each skill is a structured workflow with steps, verification gates, and anti-rationalization tables.
 
-### Define — Clarify what to build
+### Define - Clarify what to build
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
 | [idea-refine](skills/idea-refine/SKILL.md) | Structured divergent/convergent thinking to turn vague ideas into concrete proposals | You have a rough concept that needs exploration |
 | [spec-driven-development](skills/spec-driven-development/SKILL.md) | Write a PRD covering objectives, commands, structure, code style, testing, and boundaries before any code | Starting a new project, feature, or significant change |
 
-### Plan — Break it down
+### Plan - Break it down
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
 | [planning-and-task-breakdown](skills/planning-and-task-breakdown/SKILL.md) | Decompose specs into small, verifiable tasks with acceptance criteria and dependency ordering | You have a spec and need implementable units |
 
-### Build — Write the code
+### Build - Write the code
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [incremental-implementation](skills/incremental-implementation/SKILL.md) | Thin vertical slices — implement, test, verify, commit. Feature flags, safe defaults, rollback-friendly changes | Any change touching more than one file |
-| [context-engineering](skills/context-engineering/SKILL.md) | Feed agents the right information at the right time — rules files, context packing, MCP integrations | Starting a session, switching tasks, or when output quality drops |
+| [incremental-implementation](skills/incremental-implementation/SKILL.md) | Thin vertical slices - implement, test, verify, commit. Feature flags, safe defaults, rollback-friendly changes | Any change touching more than one file |
+| [context-engineering](skills/context-engineering/SKILL.md) | Feed agents the right information at the right time - rules files, context packing, MCP integrations | Starting a session, switching tasks, or when output quality drops |
 | [frontend-ui-engineering](skills/frontend-ui-engineering/SKILL.md) | Component architecture, design systems, state management, responsive design, WCAG 2.1 AA accessibility | Building or modifying user-facing interfaces |
-| [api-and-interface-design](skills/api-and-interface-design/SKILL.md) | Contract-first design for REST/GraphQL — error semantics, versioning, boundary design, input validation | Designing APIs, module boundaries, or public interfaces |
+| [api-and-interface-design](skills/api-and-interface-design/SKILL.md) | Contract-first design for REST/GraphQL - error semantics, versioning, boundary design, input validation | Designing APIs, module boundaries, or public interfaces |
 
-### Verify — Prove it works
+### Verify - Prove it works
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
 | [test-driven-development](skills/test-driven-development/SKILL.md) | Red-Green-Refactor cycle. The Prove-It pattern: reproduce bugs with a failing test before fixing | Implementing logic, fixing bugs, or changing behavior |
-| [browser-testing-with-devtools](skills/browser-testing-with-devtools/SKILL.md) | Chrome DevTools MCP for live runtime data — DOM inspection, console logs, network traces, performance profiling | Building or debugging anything that runs in a browser |
+| [browser-testing-with-devtools](skills/browser-testing-with-devtools/SKILL.md) | Chrome DevTools MCP for live runtime data - DOM inspection, console logs, network traces, performance profiling | Building or debugging anything that runs in a browser |
 | [debugging-and-error-recovery](skills/debugging-and-error-recovery/SKILL.md) | Five-step triage: reproduce, localize, reduce, fix, guard. Stop-the-line rule, safe fallbacks | Tests fail, builds break, or behavior is unexpected |
 
-### Review — Quality gates before merge
+### Review - Quality gates before merge
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
 | [code-review-and-quality](skills/code-review-and-quality/SKILL.md) | Five-axis review: correctness, readability, architecture, security, performance. Multi-model review patterns | Before merging any change |
-| [code-simplification](skills/code-simplification/SKILL.md) | Reduce complexity while preserving exact behavior — structural, naming, and redundancy patterns | Code works but is harder to read or maintain than it should be |
+| [code-simplification](skills/code-simplification/SKILL.md) | Reduce complexity while preserving exact behavior - structural, naming, and redundancy patterns | Code works but is harder to read or maintain than it should be |
 | [security-and-hardening](skills/security-and-hardening/SKILL.md) | OWASP Top 10 prevention, auth patterns, secrets management, dependency auditing, three-tier boundary system | Handling user input, auth, data storage, or external integrations |
-| [performance-optimization](skills/performance-optimization/SKILL.md) | Measure-first approach — Core Web Vitals targets, profiling workflows, bundle analysis, anti-pattern detection | Performance requirements exist or you suspect regressions |
+| [performance-optimization](skills/performance-optimization/SKILL.md) | Measure-first approach - Core Web Vitals targets, profiling workflows, bundle analysis, anti-pattern detection | Performance requirements exist or you suspect regressions |
 
-### Ship — Deploy with confidence
+### Ship - Deploy with confidence
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
 | [git-workflow-and-versioning](skills/git-workflow-and-versioning/SKILL.md) | Atomic commits, descriptive messages, branch strategy, worktrees, the commit-as-save-point pattern | Making any code change (always) |
 | [ci-cd-and-automation](skills/ci-cd-and-automation/SKILL.md) | Pipeline design, test/lint/typecheck/build enforcement, failure feedback loops, deployment strategies | Setting up or modifying build and deploy pipelines |
-| [documentation-and-adrs](skills/documentation-and-adrs/SKILL.md) | Architecture Decision Records, API docs, inline documentation standards — document the *why* | Making architectural decisions, changing APIs, or shipping features |
+| [documentation-and-adrs](skills/documentation-and-adrs/SKILL.md) | Architecture Decision Records, API docs, inline documentation standards - document the *why* | Making architectural decisions, changing APIs, or shipping features |
 | [shipping-and-launch](skills/shipping-and-launch/SKILL.md) | Pre-launch checklists, feature flag lifecycle, staged rollouts, rollback procedures, monitoring setup | Preparing to deploy to production |
 
 ---
@@ -179,7 +179,7 @@ Every skill follows a consistent anatomy:
 
 - **Process, not prose.** Skills are workflows agents follow, not reference docs they read. Each has steps, checkpoints, and exit criteria.
 - **Anti-rationalization.** Every skill includes a table of common excuses agents use to skip steps (e.g., "I'll add tests later") with documented counter-arguments.
-- **Verification is non-negotiable.** Every skill ends with evidence requirements — tests passing, build output, runtime data. "Seems right" is never sufficient.
+- **Verification is non-negotiable.** Every skill ends with evidence requirements - tests passing, build output, runtime data. "Seems right" is never sufficient.
 - **Progressive disclosure.** The `SKILL.md` is the entry point. Supporting references load only when needed, keeping token usage minimal.
 
 ---
@@ -219,9 +219,9 @@ agent-skills/
 
 ## Why Agent Skills?
 
-AI coding agents default to the shortest path — which often means skipping specs, tests, security reviews, and the practices that make software reliable. Agent Skills gives agents structured workflows that enforce the same discipline senior engineers bring to production code.
+AI coding agents default to the shortest path - which often means skipping specs, tests, security reviews, and the practices that make software reliable. Agent Skills gives agents structured workflows that enforce the same discipline senior engineers bring to production code.
 
-Each skill encodes hard-won engineering judgment: *when* to write a spec, *what* to test, *how* to review, and *when* to ship. These aren't generic prompts — they're the kind of opinionated, process-driven workflows that separate production-quality work from prototype-quality work.
+Each skill encodes hard-won engineering judgment: *when* to write a spec, *what* to test, *how* to review, and *when* to ship. These aren't generic prompts - they're the kind of opinionated, process-driven workflows that separate production-quality work from prototype-quality work.
 
 ---
 
@@ -235,4 +235,4 @@ See [docs/skill-anatomy.md](docs/skill-anatomy.md) for the format specification 
 
 ## License
 
-MIT — use these skills in your projects, teams, and tools.
+MIT - use these skills in your projects, teams, and tools.
