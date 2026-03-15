@@ -16,7 +16,7 @@ AI coding agents are powerful, but they default to taking the shortest path — 
 | **Plan** | [planning-and-task-breakdown](#planning-and-task-breakdown) | Decompose into verifiable chunks |
 | **Build** | [incremental-implementation](#incremental-implementation), [context-engineering](#context-engineering), [frontend-ui-engineering](#frontend-ui-engineering), [api-and-interface-design](#api-and-interface-design) | Small slices, right context, clean interfaces |
 | **Verify** | [test-driven-development](#test-driven-development), [browser-testing-with-devtools](#browser-testing-with-devtools), [debugging-and-error-recovery](#debugging-and-error-recovery) | Prove it works with tests and real browser data |
-| **Review** | [code-review-and-quality](#code-review-and-quality), [security-and-hardening](#security-and-hardening), [performance-optimization](#performance-optimization) | Quality gates before merge |
+| **Review** | [code-review-and-quality](#code-review-and-quality), [code-simplification](#code-simplification), [security-and-hardening](#security-and-hardening), [performance-optimization](#performance-optimization) | Quality gates before merge |
 | **Ship** | [git-workflow-and-versioning](#git-workflow-and-versioning), [ci-cd-and-automation](#ci-cd-and-automation), [documentation-and-adrs](#documentation-and-adrs), [shipping-and-launch](#shipping-and-launch) | Safe, documented, reversible releases |
 
 ## Quick Start
@@ -44,7 +44,8 @@ Once loaded, skills activate automatically based on context. Slash commands are 
 /agent-skills:plan      → Break work into tasks
 /agent-skills:build     → Implement incrementally
 /agent-skills:test      → Run TDD workflow
-/agent-skills:review    → Trigger code review
+/agent-skills:review         → Trigger code review
+/agent-skills:code-simplify  → Simplify code for clarity
 /agent-skills:ship      → Pre-launch checklist
 ```
 
@@ -131,6 +132,11 @@ Multi-dimensional code review with quality gates. Covers five-axis review (corre
 
 **Use when:** Before merging any change.
 
+#### code-simplification
+Reduce complexity while preserving exact behavior. Covers the five simplification principles (preserve behavior, follow conventions, prefer clarity, maintain balance, scope changes), a four-step process (understand → identify → apply → verify), pattern tables for structural complexity, naming, and redundancy, and language-specific examples for TypeScript, Python, and React.
+
+**Use when:** Code works but is harder to read, maintain, or extend than it should be.
+
 #### security-and-hardening
 Security-first development practices. Covers OWASP Top 10 prevention, input validation, output encoding, authentication/authorization patterns, secrets management, dependency auditing, and the three-tier boundary system (Always/Ask First/Never).
 
@@ -203,6 +209,7 @@ agent-skills/
 │   ├── browser-testing-with-devtools/ # Verify phase
 │   ├── debugging-and-error-recovery/  # Verify phase
 │   ├── code-review-and-quality/       # Review phase
+│   ├── code-simplification/           # Review phase
 │   ├── security-and-hardening/        # Review phase
 │   ├── performance-optimization/      # Review phase
 │   ├── git-workflow-and-versioning/   # Ship phase
