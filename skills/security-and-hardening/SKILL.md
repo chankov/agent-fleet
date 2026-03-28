@@ -213,6 +213,33 @@ function validateUpload(file: UploadedFile) {
 }
 ```
 
+## Triaging npm audit Results
+
+Not all audit findings require immediate action. Use this decision tree:
+
+```
+npm audit reports a vulnerability
+├── Severity: critical or high
+│   ├── Is the vulnerable code reachable in your app?
+│   │   ├── YES --> Fix immediately (update, patch, or replace the dependency)
+│   │   └── NO (dev-only dep, unused code path) --> Fix soon, but not a blocker
+│   └── Is a fix available?
+│       ├── YES --> Update to the patched version
+│       └── NO --> Check for workarounds, consider replacing the dependency, or add to allowlist with a review date
+├── Severity: moderate
+│   ├── Reachable in production? --> Fix in the next release cycle
+│   └── Dev-only? --> Fix when convenient, track in backlog
+└── Severity: low
+    └── Track and fix during regular dependency updates
+```
+
+**Key questions:**
+- Is the vulnerable function actually called in your code path?
+- Is the dependency a runtime dependency or dev-only?
+- Is the vulnerability exploitable given your deployment context (e.g., a server-side vulnerability in a client-only app)?
+
+When you defer a fix, document the reason and set a review date.
+
 ## Rate Limiting
 
 ```typescript
