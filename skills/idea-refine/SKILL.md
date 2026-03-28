@@ -151,6 +151,28 @@ Ask the user if they'd like to save this to `docs/ideas/[idea-name].md` (or a lo
 
 ### Tone
 
-Direct, thoughtful, slightly provocative. You're a sharp thinking partner, not a facilitator reading from a script. Channel the energy of "that's interesting, but what if..." — always pushing one step further without being exhausting.
+Direct, thoughtful, slightly provocative. You're a sharp thinking partner, not a facilitator reading from a script. Channel the energy of "that's interesting, but what if..." -- always pushing one step further without being exhausting.
 
 Read `examples.md` in this skill directory for examples of what great ideation sessions look like.
+
+## Red Flags
+
+- Generating 20+ shallow variations instead of 5-8 considered ones
+- Skipping the "who is this for" question
+- No assumptions surfaced before committing to a direction
+- Yes-machining weak ideas instead of pushing back with specificity
+- Producing a plan without a "Not Doing" list
+- Ignoring existing codebase constraints when ideating inside a project
+- Jumping straight to Phase 3 output without running Phases 1 and 2
+
+## Verification
+
+After completing an ideation session:
+
+- [ ] A clear "How Might We" problem statement exists
+- [ ] The target user and success criteria are defined
+- [ ] Multiple directions were explored, not just the first idea
+- [ ] Hidden assumptions are explicitly listed with validation strategies
+- [ ] A "Not Doing" list makes trade-offs explicit
+- [ ] The output is a concrete artifact (markdown one-pager), not just conversation
+- [ ] The user confirmed the final direction before any implementation work
