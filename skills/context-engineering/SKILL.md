@@ -255,7 +255,7 @@ This catches wrong directions before you've built on them. It's a 30-second inve
 | Anti-Pattern | Problem | Fix |
 |---|---|---|
 | Context starvation | Agent invents APIs, ignores conventions | Load rules file + relevant source files before each task |
-| Context flooding | Agent loses focus, follows wrong instructions | Include only what's relevant to the current task |
+| Context flooding | Agent loses focus when loaded with >5,000 lines of non-task-specific context. More files does not mean better output. | Include only what is relevant to the current task. Aim for <2,000 lines of focused context per task. |
 | Stale context | Agent references outdated patterns or deleted code | Start fresh sessions when context drifts |
 | Missing examples | Agent invents a new style instead of following yours | Always include one example of the pattern to follow |
 | Implicit knowledge | Agent doesn't know project-specific rules | Write it down in rules files — if it's not written, it doesn't exist |
