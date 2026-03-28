@@ -134,6 +134,12 @@ Add explicit checkpoints:
 
 If a task is L or larger, it should be broken into smaller tasks. An agent performs best on S and M tasks.
 
+**When to break a task down further:**
+- It would take more than one focused session (roughly 2+ hours of agent work)
+- You cannot describe the acceptance criteria in 3 or fewer bullet points
+- It touches two or more independent subsystems (e.g., auth and billing)
+- You find yourself writing "and" in the task title (a sign it is two tasks)
+
 ## Plan Document Template
 
 ```markdown
