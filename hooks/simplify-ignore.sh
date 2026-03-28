@@ -19,8 +19,21 @@ fi
 
 CACHE="${CLAUDE_PROJECT_DIR:-.}/.claude/.simplify-ignore-cache"
 if [ -t 0 ]; then INPUT="{}"; else INPUT=$(cat); fi
-TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null) || TOOL_NAME=""
-FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null) || FILE_PATH=""
+
+# Parse hook input — trap errors explicitly so set -e doesn't cause
+# a silent exit on malformed JSON, and surface a useful diagnostic.
+parse_error=""
+TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null) || {
+  parse_error="failed to parse .tool_name from hook input"
+  TOOL_NAME=""
+}
+FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null) || {
+  parse_error="failed to parse .tool_input.file_path from hook input"
+  FILE_PATH=""
+}
+if [ -n "$parse_error" ]; then
+  printf 'Warning: %s (input: %.120s)\n' "$parse_error" "$INPUT" >&2
+fi
 
 hash_cmd() {
   if command -v shasum >/dev/null 2>&1; then shasum
@@ -65,6 +78,21 @@ filter_file() {
         # Handle single-line block (start + end on same line)
         case "$line" in *simplify-ignore-end*)
           in_block=0
+          # Write single-line block immediately and skip to next line
+          # to avoid the end-marker check below firing again
+          local h; h=$(block_hash "$buf")
+          count=$((count + 1))
+          printf '%s' "$buf" > "$CACHE/${fid}.block.${h}"
+          [ -n "$reason" ] && printf '%s' "$reason" > "$CACHE/${fid}.reason.${h}"
+          printf '%s' "$prefix" > "$CACHE/${fid}.prefix.${h}"
+          printf '%s' "$suffix" > "$CACHE/${fid}.suffix.${h}"
+          if [ -n "$reason" ]; then
+            printf '%s\n' "${prefix}BLOCK_${h}: ${reason}${suffix}" >> "$dest"
+          else
+            printf '%s\n' "${prefix}BLOCK_${h}${suffix}" >> "$dest"
+          fi
+          buf=""; reason=""; prefix=""; suffix=""
+          continue
           ;; *)
           continue
           ;;
@@ -78,7 +106,7 @@ ${line}"
     fi
     # Check for end marker
     case "$line" in *simplify-ignore-end*)
-      if [ $in_block -eq 1 ] || [ -n "$buf" ]; then
+      if [ $in_block -eq 1 ]; then
         local h; h=$(block_hash "$buf")
         count=$((count + 1))
         printf '%s' "$buf" > "$CACHE/${fid}.block.${h}"
@@ -106,8 +134,7 @@ ${line}"
 
   # Preserve trailing newline status of source
   if [ -s "$dest" ] && [ -s "$src" ] && [ -n "$(tail -c 1 "$src")" ]; then
-    local sz; sz=$(wc -c < "$dest")
-    [ "$sz" -gt 1 ] && dd if="$dest" of="${dest}.nnl" bs=1 count="$((sz - 1))" 2>/dev/null && \
+    perl -pe 'chomp if eof' "$dest" > "${dest}.nnl" && \
       cat "${dest}.nnl" > "$dest" && rm -f "${dest}.nnl"
   fi
 
@@ -239,8 +266,7 @@ if [ "$TOOL_NAME" = "Edit" ] || [ "$TOOL_NAME" = "Write" ]; then
   done < "$FILE_PATH"
   # Preserve trailing newline status
   if [ -s "$EXPANDED" ] && [ -s "$FILE_PATH" ] && [ -n "$(tail -c 1 "$FILE_PATH")" ]; then
-    sz=$(wc -c < "$EXPANDED")
-    [ "$sz" -gt 1 ] && dd if="$EXPANDED" of="${EXPANDED}.nnl" bs=1 count="$((sz - 1))" 2>/dev/null && \
+    perl -pe 'chomp if eof' "$EXPANDED" > "${EXPANDED}.nnl" && \
       cat "${EXPANDED}.nnl" > "$EXPANDED" && rm -f "${EXPANDED}.nnl"
   fi
   # Warn if model deleted a protected block entirely
