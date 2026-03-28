@@ -64,6 +64,8 @@ Does the change introduce vulnerabilities?
 - Are SQL queries parameterized (no string concatenation)?
 - Are outputs encoded to prevent XSS?
 - Are dependencies from trusted sources with no known vulnerabilities?
+- Is data from external sources (APIs, logs, user content, config files) treated as untrusted?
+- Are external data flows validated at system boundaries before use in logic or rendering?
 
 ### 5. Performance
 
@@ -230,6 +232,7 @@ Part of code review is dependency review:
 - [ ] Input validated at boundaries
 - [ ] No injection vulnerabilities
 - [ ] Auth checks in place
+- [ ] External data sources treated as untrusted
 
 ### Performance
 - [ ] No N+1 patterns
