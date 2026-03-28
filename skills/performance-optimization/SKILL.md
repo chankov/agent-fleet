@@ -65,6 +65,29 @@ const result = await db.query(...);
 console.timeEnd('db-query');
 ```
 
+### Where to Start Measuring
+
+Use the symptom to decide what to measure first:
+
+```
+What is slow?
+├── First page load
+│   ├── Large bundle? --> Measure bundle size, check code splitting
+│   ├── Slow server response? --> Measure TTFB, check API/database
+│   └── Render-blocking resources? --> Check network waterfall for CSS/JS blocking
+├── Interaction feels sluggish
+│   ├── UI freezes on click? --> Profile main thread, look for long tasks (>50ms)
+│   ├── Form input lag? --> Check re-renders, controlled component overhead
+│   └── Animation jank? --> Check layout thrashing, forced reflows
+├── Page after navigation
+│   ├── Data loading? --> Measure API response times, check for waterfalls
+│   └── Client rendering? --> Profile component render time, check for N+1 fetches
+└── Backend / API
+    ├── Single endpoint slow? --> Profile database queries, check indexes
+    ├── All endpoints slow? --> Check connection pool, memory, CPU
+    └── Intermittent slowness? --> Check for lock contention, GC pauses, external deps
+```
+
 ### Step 2: Identify the Bottleneck
 
 Common bottlenecks by category:
