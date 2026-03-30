@@ -17,17 +17,17 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 
 ## Commands
 
-7 slash commands that map to the development lifecycle. Each one activates the right skills automatically — you don't need to memorize 18 skill names.
+7 slash commands that map to the development lifecycle. Each one activates the right skills automatically.
 
-| Command | Phase | What It Does |
-|---------|-------|-------------|
-| `/spec` | Define | Write a structured specification before writing code — objectives, constraints, boundaries |
-| `/plan` | Plan | Break a spec into small, verifiable tasks with acceptance criteria and dependency order |
-| `/build` | Build | Implement the next task incrementally — thin vertical slices, test each piece, commit |
-| `/test` | Verify | Run TDD workflow (Red-Green-Refactor). For bugs, use the Prove-It pattern: failing test first |
-| `/review` | Review | Five-axis code review: correctness, readability, architecture, security, performance |
-| `/code-simplify` | Review | Reduce complexity without changing behavior — structural, naming, and redundancy patterns |
-| `/ship` | Ship | Pre-launch checklist: security, performance, accessibility, monitoring, rollback plan |
+| What you're doing | Command | Key principle |
+|-------------------|---------|---------------|
+| Define what to build | `/spec` | Spec before code |
+| Plan how to build it | `/plan` | Small, atomic tasks |
+| Build incrementally | `/build` | One slice at a time |
+| Prove it works | `/test` | Tests are proof |
+| Review before merge | `/review` | Improve code health |
+| Simplify the code | `/code-simplify` | Clarity over cleverness |
+| Ship to production | `/ship` | Faster is safer |
 
 Skills also activate automatically based on what you're doing — designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`, and so on.
 
@@ -83,9 +83,9 @@ Skills are plain Markdown - they work with any agent that accepts system prompts
 
 ---
 
-## All 18 Skills
+## All 19 Skills
 
-The commands above are the entry points. Under the hood, they activate these 18 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+The commands above are the entry points. Under the hood, they activate these 19 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
 
 ### Define - Clarify what to build
 
@@ -107,13 +107,13 @@ The commands above are the entry points. Under the hood, they activate these 18 
 | [incremental-implementation](skills/incremental-implementation/SKILL.md) | Thin vertical slices - implement, test, verify, commit. Feature flags, safe defaults, rollback-friendly changes | Any change touching more than one file |
 | [context-engineering](skills/context-engineering/SKILL.md) | Feed agents the right information at the right time - rules files, context packing, MCP integrations | Starting a session, switching tasks, or when output quality drops |
 | [frontend-ui-engineering](skills/frontend-ui-engineering/SKILL.md) | Component architecture, design systems, state management, responsive design, WCAG 2.1 AA accessibility | Building or modifying user-facing interfaces |
-| [api-and-interface-design](skills/api-and-interface-design/SKILL.md) | Contract-first design for REST/GraphQL - error semantics, versioning, boundary design, input validation | Designing APIs, module boundaries, or public interfaces |
+| [api-and-interface-design](skills/api-and-interface-design/SKILL.md) | Contract-first design, Hyrum's Law, One-Version Rule, error semantics, boundary validation | Designing APIs, module boundaries, or public interfaces |
 
 ### Verify - Prove it works
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [test-driven-development](skills/test-driven-development/SKILL.md) | Red-Green-Refactor cycle. The Prove-It pattern: reproduce bugs with a failing test before fixing | Implementing logic, fixing bugs, or changing behavior |
+| [test-driven-development](skills/test-driven-development/SKILL.md) | Red-Green-Refactor, test pyramid (80/15/5), test sizes, DAMP over DRY, Beyonce Rule, browser testing | Implementing logic, fixing bugs, or changing behavior |
 | [browser-testing-with-devtools](skills/browser-testing-with-devtools/SKILL.md) | Chrome DevTools MCP for live runtime data - DOM inspection, console logs, network traces, performance profiling | Building or debugging anything that runs in a browser |
 | [debugging-and-error-recovery](skills/debugging-and-error-recovery/SKILL.md) | Five-step triage: reproduce, localize, reduce, fix, guard. Stop-the-line rule, safe fallbacks | Tests fail, builds break, or behavior is unexpected |
 
@@ -121,8 +121,8 @@ The commands above are the entry points. Under the hood, they activate these 18 
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [code-review-and-quality](skills/code-review-and-quality/SKILL.md) | Five-axis review: correctness, readability, architecture, security, performance. Multi-model review patterns | Before merging any change |
-| [code-simplification](skills/code-simplification/SKILL.md) | Reduce complexity while preserving exact behavior - structural, naming, and redundancy patterns | Code works but is harder to read or maintain than it should be |
+| [code-review-and-quality](skills/code-review-and-quality/SKILL.md) | Five-axis review, change sizing (~100 lines), severity labels (Nit/Optional/FYI), review speed norms, splitting strategies | Before merging any change |
+| [code-simplification](skills/code-simplification/SKILL.md) | Chesterton's Fence, Rule of 500, reduce complexity while preserving exact behavior | Code works but is harder to read or maintain than it should be |
 | [security-and-hardening](skills/security-and-hardening/SKILL.md) | OWASP Top 10 prevention, auth patterns, secrets management, dependency auditing, three-tier boundary system | Handling user input, auth, data storage, or external integrations |
 | [performance-optimization](skills/performance-optimization/SKILL.md) | Measure-first approach - Core Web Vitals targets, profiling workflows, bundle analysis, anti-pattern detection | Performance requirements exist or you suspect regressions |
 
@@ -130,8 +130,9 @@ The commands above are the entry points. Under the hood, they activate these 18 
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [git-workflow-and-versioning](skills/git-workflow-and-versioning/SKILL.md) | Atomic commits, descriptive messages, branch strategy, worktrees, the commit-as-save-point pattern | Making any code change (always) |
-| [ci-cd-and-automation](skills/ci-cd-and-automation/SKILL.md) | Pipeline design, test/lint/typecheck/build enforcement, failure feedback loops, deployment strategies | Setting up or modifying build and deploy pipelines |
+| [git-workflow-and-versioning](skills/git-workflow-and-versioning/SKILL.md) | Trunk-based development, atomic commits, change sizing (~100 lines), the commit-as-save-point pattern | Making any code change (always) |
+| [ci-cd-and-automation](skills/ci-cd-and-automation/SKILL.md) | Shift Left, Faster is Safer, feature flags, quality gate pipelines, failure feedback loops | Setting up or modifying build and deploy pipelines |
+| [deprecation-and-migration](skills/deprecation-and-migration/SKILL.md) | Code-as-liability mindset, compulsory vs advisory deprecation, migration patterns, zombie code removal | Removing old systems, migrating users, or sunsetting features |
 | [documentation-and-adrs](skills/documentation-and-adrs/SKILL.md) | Architecture Decision Records, API docs, inline documentation standards - document the *why* | Making architectural decisions, changing APIs, or shipping features |
 | [shipping-and-launch](skills/shipping-and-launch/SKILL.md) | Pre-launch checklists, feature flag lifecycle, staged rollouts, rollback procedures, monitoring setup | Preparing to deploy to production |
 
@@ -197,7 +198,7 @@ Every skill follows a consistent anatomy:
 
 ```
 agent-skills/
-├── skills/                            # 18 core skills (SKILL.md per directory)
+├── skills/                            # 19 core skills (SKILL.md per directory)
 │   ├── idea-refine/                   #   Define
 │   ├── spec-driven-development/       #   Define
 │   ├── planning-and-task-breakdown/   #   Plan
@@ -214,6 +215,7 @@ agent-skills/
 │   ├── performance-optimization/      #   Review
 │   ├── git-workflow-and-versioning/   #   Ship
 │   ├── ci-cd-and-automation/          #   Ship
+│   ├── deprecation-and-migration/     #   Ship
 │   ├── documentation-and-adrs/        #   Ship
 │   ├── shipping-and-launch/           #   Ship
 │   └── using-agent-skills/            #   Meta: how to use this pack
@@ -231,6 +233,8 @@ agent-skills/
 AI coding agents default to the shortest path - which often means skipping specs, tests, security reviews, and the practices that make software reliable. Agent Skills gives agents structured workflows that enforce the same discipline senior engineers bring to production code.
 
 Each skill encodes hard-won engineering judgment: *when* to write a spec, *what* to test, *how* to review, and *when* to ship. These aren't generic prompts - they're the kind of opinionated, process-driven workflows that separate production-quality work from prototype-quality work.
+
+Skills bake in best practices from Google's engineering culture — including concepts from [Software Engineering at Google](https://abseil.io/resources/swe-book) and Google's [engineering practices guide](https://google.github.io/eng-practices/). You'll find Hyrum's Law in API design, the Beyonce Rule and test pyramid in testing, change sizing and review speed norms in code review, Chesterton's Fence in simplification, trunk-based development in git workflow, Shift Left and feature flags in CI/CD, and a dedicated deprecation skill treating code as a liability. These aren't abstract principles — they're embedded directly into the step-by-step workflows agents follow.
 
 ---
 

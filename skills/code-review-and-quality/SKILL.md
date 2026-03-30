@@ -7,7 +7,9 @@ description: Use before merging any change. Use when reviewing code written by y
 
 ## Overview
 
-Multi-dimensional code review with quality gates. Every change gets reviewed before merge — no exceptions. Review covers five axes: correctness, readability, architecture, security, and performance. The standard is: "Would a staff engineer approve this diff and the verification story?"
+Multi-dimensional code review with quality gates. Every change gets reviewed before merge — no exceptions. Review covers five axes: correctness, readability, architecture, security, and performance.
+
+**The approval standard:** Approve a change when it definitely improves overall code health, even if it isn't perfect. Perfect code doesn't exist — the goal is continuous improvement. Don't block a change because it isn't exactly how you would have written it. If it improves the codebase and follows the project's conventions, approve it.
 
 ## When to Use
 
@@ -78,6 +80,41 @@ For detailed profiling and optimization, see `performance-optimization`. Does th
 - Any missing pagination on list endpoints?
 - Any large objects created in hot paths?
 
+## Change Sizing
+
+Small, focused changes are easier to review, faster to merge, and safer to deploy. Target these sizes:
+
+```
+~100 lines changed   → Good. Reviewable in one sitting.
+~300 lines changed   → Acceptable if it's a single logical change.
+~1000 lines changed  → Too large. Split it.
+```
+
+**What counts as "one change":** A single self-contained modification that addresses one thing, includes related tests, and keeps the system functional after submission. One part of a feature — not the whole feature.
+
+**Splitting strategies when a change is too large:**
+
+| Strategy | How | When |
+|----------|-----|------|
+| **Stack** | Submit a small change, start the next one based on it | Sequential dependencies |
+| **By file group** | Separate changes for groups needing different reviewers | Cross-cutting concerns |
+| **Horizontal** | Create shared code/stubs first, then consumers | Layered architecture |
+| **Vertical** | Break into smaller full-stack slices of the feature | Feature work |
+
+**When large changes are acceptable:** Complete file deletions and automated refactoring where the reviewer only needs to verify intent, not every line.
+
+**Always separate refactoring from feature work.** A change that refactors existing code and adds new behavior is two changes — submit them separately. Small cleanups (variable renaming) can be included at reviewer discretion.
+
+## Change Descriptions
+
+Every change needs a description that stands alone in version control history.
+
+**First line:** Short, imperative, standalone. "Delete the FizzBuzz RPC" not "Deleting the FizzBuzz RPC." Must be informative enough that someone searching history can understand the change without reading the diff.
+
+**Body:** What is changing and why. Include context, decisions, and reasoning not visible in the code itself. Link to bug numbers, benchmark results, or design docs where relevant. Acknowledge approach shortcomings when they exist.
+
+**Anti-patterns:** "Fix bug," "Fix build," "Add patch," "Moving code from A to B," "Phase 1," "Add convenience functions."
+
 ## Review Process
 
 ### Step 1: Understand the Context
@@ -117,12 +154,17 @@ For each file changed:
 
 ### Step 4: Categorize Findings
 
-| Category | Action | Example |
-|----------|--------|---------|
-| **Critical** | Must fix before merge | Security vulnerability, data loss risk, broken functionality |
-| **Important** | Should fix before merge | Missing test, wrong abstraction, poor error handling |
-| **Suggestion** | Consider for improvement | Naming improvement, code style preference, optional optimization |
-| **Nitpick** | Take it or leave it | Formatting, comment wording (skip these in AI reviews) |
+Label every comment with its severity so the author knows what's required vs optional:
+
+| Prefix | Meaning | Author Action |
+|--------|---------|---------------|
+| *(no prefix)* | Required change | Must address before merge |
+| **Critical:** | Blocks merge | Security vulnerability, data loss, broken functionality |
+| **Nit:** | Minor, optional | Author may ignore — formatting, style preferences |
+| **Optional:** / **Consider:** | Suggestion | Worth considering but not required |
+| **FYI** | Informational only | No action needed — context for future reference |
+
+This prevents authors from treating all feedback as mandatory and wasting time on optional suggestions.
 
 ### Step 5: Verify the Verification
 
@@ -180,6 +222,26 @@ DEAD CODE IDENTIFIED:
 → Safe to remove these?
 ```
 
+## Review Speed
+
+Slow reviews block entire teams. The cost of context-switching to review is less than the waiting cost imposed on others.
+
+- **Respond within one business day** — this is the maximum, not the target
+- **Ideal cadence:** Respond shortly after a review request arrives, unless deep in focused coding. A typical change should complete multiple review rounds in a single day
+- **Prioritize fast individual responses** over quick final approval. Quick feedback reduces frustration even if multiple rounds are needed
+- **Large changes:** Ask the author to split them rather than reviewing one massive changeset
+
+## Handling Disagreements
+
+When resolving review disputes, apply this hierarchy:
+
+1. **Technical facts and data** override opinions and preferences
+2. **Style guides** are the absolute authority on style matters
+3. **Software design** must be evaluated on engineering principles, not personal preference
+4. **Codebase consistency** is acceptable if it doesn't degrade overall health
+
+**Never accept "I'll clean it up later."** Experience shows deferred cleanup rarely happens. Require cleanup before submission unless it's a genuine emergency. If surrounding issues can't be addressed in this change, require filing a bug with self-assignment.
+
 ## Honesty in Review
 
 When reviewing code — whether written by you, another agent, or a human:
@@ -188,7 +250,7 @@ When reviewing code — whether written by you, another agent, or a human:
 - **Don't soften real issues.** "This might be a minor concern" when it's a bug that will hit production is dishonest.
 - **Quantify problems when possible.** "This N+1 query will add ~50ms per item in the list" is better than "this could be slow."
 - **Push back on approaches with clear problems.** Sycophancy is a failure mode in reviews. If the implementation has issues, say so directly and propose alternatives.
-- **Accept override gracefully.** If the author has full context and disagrees, defer to their judgment.
+- **Accept override gracefully.** If the author has full context and disagrees, defer to their judgment. Comment on code, not people — reframe personal critiques to focus on the code itself.
 
 ## Dependency Discipline
 
@@ -255,7 +317,7 @@ Part of code review is dependency review:
 |---|---|
 | "It works, that's good enough" | Working code that's unreadable, insecure, or architecturally wrong creates debt that compounds. |
 | "I wrote it, so I know it's correct" | Authors are blind to their own assumptions. Every change benefits from another set of eyes. |
-| "We'll clean it up later" | Later never comes. The review is the quality gate — use it. |
+| "We'll clean it up later" | Later never comes. The review is the quality gate — use it. Require cleanup before merge, not after. |
 | "AI-generated code is probably fine" | AI code needs more scrutiny, not less. It's confident and plausible, even when wrong. |
 | "The tests pass, so it's good" | Tests are necessary but not sufficient. They don't catch architecture problems, security issues, or readability concerns. |
 
@@ -265,8 +327,10 @@ Part of code review is dependency review:
 - Review that only checks if tests pass (ignoring other axes)
 - "LGTM" without evidence of actual review
 - Security-sensitive changes without security-focused review
-- Large PRs that are "too big to review properly"
+- Large PRs that are "too big to review properly" (split them)
 - No regression tests with bug fix PRs
+- Review comments without severity labels — makes it unclear what's required vs optional
+- Accepting "I'll fix it later" — it never happens
 
 ## Verification
 
