@@ -25,7 +25,7 @@ Crosses a boundary          → Integration test
 Critical user flow          → E2E test
 ```
 
-Always test at the lowest level that captures the behavior. Don't write E2E tests for things unit tests can cover.
+Test at the lowest level that captures the behavior. Don't write E2E tests for things unit tests can cover.
 
 ### 3. Follow the Prove-It Pattern for Bugs
 

@@ -7,7 +7,7 @@ description: Use when implementing any feature or change that touches more than 
 
 ## Overview
 
-Build in thin vertical slices — implement one piece, test it, verify it, then expand. Never attempt to implement an entire feature in one pass. Each increment should leave the system in a working, testable state. This is the execution discipline that makes large features manageable.
+Build in thin vertical slices — implement one piece, test it, verify it, then expand. Avoid implementing an entire feature in one pass. Each increment should leave the system in a working, testable state. This is the execution discipline that makes large features manageable.
 
 ## When to Use
 
@@ -140,9 +140,9 @@ Each increment changes one logical thing. Don't mix concerns:
 
 **Good:** Three separate commits — one for each change.
 
-### Rule 2: Always Compilable
+### Rule 2: Keep It Compilable
 
-After each increment, the project must build and existing tests must pass. Never leave the codebase in a broken state between slices.
+After each increment, the project must build and existing tests must pass. Don't leave the codebase in a broken state between slices.
 
 ### Rule 3: Feature Flags for Incomplete Features
 
@@ -178,7 +178,7 @@ Each increment should be independently revertable:
 - Additive changes (new files, new functions) are easy to revert
 - Modifications to existing code should be minimal and focused
 - Database migrations should have corresponding rollback migrations
-- Never delete something in one commit and replace it in the same commit — separate them
+- Avoid deleting something in one commit and replacing it in the same commit — separate them
 
 ## Working with Agents
 

@@ -51,7 +51,7 @@ ASSUMPTIONS I'M MAKING:
 → Correct me now or I'll proceed with these.
 ```
 
-Never silently fill in ambiguous requirements. The most common failure mode is making wrong assumptions and running with them unchecked. Surface uncertainty early — it's cheaper than rework.
+Don't silently fill in ambiguous requirements. The most common failure mode is making wrong assumptions and running with them unchecked. Surface uncertainty early — it's cheaper than rework.
 
 ### 2. Manage Confusion Actively
 
@@ -121,7 +121,7 @@ These are the subtle errors that look like productivity but create problems:
 
 ## Skill Rules
 
-1. **Always check for an applicable skill before starting work.** Skills encode processes that prevent common mistakes.
+1. **Check for an applicable skill before starting work.** Skills encode processes that prevent common mistakes.
 
 2. **Skills are workflows, not suggestions.** Follow the steps in order. Don't skip verification steps.
 
