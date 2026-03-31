@@ -83,9 +83,9 @@ Categorize every finding:
 
 ## Rules
 
-1. Always review the tests first — they reveal intent and coverage
+1. Review the tests first — they reveal intent and coverage
 2. Read the spec or task description before reviewing code
-3. Every Critical and Important finding must include a specific fix recommendation
-4. Never approve code with Critical issues
-5. Always acknowledge what's done well — specific praise motivates good practices
+3. Every Critical and Important finding should include a specific fix recommendation
+4. Don't approve code with Critical issues
+5. Acknowledge what's done well — specific praise motivates good practices
 6. If you're uncertain about something, say so and suggest investigation rather than guessing

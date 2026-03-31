@@ -15,7 +15,7 @@ Always. Every code change flows through git.
 
 ## Core Principles
 
-### Trunk-Based Development
+### Trunk-Based Development (Recommended)
 
 Keep `main` always deployable. Work in short-lived feature branches that merge back within 1-3 days. Long-lived development branches are hidden costs — they diverge, create merge conflicts, and delay integration. DORA research consistently shows trunk-based development correlates with high-performing engineering teams.
 
@@ -25,9 +25,11 @@ main ──●──●──●──●──●──●──●──●─
          ●──●─╱    ●──╱    ← short-lived feature branches (1-3 days)
 ```
 
+This is the recommended default. Teams using gitflow or long-lived branches can adapt the principles (atomic commits, small changes, descriptive messages) to their branching model — the commit discipline matters more than the specific branching strategy.
+
 - **Dev branches are costs.** Every day a branch lives, it accumulates merge risk.
 - **Release branches are acceptable.** When you need to stabilize a release while main moves forward.
-- **Feature flags > long branches.** Deploy incomplete work behind flags rather than keeping it on a branch for weeks.
+- **Feature flags > long branches.** Prefer deploying incomplete work behind flags rather than keeping it on a branch for weeks.
 
 ### 1. Commit Early, Commit Often
 
@@ -91,7 +93,7 @@ update auth.ts
 - `docs` — Documentation only
 - `chore` — Tooling, dependencies, config
 
-### 4. Never Mix Concerns
+### 4. Keep Concerns Separate
 
 Don't combine formatting changes with behavior changes. Don't combine refactors with features. Each type of change should be a separate commit — and ideally a separate PR:
 
@@ -104,7 +106,7 @@ git commit -m "feat: add phone number validation to registration"
 git commit -m "refactor validation and add phone number field"
 ```
 
-**Always separate refactoring from feature work.** A refactoring change and a feature change are two different changes — submit them separately. This makes each change easier to review, revert, and understand in history. Small cleanups (renaming a variable) can be included in a feature commit at reviewer discretion.
+**Separate refactoring from feature work.** A refactoring change and a feature change are two different changes — submit them separately. This makes each change easier to review, revert, and understand in history. Small cleanups (renaming a variable) can be included in a feature commit at reviewer discretion.
 
 ### 5. Size Your Changes
 
@@ -243,7 +245,7 @@ Automate this with git hooks:
 
 - **Commit generated files** only if the project expects them (e.g., `package-lock.json`, Prisma migrations)
 - **Don't commit** build output (`dist/`, `.next/`), environment files (`.env`), or IDE config (`.vscode/settings.json` unless shared)
-- **Always have a `.gitignore`** that covers: `node_modules/`, `dist/`, `.env`, `.env.local`, `*.pem`
+- **Have a `.gitignore`** that covers: `node_modules/`, `dist/`, `.env`, `.env.local`, `*.pem`
 
 ## Using Git for Debugging
 

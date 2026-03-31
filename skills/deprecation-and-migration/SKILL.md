@@ -46,7 +46,7 @@ Before deprecating anything, answer these questions:
    → Quantify the migration scope.
 
 3. Does a replacement exist?
-   → If no, build the replacement first. Never deprecate without an alternative.
+   → If no, build the replacement first. Don't deprecate without an alternative.
 
 4. What's the migration cost for each consumer?
    → If trivially automated, do it. If manual and high-effort, weigh against maintenance cost.
@@ -68,7 +68,7 @@ Before deprecating anything, answer these questions:
 
 ### Step 1: Build the Replacement
 
-Never deprecate without a working alternative. The replacement must:
+Don't deprecate without a working alternative. The replacement must:
 
 - Cover all critical use cases of the old system
 - Have documentation and migration guides
