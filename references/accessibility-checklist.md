@@ -2,6 +2,14 @@
 
 Quick reference for WCAG 2.1 AA compliance. Use alongside the `frontend-ui-engineering` skill.
 
+## Table of Contents
+
+- [Essential Checks](#essential-checks)
+- [Common HTML Patterns](#common-html-patterns)
+- [Testing Tools](#testing-tools)
+- [Quick Reference: ARIA Live Regions](#quick-reference-aria-live-regions)
+- [Common Anti-Patterns](#common-anti-patterns)
+
 ## Essential Checks
 
 ### Keyboard Navigation
