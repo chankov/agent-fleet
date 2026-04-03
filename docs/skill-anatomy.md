@@ -20,15 +20,15 @@ skills/
 ```yaml
 ---
 name: skill-name-with-hyphens
-description: Use when [specific triggering conditions]. Use when [additional triggers].
+description: Brief statement of what the skill does. Use when [specific trigger conditions].
 ---
 ```
 
 **Rules:**
 - `name`: Lowercase, hyphen-separated. Must match the directory name.
-- `description`: Starts with "Use when". Describes triggering conditions only — never summarizes the workflow. Under 500 characters.
+- `description`: Starts with what the skill does (third person), followed by trigger conditions. Include both *what* and *when*. Maximum 1024 characters.
 
-**Why this matters:** Agents discover skills by reading descriptions. If the description summarizes the workflow, the agent may follow the summary instead of reading the full skill.
+**Why this matters:** Agents discover skills by reading descriptions. The description is injected into the system prompt, so it must tell the agent both what the skill provides and when to activate it. Do not summarize the workflow — if the description contains process steps, the agent may follow the summary instead of reading the full skill.
 
 ### Standard Sections
 

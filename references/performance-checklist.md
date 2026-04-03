@@ -2,6 +2,14 @@
 
 Quick reference checklist for web application performance. Use alongside the `performance-optimization` skill.
 
+## Table of Contents
+
+- [Core Web Vitals Targets](#core-web-vitals-targets)
+- [Frontend Checklist](#frontend-checklist)
+- [Backend Checklist](#backend-checklist)
+- [Measurement Commands](#measurement-commands)
+- [Common Anti-Patterns](#common-anti-patterns)
+
 ## Core Web Vitals Targets
 
 | Metric | Good | Needs Work | Poor |

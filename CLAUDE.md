@@ -26,7 +26,7 @@ docs/         → Setup guides for different tools
 
 - Every skill lives in `skills/<name>/SKILL.md`
 - YAML frontmatter with `name` and `description` fields
-- Description starts with "Use when" and describes triggering conditions only
+- Description starts with what the skill does (third person), followed by trigger conditions ("Use when...")
 - Every skill has: Overview, When to Use, Process, Common Rationalizations, Red Flags, Verification
 - References are in `references/`, not inside skill directories
 - Supporting files only created when content exceeds 100 lines

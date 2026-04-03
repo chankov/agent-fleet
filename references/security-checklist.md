@@ -2,6 +2,19 @@
 
 Quick reference for web application security. Use alongside the `security-and-hardening` skill.
 
+## Table of Contents
+
+- [Pre-Commit Checks](#pre-commit-checks)
+- [Authentication](#authentication)
+- [Authorization](#authorization)
+- [Input Validation](#input-validation)
+- [Security Headers](#security-headers)
+- [CORS Configuration](#cors-configuration)
+- [Data Protection](#data-protection)
+- [Dependency Security](#dependency-security)
+- [Error Handling](#error-handling)
+- [OWASP Top 10 Quick Reference](#owasp-top-10-quick-reference)
+
 ## Pre-Commit Checks
 
 - [ ] No secrets in code (`git diff --cached | grep -i "password\|secret\|api_key\|token"`)

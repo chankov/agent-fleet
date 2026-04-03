@@ -2,6 +2,17 @@
 
 Quick reference for common testing patterns across the stack. Use alongside the `test-driven-development` skill.
 
+## Table of Contents
+
+- [Test Structure (Arrange-Act-Assert)](#test-structure-arrange-act-assert)
+- [Test Naming Conventions](#test-naming-conventions)
+- [Common Assertions](#common-assertions)
+- [Mocking Patterns](#mocking-patterns)
+- [React/Component Testing](#reactcomponent-testing)
+- [API / Integration Testing](#api--integration-testing)
+- [E2E Testing (Playwright)](#e2e-testing-playwright)
+- [Test Anti-Patterns](#test-anti-patterns)
+
 ## Test Structure (Arrange-Act-Assert)
 
 ```typescript
