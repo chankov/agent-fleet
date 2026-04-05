@@ -62,6 +62,17 @@ Copy any `SKILL.md` into `.cursor/rules/`, or reference the full `skills/` direc
 </details>
 
 <details>
+<summary><b>Gemini CLI</b></summary>
+
+Install as native skills for auto-discovery, or add to `GEMINI.md` for persistent context. See [docs/gemini-cli-setup.md](docs/gemini-cli-setup.md).
+
+```bash
+gemini skills install https://github.com/addyosmani/agent-skills.git
+```
+
+</details>
+
+<details>
 <summary><b>Windsurf</b></summary>
 
 Add skill contents to your Windsurf rules configuration. See [docs/windsurf-setup.md](docs/windsurf-setup.md).
