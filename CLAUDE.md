@@ -17,8 +17,8 @@ docs/         → Setup guides for different tools
 
 **Define:** spec-driven-development
 **Plan:** planning-and-task-breakdown
-**Build:** incremental-implementation, context-engineering, frontend-ui-engineering, api-and-interface-design
-**Verify:** test-driven-development, browser-testing-with-devtools, debugging-and-error-recovery
+**Build:** incremental-implementation, test-driven-development, context-engineering, frontend-ui-engineering, api-and-interface-design
+**Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, shipping-and-launch
 
