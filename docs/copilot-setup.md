@@ -4,16 +4,17 @@
 
 ### Copilot Instructions
 
-GitHub Copilot supports project-level instructions via `.github/copilot-instructions.md`:
+Copilot supports creating agent skills using a `.github/skills`, `.claude/skills`, or `.agents/skills` directory in your repository.
 
 ```bash
 mkdir -p .github
 
-# Create instructions file with essential skills
-cat /path/to/agent-skills/skills/test-driven-development/SKILL.md > .github/copilot-instructions.md
-echo "\n---\n" >> .github/copilot-instructions.md
-cat /path/to/agent-skills/skills/code-review-and-quality/SKILL.md >> .github/copilot-instructions.md
+# Create files for essential skills
+cat /path/to/agent-skills/skills/test-driven-development/SKILL.md > .github/skills/test-driven-development/SKILL.md
+cat /path/to/agent-skills/skills/code-review-and-quality/SKILL.md > .github/skills/code-review-and-quality/SKILL.md
 ```
+
+For more details, refer [Creating agent skills for GitHub Copilot](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills).
 
 ### Agent Personas (agents.md)
 
@@ -41,6 +42,8 @@ For skills you want across all repositories:
 ## Recommended Configuration
 
 ### .github/copilot-instructions.md
+
+GitHub Copilot supports project-level instructions via `.github/copilot-instructions.md`.
 
 ```markdown
 # Project Coding Standards
