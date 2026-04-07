@@ -18,6 +18,14 @@ Quick reference checklist for web application performance. Use alongside the `pe
 | INP (Interaction to Next Paint) | ≤ 200ms | ≤ 500ms | > 500ms |
 | CLS (Cumulative Layout Shift) | ≤ 0.1 | ≤ 0.25 | > 0.25 |
 
+## TTFB Diagnosis
+
+When TTFB is slow (> 600ms), check each component in DevTools Network waterfall:
+
+- [ ] **DNS resolution** slow → add `<link rel="dns-prefetch">` or `<link rel="preconnect">` for known origins
+- [ ] **TCP/TLS handshake** slow → enable HTTP/2, consider edge deployment, verify keep-alive
+- [ ] **Server processing** slow → profile backend, check slow queries, add caching
+
 ## Frontend Checklist
 
 ### Images
