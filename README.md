@@ -66,8 +66,16 @@ Copy any `SKILL.md` into `.cursor/rules/`, or reference the full `skills/` direc
 
 Install as native skills for auto-discovery, or add to `GEMINI.md` for persistent context. See [docs/gemini-cli-setup.md](docs/gemini-cli-setup.md).
 
+**Install from the repo:**
+
 ```bash
-gemini skills install https://github.com/addyosmani/agent-skills.git
+gemini skills install https://github.com/addyosmani/agent-skills.git --path skills
+```
+
+**Install from a local clone:**
+
+```bash
+gemini skills install ./agent-skills/skills/
 ```
 
 </details>
