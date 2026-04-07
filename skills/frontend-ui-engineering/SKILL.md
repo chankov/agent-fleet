@@ -286,6 +286,10 @@ function useToggleTask() {
 }
 ```
 
+## See Also
+
+For detailed accessibility requirements and testing tools, see `references/accessibility-checklist.md`.
+
 ## Common Rationalizations
 
 | Rationalization | Reality |
