@@ -4,7 +4,7 @@ This guide explains how to use Agent Skills with OpenCode in a way that closely 
 
 ## Overview
 
-OpenCode does not support plugins or native slash commands like `/spec` or `/plan`.
+OpenCode supports custom `/commands`, but does not have a native plugin system or automatic skill routing like Claude Code.
 
 Instead, we achieve parity through:
 
@@ -13,6 +13,14 @@ Instead, we achieve parity through:
 - Consistent skill discovery from the `/skills` directory
 
 This creates an **agent-driven workflow** where skills are selected and executed automatically.
+
+While it is possible to recreate `/spec`, `/plan`, and other commands in OpenCode, this integration intentionally uses an agent-driven approach instead:
+
+- Skills are selected automatically based on intent
+- Workflows are enforced via `AGENTS.md`
+- No manual command invocation is required
+
+This more closely matches how Claude Code behaves in practice, where skills are triggered automatically rather than manually.
 
 ---
 
