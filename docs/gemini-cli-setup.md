@@ -9,20 +9,20 @@ Gemini CLI has a native skills system that auto-discovers `SKILL.md` files in `.
 **Install from the repo:**
 
 ```bash
-gemini skills install https://github.com/addyosmani/agent-skills.git
+gemini skills install https://github.com/addyosmani/agent-skills.git --path skills
 ```
 
 **Or install from a local clone:**
 
 ```bash
 git clone https://github.com/addyosmani/agent-skills.git
-gemini skills install /path/to/agent-skills
+gemini skills install /path/to/agent-skills/skills/
 ```
 
 **Install for a specific workspace only:**
 
 ```bash
-gemini skills install /path/to/agent-skills --scope workspace
+gemini skills install /path/to/agent-skills/skills/ --scope workspace
 ```
 
 Skills installed at workspace scope go into `.gemini/skills/` (or `.agents/skills/`). User-level skills go into `~/.gemini/skills/`.
