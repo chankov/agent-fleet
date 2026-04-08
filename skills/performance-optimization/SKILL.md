@@ -187,20 +187,21 @@ const tasks = await db.tasks.findMany({
     type="image/webp"
   />
   <img
-    src="/hero-mobile.jpg"
-    width="1200"
-    height="600"
+    src="/hero-desktop.jpg"
+    style="aspect-ratio: 1200 / 600"
     fetchpriority="high"
+    decoding="sync"
     alt="Hero image description"
   />
 </picture>
 
-<!-- GOOD: Below-the-fold image — lazy loaded -->
+<!-- GOOD: Below-the-fold image — lazy loaded + async decoding -->
 <img
   src="/content.webp"
   width="800"
   height="400"
   loading="lazy"
+  decoding="async"
   alt="Content image description"
 />
 ```
@@ -234,14 +235,23 @@ function TaskStats({ tasks }: Props) {
 #### Large Bundle Size
 
 ```typescript
-// Modern bundlers (Vite, webpack 5+) handle named imports with tree-shaking automatically.
+// Modern bundlers (Vite, webpack 5+) handle named imports with tree-shaking automatically,
+// provided the dependency ships ESM and is marked `sideEffects: false` in package.json.
 // Profile before changing import styles — the real gains come from splitting and lazy loading.
 
 // GOOD: Dynamic import for heavy, rarely-used features
 const ChartLibrary = lazy(() => import('./ChartLibrary'));
 
-// GOOD: Route-level code splitting
+// GOOD: Route-level code splitting wrapped in Suspense
 const SettingsPage = lazy(() => import('./pages/Settings'));
+
+function App() {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <SettingsPage />
+    </Suspense>
+  );
+}
 ```
 
 #### Missing Caching (Backend)

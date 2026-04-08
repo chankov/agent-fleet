@@ -31,14 +31,14 @@ When TTFB is slow (> 600ms), check each component in DevTools Network waterfall:
 ### Images
 - [ ] Images use modern formats (WebP, AVIF)
 - [ ] Images are responsively sized (`srcset` and `sizes`)
-- [ ] Images have explicit `width` and `height` attributes (prevents CLS)
-- [ ] Below-the-fold images use `loading="lazy"`
-- [ ] Hero/LCP images use `fetchpriority="high"` and no lazy loading
+- [ ] Images have explicit `width` and `height` attributes and/or CSS `aspect-ratio` (prevents CLS)
+- [ ] Below-the-fold images use `loading="lazy"` and `decoding="async"`
+- [ ] Hero/LCP images use `fetchpriority="high"`, `decoding="sync"`, and no lazy loading
 
 ### JavaScript
 - [ ] Bundle size under 200KB gzipped (initial load)
 - [ ] Code splitting with dynamic `import()` for routes and heavy features
-- [ ] Tree shaking enabled (no dead code in production bundle)
+- [ ] Tree shaking enabled (verify dependency ships ESM and marks `sideEffects: false`)
 - [ ] No blocking JavaScript in `<head>` (use `defer` or `async`)
 - [ ] Heavy computation offloaded to Web Workers (if applicable)
 - [ ] `React.memo()` on expensive components that re-render with same props
