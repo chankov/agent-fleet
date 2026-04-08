@@ -20,7 +20,7 @@ Quick reference checklist for web application performance. Use alongside the `pe
 
 ## TTFB Diagnosis
 
-When TTFB is slow (> 600ms), check each component in DevTools Network waterfall:
+When TTFB is slow (> 800ms), check each component in DevTools Network waterfall:
 
 - [ ] **DNS resolution** slow → add `<link rel="dns-prefetch">` or `<link rel="preconnect">` for known origins
 - [ ] **TCP/TLS handshake** slow → enable HTTP/2, consider edge deployment, verify keep-alive
@@ -31,9 +31,9 @@ When TTFB is slow (> 600ms), check each component in DevTools Network waterfall:
 ### Images
 - [ ] Images use modern formats (WebP, AVIF)
 - [ ] Images are responsively sized (`srcset` and `sizes`)
-- [ ] Images have explicit `width` and `height` attributes and/or CSS `aspect-ratio` (prevents CLS)
+- [ ] Images and `<source>` elements have explicit `width` and `height` (prevents CLS in art direction)
 - [ ] Below-the-fold images use `loading="lazy"` and `decoding="async"`
-- [ ] Hero/LCP images use `fetchpriority="high"`, `decoding="sync"`, and no lazy loading
+- [ ] Hero/LCP images use `fetchpriority="high"` and no lazy loading
 
 ### JavaScript
 - [ ] Bundle size under 200KB gzipped (initial load)

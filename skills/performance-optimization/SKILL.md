@@ -162,35 +162,43 @@ const tasks = await db.tasks.findMany({
   - Resolution switching (srcset + sizes): right file size per screen density
 -->
 <picture>
-  <!-- Mobile: portrait crop -->
+  <!-- Mobile: portrait crop (8:10) -->
   <source
     media="(max-width: 767px)"
     srcset="/hero-mobile-400.avif 400w, /hero-mobile-800.avif 800w"
     sizes="100vw"
+    width="800"
+    height="1000"
     type="image/avif"
   />
   <source
     media="(max-width: 767px)"
     srcset="/hero-mobile-400.webp 400w, /hero-mobile-800.webp 800w"
     sizes="100vw"
+    width="800"
+    height="1000"
     type="image/webp"
   />
-  <!-- Desktop: landscape crop -->
+  <!-- Desktop: landscape crop (2:1) -->
   <source
     srcset="/hero-800.avif 800w, /hero-1200.avif 1200w, /hero-1600.avif 1600w"
-    sizes="100vw"
+    sizes="(max-width: 1200px) 100vw, 1200px"
+    width="1200"
+    height="600"
     type="image/avif"
   />
   <source
     srcset="/hero-800.webp 800w, /hero-1200.webp 1200w, /hero-1600.webp 1600w"
-    sizes="100vw"
+    sizes="(max-width: 1200px) 100vw, 1200px"
+    width="1200"
+    height="600"
     type="image/webp"
   />
   <img
     src="/hero-desktop.jpg"
-    style="aspect-ratio: 1200 / 600"
+    width="1200"
+    height="600"
     fetchpriority="high"
-    decoding="sync"
     alt="Hero image description"
   />
 </picture>
