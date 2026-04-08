@@ -93,6 +93,15 @@ Add skill contents to your Windsurf rules configuration. See [docs/windsurf-setu
 </details>
 
 <details>
+<summary><b>OpenCode</b></summary>
+
+Uses agent-driven skill execution via AGENTS.md and the `skill` tool.
+
+See [docs/opencode-setup.md](docs/opencode-setup.md).
+
+</details>
+
+<details>
 <summary><b>GitHub Copilot</b></summary>
 
 Use agent definitions from `agents/` as Copilot personas and skill content in `.github/copilot-instructions.md`. See [docs/copilot-setup.md](docs/copilot-setup.md).
