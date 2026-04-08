@@ -18,19 +18,27 @@ Quick reference checklist for web application performance. Use alongside the `pe
 | INP (Interaction to Next Paint) | ≤ 200ms | ≤ 500ms | > 500ms |
 | CLS (Cumulative Layout Shift) | ≤ 0.1 | ≤ 0.25 | > 0.25 |
 
+## TTFB Diagnosis
+
+When TTFB is slow (> 800ms), check each component in DevTools Network waterfall:
+
+- [ ] **DNS resolution** slow → add `<link rel="dns-prefetch">` or `<link rel="preconnect">` for known origins
+- [ ] **TCP/TLS handshake** slow → enable HTTP/2, consider edge deployment, verify keep-alive
+- [ ] **Server processing** slow → profile backend, check slow queries, add caching
+
 ## Frontend Checklist
 
 ### Images
 - [ ] Images use modern formats (WebP, AVIF)
 - [ ] Images are responsively sized (`srcset` and `sizes`)
-- [ ] Images have explicit `width` and `height` attributes (prevents CLS)
-- [ ] Below-the-fold images use `loading="lazy"`
+- [ ] Images and `<source>` elements have explicit `width` and `height` (prevents CLS in art direction)
+- [ ] Below-the-fold images use `loading="lazy"` and `decoding="async"`
 - [ ] Hero/LCP images use `fetchpriority="high"` and no lazy loading
 
 ### JavaScript
 - [ ] Bundle size under 200KB gzipped (initial load)
 - [ ] Code splitting with dynamic `import()` for routes and heavy features
-- [ ] Tree shaking enabled (no dead code in production bundle)
+- [ ] Tree shaking enabled (verify dependency ships ESM and marks `sideEffects: false`)
 - [ ] No blocking JavaScript in `<head>` (use `defer` or `async`)
 - [ ] Heavy computation offloaded to Web Workers (if applicable)
 - [ ] `React.memo()` on expensive components that re-render with same props
