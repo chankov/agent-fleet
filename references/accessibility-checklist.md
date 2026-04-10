@@ -43,6 +43,7 @@ Quick reference for WCAG 2.1 AA compliance. Use alongside the `frontend-ui-engin
 - [ ] Error messages specific and associated with the field
 - [ ] Error state visible by more than color (icon, text, border)
 - [ ] Form submission errors summarized and focusable
+- [ ] Known fields use autocomplete (for example `type="email" autocomplete="email"`)
 
 ### Content
 - [ ] Language declared (`<html lang="en">`)
