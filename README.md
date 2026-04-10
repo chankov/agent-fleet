@@ -115,6 +115,11 @@ Skills are plain Markdown - they work with any agent that accepts system prompts
 
 </details>
 
+<details>
+  <summary><b>Kiro IDE & CLI </b></summary>
+  Skills for Kiro reside under ".kiro/skills/" and can be stored under Project or Global level. Kiro also supports Agents.md. See [Kiro Docs]https://kiro.dev/docs/skills/)
+</details>
+
 ---
 
 ## All 20 Skills
