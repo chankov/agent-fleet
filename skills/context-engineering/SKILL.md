@@ -39,6 +39,8 @@ Structure context from most persistent to most transient:
 
 Create a rules file that persists across sessions. This is the highest-leverage context you can provide.
 
+When phrasing rules, agent prompts, or any instruction an agent will read, consult `references/prompting-patterns.md` before writing — it captures Anthropic and OpenAI guidance on positive instructions, explaining *why*, eliminating contradictions, and avoiding aggressive emphasis.
+
 **CLAUDE.md** (for Claude Code):
 ```markdown
 # Project: [Name]

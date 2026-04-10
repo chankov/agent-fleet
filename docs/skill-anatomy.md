@@ -108,6 +108,7 @@ Keep patterns and principles inline when under 50 lines.
 4. **Anti-rationalization.** Every skip-worthy step needs a counter-argument in the rationalizations table.
 5. **Progressive disclosure.** Main SKILL.md is the entry point. Supporting files are loaded only when needed.
 6. **Token-conscious.** Every section must justify its inclusion. If removing it wouldn't change agent behavior, remove it.
+7. **Prompting-patterns applied.** Before finalizing a skill, verify its language against `references/prompting-patterns.md` — positive instructions over prohibitions, explain *why* behind non-obvious rules, no ALL-CAPS or reward/punishment language.
 
 ## Naming Conventions
 

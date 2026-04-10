@@ -33,6 +33,7 @@ Task arrives
     ├── Committing/branching? ─────────→ git-workflow-and-versioning
     ├── CI/CD pipeline work? ──────────→ ci-cd-and-automation
     ├── Writing docs/ADRs? ───────────→ documentation-and-adrs
+    ├── Authoring a new skill/persona? ─→ designing-sub-agents
     └── Deploying/launching? ─────────→ shipping-and-launch
 ```
 
@@ -172,3 +173,4 @@ Not every task needs every skill. A bug fix might only need: `debugging-and-erro
 | Ship | ci-cd-and-automation | Automated quality gates on every change |
 | Ship | documentation-and-adrs | Document the why, not just the what |
 | Ship | shipping-and-launch | Pre-launch checklist, monitoring, rollback plan |
+| Author | designing-sub-agents | Write a focused skill/persona file in agents/ |
