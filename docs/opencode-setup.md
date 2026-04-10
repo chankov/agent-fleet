@@ -29,7 +29,7 @@ This more closely matches how Claude Code behaves in practice, where skills are 
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/addyosmani/agent-skills.git
+git clone https://github.com/chankov/agent-skills.git
 ```
 
 2. Open the project in OpenCode.
