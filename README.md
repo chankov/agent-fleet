@@ -110,7 +110,7 @@ Use agent definitions from `agents/` as Copilot personas and skill content in `.
 
 <details>
   <summary><b>Kiro IDE & CLI </b></summary>
-  Skills for Kiro reside under ".kiro/skills/" and can be stored under Project or Global level. Kiro also supports Agents.md. See [Kiro Docs](https://kiro.dev/docs/skills/)
+  Skills for Kiro reside under ".kiro/skills/" and can be stored under Project or Global level. Kiro also supports Agents.md. See Kiro docs at https://kiro.dev/docs/skills/
 </details>
 
 <details>
