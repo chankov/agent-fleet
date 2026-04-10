@@ -33,7 +33,16 @@ SPECIFY ──→ PLAN ──→ TASKS ──→ IMPLEMENT
 
 ### Phase 1: Specify
 
-Start with a high-level vision. Ask the human clarifying questions until requirements are concrete.
+**Gather context first.** Before writing any spec content, identify and read the sources the spec will build on:
+
+- Existing documentation (README, architecture docs, ADRs)
+- Related or prior specs — the new spec should explicitly link them (see `Related Specs` below)
+- Code paths the change will touch, for implementation-oriented specs
+- External artifacts the spec references (contract, design doc, ticket, research notes)
+
+Writing a spec without reading what already exists leads to duplication, contradiction, and invented detail. If a source is missing or inaccessible, record it as an open question rather than guessing.
+
+Then start with a high-level vision. Ask the human clarifying questions until requirements are concrete.
 
 **Surface assumptions immediately.** Before writing any spec content, list what you're assuming:
 
@@ -47,6 +56,17 @@ ASSUMPTIONS I'M MAKING:
 ```
 
 Don't silently fill in ambiguous requirements. The spec's entire purpose is to surface misunderstandings *before* code gets written — assumptions are the most dangerous form of misunderstanding.
+
+**Ground every claim.** Every statement in the spec must fall into exactly one of these four categories, and the category should be clear to the reader:
+
+- **Confirmed** — verified in code, tests, runtime, or trusted documentation. Safe to build on.
+- **Target** — what we intend to build. Marked explicitly so it's not confused with current behavior.
+- **Proposed** — a design decision that hasn't been approved yet. Must be reviewed before implementation.
+- **Inferred** — a reasonable guess from available evidence, labeled as such. Ask to confirm if it load-bears a decision.
+
+If a claim doesn't fit any of these categories, it belongs in **Open Questions**, not in the spec body. Mixing confirmed facts with proposals is how specs quietly become fiction.
+
+**Do not invent.** Do not fabricate APIs, schemas, libraries, endpoints, file paths, environment variables, or commands. If the spec needs something that doesn't exist in the codebase or documentation yet, mark it as Proposed or add it to Open Questions. A spec that invents details becomes a source of bugs — downstream code gets written against things that were never real.
 
 **Write a spec document covering these six core areas:**
 
@@ -86,6 +106,11 @@ Don't silently fill in ambiguous requirements. The spec's entire purpose is to s
 
 ## Objective
 [What we're building and why. User stories or acceptance criteria.]
+
+## Related Specs
+- Refines: [path/to/prior-spec.md]
+- Supersedes: [path/to/old-spec.md]
+- Related: [path/to/adjacent-spec.md]
 
 ## Tech Stack
 [Framework, language, key dependencies with versions]
