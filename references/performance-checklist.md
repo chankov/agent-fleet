@@ -5,6 +5,7 @@ Quick reference checklist for web application performance. Use alongside the `pe
 ## Table of Contents
 
 - [Core Web Vitals Targets](#core-web-vitals-targets)
+- [TTFB Diagnosis](#ttfb-diagnosis)
 - [Frontend Checklist](#frontend-checklist)
 - [Backend Checklist](#backend-checklist)
 - [Measurement Commands](#measurement-commands)
@@ -43,19 +44,34 @@ When TTFB is slow (> 800ms), check each component in DevTools Network waterfall:
 - [ ] Heavy computation offloaded to Web Workers (if applicable)
 - [ ] `React.memo()` on expensive components that re-render with same props
 - [ ] `useMemo()` / `useCallback()` only where profiling shows benefit
+- [ ] Long tasks (> 50ms) broken up to keep the main thread available — main lever for INP
+- [ ] `yieldToMain` pattern used inside long-running loops so input events can run between chunks
+- [ ] Modern scheduling APIs used where available: `scheduler.yield()` (preferred), `scheduler.postTask()` with priorities, `isInputPending()` to yield only when needed
+- [ ] `requestIdleCallback` for deferrable, non-urgent work (analytics flush, prefetch, warmup)
+- [ ] Third-party scripts loaded with `async` / `defer`, audited for size, and fronted by a facade when heavy (chat widgets, embeds)
 
 ### CSS
 - [ ] Critical CSS inlined or preloaded
 - [ ] No render-blocking CSS for non-critical styles
 - [ ] No CSS-in-JS runtime cost in production (use extraction)
-- [ ] Font display strategy set (`font-display: swap` or `optional`)
-- [ ] System font stack considered before custom fonts
+
+### Fonts
+- [ ] Limited to 2–3 font families, 2–3 weights each (every additional weight is another request)
+- [ ] WOFF2 format only (smallest, universal support — skip WOFF/TTF/EOT)
+- [ ] Self-hosted when possible (third-party font CDNs add DNS + TCP + TLS round-trips)
+- [ ] LCP-critical fonts preloaded: `<link rel="preload" as="font" type="font/woff2" crossorigin>`
+- [ ] `font-display: swap` (or `optional` for non-critical) to avoid FOIT blocking render
+- [ ] Subsetted via `unicode-range` to ship only the glyphs each page needs
+- [ ] Variable fonts considered when multiple weights/styles are required (one file replaces many)
+- [ ] Fallback font metrics adjusted with `size-adjust`, `ascent-override`, `descent-override` to reduce CLS on font swap
+- [ ] System font stack considered before any custom font
 
 ### Network
 - [ ] Static assets cached with long `max-age` + content hashing
 - [ ] API responses cached where appropriate (`Cache-Control`)
 - [ ] HTTP/2 or HTTP/3 enabled
 - [ ] Resources preconnected (`<link rel="preconnect">`) for known origins
+- [ ] `fetchpriority` used on critical non-image resources (e.g., key `<link rel="preload">`, above-the-fold `<script>`) — not only on `<img>`
 - [ ] No unnecessary redirects
 
 ### Rendering
@@ -63,6 +79,8 @@ When TTFB is slow (> 800ms), check each component in DevTools Network waterfall:
 - [ ] Animations use `transform` and `opacity` (GPU-accelerated)
 - [ ] Long lists use virtualization (e.g., `react-window`)
 - [ ] No unnecessary full-page re-renders
+- [ ] Off-screen sections use `content-visibility: auto` with `contain-intrinsic-size` to skip layout/paint of non-visible areas
+- [ ] No `unload` event handlers and no `Cache-Control: no-store` on HTML responses — preserves back/forward cache (bfcache) eligibility
 
 ## Backend Checklist
 
@@ -117,5 +135,5 @@ onCLS(console.log);
 | Layout thrashing | Jank, dropped frames | Batch DOM reads, then batch writes |
 | Unoptimized images | Slow LCP, wasted bandwidth | Use WebP, responsive sizes, lazy load |
 | Large bundles | Slow Time to Interactive | Code split, tree shake, audit deps |
-| Blocking main thread | Poor INP, unresponsive UI | Use Web Workers, defer work |
+| Blocking main thread | Poor INP, unresponsive UI | Chunk long tasks with `scheduler.yield()` / `yieldToMain`, offload to Web Workers |
 | Memory leaks | Growing memory, eventual crash | Clean up listeners, intervals, refs |
