@@ -207,7 +207,7 @@ Quick-reference material that skills pull in when needed:
 
 ## How Skills Work
 
-Every skill follows a consistent anatomy:
+Most skills follow a consistent anatomy:
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -215,7 +215,7 @@ Every skill follows a consistent anatomy:
 │                                             │
 │  ┌─ Frontmatter ─────────────────────────┐  │
 │  │ name: lowercase-hyphen-name           │  │
-│  │ description: Use when [trigger]       │  │
+│  │ description: What it does. Use when…  │  │
 │  └───────────────────────────────────────┘  │
 │                                             │
 │  Overview         → What this skill does    │
