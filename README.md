@@ -207,24 +207,24 @@ Quick-reference material that skills pull in when needed:
 
 ## How Skills Work
 
-Most skills follow a consistent anatomy:
+Every skill follows a consistent anatomy:
 
 ```
-┌─────────────────────────────────────────────┐
-│  SKILL.md                                   │
-│                                             │
-│  ┌─ Frontmatter ─────────────────────────┐  │
-│  │ name: lowercase-hyphen-name           │  │
-│  │ description: What it does. Use when…  │  │
-│  └───────────────────────────────────────┘  │
-│                                             │
-│  Overview         → What this skill does    │
-│  When to Use      → Triggering conditions   │
-│  Process          → Step-by-step workflow   │
-│  Rationalizations → Excuses + rebuttals     │
-│  Red Flags        → Signs something's wrong │
-│  Verification     → Evidence requirements   │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  SKILL.md                                       │
+│                                                 │
+│  ┌─ Frontmatter ─────────────────────────────┐  │
+│  │ name: lowercase-hyphen-name               │  │
+│  │ description: Guides agents through [task].│  │
+│  │              Use when…                    │  │
+│  └───────────────────────────────────────────┘  │                                                                                                
+│  Overview         → What this skill does        │
+│  When to Use      → Triggering conditions       │
+│  Process          → Step-by-step workflow       │
+│  Rationalizations → Excuses + rebuttals         │
+│  Red Flags        → Signs something's wrong     │
+│  Verification     → Evidence requirements       │
+└─────────────────────────────────────────────────┘
 ```
 
 **Key design choices:**

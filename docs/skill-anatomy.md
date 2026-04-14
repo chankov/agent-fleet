@@ -20,13 +20,13 @@ skills/
 ```yaml
 ---
 name: skill-name-with-hyphens
-description: Brief statement of what the skill does. Use when [specific trigger conditions].
+description: Guides agents through [task/workflow]. Use when [specific trigger conditions].
 ---
 ```
 
 **Rules:**
 - `name`: Lowercase, hyphen-separated. Must match the directory name.
-- `description`: Start with what the skill does, then include one or more clear "Use when" trigger conditions. Include both *what* and *when*. Maximum 1024 characters.
+- `description`: Start with what the skill does in third person, then include one or more clear "Use when" trigger conditions. Include both *what* and *when*. Maximum 1024 characters.
 
 **Why this matters:** Agents discover skills by reading descriptions. The description is injected into the system prompt, so it must tell the agent both what the skill provides and when to activate it. Do not summarize the workflow — if the description contains process steps, the agent may follow the summary instead of reading the full skill.
 
@@ -90,28 +90,6 @@ Observable signs that the skill is being violated. Useful during code review and
 
 ### Verification
 The exit criteria. A checklist the agent uses to confirm the skill's process is complete. Every checkbox should be verifiable with evidence (test output, build result, screenshot, etc.).
-
-## Required vs Recommended
-
-Required:
-
-- A skill directory under `skills/`
-- A `SKILL.md` file
-- Valid frontmatter with `name` and `description`
-
-Recommended for new contributions:
-
-- Follow the standard section anatomy above unless there is a clear reason not to
-- `# Skill Title`
-- `## Overview`
-- `## When to Use`
-- A clearly named workflow section such as `## Process`, `## The Workflow`, or `## Steps`
-- `## Common Rationalizations`
-- `## Red Flags`
-- `## Verification`
-- Add supporting files only when they keep `SKILL.md` focused
-
-This is the common project pattern, but not every existing skill uses the exact same section names or layout.
 
 ## Supporting Files
 
