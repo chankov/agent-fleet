@@ -217,7 +217,7 @@ Every skill follows a consistent anatomy:
 │  │ name: lowercase-hyphen-name               │  │
 │  │ description: Guides agents through [task].│  │
 │  │              Use when…                    │  │
-│  └───────────────────────────────────────────┘  │                                                                                                
+│  └───────────────────────────────────────────┘  │
 │  Overview         → What this skill does        │
 │  When to Use      → Triggering conditions       │
 │  Process          → Step-by-step workflow       │
