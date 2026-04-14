@@ -7,7 +7,7 @@ Thanks for your interest in contributing! This project is a collection of produc
 1. Create a directory under `skills/` with a kebab-case name
 2. Add a `SKILL.md` following the format in [docs/skill-anatomy.md](docs/skill-anatomy.md)
 3. Include YAML frontmatter with `name` and `description` fields
-4. Ensure the `description` briefly says what the skill does in third person, then includes clear "Use when" trigger conditions
+4. Ensure the `description` briefly says what the skill does (third person), then includes `Use when` trigger conditions
 
 ### Skill Quality Bar
 
