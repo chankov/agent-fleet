@@ -9,7 +9,7 @@ Every skill lives in its own directory under `skills/`:
 ```
 skills/
   skill-name/
-    SKILL.md          # Required: The skill definition
+    SKILL.md           # Required: The skill definition
     supporting-file.md # Optional: Reference material loaded on demand
 ```
 
@@ -20,17 +20,17 @@ skills/
 ```yaml
 ---
 name: skill-name-with-hyphens
-description: Brief statement of what the skill does. Use when [specific trigger conditions].
+description: Guides agents through [task/workflow]. Use when [specific trigger conditions].
 ---
 ```
 
 **Rules:**
 - `name`: Lowercase, hyphen-separated. Must match the directory name.
-- `description`: Starts with what the skill does (third person), followed by trigger conditions. Include both *what* and *when*. Maximum 1024 characters.
+- `description`: Start with what the skill does in third person, then include one or more clear "Use when" trigger conditions. Include both *what* and *when*. Maximum 1024 characters.
 
 **Why this matters:** Agents discover skills by reading descriptions. The description is injected into the system prompt, so it must tell the agent both what the skill provides and when to activate it. Do not summarize the workflow — if the description contains process steps, the agent may follow the summary instead of reading the full skill.
 
-### Standard Sections
+### Standard Sections (Recommended Pattern)
 
 ```markdown
 # Skill Title
