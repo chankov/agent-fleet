@@ -174,8 +174,11 @@ Every component must meet these standards:
 <div onClick={handleClick}>Click me</div>               // ✗ Not focusable
 <div role="button" tabIndex={0} onClick={handleClick}    // ✓ But prefer <button>
      onKeyDown={e => {
+       if (e.key === 'Enter') handleClick();
        if (e.key === ' ') e.preventDefault();
-       if (e.key === 'Enter' || e.key === ' ') handleClick();
+     }}
+     onKeyUp={e => {
+       if (e.key === ' ') handleClick();
      }}>
   Click me
 </div>
