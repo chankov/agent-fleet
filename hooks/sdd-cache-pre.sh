@@ -1,21 +1,19 @@
 #!/bin/bash
-# sdd-cache-pre.sh — PreToolUse hook for WebFetch
+# sdd-cache-pre.sh — PreToolUse hook for WebFetch.
 #
-# Before every WebFetch, checks whether the target URL has a cached entry
-# in .claude/sdd-cache/. If so, issues a conditional HEAD request with
-# If-None-Match / If-Modified-Since. If the server responds 304 Not Modified,
-# the hook blocks the WebFetch (exit 2) and returns the cached content to the
-# agent via stderr. Otherwise it exits 0 and lets the fetch proceed.
+# HTTP resource cache keyed by URL. Freshness is delegated to the origin via
+# HTTP validators; 304 Not Modified is the only signal to serve from cache.
+# On hit, exits 2 and writes the cached body to stderr so Claude Code can
+# deliver it to the agent in place of the WebFetch result. Otherwise exits 0.
 #
-# Freshness is verified by the origin server on every call, so the skill's
-# "don't trust memory, verify against current docs" invariant still holds.
-# The hook only serves content the server has just confirmed is unchanged.
+# No TTL: if validators don't catch a change, nothing will. Entries without
+# ETag or Last-Modified are never cached (can't revalidate).
 #
-# A 24h hard TTL acts as a safety net in case a server misreports freshness.
-# Entries without ETag/Last-Modified are never cached, so nothing is served
-# without a validator.
+# Cached bodies are prompt-shaped (WebFetch post-processes through a model),
+# so the key is URL-only and the original prompt is surfaced in the hit
+# message so the next agent can tell if the earlier reading still applies.
 #
-# Dependencies: jq, curl, shasum (or sha256sum)
+# Dependencies: jq, curl, shasum (or sha256sum).
 
 set -euo pipefail
 
@@ -36,49 +34,27 @@ dbg() {
 }
 dbg "fired"
 
-URL=$(printf '%s'    "$INPUT" | jq -r '.tool_input.url    // empty' 2>/dev/null || true)
-PROMPT=$(printf '%s' "$INPUT" | jq -r '.tool_input.prompt // empty' 2>/dev/null || true)
+URL=$(printf '%s' "$INPUT" | jq -r '.tool_input.url // empty' 2>/dev/null || true)
 if [ -z "$URL" ]; then dbg "no url in tool_input, exit"; exit 0; fi
-dbg "url=$URL prompt=$(printf '%s' "$PROMPT" | head -c 80)"
+dbg "url=$URL"
 
-# Cache key is (url + normalized prompt): WebFetch output is prompt-dependent,
-# so the same URL with a different question must miss the cache. Prompt is
-# normalized (lowercase + whitespace collapse) so stylistic variants like
-# "Extract the signature" vs "extract   the\nsignature" hash to the same key.
-# Semantically different prompts still differ.
-normalize_prompt() {
-  printf '%s' "$1" \
-    | tr '[:upper:]' '[:lower:]' \
-    | tr -s '[:space:]' ' ' \
-    | sed -e 's/^ //' -e 's/ $//'
-}
-
+# Cache key is sha256(URL), truncated to 128 bits.
 hash_key() {
-  local norm
-  norm=$(normalize_prompt "$2")
-  local key="$1"$'\x1f'"$norm"
   if command -v shasum >/dev/null 2>&1; then
-    printf '%s' "$key" | shasum -a 256 | cut -c1-32
+    printf '%s' "$1" | shasum -a 256 | cut -c1-32
   else
-    printf '%s' "$key" | sha256sum | cut -c1-32
+    printf '%s' "$1" | sha256sum | cut -c1-32
   fi
 }
 
 CACHE_DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/sdd-cache"
-CACHE_FILE="$CACHE_DIR/$(hash_key "$URL" "$PROMPT").json"
+CACHE_FILE="$CACHE_DIR/$(hash_key "$URL").json"
 
 if [ ! -f "$CACHE_FILE" ]; then dbg "no cache file at $CACHE_FILE, exit"; exit 0; fi
 dbg "cache file exists: $CACHE_FILE"
 
-# Hard TTL: 24h. If the entry is older, bypass the cache entirely.
 FETCHED_AT=$(jq -r '.fetched_at // 0' "$CACHE_FILE" 2>/dev/null || echo 0)
-NOW=$(date +%s)
-AGE=$((NOW - FETCHED_AT))
-if [ "$AGE" -gt 86400 ]; then
-  dbg "entry older than 24h (age=${AGE}s), bypass"
-  exit 0
-fi
-
+ORIGINAL_PROMPT=$(jq -r '.prompt // empty' "$CACHE_FILE" 2>/dev/null || true)
 ETAG=$(jq -r '.etag // empty' "$CACHE_FILE" 2>/dev/null || true)
 LAST_MOD=$(jq -r '.last_modified // empty' "$CACHE_FILE" 2>/dev/null || true)
 
@@ -112,16 +88,19 @@ VERIFIED_AT_ISO=$(date -u -r "$FETCHED_AT" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
               || date -u -d "@$FETCHED_AT" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
               || echo "unknown")
 
-cat >&2 <<EOF
-[sdd-cache] Cache hit for $URL
-
-Freshness just verified via HTTP 304 Not Modified. The origin server
-confirmed the content is unchanged since it was fetched at $VERIFIED_AT_ISO.
-No new fetch is needed. Use the cached content below as if WebFetch had
-just returned it:
-
------ BEGIN CACHED CONTENT -----
-$CONTENT
------ END CACHED CONTENT -----
-EOF
+# Emit the payload with printf so $CONTENT is never interpreted by the shell
+# (docs contain backticks, $vars, and backslashes in code examples; an
+# unquoted heredoc would treat them as command substitution).
+{
+  printf '[sdd-cache] Cache hit for %s\n\n' "$URL"
+  printf 'Revalidated via HTTP 304; unchanged since %s. Use the cached\n' "$VERIFIED_AT_ISO"
+  printf 'content below as if WebFetch had just returned it.\n\n'
+  if [ -n "$ORIGINAL_PROMPT" ]; then
+    printf 'Original WebFetch prompt: "%s". If your angle differs, judge\n' "$ORIGINAL_PROMPT"
+    printf 'whether this reading still covers it.\n\n'
+  fi
+  printf -- '----- BEGIN CACHED CONTENT -----\n'
+  printf '%s\n' "$CONTENT"
+  printf -- '----- END CACHED CONTENT -----\n'
+} >&2
 exit 2

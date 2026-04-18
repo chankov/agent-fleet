@@ -1,17 +1,15 @@
 #!/bin/bash
-# sdd-cache-post.sh — PostToolUse hook for WebFetch
+# sdd-cache-post.sh — PostToolUse hook for WebFetch.
 #
-# After a successful WebFetch, stores the fetched content in
-# .claude/sdd-cache/<sha>.json together with the server's ETag and/or
-# Last-Modified headers captured via a HEAD request. The Pre hook uses
-# those validators to revalidate on the next fetch.
+# After WebFetch, stores the response body in .claude/sdd-cache/<sha>.json
+# with the current ETag / Last-Modified captured via a HEAD request so the
+# pre hook can revalidate on the next fetch.
 #
-# The cache only stores entries for URLs whose servers emit ETag or
-# Last-Modified. Without a validator, the Pre hook cannot verify freshness,
-# so caching the entry would amount to trusting memory — exactly what the
-# skill forbids.
+# Keyed by URL. The caller's prompt is stored as metadata (not part of the
+# key) so a future cache hit can show what question produced the cached
+# reading. Entries without ETag or Last-Modified are not cached.
 #
-# Dependencies: jq, curl, shasum (or sha256sum)
+# Dependencies: jq, curl, shasum (or sha256sum).
 
 set -euo pipefail
 
@@ -65,36 +63,26 @@ if [ -z "$CONTENT" ]; then
 fi
 dbg "extracted content bytes=${#CONTENT}"
 
-# Cache key is (url + normalized prompt) — must match the Pre hook. See
-# sdd-cache-pre.sh for the rationale behind normalization.
-normalize_prompt() {
-  printf '%s' "$1" \
-    | tr '[:upper:]' '[:lower:]' \
-    | tr -s '[:space:]' ' ' \
-    | sed -e 's/^ //' -e 's/ $//'
-}
-
+# Must match the pre hook: sha256(URL), first 32 hex chars.
 hash_key() {
-  local norm
-  norm=$(normalize_prompt "$2")
-  local key="$1"$'\x1f'"$norm"
   if command -v shasum >/dev/null 2>&1; then
-    printf '%s' "$key" | shasum -a 256 | cut -c1-32
+    printf '%s' "$1" | shasum -a 256 | cut -c1-32
   else
-    printf '%s' "$key" | sha256sum | cut -c1-32
+    printf '%s' "$1" | sha256sum | cut -c1-32
   fi
 }
 
 CACHE_DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/sdd-cache"
 mkdir -p "$CACHE_DIR"
-CACHE_FILE="$CACHE_DIR/$(hash_key "$URL" "$PROMPT").json"
+CACHE_FILE="$CACHE_DIR/$(hash_key "$URL").json"
 
-# Capture current validators from the origin. Follow redirects so the
-# validators match the URL the agent is actually talking to.
-HEAD_OUT=$(curl -sI -L --max-time 5 "$URL" 2>/dev/null || true)
+# Capture validators from the origin. Follow redirects so they match the
+# URL the agent actually talked to. Strip CR so awk's paragraph mode
+# recognises blank separators between response blocks on a redirect chain.
+HEAD_OUT=$(curl -sI -L --max-time 5 "$URL" 2>/dev/null | tr -d '\r' || true)
 
-# Parse only the headers of the final response (after last blank line),
-# to avoid picking up validators from intermediate 301/302 hops.
+# Take only the final response's headers (last paragraph) to avoid picking
+# up validators from intermediate 301/302 hops.
 FINAL_HEADERS=$(printf '%s' "$HEAD_OUT" | awk '
   BEGIN { RS = ""; last = "" }
   { last = $0 }
@@ -103,11 +91,10 @@ FINAL_HEADERS=$(printf '%s' "$HEAD_OUT" | awk '
 
 extract_header() {
   local name="$1"
-  printf '%s' "$FINAL_HEADERS" | awk -v IGNORECASE=1 -v h="$name" '
+  printf '%s' "$FINAL_HEADERS" | awk -v h="$name" '
     BEGIN { FS = ":" }
     tolower($1) == tolower(h) {
       sub(/^[^:]*:[ \t]*/, "")
-      gsub(/\r/, "")
       sub(/[ \t]+$/, "")
       print
       exit
