@@ -48,6 +48,7 @@ When TTFB is slow (> 800ms), check each component in DevTools Network waterfall:
 - [ ] `yieldToMain` pattern used inside long-running loops so input events can run between chunks
 - [ ] Modern scheduling APIs used where available: `scheduler.yield()` (preferred), `scheduler.postTask()` with priorities, `isInputPending()` to yield only when needed
 - [ ] `requestIdleCallback` for deferrable, non-urgent work (analytics flush, prefetch, warmup)
+- [ ] Non-critical work deferred out of event handlers (e.g. analytics, logging) so the response to the interaction is not delayed
 - [ ] Third-party scripts loaded with `async` / `defer`, audited for size, and fronted by a facade when heavy (chat widgets, embeds)
 
 ### CSS
@@ -106,6 +107,12 @@ When TTFB is slow (> 800ms), check each component in DevTools Network waterfall:
 
 ## Measurement Commands
 
+### INP field data and DevTools workflow
+
+1. **Field data first** — check [CrUX Vis](https://developer.chrome.com/docs/crux/vis) or your RUM tool for real-user INP before optimising
+2. **Identify slow interactions** — open DevTools → Performance panel → record while interacting; look for long tasks triggered by clicks/keystrokes
+3. **Test on mid-range Android** — INP issues often only surface on slower hardware; use a real device or DevTools CPU throttling (4×–6× slowdown)
+
 ```bash
 # Lighthouse CLI
 npx lighthouse https://localhost:3000 --output json --output-path ./report.json
@@ -123,6 +130,13 @@ import { onLCP, onINP, onCLS } from 'web-vitals';
 onLCP(console.log);
 onINP(console.log);
 onCLS(console.log);
+
+# INP with interaction-level detail (attribution build)
+import { onINP } from 'web-vitals/attribution';
+onINP(({ value, attribution }) => {
+  const { interactionTarget, inputDelay, processingDuration, presentationDelay } = attribution;
+  console.log({ value, interactionTarget, inputDelay, processingDuration, presentationDelay });
+});
 ```
 
 ## Common Anti-Patterns
