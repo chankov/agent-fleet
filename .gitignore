@@ -4,3 +4,4 @@ node_modules/
 .env.*
 *.log
 .claude/.simplify-ignore-cache/
+.claude/sdd-cache/
