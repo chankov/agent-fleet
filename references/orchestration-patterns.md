@@ -169,6 +169,114 @@ In Claude Code, parallel fan-out (Pattern 3) requires issuing **multiple Agent t
 
 ---
 
+## Worked example: Agent Teams for competing-hypothesis debugging
+
+This example shows when to reach for **Agent Teams** instead of `/ship`'s subagent fan-out. The two patterns look similar from a distance — both spawn the same three personas — but the value comes from a different place.
+
+### The scenario
+
+> *Checkout occasionally hangs for ~30 seconds before completing. It happens roughly once every 50 sessions. No errors in logs. Started after last week's release.*
+
+Plausible root causes (mutually exclusive, all fit the symptoms):
+
+1. A race condition in the new payment-confirmation flow
+2. An auth check that occasionally falls through to a slow synchronous network call
+3. A missing index on a query that scales with cart size
+4. A flaky third-party API where the SDK retries silently before timing out
+
+A single agent will pick the first plausible theory and stop investigating. A `/ship`-style subagent fan-out would have each persona report independently — but their reports never meet, so nothing rules out the wrong theories.
+
+This is exactly the case the Agent Teams docs describe: *"With multiple independent investigators actively trying to disprove each other, the theory that survives is much more likely to be the actual root cause."*
+
+### Why this is *not* a `/ship` job
+
+| | `/ship` (subagents) | Agent Teams |
+|--|--------------------|-------------|
+| Sub-agents see | The same diff, different lenses | A shared task list, each other's messages |
+| Output | Three independent reports → one merge | Adversarial debate → consensus root cause |
+| Right when | You want a verdict on a known artifact | You want to *find* the artifact among hypotheses |
+
+`/ship` is a verdict; Agent Teams is an investigation.
+
+### Setup (one-time, per-environment)
+
+Agent Teams is experimental. In `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
+```
+
+Requires Claude Code v2.1.32 or later. The personas in this repo are picked up automatically — no team-config files to author by hand.
+
+### The trigger prompt
+
+Type into the lead session, in natural language:
+
+```
+Users report checkout hangs for ~30 seconds intermittently after last
+week's release. No errors in logs.
+
+Create an agent team to debug this with competing hypotheses. Spawn
+three teammates using the existing agent types:
+
+  - code-reviewer  — investigate race conditions and blocking calls
+                     in the checkout code path
+  - security-auditor — investigate auth checks, session handling,
+                       and any synchronous network calls added recently
+  - test-engineer  — propose tests that would distinguish between the
+                     hypotheses and check coverage gaps in checkout
+
+Have them message each other directly to challenge each other's
+theories. Update findings as consensus emerges. Only converge when
+two teammates agree they can disprove the others'.
+```
+
+The lead spawns three teammates referencing the existing persona names. The persona body becomes each teammate's system prompt; the prompt above becomes their task.
+
+### What happens
+
+1. Each teammate runs in its own context window, exploring the codebase from its own lens.
+2. Teammates use `message` to send findings to each other directly. The lead doesn't have to relay.
+3. The shared task list shows who's investigating what — visible at any time with `Ctrl+T` (in-process mode) or in a tmux pane (split mode).
+4. When `code-reviewer` finds a `Promise.all` that should be sequential, it messages `security-auditor` to confirm the auth call isn't part of the race. `security-auditor` checks and replies — either confirming the race is the real issue or producing counter-evidence.
+5. `test-engineer` proposes a focused integration test for whichever theory is winning, which the team uses to verify before declaring consensus.
+6. The lead synthesizes the converged finding and presents it to you.
+
+You can interrupt at any teammate by cycling with `Shift+Down` and typing — useful for redirecting an investigator who's gone down a wrong path.
+
+### When to clean up
+
+When the investigation lands on a root cause, tell the lead:
+
+```
+Clean up the team
+```
+
+Always cleanup through the lead, not a teammate (per the docs: teammates lack full team context for cleanup).
+
+### Cost expectation
+
+Three Sonnet teammates running for ~10–15 minutes of investigation costs noticeably more than the same three personas spawned as subagents by `/ship`. The justification is *quality of conclusion* — for production debugging where the wrong fix is expensive, the extra tokens are a bargain. For a routine PR review, stick with `/ship`.
+
+### Anti-pattern in this scenario
+
+Do **not** rebuild this as a `/debug` slash command that fans out subagents. Subagents can't message each other — you'd lose the adversarial debate that makes the pattern work. If a workflow keeps coming up, document the trigger prompt above as a snippet rather than wrapping it in a slash command that misuses subagents.
+
+### When *not* to use Agent Teams
+
+- Production-bound verdict on a known diff → use `/ship` (subagents).
+- One specialist perspective on one artifact → direct persona invocation.
+- Sequential lifecycle (spec → plan → build) → user-driven slash commands (Pattern 4).
+- Read-heavy research with a small digest → built-in `Explore` subagent.
+
+Reach for Agent Teams only when teammates **need** to challenge each other to produce the right answer.
+
+---
+
 ## Anti-patterns
 
 ### A. Router persona ("meta-orchestrator")
