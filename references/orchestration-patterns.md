@@ -110,6 +110,63 @@ main agent → research sub-agent (reads 50 files) → digest → main agent con
 
 **Cost:** one isolated sub-agent context. Worth it any time the alternative is loading hundreds of files into the main context.
 
+**On Claude Code, use the built-in `Explore` subagent** rather than defining a custom research persona. `Explore` runs on Haiku, is denied write/edit tools, and is purpose-built for this pattern. Define a custom research subagent only when `Explore` doesn't fit (e.g. you need a domain-specific system prompt the model wouldn't infer).
+
+---
+
+## Claude Code compatibility
+
+This catalog is harness-agnostic, but most readers will run it on Claude Code. Here's how each pattern maps onto Claude Code's primitives — and where the platform enforces our rules for us.
+
+### Where personas live
+
+Plugin subagents go in `agents/` at the plugin root. This repo is a plugin (`.claude-plugin/plugin.json`), so `agents/code-reviewer.md`, `agents/security-auditor.md`, and `agents/test-engineer.md` are auto-discovered when the plugin is enabled. No path configuration needed.
+
+### Subagents vs. Agent Teams
+
+Claude Code has two parallelism primitives. Pattern 3 (parallel fan-out with merge) maps to **subagents**. If you need teammates that talk to each other, use **Agent Teams** instead.
+
+| | Subagents | Agent Teams |
+|--|-----------|-------------|
+| Coordination | Main agent fans out, sub-agents only report back | Teammates message each other, share a task list |
+| Context | Own context window per subagent | Own context window per teammate |
+| When to use | Independent tasks producing reports | Collaborative work needing discussion |
+| Status | Stable | Experimental — requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` |
+| Cost | Lower | Higher — each teammate is a separate Claude instance |
+
+**The personas in this repo work in both modes.** When spawned as subagents (e.g. by `/ship`), they report findings to the main session. When spawned as teammates (`Spawn a teammate using the security-auditor agent type…`), they can challenge each other's findings directly. The persona definition is the same; only the spawning context changes.
+
+### Platform-enforced rules
+
+Two rules in this catalog aren't just convention — Claude Code enforces them:
+
+- **"Subagents cannot spawn other subagents"** (verbatim from the docs). Anti-pattern B (persona-calls-persona) and Anti-pattern D (deep persona trees) cannot exist on Claude Code by construction.
+- **"No nested teams"** — teammates cannot spawn their own teams. Same anti-patterns blocked at the team level.
+
+This means you can adopt the patterns in this catalog without worrying about contributors accidentally building the anti-patterns. They'll just fail to load.
+
+### Built-in subagents to know about
+
+Before defining a custom subagent, check whether one of these covers the role:
+
+| Built-in | Purpose |
+|----------|---------|
+| `Explore` | Read-only codebase search and analysis. Use this for Pattern 5 (research isolation). |
+| `Plan` | Read-only research during plan mode. |
+| `general-purpose` | Multi-step tasks needing both exploration and modification. |
+
+Don't redefine these. Layer your specialist personas (code-reviewer, security-auditor, test-engineer) on top of them.
+
+### Frontmatter restrictions for plugin agents
+
+Plugin subagents do **not** support the `hooks`, `mcpServers`, or `permissionMode` frontmatter fields — these are silently ignored. If a future persona needs any of those, the user must copy the file into `.claude/agents/` or `~/.claude/agents/` instead.
+
+The fields that DO work in plugin agents are: `name`, `description`, `tools`, `disallowedTools`, `model`, `maxTurns`, `skills`, `memory`, `background`, `effort`, `isolation`, `color`, `initialPrompt`. Use `model` per-persona if you want to optimize cost (e.g. Haiku for `test-engineer` coverage scans, Sonnet for `code-reviewer`, Opus for `security-auditor`).
+
+### Spawning multiple subagents in parallel
+
+In Claude Code, parallel fan-out (Pattern 3) requires issuing **multiple Agent tool calls in a single assistant turn**. Sequential turns serialize execution. `/ship` calls this out explicitly. Any new orchestrator command should do the same.
+
 ---
 
 ## Anti-patterns
