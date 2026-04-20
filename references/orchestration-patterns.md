@@ -235,7 +235,7 @@ theories. Update findings as consensus emerges. Only converge when
 two teammates agree they can disprove the others'.
 ```
 
-The lead spawns three teammates referencing the existing persona names. The persona body becomes each teammate's system prompt; the prompt above becomes their task.
+The lead spawns three teammates referencing the existing persona names. The persona body is **appended** to each teammate's system prompt as additional instructions (on top of the team-coordination instructions the lead installs); the trigger prompt above becomes their task.
 
 ### What happens
 
