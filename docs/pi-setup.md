@@ -17,7 +17,9 @@ This means you get near-parity with Claude Code:
 - Workflows are enforced via `AGENTS.md`
 - Users can also explicitly trigger any skill with `/skill:<name>`
 
-No plugin, wrapper, or custom system prompt is required.
+No plugin, wrapper, or custom system prompt is required for the core workflow.
+
+**Recommended companion package:** install [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) alongside these skills. It adds an interactive `ask_user` tool and bundles an `ask-user` skill, which is already used by this repo's current pi setup for high-stakes or ambiguous decisions.
 
 ---
 
@@ -39,13 +41,24 @@ mkdir -p .agents
 ln -s "$PWD/skills" .agents/skills
 ```
 
-3. Verify pi can see everything:
+3. Install the recommended `pi-ask-user` pi package:
+
+```bash
+pi install npm:pi-ask-user
+```
+
+This adds:
+
+- the interactive `ask_user` tool
+- the bundled `ask-user` skill
+
+4. Verify pi can see everything:
 
 ```bash
 pi
 # then type:
 /skill:
-# pi should autocomplete the full list of agent-skills
+# pi should autocomplete the full list of agent-skills, plus ask-user if pi packages are enabled
 ```
 
 That's it. `AGENTS.md` is already at the repo root and is auto-loaded when pi starts.
@@ -58,6 +71,17 @@ Because `.agents/skills` is a symlink into `skills/`, running `git pull` in the 
 
 - **Global install** — symlink into `~/.pi/agent/skills/` and `~/.pi/agent/AGENTS.md` to make skills available in every pi session on the machine, regardless of cwd.
 - **Copy instead of symlink** — use `cp -R skills .agents/skills` if you're on a platform where symlinks are awkward (e.g. plain Windows without developer mode). You'll need to re-copy after updates.
+
+### Recommended companion skill
+
+If you install `pi-ask-user`, pi will also discover its bundled `ask-user` skill from the installed pi package. This is a strong complement to `agent-skills` because it gives the agent a structured way to stop and ask for an explicit decision before:
+
+- architectural or API trade-offs
+- destructive or costly-to-reverse changes
+- ambiguous requirements
+- preference-dependent implementation choices
+
+That matches the repo's current pi setup, where `ask-user` is available as a recommended decision-gating skill.
 
 ### Future work
 
@@ -76,7 +100,7 @@ pi searches these locations for skills (all are merged):
 .pi/skills/               ← project scope
 ~/.agents/skills/         ← global convention
 ~/.pi/agent/skills/       ← pi global config
-<pi packages>             ← bundled/installed pi packages
+<pi packages>             ← bundled/installed pi packages (e.g. `pi-ask-user`)
 ```
 
 Each skill lives in:
@@ -191,9 +215,10 @@ These rules are enforced by `AGENTS.md`, which pi auto-loads.
 After installing, confirm the integration works:
 
 1. Run `pi` from inside the repo (or any subdirectory).
-2. Type `/skill:` and confirm the skill list autocompletes with entries like `spec-driven-development`, `incremental-implementation`, `code-review-and-quality`.
+2. Type `/skill:` and confirm the skill list autocompletes with entries like `spec-driven-development`, `incremental-implementation`, `code-review-and-quality`, and `ask-user`.
 3. Ask: *"design a new feature for X"* — confirm pi invokes `spec-driven-development`.
 4. Ask: *"fix this bug"* — confirm pi invokes `debugging-and-error-recovery`.
+5. Give pi an ambiguous or high-stakes request and confirm it can use the `ask_user` tool / `ask-user` skill to request an explicit decision.
 
 If autocomplete is empty, check that `.agents/skills` points to a directory containing `<skill-name>/SKILL.md` files and that pi was not started with `--no-skills`.
 
@@ -232,7 +257,8 @@ Or invoke explicitly when you want control:
 pi integration works by leveraging pi's **native** Agent Skills support:
 
 - Symlink `skills/` into `.agents/skills/`
+- Install the recommended `pi-ask-user` pi package for interactive decision gating
 - Let pi auto-load `AGENTS.md` from the repo root
 - Use `/skill:<name>` or natural language to trigger skills
 
-The result is a fully agent-driven, production-grade engineering workflow — with zero configuration beyond a single symlink.
+The result is a fully agent-driven, production-grade engineering workflow — with minimal setup: one symlink for this repo's skills, plus an optional but recommended `pi-ask-user` install for interactive decision gating.
