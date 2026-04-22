@@ -102,6 +102,13 @@ See [docs/opencode-setup.md](docs/opencode-setup.md).
 </details>
 
 <details>
+<summary><b>pi</b></summary>
+
+pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. See [docs/pi-setup.md](docs/pi-setup.md).
+
+</details>
+
+<details>
 <summary><b>GitHub Copilot</b></summary>
 
 Use agent definitions from `agents/` as Copilot personas and skill content in `.github/copilot-instructions.md`. See [docs/copilot-setup.md](docs/copilot-setup.md).
