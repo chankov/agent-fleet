@@ -9,6 +9,8 @@ description: Delivers changes incrementally. Use when implementing any feature o
 
 Build in thin vertical slices — implement one piece, test it, verify it, then expand. Avoid implementing an entire feature in one pass. Each increment should leave the system in a working, testable state. This is the execution discipline that makes large features manageable.
 
+Each increment ends at a **user review gate**, not an auto-commit. The agent presents a standard summary and waits for explicit approval before starting the next slice. Staging and committing are the user's responsibility — the agent never runs `git add` or `git commit` on its own.
+
 ## When to Use
 
 - Implementing any multi-file change
@@ -21,16 +23,18 @@ Build in thin vertical slices — implement one piece, test it, verify it, then 
 ## The Increment Cycle
 
 ```
-┌──────────────────────────────────────┐
-│                                      │
-│   Implement ──→ Test ──→ Verify ──┐  │
-│       ▲                           │  │
-│       └───── Commit ◄─────────────┘  │
-│              │                       │
-│              ▼                       │
-│          Next slice                  │
-│                                      │
-└──────────────────────────────────────┘
+┌───────────────────────────────────────────────────┐
+│                                                   │
+│  Implement ─→ Test ─→ Verify ─→ Request Review    │
+│      ▲                               │            │
+│      │                               ▼            │
+│   Revise ◄── (changes requested) ── Gate          │
+│                                      │            │
+│                        (approved) ───┘            │
+│                                      ▼            │
+│                                  Next slice       │
+│                                                   │
+└───────────────────────────────────────────────────┘
 ```
 
 For each slice:
@@ -38,8 +42,31 @@ For each slice:
 1. **Implement** the smallest complete piece of functionality
 2. **Test** — run the test suite (or write a test if none exists)
 3. **Verify** — confirm the slice works as expected (tests pass, build succeeds, manual check)
-4. **Commit** -- save your progress with a descriptive message (see `git-workflow-and-versioning` for atomic commit guidance)
-5. **Move to the next slice** — carry forward, don't restart
+4. **Request review** — present the Standard Slice Summary (below) and ask the user to confirm before moving to the next slice. Use the `AskUserQuestion` tool if available; otherwise ask in chat and wait for explicit confirmation. Do **not** stage or commit — the user handles git operations manually after approval. See `git-workflow-and-versioning` for the atomic-commit guidance the user should follow when committing approved slices.
+5. **Move to the next slice** only after explicit approval — carry forward, don't restart
+
+## Standard Slice Summary
+
+When requesting review, present the slice in this exact shape so the user can scan quickly:
+
+- **Slice N: `<short title>`**
+- **Files changed:** bulleted list, each as `path:line-range` with a 3–6 word note
+- **What it does:** 1–2 sentences describing the behavior delivered
+- **How it was verified:** tests run, build status, manual checks performed
+- **Risks / things to double-check:** anything non-obvious, assumptions made, edge cases skipped
+- **Next slice (if approved):** one-line preview of what comes next
+
+Keep it tight. The summary is a review aid, not a report.
+
+## Requesting Approval
+
+Prefer the `AskUserQuestion` tool with three options:
+
+- **Approve & continue** — slice is accepted; agent proceeds to the next slice (changes remain unstaged for the user to commit)
+- **Request changes** — user will describe what to change; agent revises within the same slice, re-summarizes, and re-asks
+- **Stop here** — leave changes unstaged and end the implementation session
+
+If `AskUserQuestion` is not available, ask the same question in chat and **wait** — do not proceed on silence or ambiguous responses. On "Request changes", revise inside the current slice and re-present the summary. On "Stop here", leave the working tree untouched and end.
 
 ## Slicing Strategies
 
@@ -180,6 +207,8 @@ Each increment should be independently revertable:
 - Database migrations should have corresponding rollback migrations
 - Avoid deleting something in one commit and replacing it in the same commit — separate them
 
+Rollback safety now depends on the user committing promptly after approval. If the user defers committing across multiple approved slices, they accept the risk of a larger uncommitted diff — the agent should still not stage or commit on their behalf.
+
 ## Working with Agents
 
 When directing an agent to implement incrementally:
@@ -191,7 +220,9 @@ Start with just the database schema change and the API endpoint.
 Don't touch the UI yet — we'll do that in the next increment.
 
 After implementing, run `npm test` and `npm run build` to verify
-nothing is broken."
+nothing is broken, then present the Standard Slice Summary and
+wait for my approval before the next slice. Do not stage or
+commit — I'll handle git manually after reviewing."
 ```
 
 Be explicit about what's in scope and what's NOT in scope for each increment.
@@ -206,7 +237,9 @@ After each increment, verify:
 - [ ] Type checking passes (`npx tsc --noEmit`)
 - [ ] Linting passes (`npm run lint`)
 - [ ] The new functionality works as expected
-- [ ] The change is committed with a descriptive message
+- [ ] The Standard Slice Summary was presented to the user
+- [ ] Explicit user approval was received before starting the next slice
+- [ ] Changes were left unstaged for the user to commit manually
 
 ## Common Rationalizations
 
@@ -217,6 +250,8 @@ After each increment, verify:
 | "These changes are too small to commit separately" | Small commits are free. Large commits hide bugs and make rollbacks painful. |
 | "I'll add the feature flag later" | If the feature isn't complete, it shouldn't be user-visible. Add the flag now. |
 | "This refactor is small enough to include" | Refactors mixed with features make both harder to review and debug. Separate them. |
+| "I'll just stage it to make their life easier" | Don't. The user explicitly controls staging and commits. Leave the working tree untouched after verification and approval. |
+| "They didn't answer but it's obviously fine, I'll continue" | No. Silence is not approval. Wait for an explicit response before starting the next slice. |
 
 ## Red Flags
 
@@ -225,7 +260,8 @@ After each increment, verify:
 - "Let me just quickly add this too" scope expansion
 - Skipping the test/verify step to move faster
 - Build or tests broken between increments
-- Large uncommitted changes accumulating
+- Starting the next slice without explicit user approval
+- Staging or committing changes on the user's behalf
 - Building abstractions before the third use case demands it
 - Touching files outside the task scope "while I'm here"
 - Creating new utility files for one-time operations
@@ -234,8 +270,8 @@ After each increment, verify:
 
 After completing all increments for a task:
 
-- [ ] Each increment was individually tested and committed
+- [ ] Each increment was individually tested and approved by the user
 - [ ] The full test suite passes
 - [ ] The build is clean
 - [ ] The feature works end-to-end as specified
-- [ ] No uncommitted changes remain
+- [ ] Staging and committing were left to the user (agent did not run `git add` / `git commit`)
