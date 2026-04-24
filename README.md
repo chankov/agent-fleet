@@ -265,7 +265,8 @@ agent-skills/
 ├── agents/                            # 3 specialist personas
 ├── references/                        # 4 supplementary checklists
 ├── hooks/                             # Session lifecycle hooks
-├── .claude/commands/                  # 7 slash commands
+├── .claude/commands/                  # 7 slash commands (Claude Code)
+├── .gemini/commands/                  # 7 slash commands (Gemini CLI)
 └── docs/                              # Setup guides per tool
 ```
 

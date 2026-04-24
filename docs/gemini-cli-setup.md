@@ -105,6 +105,24 @@ Use the @skills/test-driven-development/SKILL.md skill to implement this fix.
 
 This is useful when you want to ensure a specific workflow is followed without waiting for auto-discovery.
 
+## Slash Commands
+
+The repo ships 7 slash commands under `.gemini/commands/` that map to the development lifecycle. Gemini CLI auto-discovers them when you run from the project root.
+
+| Command | What it does |
+|---------|--------------|
+| `/spec` | Write a structured spec before writing code |
+| `/planning` | Break work into small, verifiable tasks |
+| `/build` | Implement the next task incrementally |
+| `/test` | Run TDD workflow — red, green, refactor |
+| `/review` | Five-axis code review |
+| `/code-simplify` | Reduce complexity without changing behavior |
+| `/ship` | Pre-launch checklist via parallel persona fan-out |
+
+Each command invokes the corresponding skill automatically — no manual skill loading required.
+
+> **Note:** Use `/planning` instead of `/plan` — `/plan` conflicts with a Gemini CLI internal command name.
+
 ## Usage Tips
 
 1. **Prefer skills over GEMINI.md** — Skills activate on demand and keep your context window focused. Only put skills in GEMINI.md if you want them always loaded.
