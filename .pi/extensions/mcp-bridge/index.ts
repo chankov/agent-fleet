@@ -1,7 +1,4 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Type } from "typebox";
 
 export interface McpBridgeConfig {
@@ -14,6 +11,22 @@ export interface McpBridgeConfig {
 }
 
 type JsonObject = Record<string, unknown>;
+
+type McpTool = {
+	name: string;
+	description?: string;
+	inputSchema?: JsonObject;
+};
+
+type McpClient = {
+	listTools(): Promise<{ tools?: McpTool[] }>;
+	callTool(input: { name: string; arguments: JsonObject }): Promise<{ isError?: boolean; content?: unknown }>;
+	close(): Promise<void>;
+};
+
+type McpTransport = {
+	close?: () => Promise<void> | void;
+};
 
 function humanizePrefix(prefix: string): string {
 	return prefix
@@ -28,7 +41,7 @@ function toPiToolName(prefix: string, mcpToolName: string): string {
 	return `${prefix}${safeName}`;
 }
 
-function normalizeInputSchema(tool: Tool) {
+function normalizeInputSchema(tool: McpTool) {
 	const schema = tool.inputSchema as JsonObject | undefined;
 	if (!schema || typeof schema !== "object") {
 		return Type.Object({});
@@ -70,6 +83,15 @@ function stringifyMcpContent(content: unknown): string {
 		.join("\n\n");
 }
 
+// pi auto-discovers `.pi/extensions/*/index.ts` files. This module is primarily
+// a library consumed by wrapper extensions (for example, `chrome-devtools-mcp`),
+// but when the directory itself is symlinked as recommended it is also loaded as
+// a project extension. Export a harmless default factory so that direct loading
+// succeeds without registering tools; wrappers should import `createMcpBridgeExtension`.
+export default function mcpBridgeLibraryExtension(_pi: ExtensionAPI) {
+	// Intentionally empty.
+}
+
 export function createMcpBridgeExtension(config: McpBridgeConfig) {
 	const {
 		prefix,
@@ -80,7 +102,11 @@ export function createMcpBridgeExtension(config: McpBridgeConfig) {
 		statusCommandName = `${prefix.replace(/__+$/, "")}-status`,
 	} = config;
 
-	async function connect() {
+	async function connect(): Promise<{ client: McpClient; transport: McpTransport }> {
+		const [{ Client }, { StdioClientTransport }] = await Promise.all([
+			import("@modelcontextprotocol/sdk/client/index.js"),
+			import("@modelcontextprotocol/sdk/client/stdio.js"),
+		]);
 		const client = new Client({ name: clientName, version: "1.0.0" });
 		const transport = new StdioClientTransport({ command, args });
 		await client.connect(transport);
@@ -88,9 +114,9 @@ export function createMcpBridgeExtension(config: McpBridgeConfig) {
 	}
 
 	return async function mcpBridgeExtension(pi: ExtensionAPI) {
-		let client: Client | undefined;
-		let transport: StdioClientTransport | undefined;
-		let tools: Tool[] = [];
+		let client: McpClient | undefined;
+		let transport: McpTransport | undefined;
+		let tools: McpTool[] = [];
 
 		try {
 			const connection = await connect();

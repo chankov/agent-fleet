@@ -111,7 +111,7 @@ That's it. `AGENTS.md` is already at the repo root and is auto-loaded when pi st
 
 This repo also ships pi **extensions** under `.pi/extensions/`. Extensions are TypeScript modules that register tools and commands directly with pi. The current set:
 
-- `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library, consumed by other extensions; you do not install it on its own.
+- `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library consumed by wrapper extensions. Symlink it alongside wrappers so relative imports resolve; when pi discovers it directly, it intentionally registers no tools or commands by itself.
 - `chrome-devtools-mcp/` — bridges the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) server into pi as native tools, unlocking the `browser-testing-with-devtools` skill on pi.
 
 To install, symlink both directories into your project's `.pi/extensions/`:
@@ -121,6 +121,16 @@ mkdir -p .pi/extensions
 ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
 ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
 ```
+
+Install the shared runtime dependencies used by the symlinked extensions once in the `agent-skills` clone:
+
+```bash
+cd /path/to/agent-skills/.pi/extensions
+npm ci
+# If this clone does not have package-lock.json yet, run: npm install
+```
+
+Because the project extensions are symlinks into the clone, these dependencies are reused by every project that links the same extension directories.
 
 Verify by starting `pi` and running `/chrome_devtools-status` — expect `Chrome DevTools MCP connected. Registered N tool(s).`
 
@@ -313,6 +323,15 @@ After installing, confirm the integration works:
 If skill autocomplete is empty, check that `.agents/skills` points to a directory containing `<skill-name>/SKILL.md` files and that pi was not started with `--no-skills`.
 
 If lifecycle command autocomplete is empty, check that `.pi/prompts` points to a directory containing the command Markdown files and run `/reload` or restart pi.
+
+If extension loading reports `Cannot find module '@modelcontextprotocol/sdk/client/index.js'`, the extension runtime dependencies are not installed. Run:
+
+```bash
+cd /path/to/agent-skills/.pi/extensions
+npm ci
+```
+
+Then run `/reload` or restart pi.
 
 ---
 
