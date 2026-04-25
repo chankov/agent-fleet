@@ -1,0 +1,6 @@
+{
+  "name": "agent-skills-pi-compact-and-continue",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

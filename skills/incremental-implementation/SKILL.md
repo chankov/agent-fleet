@@ -60,13 +60,14 @@ Keep it tight. The summary is a review aid, not a report.
 
 ## Requesting Approval
 
-Prefer the `AskUserQuestion` tool with three options:
+Prefer the `AskUserQuestion` tool with these options:
 
 - **Approve & continue** — slice is accepted; agent proceeds to the next slice (changes remain unstaged for the user to commit)
 - **Request changes** — user will describe what to change; agent revises within the same slice, re-summarizes, and re-asks
+- **Compact & continue** *(pi only, when the `compact-and-continue` extension is installed)* — call `request_compaction` with a self-contained `continuationPrompt` summarizing the remaining slices; the turn terminates, pi compacts context, then auto-resumes from the continuation prompt
 - **Stop here** — leave changes unstaged and end the implementation session
 
-If `AskUserQuestion` is not available, ask the same question in chat and **wait** — do not proceed on silence or ambiguous responses. On "Request changes", revise inside the current slice and re-present the summary. On "Stop here", leave the working tree untouched and end.
+If the `request_compaction` tool is not registered (e.g. running outside pi, or the extension is not installed), omit "Compact & continue" — the other three options are the universal fallback. If `AskUserQuestion` is not available, ask the same question in chat and **wait** — do not proceed on silence or ambiguous responses. On "Request changes", revise inside the current slice and re-present the summary. On "Stop here", leave the working tree untouched and end.
 
 ## Slicing Strategies
 

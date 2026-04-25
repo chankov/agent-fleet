@@ -113,13 +113,15 @@ This repo also ships pi **extensions** under `.pi/extensions/`. Extensions are T
 
 - `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library consumed by wrapper extensions. Symlink it alongside wrappers so relative imports resolve; when pi discovers it directly, it intentionally registers no tools or commands by itself.
 - `chrome-devtools-mcp/` — bridges the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) server into pi as native tools, unlocking the `browser-testing-with-devtools` skill on pi.
+- `compact-and-continue/` — registers the `request_compaction` tool that queues pi context compaction to run after the current agent turn ends, optionally resuming work from a self-contained continuation prompt. Used by `/build` to offer a "Compact & continue" option at slice-approval time.
 
-To install, symlink both directories into your project's `.pi/extensions/`:
+To install, symlink the directories into your project's `.pi/extensions/`:
 
 ```bash
 mkdir -p .pi/extensions
-ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
-ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
+ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge            .pi/extensions/mcp-bridge
+ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp   .pi/extensions/chrome-devtools-mcp
+ln -s /path/to/agent-skills/.pi/extensions/compact-and-continue  .pi/extensions/compact-and-continue
 ```
 
 Install the shared runtime dependencies used by the symlinked extensions once in the `agent-skills` clone:
