@@ -38,6 +38,18 @@ Use Chrome DevTools MCP to give your agent eyes into the browser. This bridges t
 }
 ```
 
+### On pi
+
+pi does not natively consume MCP servers. This repo ships a pi extension that bridges `chrome-devtools-mcp` into pi as native tools under the `chrome_devtools__` prefix. Install via symlink (see [docs/pi-setup.md](../../docs/pi-setup.md#optional-pi-extensions)):
+
+```bash
+mkdir -p .pi/extensions
+ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
+ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
+```
+
+After install, run `/chrome_devtools-status` inside pi to confirm the bridge connected.
+
 ### Available Tools
 
 Chrome DevTools MCP provides these capabilities:

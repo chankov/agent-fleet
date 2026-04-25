@@ -1,0 +1,11 @@
+{
+  "name": "agent-skills-pi-mcp-bridge",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "typebox": "^1.1.33"
+  }
+}

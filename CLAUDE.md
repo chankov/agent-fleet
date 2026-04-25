@@ -9,6 +9,8 @@ skills/       → Core skills (SKILL.md per directory)
 agents/       → Reusable agent personas (code-reviewer, test-engineer, security-auditor)
 hooks/        → Session lifecycle hooks
 .claude/commands/ → Slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship)
+.pi/prompts/  → pi-native lifecycle prompt templates
+.pi/extensions/ → pi extensions (TypeScript modules registered via ExtensionAPI)
 references/   → Supplementary checklists (testing, performance, security, accessibility)
 docs/         → Setup guides for different tools
 ```

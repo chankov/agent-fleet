@@ -107,9 +107,30 @@ pi
 
 That's it. `AGENTS.md` is already at the repo root and is auto-loaded when pi starts.
 
+### Optional: pi extensions
+
+This repo also ships pi **extensions** under `.pi/extensions/`. Extensions are TypeScript modules that register tools and commands directly with pi. The current set:
+
+- `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library, consumed by other extensions; you do not install it on its own.
+- `chrome-devtools-mcp/` — bridges the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) server into pi as native tools, unlocking the `browser-testing-with-devtools` skill on pi.
+
+To install, symlink both directories into your project's `.pi/extensions/`:
+
+```bash
+mkdir -p .pi/extensions
+ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
+ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
+```
+
+Verify by starting `pi` and running `/chrome_devtools-status` — expect `Chrome DevTools MCP connected. Registered N tool(s).`
+
+Future extensions (domain-specific, not just MCP wrappers) will land under the same directory. Each has its own `README.md` describing what it provides.
+
+> Why a generic `mcp-bridge` exists: pi does not yet have first-class MCP infrastructure. The bridge is a stopgap that lets pi consume MCP servers today; it will be deprecated once pi gains native MCP support.
+
 ### Keeping skills up to date
 
-Because `.agents/skills` and `.pi/prompts` are symlinks into the cloned `agent-skills` repo, running `git pull` in that clone updates every skill and lifecycle command in place — no re-copy required.
+Because `.agents/skills`, `.pi/prompts`, and `.pi/extensions` are symlinks into the cloned `agent-skills` repo, running `git pull` in that clone updates every skill, lifecycle command, and extension in place — no re-copy required.
 
 ### Alternative scopes
 

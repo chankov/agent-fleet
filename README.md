@@ -104,7 +104,7 @@ See [docs/opencode-setup.md](docs/opencode-setup.md).
 <details>
 <summary><b>pi</b></summary>
 
-pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`. See [docs/pi-setup.md](docs/pi-setup.md).
+pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and pi extensions from `.pi/extensions/`. See [docs/pi-setup.md](docs/pi-setup.md).
 
 </details>
 
