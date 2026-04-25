@@ -11,16 +11,17 @@ Instead, we achieve parity through:
 - A strong system prompt (`AGENTS.md`)
 - The built-in `skill` tool
 - Consistent skill discovery from the `/skills` directory
+- Optional prefixed slash commands from `.opencode/commands/`
 
-This creates an **agent-driven workflow** where skills are selected and executed automatically.
+This creates an **agent-driven workflow** where skills are selected and executed automatically, with optional explicit lifecycle commands when you want them.
 
-While it is possible to recreate `/spec`, `/plan`, and other commands in OpenCode, this integration intentionally uses an agent-driven approach instead:
+This integration defaults to an agent-driven approach:
 
 - Skills are selected automatically based on intent
 - Workflows are enforced via `AGENTS.md`
-- No manual command invocation is required
+- Manual command invocation is optional, not required
 
-This more closely matches how Claude Code behaves in practice, where skills are triggered automatically rather than manually.
+This more closely matches how Claude Code behaves in practice, while still allowing explicit OpenCode slash commands.
 
 ---
 
@@ -32,14 +33,55 @@ This more closely matches how Claude Code behaves in practice, where skills are 
 git clone https://github.com/chankov/agent-skills.git
 ```
 
-2. Open the project in OpenCode.
+2. Install the global OpenCode configuration.
 
-3. Ensure the following files are present in your workspace:
+Add the repo's `AGENTS.md` to your global `~/.config/opencode/opencode.json` instructions list:
 
-- `AGENTS.md` (root)
-- `skills/` directory
+```json
+{
+  "instructions": [
+    "/home/nchankov/repos/agent-skills/AGENTS.md"
+  ],
+  "permission": {
+    "skill": {
+      "*": "allow"
+    }
+  }
+}
+```
 
-No additional installation is required.
+Link or copy the skills and commands into your global OpenCode config directory:
+
+```bash
+mkdir -p ~/.config/opencode
+ln -sfn /home/nchankov/repos/agent-skills/skills ~/.config/opencode/skills
+ln -sfn /home/nchankov/repos/agent-skills/.opencode/commands ~/.config/opencode/commands
+```
+
+3. Restart OpenCode.
+
+4. Open any project in OpenCode.
+
+5. The following Agent Skills assets are now available globally:
+
+- `AGENTS.md` instructions from the repo root
+- All skills from `skills/`
+- Optional prefixed slash commands from `.opencode/commands/`
+
+### Optional Slash Commands
+
+This repo ships OpenCode-native commands with an `as-` prefix so they are easy to distinguish from other commands:
+
+- `/as-spec`
+- `/as-plan`
+- `/as-build`
+- `/as-test`
+- `/as-review`
+- `/as-code-simplify`
+- `/as-ship`
+- `/as-design-sub-agent`
+
+These commands are optional shortcuts. The agent can still invoke the correct skills automatically from plain natural-language requests.
 
 ---
 
@@ -72,7 +114,7 @@ Examples:
 
 The user does **not** need to explicitly request skills.
 
-### 3. Lifecycle Mapping (Implicit Commands)
+### 3. Lifecycle Mapping
 
 The development lifecycle is encoded implicitly:
 
@@ -83,7 +125,15 @@ The development lifecycle is encoded implicitly:
 - REVIEW → `code-review-and-quality`
 - SHIP → `shipping-and-launch`
 
-This replaces slash commands like `/spec`, `/plan`, etc.
+The same lifecycle is also exposed through the optional prefixed slash commands:
+
+- `/as-spec` → `spec-driven-development`
+- `/as-plan` → `planning-and-task-breakdown`
+- `/as-build` → `incremental-implementation` + `test-driven-development`
+- `/as-test` → `test-driven-development`
+- `/as-review` → `code-review-and-quality`
+- `/as-code-simplify` → `code-simplification`
+- `/as-ship` → `shipping-and-launch`
 
 ---
 
@@ -145,7 +195,6 @@ These rules are enforced via `AGENTS.md`.
 
 ## Limitations
 
-- No native slash commands (handled via intent mapping instead)
 - No plugin system (handled via prompt + structure)
 - Skill invocation depends on model compliance
 
@@ -165,6 +214,8 @@ Just use natural language:
 
 The agent will automatically select and execute the correct skills.
 
+If you prefer explicit entry points, use the shipped slash commands such as `/as-spec`, `/as-plan`, or `/as-review`.
+
 ---
 
 ## Summary
@@ -174,5 +225,6 @@ OpenCode integration works by combining:
 - Structured skills (this repo)
 - Strong agent rules (`AGENTS.md`)
 - Automatic skill invocation via reasoning
+- Optional `as-` prefixed slash commands for explicit lifecycle entry points
 
-This results in a **fully agent-driven, production-grade engineering workflow** without requiring plugins or manual commands.
+This results in a **production-grade engineering workflow** that works both as an agent-driven system and as an explicit command-driven workflow.
