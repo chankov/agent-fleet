@@ -20,7 +20,7 @@ ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge          .pi/extensions/mc
 ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
 ```
 
-`mcp-bridge` is a peer-dependency-only library; `chrome-devtools-mcp` imports it via the relative path.
+`mcp-bridge` is a sibling library; `chrome-devtools-mcp` imports it via the relative path. Runtime dependencies are hoisted to `.pi/extensions/package.json` — run `npm ci` there once after cloning `agent-skills` (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)).
 
 ## Verify
 

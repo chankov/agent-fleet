@@ -2,9 +2,5 @@
   "name": "agent-skills-pi-chrome-devtools-mcp",
   "private": true,
   "type": "module",
-  "main": "index.ts",
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "typebox": "^1.1.33"
-  }
+  "main": "index.ts"
 }
