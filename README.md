@@ -51,12 +51,6 @@ Skills also activate automatically based on what you're doing — designing an A
 > claude plugin install agent-skills@addy-agent-skills
 > ```
 
-```
-claude plugin marketplace add https://github.com/addyosmani/agent-skills.git
-
-```
-
-
 **Local / development:**
 
 ```bash
