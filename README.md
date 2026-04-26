@@ -45,10 +45,17 @@ Skills also activate automatically based on what you're doing — designing an A
 /plugin install agent-skills@addy-agent-skills
 ```
 
-> **SSH errors?** The marketplace clones repos via SSH. If you don't have SSH keys set up on GitHub, either [add your SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account) or switch to HTTPS for fetches only:
+> **SSH errors?** The marketplace clones repos via SSH. If you don't have SSH keys set up on GitHub, either [add your SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account) or run the commands below in your terminal (not Claude Code):
 > ```bash
-> git config --global url."https://github.com/".insteadOf "git@github.com:"
+> claude plugin marketplace add https://github.com/addyosmani/agent-skills.git
+> claude plugin install agent-skills@addy-agent-skills
 > ```
+
+```
+claude plugin marketplace add https://github.com/addyosmani/agent-skills.git
+
+```
+
 
 **Local / development:**
 
