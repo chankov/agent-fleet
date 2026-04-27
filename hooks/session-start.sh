@@ -6,6 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$(dirname "$SCRIPT_DIR")/skills"
 META_SKILL="$SKILLS_DIR/using-agent-skills/SKILL.md"
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo '{"priority": "INFO", "message": "agent-skills: jq is required for the session-start hook but was not found on PATH. Install jq (e.g. `brew install jq` or `apt-get install jq`) to enable meta-skill injection. Skills remain available individually."}'
+  exit 0
+fi
+
 if [ -f "$META_SKILL" ]; then
   CONTENT=$(cat "$META_SKILL")
   # Use jq to properly escape and construct valid JSON
