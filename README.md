@@ -97,7 +97,7 @@ Add skill contents to your Windsurf rules configuration. See [docs/windsurf-setu
 
 Uses agent-driven skill execution via `AGENTS.md` and the `skill` tool.
 
-The repo also ships optional OpenCode slash commands in `.opencode/commands/` using an `as-` prefix:
+The repo also ships **optional** OpenCode slash commands in `.opencode/commands/` using an `as-` prefix as explicit lifecycle entry points (the agent will still invoke the same skills automatically from natural-language requests):
 
 - `/as-spec`
 - `/as-plan`

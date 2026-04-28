@@ -2,7 +2,7 @@
 description: Start spec-driven development by writing a structured specification before code
 ---
 
-Use the `spec-driven-development` skill.
+Invoke the `spec-driven-development` skill via the `skill` tool.
 
 Begin by understanding what the user wants to build. Ask clarifying questions about:
 
@@ -13,4 +13,4 @@ Begin by understanding what the user wants to build. Ask clarifying questions ab
 
 Then generate a structured spec covering objective, commands, project structure, code style, testing strategy, and boundaries.
 
-Save the spec as `SPEC.md` in the project root only after confirming with the user.
+Confirm with the user before saving, then save the spec as `SPEC.md` in the project root.

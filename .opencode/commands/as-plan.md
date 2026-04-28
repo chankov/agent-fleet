@@ -2,7 +2,7 @@
 description: Break work into small verifiable tasks with acceptance criteria and dependency ordering
 ---
 
-Use the `planning-and-task-breakdown` skill.
+Invoke the `planning-and-task-breakdown` skill via the `skill` tool.
 
 Read the existing spec, such as `SPEC.md`, and relevant codebase sections. Then:
 

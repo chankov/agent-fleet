@@ -1,8 +1,8 @@
 ---
-description: Implement the next task incrementally - build, test, verify
+description: Implement the next task incrementally - build, test, verify, commit
 ---
 
-Use the `incremental-implementation` skill and the `test-driven-development` skill.
+Invoke the `incremental-implementation` skill and the `test-driven-development` skill via the `skill` tool.
 
 Pick the next pending task from the plan. For each task:
 
@@ -14,4 +14,4 @@ Pick the next pending task from the plan. For each task:
 6. Run the build to verify compilation.
 7. Mark the task complete and move to the next one.
 
-If any step fails, use the `debugging-and-error-recovery` skill.
+If any step fails, invoke the `debugging-and-error-recovery` skill via the `skill` tool.

@@ -2,7 +2,7 @@
 description: Run a TDD workflow - write failing tests, implement, verify
 ---
 
-Use the `test-driven-development` skill.
+Invoke the `test-driven-development` skill via the `skill` tool.
 
 For new features:
 
@@ -18,4 +18,4 @@ For bug fixes, use the Prove-It pattern:
 4. Confirm the test passes.
 5. Run the relevant full test suite for regressions.
 
-For browser-related issues, also use `browser-testing-with-devtools` to verify with Chrome DevTools MCP.
+For browser-related issues, also invoke `browser-testing-with-devtools` via the `skill` tool to verify with Chrome DevTools MCP.

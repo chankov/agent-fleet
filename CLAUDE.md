@@ -8,7 +8,8 @@ This is the agent-skills project — a collection of production-grade engineerin
 skills/       → Core skills (SKILL.md per directory)
 agents/       → Reusable agent personas (code-reviewer, test-engineer, security-auditor)
 hooks/        → Session lifecycle hooks
-.claude/commands/ → Slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship)
+.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-sub-agent)
+.opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ (/as-spec, /as-plan, /as-build, /as-test, /as-review, /as-code-simplify, /as-ship, /as-design-sub-agent) — keep in sync
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → pi extensions (TypeScript modules registered via ExtensionAPI)
 references/   → Supplementary checklists (testing, performance, security, accessibility)

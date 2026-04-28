@@ -2,7 +2,7 @@
 description: Run the pre-launch checklist and prepare for production deployment
 ---
 
-Use the `shipping-and-launch` skill.
+Invoke the `shipping-and-launch` skill via the `skill` tool.
 
 Run through the complete pre-launch checklist:
 

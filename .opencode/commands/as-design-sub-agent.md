@@ -2,7 +2,7 @@
 description: Design and write a new agent persona or workflow skill
 ---
 
-Use the `designing-sub-agents` skill.
+Invoke the `designing-sub-agents` skill via the `skill` tool.
 
 Begin by understanding what the user wants to author:
 

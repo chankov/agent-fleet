@@ -35,12 +35,18 @@ git clone https://github.com/chankov/agent-skills.git
 
 2. Install the global OpenCode configuration.
 
-Add the repo's `AGENTS.md` to your global `~/.config/opencode/opencode.json` instructions list:
+Set `AGENT_SKILLS_DIR` to wherever you cloned the repo (used in the snippets below):
+
+```bash
+export AGENT_SKILLS_DIR="/path/to/agent-skills"
+```
+
+Add the repo's `AGENTS.md` to your global `~/.config/opencode/opencode.json` instructions list (replace `/path/to/agent-skills` with the absolute path on your machine — `~` is not expanded inside JSON):
 
 ```json
 {
   "instructions": [
-    "/home/nchankov/repos/agent-skills/AGENTS.md"
+    "/path/to/agent-skills/AGENTS.md"
   ],
   "permission": {
     "skill": {
@@ -50,13 +56,23 @@ Add the repo's `AGENTS.md` to your global `~/.config/opencode/opencode.json` ins
 }
 ```
 
-Link or copy the skills and commands into your global OpenCode config directory:
+Link the skills and commands into your global OpenCode config directory. Symlinking individual files (rather than the whole directory) avoids replacing skills or commands you may already have installed from other sources:
 
 ```bash
-mkdir -p ~/.config/opencode
-ln -sfn /home/nchankov/repos/agent-skills/skills ~/.config/opencode/skills
-ln -sfn /home/nchankov/repos/agent-skills/.opencode/commands ~/.config/opencode/commands
+mkdir -p ~/.config/opencode/skills ~/.config/opencode/commands
+
+# Skills: link each skill directory individually.
+for d in "$AGENT_SKILLS_DIR"/skills/*/; do
+  ln -s "$d" "$HOME/.config/opencode/skills/$(basename "$d")"
+done
+
+# Commands: link each command file individually.
+for f in "$AGENT_SKILLS_DIR"/.opencode/commands/*.md; do
+  ln -s "$f" "$HOME/.config/opencode/commands/$(basename "$f")"
+done
 ```
+
+> ⚠️ If you already have `~/.config/opencode/skills` or `~/.config/opencode/commands` populated from other sources, do **not** replace the whole directory — use the per-file symlink approach above. The previous `ln -sfn <dir>` shortcut would silently overwrite the existing directory.
 
 3. Restart OpenCode.
 
@@ -116,24 +132,19 @@ The user does **not** need to explicitly request skills.
 
 ### 3. Lifecycle Mapping
 
-The development lifecycle is encoded implicitly:
+The development lifecycle is encoded implicitly via `AGENTS.md` and is also exposed through optional prefixed slash commands. Both routes invoke the same underlying skills:
 
-- DEFINE → `spec-driven-development`
-- PLAN → `planning-and-task-breakdown`
-- BUILD → `incremental-implementation` + `test-driven-development`
-- VERIFY → `debugging-and-error-recovery`
-- REVIEW → `code-review-and-quality`
-- SHIP → `shipping-and-launch`
-
-The same lifecycle is also exposed through the optional prefixed slash commands:
-
-- `/as-spec` → `spec-driven-development`
-- `/as-plan` → `planning-and-task-breakdown`
-- `/as-build` → `incremental-implementation` + `test-driven-development`
-- `/as-test` → `test-driven-development`
-- `/as-review` → `code-review-and-quality`
-- `/as-code-simplify` → `code-simplification`
-- `/as-ship` → `shipping-and-launch`
+| Lifecycle phase | Claude Code command | OpenCode command   | Underlying skill(s)                                           |
+| --------------- | ------------------- | ------------------ | ------------------------------------------------------------- |
+| DEFINE          | `/spec`             | `/as-spec`         | `spec-driven-development`                                     |
+| PLAN            | `/plan`             | `/as-plan`         | `planning-and-task-breakdown`                                 |
+| BUILD           | `/build`            | `/as-build`        | `incremental-implementation` + `test-driven-development`      |
+| TEST            | `/test`             | `/as-test`         | `test-driven-development`                                     |
+| VERIFY          | —                   | —                  | `debugging-and-error-recovery` (implicit on failure)          |
+| REVIEW          | `/review`           | `/as-review`       | `code-review-and-quality`                                     |
+| SIMPLIFY        | `/code-simplify`    | `/as-code-simplify`| `code-simplification`                                         |
+| SHIP            | `/ship`             | `/as-ship`         | `shipping-and-launch`                                         |
+| AUTHOR          | `/design-sub-agent` | `/as-design-sub-agent` | `designing-sub-agents`                                    |
 
 ---
 

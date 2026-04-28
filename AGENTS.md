@@ -29,11 +29,9 @@ The agent should automatically map user intent to skills:
 - API or interface design → `api-and-interface-design`
 - UI work → `frontend-ui-engineering`
 
-### Lifecycle Mapping (Implicit Commands)
+### Lifecycle Mapping
 
-OpenCode does not support slash commands like `/spec` or `/plan`.
-
-Instead, the agent must internally follow this lifecycle:
+The agent should internally follow this lifecycle and invoke the matching skill at each phase:
 
 - DEFINE → `spec-driven-development`
 - PLAN → `planning-and-task-breakdown`
@@ -41,6 +39,21 @@ Instead, the agent must internally follow this lifecycle:
 - VERIFY → `debugging-and-error-recovery`
 - REVIEW → `code-review-and-quality`
 - SHIP → `shipping-and-launch`
+
+This lifecycle is normally implicit — the agent maps user intent to the right skill without being asked.
+
+The repo also ships optional OpenCode slash commands in `.opencode/commands/` with an `as-` prefix as explicit lifecycle entry points:
+
+- `/as-spec` → `spec-driven-development`
+- `/as-plan` → `planning-and-task-breakdown`
+- `/as-build` → `incremental-implementation` + `test-driven-development`
+- `/as-test` → `test-driven-development`
+- `/as-review` → `code-review-and-quality`
+- `/as-code-simplify` → `code-simplification`
+- `/as-ship` → `shipping-and-launch`
+- `/as-design-sub-agent` → `designing-sub-agents`
+
+Whether triggered implicitly or via an `as-*` command, the agent MUST invoke the underlying skill via the `skill` tool — never inline the steps.
 
 ### Execution Model
 
