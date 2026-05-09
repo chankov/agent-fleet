@@ -127,7 +127,7 @@ Skills are plain Markdown - they work with any agent that accepts system prompts
 
 ## All 21 Skills
 
-The pack includes these 21 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+The commands above are entry points. The pack includes 21 skills total — each a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
 
 ### Meta - Discover which skill applies
 
