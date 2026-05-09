@@ -127,7 +127,13 @@ Skills are plain Markdown - they work with any agent that accepts system prompts
 
 ## All 21 Skills
 
-The commands above are the entry points. Under the hood, they activate these 21 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+The commands above are entry points. The pack includes 21 skills total — each a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+
+### Meta - Discover which skill applies
+
+| Skill | What It Does | Use When |
+|-------|-------------|----------|
+| [using-agent-skills](skills/using-agent-skills/SKILL.md) | Maps incoming work to the right skill workflow and defines shared operating rules | Starting a session or deciding which skill applies |
 
 ### Define - Clarify what to build
 
