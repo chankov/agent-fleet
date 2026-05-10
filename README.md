@@ -125,9 +125,9 @@ Skills are plain Markdown - they work with any agent that accepts system prompts
 
 ---
 
-## All 22 Skills
+## All 23 Skills
 
-The commands above are entry points. The pack includes 22 skills total — 21 lifecycle skills plus the `using-agent-skills` meta-skill. Each skill is a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+The commands above are entry points. The pack includes 23 skills total — 22 lifecycle skills plus the `using-agent-skills` meta-skill. Each skill is a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
 
 ### Meta - Discover which skill applies
 
@@ -139,6 +139,7 @@ The commands above are entry points. The pack includes 22 skills total — 21 li
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
+| [interview-me](skills/interview-me/SKILL.md) | One-question-at-a-time interview that extracts what the user actually wants instead of what they think they should want, until ~95% confidence | The ask is underspecified, or the user invokes "interview me" / "grill me" |
 | [idea-refine](skills/idea-refine/SKILL.md) | Structured divergent/convergent thinking to turn vague ideas into concrete proposals | You have a rough concept that needs exploration |
 | [spec-driven-development](skills/spec-driven-development/SKILL.md) | Write a PRD covering objectives, commands, structure, code style, testing, and boundaries before any code | Starting a new project, feature, or significant change |
 
@@ -248,7 +249,8 @@ Every skill follows a consistent anatomy:
 
 ```
 agent-skills/
-├── skills/                            # 22 skills (21 lifecycle + 1 meta)
+├── skills/                            # 23 skills (22 lifecycle + 1 meta)
+│   ├── interview-me/                  #   Define
 │   ├── idea-refine/                   #   Define
 │   ├── spec-driven-development/       #   Define
 │   ├── planning-and-task-breakdown/   #   Plan
