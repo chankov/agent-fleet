@@ -10,8 +10,11 @@ Every skill lives in its own directory under `skills/`:
 skills/
   skill-name/
     SKILL.md           # Required: The skill definition
+    scripts/           # Optional: Runnable helpers used by the skill workflow
     supporting-file.md # Optional: Reference material loaded on demand
 ```
+
+`SKILL.md` is the only required file. Add `scripts/` only when the skill actually ships runnable helpers, and omit the directory entirely for markdown-only skills.
 
 ## SKILL.md Format
 
@@ -99,6 +102,8 @@ Create supporting files only when:
 - Checklists are long enough to justify separate files
 
 Keep patterns and principles inline when under 50 lines.
+
+If a skill does not need runnable helpers, do not create an empty `scripts/` directory just to mirror other skills. Empty directories add noise without changing how the skill works.
 
 ## Writing Principles
 

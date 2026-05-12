@@ -39,6 +39,7 @@ New skills should generally follow the standard anatomy:
 - Don't duplicate content between skills — reference other skills instead
 - Don't add skills that are vague advice instead of actionable processes
 - Don't create supporting files unless content exceeds 100 lines
+- Don't create an empty `scripts/` directory just to match another skill — add `scripts/` only when the skill includes runnable helpers
 - Don't put reference material inside skill directories — use `references/` instead
 
 ## Modifying Existing Skills
