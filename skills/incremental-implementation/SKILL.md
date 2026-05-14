@@ -65,7 +65,7 @@ Prefer the `AskUserQuestion` tool with these options:
 - **Approve & continue** — slice is accepted; agent proceeds to the next slice (changes remain unstaged for the user to commit)
 - **Request changes** — user will describe what to change; agent revises within the same slice, re-summarizes, and re-asks
 - **Compact & continue** *(pi only, when the `compact-and-continue` extension is installed)* — call `request_compaction` with a self-contained `continuationPrompt` summarizing the remaining slices; the turn terminates, pi compacts context, then auto-resumes from the continuation prompt
-- **Stop here** — leave changes unstaged and end the implementation session
+- **Stop here** — end the session without modifying git state
 
 If the `request_compaction` tool is not registered (e.g. running outside pi, or the extension is not installed), omit "Compact & continue" — the other three options are the universal fallback. If `AskUserQuestion` is not available, ask the same question in chat and **wait** — do not proceed on silence or ambiguous responses. On "Request changes", revise inside the current slice and re-present the summary. On "Stop here", leave the working tree untouched and end.
 
@@ -240,7 +240,7 @@ After each increment, verify:
 - [ ] The new functionality works as expected
 - [ ] The Standard Slice Summary was presented to the user
 - [ ] Explicit user approval was received before starting the next slice
-- [ ] Changes were left unstaged for the user to commit manually
+- [ ] The agent did not run `git add`, `git commit`, `git reset`, or `git restore` during this slice (whatever the user staged or committed between slices is preserved as-is)
 
 ## Common Rationalizations
 
@@ -251,7 +251,7 @@ After each increment, verify:
 | "These changes are too small to commit separately" | Small commits are free. Large commits hide bugs and make rollbacks painful. |
 | "I'll add the feature flag later" | If the feature isn't complete, it shouldn't be user-visible. Add the flag now. |
 | "This refactor is small enough to include" | Refactors mixed with features make both harder to review and debug. Separate them. |
-| "I'll just stage it to make their life easier" | Don't. The user explicitly controls staging and commits. Leave the working tree untouched after verification and approval. |
+| "I'll just stage it to make their life easier" | Don't. The user explicitly controls staging and commits. Do not run any git state-changing command — and do not "tidy up" by unstaging or resetting what the user staged between slices. |
 | "They didn't answer but it's obviously fine, I'll continue" | No. Silence is not approval. Wait for an explicit response before starting the next slice. |
 
 ## Red Flags
@@ -263,6 +263,7 @@ After each increment, verify:
 - Build or tests broken between increments
 - Starting the next slice without explicit user approval
 - Staging or committing changes on the user's behalf
+- Unstaging, resetting, restoring, or stashing changes the user staged or committed between slices ("enforcing" an unstaged working tree is not the agent's job)
 - Building abstractions before the third use case demands it
 - Touching files outside the task scope "while I'm here"
 - Creating new utility files for one-time operations
@@ -275,4 +276,4 @@ After completing all increments for a task:
 - [ ] The full test suite passes
 - [ ] The build is clean
 - [ ] The feature works end-to-end as specified
-- [ ] Staging and committing were left to the user (agent did not run `git add` / `git commit`)
+- [ ] The agent performed no git state changes during the task (no `git add`, `git commit`, `git reset`, `git restore`, `git stash`, etc.) — whatever the user staged or committed between slices is preserved
