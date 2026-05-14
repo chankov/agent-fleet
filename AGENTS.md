@@ -106,7 +106,7 @@ skills/
 ```markdown
 ---
 name: {skill-name}
-description: {One sentence describing when to use this skill. Include trigger phrases like "Deploy my app", "Check logs", etc.}
+description: {One sentence describing what the skill does, followed by when to use it. Include trigger phrases like "Deploy my app" or "Check logs" when helpful.}
 ---
 
 # {Skill Title}
@@ -117,7 +117,9 @@ description: {One sentence describing when to use this skill. Include trigger ph
 
 {Numbered list explaining the skill's workflow}
 
-## Usage
+## Usage (Optional)
+
+Include this section only if the skill ships runnable helpers under `scripts/`. Markdown-only skills can omit both the section and the directory entirely.
 
 ```bash
 bash /mnt/skills/user/{skill-name}/scripts/{script}.sh [args]
