@@ -119,7 +119,9 @@ description: {One sentence describing what the skill does, followed by one or mo
 
 Equivalent headings like `Workflow`, `Core Process`, or `When to Use` are fine when they communicate the same structure clearly.
 
-## Usage
+## Usage (Optional)
+
+Include this section only if the skill ships runnable helpers under `scripts/`. Markdown-only skills can omit both the section and the directory entirely.
 
 ```bash
 bash /mnt/skills/user/{skill-name}/scripts/{script}.sh [args]
