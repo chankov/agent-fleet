@@ -5,6 +5,8 @@ export interface McpBridgeConfig {
 	prefix: string;
 	command: string;
 	args: string[];
+	env?: Record<string, string>;
+	stderr?: "inherit" | "pipe" | "overlapped";
 	clientName?: string;
 	labelPrefix?: string;
 	statusCommandName?: string;
@@ -83,6 +85,12 @@ function stringifyMcpContent(content: unknown): string {
 		.join("\n\n");
 }
 
+function errorWithStderr(error: unknown, stderr: string): Error {
+	const message = error instanceof Error ? error.message : String(error);
+	const stderrExcerpt = stderr.trim().slice(-2_000);
+	return new Error(stderrExcerpt ? `${message}\n${stderrExcerpt}` : message);
+}
+
 // pi auto-discovers `.pi/extensions/*/index.ts` files. This module is primarily
 // a library consumed by wrapper extensions (for example, `chrome-devtools-mcp`),
 // but when the directory itself is symlinked as recommended it is also loaded as
@@ -97,6 +105,8 @@ export function createMcpBridgeExtension(config: McpBridgeConfig) {
 		prefix,
 		command,
 		args,
+		env,
+		stderr = "inherit",
 		clientName = `pi-${prefix.replace(/__+$/, "")}`,
 		labelPrefix = humanizePrefix(prefix),
 		statusCommandName = `${prefix.replace(/__+$/, "")}-status`,
@@ -108,9 +118,19 @@ export function createMcpBridgeExtension(config: McpBridgeConfig) {
 			import("@modelcontextprotocol/sdk/client/stdio.js"),
 		]);
 		const client = new Client({ name: clientName, version: "1.0.0" });
-		const transport = new StdioClientTransport({ command, args });
-		await client.connect(transport);
-		return { client, transport };
+		const transport = new StdioClientTransport({ command, args, env, stderr });
+		let stderrOutput = "";
+		transport.stderr?.on("data", (chunk: Buffer) => {
+			stderrOutput += chunk.toString();
+		});
+
+		try {
+			await client.connect(transport);
+			return { client, transport };
+		} catch (error) {
+			await transport.close().catch(() => undefined);
+			throw errorWithStderr(error, stderrOutput);
+		}
 	}
 
 	return async function mcpBridgeExtension(pi: ExtensionAPI) {
