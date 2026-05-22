@@ -12,3 +12,8 @@ docs/plans/
 .pi/agent-sessions/
 .playwright-cli/
 tmp/
+.agents/skills
+.ai/agent-skills-setup.md
+.pi/agents/code-reviewer.md
+.pi/agents/security-auditor.md
+.pi/agents/test-engineer.md
