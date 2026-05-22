@@ -29,7 +29,7 @@ By default, save the spec to `docs/prds/{area}/PRD{n}-{topic}.md`:
 
 Match the project's existing `docs` vs `Docs` capitalization, and create the directory if it does not exist.
 
-**Project overrides:** if the project has a `.ai/agent-skills-overrides.md` file with a `## spec-driven-development` section, its keys (`spec-dir`, `naming`) override these defaults. Absent file or section → use the defaults above. See [docs/skill-overrides.md](../../docs/skill-overrides.md).
+**Project setup:** if `.ai/agent-skills-setup.md` has a `## spec-driven-development` section, its keys (`spec-dir`, `naming`) override these defaults. Absent file or section → use the defaults above. See [docs/agent-skills-setup.md](../../docs/agent-skills-setup.md).
 
 ## The Gated Workflow
 

@@ -13,4 +13,4 @@ Read the existing spec (SPEC.md or equivalent) and the relevant codebase section
 5. Add checkpoints between phases
 6. Present the plan for human review
 
-Save the plan to the location the `planning-and-task-breakdown` skill defines (default `docs/plans/{area}/PLAN-{prd-name}-{phase}.md`, with the task list embedded — no separate todo file; overridable per project via `.ai/agent-skills-overrides.md`). Match the project's existing `docs`/`Docs` capitalization.
+Save the plan to the location the `planning-and-task-breakdown` skill defines (default `docs/plans/{area}/PLAN-{prd-name}-{phase}.md`, with the task list embedded — no separate todo file; overridable per project via `.ai/agent-skills-setup.md`). Match the project's existing `docs`/`Docs` capitalization.

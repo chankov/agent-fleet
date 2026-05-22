@@ -10,7 +10,7 @@ agents/       → Reusable agent personas (code-reviewer, test-engineer, securit
 hooks/        → Session lifecycle hooks
 scripts/      → Standalone scripts (coms-net hub server for the coms-net pi extension)
 justfile      → Recipes to launch pi with each harness
-.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-agent, /prime)
+.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-agent, /prime, /setup)
 .opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ — keep in sync
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue)
@@ -19,7 +19,7 @@ justfile      → Recipes to launch pi with each harness
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harnesses
 references/   → Supplementary checklists (testing, performance, security, accessibility)
-docs/         → Setup guides, skill-overrides.md (per-project override convention), plus pi-extensions.md and pi-specs/ for the pi extensions
+docs/         → Setup guides, agent-skills-setup.md (per-project setup & override convention), plus pi-extensions.md and pi-specs/ for the pi extensions
 ```
 
 ## Skills by Phase
@@ -30,6 +30,7 @@ docs/         → Setup guides, skill-overrides.md (per-project override convent
 **Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, shipping-and-launch
+**Onboard:** guided-workspace-setup
 
 ## Conventions
 
@@ -39,7 +40,7 @@ docs/         → Setup guides, skill-overrides.md (per-project override convent
 - Every skill has: Overview, When to Use, Process, Common Rationalizations, Red Flags, Verification
 - References are in `references/`, not inside skill directories
 - Supporting files only created when content exceeds 100 lines
-- Skills that produce files or need project-specific facts (`spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`) ship built-in defaults but read per-project overrides from `.ai/agent-skills-overrides.md` in the *target* project — see `docs/skill-overrides.md`
+- Skills that produce files or need project-specific facts (`spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`) ship built-in defaults but read per-project overrides from `.ai/agent-skills-setup.md` in the *target* project — see `docs/agent-skills-setup.md`
 - Always-on pi utility extensions live in `.pi/extensions/<name>/` (auto-discovered by pi); the selectable orchestration/UI/safety/messaging harnesses live in `.pi/harnesses/<name>/` (NOT auto-discovered — loaded one at a time via the `justfile` or `pi -e`). Each is a directory with `index.ts` + `package.json` + `README.md`. Never put a harness under `.pi/extensions/` — pi loads everything there at once. The harnesses are ported from disler/pi-vs-claude-code (MIT) — see `docs/pi-extensions.md`
 
 ## Commands

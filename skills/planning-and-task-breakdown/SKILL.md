@@ -31,7 +31,7 @@ The task list is **embedded** in the plan file as the `## Task List` section. Do
 
 Match the project's existing `docs` vs `Docs` capitalization, and create the directory if it does not exist.
 
-**Project overrides:** if the project has a `.ai/agent-skills-overrides.md` file with a `## planning-and-task-breakdown` section, its keys (`plan-dir`, `naming`, `todo`) override these defaults — `todo: separate` restores a standalone `todo.md`. See [docs/skill-overrides.md](../../docs/skill-overrides.md).
+**Project setup:** if `.ai/agent-skills-setup.md` has a `## planning-and-task-breakdown` section, its keys (`plan-dir`, `naming`, `todo`) override these defaults — `todo: separate` restores a standalone `todo.md`. See [docs/agent-skills-setup.md](../../docs/agent-skills-setup.md).
 
 ## The Planning Process
 

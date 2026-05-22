@@ -249,9 +249,9 @@ Every skill follows a consistent anatomy:
 
 ---
 
-## Per-Project Overrides
+## Per-Project Setup
 
-A few skills produce files or need project-specific facts — where specs and plans are saved, how to start a dev server, whether the agent may create branches. Sensible defaults are built in, but any project can override them with a single file at `.ai/agent-skills-overrides.md`:
+A few skills produce files or need project-specific facts — where specs and plans are saved, how to start a dev server, whether the agent may create branches. Sensible defaults are built in, but any project can override them with a single file at `.ai/agent-skills-setup.md`:
 
 | Skill | What you can override |
 |-------|----------------------|
@@ -260,7 +260,7 @@ A few skills produce files or need project-specific facts — where specs and pl
 | `browser-testing-with-devtools` | Dev-server command, base URL, auth flow and roles (required — no default) |
 | `git-workflow-and-versioning` | Whether the agent may create branches (default: never) |
 
-See [docs/skill-overrides.md](docs/skill-overrides.md) for the file format and a copy-paste template.
+See [docs/agent-skills-setup.md](docs/agent-skills-setup.md) for the file format and a copy-paste template.
 
 ---
 
