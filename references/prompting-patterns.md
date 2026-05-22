@@ -1,6 +1,6 @@
 # Prompting Patterns Reference
 
-Consolidated prompt-engineering best practices for authoring instructions that coding agents will follow. Use alongside the `designing-sub-agents`, `context-engineering`, and `using-agent-skills` skills, and consult this file before finalizing any agent persona, slash command, skill, or rule file.
+Consolidated prompt-engineering best practices for authoring instructions that coding agents will follow. Use alongside the `designing-agents`, `context-engineering`, and `using-agent-skills` skills, and consult this file before finalizing any agent persona, slash command, skill, pi harness, or rule file.
 
 ## How to Use This Reference
 

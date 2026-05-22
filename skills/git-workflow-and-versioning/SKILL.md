@@ -13,6 +13,18 @@ Git is your safety net. Treat commits as save points, branches as sandboxes, and
 
 Always. Every code change flows through git.
 
+## Agent Operating Rule: Stay on the Current Branch
+
+**The agent does not create, switch, or delete branches.** Branch selection belongs to the human — they check out the branch they want before handing work to the agent. Work in whatever branch is currently checked out.
+
+- If the current branch looks unsuitable for the change (for example, you are on `main`/`master` and the change is not a trivial one), **stop and tell the user** so they can create the branch. Do not create it for them.
+- You may still split work into separate atomic commits on the current branch — and you *should* propose that whenever a change mixes concerns.
+- Worktrees are a human-initiated technique for parallel work (see [Working with Worktrees](#working-with-worktrees)); setting them up is not an agent action under this skill.
+
+The branching material below — trunk-based development, feature branches, naming — is **reference guidance for humans** deciding how to organize work. It is not a license for the agent to create branches.
+
+**Project override:** if the project's `.ai/agent-skills-overrides.md` has a `## git-workflow-and-versioning` section with `branching: allow`, the agent may create feature branches following the naming guidance below. The default is `branching: never`. See [docs/skill-overrides.md](../../docs/skill-overrides.md).
+
 ## Core Principles
 
 ### Trunk-Based Development (Recommended)
@@ -120,6 +132,8 @@ Target ~100 lines per commit/PR. Changes over ~1000 lines should be split. See t
 
 ## Branching Strategy
 
+> Reference guidance for humans organizing work. Per the [Agent Operating Rule](#agent-operating-rule-stay-on-the-current-branch), the agent does not create or switch branches unless the project opts in with `branching: allow`.
+
 ### Feature Branches
 
 ```
@@ -145,6 +159,8 @@ refactor/<short-description>  → refactor/auth-module
 ```
 
 ## Working with Worktrees
+
+> Human-initiated setup for parallel work — not an agent action under this skill.
 
 For parallel AI agent work, use git worktrees to run multiple branches simultaneously:
 

@@ -21,6 +21,27 @@ Use Chrome DevTools MCP to give your agent eyes into the browser. This bridges t
 
 **When NOT to use:** Backend-only changes, CLI tools, or code that doesn't run in a browser.
 
+## Project Setup: Read the Override File First
+
+Browser testing needs project-specific facts that have no universal default: how to start the local dev server, the base URL, and how to authenticate — including which account reaches the screen under test.
+
+Before navigating, read the `## browser-testing-with-devtools` section of the project's `.ai/agent-skills-overrides.md`:
+
+| Key | Purpose |
+|-----|---------|
+| `dev-server` | Command to start the local dev server |
+| `ready-check` | How to confirm the server is up |
+| `base-url` | Root URL for navigation |
+| `auth-flow` | Steps to log in |
+| `roles` | Which test account to use per privilege level — referenced by **env-var name**, never inline credentials |
+| `notes` | Certs, seed data, or anything else the run depends on |
+
+If the file or section is missing, **ask the user** for the dev-server command, base URL, and login flow before navigating — do not guess a localhost port or a login route.
+
+**Credentials stay in the environment.** The override file names environment variables (e.g. `APP_TEST_ADMIN_USER`); the real values live in a gitignored `.env`. Never write passwords into the override file or any committed file. This is consistent with the JavaScript Execution Constraints below — credential material is never read from the browser or copied elsewhere.
+
+See [docs/skill-overrides.md](../../docs/skill-overrides.md) for the file format.
+
 ## Setting Up Chrome DevTools MCP
 
 ### Installation

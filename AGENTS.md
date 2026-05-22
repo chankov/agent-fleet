@@ -51,7 +51,7 @@ The repo also ships optional OpenCode slash commands in `.opencode/commands/` wi
 - `/as-review` → `code-review-and-quality`
 - `/as-code-simplify` → `code-simplification`
 - `/as-ship` → `shipping-and-launch`
-- `/as-design-sub-agent` → `designing-sub-agents`
+- `/as-design-agent` → `designing-agents`
 
 Whether triggered implicitly or via an `as-*` command, the agent MUST invoke the underlying skill via the `skill` tool — never inline the steps.
 

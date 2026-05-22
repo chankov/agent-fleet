@@ -19,6 +19,20 @@ Decompose work into small, verifiable tasks with explicit acceptance criteria. G
 
 **When NOT to use:** Single-file changes with obvious scope, or when the spec already contains well-defined tasks.
 
+## Output Location
+
+By default, save the plan to `docs/plans/{area}/PLAN-{prd-name}-{phase}.md`:
+
+- `{area}` — the functional area; match the area of the PRD this plan implements.
+- `{prd-name}` — the name of the PRD this plan implements (e.g. `PRD3-tournament-copy`). If there is no PRD, use a short kebab-case topic slug instead.
+- `{phase}` — include a phase suffix **only** when the plan is deliberately split across more than one plan file. For a single-file plan, drop it (`PLAN-{prd-name}.md`).
+
+The task list is **embedded** in the plan file as the `## Task List` section. Do **not** create a separate `todo.md`.
+
+Match the project's existing `docs` vs `Docs` capitalization, and create the directory if it does not exist.
+
+**Project overrides:** if the project has a `.ai/agent-skills-overrides.md` file with a `## planning-and-task-breakdown` section, its keys (`plan-dir`, `naming`, `todo`) override these defaults — `todo: separate` restores a standalone `todo.md`. See [docs/skill-overrides.md](../../docs/skill-overrides.md).
+
 ## The Planning Process
 
 ### Step 1: Enter Plan Mode

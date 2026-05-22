@@ -19,6 +19,18 @@ Write a structured specification before writing any code. The spec is the shared
 
 **When NOT to use:** Single-line fixes, typo corrections, or changes where requirements are unambiguous and self-contained.
 
+## Output Location
+
+By default, save the spec to `docs/prds/{area}/PRD{n}-{topic}.md`:
+
+- `{area}` — the functional area of the codebase the change belongs to. Ask the user or infer it from the change (e.g. `tournaments`, `calendar`, `auth`).
+- `{n}` — the next free PRD number. Scan `docs/prds/` recursively for the highest existing `PRD<number>` and add 1; start at `1` if none exist.
+- `{topic}` — a short kebab-case slug of the feature.
+
+Match the project's existing `docs` vs `Docs` capitalization, and create the directory if it does not exist.
+
+**Project overrides:** if the project has a `.ai/agent-skills-overrides.md` file with a `## spec-driven-development` section, its keys (`spec-dir`, `naming`) override these defaults. Absent file or section → use the defaults above. See [docs/skill-overrides.md](../../docs/skill-overrides.md).
+
 ## The Gated Workflow
 
 Spec-driven development has four phases. Do not advance to the next phase until the current one is validated.
@@ -222,4 +234,4 @@ Before proceeding to implementation, confirm:
 - [ ] The human has reviewed and approved the spec
 - [ ] Success criteria are specific and testable
 - [ ] Boundaries (Always/Ask First/Never) are defined
-- [ ] The spec is saved to a file in the repository
+- [ ] The spec is saved to its output location (see Output Location)

@@ -106,7 +106,7 @@ The repo also ships **optional** OpenCode slash commands in `.opencode/commands/
 - `/as-review`
 - `/as-code-simplify`
 - `/as-ship`
-- `/as-design-sub-agent`
+- `/as-design-agent`
 
 See [docs/opencode-setup.md](docs/opencode-setup.md).
 
@@ -246,6 +246,21 @@ Every skill follows a consistent anatomy:
 - **Anti-rationalization.** Every skill includes a table of common excuses agents use to skip steps (e.g., "I'll add tests later") with documented counter-arguments.
 - **Verification is non-negotiable.** Every skill ends with evidence requirements - tests passing, build output, runtime data. "Seems right" is never sufficient.
 - **Progressive disclosure.** The `SKILL.md` is the entry point. Supporting references load only when needed, keeping token usage minimal.
+
+---
+
+## Per-Project Overrides
+
+A few skills produce files or need project-specific facts — where specs and plans are saved, how to start a dev server, whether the agent may create branches. Sensible defaults are built in, but any project can override them with a single file at `.ai/agent-skills-overrides.md`:
+
+| Skill | What you can override |
+|-------|----------------------|
+| `spec-driven-development` | Spec output directory and naming |
+| `planning-and-task-breakdown` | Plan output directory, naming, embedded vs separate todo |
+| `browser-testing-with-devtools` | Dev-server command, base URL, auth flow and roles (required — no default) |
+| `git-workflow-and-versioning` | Whether the agent may create branches (default: never) |
+
+See [docs/skill-overrides.md](docs/skill-overrides.md) for the file format and a copy-paste template.
 
 ---
 
