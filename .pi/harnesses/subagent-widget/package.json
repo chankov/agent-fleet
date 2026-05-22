@@ -1,0 +1,6 @@
+{
+  "name": "agent-skills-pi-subagent-widget",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

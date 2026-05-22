@@ -117,6 +117,8 @@ See [docs/opencode-setup.md](docs/opencode-setup.md).
 
 pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and pi extensions from `.pi/extensions/` (currently: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`; one-time `npm ci` required — see setup doc). See [docs/pi-setup.md](docs/pi-setup.md).
 
+The repo also ships 15 selectable pi extension *harnesses* — agent orchestration, safety auditing, and Pi-to-Pi messaging — ported from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT). See the [pi extension catalog](docs/pi-extensions.md) for the full list, setup, and how to run each one.
+
 </details>
 
 <details>

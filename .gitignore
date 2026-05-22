@@ -7,3 +7,8 @@ node_modules/
 docs/ideas/
 docs/prds/
 docs/plans/
+
+# pi extension runtime artifacts
+.pi/agent-sessions/
+.playwright-cli/
+tmp/

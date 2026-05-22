@@ -8,12 +8,18 @@ This is the agent-skills project — a collection of production-grade engineerin
 skills/       → Core skills (SKILL.md per directory)
 agents/       → Reusable agent personas (code-reviewer, test-engineer, security-auditor)
 hooks/        → Session lifecycle hooks
-.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-sub-agent)
-.opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ (/as-spec, /as-plan, /as-build, /as-test, /as-review, /as-code-simplify, /as-ship, /as-design-sub-agent) — keep in sync
+scripts/      → Standalone scripts (coms-net hub server for the coms-net pi extension)
+justfile      → Recipes to launch pi with each harness
+.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-sub-agent, /prime)
+.opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ — keep in sync
 .pi/prompts/  → pi-native lifecycle prompt templates
-.pi/extensions/ → pi extensions (TypeScript modules registered via ExtensionAPI)
+.pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue)
+.pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded one at a time via the justfile or `pi -e`
+.pi/agents/   → pi agent personas, teams, and chains used by the orchestration harnesses
+.pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
+.pi/damage-control-rules.yaml → rule set for the damage-control harnesses
 references/   → Supplementary checklists (testing, performance, security, accessibility)
-docs/         → Setup guides for different tools
+docs/         → Setup guides, plus pi-extensions.md and pi-specs/ for the pi extensions
 ```
 
 ## Skills by Phase
@@ -33,6 +39,7 @@ docs/         → Setup guides for different tools
 - Every skill has: Overview, When to Use, Process, Common Rationalizations, Red Flags, Verification
 - References are in `references/`, not inside skill directories
 - Supporting files only created when content exceeds 100 lines
+- Always-on pi utility extensions live in `.pi/extensions/<name>/` (auto-discovered by pi); the selectable orchestration/UI/safety/messaging harnesses live in `.pi/harnesses/<name>/` (NOT auto-discovered — loaded one at a time via the `justfile` or `pi -e`). Each is a directory with `index.ts` + `package.json` + `README.md`. Never put a harness under `.pi/extensions/` — pi loads everything there at once. The harnesses are ported from disler/pi-vs-claude-code (MIT) — see `docs/pi-extensions.md`
 
 ## Commands
 

@@ -109,7 +109,9 @@ That's it. `AGENTS.md` is already at the repo root and is auto-loaded when pi st
 
 ### Optional: pi extensions
 
-This repo also ships pi **extensions** under `.pi/extensions/`. Extensions are TypeScript modules that register tools and commands directly with pi. The current set:
+This repo also ships pi **extensions** under `.pi/extensions/`. Extensions are TypeScript modules that register tools and commands directly with pi. They come in two kinds: **always-on utilities** that layer onto any session, and selectable **harnesses** that reshape a whole session.
+
+The always-on utilities:
 
 - `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library consumed by wrapper extensions. Symlink it alongside wrappers so relative imports resolve; when pi discovers it directly, it intentionally registers no tools or commands by itself.
 - `chrome-devtools-mcp/` — bridges the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) server into pi as native tools, unlocking the `browser-testing-with-devtools` skill on pi.
@@ -136,7 +138,30 @@ Because the project extensions are symlinks into the clone, these dependencies a
 
 Verify by starting `pi` and running `/chrome_devtools-status` — expect `Chrome DevTools MCP connected. Registered N tool(s).`
 
-Future extensions (domain-specific, not just MCP wrappers) will land under the same directory. Each has its own `README.md` describing what it provides.
+#### Extension harnesses — orchestration, safety, messaging
+
+This repo also ships **15 session harnesses** ported from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT):
+
+- **Orchestration** — `agent-team`, `agent-chain`, `pi-pi`, `subagent-widget`, `system-select`
+- **Safety** — `damage-control`, `damage-control-continue`
+- **Focus** — `purpose-gate`, `tilldone`
+- **UI** — `minimal`, `tool-counter`, `tool-counter-widget`, `session-replay`
+- **Pi-to-Pi messaging** — `coms`, `coms-net`
+
+Unlike the utilities above, each harness reshapes the entire pi session, and they are **mutually exclusive** — you load one per session, not all at once. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all 15 aborts startup (`coms` and `coms-net` register clashing CLI flags). Load a single harness explicitly instead — there is nothing to symlink:
+
+```bash
+# from the agent-skills clone, via the bundled justfile
+just --list                       # list every harness recipe
+just ext-agent-team               # launch pi with one harness
+
+# or directly, from anywhere — point pi -e at the harness file
+pi -e /path/to/agent-skills/.pi/harnesses/tilldone/index.ts
+```
+
+The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. Install both at once with `just install` from the clone, or run `npm ci` in `.pi/harnesses/` as well. The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `coms-net` and `pi-pi`), and what changed from upstream.
+
+Each extension — utility or harness — has its own `README.md` describing what it provides.
 
 > Why a generic `mcp-bridge` exists: pi does not yet have first-class MCP infrastructure. The bridge is a stopgap that lets pi consume MCP servers today; it will be deprecated once pi gains native MCP support.
 
@@ -332,6 +357,8 @@ If extension loading reports `Cannot find module '@modelcontextprotocol/sdk/clie
 cd /path/to/agent-skills/.pi/extensions
 npm ci
 ```
+
+The harnesses install separately — if a harness reports `Cannot find module 'yaml'` or `'@sinclair/typebox'`, run `npm ci` in `.pi/harnesses/` as well (or `just install` from the clone, which does both).
 
 Then run `/reload` or restart pi.
 
