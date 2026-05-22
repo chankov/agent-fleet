@@ -13,4 +13,4 @@ Begin by understanding what the user wants to build. Ask clarifying questions ab
 
 Then generate a structured spec covering objective, commands, project structure, code style, testing strategy, and boundaries.
 
-Confirm with the user before saving, then save the spec to the location the `spec-driven-development` skill defines (default `docs/prds/{area}/PRD{n}-{topic}.md`; overridable per project via `.ai/agent-skills-setup.md`).
+Confirm with the user before saving, then save the spec to the location the `spec-driven-development` skill defines (default `docs/prds/{area}/PRD{n}-{topic}.md`; overridable per project via `.ai/agent-skills-overrides.md`).

@@ -1,53 +1,34 @@
-# Agent Skills — Project Setup File
+# Agent Skills — Project Files
 
-Some skills produce files or need facts that are specific to each project — where
-specs and plans are saved, how to start a local dev server, whether the agent may
-create git branches. Each such skill ships a sensible **default**. A project that
-needs something different declares it once, in a single file, and the skill picks
-it up. That same file also records what the `guided-workspace-setup` skill has
-installed into the project.
+agent-skills keeps up to two small files in a project's `.ai/` directory. They
+have different readers and different lifetimes, so they are kept separate.
 
-## The setup file
+| File | Read by | When |
+|------|---------|------|
+| `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning` | Every run of those skills |
+| `.ai/agent-skills-setup.md` | `guided-workspace-setup` | Only when setup is run or re-run |
 
-Create `.ai/agent-skills-setup.md` in the **target project** (the repo being
-worked on — not in agent-skills itself). It holds two kinds of content:
+Keep them split: the overrides file is loaded into context constantly, so it
+must stay minimal; the install record is consulted rarely, so it can be large.
 
-1. An `## install-status` section — what `guided-workspace-setup` installed, how,
-   and when. The skill writes and maintains this section; you rarely edit it by hand.
-2. One `## <skill-name>` section per skill that supports overrides — project-specific
-   values applied on top of that skill's built-in defaults.
+## The overrides file — `.ai/agent-skills-overrides.md`
 
-Skills read this file before producing output. If the file is absent, or a skill
-has no section in it, the skill uses its built-in default.
+Some skills produce files or need facts specific to each project — where specs
+and plans are saved, how to start a dev server, whether the agent may create
+branches. Each ships a sensible **default**; a project that needs something
+different declares it here, and the skill picks it up.
 
-- **Location:** `.ai/agent-skills-setup.md` at the project root.
-- **Format:** Markdown. One `## <section>` per skill (or for install status), with
-  `key: value` lines inside it. Block values use the `key: |` multi-line form.
-- **Commit it.** The setup file is shared project configuration and belongs in
-  version control. Make sure no `.gitignore` rule (for example a broad `.env*`
-  pattern) silently excludes it.
-- **No secrets.** Never put passwords, tokens, or keys in this file. For anything
-  sensitive (test-account credentials), reference the **name** of an environment
-  variable; the real value lives in a gitignored `.env`.
-
-## Install status
-
-The `## install-status` section is maintained by the `guided-workspace-setup`
-skill. It records which agent-skills artifacts are installed so the skill can be
-re-run to add, update, or remove them.
-
-| Key | Meaning |
-|-----|---------|
-| `agent` | Coding agent the workspace is configured for — `claude-code`, `opencode`, or `pi` |
-| `method` | How artifacts were placed — `copy` or `symlink` |
-| `skills` | Installed skill names |
-| `commands` | Installed command / prompt names |
-| `personas` | Installed agent persona names |
-| `extensions` | Installed pi extensions (pi only) |
-| `harnesses` | Installed pi harnesses (pi only) |
-| `updated` | Date of the last setup run |
-
-## Skills that read overrides
+- **Location:** `.ai/agent-skills-overrides.md` at the project root.
+- **Format:** Markdown. One `## <skill-name>` section per skill, with terse
+  `key: value` lines. Block values use the `key: |` multi-line form. No prose
+  and no install detail — skills parse it by key and load it on every run.
+- **Commit it.** Shared project configuration belongs in version control. Make
+  sure no `.gitignore` rule (for example a broad `.env*` pattern) excludes it.
+- **No secrets.** For anything sensitive (test-account credentials), reference
+  the **name** of an environment variable; the real value lives in a gitignored
+  `.env`.
+- If the file is absent, or a skill has no section in it, the skill uses its
+  built-in default.
 
 ### `spec-driven-development`
 
@@ -88,28 +69,35 @@ because dev-server commands and login flows cannot be guessed.
 |-----|---------|---------|
 | `branching` | `never` | `never` = agent works in the current branch and never creates or switches branches; `allow` = agent may create feature branches |
 
-## Template
+## The setup file — `.ai/agent-skills-setup.md`
 
-Copy this into `.ai/agent-skills-setup.md` and delete the sections you don't
-need — anything absent falls back to the skill default. The `install-status`
-section is normally written for you by the `guided-workspace-setup` skill.
+The `guided-workspace-setup` skill writes this file to record what it installed
+into the project — which skills, commands, personas, and extensions, by what
+method, and when. It reads the file on a re-run to add, update, or remove
+artifacts without reinstalling everything. No other skill loads it.
+
+| Section | Meaning |
+|---------|---------|
+| `workspace-summary` | Workspace path, coding agent, project shape, checks discovered |
+| `install-status` | Installed artifacts, their targets, and the method (`copy` or `symlink`) |
+| `verification` | Checks confirming the install |
+
+Commit this file if the team should share install state — keep paths relative
+so it stays portable. A self-referencing checkout (agent-skills itself) may
+instead `.gitignore` it, since its recorded paths are local to one machine.
+
+## Templates
+
+### `.ai/agent-skills-overrides.md`
+
+Copy this in and delete the sections you don't need — anything absent falls
+back to the skill default.
 
 ```markdown
-# Agent Skills — Project Setup
+# Agent Skills — Project Overrides
 #
-# Skills read this file and apply each section ON TOP of their built-in defaults.
+# Each section is applied ON TOP of the skill's built-in defaults.
 # Keys not listed keep the default. Absent file/section → pure defaults.
-
-## install-status
-# Maintained by the guided-workspace-setup skill.
-agent:      claude-code
-method:     copy
-skills:     [spec-driven-development, test-driven-development, code-review-and-quality]
-commands:   [spec, plan, build]
-personas:   [code-reviewer]
-extensions: []
-harnesses:  []
-updated:    2026-05-22
 
 ## spec-driven-development
 spec-dir: docs/prds/{area}
@@ -135,4 +123,31 @@ notes: |
 
 ## git-workflow-and-versioning
 branching: never
+```
+
+### `.ai/agent-skills-setup.md`
+
+Written and maintained by `guided-workspace-setup`; shown here for reference.
+
+```markdown
+# Agent Skills — Workspace Setup
+#
+# Maintained by the guided-workspace-setup skill.
+
+## workspace-summary
+agent:  claude-code
+method: copy
+shape:  <one line on the project shape>
+
+## install-status
+skills:     [spec-driven-development, test-driven-development, code-review-and-quality]
+commands:   [spec, plan, build]
+personas:   [code-reviewer]
+extensions: []
+harnesses:  []
+updated:    2026-05-22
+
+## verification
+- Every recorded artifact exists at its target path.
+- No secrets are stored in this file.
 ```

@@ -1,26 +1,28 @@
 ---
 name: guided-workspace-setup
-description: Guides installation of agent-skills artifacts into a target workspace. Use when onboarding a project to agent-skills, when installing skills, commands, prompts, personas, or pi extensions for a chosen coding agent, or when a workspace needs its setup file configured.
+description: Guides installation of agent-skills artifacts into a target workspace. Use when onboarding a project to agent-skills, when installing skills, commands, prompts, personas, or pi extensions for a chosen coding agent, or when a workspace needs its setup files configured.
 ---
 
 # Guided Workspace Setup
 
 ## Overview
 
-This skill installs and configures agent-skills artifacts — skills, agent personas, commands or prompts, pi extensions and harnesses, references, and hooks — into a target workspace for a chosen coding agent. It runs interactively, records what it installed in the target's `.ai/agent-skills-setup.md`, and can be re-run on the same workspace to add, update, or remove artifacts.
+This skill installs and configures agent-skills artifacts — skills, agent personas, commands or prompts, pi extensions and harnesses, references, and hooks — into a target workspace for a chosen coding agent. It runs interactively, writes project overrides to the target's `.ai/agent-skills-overrides.md`, records what it installed in `.ai/agent-skills-setup.md`, and can be re-run on the same workspace to add, update, or remove artifacts.
 
 ## When to Use
 
 - Onboarding a new project or workspace to agent-skills
 - Installing or changing which skills, commands, or personas a workspace uses
 - Re-running setup to add, update, or remove already-installed artifacts
-- Configuring a workspace's `.ai/agent-skills-setup.md` overrides
+- Configuring a workspace's `.ai/agent-skills-overrides.md`
 
 **NOT for:** authoring new skills or personas (use `designing-sub-agents`); editing artifacts inside the agent-skills repo itself; general context or rules-file tuning (use `context-engineering`).
 
 ## The Workflow
 
 This skill is run from the agent-skills repo with the target coding agent active, and invoked with a path to the workspace to configure. Steps are gated — nothing is written to the target workspace until the user confirms in Step 8.
+
+It maintains two files in the target's `.ai/` directory: `agent-skills-overrides.md` holds the minimal per-skill overrides that other skills read on every run, and `agent-skills-setup.md` holds the install record this skill itself reads on re-runs. The overrides file stays small; the install record absorbs the bulk.
 
 ### 1. Detect interaction capability
 
@@ -57,7 +59,7 @@ When neither the built-in map nor the agent's `*-setup.md` defines a path for a 
 
 ### 4. Analyse the workspace
 
-Scan the workspace to ground the recommendations and the setup file:
+Scan the workspace to ground the recommendations and the overrides offer:
 
 - Language, framework, and package manager (`package.json`, `go.mod`, `pyproject.toml`, …)
 - Test runner and dev-server command, where discoverable
@@ -79,9 +81,9 @@ Offer every installable artifact, grouped, as checkboxes (or a numbered list in 
 
 For an already-configured workspace, an unchecked installed item means *remove it*; a checked one means *keep or update it*.
 
-### 6. Offer setup-file overrides
+### 6. Offer project overrides
 
-From the Step 4 analysis, propose draft override sections for `.ai/agent-skills-setup.md` — `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`. Show the draft and let the user edit, accept, or skip each section. Reference env-var names for any credentials; keep secrets out of the file.
+From the Step 4 analysis, propose draft override sections for `.ai/agent-skills-overrides.md` — `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`. Write each section as terse `key: value` lines, never prose: the lifecycle skills load this file on every run and parse it by key, so it stays minimal. Show the draft and let the user edit, accept, or skip each section. Reference env-var names for any credentials; keep secrets out of the file.
 
 ### 7. Choose the install method
 
@@ -92,15 +94,15 @@ Ask `copy` or `symlink` for this run.
 
 ### 8. Confirm the plan
 
-Present the full set: artifacts to add, update, and remove; their resolved target paths; the chosen install method; and the setup-file changes. Ask the user to confirm, and write nothing until they do.
+Present the full set: artifacts to add, update, and remove; their resolved target paths; the chosen install method; and the changes to both `.ai/` files. Ask the user to confirm, and write nothing until they do.
 
 ### 9. Apply the setup
 
-Apply the changes: create directories, add or update selected artifacts, and remove deselected ones. When an existing target file differs from the source, surface the difference and ask before replacing it. Then write or update `.ai/agent-skills-setup.md` — refresh the `## install-status` section and merge in the override sections from Step 6.
+Apply the changes: create directories, add or update selected artifacts, and remove deselected ones. When an existing target file differs from the source, surface the difference and ask before replacing it. Then write both `.ai/` files: the agreed override sections from Step 6 into `.ai/agent-skills-overrides.md`, and the install record — artifacts, target paths, method, date — into `.ai/agent-skills-setup.md`.
 
 ### 10. Verify and report
 
-Confirm every selected artifact exists at its target path, and every deselected one is gone. List what changed, point the user at `.ai/agent-skills-setup.md`, and suggest loading `using-agent-skills` first in their next session.
+Confirm every selected artifact exists at its target path, and every deselected one is gone. List what changed, point the user at `.ai/agent-skills-overrides.md` and `.ai/agent-skills-setup.md`, and suggest loading `using-agent-skills` first in their next session.
 
 ## Common Rationalizations
 
@@ -111,17 +113,19 @@ Confirm every selected artifact exists at its target path, and every deselected 
 | "There is no `*-setup.md` for this agent, so I'll guess the install paths." | Guessed paths put artifacts where the agent never loads them. Read the agent's setup doc, or use the built-in map — a location is never invented. |
 | "The workspace already has a `.claude/` directory, so setup is done." | A directory existing is not install state. The `## install-status` section is the only record of what this skill installed; read it before deciding. |
 | "An existing file differs from the source, so I'll overwrite it to be safe." | The differing file may be a deliberate local edit. Surface the difference and ask; a silent overwrite destroys the user's work. |
-| "I'll skip the workspace analysis and just ask the user everything." | The analysis is what makes the override offer accurate. Asking blind produces a setup file the user has to hand-correct afterwards. |
+| "I'll skip the workspace analysis and just ask the user everything." | The analysis is what makes the override offer accurate. Asking blind produces an overrides file the user has to hand-correct afterwards. |
+| "I'll record the full install detail in the overrides file too — one place is simpler." | Other skills load the overrides file on every run. Install detail belongs only in `agent-skills-setup.md`; padding the overrides file taxes every later session. |
 
 ## Red Flags
 
 - Files written to the target workspace before the Step 8 confirmation.
 - An artifact installed to a path backed by neither the built-in map nor the agent's `*-setup.md`.
 - `.ai/agent-skills-setup.md` left unchanged after artifacts were added or removed.
-- Credentials or secrets written into `.ai/agent-skills-setup.md`.
+- Credentials or secrets written into either `.ai/` file.
 - Every skill installed when the workspace needs a handful.
 - An existing, differing target file overwritten without asking the user.
 - A re-run that ignores the existing `## install-status` and reinstalls everything.
+- The overrides file padded with install status, summaries, or prose instead of terse `key: value` sections.
 
 ## Verification
 
@@ -130,6 +134,7 @@ After completing the workflow, confirm:
 - [ ] The workspace path was validated as an existing directory before any write.
 - [ ] The coding agent was confirmed, and `docs/<agent>-setup.md` was read for `opencode`/`pi` (or the built-in map used for `claude-code`).
 - [ ] Every selected artifact exists at its resolved target path; every deselected one was removed.
-- [ ] `.ai/agent-skills-setup.md` exists in the workspace with an up-to-date `## install-status` section and the agreed override sections.
-- [ ] No secrets were written to `.ai/agent-skills-setup.md`.
+- [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.
+- [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record.
+- [ ] No secrets were written to either `.ai/` file.
 - [ ] The user confirmed the plan in Step 8 before any file was written.
