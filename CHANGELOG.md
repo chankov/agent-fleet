@@ -1,5 +1,22 @@
 # agent-skills changelog
 
+## 0.3.3
+
+### Patch Changes
+
+- Ship `scripts/coms-net-server.ts` in the npm tarball.
+
+  The `coms-net` pi harness shells out to this hub server at runtime
+  (`.pi/harnesses/coms-net/index.ts` and its README both reference it),
+  but the file was missing from the `files` allowlist — so users who
+  installed via `npx @chankov/agent-skills init` and tried to start the
+  coms-net harness got `MODULE_NOT_FOUND`.
+
+  Added `scripts/*.ts` to the allowlist (the `.test.mjs` siblings stay
+  out — they're dev-only), and added `scripts/` to `snapshot-version.js`
+  so future `.versions/<x.y.z>/` snapshots include it for the version-
+  aware three-way diff.
+
 ## 0.3.1
 
 ### Patch Changes
