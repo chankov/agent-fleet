@@ -25,8 +25,37 @@
 //               (global install / git clone). Warning printed if the
 //               source path looks like an npx cache.
 
-import { existsSync, mkdirSync, copyFileSync, symlinkSync, unlinkSync, lstatSync, rmSync, readdirSync, rmdirSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, symlinkSync, unlinkSync, lstatSync, rmSync, readdirSync, rmdirSync, writeFileSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+
+// Marker file the skill reads to find the authoritative source root. Written
+// by bootstrap, deleted by cleanupInstaller. Without this, the skill would
+// have to guess the source root from its own SKILL.md location — but bootstrap
+// copies SKILL.md into the workspace, so that heuristic always lies.
+const BOOTSTRAP_MARKER = join(".ai", ".agent-skills-bootstrap.json");
+
+function writeMarker({ workspace, sourceRoot, agent, method }) {
+  const path = join(workspace, BOOTSTRAP_MARKER);
+  const version = readPackageVersion(sourceRoot);
+  const payload = {
+    sourceRoot,
+    version,
+    agent,
+    method,
+    bootstrappedAt: new Date().toISOString(),
+    _comment: "Written by `npx @chankov/agent-skills init`. Read by the guided-workspace-setup skill to locate the source package. Safe to delete; will be regenerated on next init.",
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(payload, null, 2) + "\n", "utf8");
+  return path;
+}
+
+function readPackageVersion(sourceRoot) {
+  try {
+    const pkg = JSON.parse(readFileSync(join(sourceRoot, "package.json"), "utf8"));
+    return pkg.version;
+  } catch { return null; }
+}
 
 // (agent → list of {kind, src, dest}) — kind is just for the report.
 //
@@ -184,6 +213,20 @@ export function bootstrap({ agent, sourceRoot, workspace, method, dryRun = false
     }
   }
 
+  // Write the marker file as the LAST step — only after all the bootstrap
+  // files landed successfully. If the marker exists, the skill trusts it
+  // absolutely; if it does not, the skill falls back to safer paths.
+  if (!dryRun && written.length > 0) {
+    try {
+      const markerPath = writeMarker({ workspace, sourceRoot, agent, method });
+      written.push({ kind: "marker", dest: markerPath, method: "write" });
+    } catch (err) {
+      warnings.push(`could not write bootstrap marker: ${err.message}`);
+    }
+  } else if (dryRun) {
+    written.push({ kind: "marker", dest: join(workspace, BOOTSTRAP_MARKER), method: "write" });
+  }
+
   return { written, skipped, removed, warnings };
 }
 
@@ -205,6 +248,18 @@ export function bootstrap({ agent, sourceRoot, workspace, method, dryRun = false
 export function cleanupInstaller({ agent, workspace, dryRun = false }) {
   const planned = plan({ agent, sourceRoot: workspace, workspace });
   const removed = [], kept = [], warnings = [];
+
+  // Marker file goes too — it pointed at a source root that no longer
+  // matters once the install is done.
+  const markerPath = join(workspace, BOOTSTRAP_MARKER);
+  if (existsSync(markerPath)) {
+    if (dryRun) {
+      removed.push(markerPath);
+    } else {
+      try { unlinkSync(markerPath); removed.push(markerPath); }
+      catch (err) { warnings.push(`could not remove ${relative(workspace, markerPath)}: ${err.message}`); }
+    }
+  }
 
   for (const item of planned) {
     if (!existsSync(item.dest) && !isSymlink(item.dest)) {

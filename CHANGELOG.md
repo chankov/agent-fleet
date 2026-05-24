@@ -1,5 +1,41 @@
 # agent-skills changelog
 
+## 0.3.1
+
+### Patch Changes
+
+- Fix: skill resolved the wrong source root on dev machines that have a
+  local clone of `agent-skills`.
+
+  Before this fix, `init` bootstrapped the `guided-workspace-setup` SKILL.md
+  into the workspace at `.pi/skills/...` (or `.claude/skills/...`). When the
+  slash command later loaded the skill, the skill's Step 2 used a "two levels
+  above this file" heuristic to find the source package — but that path
+  resolved to the _workspace_, not the npm package. The skill then fell back
+  to scanning the user's filesystem with `find`, which on a dev machine
+  matched the user's own git clone of `agent-skills`. The clone could be
+  on a different version, mid-edit, or contain experimental skills the user
+  hadn't intended to install.
+
+  The fix:
+
+  1. **`init` now writes `.ai/.agent-skills-bootstrap.json`** containing the
+     absolute path to the source package (the npm cache path, the global
+     install path, or the symlinked clone — whatever `init` was run from).
+  2. **The skill reads this marker first** when resolving the source root.
+     The marker is authoritative; it overrides any older source reference in
+     the install record.
+  3. **The skill never scans the filesystem.** If the marker is missing or
+     stale (path no longer exists), it asks the user for the path explicitly.
+     `find /media/...`, `find ~/repos/...`, etc. are explicitly listed as red
+     flags in the skill's anti-pattern table.
+  4. **The marker file is removed** by Step 10b cleanup alongside the
+     slash commands.
+
+  Affects only the skill's behaviour after `init` — no user-facing CLI
+  changes. Workspaces upgraded from 0.2.x get the marker on their next
+  `npx @chankov/agent-skills init`.
+
 ## 0.3.0
 
 ### Minor Changes

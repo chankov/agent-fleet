@@ -67,6 +67,36 @@ list. Re-run `npx @chankov/agent-skills init` whenever you want
 to the Step 9 confirmation prompt — the skill will record
 `keep-installer: true` in `.ai/agent-skills-setup.md`.
 
+### How the skill finds the source package
+
+`init` writes one extra file alongside the bootstrap: `.ai/.agent-skills-bootstrap.json`.
+This is the **authoritative** record of where the npm package lives:
+
+```json
+{
+  "sourceRoot": "/home/you/.npm/_npx/<hash>/node_modules/@chankov/agent-skills",
+  "version": "0.3.0",
+  "agent": "pi",
+  "method": "copy",
+  "bootstrappedAt": "2026-05-24T..."
+}
+```
+
+When `/setup-agent-skills` runs inside your agent, it reads this marker
+*first* to find the source package. This matters on dev machines where you
+may also have a git clone of `agent-skills` elsewhere — the marker prevents
+the skill from accidentally using that clone instead of the version the
+user just installed via npm.
+
+If the marker is missing or its `sourceRoot` no longer exists (e.g. npx
+cleaned its cache), the skill **asks you explicitly** for the path. It
+never scans your filesystem for other agent-skills repos — that would
+silently pick up forks, stale checkouts, or dev clones that aren't what
+you installed.
+
+The marker is removed by the same Step 10b cleanup that removes the
+slash commands.
+
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `--agent <claude-code\|opencode\|pi>` | auto-detect | Skip the agent prompt |

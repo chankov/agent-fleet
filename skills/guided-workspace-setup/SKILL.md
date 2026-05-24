@@ -34,9 +34,16 @@ Determine which interaction mode this runtime supports, in order of preference:
 
 ### 2. Resolve inputs
 
-Resolve four things. Accept any already supplied in the invocation (the `npx agent-skills init` CLI passes the first three as flags); otherwise ask.
+Resolve four things. Accept any already supplied in the invocation (the `npx @chankov/agent-skills init` CLI passes the first three as flags); otherwise ask.
 
-- **Source root** — the agent-skills package. Derive it from this `SKILL.md`'s own location: `skills/guided-workspace-setup/` sits two levels below the package root. When installed via npm, the package root is `node_modules/agent-skills/` or the `npx` cache.
+- **Source root** — the agent-skills package. **Resolution priority (use the first that works; never fall through silently):**
+
+  1. **Bootstrap marker** — read `<workspace>/.ai/.agent-skills-bootstrap.json` if present. Its `sourceRoot` field is authoritative; the CLI wrote it during `init` and it points at the exact package the user's install came from (npm cache, global install, or symlinked clone). Verify the path still exists and contains a `package.json` whose `name` is `@chankov/agent-skills`; if so, use it and **stop**. If the path no longer exists (e.g. npx cache was cleaned), warn the user and continue to step 2.
+  2. **SKILL.md realpath** — only if the marker is missing. If this `SKILL.md` is a symlink, follow it with `readlink`/`realpath` and use the resolved package root. **Do not** use the SKILL.md's *workspace* location (e.g. `.pi/skills/guided-workspace-setup/`) — bootstrap copies the file there, so that path is the workspace, not the source. The realpath only helps in symlink mode.
+  3. **Ask the user explicitly.** Print: *"Source root not found. Run `npx @chankov/agent-skills@latest init` to bootstrap, or paste an absolute path to the package."* Verify the answer is a directory whose `package.json#name` is `@chankov/agent-skills`. **Do not scan the user's filesystem** for other agent-skills repos — that is invasive and produces wrong answers (it will pick up dev clones, forks, or stale copies).
+
+  The install record's `## install-status` may *also* mention an older source root from a previous setup pass; ignore it for resolution. The bootstrap marker overrides it because it reflects what the user just ran. Note the divergence in the Step 9 summary so the user sees the change.
+
 - **Workspace path** — the target project to configure. Confirm the path exists and is a directory; stop and ask again if it does not.
 - **Coding agent** — `claude-code`, `opencode`, or `pi`. Detect the running agent from the runtime, show it to the user, and let them choose a different one.
 - **Package version** — read `version` from the source root's `package.json`. This is the version that will be stamped into the install record in Step 10, and the right-hand side of every version-aware diff in Step 6.
@@ -266,6 +273,8 @@ Close the report with one line explaining the installer-cleanup outcome:
 | "There's an unfamiliar skill in `.claude/skills/` — the user must have forgotten to uncheck it, I'll remove it." | The removal scope rule exists exactly to prevent this. If the name is not in the agent-skills inventory or not in `## install-status`, it is user-owned; leave it alone and log it as skipped. |
 | "The user wants a clean workspace — I'll prune custom hooks and unrelated MCP entries from `settings.json` too." | Setting-file edits are limited to agent-skills' own hook registrations. Touching anything else silently deletes work that does not belong to this skill. |
 | "`/setup-agent-skills` and `/doctor-agent-skills` are useful — I'll re-install them at the end of apply so the user can re-run them locally." | They are installer commands that the CLI bootstraps and the skill itself cleans up in Step 10b by default. Keeping them is opt-in via `keep` in Step 9. Re-installing them silently undoes the cleanup the user implicitly chose. |
+| "The bootstrap marker is missing — I'll search the user's `~/repos/`, `~/projects/`, and `/media/` for any clone of `agent-skills` to use as the source root." | Scanning the user's filesystem picks up dev clones, forks, half-edited working trees, and stale checkouts that are NOT the package the user installed from. The npm-installed copy is the only authoritative source after `init`. Without the marker, ask the user explicitly — never guess. |
+| "This `SKILL.md` is two levels below the workspace's `.pi/skills/`, so the workspace root must be the source root." | Bootstrap copies `SKILL.md` into the workspace precisely so the slash command can load it. The workspace is the *target* of the install, not the source. Use the marker file to find the real source; resolving from `SKILL.md`'s workspace location always lies. |
 | "The recorded version differs from the current — I'll just refresh everything to the new source without showing the diff." | Conflicting upgrades (user-modified copy + source changed upstream) require the three-way diff to be shown in Step 6, with the row pre-unchecked. Refreshing silently overwrites work the user did between versions. |
 | "The `.versions/<recorded>/` snapshot is missing — I'll pretend the installed copy matches the recorded source and refresh anyway." | A missing snapshot means we cannot compute the three-way diff. The skill must fall back to "treat installed copy as canonical" and surface the missing snapshot in the row's status so the user can decide — never pretend a diff exists. |
 | "The workspace has no `version:` line — I'll silently stamp the current version and move on." | A pre-versioning workspace must be flagged in Step 4 and the user prompted: stamp the current version (assume copies match) or wipe and reinstall. Silent stamping hides a real decision. |
@@ -297,6 +306,9 @@ Close the report with one line explaining the installer-cleanup outcome:
 - A pre-versioning workspace stamped with the current version without prompting the user first.
 - The post-apply `version:` line not matching the package version from Step 2.
 - Step 9 summary missing the installer-cleanup line, or the line stated `keep` as the default.
+- Source root resolved by scanning the filesystem for `agent-skills` repos (`find`, `fd`, `grep -r`, …) instead of using `.ai/.agent-skills-bootstrap.json` or asking the user.
+- Source root resolved by treating `SKILL.md`'s workspace location (`.pi/skills/...` or `.claude/skills/...`) as the package root.
+- The bootstrap marker file (`.ai/.agent-skills-bootstrap.json`) ignored when present, or trusted blindly when the path it names no longer exists.
 - Installer files (`setup-agent-skills`, `doctor-agent-skills`, the `guided-workspace-setup` skill body) left in place without a recorded `keep-installer: true`.
 - `setup-agent-skills` or `doctor-agent-skills` shown as install-menu rows.
 - Step 11 report omitting the one-line installer-cleanup outcome.
@@ -322,6 +334,8 @@ After completing the workflow, confirm:
 - [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" block sourced from `CHANGELOG.md`.
 - [ ] Every `conflicting upgrade` row was rendered with its three-way diff in Step 6 and was not pre-checked.
 - [ ] A pre-versioning workspace was flagged in Step 4 and the user was prompted to stamp or wipe — not silently stamped.
+- [ ] Source root was resolved from `.ai/.agent-skills-bootstrap.json` if present, or from `SKILL.md`'s realpath (symlink mode), or by asking the user — **never** by scanning the filesystem.
+- [ ] If the bootstrap marker named a path that no longer exists, the user was warned and asked for a new path — not silently ignored.
 - [ ] Step 9 summary ended with the installer-cleanup line: states remove-by-default and offers `keep` as the opt-out.
 - [ ] Step 10b ran (or was explicitly skipped because `keep-installer: true`); the installer files are absent from the workspace unless the user opted to keep them.
 - [ ] Step 11 report includes the one-line installer-cleanup outcome.
