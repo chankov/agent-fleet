@@ -1,0 +1,63 @@
+# .npmignore — belt-and-braces for the `files` allowlist in package.json.
+# The `files` field is the source of truth; this file just guarantees that
+# things which slip past it (e.g. dotfiles in shipped dirs) stay out of the
+# published tarball.
+
+# Editor + OS noise
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Nested node_modules — pi extensions and harnesses install their own deps;
+# the user re-installs after init, we never ship vendored copies.
+**/node_modules
+**/node_modules/**
+node_modules
+node_modules/**
+.pi/extensions/node_modules
+.pi/extensions/node_modules/**
+.pi/harnesses/*/node_modules
+.pi/harnesses/*/node_modules/**
+.versions/*/.pi/extensions/node_modules
+.versions/*/.pi/extensions/node_modules/**
+.versions/*/.pi/harnesses/*/node_modules
+.versions/*/.pi/harnesses/*/node_modules/**
+
+# Lockfiles for nested packages travel with the package source so deps resolve
+# reproducibly when the user runs `npm install` inside an extension dir.
+# (We do not list package-lock.json under an ignore — keep it.)
+
+# Tooling
+node_modules/
+.changeset/
+.github/
+.gitignore
+.npmrc
+
+# Source-of-truth docs that live in the repo but should not ship
+docs/ideas/
+docs/prds/
+docs/plans/
+docs/pi-specs/
+
+# Build / runtime artifacts
+.pi/agent-sessions/
+.playwright-cli/
+tmp/
+.ai/
+
+# Local install state — must never ship
+.agents/
+.claude/settings.json
+.claude/settings.local.json
+.claude/.simplify-ignore-cache/
+.opencode/agents/
+.pi/settings.json
+scripts/
+justfile
+
+# Project meta
+AGENTS.md
+CLAUDE.md
+CONTRIBUTING.md

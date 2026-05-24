@@ -1,0 +1,86 @@
+{
+  "name": "@chankov/agent-skills",
+  "version": "0.1.0",
+  "description": "Production-grade engineering skills for AI coding agents. Ships skills, agent personas, slash commands, and pi extensions, with a thin CLI that hands off to the LLM-driven guided setup.",
+  "keywords": [
+    "ai",
+    "agent",
+    "claude",
+    "claude-code",
+    "opencode",
+    "pi",
+    "skills",
+    "agent-skills",
+    "llm",
+    "coding-agent"
+  ],
+  "homepage": "https://github.com/chankov/agent-skills",
+  "bugs": {
+    "url": "https://github.com/chankov/agent-skills/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chankov/agent-skills.git"
+  },
+  "license": "MIT",
+  "author": "Nikolay Chankov",
+  "type": "module",
+  "bin": {
+    "agent-skills": "./bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "skills/",
+    "agents/",
+    ".claude/commands/",
+    ".opencode/commands/",
+    ".pi/prompts/",
+    ".pi/extensions/*.json",
+    ".pi/extensions/*/index.ts",
+    ".pi/extensions/*/package.json",
+    ".pi/extensions/*/README.md",
+    ".pi/harnesses/*.json",
+    ".pi/harnesses/*/index.ts",
+    ".pi/harnesses/*/package.json",
+    ".pi/harnesses/*/README.md",
+    ".pi/skills/",
+    ".pi/agents/",
+    ".pi/damage-control-rules.yaml",
+    "references/",
+    "hooks/",
+    "docs/agent-skills-setup.md",
+    "docs/pi-extensions.md",
+    "docs/npm-install.md",
+    "docs/skill-anatomy.md",
+    "docs/getting-started.md",
+    "docs/cursor-setup.md",
+    "docs/copilot-setup.md",
+    "docs/gemini-cli-setup.md",
+    "docs/opencode-setup.md",
+    "docs/pi-setup.md",
+    "docs/windsurf-setup.md",
+    ".versions/",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "!**/node_modules",
+    "!**/node_modules/**",
+    "!**/.DS_Store"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node bin/cli.js --version && node bin/cli.js --help",
+    "pack:dry": "npm pack --dry-run",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.1"
+  }
+}

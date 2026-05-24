@@ -35,10 +35,33 @@ Skills also activate automatically based on what you're doing — designing an A
 
 ## Quick Start
 
-<details>
-<summary><b>Claude Code (recommended)</b></summary>
+```bash
+# In the workspace you want to configure:
+npx @chankov/agent-skills init
+# Then open your coding agent in this directory and run:
+#   /setup
+```
 
-**Marketplace install:**
+That's it. `npx` fetches the package, the CLI detects your coding agent
+(Claude Code, OpenCode, or pi), and `/setup` runs the full guided install —
+analysing the workspace, showing grouped menus, and confirming everything
+before writing a single file.
+
+Three CLI commands:
+
+| Command | What it does |
+|---|---|
+| `npx @chankov/agent-skills init` | Materialize the package + hand off to `/setup` |
+| `npx @chankov/agent-skills doctor` | Scan for broken symlinks and stale persona refs |
+| `npx @chankov/agent-skills update` | Surface the version delta + hand off to `/setup` for the per-artifact diff |
+
+Versioned with [semver](https://semver.org); changelog in
+[CHANGELOG.md](CHANGELOG.md); full docs in [docs/npm-install.md](docs/npm-install.md).
+
+### Other install paths
+
+<details>
+<summary><b>Claude Code plugin marketplace</b> — best UX inside Claude Code</summary>
 
 ```
 /plugin marketplace add chankov/agent-skills
@@ -50,12 +73,20 @@ Skills also activate automatically based on what you're doing — designing an A
 > git config --global url."https://github.com/".insteadOf "git@github.com:"
 > ```
 
-**Local / development:**
+</details>
+
+<details>
+<summary><b>Git clone + symlinks</b> — best for skill authors and contributors</summary>
 
 ```bash
 git clone https://github.com/chankov/agent-skills.git
-claude --plugin-dir /path/to/agent-skills
+cd agent-skills
+# In Claude Code:
+claude --plugin-dir .
+# Then run /setup in your target workspace and pick "symlink" in Step 8.
 ```
+
+Updates flow through `git pull`. Symlinks need Developer Mode on Windows.
 
 </details>
 

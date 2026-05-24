@@ -78,9 +78,42 @@ artifacts without reinstalling everything. No other skill loads it.
 
 | Section | Meaning |
 |---------|---------|
-| `workspace-summary` | Workspace path, coding agent, project shape, checks discovered |
+| `workspace-summary` | Workspace path, coding agent, **agent-skills version**, project shape, checks discovered |
 | `install-status` | Installed artifacts, their targets, and the method (`copy` or `symlink`) |
+| `doctor-runs` | One line per doctor pass (preflight / postflight, repaired / deleted / skipped counts) |
 | `verification` | Checks confirming the install |
+
+### The `version:` line
+
+`workspace-summary` carries a `version:` line set to the package version that
+performed the install (e.g. `version: 1.4.2`). It drives the version-aware
+update flow — on every re-run, `guided-workspace-setup` compares this against
+the current package version and:
+
+1. Reads `CHANGELOG.md` between the two versions.
+2. For each installed artifact, runs a three-way diff between
+   *source@recorded*, the installed copy on disk, and *source@current*.
+3. Surfaces the result in the install menu using these `Status` values:
+
+| Status | Meaning |
+|---|---|
+| `installed · upgrade available` | Source changed upstream; user copy still matches the old source → clean refresh |
+| `installed · conflicting upgrade` | Source changed upstream AND user modified the copy → menu shows the three-way diff before overwriting |
+| `installed · removed upstream` | Artifact gone in the new version → menu proposes deletion (subject to the removal-scope rule) |
+| `not installed · new in this version` | New artifact added in the new version → menu offers it, marked `★` if recommended |
+
+The diff sources at *source@recorded* are read from the package's
+`.versions/<x.y.z>/` snapshot tree, which the release pipeline writes for every
+published version. If the snapshot is missing (e.g. an unpublished local
+build), the skill falls back to "treat installed copy as canonical" and
+prompts for an explicit baseline.
+
+### Pre-versioning workspaces
+
+A workspace whose `agent-skills-setup.md` predates the `version:` line is
+treated as "pre-versioning". On first re-run, `guided-workspace-setup` prompts
+for a clean baseline: either accept the installed artifacts as matching the
+current source (stamp the current version), or re-run the install from scratch.
 
 Commit this file if the team should share install state — keep paths relative
 so it stays portable. A self-referencing checkout (agent-skills itself) may
@@ -135,9 +168,10 @@ Written and maintained by `guided-workspace-setup`; shown here for reference.
 # Maintained by the guided-workspace-setup skill.
 
 ## workspace-summary
-agent:  claude-code
-method: copy
-shape:  <one line on the project shape>
+agent:   claude-code
+method:  copy
+version: 1.4.2
+shape:   <one line on the project shape>
 
 ## install-status
 skills:     [spec-driven-development, test-driven-development, code-review-and-quality]

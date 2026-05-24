@@ -34,11 +34,12 @@ Determine which interaction mode this runtime supports, in order of preference:
 
 ### 2. Resolve inputs
 
-Resolve three things. Accept any already supplied in the invocation; otherwise ask.
+Resolve four things. Accept any already supplied in the invocation (the `npx agent-skills init` CLI passes the first three as flags); otherwise ask.
 
-- **Source root** — the agent-skills repo. Derive it from this `SKILL.md`'s own location: `skills/guided-workspace-setup/` sits two levels below the repo root.
+- **Source root** — the agent-skills package. Derive it from this `SKILL.md`'s own location: `skills/guided-workspace-setup/` sits two levels below the package root. When installed via npm, the package root is `node_modules/agent-skills/` or the `npx` cache.
 - **Workspace path** — the target project to configure. Confirm the path exists and is a directory; stop and ask again if it does not.
 - **Coding agent** — `claude-code`, `opencode`, or `pi`. Detect the running agent from the runtime, show it to the user, and let them choose a different one.
+- **Package version** — read `version` from the source root's `package.json`. This is the version that will be stamped into the install record in Step 10, and the right-hand side of every version-aware diff in Step 6.
 
 ### 3. Read the agent's setup conventions
 
@@ -66,8 +67,14 @@ Scan the workspace to ground the recommendations and the overrides offer:
 - Test runner and dev-server command, where discoverable
 - Git presence and current branch
 - Existing agent directories (`.claude/`, `.opencode/`, `.pi/`)
-- Existing `.ai/agent-skills-setup.md` — read its `## install-status` section to learn what is already installed
+- Existing `.ai/agent-skills-setup.md` — read its `## install-status` section to learn what is already installed, **and the `version:` line in `## workspace-summary` to learn which package version performed the install**
 - An existing `.ai/agent-skills-setup.md` (or any populated agent directory) means this workspace has prior state — flag it for Step 5
+
+**Version delta.** Compare the recorded `version:` against the package version from Step 2:
+
+- Missing `version:` → workspace is **pre-versioning**. Prompt the user: "This workspace was set up before agent-skills used semver. Stamp it as `v<current>` (assume installed copies match the current source), or wipe and reinstall?" Do not run the three-way diff for pre-versioning workspaces — there is no recorded baseline.
+- Recorded `version:` equals current → no version-driven menu changes; Step 6 only surfaces content-level drift.
+- Recorded `version:` differs from current → load `CHANGELOG.md` between the two versions, and load the `.versions/<recorded>/` snapshot from the source root. Both feed Step 6.
 
 Report a short summary of the findings before continuing.
 
@@ -118,9 +125,21 @@ Offer every installable artifact, split into the groups below. **Each group is i
 | `installed · up to date` | `[x]` | no-op (kept as-is) |
 | `installed · outdated` (source newer than the installed copy; copy-mode only) | `[x]` | refresh to current source |
 | `installed · modified` (target diverged from source) | `[x]` | refresh from source — **local edits will be overwritten**; untick to preserve them |
+| `installed · upgrade available` (recorded version != current; user copy still matches the recorded-version source) | `[x]` | clean refresh to the current-version source |
+| `installed · conflicting upgrade` (recorded version != current; user modified the copy AND source changed upstream) | `[ ]` | nothing — show the three-way diff (recorded vs installed vs current) inline and ask before any write; tick only after the user accepts the overwrite |
+| `installed · removed upstream` (artifact gone in the current version) | `[x]` | propose deletion in Step 10 (subject to the removal-scope rule); untick to keep the local copy |
 | `not installed` | `[ ]` | nothing — unless the user ticks it to install |
+| `not installed · new in this version` (artifact added between recorded and current) | `[ ]` | nothing — unless the user ticks it; marked `★` if recommended |
 | `broken · skipped in preflight` (carried over from Step 5) | `[ ]` | remove the dangling link in Step 10; tick it to attempt repair instead |
 | `not installed · ★ recommended` | `[ ]` | nothing — unless the user ticks it or replies `recommended` |
+
+**The three-way diff for `conflicting upgrade`.** For each row in that state, compare:
+
+- *source @ recorded* — read from `<source-root>/.versions/<recorded-version>/<artifact-path>`
+- *installed copy* — read from the target path in the workspace
+- *source @ current* — read from `<source-root>/<artifact-path>`
+
+If the recorded snapshot is missing (unpublished local build, or a version older than the snapshot retention), fall back to "treat installed copy as canonical" — do not pretend a diff exists. Mention the missing snapshot in the row's status text so the user can decide.
 
 After the table, ask: *"Which items in this group? — adjust the picks, or reply `all` / `recommended` / `none` / `keep` (keep the pre-selection as shown)."* `recommended` ticks every `★` item **in addition to** the already-installed pre-selection (so the user never accidentally removes installed items by accepting recommendations). `keep` is the no-change shortcut.
 
@@ -186,7 +205,7 @@ Ask `copy` or `symlink` for this run.
 
 ### 9. Confirm the plan
 
-Present the full set as one summary table — artifacts to add, update, and remove; their resolved target paths; the chosen install method; and the changes to both `.ai/` files. Ask the user to confirm, and write nothing until they do.
+Present the full set as one summary table — artifacts to add, update, and remove; their resolved target paths; the chosen install method; and the changes to both `.ai/` files. When the version delta from Step 4 is non-empty, lead the summary with a one-line "Changes since `v<recorded>` → `v<current>`" block sourced from `CHANGELOG.md` (only the entries between the two versions, not the full file). Ask the user to confirm, and write nothing until they do.
 
 ### 10. Apply the setup
 
@@ -196,11 +215,11 @@ Apply the changes: create directories, add or update selected artifacts, and rem
 
 For settings files (`.claude/settings.json` and equivalents), edit only the agent-skills hook entries; leave every other key — user permissions, env vars, third-party MCP servers, custom hooks — untouched.
 
-Then write both `.ai/` files: the agreed override sections from Step 7 into `.ai/agent-skills-overrides.md`, and the install record — artifacts, target paths, method, date — into `.ai/agent-skills-setup.md`.
+Then write both `.ai/` files: the agreed override sections from Step 7 into `.ai/agent-skills-overrides.md`, and the install record — artifacts, target paths, method, **package version**, date — into `.ai/agent-skills-setup.md`. The `version:` line in `## workspace-summary` is set to the package version from Step 2; this is what the next re-run will compare against to compute the version delta.
 
 ### 11. Verify and report
 
-Re-scan the install-target directories one more time and confirm: every selected artifact exists at its target path, every deselected one is gone, and zero broken symlinks remain. If the post-apply scan surfaces any new breakage, treat it as a doctor finding and offer the same repair options as Step 5, then append a second `## doctor-runs` line with `phase: postflight`. List what changed, point the user at `.ai/agent-skills-overrides.md` and `.ai/agent-skills-setup.md`, and suggest loading `using-agent-skills` first in their next session.
+Re-scan the install-target directories one more time and confirm: every selected artifact exists at its target path, every deselected one is gone, and zero broken symlinks remain. Also re-read `.ai/agent-skills-setup.md` and verify the `version:` line matches the package version from Step 2 — a mismatch here means the apply pass did not stamp the new version, and must be corrected before the next re-run computes the wrong delta. If the post-apply scan surfaces any new breakage, treat it as a doctor finding and offer the same repair options as Step 5, then append a second `## doctor-runs` line with `phase: postflight`. List what changed, point the user at `.ai/agent-skills-overrides.md` and `.ai/agent-skills-setup.md`, and suggest loading `using-agent-skills` first in their next session.
 
 ## Common Rationalizations
 
@@ -219,6 +238,9 @@ Re-scan the install-target directories one more time and confirm: every selected
 | "There's an unfamiliar skill in `.claude/skills/` — the user must have forgotten to uncheck it, I'll remove it." | The removal scope rule exists exactly to prevent this. If the name is not in the agent-skills inventory or not in `## install-status`, it is user-owned; leave it alone and log it as skipped. |
 | "The user wants a clean workspace — I'll prune custom hooks and unrelated MCP entries from `settings.json` too." | Setting-file edits are limited to agent-skills' own hook registrations. Touching anything else silently deletes work that does not belong to this skill. |
 | "`/setup` and `/doctor` are useful — I'll install them into the workspace so the user can re-run them locally." | They are installer commands; they ship with the source agent-skills repo and act on workspaces from there. Installing them into a target duplicates the install surface and gives the target a path to manipulate itself. |
+| "The recorded version differs from the current — I'll just refresh everything to the new source without showing the diff." | Conflicting upgrades (user-modified copy + source changed upstream) require the three-way diff to be shown in Step 6, with the row pre-unchecked. Refreshing silently overwrites work the user did between versions. |
+| "The `.versions/<recorded>/` snapshot is missing — I'll pretend the installed copy matches the recorded source and refresh anyway." | A missing snapshot means we cannot compute the three-way diff. The skill must fall back to "treat installed copy as canonical" and surface the missing snapshot in the row's status so the user can decide — never pretend a diff exists. |
+| "The workspace has no `version:` line — I'll silently stamp the current version and move on." | A pre-versioning workspace must be flagged in Step 4 and the user prompted: stamp the current version (assume copies match) or wipe and reinstall. Silent stamping hides a real decision. |
 
 ## Red Flags
 
@@ -239,6 +261,10 @@ Re-scan the install-target directories one more time and confirm: every selected
 - An existing, differing target file overwritten without asking the user.
 - A re-run that ignores the existing `## install-status` and reinstalls everything.
 - The overrides file padded with install status, summaries, or prose instead of terse `key: value` sections.
+- A re-run that detects a non-empty version delta but skips the "Changes since v<recorded> → v<current>" block in Step 9.
+- A `conflicting upgrade` row pre-checked, or the three-way diff omitted for it.
+- A pre-versioning workspace stamped with the current version without prompting the user first.
+- The post-apply `version:` line not matching the package version from Step 2.
 
 ## Verification
 
@@ -257,7 +283,10 @@ After completing the workflow, confirm:
 - [ ] Out-of-inventory and unrecorded items found in the install-target directories were left untouched and logged under "Skipped — not owned by agent-skills".
 - [ ] Settings-file edits were limited to agent-skills' own hook entries; no user keys, env vars, or third-party MCP entries were modified.
 - [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.
-- [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session.
+- [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session, and a `version:` line in `## workspace-summary` that matches the package version from Step 2.
+- [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" block sourced from `CHANGELOG.md`.
+- [ ] Every `conflicting upgrade` row was rendered with its three-way diff in Step 6 and was not pre-checked.
+- [ ] A pre-versioning workspace was flagged in Step 4 and the user was prompted to stamp or wipe — not silently stamped.
 - [ ] No broken symlinks remain in any of the scanned install-target directories.
 - [ ] No YAML config references a removed persona name.
 - [ ] No secrets were written to either `.ai/` file.

@@ -8,6 +8,16 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 
 **Skills are not reference docs.** They're step-by-step processes the agent follows.
 
+## Install path — which one fits you?
+
+| Audience | Path | Why |
+|---|---|---|
+| **Most users** — you want to use the skills in your projects | `npx @chankov/agent-skills init` | One command; semver updates; cross-platform; no source dir to babysit. See [docs/npm-install.md](npm-install.md). |
+| **Claude Code users** — you live in Claude Code and want plugin-managed updates | `/plugin marketplace add chankov/agent-skills` | Best UX inside Claude Code; marketplace handles the lifecycle. |
+| **Skill authors / contributors** — you want to edit the skills and have changes flow into every connected workspace | `git clone` + `symlink` mode in `/setup` | Edit-in-place; every connected workspace sees the change instantly. |
+
+All three converge on the same `guided-workspace-setup` skill — they only differ in how the source files reach your workspace. None is being deprecated.
+
 ## Quick Start (Any Agent)
 
 ### 1. Clone the repository
@@ -15,6 +25,10 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 ```bash
 git clone https://github.com/chankov/agent-skills.git
 ```
+
+> Skip this step if you installed via npm — the package contents are already
+> in `node_modules/agent-skills/`. Use that path wherever this guide refers to
+> "the agent-skills repo."
 
 ### 2. Choose a skill
 

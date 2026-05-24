@@ -5,11 +5,15 @@ This is the agent-skills project — a collection of production-grade engineerin
 ## Project Structure
 
 ```
+bin/          → npm CLI: cli.js (agent-skills entrypoint), lib/{doctor,detect-agent}.js, snapshot-version.js
 skills/       → Core skills (SKILL.md per directory)
 agents/       → Reusable agent personas (code-reviewer, test-engineer, security-auditor)
 hooks/        → Session lifecycle hooks
 scripts/      → Standalone scripts (coms-net hub server for the coms-net pi extension)
 justfile      → Recipes to launch pi with each harness
+.changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
+.versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
+.github/workflows/release.yml → On merge to main: opens "Version Packages" PR or runs `changeset publish`
 .claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-agent, /prime, /setup)
 .opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ — keep in sync
 .pi/prompts/  → pi-native lifecycle prompt templates
@@ -19,7 +23,7 @@ justfile      → Recipes to launch pi with each harness
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harnesses
 references/   → Supplementary checklists (testing, performance, security, accessibility)
-docs/         → Setup guides, agent-skills-setup.md (per-project overrides + install-record convention), plus pi-extensions.md and pi-specs/ for the pi extensions
+docs/         → Setup guides, agent-skills-setup.md (per-project overrides + install-record convention), npm-install.md (CLI + versioning), plus pi-extensions.md and pi-specs/ for the pi extensions
 ```
 
 ## Skills by Phase
@@ -45,7 +49,10 @@ docs/         → Setup guides, agent-skills-setup.md (per-project overrides + i
 
 ## Commands
 
-- `npm test` — Not applicable (this is a documentation project)
+- `npm test` — Runs `node bin/cli.js --version && node bin/cli.js --help` as a basic CLI smoke test
+- `npm run pack:dry` — `npm pack --dry-run` to verify the tarball contents match `package.json`'s `files` allowlist
+- `npx changeset` — Add a changeset for any user-visible change (see CONTRIBUTING.md for bump rules)
+- `node bin/snapshot-version.js` — Build the `.versions/<x.y.z>/` snapshot manually (the release workflow runs this automatically)
 - Validate: Check that all SKILL.md files have valid YAML frontmatter with name and description
 
 ## Boundaries

@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Only one release run at a time so the "Version Packages" PR stays sane.
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Snapshot current source for version-diff
+        # Mirrors the active package contents into .versions/<x.y.z>/ so a
+        # later install can run a three-way diff against this exact release.
+        # Skipped if .changeset/ is empty (no version bump pending).
+        run: |
+          if [ -z "$(ls -A .changeset 2>/dev/null | grep -v '^README.md$\|^config.json$')" ]; then
+            echo "No pending changesets — skipping snapshot."
+            exit 0
+          fi
+          node bin/snapshot-version.js
+
+      - name: Create release PR or publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: npx changeset publish
+          commit: "chore: release"
+          title: "chore: release"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
