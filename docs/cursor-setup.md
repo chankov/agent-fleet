@@ -63,5 +63,5 @@ Reference them with `@notepad` when working on relevant tasks.
 
 1. **Don't load all skills at once** — Cursor has context limits. Load 2-3 skills as rules and keep others as notepads.
 2. **Reference skills explicitly** — Tell Cursor "Follow the test-driven-development rules for this change" to ensure it reads the loaded rules.
-3. **Use agents for review** — Copy `agents/code-reviewer.md` content and tell Cursor to "review this diff using this code review framework."
+3. **Use agents for review** — Copy `agents/code-reviewer.md` content and tell Cursor to "review this diff using this code review framework." The full set under `agents/` (`code-reviewer`, `test-engineer`, `security-auditor`, `planner`, `plan-reviewer`, `builder`, `scout`, `documenter`) can be loaded the same way — the read-only ones (`code-reviewer`, `security-auditor`, `planner`, `plan-reviewer`, `scout`) declare `tools: read,bash,grep,find,ls` and explicitly will not modify files.
 4. **Load references on demand** — When working on performance, reference `@notepad performance-checklist` or paste the checklist content.

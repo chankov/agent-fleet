@@ -21,16 +21,28 @@ For more details, refer [Creating agent skills for GitHub Copilot](https://docs.
 Copilot supports specialized agent personas. Use the agent-skills agents:
 
 ```bash
-# Copy agent definitions
+# Copy agent definitions — review specialists
 cp /path/to/agent-skills/agents/code-reviewer.md .github/agents/code-reviewer.md
 cp /path/to/agent-skills/agents/test-engineer.md .github/agents/test-engineer.md
 cp /path/to/agent-skills/agents/security-auditor.md .github/agents/security-auditor.md
+
+# Lifecycle specialists
+cp /path/to/agent-skills/agents/planner.md       .github/agents/planner.md
+cp /path/to/agent-skills/agents/plan-reviewer.md .github/agents/plan-reviewer.md
+cp /path/to/agent-skills/agents/builder.md       .github/agents/builder.md
+cp /path/to/agent-skills/agents/scout.md         .github/agents/scout.md
+cp /path/to/agent-skills/agents/documenter.md    .github/agents/documenter.md
 ```
 
 Invoke agents in Copilot Chat:
+- `@scout Locate where auth is enforced`
+- `@planner Draft a plan for migrating users to OAuth`
+- `@plan-reviewer Critique the migration plan`
+- `@builder Implement the approved plan`
 - `@code-reviewer Review this PR`
 - `@test-engineer Analyze test coverage for this module`
 - `@security-auditor Check this endpoint for vulnerabilities`
+- `@documenter Update the README for the new endpoint`
 
 ### Custom Instructions (User Level)
 

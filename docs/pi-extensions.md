@@ -111,10 +111,13 @@ For `127.0.0.1`-only `coms-net` use, the hub auto-generates a token — no env n
 
 These ported files are runtime dependencies of the extensions above:
 
-- **`.pi/agents/`** — agent personas (`scout`, `planner`, `builder`, `reviewer`,
-  `documenter`, `red-team`, `plan-reviewer`, `bowser`), the `pi-pi/` research experts,
-  `teams.yaml`, and `agent-chain.yaml`. Read by `agent-team`, `agent-chain`,
-  `system-select`, and `pi-pi`.
+- **`.pi/agents/`** — symlinks back to the canonical personas in `agents/`
+  (`scout`, `planner`, `plan-reviewer`, `builder`, `documenter`, `code-reviewer`,
+  `test-engineer`, `security-auditor`), the pi-local `bowser.md`, the `pi-pi/`
+  research experts, plus `teams.yaml` and `agent-chain.yaml`. Read by `agent-team`,
+  `agent-chain`, `system-select`, and `pi-pi`. The earlier `reviewer` and
+  `red-team` personas were folded into `code-reviewer` and `security-auditor`;
+  the team and chain configs already reference the canonical names.
 - **`.pi/damage-control-rules.yaml`** — the destructive-command / protected-path rule set
   for `damage-control` and `damage-control-continue`.
 - **`.pi/skills/bowser/`** — a pi-runtime skill for headless Playwright browser

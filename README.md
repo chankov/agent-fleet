@@ -199,9 +199,14 @@ Pre-configured specialist personas for targeted reviews:
 
 | Agent | Role | Perspective |
 |-------|------|-------------|
-| [code-reviewer](agents/code-reviewer.md) | Senior Staff Engineer | Five-axis code review with "would a staff engineer approve this?" standard |
+| [code-reviewer](agents/code-reviewer.md) | Senior Staff Engineer | Five-axis code review with "would a staff engineer approve this?" standard. Read-only. |
 | [test-engineer](agents/test-engineer.md) | QA Specialist | Test strategy, coverage analysis, and the Prove-It pattern |
-| [security-auditor](agents/security-auditor.md) | Security Engineer | Vulnerability detection, threat modeling, OWASP assessment |
+| [security-auditor](agents/security-auditor.md) | Security Engineer | Vulnerability detection, threat modeling, OWASP assessment. Read-only. |
+| [planner](agents/planner.md) | Architect | Produces numbered, step-by-step implementation plans. Read-only. |
+| [plan-reviewer](agents/plan-reviewer.md) | Plan Critic | Stress-tests plans for assumptions, gaps, ordering, and feasibility. Read-only. |
+| [builder](agents/builder.md) | Implementer | Carries out an approved plan with minimal, idiomatic code. |
+| [scout](agents/scout.md) | Recon | Fast codebase exploration — structure, patterns, entry points. Read-only. |
+| [documenter](agents/documenter.md) | Tech Writer | READMEs, inline docs, usage examples in the project's voice. |
 
 ---
 

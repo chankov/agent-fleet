@@ -17,4 +17,9 @@ tmp/
 .pi/agents/code-reviewer.md
 .pi/agents/security-auditor.md
 .pi/agents/test-engineer.md
+.pi/agents/planner.md
+.pi/agents/plan-reviewer.md
+.pi/agents/builder.md
+.pi/agents/scout.md
+.pi/agents/documenter.md
 .ai/agent-skills-overrides.md

@@ -2,19 +2,19 @@ full:
   - scout
   - planner
   - builder
-  - reviewer
+  - code-reviewer
   - documenter
-  - red-team
+  - security-auditor
 
 plan-build:
   - planner
   - builder
-  - reviewer
+  - code-reviewer
 
 info:
   - scout
   - documenter
-  - reviewer
+  - code-reviewer
 
 frontend:
   - planner
