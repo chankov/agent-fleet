@@ -109,9 +109,34 @@ Offer every installable artifact, split into the groups below. **Each group is i
 
 | Pick | Item | Status | Rec | Purpose |
 |---|---|---|---|---|
-| `[ ]` | `<name>` | `installed` / `not installed` / `modified` / `broken` | `★` if recommended, else blank | one-line purpose |
+| `[x]` / `[ ]` | `<name>` | one of the Status values below | `★` if recommended, else blank | one-line purpose |
 
-After the table, ask: *"Which items in this group? — pick any, or reply `all` / `recommended` / `none`."* Default to the `★` items when the user accepts the recommendation without picking. For an already-configured workspace, an **unchecked installed item means *remove it*; a checked one means *keep or update it***. Carry over any `broken` items the user skipped in Step 5 so they can be re-confronted here.
+**Pre-selection rule.** The `Pick` column is pre-ticked from the workspace's current state — not from preference. Every item is either pre-checked `[x]` (touched if confirmed) or pre-unchecked `[ ]` (left alone if confirmed):
+
+| Current state | Pre-check | What confirming will do |
+|---|---|---|
+| `installed · up to date` | `[x]` | no-op (kept as-is) |
+| `installed · outdated` (source newer than the installed copy; copy-mode only) | `[x]` | refresh to current source |
+| `installed · modified` (target diverged from source) | `[x]` | refresh from source — **local edits will be overwritten**; untick to preserve them |
+| `not installed` | `[ ]` | nothing — unless the user ticks it to install |
+| `broken · skipped in preflight` (carried over from Step 5) | `[ ]` | remove the dangling link in Step 10; tick it to attempt repair instead |
+| `not installed · ★ recommended` | `[ ]` | nothing — unless the user ticks it or replies `recommended` |
+
+After the table, ask: *"Which items in this group? — adjust the picks, or reply `all` / `recommended` / `none` / `keep` (keep the pre-selection as shown)."* `recommended` ticks every `★` item **in addition to** the already-installed pre-selection (so the user never accidentally removes installed items by accepting recommendations). `keep` is the no-change shortcut.
+
+For an already-configured workspace, an **unchecked installed item means *remove it*** (subject to the removal-scope rule); a **checked one means *keep or update it***. Status text appears verbatim for every row — even `not installed` — so the user always sees an explicit state instead of inferring it from an empty checkbox.
+
+**Source availability filter — never substitute across agents.** Each row is offered only when the source file the **chosen agent** needs already exists in this repo. The source location is fixed per agent:
+
+| Artifact | claude-code source | opencode source | pi source |
+|---|---|---|---|
+| Skills | `skills/<name>/SKILL.md` | `skills/<name>/SKILL.md` | `skills/<name>/SKILL.md` |
+| Personas | `agents/<name>.md` | `agents/<name>.md` | `agents/<name>.md` |
+| Commands / prompts | `.claude/commands/<name>.md` | `.opencode/commands/as-<name>.md` | `.pi/prompts/<name>.md` |
+| pi extensions / harnesses / runtime skills | — | — | `.pi/extensions/<name>/`, `.pi/harnesses/<name>/`, `.pi/skills/<name>/` |
+| References / hooks | source files in `references/` / `hooks/` |
+
+If the per-agent source is missing, the row is **not shown** — never silently fall back to a different agent's tree (for example: do not symlink `.claude/commands/design-agent.md` from `.pi/prompts/design-agent.md` when the agent is `pi`). When the user explicitly asks for an item the source lacks for their agent, say so plainly and stop; the answer is to author the missing source file first, not to cross-link runtimes.
 
 Groups, in order:
 
@@ -120,10 +145,10 @@ Groups, in order:
 3. **Skills — Verify** — `browser-testing-with-devtools`, `debugging-and-error-recovery` ★
 4. **Skills — Review** — `code-review-and-quality` ★, `code-simplification`, `security-and-hardening`, `performance-optimization`
 5. **Skills — Ship** — `git-workflow-and-versioning` ★, `ci-cd-and-automation`, `deprecation-and-migration`, `documentation-and-adrs`, `shipping-and-launch`
-6. **Skills — Meta** — `using-agent-skills` ★, `designing-agents`, `guided-workspace-setup`
+6. **Skills — Meta** — `using-agent-skills` ★, `designing-agents` *(`guided-workspace-setup` is installer-only — never offered)*
 7. **Agent personas — writeable** — `builder`, `documenter`
 8. **Agent personas — read-only** (carry `tools: read,bash,grep,find,ls` and an explicit "Do NOT modify files." rule) — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `planner`, `plan-reviewer`, `scout`
-9. **Commands / prompts** (mapped to the chosen agent) — `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`, `setup`, `doctor`
+9. **Commands / prompts** (mapped to the chosen agent — items without a per-agent source are filtered out, no cross-tool substitution) — full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
 10. **pi extensions** *(pi only — always-on once installed)* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`
 11. **pi harnesses — UI / status** *(pi only, mutually exclusive at runtime — install many, load one)* — `minimal`, `tool-counter`, `tool-counter-widget`, `session-replay`, `subagent-widget`
 12. **pi harnesses — discipline / focus** *(pi only)* — `purpose-gate`, `tilldone`, `system-select`
@@ -134,7 +159,19 @@ Groups, in order:
 17. **References** — testing, performance, security, accessibility checklists
 18. **Hooks** — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`)
 
-Recommended defaults across a new workspace, when the user accepts without customising: groups 1–6 `★` items, groups 7–8 `★` items, group 9 `★` items. pi groups default to none unless the agent is `pi`. After every group, restate the picks in one line so the user can correct them before moving on.
+Defaults differ by workspace state:
+
+- **Fresh workspace (no install record).** Pre-selection is empty; replying `recommended` ticks the `★` items across groups 1–6, 7–8, 9. pi groups stay empty unless the agent is `pi`.
+- **Existing workspace.** Pre-selection mirrors the install record — every `installed · *` row starts `[x]`. Replying `keep` accepts that pre-selection unchanged; replying `recommended` adds the `★` items on top of what is already installed (it never silently unticks installed items).
+
+After every group, restate the picks in one line so the user can correct them before moving on. The restate line uses the same status vocabulary — for example: *"Group 4 Review: keep `code-review-and-quality` (up to date), install `security-and-hardening` (recommended), remove `performance-optimization`."*
+
+**Removal scope — what "unchecked = remove" actually touches.** A target item is eligible for removal only when **both** are true:
+
+1. **It is part of the agent-skills inventory.** Its name matches an artifact shipped in the source repo's canonical trees (`skills/`, `agents/`, `.claude/commands/`, `.pi/prompts/`, `.pi/extensions/`, `.pi/harnesses/`, `.pi/skills/`, `references/`, `hooks/`). Out-of-inventory items — user-authored skills, project-specific commands, custom personas, third-party plugins, unrelated dotfiles — are never proposed for removal even if they sit in the same directory.
+2. **It is recorded in this workspace's install record.** The `## install-status` section of `.ai/agent-skills-setup.md` lists it as previously installed by this skill, *or* it is a symlink whose target resolves into the agent-skills source root (which is unambiguously ours).
+
+If a candidate fails either test, list it once under a "Skipped — not owned by agent-skills" line in the Step 9 plan and leave it alone. Settings files (`.claude/settings.json`, `.opencode/config*`, env vars, MCP config) are touched **only** to remove agent-skills' own hook registrations — never other keys, never user env vars, never third-party MCP entries.
 
 ### 7. Offer project overrides
 
@@ -153,7 +190,13 @@ Present the full set as one summary table — artifacts to add, update, and remo
 
 ### 10. Apply the setup
 
-Apply the changes: create directories, add or update selected artifacts, and remove deselected ones. When an existing target file differs from the source, surface the difference and ask before replacing it. Then write both `.ai/` files: the agreed override sections from Step 7 into `.ai/agent-skills-overrides.md`, and the install record — artifacts, target paths, method, date — into `.ai/agent-skills-setup.md`.
+Apply the changes: create directories, add or update selected artifacts, and remove deselected ones — **bound by the removal-scope rule from Step 6**. Before deleting any target, verify both conditions: (a) the name is in the agent-skills inventory and (b) the item is either listed in `## install-status` or is a symlink resolving into the source repo. If either check fails, skip the deletion silently and log the path under a "Skipped — not owned by agent-skills" line in the final report.
+
+**Apply without mid-flight questions.** Refresh every ticked item from its per-agent source unconditionally. Do not pause to ask whether to overwrite a modified file — `installed · modified` already appeared in Step 6 with the explicit warning that refreshing overwrites local edits, and the user's tick is the consent. The Step 9 confirmation is the single gate; nothing further is asked during apply. (If the apply hits a genuine error — permission denied, source missing, broken target type — stop, report it, and ask how to proceed; that is not the same as soliciting consent.)
+
+For settings files (`.claude/settings.json` and equivalents), edit only the agent-skills hook entries; leave every other key — user permissions, env vars, third-party MCP servers, custom hooks — untouched.
+
+Then write both `.ai/` files: the agreed override sections from Step 7 into `.ai/agent-skills-overrides.md`, and the install record — artifacts, target paths, method, date — into `.ai/agent-skills-setup.md`.
 
 ### 11. Verify and report
 
@@ -169,15 +212,26 @@ Re-scan the install-target directories one more time and confirm: every selected
 | "I'll copy the files now and confirm afterwards." | Writing before the Step 9 confirmation can clobber config the user wanted to keep. Confirmation is the only gate that protects the target workspace. |
 | "There is no `*-setup.md` for this agent, so I'll guess the install paths." | Guessed paths put artifacts where the agent never loads them. Read the agent's setup doc, or use the built-in map — a location is never invented. |
 | "The workspace already has a `.claude/` directory, so setup is done." | A directory existing is not install state. The `## install-status` section is the only record of what this skill installed; read it before deciding. |
-| "An existing file differs from the source, so I'll overwrite it to be safe." | The differing file may be a deliberate local edit. Surface the difference and ask; a silent overwrite destroys the user's work. |
+| "An existing file differs from the source — I'll pause and ask the user mid-apply whether to overwrite." | Step 6 already surfaced `installed · modified` with the warning that refreshing overwrites local edits. The user's tick is the consent. Mid-apply questions break the apply pass; they were replaced by the upfront status. |
+| "`.pi/prompts/design-agent.md` doesn't exist, but `.claude/commands/design-agent.md` does — I'll symlink to the Claude file so the user gets the prompt." | That mixes runtimes silently and lets the source repo's claude-code tree drive a pi target. The source availability filter forbids it: items without a per-agent source are not offered at all. |
 | "I'll skip the workspace analysis and just ask the user everything." | The analysis is what makes the override offer accurate. Asking blind produces an overrides file the user has to hand-correct afterwards. |
 | "I'll record the full install detail in the overrides file too — one place is simpler." | Other skills load the overrides file on every run. Install detail belongs only in `agent-skills-setup.md`; padding the overrides file taxes every later session. |
+| "There's an unfamiliar skill in `.claude/skills/` — the user must have forgotten to uncheck it, I'll remove it." | The removal scope rule exists exactly to prevent this. If the name is not in the agent-skills inventory or not in `## install-status`, it is user-owned; leave it alone and log it as skipped. |
+| "The user wants a clean workspace — I'll prune custom hooks and unrelated MCP entries from `settings.json` too." | Setting-file edits are limited to agent-skills' own hook registrations. Touching anything else silently deletes work that does not belong to this skill. |
+| "`/setup` and `/doctor` are useful — I'll install them into the workspace so the user can re-run them locally." | They are installer commands; they ship with the source agent-skills repo and act on workspaces from there. Installing them into a target duplicates the install surface and gives the target a path to manipulate itself. |
 
 ## Red Flags
 
 - Files written to the target workspace before the Step 9 confirmation.
 - The doctor preflight skipped on a workspace that already has prior install state.
 - An install menu rendered as one undifferentiated list instead of the 18 grouped tables.
+- A menu group rendered without per-row `Status` text, or with installed items not pre-checked.
+- A `recommended` reply that silently unticks already-installed items instead of adding `★` items on top.
+- `setup`, `doctor`, or `guided-workspace-setup` shown in the install menu — they are installer-only.
+- An item offered for one agent whose per-agent source file does not exist (cross-tool substitution).
+- A mid-apply prompt asking whether to overwrite a modified target file — that consent belongs in Step 6 / Step 9, not in Step 10.
+- A target file or directory deleted whose name is not in the agent-skills inventory, or that is not recorded in `## install-status` and is not a symlink into the source repo.
+- Edits to `settings.json` / env vars / MCP config beyond removing agent-skills' own hook registrations.
 - An artifact installed to a path backed by neither the built-in map nor the agent's `*-setup.md`.
 - `.ai/agent-skills-setup.md` left unchanged after artifacts were added or removed.
 - Credentials or secrets written into either `.ai/` file.
@@ -194,7 +248,14 @@ After completing the workflow, confirm:
 - [ ] The coding agent was confirmed, and `docs/<agent>-setup.md` was read for `opencode`/`pi` (or the built-in map used for `claude-code`).
 - [ ] The doctor preflight ran on any workspace with prior install state, and its findings were resolved or explicitly skipped.
 - [ ] Each install-menu group was presented as its own table + multi-select with `★` recommendations marked.
-- [ ] Every selected artifact exists at its resolved target path; every deselected one was removed.
+- [ ] Every row carried an explicit `Status` text (`installed · up to date`, `installed · outdated`, `installed · modified`, `not installed`, or `broken · skipped in preflight`) — never blank.
+- [ ] Installed items were pre-checked `[x]`; not-installed items were pre-checked `[ ]`; `recommended` added `★` items on top of the pre-selection without unticking installed ones.
+- [ ] Items lacking a per-agent source were filtered out of the menu — no cross-tool substitution offered.
+- [ ] Apply ran without any overwrite-this-file prompt; ticked items refreshed unconditionally and unticked modified items were preserved.
+- [ ] `setup`, `doctor`, and `guided-workspace-setup` were excluded from the install menu.
+- [ ] Every selected artifact exists at its resolved target path; every deselected one was removed **only if** the removal-scope rule allowed it (in inventory + in install record / symlink-into-source).
+- [ ] Out-of-inventory and unrecorded items found in the install-target directories were left untouched and logged under "Skipped — not owned by agent-skills".
+- [ ] Settings-file edits were limited to agent-skills' own hook entries; no user keys, env vars, or third-party MCP entries were modified.
 - [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.
 - [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session.
 - [ ] No broken symlinks remain in any of the scanned install-target directories.
