@@ -39,11 +39,11 @@ Skills also activate automatically based on what you're doing — designing an A
 # In the workspace you want to configure:
 npx @chankov/agent-skills init
 # Then open your coding agent in this directory and run:
-#   /setup
+#   /setup-agent-skills
 ```
 
 That's it. `npx` fetches the package, the CLI detects your coding agent
-(Claude Code, OpenCode, or pi), and `/setup` runs the full guided install —
+(Claude Code, OpenCode, or pi), and `/setup-agent-skills` runs the full guided install —
 analysing the workspace, showing grouped menus, and confirming everything
 before writing a single file.
 
@@ -51,9 +51,9 @@ Three CLI commands:
 
 | Command | What it does |
 |---|---|
-| `npx @chankov/agent-skills init` | Materialize the package + hand off to `/setup` |
+| `npx @chankov/agent-skills init` | Materialize the package + hand off to `/setup-agent-skills` |
 | `npx @chankov/agent-skills doctor` | Scan for broken symlinks and stale persona refs |
-| `npx @chankov/agent-skills update` | Surface the version delta + hand off to `/setup` for the per-artifact diff |
+| `npx @chankov/agent-skills update` | Surface the version delta + hand off to `/setup-agent-skills` for the per-artifact diff |
 
 Versioned with [semver](https://semver.org); changelog in
 [CHANGELOG.md](CHANGELOG.md); full docs in [docs/npm-install.md](docs/npm-install.md).
@@ -83,7 +83,7 @@ git clone https://github.com/chankov/agent-skills.git
 cd agent-skills
 # In Claude Code:
 claude --plugin-dir .
-# Then run /setup in your target workspace and pick "symlink" in Step 8.
+# Then run /setup-agent-skills in your target workspace and pick "symlink" in Step 8.
 ```
 
 Updates flow through `git pull`. Symlinks need Developer Mode on Windows.

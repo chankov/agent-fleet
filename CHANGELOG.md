@@ -1,5 +1,77 @@
 # agent-skills changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- **Rename installer slash commands** + **auto-remove them after setup**.
+
+  The bootstrap commands are now namespaced so they don't collide with anything
+  in your workspace, and they get cleaned up automatically once `/setup-agent-skills`
+  finishes — leaving your agent's slash-command list as clean as before you ran
+  `init`.
+
+  ### What changed
+
+  - `/setup` → `/setup-agent-skills`
+  - `/doctor` → `/doctor-agent-skills`
+  - `/as-setup` → `/as-setup-agent-skills` (OpenCode)
+  - `/as-doctor` → `/as-doctor-agent-skills` (OpenCode)
+  - `guided-workspace-setup` SKILL.md still installs to `.{claude,pi,opencode}/skills/`
+    during bootstrap and is removed alongside the slash commands
+
+  ### Cleanup behaviour (default)
+
+  After `/setup-agent-skills` completes its install pass, the skill deletes the
+  bootstrap files (slash commands + skill body) from the workspace. The Step 9
+  confirmation states this explicitly and accepts `keep` as the opt-out. When
+  opted out, `keep-installer: true` is recorded in
+  `.ai/agent-skills-setup.md#workspace-summary`.
+
+  Re-run `npx @chankov/agent-skills init` whenever you need
+  `/setup-agent-skills` back — it's a one-line re-bootstrap.
+
+  ### Migration for users on 0.2.x
+
+  `npx @chankov/agent-skills@latest init` automatically detects and removes the
+  pre-rename `setup.md`/`doctor.md`/`as-*.md` files from the workspace before
+  writing the new names. No manual cleanup required.
+
+  ### New CLI subcommand
+
+  - `npx @chankov/agent-skills cleanup-installer --agent <agent>` — removes the
+    bootstrap files standalone. The skill calls this at end of apply; you can
+    also invoke it by hand. Honors `--dry-run`.
+
+### Patch Changes
+
+- Fix: `npx @chankov/agent-skills init` now bootstraps the installer artifacts
+  (`/setup`, `/doctor`, and the `guided-workspace-setup` skill) into the
+  workspace before printing the hand-off.
+
+  In 0.1.0 / 0.2.0, `init` printed _"Open your coding agent and run /setup"_ —
+  but `/setup` is itself a slash-command file that needed to exist in
+  `.claude/commands/`, `.pi/prompts/`, or `.opencode/commands/`. Fresh
+  workspaces didn't have it, so the agent had no idea what `/setup` was and
+  the hand-off silently no-op'd.
+
+  What `init` now writes (per chosen agent, to the workspace):
+
+  | Agent         | Files                                                                                                                                                                                                                                      |
+  | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | `claude-code` | `.claude/commands/setup.md`, `.claude/commands/doctor.md`, `.claude/skills/guided-workspace-setup/SKILL.md`                                                                                                                                |
+  | `pi`          | `.pi/prompts/setup.md`, `.pi/prompts/doctor.md`, `.pi/skills/guided-workspace-setup/SKILL.md`                                                                                                                                              |
+  | `opencode`    | `.opencode/commands/as-setup.md`, `.opencode/commands/as-doctor.md`, `.opencode/skills/guided-workspace-setup/SKILL.md` (+ printed note about adding the global AGENTS.md reference; project-local skill discovery in OpenCode is limited) |
+
+  The rest of the catalogue (the user-facing skills, personas, references,
+  hooks, pi extensions) is unchanged — those are still chosen interactively
+  inside `/setup`, as designed. The CLI only drops the installer plumbing.
+
+  Bootstrap files are always refreshed on re-run (they are scaffolding, not
+  user data). `--method symlink` against an unstable source path
+  (`~/.npm/_npx/...`) prints a warning recommending `--method copy` or a
+  global install.
+
 ## 0.2.0
 
 ### Minor Changes

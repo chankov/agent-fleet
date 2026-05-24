@@ -31,18 +31,41 @@ So:
 # In the workspace you want to configure:
 npx @chankov/agent-skills init
 # Then open your coding agent in this directory and run:
-#   /setup
+#   /setup-agent-skills
 ```
 
 That's it. `npx` fetches the package, the CLI detects your coding agent and
-prints the next-step command, and `/setup` runs the full guided install
+prints the next-step command, and `/setup-agent-skills` runs the full guided install
 inside your agent.
 
 ## Commands
 
 ### `npx @chankov/agent-skills init`
 
-Materializes the package and hands off to `/setup`.
+Materializes the package, **bootstraps the installer artifacts** into the
+workspace (so the agent has a `/setup-agent-skills` and `/doctor-agent-skills` command to invoke),
+and hands off to `/setup-agent-skills`.
+
+What `init` writes per agent:
+
+| Agent | Files written to the workspace |
+|---|---|
+| `claude-code` | `.claude/commands/setup-agent-skills.md`, `.claude/commands/doctor-agent-skills.md`, `.claude/skills/guided-workspace-setup/SKILL.md` |
+| `pi` | `.pi/prompts/setup-agent-skills.md`, `.pi/prompts/doctor-agent-skills.md`, `.pi/skills/guided-workspace-setup/SKILL.md` |
+| `opencode` | `.opencode/commands/as-setup-agent-skills.md`, `.opencode/commands/as-doctor-agent-skills.md`, `.opencode/skills/guided-workspace-setup/SKILL.md` |
+
+These are **just the plumbing** — the slash commands, plus the skill they
+invoke. The actual catalogue (spec-driven-development, code-reviewer,
+test-engineer, pi extensions, …) is picked by you inside `/setup-agent-skills`. Re-run
+`init` to refresh the plumbing after a package upgrade; bootstrap files
+are always overwritten because they're scaffolding, not user data.
+
+After `/setup-agent-skills` finishes its install pass, **the bootstrap files
+are removed by default** so they don't clutter your agent's slash-command
+list. Re-run `npx @chankov/agent-skills init` whenever you want
+`/setup-agent-skills` back. To keep them in place across runs, reply `keep`
+to the Step 9 confirmation prompt — the skill will record
+`keep-installer: true` in `.ai/agent-skills-setup.md`.
 
 | Flag | Default | Purpose |
 |------|---------|---------|
@@ -60,7 +83,7 @@ npx @chankov/agent-skills init --workspace ~/projects/foo --method symlink
 
 Deterministic preflight scan — walks every install-target directory, lists
 broken symlinks and stale persona references, and offers fixes. Same scan
-that `/doctor` runs inside the agent.
+that `/doctor-agent-skills` runs inside the agent.
 
 | Flag | Default | Purpose |
 |------|---------|---------|
@@ -78,13 +101,13 @@ npx @chankov/agent-skills doctor -y
 Reads the workspace's `.ai/agent-skills-setup.md`, compares the recorded
 package version against the installed package version, and prints the next
 step. The actual diff-aware refresh runs inside the coding agent via
-`/setup`.
+`/setup-agent-skills`.
 
 ```bash
 # Upgrade the package itself first, then check the delta:
 npm install -g @chankov/agent-skills@latest
 npx agent-skills update --workspace .
-# Then open your agent and run /setup to review per-artifact diffs.
+# Then open your agent and run /setup-agent-skills to review per-artifact diffs.
 ```
 
 ## Versioning
@@ -137,7 +160,7 @@ npm is the recommended path for most users. The other two stay supported:
 - **[Claude Code plugin marketplace](../README.md#quick-start)** — best UX
   inside Claude Code. Same skills, marketplace-managed updates.
 - **Git clone + symlinks** — best for skill authors and contributors. Clone
-  the repo, run `/setup` from there, choose `symlink` in Step 8. Updates
+  the repo, run `/setup-agent-skills` from there, choose `symlink` in Step 8. Updates
   flow through `git pull`. Symlinks need Developer Mode on Windows.
 
 All three paths converge on the same `guided-workspace-setup` skill — the
@@ -153,7 +176,7 @@ npx --yes @chankov/agent-skills@latest init --agent claude-code --method copy --
 ```
 
 `doctor` accepts `--yes` for non-interactive repair. Note that the
-LLM-driven `/setup` flow is not CI-runnable by design — confirmation gates
+LLM-driven `/setup-agent-skills` flow is not CI-runnable by design — confirmation gates
 exist precisely so a human approves every write.
 
 ## Receiving update notifications
@@ -182,15 +205,15 @@ If the cache is stale, a detached background process refreshes it for the
 
 ### 2. Claude Code session-start hook
 
-When `hooks/session-start.sh` is installed (offered in Group 18 of `/setup`),
+When `hooks/session-start.sh` is installed (offered in Group 18 of `/setup-agent-skills`),
 every new Claude Code session runs the check with a 3-second wall-clock cap.
 If an upgrade is available, the banner is injected into the session context
 so Claude can mention it on its first turn — e.g. *"Note: agent-skills 0.2.0
-is available; want me to apply it via `/setup`?"*
+is available; want me to apply it via `/setup-agent-skills`?"*
 
 ### 3. pi extension (`agent-skills-update-check`)
 
-When installed (offered in Group 10 of `/setup`), the extension fires on the
+When installed (offered in Group 10 of `/setup-agent-skills`), the extension fires on the
 first `agent_start` event of each pi session and emits a `ctx.ui.notify`
 message in the pi UI if a newer version is published. Reads the same cache
 as the CLI — no double-fetching.

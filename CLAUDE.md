@@ -14,7 +14,7 @@ justfile      → Recipes to launch pi with each harness
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
 .github/workflows/release.yml → On merge to main: opens "Version Packages" PR or runs `changeset publish`
-.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-agent, /prime, /setup)
+.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-agent, /prime, /setup-agent-skills)
 .opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ — keep in sync
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue)

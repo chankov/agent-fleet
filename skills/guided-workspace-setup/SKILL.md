@@ -108,7 +108,7 @@ Present findings in a single table:
 
 Then ask, multi-select: which fixes to apply now. Apply only the picked ones; record skipped items so the install menu can surface them again. Append a `## doctor-runs` line to `.ai/agent-skills-setup.md` with the date, agent, phase (`preflight`), and `repaired` / `deleted` / `skipped` counts.
 
-The doctor scan is also exposed standalone as `/doctor` — running it outside a setup pass is this same scan-and-repair flow without the rest of the install menu.
+The doctor scan is also exposed standalone as `/doctor-agent-skills` — running it outside a setup pass is this same scan-and-repair flow without the rest of the install menu.
 
 ### 6. Present the install menu
 
@@ -207,6 +207,8 @@ Ask `copy` or `symlink` for this run.
 
 Present the full set as one summary table — artifacts to add, update, and remove; their resolved target paths; the chosen install method; and the changes to both `.ai/` files. When the version delta from Step 4 is non-empty, lead the summary with a one-line "Changes since `v<recorded>` → `v<current>`" block sourced from `CHANGELOG.md` (only the entries between the two versions, not the full file). Ask the user to confirm, and write nothing until they do.
 
+**Installer cleanup line.** The summary always ends with one line stating that the installer slash commands (`/setup-agent-skills`, `/doctor-agent-skills` — or `/as-*-agent-skills` for OpenCode — plus the `guided-workspace-setup` skill body) will be removed after apply, so they do not pollute the user's slash-command list. Add the verbatim suffix: *"Reply `keep` to leave them in place; re-run `npx @chankov/agent-skills init` later if removed."* If the user replies `keep`, record `keep-installer: true` in `## workspace-summary` and skip Step 10b. Otherwise the default is to remove them.
+
 ### 10. Apply the setup
 
 Apply the changes: create directories, add or update selected artifacts, and remove deselected ones — **bound by the removal-scope rule from Step 6**. Before deleting any target, verify both conditions: (a) the name is in the agent-skills inventory and (b) the item is either listed in `## install-status` or is a symlink resolving into the source repo. If either check fails, skip the deletion silently and log the path under a "Skipped — not owned by agent-skills" line in the final report.
@@ -217,9 +219,35 @@ For settings files (`.claude/settings.json` and equivalents), edit only the agen
 
 Then write both `.ai/` files: the agreed override sections from Step 7 into `.ai/agent-skills-overrides.md`, and the install record — artifacts, target paths, method, **package version**, date — into `.ai/agent-skills-setup.md`. The `version:` line in `## workspace-summary` is set to the package version from Step 2; this is what the next re-run will compare against to compute the version delta.
 
+### 10b. Remove the installer artifacts (unless the user said `keep`)
+
+After Step 10 has written the catalogue + the `.ai/` files, the installer files dropped by `npx @chankov/agent-skills init` — the `setup-agent-skills` / `doctor-agent-skills` slash commands and the `guided-workspace-setup` skill body itself — are no longer needed in the workspace. They were bootstrap plumbing, not part of the user's permanent install. Leaving them in place pollutes the agent's slash-command list and confuses re-runs (which should always go through `init`, not a stale local copy).
+
+Default behaviour:
+
+- **`keep-installer: true` in `## workspace-summary`** → skip this step. The files stay.
+- **Otherwise** → run the cleanup. Delete every file the bootstrap wrote for the chosen agent:
+
+| Agent | Files removed |
+|---|---|
+| `claude-code` | `.claude/commands/setup-agent-skills.md`, `.claude/commands/doctor-agent-skills.md`, `.claude/skills/guided-workspace-setup/SKILL.md` |
+| `pi` | `.pi/prompts/setup-agent-skills.md`, `.pi/prompts/doctor-agent-skills.md`, `.pi/skills/guided-workspace-setup/SKILL.md` |
+| `opencode` | `.opencode/commands/as-setup-agent-skills.md`, `.opencode/commands/as-doctor-agent-skills.md`, `.opencode/skills/guided-workspace-setup/SKILL.md` |
+
+After deleting, prune any directories that were created solely for these files (e.g. `.claude/skills/guided-workspace-setup/`) — never prune a directory that contains other files.
+
+Note: the skill body file you are removing here is the same file the agent is *currently executing*. Filesystem removal does not interrupt the in-memory copy — finish this step, then Step 11, then return as normal.
+
+If `cleanupInstaller` is available via the CLI (`npx @chankov/agent-skills cleanup-installer --agent <agent> --workspace <path>`), invoking it is equivalent to the manual deletions above; either path is acceptable. Failures (permission denied, file already gone) are logged but do not abort the apply.
+
 ### 11. Verify and report
 
 Re-scan the install-target directories one more time and confirm: every selected artifact exists at its target path, every deselected one is gone, and zero broken symlinks remain. Also re-read `.ai/agent-skills-setup.md` and verify the `version:` line matches the package version from Step 2 — a mismatch here means the apply pass did not stamp the new version, and must be corrected before the next re-run computes the wrong delta. If the post-apply scan surfaces any new breakage, treat it as a doctor finding and offer the same repair options as Step 5, then append a second `## doctor-runs` line with `phase: postflight`. List what changed, point the user at `.ai/agent-skills-overrides.md` and `.ai/agent-skills-setup.md`, and suggest loading `using-agent-skills` first in their next session.
+
+Close the report with one line explaining the installer-cleanup outcome:
+
+- If Step 10b ran: *"Installer slash commands removed from your workspace. Re-run `npx @chankov/agent-skills init` if you need `/setup-agent-skills` back."*
+- If Step 10b was skipped (`keep-installer: true`): *"Installer slash commands kept in place per your choice. `/setup-agent-skills` and `/doctor-agent-skills` remain available."*
 
 ## Common Rationalizations
 
@@ -237,10 +265,13 @@ Re-scan the install-target directories one more time and confirm: every selected
 | "I'll record the full install detail in the overrides file too — one place is simpler." | Other skills load the overrides file on every run. Install detail belongs only in `agent-skills-setup.md`; padding the overrides file taxes every later session. |
 | "There's an unfamiliar skill in `.claude/skills/` — the user must have forgotten to uncheck it, I'll remove it." | The removal scope rule exists exactly to prevent this. If the name is not in the agent-skills inventory or not in `## install-status`, it is user-owned; leave it alone and log it as skipped. |
 | "The user wants a clean workspace — I'll prune custom hooks and unrelated MCP entries from `settings.json` too." | Setting-file edits are limited to agent-skills' own hook registrations. Touching anything else silently deletes work that does not belong to this skill. |
-| "`/setup` and `/doctor` are useful — I'll install them into the workspace so the user can re-run them locally." | They are installer commands; they ship with the source agent-skills repo and act on workspaces from there. Installing them into a target duplicates the install surface and gives the target a path to manipulate itself. |
+| "`/setup-agent-skills` and `/doctor-agent-skills` are useful — I'll re-install them at the end of apply so the user can re-run them locally." | They are installer commands that the CLI bootstraps and the skill itself cleans up in Step 10b by default. Keeping them is opt-in via `keep` in Step 9. Re-installing them silently undoes the cleanup the user implicitly chose. |
 | "The recorded version differs from the current — I'll just refresh everything to the new source without showing the diff." | Conflicting upgrades (user-modified copy + source changed upstream) require the three-way diff to be shown in Step 6, with the row pre-unchecked. Refreshing silently overwrites work the user did between versions. |
 | "The `.versions/<recorded>/` snapshot is missing — I'll pretend the installed copy matches the recorded source and refresh anyway." | A missing snapshot means we cannot compute the three-way diff. The skill must fall back to "treat installed copy as canonical" and surface the missing snapshot in the row's status so the user can decide — never pretend a diff exists. |
 | "The workspace has no `version:` line — I'll silently stamp the current version and move on." | A pre-versioning workspace must be flagged in Step 4 and the user prompted: stamp the current version (assume copies match) or wipe and reinstall. Silent stamping hides a real decision. |
+| "The user didn't say anything about the installer cleanup line — I'll leave the installer files in place to be safe." | The default is to remove. Step 9's confirmation line explicitly states the cleanup will happen unless the user replies `keep`. Silence is consent for the default, not opt-out from it. |
+| "I'll add `setup-agent-skills` and `doctor-agent-skills` to the install menu so the user can pick whether to keep them." | They are still installer-only and excluded from the menu. The keep-vs-remove choice is the single Step 9 line, not a menu group — adding them to the menu re-opens the pollution we just fixed. |
+| "The skill is currently executing; deleting its own file in Step 10b will crash mid-run." | The agent loads the skill into memory at the start of execution. Removing the file on disk does not unload the in-memory copy — Steps 10b and 11 complete normally before control returns. |
 
 ## Red Flags
 
@@ -265,6 +296,10 @@ Re-scan the install-target directories one more time and confirm: every selected
 - A `conflicting upgrade` row pre-checked, or the three-way diff omitted for it.
 - A pre-versioning workspace stamped with the current version without prompting the user first.
 - The post-apply `version:` line not matching the package version from Step 2.
+- Step 9 summary missing the installer-cleanup line, or the line stated `keep` as the default.
+- Installer files (`setup-agent-skills`, `doctor-agent-skills`, the `guided-workspace-setup` skill body) left in place without a recorded `keep-installer: true`.
+- `setup-agent-skills` or `doctor-agent-skills` shown as install-menu rows.
+- Step 11 report omitting the one-line installer-cleanup outcome.
 
 ## Verification
 
@@ -287,6 +322,9 @@ After completing the workflow, confirm:
 - [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" block sourced from `CHANGELOG.md`.
 - [ ] Every `conflicting upgrade` row was rendered with its three-way diff in Step 6 and was not pre-checked.
 - [ ] A pre-versioning workspace was flagged in Step 4 and the user was prompted to stamp or wipe — not silently stamped.
+- [ ] Step 9 summary ended with the installer-cleanup line: states remove-by-default and offers `keep` as the opt-out.
+- [ ] Step 10b ran (or was explicitly skipped because `keep-installer: true`); the installer files are absent from the workspace unless the user opted to keep them.
+- [ ] Step 11 report includes the one-line installer-cleanup outcome.
 - [ ] No broken symlinks remain in any of the scanned install-target directories.
 - [ ] No YAML config references a removed persona name.
 - [ ] No secrets were written to either `.ai/` file.

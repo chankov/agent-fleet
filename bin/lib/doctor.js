@@ -1,6 +1,6 @@
 // Doctor scan — deterministic preflight extracted from
 // guided-workspace-setup Step 5. Both `agent-skills doctor` (CLI) and the
-// `/doctor` slash command call into this so behaviour cannot drift.
+// `/doctor-agent-skills` slash command call into this so behaviour cannot drift.
 //
 // Two classes of findings:
 //   1. Broken symlinks — links whose source has been moved, renamed, or deleted

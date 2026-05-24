@@ -2,9 +2,9 @@
 // agent-skills — thin dispatcher into the LLM-driven guided setup.
 //
 // Three commands:
-//   init     materialize the package, detect the coding agent, hand off to /setup
+//   init     materialize the package, detect the coding agent, hand off to /setup-agent-skills
 //   doctor   deterministic preflight scan (broken symlinks, stale persona refs)
-//   update   refresh the package, then hand off to /setup for the version-diff
+//   update   refresh the package, then hand off to /setup-agent-skills for the version-diff
 //
 // The CLI itself never decides which skills to install or what to overwrite —
 // that is the job of the guided-workspace-setup skill, run by the user's
@@ -22,6 +22,7 @@ import { stdin, stdout, exit } from "node:process";
 import { runDoctor } from "./lib/doctor.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
+import { bootstrap, cleanupInstaller } from "./lib/bootstrap.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
@@ -80,11 +81,12 @@ if (sub !== "update" && sub !== "check-update") {
 }
 
 switch (sub) {
-  case "init":          await cmdInit();        break;
-  case "doctor":        await cmdDoctor();      break;
-  case "update":        await cmdUpdate();      break;
-  case "check-update":  await cmdCheckUpdate(); break;
-  default:              fail(`unknown command: ${sub}\n\nRun "agent-skills --help" for usage.`);
+  case "init":              await cmdInit();             break;
+  case "doctor":            await cmdDoctor();           break;
+  case "update":            await cmdUpdate();           break;
+  case "check-update":      await cmdCheckUpdate();      break;
+  case "cleanup-installer": await cmdCleanupInstaller(); break;
+  default:                  fail(`unknown command: ${sub}\n\nRun "agent-skills --help" for usage.`);
 }
 
 // ── commands ──────────────────────────────────────────────────────────────
@@ -100,13 +102,39 @@ async function cmdInit() {
   const agent = await chooseAgent(opts.agent);
   console.log(`Coding agent: ${agentLabel(agent)}`);
 
-  // The CLI doesn't write any skill / persona / command files itself —
-  // that is the job of `guided-workspace-setup` running inside the agent.
-  // What it CAN do is record the chosen agent + method as a hint the skill
-  // will pick up, and print the exact next-step command.
   const method = opts.method ?? "copy";
   if (!["copy", "symlink"].includes(method)) {
     fail(`--method must be "copy" or "symlink" (got "${method}")`);
+  }
+
+  // Bootstrap the installer artifacts (setup + doctor + the skill they invoke).
+  // Without this, the agent has no /setup-agent-skills command to hand off to — the
+  // /setup-agent-skills command is itself one of the files this writes. The rest of the
+  // catalogue (skills, personas, etc.) is the job of /setup-agent-skills running inside
+  // the agent; we only drop the plumbing it needs to exist.
+  printSection("Bootstrap installer");
+  const { written, skipped, removed, warnings } = bootstrap({
+    agent,
+    sourceRoot: pkgRoot,
+    workspace,
+    method,
+    dryRun: opts["dry-run"],
+  });
+
+  for (const w of warnings) console.log(`  ⚠ ${w}`);
+  for (const p of removed) {
+    const tag = opts["dry-run"] ? "would remove (legacy)" : "removed legacy";
+    console.log(`  − ${tag}: ${relative(workspace, p)}`);
+  }
+  for (const f of written) {
+    const tag = opts["dry-run"] ? "would write" : (method === "symlink" ? "linked" : "wrote");
+    console.log(`  ✓ ${tag}: ${relative(workspace, f.dest)}`);
+  }
+  for (const f of skipped) {
+    console.log(`  ✗ skipped: ${relative(workspace, f.dest)} — ${f.error}`);
+  }
+  if (written.length === 0 && skipped.length === 0 && removed.length === 0) {
+    console.log("  (nothing to do — sources missing from package)");
   }
 
   printSection("Next step");
@@ -159,7 +187,7 @@ async function cmdDoctor() {
     `\n✓ Doctor finished — repaired ${repaired}, deleted ${deleted}, skipped ${skipped}.`,
   );
   console.log(
-    "Re-run /setup inside your coding agent if you also want to add or remove artifacts.",
+    "Re-run /setup-agent-skills inside your coding agent if you also want to add or remove artifacts.",
   );
 }
 
@@ -172,7 +200,7 @@ async function cmdUpdate() {
 
   // npm itself does the package upgrade. The CLI's job here is to read the
   // workspace's install record, surface the version delta, and tell the user
-  // to run /setup so the skill can drive the diff-aware refresh.
+  // to run /setup-agent-skills so the skill can drive the diff-aware refresh.
   const recordPath = join(workspace, ".ai", "agent-skills-setup.md");
   if (!existsSync(recordPath)) {
     console.log("This workspace has no .ai/agent-skills-setup.md install record.");
@@ -194,10 +222,38 @@ async function cmdUpdate() {
   console.log(`Recorded in workspace: v${recorded ?? "(pre-versioning)"}`);
   console.log(`Installed package:     v${current}`);
   console.log();
-  console.log("Run /setup inside your coding agent — the guided-workspace-setup");
+  console.log("Run /setup-agent-skills inside your coding agent — the guided-workspace-setup");
   console.log("skill will detect the version delta, show the CHANGELOG between");
   console.log("the two versions, and offer a per-artifact three-way diff before");
   console.log("touching any file.");
+}
+
+async function cmdCleanupInstaller() {
+  // Removes the bootstrap artifacts (setup-agent-skills, doctor-agent-skills,
+  // guided-workspace-setup skill body) from the workspace. Invoked by the
+  // skill itself at the end of Step 10 — keeps the workspace's slash-command
+  // list clean. Re-running `init` brings them back.
+  await mustBeDirectory(workspace, "workspace");
+
+  const agent = opts.agent ?? detectAgent({ workspace, env: process.env });
+  if (!agent || !AGENTS.includes(agent)) {
+    fail(`cleanup-installer needs --agent (one of: ${AGENTS.join(", ")})`);
+  }
+
+  const { removed, kept, warnings } = cleanupInstaller({
+    agent,
+    workspace,
+    dryRun: opts["dry-run"],
+  });
+
+  for (const w of warnings) console.log(`  ⚠ ${w}`);
+  for (const p of removed) {
+    const tag = opts["dry-run"] ? "would remove" : "removed";
+    console.log(`  − ${tag}: ${relative(workspace, p)}`);
+  }
+  if (removed.length === 0 && warnings.length === 0) {
+    console.log("Nothing to clean up — installer files already absent.");
+  }
 }
 
 async function cmdCheckUpdate() {
@@ -244,6 +300,8 @@ async function chooseAgent(supplied) {
 
 function printHandoff({ agent, method, workspace, source, version }) {
   const rel = relative(process.cwd(), workspace) || ".";
+  const setupCmd =
+    agent === "opencode" ? "/as-setup-agent-skills" : "/setup-agent-skills";
   const lines = [
     `agent-skills v${version} is ready.`,
     "",
@@ -252,19 +310,35 @@ function printHandoff({ agent, method, workspace, source, version }) {
     `Install method:  ${method}`,
     `Source root:     ${source}`,
     "",
-    "Open your coding agent in this directory and run:",
+    `Open ${agentLaunchHint(agent)} in this directory and run:`,
     "",
-    `  /setup`,
+    `  ${setupCmd}`,
     "",
     "The guided-workspace-setup skill will:",
     "  • analyse the workspace",
     "  • show grouped install menus with recommendations",
     "  • offer project overrides",
     "  • confirm everything before writing a single file",
+    "  • remove the installer commands from your workspace at the end so",
+    "    they don't pollute your agent's command list (reply 'keep' in",
+    "    Step 9 if you'd rather leave them in)",
     "",
-    "Re-run `npx agent-skills doctor` any time to scan for broken symlinks.",
   ];
+  if (agent === "opencode") {
+    lines.push(
+      "OpenCode note: project-local skill discovery is limited. If",
+      "/as-setup-agent-skills does not load the skill, follow",
+      "docs/opencode-setup.md to link it into ~/.config/opencode/skills/",
+      "and add a reference in AGENTS.md.",
+      "",
+    );
+  }
+  lines.push("Re-run `npx @chankov/agent-skills init` later to re-bootstrap (commands are removed by default once setup completes).");
   for (const line of lines) console.log(line);
+}
+
+function agentLaunchHint(agent) {
+  return { "claude-code": "Claude Code (`claude`)", "opencode": "OpenCode (`opencode`)", "pi": "pi (`pi`)" }[agent] || agent;
 }
 
 function tryLaunch(agent, cwd) {
@@ -274,7 +348,7 @@ function tryLaunch(agent, cwd) {
   const r = spawnSync(cmd, [], { cwd, stdio: "inherit" });
   if (r.error) {
     console.log(`(could not launch ${cmd}: ${r.error.message})`);
-    console.log(`Open ${cmd} manually and run /setup.`);
+    console.log(`Open ${cmd} manually and run /setup-agent-skills.`);
   }
 }
 
@@ -339,7 +413,7 @@ function printHelp(sub) {
   if (sub === "init") {
     console.log(`agent-skills init [options]
 
-  Materialize the package and hand off to the LLM-driven /setup skill.
+  Materialize the package and hand off to the LLM-driven /setup-agent-skills skill.
 
 Options:
   --agent <claude-code|opencode|pi>   Skip the agent auto-detection
@@ -367,7 +441,7 @@ Options:
     console.log(`agent-skills update [options]
 
   Read the workspace's install record and surface the version delta. The
-  actual diff-aware refresh runs inside your coding agent via /setup.
+  actual diff-aware refresh runs inside your coding agent via /setup-agent-skills.
 
 Options:
   --workspace <path>   Target workspace (default: cwd)
@@ -385,10 +459,12 @@ Usage:
   npx agent-skills <command> [options]
 
 Commands:
-  init           Materialize the package + hand off to /setup in your agent
-  doctor         Scan for broken symlinks and stale persona references
-  update         Surface the version delta + hand off to /setup for the refresh
-  check-update   One-line registry check (used by session hooks; safe to script)
+  init                Bootstrap installer files + hand off to /setup-agent-skills-agent-skills
+  doctor              Scan for broken symlinks and stale persona references
+  update              Surface the version delta + hand off to /setup-agent-skills-agent-skills
+  check-update        One-line registry check (used by session hooks; safe to script)
+  cleanup-installer   Remove the installer slash commands from a workspace (used
+                      by the skill at end of setup; safe to run by hand)
 
 Options:
   -v, --version    Print the package version

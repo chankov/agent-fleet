@@ -14,7 +14,7 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 |---|---|---|
 | **Most users** — you want to use the skills in your projects | `npx @chankov/agent-skills init` | One command; semver updates; cross-platform; no source dir to babysit. See [docs/npm-install.md](npm-install.md). |
 | **Claude Code users** — you live in Claude Code and want plugin-managed updates | `/plugin marketplace add chankov/agent-skills` | Best UX inside Claude Code; marketplace handles the lifecycle. |
-| **Skill authors / contributors** — you want to edit the skills and have changes flow into every connected workspace | `git clone` + `symlink` mode in `/setup` | Edit-in-place; every connected workspace sees the change instantly. |
+| **Skill authors / contributors** — you want to edit the skills and have changes flow into every connected workspace | `git clone` + `symlink` mode in `/setup-agent-skills` | Edit-in-place; every connected workspace sees the change instantly. |
 
 All three converge on the same `guided-workspace-setup` skill — they only differ in how the source files reach your workspace. None is being deprecated.
 
@@ -124,7 +124,7 @@ The `.claude/commands/` directory contains slash commands for Claude Code:
 
 | Command | Skill Invoked |
 |---------|---------------|
-| `/setup` | guided-workspace-setup |
+| `/setup-agent-skills` | guided-workspace-setup |
 | `/spec` | spec-driven-development |
 | `/plan` | planning-and-task-breakdown |
 | `/build` | incremental-implementation + test-driven-development |
