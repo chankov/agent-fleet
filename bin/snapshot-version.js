@@ -34,6 +34,10 @@ const ARTIFACT_PATHS = [
   ".pi/skills",
   ".pi/agents",
   ".pi/damage-control-rules.yaml",
+  // scripts/ ships runtime helpers like coms-net-server.ts that the pi
+  // coms-net harness shells out to. Tests under scripts/*.test.mjs stay out
+  // (filtered below) — they're dev-only.
+  "scripts",
   "references",
   "hooks",
 ];
@@ -58,7 +62,10 @@ for (const rel of ARTIFACT_PATHS) {
     recursive: true,
     filter: (srcPath) => {
       const base = srcPath.split("/").pop();
-      return !SKIP_NAMES.has(base);
+      if (SKIP_NAMES.has(base)) return false;
+      // Match what the npm `files` allowlist ships — dev-only tests stay out.
+      if (base.endsWith(".test.mjs") || base.endsWith(".test.js")) return false;
+      return true;
     },
   });
 }

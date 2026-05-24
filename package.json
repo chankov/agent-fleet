@@ -46,6 +46,7 @@
     ".pi/skills/",
     ".pi/agents/",
     ".pi/damage-control-rules.yaml",
+    "scripts/*.ts",
     "references/",
     "hooks/",
     "docs/agent-skills-setup.md",
