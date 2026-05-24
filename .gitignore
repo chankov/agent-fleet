@@ -27,3 +27,4 @@ tmp/
 .ai/agent-skills-overrides.md
 .versions/
 .changeset/
+.ai/commands/
