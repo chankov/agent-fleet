@@ -168,7 +168,7 @@ Groups, in order:
 7. **Agent personas — writeable** — `builder`, `documenter`
 8. **Agent personas — read-only** (carry `tools: read,bash,grep,find,ls` and an explicit "Do NOT modify files." rule) — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `planner`, `plan-reviewer`, `scout`
 9. **Commands / prompts** (mapped to the chosen agent — items without a per-agent source are filtered out, no cross-tool substitution) — full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
-10. **pi extensions** *(pi only — always-on once installed)* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`
+10. **pi extensions** *(pi only — always-on once installed)* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★
 11. **pi harnesses — UI / status** *(pi only, mutually exclusive at runtime — install many, load one)* — `minimal`, `tool-counter`, `tool-counter-widget`, `session-replay`, `subagent-widget`
 12. **pi harnesses — discipline / focus** *(pi only)* — `purpose-gate`, `tilldone`, `system-select`
 13. **pi harnesses — safety** *(pi only)* — `damage-control`, `damage-control-continue`

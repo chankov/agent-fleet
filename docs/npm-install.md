@@ -156,6 +156,66 @@ npx --yes @chankov/agent-skills@latest init --agent claude-code --method copy --
 LLM-driven `/setup` flow is not CI-runnable by design — confirmation gates
 exist precisely so a human approves every write.
 
+## Receiving update notifications
+
+Three independent mechanisms surface "a new version is published" without
+you having to remember to check. All three share a single cache at
+`$XDG_CACHE_HOME/agent-skills/latest-version.json` (24h TTL) so the
+registry is hit at most once per day.
+
+### 1. CLI update-notifier (always on)
+
+Every `npx @chankov/agent-skills <cmd>` invocation runs a fast cache read
+on entry. If the cached latest version exceeds the running CLI version, a
+banner prints to stderr before the command output:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ agent-skills update available: 0.1.0 → 0.2.0                 │
+│   Run: npx @chankov/agent-skills@latest update               │
+│   Releases: https://github.com/chankov/agent-skills/releases │
+└──────────────────────────────────────────────────────────────┘
+```
+
+If the cache is stale, a detached background process refreshes it for the
+*next* invocation — the current run is never blocked.
+
+### 2. Claude Code session-start hook
+
+When `hooks/session-start.sh` is installed (offered in Group 18 of `/setup`),
+every new Claude Code session runs the check with a 3-second wall-clock cap.
+If an upgrade is available, the banner is injected into the session context
+so Claude can mention it on its first turn — e.g. *"Note: agent-skills 0.2.0
+is available; want me to apply it via `/setup`?"*
+
+### 3. pi extension (`agent-skills-update-check`)
+
+When installed (offered in Group 10 of `/setup`), the extension fires on the
+first `agent_start` event of each pi session and emits a `ctx.ui.notify`
+message in the pi UI if a newer version is published. Reads the same cache
+as the CLI — no double-fetching.
+
+### Opting out
+
+Any of these environment variables disables all three:
+
+```bash
+export AGENT_SKILLS_NO_UPDATE_CHECK=1   # agent-skills-specific
+export NO_UPDATE_NOTIFIER=1             # conventional, also honoured
+# CI=true is auto-detected — banners never appear in CI logs
+```
+
+### Forcing a manual check
+
+```bash
+# Block on a single registry fetch; print the banner if outdated
+npx @chankov/agent-skills check-update
+
+# Bypass the cache entirely
+rm ~/.cache/agent-skills/latest-version.json
+npx @chankov/agent-skills check-update
+```
+
 ## Troubleshooting
 
 - **"Could not auto-detect your coding agent."** Pass `--agent` or run

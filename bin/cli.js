@@ -21,6 +21,7 @@ import { stdin, stdout, exit } from "node:process";
 
 import { runDoctor } from "./lib/doctor.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
+import { checkAndNotify } from "./lib/update-notifier.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
@@ -70,11 +71,20 @@ if (opts.help) {
 
 // ── dispatch ──────────────────────────────────────────────────────────────
 
+// Update check runs first — if the cache is fresh and shows an upgrade,
+// the banner prints to stderr before the command output. If the cache is
+// stale, a background fetch refreshes it for the next invocation.
+// `update` skips this since it has its own version-delta reporting.
+if (sub !== "update" && sub !== "check-update") {
+  checkAndNotify(pkg.version);
+}
+
 switch (sub) {
-  case "init":    await cmdInit();    break;
-  case "doctor":  await cmdDoctor();  break;
-  case "update":  await cmdUpdate();  break;
-  default:        fail(`unknown command: ${sub}\n\nRun "agent-skills --help" for usage.`);
+  case "init":          await cmdInit();        break;
+  case "doctor":        await cmdDoctor();      break;
+  case "update":        await cmdUpdate();      break;
+  case "check-update":  await cmdCheckUpdate(); break;
+  default:              fail(`unknown command: ${sub}\n\nRun "agent-skills --help" for usage.`);
 }
 
 // ── commands ──────────────────────────────────────────────────────────────
@@ -188,6 +198,25 @@ async function cmdUpdate() {
   console.log("skill will detect the version delta, show the CHANGELOG between");
   console.log("the two versions, and offer a per-artifact three-way diff before");
   console.log("touching any file.");
+}
+
+async function cmdCheckUpdate() {
+  // Entry point for hook scripts and pi extensions. Blocks on a single
+  // registry fetch (short timeout); emits a one-line banner to stdout if an
+  // upgrade is available, otherwise prints nothing. Always exits 0 so a
+  // failed check never breaks the calling hook.
+  const { fetchLatestSync, readCacheStatus, formatBanner, gt } =
+    await import("./lib/update-notifier.js");
+
+  let latest = readCacheStatus();
+  if (!latest || latest.stale) {
+    const fetched = await fetchLatestSync(2000);
+    if (fetched) latest = { latest: fetched };
+  }
+  if (latest?.latest && gt(latest.latest, pkg.version)) {
+    process.stdout.write(formatBanner(pkg.version, latest.latest) + "\n");
+  }
+  exit(0);
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -356,9 +385,10 @@ Usage:
   npx agent-skills <command> [options]
 
 Commands:
-  init       Materialize the package + hand off to /setup in your agent
-  doctor     Scan for broken symlinks and stale persona references
-  update     Surface the version delta + hand off to /setup for the refresh
+  init           Materialize the package + hand off to /setup in your agent
+  doctor         Scan for broken symlinks and stale persona references
+  update         Surface the version delta + hand off to /setup for the refresh
+  check-update   One-line registry check (used by session hooks; safe to script)
 
 Options:
   -v, --version    Print the package version
@@ -369,6 +399,11 @@ Examples:
   npx agent-skills init --agent claude-code --method copy
   npx agent-skills doctor --workspace ~/projects/foo
   npx agent-skills update
+
+Environment:
+  AGENT_SKILLS_NO_UPDATE_CHECK=1   Disable the background update check
+  NO_UPDATE_NOTIFIER=1             Same (conventional opt-out, also honoured)
+  CI=true                          Auto-disables the update check
 
 Docs: https://github.com/chankov/agent-skills#readme
 `);
