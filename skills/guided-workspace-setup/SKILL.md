@@ -182,8 +182,9 @@ Groups, in order:
 14. **pi harnesses — orchestration** *(pi only)* — `agent-chain`, `agent-team`, `pi-pi`
 15. **pi harnesses — messaging** *(pi only)* — `coms`, `coms-net`
 16. **pi-runtime skills** *(pi only)* — `bowser`
-17. **References** — testing, performance, security, accessibility checklists
-18. **Hooks** — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`)
+17. **External pi packages** *(pi only — companion packages recorded in pi settings, not copied from this repo)* — `pi-ask-user` ★
+18. **References** — testing, performance, security, accessibility checklists
+19. **Hooks** — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`)
 
 Defaults differ by workspace state:
 
@@ -192,9 +193,18 @@ Defaults differ by workspace state:
 
 After every group, restate the picks in one line so the user can correct them before moving on. The restate line uses the same status vocabulary — for example: *"Group 4 Review: keep `code-review-and-quality` (up to date), install `security-and-hardening` (recommended), remove `performance-optimization`."*
 
+**External pi package status.** For Group 17, treat `pi-ask-user` as an external pi package rather than an agent-skills artifact:
+
+- `installed · bundled by @chankov/agent-skills` — the workspace uses `pi install npm:@chankov/agent-skills`; leave `pi-ask-user` unchecked/no-op and do not add a duplicate package entry.
+- `installed · project package` — `.pi/settings.json`/`pi list` already records `npm:pi-ask-user`; pre-check it to keep.
+- `installed · global package` — user settings already provide `npm:pi-ask-user`; leave project install unchecked unless the user wants a project-scoped pin.
+- `not installed` — recommend `pi install -l npm:pi-ask-user` for project-scoped guided/manual setup. Mention `pi install npm:pi-ask-user` only when the user chose a global pi setup.
+
+When selected during a clone/symlink or manual pi setup, record `pi-ask-user` under an `external-pi-packages` / `project-packages` line in `.ai/agent-skills-setup.md`; do not copy files from `node_modules` or this repo. When deselected later, remove only the package entry this setup owns (for example the project-scoped `.pi/settings.json` entry it recorded). Never remove a user-owned global package or a package entry that predates the install record.
+
 **Removal scope — what "unchecked = remove" actually touches.** A target item is eligible for removal only when **both** are true:
 
-1. **It is part of the agent-skills inventory.** Its name matches an artifact shipped in the source repo's canonical trees (`skills/`, `agents/`, `.claude/commands/`, `.pi/prompts/`, `.pi/extensions/`, `.pi/harnesses/`, `.pi/skills/`, `references/`, `hooks/`). Out-of-inventory items — user-authored skills, project-specific commands, custom personas, third-party plugins, unrelated dotfiles — are never proposed for removal even if they sit in the same directory.
+1. **It is part of the agent-skills inventory.** Its name matches an artifact shipped in the source repo's canonical trees (`skills/`, `agents/`, `.claude/commands/`, `.pi/prompts/`, `.pi/extensions/`, `.pi/harnesses/`, `.pi/skills/`, `references/`, `hooks/`). Out-of-inventory items — user-authored skills, project-specific commands, custom personas, third-party plugins, external pi packages, unrelated dotfiles — are never proposed for removal even if they sit in the same directory.
 2. **It is recorded in this workspace's install record.** The `## install-status` section of `.ai/agent-skills-setup.md` lists it as previously installed by this skill, *or* it is a symlink whose target resolves into the agent-skills source root (which is unambiguously ours).
 
 If a candidate fails either test, list it once under a "Skipped — not owned by agent-skills" line in the Step 9 plan and leave it alone. Settings files (`.claude/settings.json`, `.opencode/config*`, env vars, MCP config) are touched **only** to remove agent-skills' own hook registrations — never other keys, never user env vars, never third-party MCP entries.

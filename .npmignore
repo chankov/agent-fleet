@@ -9,12 +9,7 @@
 .vscode/
 .idea/
 
-# Nested node_modules — pi extensions and harnesses install their own deps;
-# the user re-installs after init, we never ship vendored copies.
-**/node_modules
-**/node_modules/**
-node_modules
-node_modules/**
+# Nested extension/harness node_modules are still excluded; root bundledDependencies are allowed so pi package companions ship.
 .pi/extensions/node_modules
 .pi/extensions/node_modules/**
 .pi/harnesses/*/node_modules
@@ -29,7 +24,6 @@ node_modules/**
 # (We do not list package-lock.json under an ignore — keep it.)
 
 # Tooling
-node_modules/
 .changeset/
 .github/
 .gitignore

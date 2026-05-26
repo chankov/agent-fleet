@@ -53,6 +53,65 @@ function displayName(name: string): string {
 	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
+// ── ASK_USER: marker extraction ──────────────────
+// Specialists emit `ASK_USER: <question>` per the clarification protocol injected
+// into their system prompt. We pull them out so the dispatcher can surface each.
+
+function extractAskUserQuestions(output: string): string[] {
+	const questions: string[] = [];
+	for (const rawLine of output.split("\n")) {
+		const line = rawLine.trim();
+		const match = line.match(/^ASK_USER\s*:\s*(.+)$/i);
+		if (match) {
+			const q = match[1].trim();
+			if (q && !questions.includes(q)) questions.push(q);
+		}
+	}
+	return questions;
+}
+
+// ── Overrides Parser (.ai/agent-skills-overrides.md) ──
+// Reads the `## agent-team` section. Supported keys:
+//   language: <name>   — user-facing language. Default: English.
+
+interface AgentTeamOverrides {
+	language: string;
+}
+
+const DEFAULT_OVERRIDES: AgentTeamOverrides = {
+	language: "English",
+};
+
+function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
+	const path = join(cwd, ".ai", "agent-skills-overrides.md");
+	if (!existsSync(path)) return { ...DEFAULT_OVERRIDES };
+
+	let raw: string;
+	try {
+		raw = readFileSync(path, "utf-8");
+	} catch {
+		return { ...DEFAULT_OVERRIDES };
+	}
+
+	const result: AgentTeamOverrides = { ...DEFAULT_OVERRIDES };
+	let inSection = false;
+	for (const rawLine of raw.split("\n")) {
+		const line = rawLine.replace(/\r$/, "");
+		const heading = line.match(/^##\s+(.+?)\s*$/);
+		if (heading) {
+			inSection = heading[1].trim().toLowerCase() === "agent-team";
+			continue;
+		}
+		if (!inSection) continue;
+		const kv = line.match(/^\s*([a-zA-Z][\w-]*)\s*:\s*(.+?)\s*$/);
+		if (!kv) continue;
+		const key = kv[1].toLowerCase();
+		const value = kv[2].trim();
+		if (key === "language" && value) result.language = value;
+	}
+	return result;
+}
+
 // ── Teams YAML Parser ────────────────────────────
 
 function parseTeamsYaml(raw: string): Record<string, string[]> {
@@ -142,6 +201,7 @@ export default function (pi: ExtensionAPI) {
 	let widgetCtx: any;
 	let sessionDir = "";
 	let contextWindow = 0;
+	let userLanguage: string = DEFAULT_OVERRIDES.language;
 
 	function loadAgents(cwd: string) {
 		// Create session storage dir
@@ -342,6 +402,23 @@ export default function (pi: ExtensionAPI) {
 		const agentKey = state.def.name.toLowerCase().replace(/\s+/g, "-");
 		const agentSessionFile = join(sessionDir, `${agentKey}.json`);
 
+		// Clarification protocol — every specialist learns to bubble up questions
+		// to the dispatcher instead of guessing.
+		const clarificationProtocol = `
+
+## Clarification protocol
+If at any point you need a decision from the human user (ambiguity, missing input,
+contradiction, or a destructive/irreversible next step), DO NOT guess. Stop and
+return a single line of the form:
+
+  ASK_USER: <your question in one clear English sentence>
+
+You may emit multiple ASK_USER lines if you have several questions. The dispatcher
+will surface each to the human user in ${userLanguage} and re-dispatch you with the
+answers. Do not invent values, do not pick "reasonable defaults" silently — ask.`;
+
+		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol;
+
 		// Build args — first run creates session, subsequent runs resume
 		const args = [
 			"--mode", "json",
@@ -350,7 +427,7 @@ export default function (pi: ExtensionAPI) {
 			"--model", model,
 			"--tools", state.def.tools,
 			"--thinking", "off",
-			"--append-system-prompt", state.def.systemPrompt,
+			"--append-system-prompt", appendedSystemPrompt,
 			"--session", agentSessionFile,
 		];
 
@@ -491,11 +568,19 @@ export default function (pi: ExtensionAPI) {
 					? result.output.slice(0, 8000) + "\n\n... [truncated]"
 					: result.output;
 
+				// Extract bubble-up questions emitted via the clarification protocol.
+				const questions = extractAskUserQuestions(result.output);
+
 				const status = result.exitCode === 0 ? "done" : "error";
 				const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
+				const questionsNotice = questions.length > 0
+					? `\n\n⚠ ${questions.length} ASK_USER question(s) raised by ${agent}. ` +
+					  `You MUST call ask_user for each (in ${userLanguage}) before re-dispatching:\n` +
+					  questions.map((q, i) => `  ${i + 1}. ${q}`).join("\n")
+					: "";
 
 				return {
-					content: [{ type: "text", text: `${summary}\n\n${truncated}` }],
+					content: [{ type: "text", text: `${summary}${questionsNotice}\n\n${truncated}` }],
 					details: {
 						agent,
 						task,
@@ -503,6 +588,7 @@ export default function (pi: ExtensionAPI) {
 						elapsed: result.elapsed,
 						exitCode: result.exitCode,
 						fullOutput: result.output,
+						questions,
 					},
 				};
 			} catch (err: any) {
@@ -548,16 +634,37 @@ export default function (pi: ExtensionAPI) {
 			const header = theme.fg(color, `${icon} ${details.agent}`) +
 				theme.fg("dim", ` ${elapsed}s`);
 
+			const questions: string[] = Array.isArray(details.questions) ? details.questions : [];
+			const questionsBlock = questions.length > 0
+				? "\n" + theme.fg("warning", `⚠ ${questions.length} ASK_USER question(s) raised — surface via ask_user`)
+				: "";
+
 			if (options.expanded && details.fullOutput) {
 				const output = details.fullOutput.length > 4000
 					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
 					: details.fullOutput;
-				return new Text(header + "\n" + theme.fg("muted", output), 0, 0);
+				return new Text(header + questionsBlock + "\n" + theme.fg("muted", output), 0, 0);
 			}
 
-			return new Text(header, 0, 0);
+			return new Text(header + questionsBlock, 0, 0);
 		},
 	});
+
+	// ── ask_user Tool (dispatcher → human) ──
+	//
+	// We do NOT register `ask_user` here. The recommended companion package
+	// `pi-ask-user` (see docs/pi-setup.md) owns that tool name with a richer
+	// implementation. Registering our own conflicts regardless of load order:
+	//   - if we register first, pi-ask-user fails to load
+	//   - if pi-ask-user registers first, our registration fails
+	// and pi has no synchronous probe at load time — `pi.getAllTools()` is
+	// a runtime action method that throws when called from the factory.
+	//
+	// Instead, in `session_start` (where action methods ARE allowed) we check
+	// `pi.getAllTools()`, gate `ask_user` into `setActiveTools` only if present,
+	// and warn the user to `pi install npm:pi-ask-user` if it's missing.
+
+	let askUserAvailable = false;
 
 	// ── Commands ─────────────────────────────────
 
@@ -635,29 +742,109 @@ export default function (pi: ExtensionAPI) {
 
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 
+		// Two flavors of the system prompt depending on whether ask_user is
+		// registered (i.e. pi-ask-user is installed). Without it the dispatcher
+		// must state assumptions explicitly instead of asking.
+		const askUserBlock = askUserAvailable
+			? `## When to call \`ask_user\` (non-negotiable triggers)
+- Requirements are ambiguous, incomplete, or contradictory.
+- Multiple valid approaches exist and the trade-off is preference-dependent
+  (architecture, library choice, naming, scope cuts).
+- A specialist returned an \`ASK_USER:\` marker — surface every one.
+- A specialist's output contradicts an earlier specialist's output, or contradicts
+  the user's stated requirement — ask the user to resolve it.
+- The next dispatch would be costly to undo (destructive edit, migration, mass
+  rename, production-facing change, secret/credential handling).
+- You're about to assume a value (path, version, flag, threshold) the user did
+  not specify.
+
+Calling \`ask_user\`:
+- Read the tool's own description for the exact parameter shape — different
+  installs ship slightly different schemas. Always pass \`question\` and, when
+  helpful, \`context\` (a 1–3 line summary of what you've already found).
+- Provide multiple-choice \`options\` whenever you can enumerate 2–6 valid
+  answers — it's faster for the user than free text.
+- Ask exactly **one** focused question per call. Do not bundle unrelated questions.`
+			: `## ask_user is NOT available in this session
+The \`pi-ask-user\` package is not installed, so you have no interactive way to
+ask the human. You MUST instead:
+- State every assumption explicitly in ${userLanguage} before dispatching.
+- Phrase it as: "Assuming X (because Y) — say STOP/correct if wrong, otherwise I'll proceed."
+- Wait for the user's next message before continuing on anything destructive.
+- For \`ASK_USER:\` markers raised by specialists, relay the question verbatim to
+  the user in ${userLanguage} and wait for their reply in the next turn.`;
+
+		const toolList = askUserAvailable
+			? "two tools: `dispatch_agent` (to delegate work) and `ask_user` (to talk to the human)"
+			: "one tool: `dispatch_agent` (to delegate work). `ask_user` is NOT available — see the section below";
+
+		const dispatchSection = askUserAvailable
+			? `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
+  ways, call \`ask_user\` first. Never invent constraints or "reasonable defaults"
+  the user did not state.
+- Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
+  augmented with a clarification protocol so the specialist can bubble up questions.
+- After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
+  the result \`details.questions\`). For each one: call \`ask_user\` in ${userLanguage},
+  then re-dispatch the specialist with the answer.`
+			: `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
+  ways, STATE your assumption explicitly in ${userLanguage} and wait for the user
+  to correct it. Never invent constraints or "reasonable defaults" silently.
+- Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
+  augmented with a clarification protocol so the specialist can bubble up questions.
+- After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
+  the result \`details.questions\`). For each one: relay it verbatim to the user
+  in ${userLanguage} and wait for the reply before re-dispatching.`;
+
+		const ambiguityRule = askUserAvailable
+			? `- NEVER proceed past an ambiguity by guessing. Either call \`ask_user\`, or state
+  the assumption explicitly in ${userLanguage} and say you'll proceed unless corrected.`
+			: `- NEVER proceed past an ambiguity by guessing. State the assumption explicitly
+  in ${userLanguage} and wait for the user to confirm or correct.`;
+
+		const languageLines = askUserAvailable
+			? `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
+  write to the user, every \`ask_user\` question and \`context\` field — ${userLanguage}.
+- Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
+  personas are written in English; do not translate task descriptions for them.
+- When a specialist emits an \`ASK_USER:\` line in English, translate it to
+  ${userLanguage} before passing it through \`ask_user\`.${userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : ""}`
+			: `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
+  write to the user is ${userLanguage}.
+- Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
+  personas are written in English; do not translate task descriptions for them.
+- When a specialist emits an \`ASK_USER:\` line in English, translate it to
+  ${userLanguage} before relaying to the user.${userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : ""}`;
+
 		return {
-			systemPrompt: `You are a dispatcher agent. You coordinate specialist agents to accomplish tasks.
-You do NOT have direct access to the codebase. You MUST delegate all work through
-agents using the dispatch_agent tool.
+			systemPrompt: `You are a dispatcher agent — an orchestrator. You coordinate specialist agents
+to accomplish tasks. You do NOT have direct access to the codebase. You have ${toolList}.
+
+## Language
+${languageLines}
 
 ## Active Team: ${activeTeamName}
 Members: ${teamMembers}
-You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents outside this team.
+You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents
+outside this team.
 
 ## How to Work
-- Analyze the user's request and break it into clear sub-tasks
-- Choose the right agent(s) for each sub-task
-- Dispatch tasks using the dispatch_agent tool
-- Review results and dispatch follow-up agents if needed
-- If a task fails, try a different agent or adjust the task description
-- Summarize the outcome for the user
+- Analyze the user's request and break it into clear sub-tasks.
+- Choose the right agent(s) for each sub-task.
+${dispatchSection}
+- Review results and dispatch follow-up agents if needed.
+- If a task fails, try a different agent or adjust the task description.
+- Summarize the outcome for the user in ${userLanguage}.
 
-## Rules
-- NEVER try to read, write, or execute code directly — you have no such tools
-- ALWAYS use dispatch_agent to get work done
-- You can chain agents: use scout to explore, then builder to implement
-- You can dispatch the same agent multiple times with different tasks
-- Keep tasks focused — one clear objective per dispatch
+${askUserBlock}
+
+## Hard Rules
+- NEVER try to read, write, or execute code directly — you have no such tools.
+- ALWAYS use \`dispatch_agent\` to get work done.
+${ambiguityRule}
+- You can chain agents: use scout to explore, then builder to implement.
+- You can dispatch the same agent multiple times with different tasks.
+- Keep tasks focused — one clear objective per dispatch.
 
 ## Agents
 
@@ -687,20 +874,34 @@ ${agentCatalog}`,
 
 		loadAgents(_ctx.cwd);
 
+		// Load user-facing language override (default: English).
+		userLanguage = parseAgentTeamOverrides(_ctx.cwd).language;
+
 		// Default to first team — use /agents-team to switch
 		const teamNames = Object.keys(teams);
 		if (teamNames.length > 0) {
 			activateTeam(teamNames[0]);
 		}
 
-		// Lock down to dispatcher-only (tool already registered at top level)
-		pi.setActiveTools(["dispatch_agent"]);
+		// Probe for `ask_user` (registered by the `pi-ask-user` companion package
+		// when installed). Action methods like getAllTools are runtime-only, so
+		// this MUST happen at session_start, not at extension load.
+		askUserAvailable = pi.getAllTools().some(t => t.name === "ask_user");
+
+		// Dispatcher's tool surface: dispatch_agent always; ask_user only when
+		// pi-ask-user is installed.
+		pi.setActiveTools(askUserAvailable ? ["dispatch_agent", "ask_user"] : ["dispatch_agent"]);
 
 		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
 		const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+		const askUserLabel = askUserAvailable
+			? "available (via pi-ask-user)"
+			: "NOT AVAILABLE — run `pi install npm:pi-ask-user`";
 		_ctx.ui.notify(
 			`Team: ${activeTeamName} (${members})\n` +
-			`Team sets loaded from: .pi/agents/teams.yaml\n\n` +
+			`Team sets loaded from: .pi/agents/teams.yaml\n` +
+			`User-facing language: ${userLanguage} (override in .ai/agent-skills-overrides.md)\n` +
+			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n\n` +
 			`/agents-team          Select a team\n` +
 			`/agents-list          List active agents and status\n` +
 			`/agents-grid <1-6>    Set grid column count`,
