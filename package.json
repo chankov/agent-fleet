@@ -1,6 +1,6 @@
 {
   "name": "@chankov/agent-skills",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Production-grade engineering skills for AI coding agents. Ships skills, agent personas, slash commands, and pi extensions, with a thin CLI that hands off to the LLM-driven guided setup.",
   "keywords": [
     "ai",

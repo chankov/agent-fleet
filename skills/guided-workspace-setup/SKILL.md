@@ -20,7 +20,7 @@ This skill installs and configures agent-skills artifacts — skills, agent pers
 
 ## The Workflow
 
-This skill is run from the agent-skills repo with the target coding agent active, and invoked with a path to the workspace to configure. Steps are gated — nothing is written to the target workspace until the user confirms in Step 9.
+This skill is run from the agent-skills repo with the target coding agent active, and invoked with a path to the workspace to configure. Steps are gated — nothing is written to the target workspace until the user confirms in Step 9 — with **one explicit exception**: the `pi-ask-user` bootstrap in Step 5b. When the agent is `pi` and that interaction package is missing, the skill (after its own confirmation) installs it *before* the install menu and asks the user to reload and re-run, so the rest of setup can drive a native multi-select widget instead of a text fallback.
 
 It maintains two files in the target's `.ai/` directory: `agent-skills-overrides.md` holds the minimal per-skill overrides that other skills read on every run, and `agent-skills-setup.md` holds the install record this skill itself reads on re-runs. The overrides file stays small; the install record absorbs the bulk.
 
@@ -28,9 +28,11 @@ It maintains two files in the target's `.ai/` directory: `agent-skills-overrides
 
 Determine which interaction mode this runtime supports, in order of preference:
 
-- **Native multi-select widget** (e.g. a runtime that renders true checkbox lists) — use it for every group in Step 6.
+- **Native multi-select widget** (e.g. a runtime that renders true checkbox lists) — use it for every group in Step 6. On `pi`, this widget is provided by the external `pi-ask-user` package; when it is absent, Step 5b bootstraps it first (install → reload → re-run) so this mode becomes available on the second pass. On `claude-code` and `opencode`, the runtime supplies the widget directly.
 - **`AskUserQuestion` with `multiSelect: true`** — usable when a group has ≤ 4 options, since the tool caps options at 4. Larger groups fall back to the next mode.
 - **Tabular fallback** — print the group table (Step 6 format) and ask the user to reply with the picks. Always accept the shortcuts `all`, `recommended`, `none`, or a comma-separated list of item names/numbers.
+
+Because the groups in Step 6 are large (the Skills group alone holds ~20 items), a true checkbox widget matters: on `pi`, prefer bootstrapping `pi-ask-user` (Step 5b) over falling straight to the tabular fallback.
 
 ### 2. Resolve inputs
 
@@ -117,13 +119,31 @@ Then ask, multi-select: which fixes to apply now. Apply only the picked ones; re
 
 The doctor scan is also exposed standalone as `/doctor-agent-skills` — running it outside a setup pass is this same scan-and-repair flow without the rest of the install menu.
 
+### 5b. Bootstrap `pi-ask-user` first (pi only)
+
+**Skip this step entirely unless the agent is `pi`.** For `claude-code` and `opencode`, the runtime already supplies a multi-select widget — go straight to Step 6.
+
+For `pi`, the native multi-select widget comes from the external `pi-ask-user` package. The Step 6 groups are large (the Skills group alone is ~20 rows), so driving them through the tabular fallback is clumsy. The fix is to install the interaction tool *before* the menu, then re-enter setup once it is loaded.
+
+From the Step 4 analysis, determine whether `pi-ask-user` is already available:
+
+- **Available** — bundled by `@chankov/agent-skills`, recorded as a project package in `.pi/settings.json` / `pi list`, or provided globally by user settings. Then this step is a no-op: note "interaction widget present" and proceed to Step 6, which will use the native widget.
+- **Not available** — do the bootstrap:
+  1. Tell the user what is about to happen and why: *"`pi` renders the setup menu best with the `pi-ask-user` widget. I'll install it project-scoped, then you reload and re-run setup so the rest of the menu uses real checkboxes."*
+  2. Ask for confirmation (this is the one pre-Step-9 write, per the gating exception). If declined, fall back to the tabular mode and continue to Step 6 in this same pass — do **not** force the install.
+  3. On confirm, run `pi install -l npm:pi-ask-user` (project-scoped). Mention `pi install npm:pi-ask-user` only if the user explicitly wants a global pin.
+  4. Record the package under the `external-pi-packages` / `project-packages` line in `.ai/agent-skills-setup.md` (same convention as Step 6's external-package handling) — do not copy files from `node_modules`.
+  5. **Stop the pass here.** Print: *"`pi-ask-user` installed. Reload pi (restart the session or `/reload`), then re-run `/setup-agent-skills` — the menu will then use native multi-select. Nothing else has been written to your workspace."* Do not continue to Step 6 on this pass: the tool only becomes callable after the reload.
+
+On the **re-run**, Step 4 finds `pi-ask-user` installed, this step is a no-op, and Step 6 renders every group as a true checkbox widget. In Step 6's External-pi-packages group, the already-installed `pi-ask-user` simply shows `installed · project package` and is pre-checked to keep — the bootstrap is not repeated.
+
 ### 6. Present the install menu
 
-Offer every installable artifact, split into the groups below. **Each group is its own multi-select prompt** so the user can pick at the finest granularity. Within a group, render the items as a markdown table using this fixed format:
+Offer every installable artifact, split into the groups below. **Each group is its own multi-select prompt** so the user picks one screen at a time. The groups are deliberately broad — 7 total (4 shared + 3 pi-only), so a non-`pi` workspace sees only 4 screens. Several groups bundle more than one artifact type; within such a group, a leading `Group` column labels the sub-category and rows are ordered by it so the table still reads as labeled sections. Render every group's items as a markdown table using this fixed format:
 
-| Pick | Item | Status | Rec | Purpose |
-|---|---|---|---|---|
-| `[x]` / `[ ]` | `<name>` | one of the Status values below | `★` if recommended, else blank | one-line purpose |
+| Pick | Item | Group | Status | Rec | Purpose |
+|---|---|---|---|---|---|
+| `[x]` / `[ ]` | `<name>` | sub-category (see each group) — omit the column for single-type groups | one of the Status values below | `★` if recommended, else blank | one-line purpose |
 
 **Pre-selection rule.** The `Pick` column is pre-ticked from the workspace's current state — not from preference. Every item is either pre-checked `[x]` (touched if confirmed) or pre-unchecked `[ ]` (left alone if confirmed):
 
@@ -164,43 +184,48 @@ For an already-configured workspace, an **unchecked installed item means *remove
 
 If the per-agent source is missing, the row is **not shown** — never silently fall back to a different agent's tree (for example: do not symlink `.claude/commands/design-agent.md` from `.pi/prompts/design-agent.md` when the agent is `pi`). When the user explicitly asks for an item the source lacks for their agent, say so plainly and stop; the answer is to author the missing source file first, not to cross-link runtimes.
 
-Groups, in order:
+Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **only when the agent is `pi`**.
 
-1. **Skills — Define / Plan** — `spec-driven-development` ★, `planning-and-task-breakdown` ★, `idea-refine`
-2. **Skills — Build** — `incremental-implementation` ★, `test-driven-development` ★, `context-engineering`, `source-driven-development`, `frontend-ui-engineering`, `api-and-interface-design`
-3. **Skills — Verify** — `browser-testing-with-devtools`, `debugging-and-error-recovery` ★
-4. **Skills — Review** — `code-review-and-quality` ★, `code-simplification`, `security-and-hardening`, `performance-optimization`
-5. **Skills — Ship** — `git-workflow-and-versioning` ★, `ci-cd-and-automation`, `deprecation-and-migration`, `documentation-and-adrs`, `shipping-and-launch`
-6. **Skills — Meta** — `using-agent-skills` ★, `designing-agents` *(`guided-workspace-setup` is installer-only — never offered)*
-7. **Agent personas — writeable** — `builder`, `documenter`
-8. **Agent personas — read-only** (carry `tools: read,bash,grep,find,ls` and an explicit "Do NOT modify files." rule) — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `planner`, `plan-reviewer`, `scout`
-9. **Commands / prompts** (mapped to the chosen agent — items without a per-agent source are filtered out, no cross-tool substitution) — full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
-10. **pi extensions** *(pi only — always-on once installed)* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★
-11. **pi harnesses — UI / status** *(pi only, mutually exclusive at runtime — install many, load one)* — `minimal`, `tool-counter`, `tool-counter-widget`, `session-replay`, `subagent-widget`
-12. **pi harnesses — discipline / focus** *(pi only)* — `purpose-gate`, `tilldone`, `system-select`
-13. **pi harnesses — safety** *(pi only)* — `damage-control`, `damage-control-continue`
-14. **pi harnesses — orchestration** *(pi only)* — `agent-chain`, `agent-team`, `pi-pi`
-15. **pi harnesses — messaging** *(pi only)* — `coms`, `coms-net`
-16. **pi-runtime skills** *(pi only)* — `bowser`
-17. **External pi packages** *(pi only — companion packages recorded in pi settings, not copied from this repo)* — `pi-ask-user` ★
-18. **References** — testing, performance, security, accessibility checklists
-19. **Hooks** — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`)
+1. **Skills** *(`Group` column = lifecycle phase)* — one screen for all skills, ordered by phase:
+   - *Define / Plan* — `spec-driven-development` ★, `planning-and-task-breakdown` ★, `idea-refine`
+   - *Build* — `incremental-implementation` ★, `test-driven-development` ★, `context-engineering`, `source-driven-development`, `frontend-ui-engineering`, `api-and-interface-design`
+   - *Verify* — `browser-testing-with-devtools`, `debugging-and-error-recovery` ★
+   - *Review* — `code-review-and-quality` ★, `code-simplification`, `security-and-hardening`, `performance-optimization`
+   - *Ship* — `git-workflow-and-versioning` ★, `ci-cd-and-automation`, `deprecation-and-migration`, `documentation-and-adrs`, `shipping-and-launch`
+   - *Meta* — `using-agent-skills` ★, `designing-agents` *(`guided-workspace-setup` is installer-only — never offered)*
+2. **Agent personas** *(`Group` column = `writeable` / `read-only`)* — one screen. Read-only personas carry `tools: read,bash,grep,find,ls` and an explicit "Do NOT modify files." rule:
+   - *writeable* — `builder`, `documenter`
+   - *read-only* — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `planner`, `plan-reviewer`, `scout`
+3. **Commands / prompts** *(single-type — no `Group` column)* — mapped to the chosen agent; items without a per-agent source are filtered out, no cross-tool substitution. Full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
+4. **References & Hooks** *(`Group` column = `reference` / `hook`)* — one screen for the shared non-agent-specific artifacts:
+   - *reference* — testing, performance, security, accessibility checklists
+   - *hook* — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`)
+5. **pi extensions & runtime skills** *(pi only; `Group` column = `extension` / `runtime-skill`)* — always-on once installed:
+   - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★
+   - *runtime-skill* — `bowser`
+6. **pi harnesses** *(pi only; `Group` column = harness category — mutually exclusive at runtime, so install many but load one)* — one screen for all harnesses:
+   - *UI / status* — `minimal`, `tool-counter`, `tool-counter-widget`, `session-replay`, `subagent-widget`
+   - *discipline / focus* — `purpose-gate`, `tilldone`, `system-select`
+   - *safety* — `damage-control`, `damage-control-continue`
+   - *orchestration* — `agent-chain`, `agent-team`, `pi-pi`
+   - *messaging* — `coms`, `coms-net`
+7. **External pi packages** *(pi only — companion packages recorded in pi settings, not copied from this repo)* — `pi-ask-user` ★. On a `pi` re-run this is normally already `installed · project package` because Step 5b bootstrapped it; the row exists so the user can keep, remove, or re-scope it.
 
 Defaults differ by workspace state:
 
-- **Fresh workspace (no install record).** Pre-selection is empty; replying `recommended` ticks the `★` items across groups 1–6, 7–8, 9. pi groups stay empty unless the agent is `pi`.
+- **Fresh workspace (no install record).** Pre-selection is empty; replying `recommended` ticks the `★` items across groups 1–4. pi groups (5–7) stay empty unless the agent is `pi`.
 - **Existing workspace.** Pre-selection mirrors the install record — every `installed · *` row starts `[x]`. Replying `keep` accepts that pre-selection unchanged; replying `recommended` adds the `★` items on top of what is already installed (it never silently unticks installed items).
 
-After every group, restate the picks in one line so the user can correct them before moving on. The restate line uses the same status vocabulary — for example: *"Group 4 Review: keep `code-review-and-quality` (up to date), install `security-and-hardening` (recommended), remove `performance-optimization`."*
+Because groups now span sub-categories, the shortcuts (`all`, `recommended`, `none`, `keep`) and any comma-separated picks apply to the **whole group screen**, across every sub-category in it. After every group, restate the picks in one line so the user can correct them before moving on. The restate line uses the same status vocabulary — for example: *"Skills: keep `code-review-and-quality` (up to date), install `security-and-hardening` (recommended), remove `performance-optimization`."*
 
-**External pi package status.** For Group 17, treat `pi-ask-user` as an external pi package rather than an agent-skills artifact:
+**External pi package status.** For Group 7, treat `pi-ask-user` as an external pi package rather than an agent-skills artifact. In the normal `pi` flow Step 5b has already installed it, so it usually arrives here as `installed · project package`:
 
 - `installed · bundled by @chankov/agent-skills` — the workspace uses `pi install npm:@chankov/agent-skills`; leave `pi-ask-user` unchecked/no-op and do not add a duplicate package entry.
-- `installed · project package` — `.pi/settings.json`/`pi list` already records `npm:pi-ask-user`; pre-check it to keep.
+- `installed · project package` — `.pi/settings.json`/`pi list` already records `npm:pi-ask-user` (most often because Step 5b installed it); pre-check it to keep.
 - `installed · global package` — user settings already provide `npm:pi-ask-user`; leave project install unchecked unless the user wants a project-scoped pin.
-- `not installed` — recommend `pi install -l npm:pi-ask-user` for project-scoped guided/manual setup. Mention `pi install npm:pi-ask-user` only when the user chose a global pi setup.
+- `not installed` — only reached when the user declined the Step 5b bootstrap and ran the menu in tabular fallback. Recommend `pi install -l npm:pi-ask-user` for project-scoped setup. Mention `pi install npm:pi-ask-user` only when the user chose a global pi setup.
 
-When selected during a clone/symlink or manual pi setup, record `pi-ask-user` under an `external-pi-packages` / `project-packages` line in `.ai/agent-skills-setup.md`; do not copy files from `node_modules` or this repo. When deselected later, remove only the package entry this setup owns (for example the project-scoped `.pi/settings.json` entry it recorded). Never remove a user-owned global package or a package entry that predates the install record.
+When selected during a clone/symlink or manual pi setup — or installed by the Step 5b bootstrap — record `pi-ask-user` under an `external-pi-packages` / `project-packages` line in `.ai/agent-skills-setup.md`; do not copy files from `node_modules` or this repo. When deselected later, remove only the package entry this setup owns (for example the project-scoped `.pi/settings.json` entry it recorded). Never remove a user-owned global package or a package entry that predates the install record.
 
 **Removal scope — what "unchecked = remove" actually touches.** A target item is eligible for removal only when **both** are true:
 
@@ -272,7 +297,10 @@ Close the report with one line explaining the installer-cleanup outcome:
 |---|---|
 | "The user wants everything — I'll install all skills without asking." | Loading every skill wastes context and dilutes discovery. The per-group menu and the `★` recommendations exist so a workspace gets only what it needs. |
 | "I'll skip the doctor preflight — the menu will surface broken items anyway." | Broken symlinks distort the install menu's `installed` / `not installed` state. Repair first so the menu reflects reality. |
-| "I'll collapse the groups into one big checklist — it's faster." | The groups are how the user reasons about scope (build vs review vs pi-only). A flat list makes recommendations meaningless. |
+| "I'll collapse the 7 groups into one big checklist — it's faster." | The 7 groups are how the user reasons about scope (skills vs personas vs commands vs pi-only). A single flat list of ~50 items makes recommendations and sub-category labels meaningless. Keep the 7 screens; within a multi-type group, the `Group` column preserves the sub-sections. |
+| "I'll re-split the Skills group back into one screen per phase — six small screens are clearer." | The whole point of the restructure is 7 screens, not 19. The `Group` column already labels the phase within the single Skills screen; splitting it back re-introduces the screen sprawl we removed. |
+| "The agent is `pi` and `pi-ask-user` is missing — I'll just run the menu in the tabular fallback and skip the bootstrap." | Step 5b exists precisely to avoid forcing a ~50-row menu through plain text. Offer the install-then-reload bootstrap first; only fall back to tabular if the user *declines*. |
+| "I installed `pi-ask-user` in Step 5b, so I'll keep going straight into the install menu in the same pass." | The tool only becomes callable after pi reloads. Stop the pass after install, ask the user to reload and re-run; the native widget is unavailable until then. |
 | "I'll copy the files now and confirm afterwards." | Writing before the Step 9 confirmation can clobber config the user wanted to keep. Confirmation is the only gate that protects the target workspace. |
 | "There is no `*-setup.md` for this agent, so I'll guess the install paths." | Guessed paths put artifacts where the agent never loads them. Read the agent's setup doc, or use the built-in map — a location is never invented. |
 | "The workspace already has a `.claude/` directory, so setup is done." | A directory existing is not install state. The `## install-status` section is the only record of what this skill installed; read it before deciding. |
@@ -296,7 +324,10 @@ Close the report with one line explaining the installer-cleanup outcome:
 
 - Files written to the target workspace before the Step 9 confirmation.
 - The doctor preflight skipped on a workspace that already has prior install state.
-- An install menu rendered as one undifferentiated list instead of the 18 grouped tables.
+- An install menu rendered as one undifferentiated list instead of the 7 grouped tables (≤ 8), or the Skills group re-split into one screen per phase.
+- A multi-type group (Skills, Agent personas, References & Hooks, pi extensions & runtime skills, pi harnesses) rendered without the `Group` sub-category column.
+- The agent is `pi`, `pi-ask-user` is missing, and the install menu was rendered in tabular fallback without first offering the Step 5b bootstrap.
+- Step 5b installed `pi-ask-user` but the pass continued into the install menu instead of stopping for the user to reload and re-run.
 - A menu group rendered without per-row `Status` text, or with installed items not pre-checked.
 - A `recommended` reply that silently unticks already-installed items instead of adding `★` items on top.
 - `setup`, `doctor`, or `guided-workspace-setup` shown in the install menu — they are installer-only.
@@ -330,7 +361,9 @@ After completing the workflow, confirm:
 - [ ] The workspace path was validated as an existing directory before any write.
 - [ ] The coding agent was confirmed, and `docs/<agent>-setup.md` was read for `opencode`/`pi` (or the built-in map used for `claude-code`).
 - [ ] The doctor preflight ran on any workspace with prior install state, and its findings were resolved or explicitly skipped.
-- [ ] Each install-menu group was presented as its own table + multi-select with `★` recommendations marked.
+- [ ] On `pi`, Step 5b ran before the menu: `pi-ask-user` was either already present (no-op) or its install-then-reload bootstrap was offered; the pass stopped after install when it was bootstrapped, and was not forced when the user declined.
+- [ ] The install menu was presented as the 7 grouped tables (groups 5–7 shown only for `pi`), not 19 screens and not one flat list; each was its own multi-select with `★` recommendations marked.
+- [ ] Each multi-type group (Skills, Agent personas, References & Hooks, and the pi extension/harness groups) carried a `Group` sub-category column ordering its rows.
 - [ ] Every row carried an explicit `Status` text (`installed · up to date`, `installed · outdated`, `installed · modified`, `not installed`, or `broken · skipped in preflight`) — never blank.
 - [ ] Installed items were pre-checked `[x]`; not-installed items were pre-checked `[ ]`; `recommended` added `★` items on top of the pre-selection without unticking installed ones.
 - [ ] Items lacking a per-agent source were filtered out of the menu — no cross-tool substitution offered.

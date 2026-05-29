@@ -1,5 +1,11 @@
 # agent-skills changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- Collapse the guided-workspace-setup install menu from 19 groups into 7 (4 shared: Skills, Agent personas, Commands/prompts, References & Hooks; 3 pi-only: pi extensions & runtime skills, pi harnesses, External pi packages). Multi-type groups gain a `Group` sub-category column so phases/modes/categories stay legible on a single screen. For pi, add a Step 5b that bootstraps the `pi-ask-user` interaction package first, then asks the user to reload and re-run so the rest of the menu uses a native multi-select widget. Setup prompts (`.pi`, `.claude`, `.opencode`) updated to match.
+
 ## 0.4.0
 
 ### Minor Changes
