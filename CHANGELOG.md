@@ -1,5 +1,13 @@
 # agent-skills changelog
 
+## 0.3.4
+
+### Patch Changes
+
+- Collapse the guided-workspace-setup install menu from 19 screens into 7 grouped multi-selects (4 shared: Skills, Agent personas, Commands/prompts, References & Hooks; 3 pi-only: pi extensions & runtime skills, pi harnesses, External pi packages). Multi-type groups now carry a `Group` sub-category column (lifecycle phase, writeable/read-only, harness category, etc.) so the sub-sections stay readable on a single screen.
+- Add Step 5b (pi only): before showing the install menu, bootstrap `pi-ask-user` project-scoped first, then ask the user to reload pi and re-run setup so the rest of the menu renders with a native multi-select widget instead of a text fallback.
+- Update the setup prompts for claude-code, pi, and opencode to match the 7-group structure and the Step 5b bootstrap.
+
 ## 0.3.3
 
 ### Patch Changes
