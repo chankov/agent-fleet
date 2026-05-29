@@ -1,5 +1,15 @@
 # agent-skills changelog
 
+## 0.4.2
+
+### Patch Changes
+
+- **CLI `update`:** re-install the `/setup-agent-skills` command so it is always present after an update.
+
+  `guided-workspace-setup` removes the installer command at the end of a run by default (Step 10b / `cleanupInstaller`), so a workspace that had completed setup once was left with no `/setup-agent-skills` command — yet `update` still told users to run it. `update` now re-bootstraps the installer artifacts for the workspace's agent before printing the hand-off.
+
+  The agent/method are recovered from the init-time bootstrap marker; if that was cleaned up too, detection now prefers the workspace's own `.claude/`/`.opencode/`/`.pi/` dirs over the ambient agent env var (new `preferWorkspaceHints` option on `detectAgent`), so a pi workspace no longer mis-resolves to claude-code when `update` is run from inside a Claude Code shell. Supports `--agent`, `--method`, and `--dry-run`.
+
 ## 0.4.1
 
 ### Changes

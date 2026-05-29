@@ -22,7 +22,7 @@ import { stdin, stdout, exit } from "node:process";
 import { runDoctor } from "./lib/doctor.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
-import { bootstrap, cleanupInstaller } from "./lib/bootstrap.js";
+import { bootstrap, cleanupInstaller, readBootstrapMarker } from "./lib/bootstrap.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
@@ -199,8 +199,9 @@ async function cmdUpdate() {
   console.log();
 
   // npm itself does the package upgrade. The CLI's job here is to read the
-  // workspace's install record, surface the version delta, and tell the user
-  // to run /setup-agent-skills so the skill can drive the diff-aware refresh.
+  // workspace's install record, surface the version delta, re-install the
+  // /setup-agent-skills command, and hand off to the skill for the diff-aware
+  // refresh.
   const recordPath = join(workspace, ".ai", "agent-skills-setup.md");
   if (!existsSync(recordPath)) {
     console.log("This workspace has no .ai/agent-skills-setup.md install record.");
@@ -211,21 +212,67 @@ async function cmdUpdate() {
   const recorded = readRecordedVersion(recordPath);
   const current  = pkg.version;
 
-  if (recorded === current) {
-    console.log(`Recorded version (${recorded}) matches the installed package.`);
-    console.log("Nothing to do. To upgrade the package itself, run:");
-    console.log("  npm install -g agent-skills@latest    # global");
-    console.log("  npx agent-skills@latest update         # one-shot");
-    exit(0);
-  }
-
   console.log(`Recorded in workspace: v${recorded ?? "(pre-versioning)"}`);
   console.log(`Installed package:     v${current}`);
   console.log();
-  console.log("Run /setup-agent-skills inside your coding agent — the guided-workspace-setup");
-  console.log("skill will detect the version delta, show the CHANGELOG between");
-  console.log("the two versions, and offer a per-artifact three-way diff before");
-  console.log("touching any file.");
+
+  // Re-bootstrap the installer artifacts so /setup-agent-skills is present
+  // after the update. guided-workspace-setup removes these at the end of a
+  // run by default (Step 10b / cleanupInstaller), so a workspace that has
+  // completed setup once no longer has the command — and `update` used to
+  // only print "run /setup-agent-skills" while pointing at a command that no
+  // longer existed. The marker recovers the agent/method from init time; if
+  // it was cleaned up too, fall back to detection (and prompt if ambiguous).
+  const marker = readBootstrapMarker(workspace);
+  let agent = opts.agent ?? marker?.agent
+    ?? detectAgent({ workspace, env: process.env, preferWorkspaceHints: true });
+  if (agent && !AGENTS.includes(agent)) agent = null;
+  if (!agent) agent = await chooseAgent(opts.agent);
+
+  const method = opts.method ?? marker?.method ?? "copy";
+  if (!["copy", "symlink"].includes(method)) {
+    fail(`--method must be "copy" or "symlink" (got "${method}")`);
+  }
+
+  printSection("Refresh installer command");
+  const { written, skipped, removed, warnings } = bootstrap({
+    agent,
+    sourceRoot: pkgRoot,
+    workspace,
+    method,
+    dryRun: opts["dry-run"],
+  });
+  for (const w of warnings) console.log(`  ⚠ ${w}`);
+  for (const p of removed) {
+    const tag = opts["dry-run"] ? "would remove (legacy)" : "removed legacy";
+    console.log(`  − ${tag}: ${relative(workspace, p)}`);
+  }
+  for (const f of written) {
+    const tag = opts["dry-run"] ? "would write" : (method === "symlink" ? "linked" : "wrote");
+    console.log(`  ✓ ${tag}: ${relative(workspace, f.dest)}`);
+  }
+  for (const f of skipped) {
+    console.log(`  ✗ skipped: ${relative(workspace, f.dest)} — ${f.error}`);
+  }
+
+  const setupCmd = agent === "opencode" ? "/as-setup-agent-skills" : "/setup-agent-skills";
+
+  printSection("Next step");
+  if (recorded === current) {
+    console.log(`Recorded version (${recorded}) matches the installed package — no version delta.`);
+    console.log(`${setupCmd} is back in your workspace; run it inside ${agentLabel(agent)} if you`);
+    console.log("want to re-review your artifacts. To upgrade the package itself, run:");
+    console.log("  npm install -g @chankov/agent-skills@latest    # global");
+    console.log("  npx @chankov/agent-skills@latest update         # one-shot");
+    return;
+  }
+  console.log(`Open ${agentLaunchHint(agent)} in this directory and run:`);
+  console.log();
+  console.log(`  ${setupCmd}`);
+  console.log();
+  console.log("The guided-workspace-setup skill will detect the version delta, show the");
+  console.log("CHANGELOG between the two versions, and offer a per-artifact three-way diff");
+  console.log("before touching any file.");
 }
 
 async function cmdCleanupInstaller() {
@@ -440,16 +487,21 @@ Options:
   if (sub === "update") {
     console.log(`agent-skills update [options]
 
-  Read the workspace's install record and surface the version delta. The
-  actual diff-aware refresh runs inside your coding agent via /setup-agent-skills.
+  Surface the version delta and re-install the /setup-agent-skills command so
+  it is always present after an update (guided-workspace-setup removes it at
+  the end of a run by default). The actual diff-aware refresh then runs inside
+  your coding agent via /setup-agent-skills.
 
 Options:
-  --workspace <path>   Target workspace (default: cwd)
-  -h, --help           Show this help
+  --agent <claude-code|opencode|pi>   Override the agent (default: marker → auto-detect)
+  --method <copy|symlink>             Install method for the command (default: copy)
+  --workspace <path>                  Target workspace (default: cwd)
+  --dry-run                           Show what would be written; touch nothing
+  -h, --help                          Show this help
 
 To upgrade the package itself first:
-  npm install -g agent-skills@latest
-  npx agent-skills@latest update
+  npm install -g @chankov/agent-skills@latest
+  npx @chankov/agent-skills@latest update
 `);
     return;
   }

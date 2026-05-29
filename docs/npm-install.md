@@ -147,15 +147,24 @@ npx @chankov/agent-skills doctor -y
 ### `npx @chankov/agent-skills update`
 
 Reads the workspace's `.ai/agent-skills-setup.md`, compares the recorded
-package version against the installed package version, and prints the next
-step. The actual diff-aware refresh runs inside the coding agent via
-`/setup-agent-skills`.
+package version against the installed package version, and **re-installs the
+`/setup-agent-skills` command** so it is always available after an update.
+`guided-workspace-setup` removes the installer command at the end of a run by
+default (Step 10b), so a workspace that has completed setup once would
+otherwise have no command to hand off to. The actual diff-aware refresh then
+runs inside the coding agent via `/setup-agent-skills`.
+
+The agent and install method are recovered from the bootstrap marker written
+at init time; if that marker was cleaned up too, `update` auto-detects the
+agent (and prompts only when the workspace has more than one agent dir).
+Override with `--agent` / `--method`, or preview with `--dry-run`.
 
 ```bash
 # Upgrade the package itself first, then check the delta:
 npm install -g @chankov/agent-skills@latest
 npx agent-skills update --workspace .
-# Then open your agent and run /setup-agent-skills to review per-artifact diffs.
+# /setup-agent-skills is now back in your workspace — open your agent and run
+# it to review per-artifact diffs.
 ```
 
 ## Versioning

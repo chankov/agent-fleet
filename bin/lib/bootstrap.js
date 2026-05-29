@@ -57,6 +57,20 @@ function readPackageVersion(sourceRoot) {
   } catch { return null; }
 }
 
+/**
+ * Read the bootstrap marker if present. Lets `update` recover the agent and
+ * method chosen at init time. Returns null when the marker is absent (e.g.
+ * after guided-workspace-setup removed it in its end-of-run cleanup).
+ *
+ * @param {string} workspace
+ * @returns {{sourceRoot?:string, version?:string, agent?:string, method?:string}|null}
+ */
+export function readBootstrapMarker(workspace) {
+  try {
+    return JSON.parse(readFileSync(join(workspace, BOOTSTRAP_MARKER), "utf8"));
+  } catch { return null; }
+}
+
 // (agent → list of {kind, src, dest}) — kind is just for the report.
 //
 // All installer slash commands are namespaced with `-agent-skills` so they

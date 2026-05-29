@@ -16,22 +16,34 @@ export function agentLabel(agent) {
   return LABELS[agent] ?? agent;
 }
 
-// Detection precedence:
+// Detection precedence (default):
 //   1. Explicit env vars from the coding agent runtime
 //   2. Workspace directory hints (.claude/ / .opencode/ / .pi/)
 //   3. Null — let the caller prompt
-export function detectAgent({ workspace, env = process.env } = {}) {
-  // 1. Env-based detection. Any agent that injects its own env var wins.
-  if (env.CLAUDECODE === "1" || env.CLAUDE_CODE_ENTRYPOINT) return "claude-code";
-  if (env.OPENCODE === "1" || env.OPENCODE_VERSION)         return "opencode";
-  if (env.PI === "1" || env.PI_SESSION_ID)                  return "pi";
+//
+// `preferWorkspaceHints` flips 1 and 2. `update` uses it: the question there
+// is "which agent is *this workspace* configured for?", not "which agent am I
+// running inside?" — so a pi workspace must not resolve to claude-code just
+// because `update` was invoked from a Claude Code shell.
+export function detectAgent({ workspace, env = process.env, preferWorkspaceHints = false } = {}) {
+  const byEnv = () => {
+    if (env.CLAUDECODE === "1" || env.CLAUDE_CODE_ENTRYPOINT) return "claude-code";
+    if (env.OPENCODE === "1" || env.OPENCODE_VERSION)         return "opencode";
+    if (env.PI === "1" || env.PI_SESSION_ID)                  return "pi";
+    return null;
+  };
 
-  // 2. Workspace hints. Only one match → pick it; multiple → don't guess.
-  if (!workspace) return null;
-  const hits = [];
-  if (existsSync(join(workspace, ".claude"))) hits.push("claude-code");
-  if (existsSync(join(workspace, ".opencode"))) hits.push("opencode");
-  if (existsSync(join(workspace, ".pi"))) hits.push("pi");
+  const byWorkspace = () => {
+    // Only one match → pick it; multiple → don't guess.
+    if (!workspace) return null;
+    const hits = [];
+    if (existsSync(join(workspace, ".claude"))) hits.push("claude-code");
+    if (existsSync(join(workspace, ".opencode"))) hits.push("opencode");
+    if (existsSync(join(workspace, ".pi"))) hits.push("pi");
+    return hits.length === 1 ? hits[0] : null;
+  };
 
-  return hits.length === 1 ? hits[0] : null;
+  return preferWorkspaceHints
+    ? (byWorkspace() ?? byEnv())
+    : (byEnv() ?? byWorkspace());
 }
