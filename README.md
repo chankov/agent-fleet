@@ -42,7 +42,7 @@ npx @chankov/agent-skills init
 #   /setup-agent-skills
 ```
 
-That's it. `npx` fetches the package, the CLI detects your coding agent
+That's it for guided setup. `npx` fetches the package, the CLI detects your coding agent
 (Claude Code, OpenCode, or pi), and `/setup-agent-skills` runs the full guided install —
 analysing the workspace, showing grouped menus, and confirming everything
 before writing a single file.
@@ -146,7 +146,15 @@ See [docs/opencode-setup.md](docs/opencode-setup.md).
 <details>
 <summary><b>pi</b></summary>
 
-pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and pi extensions from `.pi/extensions/` (currently: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`; one-time `npm ci` required — see setup doc). See [docs/pi-setup.md](docs/pi-setup.md).
+First-class pi package install:
+
+```bash
+pi install -l npm:@chankov/agent-skills
+```
+
+This includes the bundled `pi-ask-user` package, so the interactive `ask_user` tool and `ask-user` skill are available without a separate install.
+
+pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and pi extensions from `.pi/extensions/` (currently: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`; one-time `npm ci` required — see setup doc). For clone/symlink setup, install `pi-ask-user` separately with `pi install -l npm:pi-ask-user` unless it is already listed by `pi list`. See [docs/pi-setup.md](docs/pi-setup.md).
 
 The repo also ships 15 selectable pi extension *harnesses* — agent orchestration, safety auditing, and Pi-to-Pi messaging — ported from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT). See the [pi extension catalog](docs/pi-extensions.md) for the full list, setup, and how to run each one.
 

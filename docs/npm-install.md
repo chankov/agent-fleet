@@ -27,6 +27,8 @@ So:
 
 ## Quick start
 
+### Guided workspace setup
+
 ```bash
 # In the workspace you want to configure:
 npx @chankov/agent-skills init
@@ -37,6 +39,22 @@ npx @chankov/agent-skills init
 That's it. `npx` fetches the package, the CLI detects your coding agent and
 prints the next-step command, and `/setup-agent-skills` runs the full guided install
 inside your agent.
+
+### First-class pi package
+
+For pi users who want package-native loading instead of copied/symlinked setup artifacts:
+
+```bash
+# Project-scoped; writes .pi/settings.json
+pi install -l npm:@chankov/agent-skills
+
+# Or global for every pi session
+pi install npm:@chankov/agent-skills
+```
+
+The pi package manifest exposes this repo's skills, pi runtime skills, lifecycle prompts, and bundled `pi-ask-user` resources. The bundled companion provides the `ask_user` tool and `ask-user` skill without a separate `pi-ask-user` install.
+
+It intentionally does not auto-expose this repo's own `.pi/extensions` or harness directories; install those through guided setup or the pi setup docs so their runtime dependencies are handled explicitly.
 
 ## Commands
 

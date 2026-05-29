@@ -23,13 +23,33 @@ This means you get near-parity with Claude Code:
 
 No plugin, wrapper, or custom system prompt is required for the core workflow.
 
-**Recommended companion package:** install [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) alongside these skills. It adds an interactive `ask_user` tool and bundles an `ask-user` skill, which is already used by this repo's current pi setup for high-stakes or ambiguous decisions.
+**Recommended companion package:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-skills` as a pi package; clone/symlink setups should install it separately.
 
 ---
 
 ## Installation
 
-The recommended install is **project-scoped using symlinks**:
+There are two supported pi paths.
+
+### First-class pi package (recommended for users)
+
+Install this package directly with pi:
+
+```bash
+# Project-scoped (recommended for repositories)
+pi install -l npm:@chankov/agent-skills
+
+# Or global, if you want it in every pi session
+pi install npm:@chankov/agent-skills
+```
+
+The npm pi package includes this repo's core skills, pi runtime skills, lifecycle prompts, and the bundled `pi-ask-user` package. That means `ask_user` and the `ask-user` skill are available from the same install; do not install `pi-ask-user` a second time unless you intentionally want a separate user/project package entry.
+
+This package's pi manifest is intentionally conservative: it exposes skills, `.pi/skills`, `.pi/prompts`, and bundled `pi-ask-user` resources. It does **not** auto-expose this repo's `.pi/extensions` or harnesses, because those have their own runtime dependency setup and should still be installed explicitly through guided setup or the manual extension steps below.
+
+### Clone / symlink setup (recommended for contributors)
+
+The manual clone install is **project-scoped using symlinks**:
 
 - `.agents/skills/` exposes the skills.
 - `.pi/prompts/` exposes the lifecycle slash commands.
@@ -81,16 +101,17 @@ ln -s /path/to/agent-skills/.pi/prompts/code-simplify.md .pi/prompts/code-simpli
 ln -s /path/to/agent-skills/.pi/prompts/ship.md .pi/prompts/ship.md
 ```
 
-4. Install the recommended `pi-ask-user` pi package:
+4. Install the recommended `pi-ask-user` pi package separately (clone/symlink setup only):
 
 ```bash
+# Project-scoped; records the companion package in .pi/settings.json
+pi install -l npm:pi-ask-user
+
+# Or global, if your pi setup is global
 pi install npm:pi-ask-user
 ```
 
-This adds:
-
-- the interactive `ask_user` tool
-- the bundled `ask-user` skill
+Skip this step if `pi list` already shows `pi-ask-user`, or if you installed `@chankov/agent-skills` via `pi install npm:@chankov/agent-skills` (it bundles `pi-ask-user`). This companion is a pi package, not a file copied from this repo.
 
 5. Verify pi can see everything:
 
@@ -174,9 +195,9 @@ Because `.agents/skills`, `.pi/prompts`, and `.pi/extensions` are symlinks into 
 - **Global install** — symlink skills into `~/.pi/agent/skills/` and prompts into `~/.pi/agent/prompts/` to make them available in every pi session on the machine, regardless of cwd. You may also symlink `AGENTS.md` into `~/.pi/agent/AGENTS.md` for global workflow context.
 - **Copy instead of symlink** — use `cp -R /path/to/agent-skills/skills .agents/skills` and `cp -R /path/to/agent-skills/.pi/prompts .pi/prompts` if you're on a platform where symlinks are awkward (e.g. plain Windows without developer mode). You'll need to re-copy after updates.
 
-### Recommended companion skill
+### Recommended companion package
 
-If you install `pi-ask-user`, pi will also discover its bundled `ask-user` skill from the installed pi package. This is a strong complement to `agent-skills` because it gives the agent a structured way to stop and ask for an explicit decision before:
+If you use clone/symlink setup, install `pi-ask-user` with `pi install -l npm:pi-ask-user` unless `pi list` already shows it. If you installed `@chankov/agent-skills` as a pi package, `pi-ask-user` is already bundled and exposed by this package. In both cases, pi discovers its bundled `ask-user` skill from a pi package, not from vendored files in this repo. This is a strong complement to `agent-skills` because it gives the agent a structured way to stop and ask for an explicit decision before:
 
 - architectural or API trade-offs
 - destructive or costly-to-reverse changes
@@ -184,10 +205,6 @@ If you install `pi-ask-user`, pi will also discover its bundled `ask-user` skill
 - preference-dependent implementation choices
 
 That matches the repo's current pi setup, where `ask-user` is available as a recommended decision-gating skill.
-
-### Future work
-
-pi supports extensions and skill discovery "from pi packages." Publishing `agent-skills` as a first-class pi package would let users install via pi's own mechanism — out of scope for this guide, but tracked as a future integration.
 
 ---
 
@@ -409,8 +426,8 @@ pi integration works by leveraging pi's **native** Agent Skills and prompt-templ
 
 - Symlink `skills/` into `.agents/skills/`
 - Symlink `.pi/prompts/` into the target project's `.pi/prompts/`
-- Install the recommended `pi-ask-user` pi package for interactive decision gating
+- Install `@chankov/agent-skills` as a pi package for bundled `ask_user`, or install `pi-ask-user` separately for clone/symlink setup
 - Let pi auto-load `AGENTS.md` from the repo root
 - Use `/skill:<name>`, lifecycle commands like `/spec`, or natural language to trigger workflows
 
-The result is a fully agent-driven, production-grade engineering workflow — with minimal setup: one symlink for this repo's skills, one symlink for lifecycle commands, plus an optional but recommended `pi-ask-user` install for interactive decision gating.
+The result is a fully agent-driven, production-grade engineering workflow — with minimal setup: one symlink for this repo's skills, one symlink for lifecycle commands, plus bundled or separately installed `pi-ask-user` for interactive decision gating.

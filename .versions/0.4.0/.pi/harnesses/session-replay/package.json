@@ -1,0 +1,6 @@
+{
+  "name": "agent-skills-pi-session-replay",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

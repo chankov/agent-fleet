@@ -1,6 +1,6 @@
 {
   "name": "@chankov/agent-skills",
-  "version": "0.3.4",
+  "version": "0.4.1",
   "description": "Production-grade engineering skills for AI coding agents. Ships skills, agent personas, slash commands, and pi extensions, with a thin CLI that hands off to the LLM-driven guided setup.",
   "keywords": [
     "ai",
@@ -9,6 +9,7 @@
     "claude-code",
     "opencode",
     "pi",
+    "pi-package",
     "skills",
     "agent-skills",
     "llm",
@@ -64,8 +65,6 @@
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
-    "!**/node_modules",
-    "!**/node_modules/**",
     "!**/.DS_Store"
   ],
   "engines": {
@@ -83,5 +82,25 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.1"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.49",
+    "pi-ask-user": "^0.11.1"
+  },
+  "bundledDependencies": [
+    "pi-ask-user"
+  ],
+  "pi": {
+    "skills": [
+      "./skills",
+      "./.pi/skills",
+      "./node_modules/pi-ask-user/skills"
+    ],
+    "prompts": [
+      "./.pi/prompts"
+    ],
+    "extensions": [
+      "./node_modules/pi-ask-user/index.ts"
+    ]
   }
 }

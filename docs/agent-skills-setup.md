@@ -5,7 +5,7 @@ have different readers and different lifetimes, so they are kept separate.
 
 | File | Read by | When |
 |------|---------|------|
-| `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning` | Every run of those skills |
+| `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `agent-team` pi harness | Every run of those skills / every session start of the harness |
 | `.ai/agent-skills-setup.md` | `guided-workspace-setup` | Only when setup is run or re-run |
 
 Keep them split: the overrides file is loaded into context constantly, so it
@@ -68,6 +68,21 @@ because dev-server commands and login flows cannot be guessed.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `branching` | `never` | `never` = agent works in the current branch and never creates or switches branches; `allow` = agent may create feature branches |
+
+### `agent-team`
+
+Read by the `.pi/harnesses/agent-team/` pi harness on every session start.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `language` | `English` | User-facing language the dispatcher uses for every `ask_user` question, every `context` field, and every summary. Specialist task strings always stay in English regardless. |
+
+Example — switch the dispatcher to Bulgarian:
+
+```markdown
+## agent-team
+language: Bulgarian
+```
 
 ## The setup file — `.ai/agent-skills-setup.md`
 
