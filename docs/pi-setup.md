@@ -161,15 +161,15 @@ Verify by starting `pi` and running `/chrome_devtools-status` — expect `Chrome
 
 #### Extension harnesses — orchestration, safety, messaging
 
-This repo also ships **15 session harnesses** ported from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT):
+This repo also ships **11 session harnesses** ported from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT):
 
 - **Orchestration** — `agent-team`, `agent-chain`, `pi-pi`, `subagent-widget`, `system-select`
 - **Safety** — `damage-control`, `damage-control-continue`
-- **Focus** — `purpose-gate`, `tilldone`
-- **UI** — `minimal`, `tool-counter`, `tool-counter-widget`, `session-replay`
+- **Focus** — `purpose-gate`
+- **UI** — `session-replay`
 - **Pi-to-Pi messaging** — `coms`, `coms-net`
 
-Unlike the utilities above, each harness reshapes the entire pi session, and they are **mutually exclusive** — you load one per session, not all at once. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all 15 aborts startup (`coms` and `coms-net` register clashing CLI flags). Load a single harness explicitly instead — there is nothing to symlink:
+Unlike the utilities above, each harness reshapes the entire pi session, and they are **mutually exclusive** — you load one per session, not all at once. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all harnesses aborts startup (`coms` and `coms-net` register clashing CLI flags). Load a single harness explicitly instead — there is nothing to symlink:
 
 ```bash
 # from the agent-skills clone, via the bundled justfile
@@ -177,7 +177,7 @@ just --list                       # list every harness recipe
 just ext-agent-team               # launch pi with one harness
 
 # or directly, from anywhere — point pi -e at the harness file
-pi -e /path/to/agent-skills/.pi/harnesses/tilldone/index.ts
+pi -e /path/to/agent-skills/.pi/harnesses/purpose-gate/index.ts
 ```
 
 The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. Install both at once with `just install` from the clone, or run `npm ci` in `.pi/harnesses/` as well. The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `coms-net` and `pi-pi`), and what changed from upstream.

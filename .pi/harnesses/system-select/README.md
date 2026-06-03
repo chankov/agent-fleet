@@ -27,12 +27,6 @@ one is specified.
 pi -e .pi/harnesses/system-select/index.ts
 ```
 
-Pairs well with `minimal` as a lightweight footer:
-
-```bash
-pi -e .pi/harnesses/system-select/index.ts -e .pi/harnesses/minimal/index.ts
-```
-
 ## Upstream changes
 
 - Theme integration removed — the `themeMap.ts` import and the `applyExtensionDefaults()`

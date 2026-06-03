@@ -9,7 +9,7 @@
  * still works. Tools are restricted to the agent's declared tool set
  * if specified.
  *
- * Usage: pi -e extensions/system-select.ts -e extensions/minimal.ts
+ * Usage: pi -e .pi/harnesses/system-select/index.ts
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";

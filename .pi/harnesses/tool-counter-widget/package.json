@@ -1,6 +1,0 @@
-{
-  "name": "agent-skills-pi-tool-counter-widget",
-  "private": true,
-  "type": "module",
-  "main": "index.ts"
-}

@@ -1001,9 +1001,8 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Border helpers — sandwich the body with single-line box-drawing rules
-		// so the widget reads as its own block above the minimal footer. The
-		// top border carries a branded ` coms ` tag so the widget reads as its
-		// own block; bottom border stays a plain rule for minimalism.
+		// so the widget reads as its own block. The top border carries a branded
+		// ` coms ` tag; bottom border stays a plain rule for minimalism.
 		const safeWidth = Math.max(0, width);
 		let topBorder: string;
 		let bottomBorder: string;

@@ -5,13 +5,13 @@ any file under `.pi/harnesses/`. It is the harness equivalent of `docs/skill-ana
 
 ## What a harness is
 
-A pi harness is a TypeScript pi extension that reshapes a whole session. The 15 in
-`.pi/harnesses/` were ported from `disler/pi-vs-claude-code`; `docs/pi-extensions.md` is
-their catalog. A harness can:
+A pi harness is a TypeScript pi extension that reshapes a whole session. The harnesses
+in `.pi/harnesses/` were ported from `disler/pi-vs-claude-code`; `docs/pi-extensions.md`
+is their catalog. A harness can:
 
-- replace the footer or status line — `minimal`, `tool-counter`
-- gate every tool call and block or confirm it — `damage-control`, `tilldone`, `purpose-gate`
-- register a new tool or `/command` — `tilldone`, `system-select`, `session-replay`
+- set status, widgets, or overlays — `purpose-gate`, `session-replay`, `subagent-widget`
+- gate every tool call and block or confirm it — `damage-control`, `purpose-gate`
+- register a new tool or `/command` — `system-select`, `session-replay`, `subagent-widget`
 - inject text into the system prompt — `purpose-gate`, `system-select`
 - orchestrate sub-agents — `agent-team`, `agent-chain`, `subagent-widget`, `pi-pi`
 - add cross-agent messaging — `coms`, `coms-net`
@@ -22,8 +22,8 @@ pi auto-discovers and loads **every** directory under `.pi/extensions/`. The thr
 (`mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`) are always-on utilities that
 coexist. Harnesses are different: they are **mutually exclusive** — two that both replace
 the footer fight, two that register the same CLI flag abort startup. So harnesses live in
-`.pi/harnesses/`, which pi does **not** auto-discover, and load one (or two stacked) at a
-time via `pi -e <path>`. Never put a harness under `.pi/extensions/`.
+`.pi/harnesses/`, which pi does **not** auto-discover, and load one at a time via
+`pi -e <path>`. Never put a harness under `.pi/extensions/`.
 
 ## Directory anatomy
 
@@ -67,7 +67,7 @@ export default function (pi: ExtensionAPI) {
 ```
 
 Use only events and methods confirmed in an existing harness — a misspelled event name
-fails silently. The list below is what the 15 ported harnesses use.
+fails silently. The list below is what the ported harnesses use.
 
 ### Events — `pi.on(event, handler)`
 
@@ -147,13 +147,13 @@ Do not write from scratch. Pick the nearest pattern and adapt it:
 
 | If the harness… | Study | Approx. lines |
 |---|---|---|
-| Replaces the footer with status | `minimal` | 30 |
-| Counts or summarises tool calls | `tool-counter`, `tool-counter-widget` | 70–100 |
 | Gates the session on a precondition | `purpose-gate` | 80 |
 | Blocks tool calls from a rules file | `damage-control` | 200 |
 | Adds a `/command` that picks from files | `system-select` | 165 |
-| Registers a tool + gate + multi-surface UI | `tilldone` | 720 |
-| Orchestrates sub-agents | `agent-team`, `agent-chain`, `subagent-widget` | large |
+| Adds a scrollable command UI | `session-replay` | 175 |
+| Registers subagent tools with widgets | `subagent-widget` | large |
+| Orchestrates sub-agents | `agent-team`, `agent-chain` | large |
+| Adds cross-agent messaging | `coms`, `coms-net` | large |
 
 Start from the smallest one that has the surface you need.
 
@@ -177,7 +177,7 @@ The README is the discovery surface — keep it to these sections, matching the 
 
 ## Requires
 
-<Files, env vars, or a sibling harness it stacks with. Omit the section if nothing.>
+<Files or env vars the harness needs. Omit the section if nothing.>
 
 ## Usage
 
@@ -197,8 +197,6 @@ A **new** harness authored in this repo needs neither.
    ext-<name>:
        pi -e .pi/harnesses/<name>/index.ts
    ```
-   If the harness has no footer of its own, stack `minimal`:
-   `pi -e .pi/harnesses/<name>/index.ts -e .pi/harnesses/minimal/index.ts`.
 2. **`docs/pi-extensions.md`** — add one row to the catalog table:
    `| [<name>](../.pi/harnesses/<name>/README.md) | <Category> | <what it does> | `just ext-<name>` |`.
    Categories in use: UI, Focus, Safety, Orchestration, Messaging.

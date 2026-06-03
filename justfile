@@ -6,7 +6,7 @@
 #
 # Why .pi/harnesses/ and not .pi/extensions/: pi auto-discovers EVERY directory
 # under .pi/extensions/, so anything placed there loads on every plain `pi` run.
-# The 15 harnesses are mutually exclusive — they live in .pi/harnesses/ (which pi
+# The harnesses are mutually exclusive — they live in .pi/harnesses/ (which pi
 # does NOT auto-discover) and are loaded one at a time via `pi -e` below.
 
 set dotenv-load := true
@@ -22,63 +22,31 @@ install:
     npm install --prefix .pi/extensions
     npm install --prefix .pi/harnesses
 
-# ---------------------------------------------------------------- test
-
-# Run the coms-net server + docs test suite (Node's built-in runner)
-test:
-    node --test scripts/*.test.mjs
-
-# ---------------------------------------------------------------- prime
-
-# Launch Claude Code and run /prime
-primecc:
-    claude --dangerously-skip-permissions "/prime"
-
-# Launch pi and run /prime
-primepi:
-    pi "/prime"
-
 # Default pi — only the always-on utilities auto-load, no harness
 pi:
     pi
 
 # ---------------------------------------------------------------- UI / status
 
-# Minimal: model name + 10-block context meter
-ext-minimal:
-    pi -e .pi/harnesses/minimal/index.ts
-
-# Tool counter: rich two-line footer (model, branch, cwd, tokens, cost, tool tally)
-ext-tool-counter:
-    pi -e .pi/harnesses/tool-counter/index.ts
-
-# Tool counter widget: per-tool call counts in a widget above the editor
-ext-tool-counter-widget:
-    pi -e .pi/harnesses/tool-counter-widget/index.ts -e .pi/harnesses/minimal/index.ts
-
 # Session replay: /replay scrollable timeline overlay of session history
 ext-session-replay:
-    pi -e .pi/harnesses/session-replay/index.ts -e .pi/harnesses/minimal/index.ts
+    pi -e .pi/harnesses/session-replay/index.ts
 
 # ---------------------------------------------------------------- discipline / focus
 
 # Purpose gate: declare session intent before working
 ext-purpose-gate:
-    pi -e .pi/harnesses/purpose-gate/index.ts -e .pi/harnesses/minimal/index.ts
-
-# TillDone: define tasks before using any other tool
-ext-tilldone:
-    pi -e .pi/harnesses/tilldone/index.ts
+    pi -e .pi/harnesses/purpose-gate/index.ts
 
 # ---------------------------------------------------------------- safety
 
 # Damage-control: block destructive tool calls (aborts the turn)
 ext-damage-control:
-    pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/minimal/index.ts
+    pi -e .pi/harnesses/damage-control/index.ts
 
 # Damage-control (continue): same rules, agent keeps working with corrective feedback
 ext-damage-control-continue:
-    pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/minimal/index.ts
+    pi -e .pi/harnesses/damage-control-continue/index.ts
 
 # ---------------------------------------------------------------- orchestration
 
@@ -96,7 +64,7 @@ ext-agent-chain:
 
 # System select: /system to pick an agent persona as the system prompt
 ext-system-select:
-    pi -e .pi/harnesses/system-select/index.ts -e .pi/harnesses/minimal/index.ts
+    pi -e .pi/harnesses/system-select/index.ts
 
 # Pi Pi: meta-agent that builds pi agents via parallel expert research
 ext-pi-pi:
@@ -106,7 +74,7 @@ ext-pi-pi:
 
 # Coms: peer-to-peer messaging between pi agents on the same machine
 local-coms *args:
-    pi -e .pi/harnesses/coms/index.ts -e .pi/harnesses/minimal/index.ts {{args}}
+    pi -e .pi/harnesses/coms/index.ts {{args}}
 
 # Start a local coms-net hub (binds 127.0.0.1, OS-assigned port)
 coms-net-server:
@@ -120,4 +88,4 @@ coms-net-server-lan:
 
 # Pi with the networked coms-net client (auto-discovers the local server.json)
 coms *args:
-    pi -e .pi/harnesses/coms-net/index.ts -e .pi/harnesses/minimal/index.ts {{args}}
+    pi -e .pi/harnesses/coms-net/index.ts {{args}}

@@ -11,7 +11,7 @@ This repo has three kinds of artifacts that shape how an agent works. Each is au
 
 - **Agent personas** live in `agents/<name>.md`. They define a *role* another agent adopts when it needs specialized review, audit, or analysis. Example: `code-reviewer`, `security-auditor`, `test-engineer`.
 - **Skills** live in `skills/<name>/SKILL.md`. They define a *workflow* — a repeatable process with gated steps, anti-rationalization guardrails, and verification. Example: `spec-driven-development`, `test-driven-development`, `context-engineering`.
-- **pi harnesses** live in `.pi/harnesses/<name>/`. They define a *session environment* — a TypeScript pi extension that reshapes the whole session: replacing the footer, gating tool calls, registering new tools or commands, or orchestrating sub-agents. Example: `minimal`, `tilldone`, `damage-control`, `agent-team`.
+- **pi harnesses** live in `.pi/harnesses/<name>/`. They define a *session environment* — a TypeScript pi extension that reshapes the whole session: setting UI surfaces, gating tool calls, registering new tools or commands, or orchestrating sub-agents. Example: `purpose-gate`, `damage-control`, `agent-team`, `session-replay`.
 
 Personas and skills are prose that change an agent's *judgment*. A harness is code that changes the agent's *environment* — what it can do and what it sees. All three fail the same way: a persona that reads like general advice gets cited but ignored; a skill that skips its guardrails becomes a suggestion; a harness built without studying the existing ones collides with pi's auto-discovery or fights another extension. This skill is the workflow for authoring any of the three so the result measurably changes behavior.
 
@@ -32,7 +32,7 @@ Personas and skills are prose that change an agent's *judgment*. A harness is co
 
 ## The Workflow
 
-This workflow is abstracted from the three reference personas (`agents/code-reviewer.md`, `agents/security-auditor.md`, `agents/test-engineer.md`), from `docs/skill-anatomy.md`, and from the 15 ported harnesses under `.pi/harnesses/` (catalogued in `docs/pi-extensions.md`). Do not advance to the next step until the current one is settled.
+This workflow is abstracted from the three reference personas (`agents/code-reviewer.md`, `agents/security-auditor.md`, `agents/test-engineer.md`), from `docs/skill-anatomy.md`, and from the ported harnesses under `.pi/harnesses/` (catalogued in `docs/pi-extensions.md`). Do not advance to the next step until the current one is settled.
 
 ### 1. Choose the target type
 
@@ -75,7 +75,7 @@ Two personas covering similar ground produce inconsistent reviews. Two skills pr
 Follow the existing pattern:
 - **Persona**: `<role>` or `<role>-<specialty>` (`code-reviewer`, `security-auditor`, `accessibility-reviewer`)
 - **Skill**: verb-phrase or noun-phrase describing the process (`spec-driven-development`, `context-engineering`, `planning-and-task-breakdown`)
-- **Harness**: short noun describing the session surface (`minimal`, `tilldone`, `damage-control`, `agent-team`)
+- **Harness**: short noun describing the session surface (`purpose-gate`, `damage-control`, `agent-team`, `session-replay`)
 - Bad for any: `helper`, `assistant`, `smart-agent`, `codeReviewer`
 
 The name must match across: the directory/file name, the frontmatter or `package.json` `name`, and the H1 title (persona/skill) or README H1 (harness).
@@ -351,7 +351,7 @@ A harness is a directory, not a single file. The `ExtensionAPI` surface, the `in
 - Placed under `.pi/extensions/` instead of `.pi/harnesses/` — it would load on every plain `pi` run and collide with other harnesses.
 - No `README.md`, or no row added to the `docs/pi-extensions.md` catalog — the harness is undiscoverable.
 - `index.ts` uses invented `ExtensionAPI` method or event names — written without reading `pi-harness-authoring.md` or studying an existing harness.
-- Registers a footer, status, or CLI flag without checking whether a commonly-stacked harness (`minimal`) already owns it.
+- Registers a footer, status, or CLI flag without checking whether another loaded harness already owns it.
 - No `just ext-<name>` recipe, so the harness can only be launched by typing the full `pi -e` path.
 
 ## Verification

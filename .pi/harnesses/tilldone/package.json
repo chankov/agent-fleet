@@ -1,6 +1,0 @@
-{
-  "name": "agent-skills-pi-tilldone",
-  "private": true,
-  "type": "module",
-  "main": "index.ts"
-}

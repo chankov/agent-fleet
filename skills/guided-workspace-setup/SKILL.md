@@ -107,13 +107,13 @@ For each broken link discovered:
 
 Also flag any YAML configs (`teams.yaml`, `agent-chain.yaml`) that still reference removed persona names, and offer to rename the references to the canonical name.
 
-Present findings in a single table:
+Present findings in a single table (keep it narrow — same widget constraint as Step 6/9: short `Issue`/`Fix` phrases, paths relative to the workspace, no overflowing cells):
 
-| # | Path | Issue | Suggested fix |
+| # | Path | Issue | Fix |
 |---|---|---|---|
-| 1 | `.claude/agents/reviewer.md` | broken symlink → missing `agents/reviewer.md` | repoint to `agents/code-reviewer.md` |
-| 2 | `.pi/agents/red-team.md` | broken symlink, no replacement | delete |
-| 3 | `.pi/agents/teams.yaml` | references `red-team` | rename to `security-auditor` |
+| 1 | `.claude/agents/reviewer.md` | broken link → missing `reviewer.md` | repoint → `code-reviewer.md` |
+| 2 | `.pi/agents/red-team.md` | broken link, no replacement | delete |
+| 3 | `.pi/agents/teams.yaml` | refs `red-team` | rename → `security-auditor` |
 
 Then ask, multi-select: which fixes to apply now. Apply only the picked ones; record skipped items so the install menu can surface them again. Append a `## doctor-runs` line to `.ai/agent-skills-setup.md` with the date, agent, phase (`preflight`), and `repaired` / `deleted` / `skipped` counts.
 
@@ -141,24 +141,31 @@ On the **re-run**, Step 4 finds `pi-ask-user` installed, this step is a no-op, a
 
 Offer every installable artifact, split into the groups below. **Each group is its own multi-select prompt** so the user picks one screen at a time. The groups are deliberately broad — 7 total (4 shared + 3 pi-only), so a non-`pi` workspace sees only 4 screens. Several groups bundle more than one artifact type; within such a group, a leading `Group` column labels the sub-category and rows are ordered by it so the table still reads as labeled sections. Render every group's items as a markdown table using this fixed format:
 
-| Pick | Item | Group | Status | Rec | Purpose |
-|---|---|---|---|---|---|
-| `[x]` / `[ ]` | `<name>` | sub-category (see each group) — omit the column for single-type groups | one of the Status values below | `★` if recommended, else blank | one-line purpose |
+| Pick | Item | Group | St | Purpose |
+|---|---|---|---|---|
+| `[x]` / `[ ]` | `<name>` (append ` ★` when recommended) | sub-category (see each group) — omit the column for single-type groups | short status token (see legend) | one-line purpose, ≤ ~6 words |
+
+**Keep it narrow.** The `pi-ask-user` widget renders the table at fixed column widths, so wide cells force horizontal overflow — the user then has to zoom out, which makes the widget re-render and flicker. Render compact so the whole table fits a standard terminal width:
+
+- Use the short `St` token, never the long state name. Print the legend once, on a single line above the table: `St: ok=up to date · upd=update available · mod=modified locally · cflt=conflicting upgrade · gone=removed upstream · new=new this version · pkg=project package · — =not installed · brk=broken`.
+- Fold the recommendation mark into `Item` (append ` ★`) — do **not** add a separate `Rec` column.
+- Keep `Purpose` to a short phrase (truncate with `…` if needed); keep `Group` labels short (`UI`, `focus`, `safety`, `orch`, `msg`, `ext`, `skill`, `ref`, `hook`, `rw`, `ro`).
+- Keep the context preamble and the after-table prompt to short single lines — no multi-clause sentences that overflow the terminal.
 
 **Pre-selection rule.** The `Pick` column is pre-ticked from the workspace's current state — not from preference. Every item is either pre-checked `[x]` (touched if confirmed) or pre-unchecked `[ ]` (left alone if confirmed):
 
-| Current state | Pre-check | What confirming will do |
-|---|---|---|
-| `installed · up to date` | `[x]` | no-op (kept as-is) |
-| `installed · outdated` (source newer than the installed copy; copy-mode only) | `[x]` | refresh to current source |
-| `installed · modified` (target diverged from source) | `[x]` | refresh from source — **local edits will be overwritten**; untick to preserve them |
-| `installed · upgrade available` (recorded version != current; user copy still matches the recorded-version source) | `[x]` | clean refresh to the current-version source |
-| `installed · conflicting upgrade` (recorded version != current; user modified the copy AND source changed upstream) | `[ ]` | nothing — show the three-way diff (recorded vs installed vs current) inline and ask before any write; tick only after the user accepts the overwrite |
-| `installed · removed upstream` (artifact gone in the current version) | `[x]` | propose deletion in Step 10 (subject to the removal-scope rule); untick to keep the local copy |
-| `not installed` | `[ ]` | nothing — unless the user ticks it to install |
-| `not installed · new in this version` (artifact added between recorded and current) | `[ ]` | nothing — unless the user ticks it; marked `★` if recommended |
-| `broken · skipped in preflight` (carried over from Step 5) | `[ ]` | remove the dangling link in Step 10; tick it to attempt repair instead |
-| `not installed · ★ recommended` | `[ ]` | nothing — unless the user ticks it or replies `recommended` |
+| Current state | `St` token | Pre-check | What confirming will do |
+|---|---|---|---|
+| `installed · up to date` | `ok` | `[x]` | no-op (kept as-is) |
+| `installed · outdated` (source newer than the installed copy; copy-mode only) | `upd` | `[x]` | refresh to current source |
+| `installed · modified` (target diverged from source) | `mod` | `[x]` | refresh from source — **local edits will be overwritten**; untick to preserve them |
+| `installed · upgrade available` (recorded version != current; user copy still matches the recorded-version source) | `upd` | `[x]` | clean refresh to the current-version source |
+| `installed · conflicting upgrade` (recorded version != current; user modified the copy AND source changed upstream) | `cflt` | `[ ]` | nothing — show the three-way diff (recorded vs installed vs current) inline and ask before any write; tick only after the user accepts the overwrite |
+| `installed · removed upstream` (artifact gone in the current version) | `gone` | `[x]` | propose deletion in Step 10 (subject to the removal-scope rule); untick to keep the local copy |
+| `not installed` | `—` | `[ ]` | nothing — unless the user ticks it to install |
+| `not installed · new in this version` (artifact added between recorded and current) | `new` | `[ ]` | nothing — unless the user ticks it; marked `★` if recommended |
+| `broken · skipped in preflight` (carried over from Step 5) | `brk` | `[ ]` | remove the dangling link in Step 10; tick it to attempt repair instead |
+| `not installed · ★ recommended` | `—` | `[ ]` | nothing — unless the user ticks it or replies `recommended` |
 
 **The three-way diff for `conflicting upgrade`.** For each row in that state, compare:
 
@@ -170,7 +177,7 @@ If the recorded snapshot is missing (unpublished local build, or a version older
 
 After the table, ask: *"Which items in this group? — adjust the picks, or reply `all` / `recommended` / `none` / `keep` (keep the pre-selection as shown)."* `recommended` ticks every `★` item **in addition to** the already-installed pre-selection (so the user never accidentally removes installed items by accepting recommendations). `keep` is the no-change shortcut.
 
-For an already-configured workspace, an **unchecked installed item means *remove it*** (subject to the removal-scope rule); a **checked one means *keep or update it***. Status text appears verbatim for every row — even `not installed` — so the user always sees an explicit state instead of inferring it from an empty checkbox.
+For an already-configured workspace, an **unchecked installed item means *remove it*** (subject to the removal-scope rule); a **checked one means *keep or update it***. An `St` token appears for every row — even `—` (not installed) — with the legend shown once above the table, so the user always sees an explicit state instead of inferring it from an empty checkbox.
 
 **Source availability filter — never substitute across agents.** Each row is offered only when the source file the **chosen agent** needs already exists in this repo. The source location is fixed per agent:
 
@@ -204,10 +211,10 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★
    - *runtime-skill* — `bowser`
 6. **pi harnesses** *(pi only; `Group` column = harness category — mutually exclusive at runtime, so install many but load one)* — one screen for all harnesses:
-   - *UI / status* — `minimal`, `tool-counter`, `tool-counter-widget`, `session-replay`, `subagent-widget`
-   - *discipline / focus* — `purpose-gate`, `tilldone`, `system-select`
+   - *UI / status* — `session-replay`
+   - *discipline / focus* — `purpose-gate`
    - *safety* — `damage-control`, `damage-control-continue`
-   - *orchestration* — `agent-chain`, `agent-team`, `pi-pi`
+   - *orchestration* — `agent-chain`, `agent-team`, `pi-pi`, `subagent-widget`, `system-select`
    - *messaging* — `coms`, `coms-net`
 7. **External pi packages** *(pi only — companion packages recorded in pi settings, not copied from this repo)* — `pi-ask-user` ★. On a `pi` re-run this is normally already `installed · project package` because Step 5b bootstrapped it; the row exists so the user can keep, remove, or re-scope it.
 
@@ -218,7 +225,7 @@ Defaults differ by workspace state:
 
 Because groups now span sub-categories, the shortcuts (`all`, `recommended`, `none`, `keep`) and any comma-separated picks apply to the **whole group screen**, across every sub-category in it. After every group, restate the picks in one line so the user can correct them before moving on. The restate line uses the same status vocabulary — for example: *"Skills: keep `code-review-and-quality` (up to date), install `security-and-hardening` (recommended), remove `performance-optimization`."*
 
-**External pi package status.** For Group 7, treat `pi-ask-user` as an external pi package rather than an agent-skills artifact. In the normal `pi` flow Step 5b has already installed it, so it usually arrives here as `installed · project package`:
+**External pi package status.** For Group 7, treat `pi-ask-user` as an external pi package rather than an agent-skills artifact. In the normal `pi` flow Step 5b has already installed it, so it usually arrives here as `installed · project package`. The four states below are the decision logic for that row; in the rendered table the `St` cell is `pkg` for any installed scope (state the scope in the after-table restate line) and `—` when not installed:
 
 - `installed · bundled by @chankov/agent-skills` — the workspace uses `pi install npm:@chankov/agent-skills`; leave `pi-ask-user` unchecked/no-op and do not add a duplicate package entry.
 - `installed · project package` — `.pi/settings.json`/`pi list` already records `npm:pi-ask-user` (most often because Step 5b installed it); pre-check it to keep.
@@ -247,7 +254,16 @@ Ask `copy` or `symlink` for this run.
 
 ### 9. Confirm the plan
 
-Present the full set as one summary table — artifacts to add, update, and remove; their resolved target paths; the chosen install method; and the changes to both `.ai/` files. When the version delta from Step 4 is non-empty, lead the summary with a one-line "Changes since `v<recorded>` → `v<current>`" block sourced from `CHANGELOG.md` (only the entries between the two versions, not the full file). Ask the user to confirm, and write nothing until they do.
+Present the plan compactly — the **"Keep it narrow"** rule from Step 6 applies here too, since this confirmation renders in the same `pi-ask-user` widget. Do **not** render a wide multi-column table: a `Target paths` column plus a `Notes` column plus an `Artifacts` cell that lists every skill name is exactly what overflows the terminal and forces the user to zoom out. Instead, group the plan by action — one short line per action, each artifact list wrapping naturally:
+
+- `Add (N): a, b, c` — newly ticked items
+- `Refresh (N): a, b` — re-installed from source; append `— overwrites local edits` when any row was `mod`
+- `Remove (N): a` — unticked installed items (removal-scope rule already applied)
+- `Keep (N)` — render as a count, not a full name list (expand only if the user asks)
+- `Records: stamp v<current>, update install-status + overrides`
+- `Method: copy` (or `symlink`)
+
+Target paths are deterministic from the per-agent source map, so omit them from the confirmation — show a path only when the user asks. When the version delta from Step 4 is non-empty, lead with a short **"Changes since `v<recorded>` → `v<current>`"** heading followed by one short bullet per change (sourced from `CHANGELOG.md`, only the entries between the two versions) — bullets on their own lines, never crammed into one long line that overflows. Ask the user to confirm, and write nothing until they do.
 
 **Installer cleanup line.** The summary always ends with one line stating that the installer slash commands (`/setup-agent-skills`, `/doctor-agent-skills` — or `/as-*-agent-skills` for OpenCode — plus the `guided-workspace-setup` skill body) will be removed after apply, so they do not pollute the user's slash-command list. Add the verbatim suffix: *"Reply `keep` to leave them in place; re-run `npx @chankov/agent-skills init` later if removed."* If the user replies `keep`, record `keep-installer: true` in `## workspace-summary` and skip Step 10b. Otherwise the default is to remove them.
 
@@ -328,7 +344,9 @@ Close the report with one line explaining the installer-cleanup outcome:
 - A multi-type group (Skills, Agent personas, References & Hooks, pi extensions & runtime skills, pi harnesses) rendered without the `Group` sub-category column.
 - The agent is `pi`, `pi-ask-user` is missing, and the install menu was rendered in tabular fallback without first offering the Step 5b bootstrap.
 - Step 5b installed `pi-ask-user` but the pass continued into the install menu instead of stopping for the user to reload and re-run.
-- A menu group rendered without per-row `Status` text, or with installed items not pre-checked.
+- A menu group rendered without a per-row `St` token (or without the legend that defines them), or with installed items not pre-checked.
+- A menu table rendered with the long `installed · …` state names, a separate `Rec` column, or wide cells/preamble that overflow the terminal — render the compact form so the `pi-ask-user` widget fits without zooming.
+- The Step 9 confirmation rendered as a wide multi-column table (a `Target paths` or `Notes` column, or an `Artifacts` cell listing every skill name) instead of compact action-grouped lines, or the "Changes since" delta crammed into one long line instead of short per-change bullets.
 - A `recommended` reply that silently unticks already-installed items instead of adding `★` items on top.
 - `setup`, `doctor`, or `guided-workspace-setup` shown in the install menu — they are installer-only.
 - An item offered for one agent whose per-agent source file does not exist (cross-tool substitution).
@@ -364,7 +382,7 @@ After completing the workflow, confirm:
 - [ ] On `pi`, Step 5b ran before the menu: `pi-ask-user` was either already present (no-op) or its install-then-reload bootstrap was offered; the pass stopped after install when it was bootstrapped, and was not forced when the user declined.
 - [ ] The install menu was presented as the 7 grouped tables (groups 5–7 shown only for `pi`), not 19 screens and not one flat list; each was its own multi-select with `★` recommendations marked.
 - [ ] Each multi-type group (Skills, Agent personas, References & Hooks, and the pi extension/harness groups) carried a `Group` sub-category column ordering its rows.
-- [ ] Every row carried an explicit `Status` text (`installed · up to date`, `installed · outdated`, `installed · modified`, `not installed`, or `broken · skipped in preflight`) — never blank.
+- [ ] Every row carried an explicit `St` token (`ok`, `upd`, `mod`, `cflt`, `gone`, `new`, `pkg`, `—`, or `brk`) with the legend shown once above the table — never blank and never the long `installed · …` state names that overflow the widget.
 - [ ] Installed items were pre-checked `[x]`; not-installed items were pre-checked `[ ]`; `recommended` added `★` items on top of the pre-selection without unticking installed ones.
 - [ ] Items lacking a per-agent source were filtered out of the menu — no cross-tool substitution offered.
 - [ ] Apply ran without any overwrite-this-file prompt; ticked items refreshed unconditionally and unticked modified items were preserved.
@@ -374,7 +392,8 @@ After completing the workflow, confirm:
 - [ ] Settings-file edits were limited to agent-skills' own hook entries; no user keys, env vars, or third-party MCP entries were modified.
 - [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.
 - [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session, and a `version:` line in `## workspace-summary` that matches the package version from Step 2.
-- [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" block sourced from `CHANGELOG.md`.
+- [ ] Step 9 was rendered as compact action-grouped lines (Add / Refresh / Remove / Keep-count / Records / Method), not a wide `Target paths` + `Notes` table that overflows the widget.
+- [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" heading followed by short per-change bullets sourced from `CHANGELOG.md` — never one long overflowing line.
 - [ ] Every `conflicting upgrade` row was rendered with its three-way diff in Step 6 and was not pre-checked.
 - [ ] A pre-versioning workspace was flagged in Step 4 and the user was prompted to stamp or wipe — not silently stamped.
 - [ ] Source root was resolved from `.ai/.agent-skills-bootstrap.json` if present, or from `SKILL.md`'s realpath (symlink mode), or by asking the user — **never** by scanning the filesystem.

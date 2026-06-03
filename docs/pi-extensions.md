@@ -7,9 +7,9 @@ supporting data it needs, and how the ported set differs from upstream.
 
 ## Attribution
 
-The 15 orchestration, UI, safety, and messaging extensions documented here — together
-with their supporting agent definitions, design specs, the `coms-net` hub server, and the
-`justfile` — are ported from the **`pi-vs-claude-code`** project:
+The session harnesses documented here — together with their supporting agent
+definitions, design specs, the `coms-net` hub server, and the `justfile` — are ported
+from the **`pi-vs-claude-code`** project:
 
 - **Author:** [disler](https://github.com/disler) (IndyDevDan)
 - **Source:** <https://github.com/disler/pi-vs-claude-code>
@@ -26,27 +26,27 @@ conventions. Runtime design specs for the imported harnesses live in `docs/pi-sp
 `chrome-devtools-mcp`, and `compact-and-continue`. pi auto-discovers that directory, so
 those three layer onto every session.
 
-The 15 documented below are different: each is a **session harness**. They reshape the
-whole pi session — some remove every codebase tool and leave only an orchestration tool,
-some replace the footer, some gate every tool call. They are **mutually exclusive by
-design**: run one per session (at most two stacked, e.g. an orchestrator `+ minimal`),
-not all at once. Because of that they live in **`.pi/harnesses/`** — a directory pi does
-*not* auto-discover — so a plain `pi` run never loads them.
+The documented harnesses below are different: each is a **session harness**. They
+reshape the whole pi session — some remove every codebase tool and leave only an
+orchestration tool, some set UI surfaces, some gate every tool call. They are
+**mutually exclusive by design**: run one per session, not all at once. Because of that
+they live in **`.pi/harnesses/`** — a directory pi does *not* auto-discover — so a
+plain `pi` run never loads them.
 
 ### Selective loading — read this first
 
 pi auto-discovers every extension directory under a project's `.pi/extensions/` and loads
-all of them. If the 15 harnesses lived there, a plain `pi` run would load them all at once
-— footers would fight, orchestrators would collide, and `coms` / `coms-net` would abort
-startup with duplicate CLI-flag registrations. So the harnesses live in `.pi/harnesses/`
-instead, and you load exactly one (or two) explicitly:
+all of them. If the harnesses lived there, a plain `pi` run would load them all at once
+— UI surfaces would fight, orchestrators would collide, and `coms` / `coms-net` would
+abort startup with duplicate CLI-flag registrations. So the harnesses live in
+`.pi/harnesses/` instead, and you load exactly one explicitly:
 
-- through the `justfile` — `just ext-agent-team`, `just ext-tilldone`, …
+- through the `justfile` — `just ext-agent-team`, `just ext-purpose-gate`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts`
 
 When you consume this repo from another project, point `pi -e` at the harness file you
 want, or symlink that one directory into *its* `.pi/harnesses/` — never drop the harnesses
-into `.pi/extensions/`, and never load all 15 (see
+into `.pi/extensions/`, and never load all of them at once (see
 [pi-setup.md](pi-setup.md#optional-pi-extensions)).
 
 ---
@@ -55,7 +55,7 @@ into `.pi/extensions/`, and never load all 15 (see
 
 ```bash
 just install            # one-time — installs runtime deps for extensions + harnesses
-just ext-minimal        # launch pi with a harness
+just ext-agent-team     # launch pi with a harness
 just --list             # see every recipe
 ```
 
@@ -70,12 +70,8 @@ runtime itself.
 
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
-| [minimal](../.pi/harnesses/minimal/README.md) | UI | Model name + 10-block context meter footer | `just ext-minimal` |
-| [tool-counter](../.pi/harnesses/tool-counter/README.md) | UI | Rich two-line footer: model, branch, cwd, tokens, cost, tool tally | `just ext-tool-counter` |
-| [tool-counter-widget](../.pi/harnesses/tool-counter-widget/README.md) | UI | Per-tool call counts in a widget above the editor | `just ext-tool-counter-widget` |
 | [session-replay](../.pi/harnesses/session-replay/README.md) | UI | `/replay` scrollable timeline overlay of session history | `just ext-session-replay` |
 | [purpose-gate](../.pi/harnesses/purpose-gate/README.md) | Focus | Forces you to declare session intent before working | `just ext-purpose-gate` |
-| [tilldone](../.pi/harnesses/tilldone/README.md) | Focus | Agent must define tasks before using any other tool | `just ext-tilldone` |
 | [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn | `just ext-damage-control` |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but the agent keeps working with corrective feedback | `just ext-damage-control-continue` |
 | [subagent-widget](../.pi/harnesses/subagent-widget/README.md) | Orchestration | `/sub <task>` background subagents with live stacking widgets | `just ext-subagent-widget` |
@@ -135,14 +131,14 @@ These ported files are runtime dependencies of the extensions above:
 
 What changed relative to `disler/pi-vs-claude-code`:
 
-- **Theme code removed.** Every ported extension imported `applyExtensionDefaults` from a
+- **Theme code removed.** Every ported harness imported `applyExtensionDefaults` from a
   shared `themeMap.ts`. That import and its `session_start` call site were stripped from
-  all 15 files; `themeMap.ts` and the 11 `.pi/themes/*.json` palettes are not ported.
+  the ported files; `themeMap.ts` and the 11 `.pi/themes/*.json` palettes are not ported.
   Extensions render against pi's active theme.
 - **Layout converted.** Flat `extensions/<name>.ts` files became
   `.pi/harnesses/<name>/index.ts` directories, each with its own `package.json` and
   `README.md`. They live under `.pi/harnesses/` — *not* `.pi/extensions/` — because pi
-  auto-discovers and loads everything in `.pi/extensions/`, and these 15 are
+  auto-discovers and loads everything in `.pi/extensions/`, and these are
   mutually-exclusive harnesses that must be loaded one at a time.
 - **Tooling switched to npm.** `bun` / `bun.lock` are not used; the `justfile` recipes
   point at the new paths and use npm. The `coms-net` hub launches via
