@@ -27,8 +27,8 @@ another main agent** and **use a coms peer as a subagent**.
   bubble decisions back through the dispatcher.
 - **Agent controls** — `/zoom` inspects a live agent timeline; kill/restart controls manage running
   child agents; per-agent `model:` fields select models from team config.
-- **Dispatcher persona gate** — an orchestrator persona must be selected at session start unless the
-  local override disables it.
+- **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
+  session start; by default the dispatcher starts without the gate.
 - **Default damage-control guardrails** — `just hub` and `just hub-solo` load the hard-stop
   `damage-control` harness before `agent-hub`, so dispatcher tool calls are checked against
   `.pi/damage-control-rules.yaml`. The guardrail is also re-loaded into every spawned specialist
@@ -46,6 +46,21 @@ Press **`Alt+A`** to toggle the agent view between the full **dashboard** (borde
 done agents are hidden in compact mode, and the coms pool widget collapses too, so an idle session
 collapses to just the prompt and footer. The current mode and binding are shown in the footer
 (`Alt+A view:dashboard` / `Alt+A view:compact`).
+
+## Configuration
+
+At session start, `agent-hub` reads `.ai/agent-skills-overrides.md` in the workspace. The
+user-facing language override keeps the legacy `## agent-team` section name:
+
+```markdown
+## agent-team
+# Replace Bulgarian with any language name.
+language: Bulgarian
+```
+
+Omit the section to keep the default `English`. `language` applies to dispatcher replies,
+`ask_user` questions and `context` fields, handoff summaries, and user-facing status text;
+specialist task strings stay in English.
 
 ## The coms layer
 

@@ -295,14 +295,15 @@ Every skill follows a consistent anatomy:
 
 ## Per-Project Overrides
 
-A few skills produce files or need project-specific facts — where specs and plans are saved, how to start a dev server, whether the agent may create branches. Sensible defaults are built in, but any project can override them with a single file at `.ai/agent-skills-overrides.md`:
+A few skills and the pi `agent-hub` harness need project-specific facts — where specs and plans are saved, how to start a dev server, whether the agent may create branches, or which user-facing language the dispatcher should use. Sensible defaults are built in, but any project can override them with a single file at `.ai/agent-skills-overrides.md`:
 
-| Skill | What you can override |
-|-------|----------------------|
+| Reader | What you can override |
+|--------|----------------------|
 | `spec-driven-development` | Spec output directory and naming |
 | `planning-and-task-breakdown` | Plan output directory, naming, embedded vs separate todo |
 | `browser-testing-with-devtools` | Dev-server command, base URL, auth flow and roles (required — no default) |
 | `git-workflow-and-versioning` | Whether the agent may create branches (default: never) |
+| `agent-hub` (legacy `## agent-team`) | Dispatcher user-facing language (default: English) |
 
 See [docs/agent-skills-setup.md](docs/agent-skills-setup.md) for the file format and a copy-paste template.
 

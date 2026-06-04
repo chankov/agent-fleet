@@ -22,7 +22,7 @@ This skill installs and configures agent-skills artifacts — skills, agent pers
 
 This skill is run from the agent-skills repo with the target coding agent active, and invoked with a path to the workspace to configure. Steps are gated — nothing is written to the target workspace until the user confirms in Step 9 — with **one explicit exception**: the `pi-ask-user` bootstrap in Step 5b. When the agent is `pi` and that interaction package is missing, the skill (after its own confirmation) installs it *before* the install menu and asks the user to reload and re-run, so the rest of setup can drive a native multi-select widget instead of a text fallback.
 
-It maintains two files in the target's `.ai/` directory: `agent-skills-overrides.md` holds the minimal per-skill overrides that other skills read on every run, and `agent-skills-setup.md` holds the install record this skill itself reads on re-runs. The overrides file stays small; the install record absorbs the bulk.
+It maintains two files in the target's `.ai/` directory: `agent-skills-overrides.md` holds the minimal per-reader overrides that skills and the `agent-hub` harness read on every run/session start, and `agent-skills-setup.md` holds the install record this skill itself reads on re-runs. The overrides file stays small; the install record absorbs the bulk.
 
 ### 1. Detect interaction capability
 
@@ -256,7 +256,16 @@ If a candidate fails either test, list it once under a "Skipped — not owned by
 
 ### 7. Offer project overrides
 
-From the Step 4 analysis, propose draft override sections for `.ai/agent-skills-overrides.md` — `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`. Write each section as terse `key: value` lines, never prose: the lifecycle skills load this file on every run and parse it by key, so it stays minimal. Show the draft and let the user edit, accept, or skip each section. Reference env-var names for any credentials; keep secrets out of the file.
+From the Step 4 analysis, propose draft override sections for `.ai/agent-skills-overrides.md` — `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`.
+
+For `pi` workspaces where `agent-hub` is selected, installed, or kept, also offer its user-facing language override:
+
+- Section: legacy `## agent-team`
+- Key: `language: English` as the offered default
+- Existing section: preserve the current `language` value in the draft and let the user edit it
+- Omitted section: keep `agent-hub`'s default English
+
+Write each section as terse `key: value` lines, never prose: the lifecycle skills and `agent-hub` load this file on every run/session start and parse it by key, so it stays minimal. Show the draft and let the user edit, accept, or skip each section. Reference env-var names for any credentials; keep secrets out of the file.
 
 ### 8. Choose the install method
 
@@ -382,6 +391,7 @@ Close the report with one line explaining the installer-cleanup outcome:
 - Every skill installed when the workspace needs a handful.
 - An existing, differing target file overwritten without asking the user.
 - A re-run that ignores the existing `## install-status` and reinstalls everything.
+- A `pi` workspace using `agent-hub` reached Step 7 without being offered the legacy `## agent-team` / `language: <value>` override, or an existing language value was overwritten instead of preserved.
 - The overrides file padded with install status, summaries, or prose instead of terse `key: value` sections.
 - A re-run that detects a non-empty version delta but skips the "Changes since v<recorded> → v<current>" block in Step 9.
 - A `conflicting upgrade` row pre-checked, or the three-way diff omitted for it.
@@ -415,6 +425,7 @@ After completing the workflow, confirm:
 - [ ] Out-of-inventory and unrecorded items found in the install-target directories were left untouched and logged under "Skipped — not owned by agent-skills".
 - [ ] Settings-file edits were limited to agent-skills' own hook entries; no user keys, env vars, or third-party MCP entries were modified.
 - [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.
+- [ ] For `pi` workspaces using `agent-hub`, the legacy `## agent-team` language override was offered, existing values were preserved, and omitting the section was treated as default English.
 - [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session, and a `version:` line in `## workspace-summary` that matches the package version from Step 2.
 - [ ] Step 9 was rendered as compact action-grouped lines (Add / Refresh / Remove / Keep-count / Records / Method), not a wide `Target paths` + `Notes` table that overflows the widget.
 - [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" heading followed by short per-change bullets sourced from `CHANGELOG.md` — never one long overflowing line.

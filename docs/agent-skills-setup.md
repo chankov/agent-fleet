@@ -13,21 +13,22 @@ must stay minimal; the install record is consulted rarely, so it can be large.
 
 ## The overrides file — `.ai/agent-skills-overrides.md`
 
-Some skills produce files or need facts specific to each project — where specs
+Some skills and pi harnesses need facts specific to each project — where specs
 and plans are saved, how to start a dev server, whether the agent may create
-branches. Each ships a sensible **default**; a project that needs something
-different declares it here, and the skill picks it up.
+branches, or which user-facing language a dispatcher should use. Each reader
+ships a sensible **default**; a project that needs something different declares
+it here, and the reader picks it up.
 
 - **Location:** `.ai/agent-skills-overrides.md` at the project root.
-- **Format:** Markdown. One `## <skill-name>` section per skill, with terse
+- **Format:** Markdown. One `## <section-name>` section per skill or harness reader, with terse
   `key: value` lines. Block values use the `key: |` multi-line form. No prose
-  and no install detail — skills parse it by key and load it on every run.
+  and no install detail — readers parse it by key and load it on every run/session start.
 - **Commit it.** Shared project configuration belongs in version control. Make
   sure no `.gitignore` rule (for example a broad `.env*` pattern) excludes it.
 - **No secrets.** For anything sensitive (test-account credentials), reference
   the **name** of an environment variable; the real value lives in a gitignored
   `.env`.
-- If the file is absent, or a skill has no section in it, the skill uses its
+- If the file is absent, or a reader has no section in it, that reader uses its
   built-in default.
 
 ### `spec-driven-development`
@@ -141,7 +142,7 @@ instead `.gitignore` it, since its recorded paths are local to one machine.
 ### `.ai/agent-skills-overrides.md`
 
 Copy this in and delete the sections you don't need — anything absent falls
-back to the skill default.
+back to that reader's default.
 
 ```markdown
 # Agent Skills — Project Overrides
@@ -173,6 +174,10 @@ notes: |
 
 ## git-workflow-and-versioning
 branching: never
+
+# Optional for pi agent-hub; omit this section to keep default English.
+## agent-team
+language: <language name>
 ```
 
 ### `.ai/agent-skills-setup.md`

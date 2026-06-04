@@ -44,7 +44,9 @@ docs/         → Setup guides, agent-skills-setup.md (per-project overrides + i
 - Every skill has: Overview, When to Use, Process, Common Rationalizations, Red Flags, Verification
 - References are in `references/`, not inside skill directories
 - Supporting files only created when content exceeds 100 lines
-- Skills that produce files or need project-specific facts (`spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`) ship built-in defaults but read per-project overrides from `.ai/agent-skills-overrides.md` in the *target* project — see `docs/agent-skills-setup.md`
+- Override readers ship built-in defaults but read per-project overrides from `.ai/agent-skills-overrides.md` in the *target* project — see `docs/agent-skills-setup.md`:
+  - Skills: `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`
+  - pi harness: `agent-hub` via the legacy `## agent-team` section
 - Always-on pi utility extensions live in `.pi/extensions/<name>/` (auto-discovered by pi); the selectable orchestration/UI/safety/messaging harnesses live in `.pi/harnesses/<name>/` (NOT auto-discovered — loaded explicitly via the `justfile` or `pi -e`; `just hub` stacks `damage-control` before `agent-hub`). Each is a directory with `index.ts` + `package.json` + `README.md`. Never put a harness under `.pi/extensions/` — pi loads everything there at once. The harnesses are ported from disler/pi-vs-claude-code (MIT) — see `docs/pi-extensions.md`
 
 ## Commands
