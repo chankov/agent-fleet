@@ -1,6 +1,0 @@
-{
-  "name": "agent-skills-pi-purpose-gate",
-  "private": true,
-  "type": "module",
-  "main": "index.ts"
-}

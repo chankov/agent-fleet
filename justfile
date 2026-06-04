@@ -26,18 +26,6 @@ install:
 pi:
     pi
 
-# ---------------------------------------------------------------- UI / status
-
-# Session replay: /replay scrollable timeline overlay of session history
-ext-session-replay:
-    pi -e .pi/harnesses/session-replay/index.ts
-
-# ---------------------------------------------------------------- discipline / focus
-
-# Purpose gate: declare session intent before working
-ext-purpose-gate:
-    pi -e .pi/harnesses/purpose-gate/index.ts
-
 # ---------------------------------------------------------------- safety
 
 # Damage-control: block destructive tool calls (aborts the turn)
@@ -50,15 +38,7 @@ ext-damage-control-continue:
 
 # ---------------------------------------------------------------- orchestration
 
-# Subagent widget: /sub <task> background subagents with live widgets
-ext-subagent-widget:
-    pi -e .pi/harnesses/subagent-widget/index.ts
-
-# Agent team: dispatcher-only orchestrator with grid dashboard
-ext-agent-team:
-    pi -e .pi/harnesses/agent-team/index.ts
-
-# Agent hub: agent-team dispatcher + embedded coms (peer /handoff & peer-as-subagent)
+# Agent hub: dispatcher grid + research helpers + embedded coms (peer /handoff & peer-as-subagent)
 # Accepts coms identity flags: --name --purpose --project --color --explicit
 hub *args:
     pi -e .pi/harnesses/agent-hub/index.ts {{args}}
@@ -83,14 +63,6 @@ team-up team="full":
 # e.g. just team-up-dry full
 team-up-dry team="full":
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run
-
-# Agent chain: sequential pipeline orchestrator
-ext-agent-chain:
-    pi -e .pi/harnesses/agent-chain/index.ts
-
-# System select: /system to pick an agent persona as the system prompt
-ext-system-select:
-    pi -e .pi/harnesses/system-select/index.ts
 
 # Pi Pi: meta-agent that builds pi agents via parallel expert research
 ext-pi-pi:

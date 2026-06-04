@@ -9,12 +9,12 @@ A pi harness is a TypeScript pi extension that reshapes a whole session. The har
 in `.pi/harnesses/` were ported from `disler/pi-vs-claude-code`; `docs/pi-extensions.md`
 is their catalog. A harness can:
 
-- set status, widgets, or overlays — `purpose-gate`, `session-replay`, `subagent-widget`
-- gate every tool call and block or confirm it — `damage-control`, `purpose-gate`
-- register a new tool or `/command` — `system-select`, `session-replay`, `subagent-widget`
-- inject text into the system prompt — `purpose-gate`, `system-select`
-- orchestrate sub-agents — `agent-team`, `agent-chain`, `subagent-widget`, `pi-pi`
-- add cross-agent messaging — `coms`, `coms-net`
+- set status, widgets, or overlays — `agent-hub`, `damage-control`
+- gate every tool call and block or confirm it — `damage-control`, `damage-control-continue`
+- register a new tool or `/command` — `agent-hub`, `coms`, `pi-pi`
+- inject text into the system prompt — `agent-hub`, `pi-pi`
+- orchestrate sub-agents — `agent-hub`, `pi-pi`
+- add cross-agent messaging — `agent-hub`, `coms`, `coms-net`
 
 ### Harness vs. utility extension — where it lives
 
@@ -147,13 +147,11 @@ Do not write from scratch. Pick the nearest pattern and adapt it:
 
 | If the harness… | Study | Approx. lines |
 |---|---|---|
-| Gates the session on a precondition | `purpose-gate` | 80 |
-| Blocks tool calls from a rules file | `damage-control` | 200 |
-| Adds a `/command` that picks from files | `system-select` | 165 |
-| Adds a scrollable command UI | `session-replay` | 175 |
-| Registers subagent tools with widgets | `subagent-widget` | large |
-| Orchestrates sub-agents | `agent-team`, `agent-chain` | large |
-| Adds cross-agent messaging | `coms`, `coms-net` | large |
+| Blocks tool calls from a rules file | `damage-control`, `damage-control-continue` | 200 |
+| Sets widgets/status or registers orchestration commands/tools | `agent-hub` | large |
+| Orchestrates sub-agents | `agent-hub`, `pi-pi` | large |
+| Adds local cross-agent messaging | `coms`, `agent-hub` | large |
+| Adds networked cross-agent messaging | `coms-net` | large |
 
 Start from the smallest one that has the surface you need.
 

@@ -105,7 +105,7 @@ For each broken link discovered:
 3. If no replacement exists, offer to delete the broken link.
 4. Never overwrite a regular file you find at a target path — only act on symlinks whose target is missing.
 
-Also flag any YAML configs (`teams.yaml`, `agent-chain.yaml`) that still reference removed persona names, and offer to rename the references to the canonical name.
+Also flag any YAML configs (`teams.yaml`, `peers.yaml`) that still reference removed persona names, and offer to rename the references to the canonical name.
 
 Present findings in a single table (keep it narrow — same widget constraint as Step 6/9: short `Issue`/`Fix` phrases, paths relative to the workspace, no overflowing cells):
 
@@ -211,10 +211,8 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★
    - *runtime-skill* — `bowser`
 6. **pi harnesses** *(pi only; `Group` column = harness category — mutually exclusive at runtime, so install many but load one)* — one screen for all harnesses:
-   - *UI / status* — `session-replay`
-   - *discipline / focus* — `purpose-gate`
+   - *orchestration* — `agent-hub`, `pi-pi`
    - *safety* — `damage-control`, `damage-control-continue`
-   - *orchestration* — `agent-chain`, `agent-team`, `pi-pi`, `subagent-widget`, `system-select`
    - *messaging* — `coms`, `coms-net`
 7. **External pi packages** *(pi only — companion packages recorded in pi settings, not copied from this repo)* — `pi-ask-user` ★. On a `pi` re-run this is normally already `installed · project package` because Step 5b bootstrapped it; the row exists so the user can keep, remove, or re-scope it.
 

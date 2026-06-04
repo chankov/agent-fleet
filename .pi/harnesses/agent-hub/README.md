@@ -1,29 +1,34 @@
 # agent-hub
 
-The [`agent-team`](../agent-team/README.md) dispatcher with [`coms`](../coms/README.md)
-**embedded** — so the dispatcher is *also* a peer-to-peer node. On top of the full agent-team
-feature set (fixed specialist grid, read-only research helpers, `/zoom`, kill/restart, per-agent
-model, dispatcher persona gate) it can **hand a session off to another main agent** and **use a
-coms peer as a subagent**.
+A multi-agent dispatcher with [`coms`](../coms/README.md) **embedded** — so the dispatcher is
+*also* a peer-to-peer node. It combines local specialist orchestration (fixed specialist grid,
+read-only research helpers, `/zoom`, kill/restart, per-agent model, dispatcher persona gate) with
+peer-to-peer collaboration: it can **hand a session off to another main agent** and **use a coms peer
+as a subagent**.
 
-> Combines two harnesses ported from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code)
-> by [disler](https://github.com/disler) (MIT): `agent-team` (dispatcher base) + `coms` (P2P layer).
-> See the [extension catalog](../../../docs/pi-extensions.md) and the
+> Consolidates the retired `agent-team` dispatcher into this harness and embeds the ported `coms`
+> P2P layer from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by
+> [disler](https://github.com/disler) (MIT). See the
+> [extension catalog](../../../docs/pi-extensions.md) and the
 > [design plan](../../../docs/plans/agent-hub-multi-agent-harness.md).
 
 ## What it does
 
-Everything [`agent-team`](../agent-team/README.md) does — a dispatcher-only orchestrator that
-delegates to fixed specialists (`dispatch_agent`), spawns read-only research helpers
-(`spawn_research`/`/research`), and asks the human via `ask_user`, with a live grid dashboard,
-`/zoom`, kill/restart, per-agent `model:`, and the dispatcher persona gate — **plus** an embedded
-coms layer that makes the dispatcher a discoverable peer on the local machine. Multiple `agent-hub`
-(or plain `coms`) sessions on the same box find each other through per-project registry files and
-exchange messages over a unix socket (named pipe on Windows).
+`agent-hub` is the supported home for the former standalone dispatcher features:
 
-**Read the [agent-team README](../agent-team/README.md) for the inherited dispatcher, research
-helper, zoom, kill/restart, per-agent model, and persona-gate behaviour** — this document covers
-only what the embedded coms layer adds.
+- **Dispatcher grid** — a live dashboard of fixed specialists from `.pi/agents/teams.yaml`.
+- **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
+- **Research helpers** — `spawn_research` and `/research` launch read-only helper agents for quick
+  investigation.
+- **Human handoff path** — `ask_user` is exposed when `pi-ask-user` is available, so specialists can
+  bubble decisions back through the dispatcher.
+- **Agent controls** — `/zoom` inspects a live agent timeline; kill/restart controls manage running
+  child agents; per-agent `model:` fields select models from team config.
+- **Dispatcher persona gate** — an orchestrator persona must be selected at session start unless the
+  local override disables it.
+- **Embedded coms** — the dispatcher is a discoverable peer on the local machine. Multiple
+  `agent-hub` (or plain `coms`) sessions on the same box find each other through per-project registry
+  files and exchange messages over a unix socket (named pipe on Windows).
 
 Inherited `/zoom` behavior in this harness expands the latest event by default. Use `Space` or
 `Ctrl+C` to copy the selected row content, and `Esc` to close the overlay.
@@ -35,7 +40,7 @@ done agents are hidden in compact mode, and the coms pool widget collapses too, 
 collapses to just the prompt and footer. The current mode and binding are shown in the footer
 (`Alt+A view:dashboard` / `Alt+A view:compact`).
 
-## The coms layer (what's new vs agent-team)
+## The coms layer
 
 ### Identity
 
@@ -119,8 +124,8 @@ this tool set, so coms and dispatch stay available regardless of the chosen pers
 
 ## Requires
 
-- Everything [`agent-team`](../agent-team/README.md#requires) requires — `.pi/agents/teams.yaml`,
-  the persona `.md` files, and (strongly recommended) [`pi-ask-user`](https://github.com/edlsh/pi-ask-user).
+- `.pi/agents/teams.yaml` for fixed specialist teams, the referenced persona `.md` files, and
+  (strongly recommended) [`pi-ask-user`](https://github.com/edlsh/pi-ask-user).
 - Nothing extra in-repo for coms — the peer registry lives at `~/.pi/coms/` and is created at
   runtime. For an HTTP/SSE transport that works across hosts, use
   [`coms-net`](../coms-net/README.md) instead.

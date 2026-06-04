@@ -4,7 +4,7 @@
 //
 // Two classes of findings:
 //   1. Broken symlinks — links whose source has been moved, renamed, or deleted
-//   2. Stale persona refs — YAML configs (teams.yaml, agent-chain.yaml) that
+//   2. Stale persona refs — YAML configs (teams.yaml, peers.yaml) that
 //      still name a persona which no longer exists in the source tree
 //
 // For each broken link we look up a canonical replacement in the source
@@ -51,7 +51,6 @@ const TARGET_DIRS = [
 // YAML configs that may reference persona names.
 const YAML_REFS = [
   ".pi/agents/teams.yaml",
-  ".pi/agents/agent-chain.yaml",
   ".pi/agents/peers.yaml",
 ];
 

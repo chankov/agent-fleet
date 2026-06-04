@@ -44,7 +44,7 @@
 
 - **guided-workspace-setup:** collapse install menu from 19 screens into 7 grouped multi-selects (4 shared: Skills, Agent personas, Commands/prompts, References & Hooks; 3 pi-only: pi extensions & runtime skills, pi harnesses, External pi packages). Multi-type groups carry a `Group` sub-category column (lifecycle phase, writeable/read-only, harness category, etc.) so sub-sections stay readable on a single screen.
 - **guided-workspace-setup (pi):** add Step 5b — bootstrap `pi-ask-user` project-scoped before the install menu, then ask the user to reload and re-run so the rest of setup uses a native multi-select widget.
-- **agent-team harness:** make the dispatcher a true orchestrator — gate `pi-ask-user`'s `ask_user` into its tool surface, add configurable user-facing language, and route specialist questions back through the dispatcher via an `ASK_USER:` bubble-up protocol. See the [agent-team README](.pi/harnesses/agent-team/README.md) for details.
+- **agent-team harness:** make the dispatcher a true orchestrator — gate `pi-ask-user`'s `ask_user` into its tool surface, add configurable user-facing language, and route specialist questions back through the dispatcher via an `ASK_USER:` bubble-up protocol. This functionality now lives in the consolidated [agent-hub README](.pi/harnesses/agent-hub/README.md).
 - **pi package:** publish agent-skills as a first-class pi package and bundle `pi-ask-user` so pi installs expose the `ask_user` tool and `ask-user` skill without a separate install.
 
 ## 0.3.3

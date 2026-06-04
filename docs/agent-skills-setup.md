@@ -5,7 +5,7 @@ have different readers and different lifetimes, so they are kept separate.
 
 | File | Read by | When |
 |------|---------|------|
-| `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `agent-team` pi harness | Every run of those skills / every session start of the harness |
+| `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `agent-hub` pi harness | Every run of those skills / every session start of the harness |
 | `.ai/agent-skills-setup.md` | `guided-workspace-setup` | Only when setup is run or re-run |
 
 Keep them split: the overrides file is loaded into context constantly, so it
@@ -69,9 +69,11 @@ because dev-server commands and login flows cannot be guessed.
 |-----|---------|---------|
 | `branching` | `never` | `never` = agent works in the current branch and never creates or switches branches; `allow` = agent may create feature branches |
 
-### `agent-team`
+### `agent-team` / `agent-hub`
 
-Read by the `.pi/harnesses/agent-team/` pi harness on every session start.
+Read by the `.pi/harnesses/agent-hub/` pi harness on every session start. The section name remains
+`## agent-team` for compatibility with existing project override files while the standalone
+`agent-team` harness is retired.
 
 | Key | Default | Meaning |
 |-----|---------|---------|

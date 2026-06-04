@@ -41,7 +41,7 @@ all of them. If the harnesses lived there, a plain `pi` run would load them all 
 abort startup with duplicate CLI-flag registrations. So the harnesses live in
 `.pi/harnesses/` instead, and you load exactly one explicitly:
 
-- through the `justfile` — `just ext-agent-team`, `just ext-purpose-gate`, …
+- through the `justfile` — `just hub`, `just ext-damage-control`, `just local-coms`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts`
 
 When you consume this repo from another project, point `pi -e` at the harness file you
@@ -55,7 +55,7 @@ into `.pi/extensions/`, and never load all of them at once (see
 
 ```bash
 just install            # one-time — installs runtime deps for extensions + harnesses
-just ext-agent-team     # launch pi with a harness
+just hub                # launch the supported multi-agent hub harness
 just --list             # see every recipe
 ```
 
@@ -70,21 +70,33 @@ runtime itself.
 
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
-| [session-replay](../.pi/harnesses/session-replay/README.md) | UI | `/replay` scrollable timeline overlay of session history | `just ext-session-replay` |
-| [purpose-gate](../.pi/harnesses/purpose-gate/README.md) | Focus | Forces you to declare session intent before working | `just ext-purpose-gate` |
+| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, and peer-as-subagent | `just hub` |
 | [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn | `just ext-damage-control` |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but the agent keeps working with corrective feedback | `just ext-damage-control-continue` |
-| [subagent-widget](../.pi/harnesses/subagent-widget/README.md) | Orchestration | `/sub <task>` background subagents with live stacking widgets | `just ext-subagent-widget` |
-| [agent-team](../.pi/harnesses/agent-team/README.md) | Orchestration | Dispatcher-only orchestrator with a grid dashboard | `just ext-agent-team` |
-| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | agent-team dispatcher + embedded coms (peer `/handoff` & peer-as-subagent) | `just hub` |
-| [agent-chain](../.pi/harnesses/agent-chain/README.md) | Orchestration | Sequential agent pipeline orchestrator | `just ext-agent-chain` |
-| [system-select](../.pi/harnesses/system-select/README.md) | Orchestration | `/system` to pick an agent persona as the system prompt | `just ext-system-select` |
 | [pi-pi](../.pi/harnesses/pi-pi/README.md) | Orchestration | Meta-agent that builds pi agents via parallel expert research | `just ext-pi-pi` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine | `just local-coms` |
 | [coms-net](../.pi/harnesses/coms-net/README.md) | Messaging | HTTP/SSE communication network across hosts (needs the hub) | `just coms` |
 
 Each extension directory has its own `README.md` with the full description, command/tool
 surface, requirements, and per-extension upstream changes.
+
+### `agent-hub` components
+
+`agent-hub` is the consolidated orchestration harness. It replaces the retired standalone
+`agent-team` recipe and absorbs the day-to-day pieces that previously required separate
+harnesses:
+
+- **Dispatcher grid** — fixed specialists from `.pi/agents/teams.yaml`, shown in a live dashboard
+  with compact/full view toggling.
+- **Specialist delegation** — `dispatch_agent` for writable child-agent work and
+  `spawn_research` / `/research` for read-only investigation.
+- **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
+  override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
+- **Operator controls** — `/zoom` timeline inspection plus child-agent kill/restart controls.
+- **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
+  `/handoff`, and peer-as-subagent flows.
+- **Solo mode** — `just hub-solo` keeps the dispatcher grid, delegation, research helpers, persona
+  gate, and controls, but starts without the embedded coms layer.
 
 ---
 
@@ -109,11 +121,10 @@ For `127.0.0.1`-only `coms-net` use, the hub auto-generates a token — no env n
 These ported files are runtime dependencies of the extensions above:
 
 - **`agents/`** — canonical persona Markdown files for shared and pi-specific agents,
-  including the `agents/pi-pi/` research experts. Read by `agent-team`, `agent-chain`,
-  `system-select`, and `pi-pi`.
-- **`.pi/agents/`** — pi YAML configs only (`teams.yaml`, `agent-chain.yaml`, `peers.yaml`).
+  including the `agents/pi-pi/` research experts. Read by `agent-hub` and `pi-pi`.
+- **`.pi/agents/`** — pi YAML configs only (`teams.yaml`, `peers.yaml`).
   The earlier `reviewer` and `red-team` personas were folded into `code-reviewer` and
-  `security-auditor`; the team and chain configs already reference the canonical names.
+  `security-auditor`; the remaining team/peer configs already reference the canonical names.
 - **`.pi/damage-control-rules.yaml`** — the destructive-command / protected-path rule set
   for `damage-control` and `damage-control-continue`.
 - **`.pi/skills/bowser/`** — a pi-runtime skill for headless Playwright browser
@@ -122,8 +133,8 @@ These ported files are runtime dependencies of the extensions above:
 - **`scripts/coms-net-server.ts`** — the HTTP/SSE hub server for `coms-net`. Pure Node
   built-ins; run it with `node --experimental-strip-types scripts/coms-net-server.ts`
   (Node >= 22.6, or `just coms-net-server`).
-- **`docs/pi-specs/`** — the original design specifications: `agent-forge` (the
-  `agent-team` design), `agent-workflow` (`agent-chain`), `damage-control`, and `pi-pi`.
+- **`docs/pi-specs/`** — the original design specifications: `agent-forge` (now consolidated
+  into `agent-hub`), `agent-workflow` (retired `agent-chain`), `damage-control`, and `pi-pi`.
 
 ---
 
