@@ -57,7 +57,7 @@ become `architect` and `architect-2`. `--explicit` marks a **private** peer — 
 its exact name, never surfaced as a broadcast target. The registry lives under
 `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runtime.
 
-### Commands & tools (added on top of agent-team's)
+### Commands & tools (local dispatcher plus coms)
 
 - `/coms` — coms control surface (peer list / status)
 - `/handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
@@ -105,7 +105,7 @@ resetting the persona via `/persona` re-syncs.
 ### Graceful degradation
 
 If the coms socket can't bind at start-up (`comsReady` stays `false`), the session degrades to a
-plain agent-team dispatcher: the `coms_*` tools are withheld from `setActiveTools`, the
+local dispatcher without coms: the `coms_*` tools are withheld from `setActiveTools`, the
 `/handoff` command refuses with a notice, and the "Peer agents (coms)" prompt section is omitted.
 Orchestration, research helpers, and the grid keep working.
 
@@ -168,7 +168,7 @@ coms purpose/color.
 - **Embedded, not stacked (decision 1).** coms is folded into this one `index.ts`; the identity
   flags are registered once. Loading `coms` as a second `-e` would double-register
   `--name/--purpose/...` and abort start-up.
-- **Single `session_start`.** coms init is folded into agent-team's existing `session_start` and
+- **Single `session_start`.** coms init is folded into the former dispatcher's `session_start` and
   guarded by `if (!comsReady)`, so `/new` reuses the same peer identity (no leaked socket).
 - **Dispatcher is also a peer.** `setActiveTools` lists `coms_*` alongside `dispatch_agent` +
   `spawn_research` (+ `ask_user`); the system prompt gains a "Peer agents (coms)" section when coms

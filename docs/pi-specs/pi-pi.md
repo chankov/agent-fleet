@@ -1,5 +1,7 @@
 # Pi Pi — Meta Agent Spec
 
+> Historical note: `pi-pi` remains a supported harness at `.pi/harnesses/pi-pi/`. Comparisons to `agent-team` refer to the retired dispatcher now consolidated into `agent-hub`.
+
 ## Purpose
 
 A Pi extension that builds Pi agents. The "Pi Pi" agent is a meta-agent — it knows how to create extensions, themes, skills, settings, prompt templates, and TUI components by querying a team of domain-specific research agents in parallel.
@@ -77,11 +79,11 @@ User Request: "Build me a Pi agent that does X"
 
 ## Extension Structure
 
-File: `extensions/pi-pi.ts`
+File: `.pi/harnesses/pi-pi/index.ts` (historical source path: `extensions/pi-pi.ts`)
 
-### Differences from agent-team.ts
+### Differences from the retired agent-team dispatcher
 
-| Feature | agent-team | pi-pi |
+| Feature | retired agent-team | pi-pi |
 |---------|-----------|-------|
 | Primary tools | dispatch_agent ONLY | read,write,edit,bash,grep,find,ls + query_expert |
 | Subagent tools | varies per agent | read,grep,find,ls,bash (read-only + bash for firecrawl) |
@@ -115,17 +117,19 @@ Grid of expert cards showing:
 
 ```just
 ext-pi-pi:
-    pi -e extensions/pi-pi.ts
+    pi -e .pi/harnesses/pi-pi/index.ts
 ```
 
 ## Agent Definition Files
 
-Located in `.pi/agents/`:
+Located in `agents/pi-pi/` (legacy `.pi/agents/pi-pi/` is still accepted):
 - `ext-expert.md`
 - `theme-expert.md`
 - `skill-expert.md`
 - `config-expert.md`
 - `tui-expert.md`
+- `prompt-expert.md`
+- `agent-expert.md`
 
 Teams entry in `.pi/agents/teams.yaml`:
 ```yaml
@@ -135,4 +139,6 @@ pi-pi:
   - skill-expert
   - config-expert
   - tui-expert
+  - prompt-expert
+  - agent-expert
 ```

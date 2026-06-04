@@ -8,7 +8,14 @@
 # under .pi/extensions/, so anything placed there loads on every plain `pi` run.
 # The harnesses are mutually exclusive — they live in .pi/harnesses/ (which pi
 # does NOT auto-discover) and are loaded one at a time via `pi -e` below.
+#
+# Everything between the two `agent-skills:harnesses` sentinels below is a
+# MANAGED REGION: guided-workspace-setup regenerates it from the installed
+# package whenever pi harnesses are installed, refreshed, or retired — so edits
+# inside it are overwritten on upgrade. Put your own recipes OUTSIDE the
+# sentinels (above the opening marker or below the closing one) to keep them.
 
+# >>> agent-skills:harnesses — managed region (regenerated on upgrade; edits inside are overwritten) >>>
 set dotenv-load := true
 
 # List all recipes
@@ -87,3 +94,4 @@ coms-net-server-lan:
 # Pi with the networked coms-net client (auto-discovers the local server.json)
 coms *args:
     pi -e .pi/harnesses/coms-net/index.ts {{args}}
+# <<< agent-skills:harnesses <<<

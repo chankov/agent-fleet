@@ -69,9 +69,9 @@ because dev-server commands and login flows cannot be guessed.
 |-----|---------|---------|
 | `branching` | `never` | `never` = agent works in the current branch and never creates or switches branches; `allow` = agent may create feature branches |
 
-### `agent-team` / `agent-hub`
+### `agent-hub` (legacy `## agent-team` override section)
 
-Read by the `.pi/harnesses/agent-hub/` pi harness on every session start. The section name remains
+Read by the `.pi/harnesses/agent-hub/` pi harness on every session start. The override section name remains
 `## agent-team` for compatibility with existing project override files while the standalone
 `agent-team` harness is retired.
 
@@ -196,6 +196,7 @@ commands:   [spec, plan, build]
 personas:   [code-reviewer]
 extensions: []
 harnesses:  []
+harness-support: []   # justfile (managed region) + scripts/agents companions; tracked when any harness is installed
 updated:    2026-05-22
 
 ## verification

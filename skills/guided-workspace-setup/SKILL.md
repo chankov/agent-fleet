@@ -65,6 +65,9 @@ Target map, relative to the workspace root:
 | Hooks | `.claude/hooks/<name>`, registered in `.claude/settings.json` | per `docs/opencode-setup.md` | per `docs/pi-setup.md` |
 | pi extensions | — | — | `.pi/extensions/<name>/` |
 | pi harnesses | — | — | `.pi/harnesses/<name>/` |
+| pi harness support | — | — | `justfile` (agent-skills managed region), `scripts/*.ts`, `.pi/agents/*.yaml`, `.pi/damage-control-rules.yaml`, `.pi/harnesses/package.json` |
+
+The **pi harness support** row is not a menu group of its own — it is the set of shared files the harnesses need in order to launch (the `justfile` recipes, the `team-up`/`coms-net` scripts, the peer/team YAML, the damage-control rules, and the harness `package.json` of runtime deps). These travel **with** the pi harnesses group (Step 6, group 6): whenever any harness is installed, refreshed, or removed, this support set is refreshed from source in the same pass. The `justfile` specifically is refreshed from the **current** source, so retired-harness recipes are pruned and new-harness recipes added automatically — see Step 6 and Step 10 for the merge and removal rules.
 
 When neither the built-in map nor the agent's `*-setup.md` defines a path for a selected artifact, ask the user instead of guessing.
 
@@ -214,6 +217,18 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *orchestration* — `agent-hub`, `pi-pi`
    - *safety* — `damage-control`, `damage-control-continue`
    - *messaging* — `coms`, `coms-net`
+
+   **Harness companions (refreshed with the group, not separate rows).** A harness directory does not run on its own — the launch recipes live in the `justfile`, and several harnesses shell out to support files. So whenever **any** harness in this group is ticked (installed/kept) or unticked (removed), refresh its companions from source in the same pass — they are not shown as their own menu rows:
+   - `justfile` — the `just hub` / `just peer` / `just team-up` / `just coms` launch recipes.
+   - `scripts/team-up.ts`, `scripts/coms-net-server.ts` — used by the `team-up` and `coms-net-server` recipes.
+   - `.pi/agents/peers.yaml`, `.pi/agents/teams.yaml`, and the peer personas they name (e.g. `architect`, `releaser`) — read by `team-up`.
+   - `.pi/damage-control-rules.yaml` — the rule set the damage-control harnesses load.
+   - `.pi/harnesses/package.json` (+ `npm install --prefix .pi/harnesses`) — the harness runtime deps (`yaml`, `@sinclair/typebox`).
+
+   **The `justfile` is the one that goes stale on upgrade.** Refresh it from the **current** source, never leave the installed copy as-is: the source `justfile` is canonical, so refreshing it prunes recipes for harnesses retired since the recorded version and adds recipes for new ones. A workspace whose harness set changed between versions but whose `justfile` was left untouched is the exact failure this rule prevents — `just --list` keeps recipes pointing at deleted `.pi/harnesses/<name>/` dirs and lacks recipes for the new harnesses. Treat the `justfile` as a normal versioned artifact subject to the Step 6 status rules: it carries its own `St` token in the menu's after-table restate line (`ok`/`upd`/`mod`/`cflt`), and a user-edited `justfile` gets the same three-way diff and pre-unchecked `cflt` treatment as any other modified file — never a silent clobber. The `.versions/<recorded>/justfile` snapshot is the recorded-side of that diff.
+
+   **The `justfile` managed region.** The source `justfile` wraps its recipes between `# >>> agent-skills:harnesses … >>>` and `# <<< agent-skills:harnesses <<<` sentinels. Only that region is agent-skills'. When refreshing into a target that has its own recipes outside the sentinels, replace **only** the managed region (preserving the user's recipes); if the target has no sentinels but every recipe matches the recorded-version `justfile` snapshot (i.e. the user never edited it), it is wholly ours — refresh the whole file, re-introducing the sentinels. If the target has no sentinels **and** has diverged from the snapshot, treat it as `mod`/`cflt` and show the diff before touching it. When merging into a `justfile` that already declares its own `set dotenv-load`, drop that line from the region rather than duplicating the setting (just errors on a repeated setting).
+
 7. **External pi packages** *(pi only — companion packages recorded in pi settings, not copied from this repo)* — `pi-ask-user` ★. On a `pi` re-run this is normally already `installed · project package` because Step 5b bootstrapped it; the row exists so the user can keep, remove, or re-scope it.
 
 Defaults differ by workspace state:
@@ -273,6 +288,12 @@ Apply the changes: create directories, add or update selected artifacts, and rem
 
 For settings files (`.claude/settings.json` and equivalents), edit only the agent-skills hook entries; leave every other key — user permissions, env vars, third-party MCP servers, custom hooks — untouched.
 
+**pi harness companions.** When this pass installs, refreshes, or removes any pi harness (Step 6 group 6), apply the companion set in the same pass per the Step 6 rules:
+
+- Refresh `scripts/team-up.ts`, `scripts/coms-net-server.ts`, `.pi/agents/peers.yaml`, `.pi/agents/teams.yaml`, the peer personas they name, `.pi/damage-control-rules.yaml`, and `.pi/harnesses/package.json` from source (then `npm install --prefix .pi/harnesses` for the runtime deps).
+- Refresh the `justfile` from the **current** source into its managed region (between the `# >>> agent-skills:harnesses … >>>` / `# <<< agent-skills:harnesses <<<` sentinels), preserving any user recipes outside it — this is what prunes retired-harness recipes and adds new ones. In symlink mode, link the whole `justfile` to source **only** when the target has no `justfile` or its existing one is wholly agent-skills'; if the target carries user recipes, fall back to a copy-mode managed-region rewrite so those recipes survive.
+- **Removal:** when the **last** pi harness is removed, strip the agent-skills managed region from the `justfile` (and drop the now-orphaned `scripts/`/`.pi/agents/` companions that no remaining harness needs), bound by the same removal-scope rule — never delete user recipes outside the sentinels, and never delete a companion the user authored.
+
 Then write both `.ai/` files: the agreed override sections from Step 7 into `.ai/agent-skills-overrides.md`, and the install record — artifacts, target paths, method, **package version**, date — into `.ai/agent-skills-setup.md`. The `version:` line in `## workspace-summary` is set to the package version from Step 2; this is what the next re-run will compare against to compute the version delta.
 
 ### 10b. Remove the installer artifacts (unless the user said `keep`)
@@ -298,7 +319,7 @@ If `cleanupInstaller` is available via the CLI (`npx @chankov/agent-skills clean
 
 ### 11. Verify and report
 
-Re-scan the install-target directories one more time and confirm: every selected artifact exists at its target path, every deselected one is gone, and zero broken symlinks remain. Also re-read `.ai/agent-skills-setup.md` and verify the `version:` line matches the package version from Step 2 — a mismatch here means the apply pass did not stamp the new version, and must be corrected before the next re-run computes the wrong delta. If the post-apply scan surfaces any new breakage, treat it as a doctor finding and offer the same repair options as Step 5, then append a second `## doctor-runs` line with `phase: postflight`. List what changed, point the user at `.ai/agent-skills-overrides.md` and `.ai/agent-skills-setup.md`, and suggest loading `using-agent-skills` first in their next session.
+Re-scan the install-target directories one more time and confirm: every selected artifact exists at its target path, every deselected one is gone, and zero broken symlinks remain. When pi harnesses were touched, also confirm the `justfile` is consistent with the installed harness set: every installed harness has its launch recipe, and **no recipe points at a `.pi/harnesses/<name>/` that is not installed** (a leftover recipe for a retired harness is the regression this check catches). Also re-read `.ai/agent-skills-setup.md` and verify the `version:` line matches the package version from Step 2 — a mismatch here means the apply pass did not stamp the new version, and must be corrected before the next re-run computes the wrong delta. If the post-apply scan surfaces any new breakage, treat it as a doctor finding and offer the same repair options as Step 5, then append a second `## doctor-runs` line with `phase: postflight`. List what changed, point the user at `.ai/agent-skills-overrides.md` and `.ai/agent-skills-setup.md`, and suggest loading `using-agent-skills` first in their next session.
 
 Close the report with one line explaining the installer-cleanup outcome:
 
@@ -320,6 +341,8 @@ Close the report with one line explaining the installer-cleanup outcome:
 | "The workspace already has a `.claude/` directory, so setup is done." | A directory existing is not install state. The `## install-status` section is the only record of what this skill installed; read it before deciding. |
 | "An existing file differs from the source — I'll pause and ask the user mid-apply whether to overwrite." | Step 6 already surfaced `installed · modified` with the warning that refreshing overwrites local edits. The user's tick is the consent. Mid-apply questions break the apply pass; they were replaced by the upfront status. |
 | "`.pi/prompts/design-agent.md` doesn't exist, but `.claude/commands/design-agent.md` does — I'll symlink to the Claude file so the user gets the prompt." | That mixes runtimes silently and lets the source repo's claude-code tree drive a pi target. The source availability filter forbids it: items without a per-agent source are not offered at all. |
+| "The harness directories installed fine — the `justfile` is just launch shortcuts, I'll leave the existing one." | The `justfile` is how harnesses are launched; if it is not refreshed from the current source, retired-harness recipes linger (pointing at deleted `.pi/harnesses/<name>/` dirs) and newly added harnesses have no recipe at all. It is a companion of the harness group and must be refreshed whenever any harness changes. |
+| "I'll just copy the source `justfile` over the target's to refresh it." | A wholesale copy clobbers any recipes the user authored. Refresh only the managed region between the `agent-skills:harnesses` sentinels; a user-edited `justfile` outside that region is `mod`/`cflt` and gets the three-way diff first — never a silent overwrite. |
 | "I'll skip the workspace analysis and just ask the user everything." | The analysis is what makes the override offer accurate. Asking blind produces an overrides file the user has to hand-correct afterwards. |
 | "I'll record the full install detail in the overrides file too — one place is simpler." | Other skills load the overrides file on every run. Install detail belongs only in `agent-skills-setup.md`; padding the overrides file taxes every later session. |
 | "There's an unfamiliar skill in `.claude/skills/` — the user must have forgotten to uncheck it, I'll remove it." | The removal scope rule exists exactly to prevent this. If the name is not in the agent-skills inventory or not in `## install-status`, it is user-owned; leave it alone and log it as skipped. |
@@ -352,6 +375,8 @@ Close the report with one line explaining the installer-cleanup outcome:
 - A target file or directory deleted whose name is not in the agent-skills inventory, or that is not recorded in `## install-status` and is not a symlink into the source repo.
 - Edits to `settings.json` / env vars / MCP config beyond removing agent-skills' own hook registrations.
 - An artifact installed to a path backed by neither the built-in map nor the agent's `*-setup.md`.
+- pi harnesses installed, refreshed, or retired without the `justfile` being refreshed — its `just --list` still shows recipes for removed harnesses, points at `.pi/harnesses/<name>/` dirs that are not installed, or lacks recipes for newly added harnesses.
+- The `justfile` (or `scripts/`/`.pi/agents/` companions) overwritten wholesale, clobbering recipes or files the user authored outside the agent-skills managed region.
 - `.ai/agent-skills-setup.md` left unchanged after artifacts were added or removed.
 - Credentials or secrets written into either `.ai/` file.
 - Every skill installed when the workspace needs a handful.
@@ -386,6 +411,7 @@ After completing the workflow, confirm:
 - [ ] Apply ran without any overwrite-this-file prompt; ticked items refreshed unconditionally and unticked modified items were preserved.
 - [ ] `setup`, `doctor`, and `guided-workspace-setup` were excluded from the install menu.
 - [ ] Every selected artifact exists at its resolved target path; every deselected one was removed **only if** the removal-scope rule allowed it (in inventory + in install record / symlink-into-source).
+- [ ] When pi harnesses were installed/refreshed/removed, the `justfile` and harness support files were refreshed from the current source: the `justfile` lists a recipe for every installed harness, none for a removed one, and points at no missing `.pi/harnesses/<name>/`; user recipes outside the managed-region sentinels were preserved.
 - [ ] Out-of-inventory and unrecorded items found in the install-target directories were left untouched and logged under "Skipped — not owned by agent-skills".
 - [ ] Settings-file edits were limited to agent-skills' own hook entries; no user keys, env vars, or third-party MCP entries were modified.
 - [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.

@@ -1,5 +1,7 @@
 # Specification: The Chronicle (agent-workflow)
 
+> Historical note: this spec describes the retired `agent-chain` / Chronicle direction. Current supported workflow orchestration is consolidated under `agent-hub` plus the lifecycle skills.
+
 ## 1. Overview
 **The Chronicle** is a temporal orchestration extension for the Pi Coding Agent. It enables long-running, state-aware workflows that span multiple sessions and personas. Unlike traditional linear agents, The Chronicle manages a formal **State Machine** where each stage of a project is handled by a specialized agent persona, with the extension acting as a persistent "State Supervisor."
 
@@ -59,6 +61,6 @@ The Supervisor tracks the total cost and token consumption across all sub-agents
 Each state can define a cleanup routine that the Supervisor executes (e.g., killing background processes) before the next agent is spawned.
 
 ## 5. Integration
-The Chronicle integrates with:
-- **agent-team**: To fetch specialized personas for specific states.
+The Chronicle was designed to integrate with:
+- **agent-team** (now consolidated under **agent-hub**): To fetch specialized personas for specific states.
 - **damage-control**: To enforce safety rules across all worker sub-agents spawned by the Supervisor.

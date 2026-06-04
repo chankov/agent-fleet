@@ -38,6 +38,11 @@ const ARTIFACT_PATHS = [
   // coms-net harness shells out to. Tests under scripts/*.test.mjs stay out
   // (filtered below) — they're dev-only.
   "scripts",
+  // justfile carries the pi harness launch recipes. It is a companion of the
+  // harness group in guided-workspace-setup, so the snapshot must hold a
+  // per-version copy for the upgrade three-way diff (retired-harness recipes
+  // pruned, new-harness recipes added on refresh).
+  "justfile",
   "references",
   "hooks",
 ];

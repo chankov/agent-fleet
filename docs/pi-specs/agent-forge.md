@@ -1,5 +1,7 @@
 # Specification: Agent Forge (Evolutionary Tooling)
 
+> Historical note: this original design spec predates consolidation into `agent-hub`. The standalone `agent-team` harness is retired; current supported orchestration lives in `.pi/harnesses/agent-hub/`.
+
 ## 1. Overview
 **Agent Forge** is an evolutionary extension for the Pi Coding Agent. It enables the agent to expand its own capabilities by dynamically generating, validating, and loading new TypeScript tools on demand. Instead of a static set of capabilities, Agent Forge turns the agent into a meta-developer that builds its own infrastructure.
 
@@ -12,7 +14,7 @@ All evolved tools are stored in the `extensions/` directory with a specific nami
 - `extensions/forge-registry.json`: A central manifest for fast tool discovery during the `before_agent_start` hook.
 
 ### 2.2 The Proxy Model
-Unlike `agent-team` which spawns new processes, Agent Forge uses a **Hybrid Proxy Model**:
+Unlike the retired `agent-team` dispatcher, which spawned new processes, Agent Forge uses a **Hybrid Proxy Model**:
 1. **Dynamic Loading**: Uses `jiti` (Pi's internal runtime) to load forged tools into the existing process.
 2. **Context Sharing**: Forged tools have direct access to the `ExtensionAPI`, allowing them to interact with the UI, notify the user, and use the existing toolset (read/write/bash).
 3. **Zero Overhead**: Execution is instantaneous as it happens within the same Node.js/Bun runtime.
@@ -68,5 +70,5 @@ export async function execute(params: any, pi: ExtensionAPI, ctx: any) {
 }
 ```
 
-## 7. Integration with Agent-Team
-Agent Forge can act as a "specialist" within an `agent-team`. The "Engineer" agent in a team can use Agent Forge to build tools for the "Analyst" or "Builder" agents, creating a collaborative ecosystem of meta-programming.
+## 7. Historical Integration with Agent-Team
+Agent Forge was designed to act as a "specialist" within an `agent-team`. In the current repo, that orchestration role lives in `agent-hub`; an engineer specialist in the hub can use Agent Forge-style tooling to build tools for analyst or builder agents.

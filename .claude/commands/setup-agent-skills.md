@@ -14,6 +14,8 @@ Unchecking an installed item means *remove it*, but **removal is scoped**: only 
 
 **No cross-tool substitution.** Each row is offered only when the source file the chosen agent needs already exists — for `pi`, that means `.pi/prompts/<name>.md`, `.pi/extensions/<name>/`, etc. Never fall back to `.claude/commands/` (or another agent's tree) to satisfy a pi prompt request; items missing their per-agent source are filtered out of the menu entirely.
 
+**pi harness companions.** When the agent is `pi`, installing/refreshing/removing any harness also refreshes its companions — the `justfile` launch recipes, the `team-up`/`coms-net` scripts, the peer/team YAML, `.pi/damage-control-rules.yaml`, and `.pi/harnesses/package.json`. Refresh the `justfile` from the current source (rewriting only the `agent-skills:harnesses` managed region so user recipes survive) so retired-harness recipes are pruned and new ones added; a stale `justfile` left after a harness change is the regression this prevents.
+
 **No mid-apply overwrite prompts.** The Step 6 status text already warns that `installed · modified` rows will have local edits overwritten if kept ticked. The user's tick is the consent; the Step 9 confirmation is the single gate. During apply, refresh ticked items unconditionally — never pause to ask "should I overwrite this file?". Genuine errors (permission denied, missing source) still stop and report.
 
 Offer override sections for the workspace's `.ai/agent-skills-overrides.md` based on the analysis, and record what was installed in `.ai/agent-skills-setup.md`. Summarise the full plan and wait for explicit confirmation before writing anything, then perform the setup, re-scan for any new breakage, and report what changed.
