@@ -1,0 +1,6 @@
+{
+  "name": "agent-skills-pi-update-check",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

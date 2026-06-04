@@ -1,0 +1,6 @@
+{
+  "name": "agent-skills-pi-btw",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

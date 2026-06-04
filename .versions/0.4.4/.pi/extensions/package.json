@@ -1,0 +1,9 @@
+{
+  "name": "agent-skills-pi-extensions-runtime-deps",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "typebox": "^1.1.33"
+  }
+}

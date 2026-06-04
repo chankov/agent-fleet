@@ -1,0 +1,22 @@
+# Reusable coms peers, grouped into named teams (parallels teams.yaml).
+#
+# `just team-up <name>` spawns each peer of a team in its own tmux pane,
+# using the hidden `_peer` helper (coms + compact-and-continue + the persona).
+#
+# Each peer entry:
+#   name    — coms identity (the addressable peer name); overrides persona frontmatter
+#   persona — file under agents/ (without .md); its body is the role, its
+#             frontmatter `description`/`color` become the coms purpose/color
+#   model   — optional pi --model spec (e.g. anthropic/claude-opus-4-7); omit to
+#             inherit pi's default model
+
+full:
+  - name: architect
+    persona: architect
+    model: anthropic/claude-opus-4-7
+  - name: releaser
+    persona: releaser
+
+ship:
+  - name: releaser
+    persona: releaser
