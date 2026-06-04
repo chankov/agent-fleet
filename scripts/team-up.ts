@@ -1,8 +1,8 @@
 // scripts/team-up.ts
 //
 // Spawn a team of reusable coms peers (from .pi/agents/peers.yaml) into a tmux
-// session — one tiled pane per peer, each running `just peer …`. Backs the
-// `just team-up <name>` recipe (see the justfile).
+// session — one tiled pane per peer, each running the hidden `just _peer …` helper.
+// Backs the `just team-up <name>` recipe (see the justfile).
 //
 // Hard rules:
 // - Entrypoint guard: launching lives inside main(); importing the module must
@@ -123,7 +123,7 @@ function main(): void {
 		process.exit(1);
 	}
 
-	// Build + validate one `just peer …` command per peer. `just` recipe params are
+	// Build + validate one `just _peer …` command per peer. `just` recipe params are
 	// POSITIONAL (persona name model) — emit them as bare positional args, never
 	// key=value (which just would treat as a literal positional value).
 	const cmds: { label: string; cmd: string }[] = [];
@@ -142,7 +142,7 @@ function main(): void {
 				process.exit(1);
 			}
 		}
-		const parts = ["just", "peer", p.persona, p.name];
+		const parts = ["just", "_peer", p.persona, p.name];
 		if (p.model) parts.push(p.model);
 		cmds.push({ label: p.name, cmd: parts.join(" ") });
 	}

@@ -118,6 +118,17 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
+		// find's required `pattern` is a filename glob (e.g. "*.env") — the `path` check
+		// above only sees the search root ("."), so check the pattern too, mirroring grep's glob.
+		if (!violationReason && isToolCallEventType("find", event) && event.input.pattern) {
+			for (const zap of rules.zeroAccessPaths) {
+				if (event.input.pattern.includes(zap) || isPathMatch(event.input.pattern, zap, ctx.cwd)) {
+					violationReason = `Find pattern matches zero-access path: ${zap}`;
+					break;
+				}
+			}
+		}
+
 		if (!violationReason) {
 			violationReason = checkPaths(inputPaths);
 		}

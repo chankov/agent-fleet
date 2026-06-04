@@ -19,8 +19,10 @@ another main agent** and **use a coms peer as a subagent**.
 
 - **Dispatcher grid** — a live dashboard of fixed specialists from `.pi/agents/teams.yaml`.
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
-- **Research helpers** — `spawn_research` and `/research` launch read-only helper agents for quick
-  investigation.
+- **Research helpers** — `spawn_research` and `/research` launch read-only helper agents. Two
+  `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple
+  reads and `deep-researcher` (`gpt-5.5` / xhigh) for hard, cross-cutting investigation. The
+  orchestrator routes by persona; each persona's model + thinking level is shown in its catalog.
 - **Human handoff path** — `ask_user` is exposed when `pi-ask-user` is available, so specialists can
   bubble decisions back through the dispatcher.
 - **Agent controls** — `/zoom` inspects a live agent timeline; kill/restart controls manage running
@@ -29,7 +31,8 @@ another main agent** and **use a coms peer as a subagent**.
   local override disables it.
 - **Default damage-control guardrails** — `just hub` and `just hub-solo` load the hard-stop
   `damage-control` harness before `agent-hub`, so dispatcher tool calls are checked against
-  `.pi/damage-control-rules.yaml`.
+  `.pi/damage-control-rules.yaml`. The guardrail is also re-loaded into every spawned specialist
+  and research helper (see [Safety scope](#safety-scope)), so subagent tool calls are checked too.
 - **Embedded coms** — the dispatcher is a discoverable peer on the local machine. Multiple
   `agent-hub` (or plain `coms`) sessions on the same box find each other through per-project registry
   files and exchange messages over a unix socket (named pipe on Windows).
@@ -156,9 +159,13 @@ Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
 
 `just hub` and `just hub-solo` load `damage-control` before `agent-hub`, so guardrails apply to
 hub/dispatcher tool calls in that parent pi process. Specialist and research agents are spawned as
-separate pi subprocesses with `--no-extensions`; they do not inherit parent-loaded harnesses unless
-`agent-hub` is explicitly changed to pass one through. Research helpers are read-only; writable
-specialists still rely on their configured tool lists and instructions.
+separate pi subprocesses with `--no-extensions` — but `agent-hub` resolves the `damage-control`
+harness (from this session's `-e` flags, else the repo-local `.pi/harnesses/damage-control/index.ts`)
+and re-loads *only* that one into each child via `-e`. `--no-extensions` keeps discovery off, so
+children never auto-load the `.pi/extensions/` utilities or recursively re-load `agent-hub`; the
+explicit `-e` still applies, so every child's tool calls are checked against the same
+`.pi/damage-control-rules.yaml`. If damage-control can't be resolved, children spawn unguarded as
+before. Research helpers are additionally read-only by construction.
 
 ### Related recipes
 
@@ -166,13 +173,9 @@ specialists still rely on their configured tool lists and instructions.
 # the hub without the coms layer (fixed specialists + research only — lighter)
 just hub-solo
 
-# a single reusable coms peer — POSITIONAL args: persona [name] [model]
-# persona is a file under agents/ (no .md; legacy .pi/agents/ fallback); it loads coms + compact-and-continue
-just peer architect architect anthropic/claude-opus-4-7
-
 # spawn every peer of a team from .pi/agents/peers.yaml into tiled tmux panes
 just team-up full        # launch
-just team-up-dry full    # print the resolved `just peer …` commands without launching
+just team-up-dry full    # print the resolved hidden peer-launch commands without launching
 ```
 
 `peers.yaml` groups reusable peers into named teams; each entry is `name` / `persona`

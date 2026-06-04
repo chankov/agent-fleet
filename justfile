@@ -51,11 +51,9 @@ hub *args:
 hub-solo *args:
     pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts --solo {{args}}
 
-# Coms peer: a reusable worker peer (coms + compact-and-continue + a persona).
-# Positional args: persona [name] [model]. persona=<file under agents/, no .md>;
-# falls back to legacy .pi/agents/ if needed. Args are POSITIONAL — no key=value.
-# e.g. just peer architect architect anthropic/claude-opus-4-7
-peer persona name="" model="":
+# Internal helper for team-up: launch a reusable coms peer (coms + compact-and-continue + a persona).
+# Hidden from `just --list` because recipes prefixed with `_` are private.
+_peer persona name="" model="":
     persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }}
 
 # Team up: spawn every peer of a team from .pi/agents/peers.yaml into tmux panes.

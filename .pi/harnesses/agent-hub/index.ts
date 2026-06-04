@@ -480,6 +480,23 @@ function scanAgentDirs(cwd: string): AgentDef[] {
 	return agents;
 }
 
+// Resolve the damage-control harness so spawned subagents inherit the same guardrail.
+// Order: (1) the exact `-e` path this session was launched with (mirrors `just hub`,
+// robust to symlinks / consuming projects), (2) the repo-local harness under cwd.
+// Returns an absolute path, or null if damage-control isn't present — in which case
+// subagents spawn unguarded, exactly as before.
+function resolveDamageControlExtension(cwd: string): string | null {
+	const argv = process.argv;
+	for (let i = 0; i < argv.length - 1; i++) {
+		if (argv[i] === "-e" || argv[i] === "--extension") {
+			const abs = resolve(argv[i + 1]);
+			if (/damage-control[/\\]index\.ts$/.test(abs) && existsSync(abs)) return abs;
+		}
+	}
+	const local = join(cwd, ".pi", "harnesses", "damage-control", "index.ts");
+	return existsSync(local) ? local : null;
+}
+
 // ━━ Embedded coms: Constants ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const COMS_DIR = process.env.PI_COMS_DIR || path.join(os.homedir(), ".pi", "coms");
@@ -1038,6 +1055,9 @@ export default function (pi: ExtensionAPI) {
 	let sessionDir = "";
 	let contextWindow = 0;
 	let userLanguage: string = DEFAULT_OVERRIDES.language;
+	// Resolved once at session_start: the damage-control harness to load into every
+	// spawned subagent (specialist + research helper) so guardrails follow them.
+	let damageControlExtPath: string | null = null;
 
 	// ── Dispatcher persona gate (Phase 6) ──
 	// Every agent runs a declared persona; the dispatcher's is sourced from an
@@ -1493,6 +1513,7 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 			"--mode", "json",
 			"-p",
 			"--no-extensions",
+			...(damageControlExtPath ? ["-e", damageControlExtPath] : []),
 			"--model", model,
 			"--tools", state.def.tools,
 			"--thinking", thinkingLevel,
@@ -1767,6 +1788,7 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 			"--mode", "json",
 			"-p",
 			"--no-extensions",
+			...(damageControlExtPath ? ["-e", damageControlExtPath] : []),
 			"--model", state.model,
 			"--tools", RESEARCH_TOOLS,
 			"--thinking", thinkingLevel,
@@ -3488,7 +3510,7 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 		// spawn_research. Independent of team membership.
 		const researchCatalog = researchPersonas.length > 0
 			? researchPersonas
-				.map(d => `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n${d.description}`)
+				.map(d => `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${d.model || "(dispatcher's default)"} · **Thinking:** ${resolveThinkingLevel(d.thinking)}\n${d.description}`)
 				.join("\n\n")
 			: "(No research personas defined. Call `spawn_research` without `persona` for an ad-hoc read-only helper.)";
 
@@ -3611,6 +3633,9 @@ ${askUserBlock}
   reading docs/code BEFORE you dispatch a builder — or to fan out background research.
 - Two flavours: pass \`persona\` to spawn one of the research personas listed below (it
   brings its own role/model); omit \`persona\` for an ad-hoc helper (optional \`model\`).
+- Match the helper to the job: use a lighter/faster persona for simple reads and a
+  higher-capability one for ambiguous, cross-cutting, or high-stakes research. Compare
+  the **Model** / **Thinking** shown for each persona below and pick deliberately.
 - Specialists you dispatch are sandboxed and CANNOT spawn their own helpers. When a
   specialist needs research help, YOU run \`spawn_research\`, collect the findings, and
   fold them into the specialist's task — do not ask the specialist to do it itself.
@@ -3666,6 +3691,7 @@ ${researchCatalog}`;
 		}
 		widgetCtx = _ctx;
 		contextWindow = _ctx.model?.contextWindow || 0;
+		damageControlExtPath = resolveDamageControlExtension(_ctx.cwd);
 
 		// ── Embedded coms init ──
 		// Always refresh the ctx the coms handlers use. Bind the endpoint + register

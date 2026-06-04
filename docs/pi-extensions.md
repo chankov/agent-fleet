@@ -94,7 +94,9 @@ harnesses:
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
 - **Operator controls** — `/zoom` timeline inspection plus child-agent kill/restart controls.
 - **Damage-control by default** — `just hub` / `just hub-solo` load the hard-stop safety harness
-  before `agent-hub`, so dispatcher tool calls are checked against the rules file.
+  before `agent-hub`, so dispatcher tool calls are checked against the rules file. `agent-hub` also
+  re-loads that same harness into every spawned specialist and research helper (via an explicit `-e`
+  that survives their `--no-extensions`), so subagent tool calls are guarded too.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
   `/handoff`, and peer-as-subagent flows.
 - **Solo mode** — `just hub-solo` keeps the dispatcher grid, delegation, research helpers, persona

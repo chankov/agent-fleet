@@ -219,7 +219,7 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *messaging* — `coms`, `coms-net`
 
    **Harness companions (refreshed with the group, not separate rows).** A harness directory does not run on its own — the launch recipes live in the `justfile`, and several harnesses shell out to support files. So whenever **any** harness in this group is ticked (installed/kept) or unticked (removed), refresh its companions from source in the same pass — they are not shown as their own menu rows:
-   - `justfile` — the `just hub` / `just peer` / `just team-up` / `just coms` launch recipes.
+   - `justfile` — the `just hub` / `just team-up` / `just coms` launch recipes plus private helpers.
    - `scripts/team-up.ts`, `scripts/coms-net-server.ts` — used by the `team-up` and `coms-net-server` recipes.
    - `.pi/agents/peers.yaml`, `.pi/agents/teams.yaml`, and the peer personas they name (e.g. `architect`, `releaser`) — read by `team-up`.
    - `.pi/damage-control-rules.yaml` — the rule set the damage-control harness loads.
