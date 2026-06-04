@@ -76,6 +76,7 @@ runtime itself.
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but the agent keeps working with corrective feedback | `just ext-damage-control-continue` |
 | [subagent-widget](../.pi/harnesses/subagent-widget/README.md) | Orchestration | `/sub <task>` background subagents with live stacking widgets | `just ext-subagent-widget` |
 | [agent-team](../.pi/harnesses/agent-team/README.md) | Orchestration | Dispatcher-only orchestrator with a grid dashboard | `just ext-agent-team` |
+| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | agent-team dispatcher + embedded coms (peer `/handoff` & peer-as-subagent) | `just hub` |
 | [agent-chain](../.pi/harnesses/agent-chain/README.md) | Orchestration | Sequential agent pipeline orchestrator | `just ext-agent-chain` |
 | [system-select](../.pi/harnesses/system-select/README.md) | Orchestration | `/system` to pick an agent persona as the system prompt | `just ext-system-select` |
 | [pi-pi](../.pi/harnesses/pi-pi/README.md) | Orchestration | Meta-agent that builds pi agents via parallel expert research | `just ext-pi-pi` |

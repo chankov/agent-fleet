@@ -58,6 +58,32 @@ ext-subagent-widget:
 ext-agent-team:
     pi -e .pi/harnesses/agent-team/index.ts
 
+# Agent hub: agent-team dispatcher + embedded coms (peer /handoff & peer-as-subagent)
+# Accepts coms identity flags: --name --purpose --project --color --explicit
+hub *args:
+    pi -e .pi/harnesses/agent-hub/index.ts {{args}}
+
+# Agent hub (solo): the hub without the coms layer — fixed specialists + research only
+hub-solo *args:
+    pi -e .pi/harnesses/agent-hub/index.ts --solo {{args}}
+
+# Coms peer: a reusable worker peer (coms + compact-and-continue + a persona).
+# Positional args: persona [name] [model]. persona=<file under .pi/agents/, no .md>;
+# name/model optional (else persona frontmatter / pi default). Args are POSITIONAL — no key=value.
+# e.g. just peer architect architect anthropic/claude-opus-4-7
+peer persona name="" model="":
+    pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts --append-system-prompt .pi/agents/{{persona}}.md {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }}
+
+# Team up: spawn every peer of a team from .pi/agents/peers.yaml into tmux panes.
+# Positional arg: team (defaults to "full"). e.g. just team-up full
+team-up team="full":
+    node --experimental-strip-types scripts/team-up.ts --team {{team}}
+
+# Team up (dry run): print the resolved per-peer commands without launching tmux.
+# e.g. just team-up-dry full
+team-up-dry team="full":
+    node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run
+
 # Agent chain: sequential pipeline orchestrator
 ext-agent-chain:
     pi -e .pi/harnesses/agent-chain/index.ts
