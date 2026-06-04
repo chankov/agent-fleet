@@ -6,9 +6,10 @@ Switch the system prompt via `/system`.
 
 ## What it does
 
-Scans `.pi/agents/`, `.claude/agents/`, `.gemini/agents/`, and `.codex/agents/` — both
-project-local and global — for agent definition `.md` files. `/system` opens a select
-dialog to pick one; the chosen agent's body is prepended to pi's default instructions so
+Scans canonical project-local `agents/` first, then legacy/config `.pi/agents/`, plus
+`.claude/agents/`, `.gemini/agents/`, and `.codex/agents/` — both project-local and
+global — for agent definition `.md` files. `/system` opens a select dialog to pick one;
+the chosen agent's body is prepended to pi's default instructions so
 tool usage still works, and tools are restricted to the agent's declared tool set when
 one is specified.
 
@@ -18,8 +19,10 @@ one is specified.
 
 ## Requires
 
-- Agent definition `.md` files in any scanned directory. This repo ships a set under
-  `.pi/agents/` (`scout`, `planner`, `builder`, `reviewer`, `documenter`, `red-team`, …).
+- Agent definition `.md` files in any scanned directory. This repo ships canonical personas under
+  `agents/` (for example `scout`, `planner`, `builder`, `documenter`, `code-reviewer`,
+  `security-auditor`, …); `.pi/agents/` is retained for YAML configs and legacy persona
+  locations.
 
 ## Usage
 

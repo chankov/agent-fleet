@@ -25,6 +25,9 @@ exchange messages over a unix socket (named pipe on Windows).
 helper, zoom, kill/restart, per-agent model, and persona-gate behaviour** — this document covers
 only what the embedded coms layer adds.
 
+Inherited `/zoom` behavior in this harness expands the latest event by default. Use `Space` or
+`Ctrl+C` to copy the selected row content, and `Esc` to close the overlay.
+
 ## The coms layer (what's new vs agent-team)
 
 ### Identity
@@ -136,7 +139,7 @@ Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
 just hub-solo
 
 # a single reusable coms peer — POSITIONAL args: persona [name] [model]
-# persona is a file under .pi/agents/ (no .md); it loads coms + compact-and-continue
+# persona is a file under agents/ (no .md; legacy .pi/agents/ fallback); it loads coms + compact-and-continue
 just peer architect architect anthropic/claude-opus-4-7
 
 # spawn every peer of a team from .pi/agents/peers.yaml into tiled tmux panes

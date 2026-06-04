@@ -31,6 +31,7 @@ const TARGET_DIRS = [
   ".codex/agents",
   ".gemini/agents",
   ".github/agents",
+  "agents/pi-pi",
   ".pi/agents",
   ".pi/agents/pi-pi",
   // Skills
@@ -51,6 +52,7 @@ const TARGET_DIRS = [
 const YAML_REFS = [
   ".pi/agents/teams.yaml",
   ".pi/agents/agent-chain.yaml",
+  ".pi/agents/peers.yaml",
 ];
 
 /**
@@ -90,6 +92,7 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
       const replacement = findReplacement({
         brokenName: entry.name,
         kind:       inferKind(rel),
+        targetDir:  rel,
         sourceRoot,
       });
 
@@ -182,7 +185,7 @@ function inferKind(targetDir) {
   return null;
 }
 
-function findReplacement({ brokenName, kind, sourceRoot }) {
+function findReplacement({ brokenName, kind, targetDir = "", sourceRoot }) {
   // Strip .md if present so we can compare bare names.
   const bare = brokenName.replace(/\.md$/, "");
 
@@ -197,6 +200,10 @@ function findReplacement({ brokenName, kind, sourceRoot }) {
 
   // Fall back: same name in the canonical source tree.
   if (kind === "agents") {
+    if (targetDir.includes("pi-pi")) {
+      const candidate = join("agents", "pi-pi", `${bare}.md`);
+      if (existsSync(join(sourceRoot, candidate))) return candidate;
+    }
     const candidate = join("agents", `${bare}.md`);
     if (existsSync(join(sourceRoot, candidate))) return candidate;
   }

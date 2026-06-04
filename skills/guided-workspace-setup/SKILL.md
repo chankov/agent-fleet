@@ -59,7 +59,7 @@ Target map, relative to the workspace root:
 | Artifact | claude-code | opencode | pi |
 |---|---|---|---|
 | Skills | `.claude/skills/<name>/` | per `docs/opencode-setup.md` | `.pi/skills/<name>/` |
-| Personas | `.claude/agents/<name>.md` | per `docs/opencode-setup.md` | `.pi/agents/<name>.md` |
+| Personas | `.claude/agents/<name>.md` | per `docs/opencode-setup.md` | `agents/<name>.md` |
 | Commands / prompts | `.claude/commands/<name>.md` | `.opencode/commands/as-<name>.md` | `.pi/prompts/<name>.md` |
 | References | `.claude/references/<name>.md` | per `docs/opencode-setup.md` | per `docs/pi-setup.md` |
 | Hooks | `.claude/hooks/<name>`, registered in `.claude/settings.json` | per `docs/opencode-setup.md` | per `docs/pi-setup.md` |
@@ -93,7 +93,7 @@ If Step 4 found prior state — `.ai/agent-skills-setup.md` exists **or** any of
 
 Walk every install-target directory the chosen agent uses and look for **broken symlinks** — links whose source has been moved, renamed, or deleted. Directories to check, when present:
 
-- `agents/`, `.claude/agents/`, `.opencode/agents/`, `.codex/agents/`, `.gemini/agents/`, `.github/agents/`, `.pi/agents/` (and its `pi-pi/` subdirectory)
+- `agents/` (and its `pi-pi/` subdirectory), `.claude/agents/`, `.opencode/agents/`, `.codex/agents/`, `.gemini/agents/`, `.github/agents/`, `.pi/agents/`
 - `.claude/skills/`, `.opencode/skills/`, `.pi/skills/`, `.agents/skills`
 - `.claude/commands/`, `.opencode/commands/`, `.pi/prompts/`
 - `.claude/references/`, `.claude/hooks/`

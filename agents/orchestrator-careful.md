@@ -2,6 +2,8 @@
 name: orchestrator-careful
 description: Review-first orchestrator — heavy on exploration, planning, and verification gates; confirms before risky steps.
 kind: orchestrator
+model: openai-codex/gpt-5.5
+thinking: xhigh
 ---
 
 # Careful Orchestrator

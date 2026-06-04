@@ -49,7 +49,6 @@ tmp/
 .opencode/agents/
 .pi/settings.json
 scripts/
-justfile
 
 # Project meta
 AGENTS.md

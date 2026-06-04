@@ -23,7 +23,7 @@ keep their session context within a pi session, so re-running a chain resumes ea
 ## Requires
 
 - `.pi/agents/agent-chain.yaml` — chain definitions
-- `.pi/agents/*.md` — the agent personas referenced by each chain step
+- `agents/*.md` — the agent personas referenced by each chain step (legacy `.pi/agents/*.md` is still scanned)
 
 ## Usage
 

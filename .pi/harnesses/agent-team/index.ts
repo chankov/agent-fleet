@@ -2152,9 +2152,10 @@ ${researchCatalog}`;
 		askUserAvailable = pi.getAllTools().some(t => t.name === "ask_user");
 
 		// Dispatcher's tool surface: dispatch_agent + spawn_research always; ask_user only
-		// when pi-ask-user is installed. (Phase 5 will add the coms tools here too.)
+		// when pi-ask-user is installed. Per decision G4 the dispatcher persona NEVER narrows this surface.
 		const dispatcherTools = ["dispatch_agent", "spawn_research"];
-		pi.setActiveTools(askUserAvailable ? [...dispatcherTools, "ask_user"] : dispatcherTools);
+		if (askUserAvailable) dispatcherTools.push("ask_user");
+		pi.setActiveTools(dispatcherTools);
 
 		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
 		const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");

@@ -136,8 +136,8 @@ they read as visibly distinct from the standing team. Each gets a numeric handle
   `/research <task>`. Takes an optional model: `/research --model anthropic/claude-opus-4-7 <task>`
   (or the `model` arg on the tool).
 
-A starter persona ships in `.pi/agents/researcher.md`. Drop your own `kind: research`
-file in `agents/` or `.pi/agents/` to add more.
+A starter persona ships in `agents/researcher.md`. Drop your own `kind: research`
+file in `agents/` (or legacy `.pi/agents/`) to add more.
 
 ### Who spawns them, and why the dispatcher fans out
 
@@ -207,7 +207,7 @@ model: anthropic/claude-opus-4-7
 
 - **Format:** the value is passed verbatim to `pi --model`, so use a spec your pi accepts.
   The canonical form is `provider/model-id` (e.g. `anthropic/claude-opus-4-7`); pi's short
-  aliases also pass through (`.pi/agents/bowser.md` uses `model: opus`).
+  aliases also pass through (`agents/bowser.md` uses `model: opus`).
 - **Fallback:** a persona with no `model:` runs on the dispatcher's model.
 - **Visibility:** the resolved model shows in `/agents-list` and on each grid card.
 - **Errors:** a bad `--model` (or a provider whose API key isn't configured) makes the
@@ -215,9 +215,9 @@ model: anthropic/claude-opus-4-7
   failing silently.
 
 > **Cross-tool caveat.** If a persona `.md` is *also* used as a Claude Code subagent (e.g.
-> the files under `agents/` that are symlinked into `.pi/agents/`), note that Claude Code's
-> `model:` field expects `opus`/`sonnet`/`haiku`/`inherit`, not a full pi spec. Keep a
-> pi-only `model:` value on pi-only personas to avoid a format clash.
+> shared files under `agents/`), note that Claude Code's `model:` field expects
+> `opus`/`sonnet`/`haiku`/`inherit`, not a full pi spec. Keep a pi-only `model:` value on
+> pi-only personas to avoid a format clash.
 
 ## Dispatcher persona gate
 
@@ -251,9 +251,9 @@ You coordinate the team in small, verifiable increments. …
 - **Switch any time.** `/persona` re-opens the picker mid-session, or resets to the default
   (no persona / plain orchestrator prompt). Switching takes effect on the next turn.
 
-Two starter orchestrator personas ship in `.pi/agents/`: `orchestrator` (balanced) and
+Two starter orchestrator personas ship in `agents/`: `orchestrator` (balanced) and
 `orchestrator-careful` (review-first). Add your own by dropping a `kind: orchestrator` file in
-`agents/` or `.pi/agents/`.
+`agents/` (or legacy `.pi/agents/`).
 
 > Fixed specialists are already persona-driven — each specialist `.md` *is* its role (body →
 > `--append-system-prompt`, `tools` → `--tools`). The gate adds the missing piece: a declared
@@ -262,7 +262,7 @@ Two starter orchestrator personas ship in `.pi/agents/`: `orchestrator` (balance
 ## Requires
 
 - `.pi/agents/teams.yaml` — team definitions
-- `.pi/agents/*.md` — the agent personas (optional per-agent `model:`, `kind:`, and `thinking:`, see above). A persona tagged `kind: research` becomes a spawnable read-only [research helper](#research-helpers); `kind: orchestrator` becomes a dispatcher persona.
+- `agents/*.md` — the agent personas (optional per-agent `model:`, `kind:`, and `thinking:`, see above; legacy `.pi/agents/*.md` is still scanned). A persona tagged `kind: research` becomes a spawnable read-only [research helper](#research-helpers); `kind: orchestrator` becomes a dispatcher persona.
 - **Strongly recommended:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user)
   installed in the global pi packages dir (`pi install npm:pi-ask-user`). Without
   it, the dispatcher cannot ask interactive questions — it falls back to "state

@@ -1,7 +1,8 @@
 ---
 name: architect
 description: System architect — owns design decisions and migration strategy; answers design questions with concrete, justified recommendations.
-color: #7C3AED
+model: openai-codex/gpt-5.5
+thinking: xhigh
 ---
 
 # Architect (coms peer)

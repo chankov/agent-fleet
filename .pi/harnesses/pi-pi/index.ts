@@ -48,6 +48,21 @@ function displayName(name: string): string {
 	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
+function resolvePiPiDirs(cwd: string): string[] {
+	return [
+		join(cwd, "agents", "pi-pi"),
+		join(cwd, ".pi", "agents", "pi-pi"),
+	].filter((dir, idx, dirs) => existsSync(dir) && dirs.indexOf(dir) === idx);
+}
+
+function findPiPiFile(cwd: string, fileName: string): string | null {
+	for (const dir of resolvePiPiDirs(cwd)) {
+		const filePath = join(dir, fileName);
+		if (existsSync(filePath)) return filePath;
+	}
+	return null;
+}
+
 function parseAgentFile(filePath: string): ExpertDef | null {
 	try {
 		const raw = readFileSync(filePath, "utf-8");
@@ -101,33 +116,32 @@ export default function (pi: ExtensionAPI) {
 	let widgetCtx: any;
 
 	function loadExperts(cwd: string) {
-		// Pi Pi experts live in their own dedicated directory
-		const piPiDir = join(cwd, ".pi", "agents", "pi-pi");
-
+		// Pi Pi experts live in agents/pi-pi; keep .pi/agents/pi-pi as a legacy fallback.
 		experts.clear();
 
-		if (!existsSync(piPiDir)) return;
-		try {
-			for (const file of readdirSync(piPiDir)) {
-				if (!file.endsWith(".md")) continue;
-				if (file === "pi-orchestrator.md") continue;
-				const fullPath = resolve(piPiDir, file);
-				const def = parseAgentFile(fullPath);
-				if (def) {
-					const key = def.name.toLowerCase();
-					if (!experts.has(key)) {
-						experts.set(key, {
-							def,
-							status: "idle",
-							question: "",
-							elapsed: 0,
-							lastLine: "",
-							queryCount: 0,
-						});
+		for (const piPiDir of resolvePiPiDirs(cwd)) {
+			try {
+				for (const file of readdirSync(piPiDir)) {
+					if (!file.endsWith(".md")) continue;
+					if (file === "pi-orchestrator.md") continue;
+					const fullPath = resolve(piPiDir, file);
+					const def = parseAgentFile(fullPath);
+					if (def) {
+						const key = def.name.toLowerCase();
+						if (!experts.has(key)) {
+							experts.set(key, {
+								def,
+								status: "idle",
+								question: "",
+								elapsed: 0,
+								lastLine: "",
+								queryCount: 0,
+							});
+						}
 					}
 				}
-			}
-		} catch {}
+			} catch {}
+		}
 	}
 
 	// ── Grid Rendering ───────────────────────────
@@ -201,7 +215,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				render(width: number): string[] {
 					if (experts.size === 0) {
-						return ["", theme.fg("dim", "  No experts found. Add agent .md files to .pi/agents/pi-pi/")];
+						return ["", theme.fg("dim", "  No experts found. Add agent .md files to agents/pi-pi/")];
 					}
 
 					const cols = Math.min(gridCols, experts.size);
@@ -560,9 +574,10 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 
 		const expertNames = Array.from(experts.values()).map(s => displayName(s.def.name)).join(", ");
 
-		const orchestratorPath = join(_ctx.cwd, ".pi", "agents", "pi-pi", "pi-orchestrator.md");
+		const orchestratorPath = findPiPiFile(_ctx.cwd, "pi-orchestrator.md");
 		let systemPrompt = "";
 		try {
+			if (!orchestratorPath) throw new Error("pi-orchestrator.md not found");
 			const raw = readFileSync(orchestratorPath, "utf-8");
 			const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
 			const template = match ? match[2].trim() : raw;
@@ -572,7 +587,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 				.replace("{{EXPERT_NAMES}}", expertNames)
 				.replace("{{EXPERT_CATALOG}}", expertCatalog);
 		} catch (err) {
-			systemPrompt = "Error: Could not load pi-orchestrator.md. Make sure it exists in .pi/agents/pi-pi/.";
+			systemPrompt = "Error: Could not load pi-orchestrator.md. Make sure it exists in agents/pi-pi/ (or legacy .pi/agents/pi-pi/).";
 		}
 
 		return { systemPrompt };

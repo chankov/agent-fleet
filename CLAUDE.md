@@ -19,7 +19,7 @@ justfile      → Recipes to launch pi with each harness
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue)
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded one at a time via the justfile or `pi -e`
-.pi/agents/   → pi agent personas, teams, and chains used by the orchestration harnesses
+.pi/agents/   → pi YAML configs (teams, chains, peers) used by the orchestration harnesses
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harnesses
 references/   → Supplementary checklists (testing, performance, security, accessibility)

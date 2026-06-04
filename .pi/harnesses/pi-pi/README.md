@@ -21,7 +21,7 @@ current pi docs.
 
 ## Requires
 
-- `.pi/agents/pi-pi/*.md` — the expert persona definitions (shipped in this repo)
+- `agents/pi-pi/*.md` — the expert persona definitions (shipped in this repo; legacy `.pi/agents/pi-pi/*.md` is still accepted)
 - `FIRECRAWL_API_KEY` — environment variable; experts use Firecrawl to crawl pi docs
 
 ## Usage

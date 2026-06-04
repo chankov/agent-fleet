@@ -34,7 +34,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
+import { DynamicBorder, getMarkdownTheme as getPiMdTheme, copyToClipboard } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
 	Text, Box, Container, Spacer, Markdown, matchesKey, Key,
@@ -330,10 +330,12 @@ class ZoomUI {
 	private expandedIndex: number | null = null;
 	private scrollOffset = 0;
 	private followTail = true;
+	private autoExpandedTailIndex: number | null = null;
 
 	constructor(
 		private state: Zoomable,
 		private onDone: () => void,
+		private notify: (message: string, type?: "info" | "success" | "warning" | "error") => void,
 	) {}
 
 	handleInput(data: string, tui: any): void {
@@ -346,11 +348,26 @@ class ZoomUI {
 			if (this.selectedIndex >= n - 1) this.followTail = true;
 		} else if (matchesKey(data, Key.enter)) {
 			this.expandedIndex = this.expandedIndex === this.selectedIndex ? null : this.selectedIndex;
+			if (this.followTail && this.selectedIndex >= n - 1) this.autoExpandedTailIndex = this.selectedIndex;
+		} else if (matchesKey(data, Key.space) || matchesKey(data, Key.ctrl("c"))) {
+			void this.copySelected();
 		} else if (matchesKey(data, Key.escape)) {
 			this.onDone();
 			return;
 		}
 		tui.requestRender();
+	}
+
+	private async copySelected(): Promise<void> {
+		const item = this.state.timeline[this.selectedIndex];
+		if (!item) return;
+		try {
+			await copyToClipboard(item.content);
+			this.notify("Copied selected zoom row", "success");
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.notify(`Failed to copy selected zoom row: ${message}`, "error");
+		}
 	}
 
 	private ensureVisible(height: number) {
@@ -365,8 +382,15 @@ class ZoomUI {
 	render(width: number, height: number, theme: any): string[] {
 		const items = this.state.timeline;
 		// Live tail-follow: keep the selection pinned to the newest entry as the
-		// stream grows, until the user scrolls up.
-		if (this.followTail && items.length > 0) this.selectedIndex = items.length - 1;
+		// stream grows, until the user scrolls up. Auto-expand each new tail entry
+		// once so the latest message opens full, while still allowing Enter to collapse it.
+		if (this.followTail && items.length > 0) {
+			this.selectedIndex = items.length - 1;
+			if (this.autoExpandedTailIndex !== this.selectedIndex) {
+				this.expandedIndex = this.selectedIndex;
+				this.autoExpandedTailIndex = this.selectedIndex;
+			}
+		}
 		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, items.length - 1));
 		this.ensureVisible(height);
 
@@ -390,7 +414,7 @@ class ZoomUI {
 		visibleItems.forEach((item, idx) => {
 			const absoluteIndex = idx + this.scrollOffset;
 			const isSelected = absoluteIndex === this.selectedIndex;
-			const isExpanded = absoluteIndex === this.expandedIndex;
+			const isExpanded = isSelected && absoluteIndex === this.expandedIndex;
 
 			const cardBox = new Box(1, 0, (s: string) => isSelected ? theme.bg("selectedBg", s) : s);
 
@@ -415,7 +439,7 @@ class ZoomUI {
 		});
 
 		container.addChild(new Spacer(1));
-		container.addChild(new Text(theme.fg("dim", " ↑/↓ Navigate • Enter Expand • Esc Close • live"), 1, 0));
+		container.addChild(new Text(theme.fg("dim", " ↑/↓ Navigate • Enter Collapse/Expand • Space/Ctrl+C Copy • Esc Close • live"), 1, 0));
 		container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
 		return container.render(width);
@@ -2969,7 +2993,7 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 			// (throttled to ~12fps; force=true pushes the final frame on completion).
 			let lastRender = 0;
 			await ctx.ui.custom((tui, theme, _kb, done) => {
-				const ui = new ZoomUI(target, () => done(undefined));
+				const ui = new ZoomUI(target, () => done(undefined), (message, type) => ctx.ui.notify(message, type as any));
 				target.zoomRender = (force?: boolean) => {
 					const now = Date.now();
 					if (force || now - lastRender > 80) {

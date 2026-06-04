@@ -2,6 +2,8 @@
 name: orchestrator
 description: Balanced orchestrator — scout, plan, build, review in small verifiable increments.
 kind: orchestrator
+model: openai-codex/gpt-5.5
+thinking: xhigh
 ---
 
 # Balanced Orchestrator

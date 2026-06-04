@@ -3,6 +3,8 @@ name: researcher
 description: Read-only reconnaissance — searches code, reads files and docs, and reports findings with file:line citations. Never edits or runs commands.
 tools: read,grep,find,ls
 kind: research
+model: openai-codex/gpt-5.3-codex-spark
+thinking: xhigh
 ---
 
 # Researcher

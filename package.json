@@ -48,6 +48,7 @@
     ".pi/agents/",
     ".pi/damage-control-rules.yaml",
     "scripts/*.ts",
+    "justfile",
     "references/",
     "hooks/",
     "docs/agent-skills-setup.md",
