@@ -1,5 +1,33 @@
 # agent-skills changelog
 
+## 0.4.3
+
+### Patch Changes
+
+- 2a577d7: Add the `agent-hub` pi harness — an `agent-team` dispatcher with an embedded `coms` P2P layer, plus its recipe family and reusable peer manifest.
+
+  The dispatcher is now itself a coms peer: it carries the `coms_*` tools, `/handoff <peer>` to delegate a self-contained brief, `/coms` for the message log, peer-as-subagent dispatch, and `--name/--purpose/--project/--color/--explicit` identity flags, with graceful degradation when the coms endpoint can't bind. New `just` recipes:
+
+  - `just hub` — the dispatcher with embedded coms (accepts the coms identity flags).
+  - `just hub-solo` — the hub without the coms layer (fixed specialists + research only, lighter).
+  - `just peer <persona> [name] [model]` — a single reusable coms peer (coms + compact-and-continue + a persona under `.pi/agents/`).
+  - `just team-up <team>` / `just team-up-dry <team>` — spawn every peer of a team from `.pi/agents/peers.yaml` into tiled tmux panes (dry-run prints the resolved commands without launching).
+
+  Adds `.pi/agents/peers.yaml` (reusable peers grouped into named teams), starter `architect` and `releaser` peer personas, `scripts/team-up.ts`, and an `agent-hub` row in the pi-extensions catalog.
+
+- a8f959b: Expose `ask_user` in the Pi dispatcher harness tool surface when the companion package is available.
+- c466ede: **guided-workspace-setup:** render every interactive table compact so it fits a standard terminal width in the `pi-ask-user` widget.
+
+  The Step 6 install menus, the Step 9 plan summary, and the Step 4/5 doctor-findings table all forced horizontal overflow — long `installed · …` state strings on every menu row, a separate `Rec` column, full-sentence purposes, and a Step 9 mega-table with `Target paths` + `Notes` columns and an `Artifacts` cell listing every skill name. Users had to zoom out, which re-rendered the widget and caused flicker. Now:
+
+  - **Step 6 menus** use short status tokens (`ok`/`upd`/`mod`/`cflt`/`gone`/`new`/`pkg`/`—`/`brk`) with a one-line legend, fold the `★` recommendation mark into the item name (no `Rec` column), and cap purpose/group cells.
+  - **Step 9 confirmation** renders as compact action-grouped lines (Add / Refresh / Remove / Keep-count / Records / Method) instead of a wide table; target paths are omitted and the "Changes since" delta is shown as short per-change bullets rather than one long line.
+  - **Doctor-findings table** uses short issue/fix phrases.
+
+- c466ede: Remove retired pi harnesses and related just shortcuts.
+
+  The `minimal`, `tilldone`, `tool-counter`, and `tool-counter-widget` harness directories are no longer shipped, and the matching `just ext-*` launch recipes have been removed. The `primecc`, `primepi`, and `test` just recipes were also removed. Pi setup docs, the harness catalog, and guided setup menus now list only the remaining supported harnesses.
+
 ## 0.4.2
 
 ### Patch Changes
