@@ -28,6 +28,11 @@
  *   /handoff <peer>       — hand the session off to a coms peer (summarized brief)
  *   /coms                 — refresh the coms peer pool (--all / --project <name>)
  *
+ * Shortcuts:
+ *   Alt+A                 — toggle agent view: dashboard grid (above editor) ↔
+ *                           compact running-agents list (below editor: one line
+ *                           per *running* agent — name · context · state)
+ *
  * Identity flags (coms): --name --purpose --project --color --explicit
  *
  * Usage: pi -e .pi/harnesses/agent-hub/index.ts   (or `just hub`)
@@ -1022,6 +1027,12 @@ export default function (pi: ExtensionAPI) {
 	let teams: Record<string, string[]> = {};
 	let activeTeamName = "";
 	let gridCols = 2;
+	// View mode toggled by Alt+A: "dashboard" = full bordered card grid above the
+	// editor; "compact" = one line per *running* agent (name · context · state)
+	// rendered BELOW the editor, just above the footer. Idle/done agents are hidden
+	// in compact mode, so an idle session shows nothing but the prompt + footer.
+	let viewMode: "dashboard" | "compact" = "dashboard";
+	let runningWidgetInstalled = false;
 	let widgetCtx: any;
 	let sessionDir = "";
 	let contextWindow = 0;
@@ -1098,124 +1109,178 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Grid Rendering ───────────────────────────
 
+	const CARD_HEIGHT = 4;
+
+	function truncateCardText(text: string, maxWidth: number): string {
+		const width = Math.max(0, maxWidth);
+		if (width === 0) return "";
+		if (visibleWidth(text) <= width) return text;
+		if (width <= 3) return ".".repeat(width);
+		return `${truncateToWidth(text, width - 3)}...`;
+	}
+
+	function shortModel(model: string | undefined): string {
+		return model ? model.split("/").pop()! : "default";
+	}
+
+	function contextLabel(contextPct: number): string {
+		return `${Math.ceil(contextPct)}%`;
+	}
+
+	function cardStatus(status: "idle" | "running" | "done" | "error", elapsed: number): { color: string; text: string } {
+		const color = status === "idle" ? "dim"
+			: status === "running" ? "accent"
+			: status === "done" ? "success" : "error";
+		const icon = status === "idle" ? "○"
+			: status === "running" ? "●"
+			: status === "done" ? "✓" : "✗";
+		const time = status !== "idle" ? ` ${Math.round(elapsed / 1000)}s` : "";
+		return { color, text: `${icon} ${status}${time}` };
+	}
+
+	function renderCardHeaderLine(
+		nameRaw: string,
+		contextPct: number,
+		modelRaw: string,
+		statusRaw: string,
+		statusColor: string,
+		w: number,
+		theme: any,
+	): string {
+		const indent = w > 0 ? " " : "";
+		const contentWidth = Math.max(0, w - visibleWidth(indent));
+		if (contentWidth === 0) return "";
+
+		const rightRaw = `${modelRaw} ${statusRaw}`;
+		const rightWidth = visibleWidth(rightRaw);
+		const renderRight = () => theme.fg("dim", `${modelRaw} `) + theme.fg(statusColor, statusRaw);
+
+		if (rightWidth === contentWidth) return indent + renderRight();
+		if (rightWidth > contentWidth) return indent + theme.fg("dim", truncateCardText(rightRaw, contentWidth));
+
+		const leftBudget = Math.max(0, contentWidth - rightWidth - 1);
+		const ctxRaw = contextLabel(contextPct);
+		const ctxWidth = visibleWidth(ctxRaw);
+		let leftVisible = 0;
+		let leftStyled = "";
+
+		if (leftBudget >= ctxWidth) {
+			const nameBudget = Math.max(0, leftBudget - ctxWidth - 1);
+			const nameText = truncateCardText(nameRaw, nameBudget);
+			if (nameText) {
+				leftStyled = theme.fg("accent", theme.bold(nameText)) + theme.fg("dim", ` ${ctxRaw}`);
+				leftVisible = visibleWidth(`${nameText} ${ctxRaw}`);
+			} else {
+				leftStyled = theme.fg("dim", ctxRaw);
+				leftVisible = ctxWidth;
+			}
+		} else {
+			const ctxText = truncateCardText(ctxRaw, leftBudget);
+			leftStyled = theme.fg("dim", ctxText);
+			leftVisible = visibleWidth(ctxText);
+		}
+
+		const gap = " ".repeat(Math.max(1, contentWidth - leftVisible - rightWidth));
+		return indent + leftStyled + gap + renderRight();
+	}
+
+	function renderWorkLine(workRaw: string, w: number, theme: any): string {
+		const indent = w > 0 ? " " : "";
+		const maxWorkWidth = Math.max(0, Math.min(50, w - visibleWidth(indent)));
+		return indent + theme.fg("muted", truncateCardText(workRaw, maxWorkWidth));
+	}
+
+	function renderBorderedLine(content: string, w: number, theme: any): string {
+		return theme.fg("dim", "│")
+			+ content
+			+ " ".repeat(Math.max(0, w - visibleWidth(content)))
+			+ theme.fg("dim", "│");
+	}
+
+	// One-line agent summary for compact view: " Name   42%  ● running 12s".
+	// nameWidth aligns the name column across the running set; the styled line is
+	// truncated to the widget width so ANSI runs never overflow.
+	function renderCompactLine(
+		nameRaw: string,
+		contextPct: number,
+		status: { color: string; text: string },
+		nameWidth: number,
+		width: number,
+		theme: any,
+	): string {
+		const vis = visibleWidth(nameRaw);
+		const name = vis >= nameWidth ? nameRaw : nameRaw + " ".repeat(nameWidth - vis);
+		const ctx = contextLabel(contextPct).padStart(4);
+		const line = " "
+			+ theme.fg("accent", theme.bold(name))
+			+ "  " + theme.fg("dim", ctx)
+			+ "  " + theme.fg(status.color, status.text);
+		return truncateToWidth(line, width);
+	}
+
 	function renderCard(state: AgentState, colWidth: number, theme: any): string[] {
-		const w = colWidth - 2;
-		const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max - 3) + "..." : s;
-
-		const statusColor = state.status === "idle" ? "dim"
-			: state.status === "running" ? "accent"
-			: state.status === "done" ? "success" : "error";
-		const statusIcon = state.status === "idle" ? "○"
-			: state.status === "running" ? "●"
-			: state.status === "done" ? "✓" : "✗";
-
-		const name = displayName(state.def.name);
-		const nameStr = theme.fg("accent", theme.bold(truncate(name, w)));
-		const nameVisible = Math.min(name.length, w);
-
-		const statusStr = `${statusIcon} ${state.status}`;
-		const timeStr = state.status !== "idle" ? ` ${Math.round(state.elapsed / 1000)}s` : "";
-		const statusLine = theme.fg(statusColor, statusStr + timeStr);
-		const statusVisible = statusStr.length + timeStr.length;
-
-		// Context bar: 5 blocks + percent
-		const filled = Math.ceil(state.contextPct / 20);
-		const bar = "#".repeat(filled) + "-".repeat(5 - filled);
-		const ctxStr = `[${bar}] ${Math.ceil(state.contextPct)}%`;
-		const ctxLine = theme.fg("dim", ctxStr);
-		const ctxVisible = ctxStr.length;
-
-		// Model line: short model id when the persona declares its own, else the
-		// dispatcher's. Lets the operator spot a member running on a stronger/cheaper
-		// model at a glance (e.g. reviewer on opus, implementers on a cheap default).
-		const modelShort = state.def.model ? state.def.model.split("/").pop()! : "default";
-		const modelStr = `model: ${modelShort}`;
-		const modelText = truncate(modelStr, w - 1);
-		const modelLine = theme.fg("dim", modelText);
-		const modelVisible = modelText.length;
-
+		const w = Math.max(0, colWidth - 2);
+		const status = cardStatus(state.status, state.elapsed);
+		const headerLine = renderCardHeaderLine(
+			displayName(state.def.name),
+			state.contextPct,
+			shortModel(state.def.model),
+			status.text,
+			status.color,
+			w,
+			theme,
+		);
 		const workRaw = state.task
 			? (state.lastWork || state.task)
 			: state.def.description;
-		const workText = truncate(workRaw, Math.min(50, w - 1));
-		const workLine = theme.fg("muted", workText);
-		const workVisible = workText.length;
-
-		const top = "┌" + "─".repeat(w) + "┐";
-		const bot = "└" + "─".repeat(w) + "┘";
-		const border = (content: string, visLen: number) =>
-			theme.fg("dim", "│") + content + " ".repeat(Math.max(0, w - visLen)) + theme.fg("dim", "│");
 
 		return [
-			theme.fg("dim", top),
-			border(" " + nameStr, 1 + nameVisible),
-			border(" " + statusLine, 1 + statusVisible),
-			border(" " + ctxLine, 1 + ctxVisible),
-			border(" " + modelLine, 1 + modelVisible),
-			border(" " + workLine, 1 + workVisible),
-			theme.fg("dim", bot),
+			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
+			renderBorderedLine(headerLine, w, theme),
+			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
+			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
 		];
 	}
 
-	// A research-helper card. Mirrors renderCard's box drawing but with a research
-	// identity line (`rN` handle + persona/anon label + turn) and a read-only marker
-	// in place of the context bar, so helpers read as visibly distinct from the team.
+	// A research-helper card. Mirrors renderCard's compact two-line layout while
+	// keeping the `rN` handle + persona/anon label + turn in the name slot.
 	function renderResearchCard(state: ResearchState, colWidth: number, theme: any): string[] {
-		const w = colWidth - 2;
-		const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max - 3) + "..." : s;
-
-		const statusColor = state.status === "idle" ? "dim"
-			: state.status === "running" ? "accent"
-			: state.status === "done" ? "success" : "error";
-		const statusIcon = state.status === "idle" ? "○"
-			: state.status === "running" ? "●"
-			: state.status === "done" ? "✓" : "✗";
-
+		const w = Math.max(0, colWidth - 2);
+		const status = cardStatus(state.status, state.elapsed);
 		const label = state.persona ? displayName(state.def.name) : "research";
 		const turnStr = state.turnCount > 1 ? ` ·T${state.turnCount}` : "";
-		const nameRaw = `r${state.id} ${label}${turnStr}`;
-		const nameStr = theme.fg("accent", theme.bold(truncate(nameRaw, w)));
-		const nameVisible = Math.min(nameRaw.length, w);
-
-		const statusStr = `${statusIcon} ${state.status}`;
-		const timeStr = state.status !== "idle" ? ` ${Math.round(state.elapsed / 1000)}s` : "";
-		const statusLine = theme.fg(statusColor, statusStr + timeStr);
-		const statusVisible = statusStr.length + timeStr.length;
-
-		const modelShort = state.model ? state.model.split("/").pop()! : "default";
-		const metaStr = `read-only · ${modelShort}`;
-		const metaText = truncate(metaStr, w - 1);
-		const metaLine = theme.fg("dim", metaText);
-		const metaVisible = metaText.length;
-
+		const headerLine = renderCardHeaderLine(
+			`r${state.id} ${label}${turnStr}`,
+			state.contextPct,
+			shortModel(state.model),
+			status.text,
+			status.color,
+			w,
+			theme,
+		);
 		const workRaw = state.lastWork || state.task || state.def.description;
-		const workText = truncate(workRaw, Math.min(50, w - 1));
-		const workLine = theme.fg("muted", workText);
-		const workVisible = workText.length;
-
-		const top = "┌" + "─".repeat(w) + "┐";
-		const bot = "└" + "─".repeat(w) + "┘";
-		const border = (content: string, visLen: number) =>
-			theme.fg("dim", "│") + content + " ".repeat(Math.max(0, w - visLen)) + theme.fg("dim", "│");
 
 		return [
-			theme.fg("dim", top),
-			border(" " + nameStr, 1 + nameVisible),
-			border(" " + statusLine, 1 + statusVisible),
-			border(" " + metaLine, 1 + metaVisible),
-			border(" " + workLine, 1 + workVisible),
-			theme.fg("dim", bot),
+			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
+			renderBorderedLine(headerLine, w, theme),
+			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
+			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
 		];
 	}
 
 	function updateWidget() {
 		if (!widgetCtx) return;
+		installRunningWidget();
 
 		widgetCtx.ui.setWidget("agent-team", (_tui: any, theme: any) => {
 			const text = new Text("", 0, 1);
 
 			return {
 				render(width: number): string[] {
+					// Compact mode hides the dashboard grid; running agents are shown
+					// in the belowEditor "agent-running" widget instead.
+					if (viewMode === "compact") return [];
+
 					if (agentStates.size === 0) {
 						text.setText(theme.fg("dim", "No agents found. Add .md files to agents/"));
 						return text.render(width);
@@ -1232,7 +1297,7 @@ export default function (pi: ExtensionAPI) {
 						const cards = rowAgents.map(a => renderCard(a, colWidth, theme));
 
 						while (cards.length < cols) {
-							cards.push(Array(7).fill(" ".repeat(colWidth)));
+							cards.push(Array(CARD_HEIGHT).fill(" ".repeat(Math.max(0, colWidth))));
 						}
 
 						const cardHeight = cards[0].length;
@@ -1272,6 +1337,10 @@ export default function (pi: ExtensionAPI) {
 						return text.render(width);
 					}
 
+					// Compact mode hides the research grid; running helpers are folded
+					// into the belowEditor "agent-running" widget instead.
+					if (viewMode === "compact") return [];
+
 					const cols = Math.min(gridCols, states.length);
 					const gap = 1;
 					const colWidth = Math.floor((width - gap * (cols - 1)) / cols);
@@ -1284,7 +1353,7 @@ export default function (pi: ExtensionAPI) {
 						const cards = rowStates.map(s => renderResearchCard(s, colWidth, theme));
 
 						while (cards.length < cols) {
-							cards.push(Array(6).fill(" ".repeat(colWidth)));
+							cards.push(Array(CARD_HEIGHT).fill(" ".repeat(Math.max(0, colWidth))));
 						}
 
 						const cardHeight = cards[0].length;
@@ -1302,6 +1371,42 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 		});
+	}
+
+	// The compact running-agents widget, rendered BELOW the editor (between the
+	// input box and the footer). Registered once; it re-renders on every frame
+	// driven by the existing updateWidget/updateResearchWidget refreshes, reading
+	// live state + viewMode each time. In dashboard mode it renders nothing. In
+	// compact mode it lists only *running* team specialists and research helpers,
+	// one line each — idle/done agents are omitted.
+	function installRunningWidget() {
+		if (!widgetCtx || runningWidgetInstalled) return;
+		runningWidgetInstalled = true;
+		widgetCtx.ui.setWidget("agent-running", (_tui: any, theme: any) => ({
+			invalidate() {},
+			render(width: number): string[] {
+				if (viewMode !== "compact") return [];
+				const running: { name: string; ctx: number; status: { color: string; text: string } }[] = [
+					...Array.from(agentStates.values())
+						.filter(a => a.status === "running")
+						.map(a => ({
+							name: displayName(a.def.name),
+							ctx: a.contextPct,
+							status: cardStatus(a.status, a.elapsed),
+						})),
+					...Array.from(researchStates.values())
+						.filter(s => s.status === "running")
+						.map(s => ({
+							name: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"}`,
+							ctx: s.contextPct,
+							status: cardStatus(s.status, s.elapsed),
+						})),
+				];
+				if (running.length === 0) return [];
+				const nameWidth = Math.min(24, Math.max(...running.map(r => visibleWidth(r.name))));
+				return running.map(r => renderCompactLine(r.name, r.ctx, r.status, nameWidth, width, theme));
+			},
+		}), { placement: "belowEditor" });
 	}
 
 	// ── Dispatch Agent (returns Promise) ─────────
@@ -2086,6 +2191,8 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 	}
 
 	function renderPool(width: number, theme: Theme): string[] {
+		// Compact mode hides the coms pool too — only running agents show below the editor.
+		if (viewMode === "compact") return [];
 		const projectFilter = displayProject ?? identity?.project ?? "default";
 		const registryEntries = projectFilter === "*"
 			? readAllRegistryEntriesAcrossProjects()
@@ -2942,6 +3049,22 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 		},
 	});
 
+	// Alt+A toggles the agent view between the full dashboard grid (above the
+	// editor) and the compact running-agents list (below the editor). alt+a has no
+	// default pi binding — every useful ctrl+letter is already taken (ctrl+r is
+	// session-rename), and alt+a is not consumed by the editor, so it reaches the
+	// extension shortcut handler in the main input.
+	pi.registerShortcut("alt+a", {
+		description: "Toggle agent view: dashboard ↔ compact",
+		handler: (ctx) => {
+			widgetCtx = ctx;
+			viewMode = viewMode === "dashboard" ? "compact" : "dashboard";
+			updateWidget();
+			updateResearchWidget();
+			ctx.ui.notify(`Agent view: ${viewMode}`, "info");
+		},
+	});
+
 	// Completions over loaded agent names, annotated with current status.
 	const agentNameCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = Array.from(agentStates.values()).map(s => ({
@@ -3731,7 +3854,10 @@ ${researchCatalog}`;
 				const left = theme.fg("dim", ` ${model}`) +
 					theme.fg("muted", " · ") +
 					theme.fg("accent", activeTeamName);
-				const right = theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
+				const hint = theme.fg("muted", "Alt+A ") + theme.fg("dim", `view:${viewMode}`);
+				const right = hint +
+					theme.fg("muted", "  ·  ") +
+					theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
 				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));
 
 				return [truncateToWidth(left + pad + right, width)];

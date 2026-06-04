@@ -526,113 +526,141 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Grid Rendering ───────────────────────────
 
+	const CARD_HEIGHT = 4;
+
+	function truncateCardText(text: string, maxWidth: number): string {
+		const width = Math.max(0, maxWidth);
+		if (width === 0) return "";
+		if (visibleWidth(text) <= width) return text;
+		if (width <= 3) return ".".repeat(width);
+		return `${truncateToWidth(text, width - 3)}...`;
+	}
+
+	function shortModel(model: string | undefined): string {
+		return model ? model.split("/").pop()! : "default";
+	}
+
+	function contextLabel(contextPct: number): string {
+		return `${Math.ceil(contextPct)}%`;
+	}
+
+	function cardStatus(status: "idle" | "running" | "done" | "error", elapsed: number): { color: string; text: string } {
+		const color = status === "idle" ? "dim"
+			: status === "running" ? "accent"
+			: status === "done" ? "success" : "error";
+		const icon = status === "idle" ? "○"
+			: status === "running" ? "●"
+			: status === "done" ? "✓" : "✗";
+		const time = status !== "idle" ? ` ${Math.round(elapsed / 1000)}s` : "";
+		return { color, text: `${icon} ${status}${time}` };
+	}
+
+	function renderCardHeaderLine(
+		nameRaw: string,
+		contextPct: number,
+		modelRaw: string,
+		statusRaw: string,
+		statusColor: string,
+		w: number,
+		theme: any,
+	): string {
+		const indent = w > 0 ? " " : "";
+		const contentWidth = Math.max(0, w - visibleWidth(indent));
+		if (contentWidth === 0) return "";
+
+		const rightRaw = `${modelRaw} ${statusRaw}`;
+		const rightWidth = visibleWidth(rightRaw);
+		const renderRight = () => theme.fg("dim", `${modelRaw} `) + theme.fg(statusColor, statusRaw);
+
+		if (rightWidth === contentWidth) return indent + renderRight();
+		if (rightWidth > contentWidth) return indent + theme.fg("dim", truncateCardText(rightRaw, contentWidth));
+
+		const leftBudget = Math.max(0, contentWidth - rightWidth - 1);
+		const ctxRaw = contextLabel(contextPct);
+		const ctxWidth = visibleWidth(ctxRaw);
+		let leftVisible = 0;
+		let leftStyled = "";
+
+		if (leftBudget >= ctxWidth) {
+			const nameBudget = Math.max(0, leftBudget - ctxWidth - 1);
+			const nameText = truncateCardText(nameRaw, nameBudget);
+			if (nameText) {
+				leftStyled = theme.fg("accent", theme.bold(nameText)) + theme.fg("dim", ` ${ctxRaw}`);
+				leftVisible = visibleWidth(`${nameText} ${ctxRaw}`);
+			} else {
+				leftStyled = theme.fg("dim", ctxRaw);
+				leftVisible = ctxWidth;
+			}
+		} else {
+			const ctxText = truncateCardText(ctxRaw, leftBudget);
+			leftStyled = theme.fg("dim", ctxText);
+			leftVisible = visibleWidth(ctxText);
+		}
+
+		const gap = " ".repeat(Math.max(1, contentWidth - leftVisible - rightWidth));
+		return indent + leftStyled + gap + renderRight();
+	}
+
+	function renderWorkLine(workRaw: string, w: number, theme: any): string {
+		const indent = w > 0 ? " " : "";
+		const maxWorkWidth = Math.max(0, Math.min(50, w - visibleWidth(indent)));
+		return indent + theme.fg("muted", truncateCardText(workRaw, maxWorkWidth));
+	}
+
+	function renderBorderedLine(content: string, w: number, theme: any): string {
+		return theme.fg("dim", "│")
+			+ content
+			+ " ".repeat(Math.max(0, w - visibleWidth(content)))
+			+ theme.fg("dim", "│");
+	}
+
 	function renderCard(state: AgentState, colWidth: number, theme: any): string[] {
-		const w = colWidth - 2;
-		const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max - 3) + "..." : s;
-
-		const statusColor = state.status === "idle" ? "dim"
-			: state.status === "running" ? "accent"
-			: state.status === "done" ? "success" : "error";
-		const statusIcon = state.status === "idle" ? "○"
-			: state.status === "running" ? "●"
-			: state.status === "done" ? "✓" : "✗";
-
-		const name = displayName(state.def.name);
-		const nameStr = theme.fg("accent", theme.bold(truncate(name, w)));
-		const nameVisible = Math.min(name.length, w);
-
-		const statusStr = `${statusIcon} ${state.status}`;
-		const timeStr = state.status !== "idle" ? ` ${Math.round(state.elapsed / 1000)}s` : "";
-		const statusLine = theme.fg(statusColor, statusStr + timeStr);
-		const statusVisible = statusStr.length + timeStr.length;
-
-		// Context bar: 5 blocks + percent
-		const filled = Math.ceil(state.contextPct / 20);
-		const bar = "#".repeat(filled) + "-".repeat(5 - filled);
-		const ctxStr = `[${bar}] ${Math.ceil(state.contextPct)}%`;
-		const ctxLine = theme.fg("dim", ctxStr);
-		const ctxVisible = ctxStr.length;
-
-		// Model line: short model id when the persona declares its own, else the
-		// dispatcher's. Lets the operator spot a member running on a stronger/cheaper
-		// model at a glance (e.g. reviewer on opus, implementers on a cheap default).
-		const modelShort = state.def.model ? state.def.model.split("/").pop()! : "default";
-		const modelStr = `model: ${modelShort}`;
-		const modelText = truncate(modelStr, w - 1);
-		const modelLine = theme.fg("dim", modelText);
-		const modelVisible = modelText.length;
-
+		const w = Math.max(0, colWidth - 2);
+		const status = cardStatus(state.status, state.elapsed);
+		const headerLine = renderCardHeaderLine(
+			displayName(state.def.name),
+			state.contextPct,
+			shortModel(state.def.model),
+			status.text,
+			status.color,
+			w,
+			theme,
+		);
 		const workRaw = state.task
 			? (state.lastWork || state.task)
 			: state.def.description;
-		const workText = truncate(workRaw, Math.min(50, w - 1));
-		const workLine = theme.fg("muted", workText);
-		const workVisible = workText.length;
-
-		const top = "┌" + "─".repeat(w) + "┐";
-		const bot = "└" + "─".repeat(w) + "┘";
-		const border = (content: string, visLen: number) =>
-			theme.fg("dim", "│") + content + " ".repeat(Math.max(0, w - visLen)) + theme.fg("dim", "│");
 
 		return [
-			theme.fg("dim", top),
-			border(" " + nameStr, 1 + nameVisible),
-			border(" " + statusLine, 1 + statusVisible),
-			border(" " + ctxLine, 1 + ctxVisible),
-			border(" " + modelLine, 1 + modelVisible),
-			border(" " + workLine, 1 + workVisible),
-			theme.fg("dim", bot),
+			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
+			renderBorderedLine(headerLine, w, theme),
+			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
+			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
 		];
 	}
 
-	// A research-helper card. Mirrors renderCard's box drawing but with a research
-	// identity line (`rN` handle + persona/anon label + turn) and a read-only marker
-	// in place of the context bar, so helpers read as visibly distinct from the team.
+	// A research-helper card. Mirrors renderCard's compact two-line layout while
+	// keeping the `rN` handle + persona/anon label + turn in the name slot.
 	function renderResearchCard(state: ResearchState, colWidth: number, theme: any): string[] {
-		const w = colWidth - 2;
-		const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max - 3) + "..." : s;
-
-		const statusColor = state.status === "idle" ? "dim"
-			: state.status === "running" ? "accent"
-			: state.status === "done" ? "success" : "error";
-		const statusIcon = state.status === "idle" ? "○"
-			: state.status === "running" ? "●"
-			: state.status === "done" ? "✓" : "✗";
-
+		const w = Math.max(0, colWidth - 2);
+		const status = cardStatus(state.status, state.elapsed);
 		const label = state.persona ? displayName(state.def.name) : "research";
 		const turnStr = state.turnCount > 1 ? ` ·T${state.turnCount}` : "";
-		const nameRaw = `r${state.id} ${label}${turnStr}`;
-		const nameStr = theme.fg("accent", theme.bold(truncate(nameRaw, w)));
-		const nameVisible = Math.min(nameRaw.length, w);
-
-		const statusStr = `${statusIcon} ${state.status}`;
-		const timeStr = state.status !== "idle" ? ` ${Math.round(state.elapsed / 1000)}s` : "";
-		const statusLine = theme.fg(statusColor, statusStr + timeStr);
-		const statusVisible = statusStr.length + timeStr.length;
-
-		const modelShort = state.model ? state.model.split("/").pop()! : "default";
-		const metaStr = `read-only · ${modelShort}`;
-		const metaText = truncate(metaStr, w - 1);
-		const metaLine = theme.fg("dim", metaText);
-		const metaVisible = metaText.length;
-
+		const headerLine = renderCardHeaderLine(
+			`r${state.id} ${label}${turnStr}`,
+			state.contextPct,
+			shortModel(state.model),
+			status.text,
+			status.color,
+			w,
+			theme,
+		);
 		const workRaw = state.lastWork || state.task || state.def.description;
-		const workText = truncate(workRaw, Math.min(50, w - 1));
-		const workLine = theme.fg("muted", workText);
-		const workVisible = workText.length;
-
-		const top = "┌" + "─".repeat(w) + "┐";
-		const bot = "└" + "─".repeat(w) + "┘";
-		const border = (content: string, visLen: number) =>
-			theme.fg("dim", "│") + content + " ".repeat(Math.max(0, w - visLen)) + theme.fg("dim", "│");
 
 		return [
-			theme.fg("dim", top),
-			border(" " + nameStr, 1 + nameVisible),
-			border(" " + statusLine, 1 + statusVisible),
-			border(" " + metaLine, 1 + metaVisible),
-			border(" " + workLine, 1 + workVisible),
-			theme.fg("dim", bot),
+			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
+			renderBorderedLine(headerLine, w, theme),
+			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
+			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
 		];
 	}
 
@@ -660,7 +688,7 @@ export default function (pi: ExtensionAPI) {
 						const cards = rowAgents.map(a => renderCard(a, colWidth, theme));
 
 						while (cards.length < cols) {
-							cards.push(Array(7).fill(" ".repeat(colWidth)));
+							cards.push(Array(CARD_HEIGHT).fill(" ".repeat(Math.max(0, colWidth))));
 						}
 
 						const cardHeight = cards[0].length;
@@ -712,7 +740,7 @@ export default function (pi: ExtensionAPI) {
 						const cards = rowStates.map(s => renderResearchCard(s, colWidth, theme));
 
 						while (cards.length < cols) {
-							cards.push(Array(6).fill(" ".repeat(colWidth)));
+							cards.push(Array(CARD_HEIGHT).fill(" ".repeat(Math.max(0, colWidth))));
 						}
 
 						const cardHeight = cards[0].length;
