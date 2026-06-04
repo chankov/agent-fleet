@@ -15,8 +15,7 @@ Intercepts every tool call and checks it against rules in `.pi/damage-control-ru
 - `noDeletePaths` — paths that may be edited but not deleted (`README`, `.git/`, …)
 
 On a match the tool result is replaced with a block message and the agent's turn is
-aborted (`ctx.abort()`). For a variant that lets the agent keep working with corrective
-feedback instead of aborting, use [`damage-control-continue`](../damage-control-continue/README.md).
+aborted (`ctx.abort()`). This hard-stop behavior is the only shipped damage-control mode.
 
 ## Commands & tools
 
@@ -29,7 +28,16 @@ None — it runs passively on the `tool_call` event.
 ## Usage
 
 ```bash
+# standalone guardrail session
+just ext-damage-control
 pi -e .pi/harnesses/damage-control/index.ts
+
+# the hub recipes load this harness first by default
+just hub
+just hub-solo
+
+# direct guarded hub launch
+pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts
 ```
 
 ## Upstream changes

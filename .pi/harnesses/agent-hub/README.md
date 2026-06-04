@@ -1,10 +1,11 @@
 # agent-hub
 
 A multi-agent dispatcher with [`coms`](../coms/README.md) **embedded** — so the dispatcher is
-*also* a peer-to-peer node. It combines local specialist orchestration (fixed specialist grid,
-read-only research helpers, `/zoom`, kill/restart, per-agent model, dispatcher persona gate) with
-peer-to-peer collaboration: it can **hand a session off to another main agent** and **use a coms peer
-as a subagent**.
+*also* a peer-to-peer node. The bundled `just hub` recipes load [`damage-control`](../damage-control/README.md)
+first, giving the dispatcher hard-stop guardrails by default. It combines local specialist
+orchestration (fixed specialist grid, read-only research helpers, `/zoom`, kill/restart, per-agent
+model, dispatcher persona gate) with peer-to-peer collaboration: it can **hand a session off to
+another main agent** and **use a coms peer as a subagent**.
 
 > Consolidates the retired `agent-team` dispatcher into this harness and embeds the ported `coms`
 > P2P layer from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by
@@ -26,6 +27,9 @@ as a subagent**.
   child agents; per-agent `model:` fields select models from team config.
 - **Dispatcher persona gate** — an orchestrator persona must be selected at session start unless the
   local override disables it.
+- **Default damage-control guardrails** — `just hub` and `just hub-solo` load the hard-stop
+  `damage-control` harness before `agent-hub`, so dispatcher tool calls are checked against
+  `.pi/damage-control-rules.yaml`.
 - **Embedded coms** — the dispatcher is a discoverable peer on the local machine. Multiple
   `agent-hub` (or plain `coms`) sessions on the same box find each other through per-project registry
   files and exchange messages over a unix socket (named pipe on Windows).
@@ -126,6 +130,7 @@ this tool set, so coms and dispatch stay available regardless of the chosen pers
 
 - `.pi/agents/teams.yaml` for fixed specialist teams, the referenced persona `.md` files, and
   (strongly recommended) [`pi-ask-user`](https://github.com/edlsh/pi-ask-user).
+- `.pi/damage-control-rules.yaml` for the default guarded `just hub` / `just hub-solo` recipes.
 - Nothing extra in-repo for coms — the peer registry lives at `~/.pi/coms/` and is created at
   runtime. For an HTTP/SSE transport that works across hosts, use
   [`coms-net`](../coms-net/README.md) instead.
@@ -133,16 +138,27 @@ this tool set, so coms and dispatch stay available regardless of the chosen pers
 ## Usage
 
 ```bash
-# via the justfile (accepts coms identity flags)
+# via the justfile (loads damage-control first; accepts coms identity flags)
 just hub
 just hub --name architect --purpose "owns the migration design" --project myrepo
 
-# or directly
+# equivalent direct guarded launch
+pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts
+pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts --name releaser --explicit
+
+# direct unguarded launch, only when you intentionally want to skip damage-control
 pi -e .pi/harnesses/agent-hub/index.ts
-pi -e .pi/harnesses/agent-hub/index.ts --name releaser --explicit
 ```
 
 Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
+
+### Safety scope
+
+`just hub` and `just hub-solo` load `damage-control` before `agent-hub`, so guardrails apply to
+hub/dispatcher tool calls in that parent pi process. Specialist and research agents are spawned as
+separate pi subprocesses with `--no-extensions`; they do not inherit parent-loaded harnesses unless
+`agent-hub` is explicitly changed to pass one through. Research helpers are read-only; writable
+specialists still rely on their configured tool lists and instructions.
 
 ### Related recipes
 

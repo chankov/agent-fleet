@@ -6,8 +6,9 @@
 #
 # Why .pi/harnesses/ and not .pi/extensions/: pi auto-discovers EVERY directory
 # under .pi/extensions/, so anything placed there loads on every plain `pi` run.
-# The harnesses are mutually exclusive — they live in .pi/harnesses/ (which pi
-# does NOT auto-discover) and are loaded one at a time via `pi -e` below.
+# Most harnesses are mutually exclusive — they live in .pi/harnesses/ (which pi
+# does NOT auto-discover) and are loaded via `pi -e` below. The supported stack
+# is damage-control before agent-hub, so the hub recipes run with guardrails by default.
 #
 # Everything between the two `agent-skills:harnesses` sentinels below is a
 # MANAGED REGION: guided-workspace-setup regenerates it from the installed
@@ -39,20 +40,16 @@ pi:
 ext-damage-control:
     pi -e .pi/harnesses/damage-control/index.ts
 
-# Damage-control (continue): same rules, agent keeps working with corrective feedback
-ext-damage-control-continue:
-    pi -e .pi/harnesses/damage-control-continue/index.ts
-
 # ---------------------------------------------------------------- orchestration
 
-# Agent hub: dispatcher grid + research helpers + embedded coms (peer /handoff & peer-as-subagent)
 # Accepts coms identity flags: --name --purpose --project --color --explicit
+# Guarded agent hub: damage-control + dispatcher grid + research helpers + embedded coms
 hub *args:
-    pi -e .pi/harnesses/agent-hub/index.ts {{args}}
+    pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts {{args}}
 
-# Agent hub (solo): the hub without the coms layer — fixed specialists + research only
+# Agent hub (solo): guarded hub without the coms layer — fixed specialists + research only
 hub-solo *args:
-    pi -e .pi/harnesses/agent-hub/index.ts --solo {{args}}
+    pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts --solo {{args}}
 
 # Coms peer: a reusable worker peer (coms + compact-and-continue + a persona).
 # Positional args: persona [name] [model]. persona=<file under agents/, no .md>;

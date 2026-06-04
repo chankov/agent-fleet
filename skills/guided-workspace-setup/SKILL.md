@@ -213,16 +213,16 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
 5. **pi extensions & runtime skills** *(pi only; `Group` column = `extension` / `runtime-skill`)* — always-on once installed:
    - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★
    - *runtime-skill* — `bowser`
-6. **pi harnesses** *(pi only; `Group` column = harness category — mutually exclusive at runtime, so install many but load one)* — one screen for all harnesses:
+6. **pi harnesses** *(pi only; `Group` column = harness category — install many, load through the explicit recipes; `just hub` stacks `damage-control` before `agent-hub`)* — one screen for all harnesses:
    - *orchestration* — `agent-hub`, `pi-pi`
-   - *safety* — `damage-control`, `damage-control-continue`
+   - *safety* — `damage-control`
    - *messaging* — `coms`, `coms-net`
 
    **Harness companions (refreshed with the group, not separate rows).** A harness directory does not run on its own — the launch recipes live in the `justfile`, and several harnesses shell out to support files. So whenever **any** harness in this group is ticked (installed/kept) or unticked (removed), refresh its companions from source in the same pass — they are not shown as their own menu rows:
    - `justfile` — the `just hub` / `just peer` / `just team-up` / `just coms` launch recipes.
    - `scripts/team-up.ts`, `scripts/coms-net-server.ts` — used by the `team-up` and `coms-net-server` recipes.
    - `.pi/agents/peers.yaml`, `.pi/agents/teams.yaml`, and the peer personas they name (e.g. `architect`, `releaser`) — read by `team-up`.
-   - `.pi/damage-control-rules.yaml` — the rule set the damage-control harnesses load.
+   - `.pi/damage-control-rules.yaml` — the rule set the damage-control harness loads.
    - `.pi/harnesses/package.json` (+ `npm install --prefix .pi/harnesses`) — the harness runtime deps (`yaml`, `@sinclair/typebox`).
 
    **The `justfile` is the one that goes stale on upgrade.** Refresh it from the **current** source, never leave the installed copy as-is: the source `justfile` is canonical, so refreshing it prunes recipes for harnesses retired since the recorded version and adds recipes for new ones. A workspace whose harness set changed between versions but whose `justfile` was left untouched is the exact failure this rule prevents — `just --list` keeps recipes pointing at deleted `.pi/harnesses/<name>/` dirs and lacks recipes for the new harnesses. Treat the `justfile` as a normal versioned artifact subject to the Step 6 status rules: it carries its own `St` token in the menu's after-table restate line (`ok`/`upd`/`mod`/`cflt`), and a user-edited `justfile` gets the same three-way diff and pre-unchecked `cflt` treatment as any other modified file — never a silent clobber. The `.versions/<recorded>/justfile` snapshot is the recorded-side of that diff.

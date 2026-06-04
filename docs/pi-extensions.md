@@ -28,10 +28,10 @@ those three layer onto every session.
 
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some remove every codebase tool and leave only an
-orchestration tool, some set UI surfaces, some gate every tool call. They are
-**mutually exclusive by design**: run one per session, not all at once. Because of that
-they live in **`.pi/harnesses/`** — a directory pi does *not* auto-discover — so a
-plain `pi` run never loads them.
+orchestration tool, some set UI surfaces, some gate every tool call. Most are loaded
+one per session; the supported stack is `damage-control` before `agent-hub`, which the
+`just hub` recipes use by default. They live in **`.pi/harnesses/`** — a directory pi
+does *not* auto-discover — so a plain `pi` run never loads them.
 
 ### Selective loading — read this first
 
@@ -39,14 +39,15 @@ pi auto-discovers every extension directory under a project's `.pi/extensions/` 
 all of them. If the harnesses lived there, a plain `pi` run would load them all at once
 — UI surfaces would fight, orchestrators would collide, and `coms` / `coms-net` would
 abort startup with duplicate CLI-flag registrations. So the harnesses live in
-`.pi/harnesses/` instead, and you load exactly one explicitly:
+`.pi/harnesses/` instead, and you load the desired recipe explicitly:
 
 - through the `justfile` — `just hub`, `just ext-damage-control`, `just local-coms`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts`
 
 When you consume this repo from another project, point `pi -e` at the harness file you
 want, or symlink that one directory into *its* `.pi/harnesses/` — never drop the harnesses
-into `.pi/extensions/`, and never load all of them at once (see
+into `.pi/extensions/`, and never load all of them at once. The supported multi-harness
+exception is loading `damage-control` before `agent-hub` for a guarded hub session (see
 [pi-setup.md](pi-setup.md#optional-pi-extensions)).
 
 ---
@@ -55,7 +56,7 @@ into `.pi/extensions/`, and never load all of them at once (see
 
 ```bash
 just install            # one-time — installs runtime deps for extensions + harnesses
-just hub                # launch the supported multi-agent hub harness
+just hub                # launch the supported multi-agent hub with damage-control guardrails
 just --list             # see every recipe
 ```
 
@@ -70,9 +71,8 @@ runtime itself.
 
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
-| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, and peer-as-subagent | `just hub` |
-| [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn | `just ext-damage-control` |
-| [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but the agent keeps working with corrective feedback | `just ext-damage-control-continue` |
+| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, and peer-as-subagent | `just hub` |
+| [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; also loaded before `agent-hub` by the hub recipes | `just ext-damage-control` |
 | [pi-pi](../.pi/harnesses/pi-pi/README.md) | Orchestration | Meta-agent that builds pi agents via parallel expert research | `just ext-pi-pi` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine | `just local-coms` |
 | [coms-net](../.pi/harnesses/coms-net/README.md) | Messaging | HTTP/SSE communication network across hosts (needs the hub) | `just coms` |
@@ -93,6 +93,8 @@ harnesses:
 - **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
 - **Operator controls** — `/zoom` timeline inspection plus child-agent kill/restart controls.
+- **Damage-control by default** — `just hub` / `just hub-solo` load the hard-stop safety harness
+  before `agent-hub`, so dispatcher tool calls are checked against the rules file.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
   `/handoff`, and peer-as-subagent flows.
 - **Solo mode** — `just hub-solo` keeps the dispatcher grid, delegation, research helpers, persona
@@ -126,7 +128,7 @@ These ported files are runtime dependencies of the extensions above:
   The earlier `reviewer` and `red-team` personas were folded into `code-reviewer` and
   `security-auditor`; the remaining team/peer configs already reference the canonical names.
 - **`.pi/damage-control-rules.yaml`** — the destructive-command / protected-path rule set
-  for `damage-control` and `damage-control-continue`.
+  for `damage-control`.
 - **`.pi/skills/bowser/`** — a pi-runtime skill for headless Playwright browser
   automation, used by the `bowser` agent persona. Kept separate from the core
   engineering `skills/`.
@@ -149,8 +151,8 @@ What changed relative to `disler/pi-vs-claude-code`:
 - **Layout converted.** Flat `extensions/<name>.ts` files became
   `.pi/harnesses/<name>/index.ts` directories, each with its own `package.json` and
   `README.md`. They live under `.pi/harnesses/` — *not* `.pi/extensions/` — because pi
-  auto-discovers and loads everything in `.pi/extensions/`, and these are
-  mutually-exclusive harnesses that must be loaded one at a time.
+  auto-discovers and loads everything in `.pi/extensions/`, while harnesses must be loaded
+  explicitly through recipes (with `damage-control` before `agent-hub` as the supported stack).
 - **Tooling switched to npm.** `bun` / `bun.lock` are not used; the `justfile` recipes
   point at the new paths and use npm. The `coms-net` hub launches via
   `node --experimental-strip-types` instead of `bun`.

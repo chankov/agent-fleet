@@ -35,7 +35,8 @@
  *
  * Identity flags (coms): --name --purpose --project --color --explicit
  *
- * Usage: pi -e .pi/harnesses/agent-hub/index.ts   (or `just hub`)
+ * Usage: just hub
+ * Direct guarded launch: pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts
  */
 
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
