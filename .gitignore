@@ -12,6 +12,7 @@ docs/plans/
 
 # pi extension runtime artifacts
 .pi/agent-sessions/
+.pi/btw-sessions/
 .playwright-cli/
 tmp/
 .agents/skills

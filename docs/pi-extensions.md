@@ -22,9 +22,12 @@ conventions. Runtime design specs for the imported harnesses live in `docs/pi-sp
 
 ## What these extensions are
 
-`.pi/extensions/` ships three always-on **utility** extensions — `mcp-bridge`,
-`chrome-devtools-mcp`, and `compact-and-continue`. pi auto-discovers that directory, so
-those three layer onto every session.
+`.pi/extensions/` ships always-on **utility** extensions — `mcp-bridge`,
+`chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check`, and `btw`. pi
+auto-discovers that directory, so they layer onto every session. `btw` adds a single
+`/btw <task>` prompt command that forks the current session into a fire-and-forget
+background side task (full context, same cwd, result returned as a chat card) — see
+[.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
 
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some remove every codebase tool and leave only an

@@ -211,7 +211,7 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *reference* — testing, performance, security, accessibility checklists
    - *hook* — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`)
 5. **pi extensions & runtime skills** *(pi only; `Group` column = `extension` / `runtime-skill`)* — always-on once installed:
-   - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★
+   - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★, `btw`
    - *runtime-skill* — `bowser`
 6. **pi harnesses** *(pi only; `Group` column = harness category — install many, load through the explicit recipes; `just hub` stacks `damage-control` before `agent-hub`)* — one screen for all harnesses:
    - *orchestration* — `agent-hub`, `pi-pi`
