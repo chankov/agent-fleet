@@ -2356,14 +2356,7 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 
 	async function refreshPool(): Promise<void> {
 		if (!identity) return;
-		const projectFilter = displayProject ?? identity.project;
-		const live = projectFilter === "*"
-			? pruneDeadEntriesAllProjects()
-			: pruneDeadEntries(projectFilter);
-
-		const peers = live.filter((e) =>
-			e.session_id !== identity!.session_id && (includeExplicit || !e.explicit),
-		);
+		const peers = peersInScope();
 
 		const results = await Promise.allSettled(peers.map(async (peer) => {
 			const pingEnv: PingEnvelope = {
@@ -2421,25 +2414,33 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 		}
 	}
 
+	// The peers currently in scope — exactly what the coms pool widget shows: live
+	// (pruned) registry entries in the displayed project (displayProject, or the home
+	// project; "*" only when the human widened via /coms --project *), excluding self
+	// and — unless /coms --all set includeExplicit — explicit peers. This is the
+	// SECURITY BOUNDARY for every coms op: list, send, and handoff resolve only within
+	// it. Widening it is a deliberate human action via /coms, never something the LLM
+	// can do on its own. Single source of truth — reused by the widget refresh, the
+	// handoff completions, coms_list, and resolveTarget so they can never diverge.
+	function peersInScope(): RegistryEntry[] {
+		if (!identity) return [];
+		const filter = displayProject ?? identity.project;
+		const live = filter === "*" ? pruneDeadEntriesAllProjects() : pruneDeadEntries(filter);
+		return live.filter(
+			(e) => e.session_id !== identity!.session_id && (includeExplicit || !e.explicit),
+		);
+	}
+
 	function resolveTarget(target: string): RegistryEntry | null {
-		// Prefer name match within current project.
-		if (identity) {
-			const localEntries = pruneDeadEntries(identity.project);
-			const byName = localEntries.find((e) => e.name === target);
-			if (byName) return byName;
-		}
-		// Fall back to scanning all projects by session_id (or name as last resort).
-		for (const proj of listProjects()) {
-			const entries = pruneDeadEntries(proj);
-			const bySession = entries.find((e) => e.session_id === target);
-			if (bySession) return bySession;
-		}
-		for (const proj of listProjects()) {
-			const entries = pruneDeadEntries(proj);
-			const byName = entries.find((e) => e.name === target);
-			if (byName) return byName;
-		}
-		return null;
+		// Scoped to the connected pool only (peersInScope): you can reach exactly the
+		// peers the widget shows. Match by name first (preferred, human-facing), then by
+		// session_id. A peer outside the current scope is intentionally NOT resolved — the
+		// human must widen scope via /coms --project / --all first. This closes the old
+		// cross-project leak where a name match fell through to scanning every project.
+		const scope = peersInScope();
+		const byName = scope.find((e) => e.name === target);
+		if (byName) return byName;
+		return scope.find((e) => e.session_id === target) ?? null;
 	}
 
 	// ── dispatch_agent Tool (registered at top level) ──
@@ -2674,22 +2675,44 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 		name: "coms_list",
 		label: "Coms List",
 		description:
-			"List peer agents discoverable via coms. Returns names, models, and live context-window usage. " +
-			"Use project=\"*\" to scan all projects. include_explicit=true reveals agents marked --explicit.",
+			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
+			"names, models, and live context-window usage. Discovery is scoped to what the human displays " +
+			"via /coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
 		parameters: Type.Object({
-			project: Type.Optional(Type.String({ description: "Project name, or \"*\" for all projects. Defaults to caller's project." })),
-			include_explicit: Type.Optional(Type.Boolean({ description: "Include agents launched with --explicit. Default false." })),
+			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /coms displays — a widening request is ignored." })),
+			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /coms --all." })),
 		}),
 		async execute(_callId, params) {
-			const includeExp = params.include_explicit === true;
-			const projectFilter = params.project ?? identity?.project ?? "default";
-			const projects = projectFilter === "*" ? listProjects() : [projectFilter];
+			if (!identity) {
+				return {
+					content: [{ type: "text" as const, text: "coms not initialised." }],
+					details: { agents: [], project: null },
+				};
+			}
+			// Clamp discovery to the human-set pool scope (displayProject + includeExplicit,
+			// driven by /coms). The LLM's project/include_explicit may NARROW within that
+			// scope but can never widen it — cross-project or explicit discovery requires a
+			// deliberate /coms --project / --all from the human. So coms_list returns exactly
+			// the pool, the same boundary coms_send enforces.
+			const scopeProject = displayProject ?? identity.project;
+			let projects: string[];
+			let widened = false;
+			if (scopeProject === "*") {
+				projects = params.project && params.project !== "*" ? [params.project] : listProjects();
+			} else {
+				projects = [scopeProject];
+				if (params.project && params.project !== scopeProject) widened = true;
+			}
+			// include_explicit may only narrow (turn OFF); it cannot reveal explicit peers
+			// unless the human already did via /coms --all.
+			const includeExp = includeExplicit && params.include_explicit !== false;
+			if (params.include_explicit === true && !includeExplicit) widened = true;
 
 			const collected: { entry: RegistryEntry; project: string }[] = [];
 			for (const proj of projects) {
 				for (const entry of pruneDeadEntries(proj)) {
 					if (entry.explicit && !includeExp) continue;
-					if (identity && entry.session_id === identity.session_id) continue;
+					if (entry.session_id === identity.session_id) continue;
 					collected.push({ entry, project: proj });
 				}
 			}
@@ -2713,8 +2736,14 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 				};
 			});
 
+			const notice = widened
+				? `\n\n(Discovery is scoped to "${scopeProject}"${includeExplicit ? "" : ", explicit peers hidden"}. ` +
+				  `Widening to other projects or revealing --explicit peers is a human action via ` +
+				  `/coms --project <name> or /coms --all.)`
+				: "";
+
 			const lines = agents.length === 0
-				? "No peer agents found."
+				? "No peer agents in your pool."
 				: agents.map((a) => {
 					const ctxStr = a.context_used_pct != null ? ` ${a.context_used_pct}%` : " ?%";
 					const live = a.alive ? "●" : "✗";
@@ -2722,8 +2751,8 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 				}).join("\n");
 
 			return {
-				content: [{ type: "text" as const, text: `${agents.length} peer(s):\n${lines}` }],
-				details: { agents, project: projectFilter },
+				content: [{ type: "text" as const, text: `${agents.length} peer(s) in pool (project ${scopeProject}):\n${lines}${notice}` }],
+				details: { agents, project: scopeProject, scoped: true, widenRequested: widened },
 			};
 		},
 		renderCall(args, theme) {
@@ -2758,7 +2787,7 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 			"Use coms_get (non-blocking) or coms_await (blocking) with the msg_id to retrieve the response. " +
 			"Throws if the receiver is unreachable or rejects the envelope.",
 		parameters: Type.Object({
-			target: Type.String({ description: "Peer name (preferred, scoped to your project) or session_id (global)." }),
+			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /coms --project or /coms --all." }),
 			prompt: Type.String({ description: "The prompt to send." }),
 			conversation_id: Type.Optional(Type.String()),
 			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
@@ -2769,7 +2798,15 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 			}
 			const target = resolveTarget(params.target);
 			if (!target) {
-				throw new Error(`coms: no live agent matching "${params.target}"`);
+				// Refuse without confirming whether the peer exists outside the pool — that
+				// existence is itself cross-project metadata. Point at the human-controlled
+				// widening path instead.
+				const scope = displayProject ?? identity.project;
+				throw new Error(
+					`coms: no connected peer "${params.target}" in your pool (project ${scope}). ` +
+					`Only peers shown in the coms pool are reachable. If you expected this peer, ask the ` +
+					`human to widen scope with /coms --project <name> or /coms --all, then retry.`,
+				);
 			}
 			const hops = currentInbound ? currentInbound.hops + 1 : 0;
 			if (hops >= MAX_HOPS) {
@@ -3435,9 +3472,8 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 
 	// Completions over live peer names for /handoff.
 	const comsPeerCompletions = (prefix: string): AutocompleteItem[] | null => {
-		if (!identity) return null;
-		const entries = pruneDeadEntries(identity.project)
-			.filter(e => e.session_id !== identity!.session_id && (includeExplicit || !e.explicit));
+		// Same pool scope as coms_send/handoff resolution — only offer peers you can reach.
+		const entries = peersInScope();
 		const items = entries.map(e => ({ value: e.name, label: `${e.name} — ${e.purpose || e.model}` }));
 		if (items.length === 0) return null;
 		const p = prefix.toLowerCase();
@@ -3595,13 +3631,18 @@ ask the human. You MUST instead:
 			? `
 ## Peer agents (coms)
 You are ALSO a peer on the coms mesh — project "${identity.project}", name "${identity.name}". Beyond
-your own team you can talk to other long-lived Pi agents on this machine:
-- \`coms_list\` — discover peers (names, models, live context usage). Pass project "*" for all projects.
+your own team you can talk to the peers in your coms POOL — the agents shown in the pool widget:
+- \`coms_list\` — discover the peers in your pool (names, models, live context usage). The pool is
+  scoped to YOUR project and excludes private (explicit) peers. You CANNOT widen this — only the human
+  can, with \`/coms --project <name>\` or \`/coms --all\`. Do not ask coms_list for other projects.
 - \`coms_send\` returns a msg_id; then \`coms_await\` (blocking) or \`coms_get\` (poll) reads the reply.
   This lets you use a peer as an on-demand subagent: send a SELF-CONTAINED task, await it, and fold the
   result into your plan. A peer does NOT share your context — spell out everything it needs.
+- Only peers in your pool are reachable. \`coms_send\`/\`/handoff\` to anyone outside it is refused. If
+  you need a peer that is not in the pool, ASK THE HUMAN to widen scope (\`/coms --project\`/\`--all\`),
+  then retry. Do not pass cross-project context to a peer unless the human approved that reach.
 - Prefer \`dispatch_agent\`/\`spawn_research\` for in-team work; reach for coms when a task needs another
-  STANDING agent (a different project, a human-driven peer, a specialist outside this team).
+  STANDING agent already in your pool (a human-driven peer, a specialist outside this team).
 - A peer can also address YOU as a subagent — answer an inbound coms prompt as a normal turn.
 `
 			: "";

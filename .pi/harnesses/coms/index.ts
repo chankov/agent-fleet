@@ -1092,14 +1092,7 @@ export default function (pi: ExtensionAPI) {
 	// ━━ Ping cycle ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 	async function refreshPool(): Promise<void> {
 		if (!identity) return;
-		const projectFilter = displayProject ?? identity.project;
-		const live = projectFilter === "*"
-			? pruneDeadEntriesAllProjects()
-			: pruneDeadEntries(projectFilter);
-
-		const peers = live.filter((e) =>
-			e.session_id !== identity!.session_id && (includeExplicit || !e.explicit),
-		);
+		const peers = peersInScope();
 
 		const results = await Promise.allSettled(peers.map(async (peer) => {
 			const pingEnv: PingEnvelope = {
@@ -1157,25 +1150,25 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	function peersInScope(): RegistryEntry[] {
+		if (!identity) return [];
+		const filter = displayProject ?? identity.project;
+		const live = filter === "*" ? pruneDeadEntriesAllProjects() : pruneDeadEntries(filter);
+		return live.filter(
+			(e) => e.session_id !== identity!.session_id && (includeExplicit || !e.explicit),
+		);
+	}
+
 	function resolveTarget(target: string): RegistryEntry | null {
-		// Prefer name match within current project.
-		if (identity) {
-			const localEntries = pruneDeadEntries(identity.project);
-			const byName = localEntries.find((e) => e.name === target);
-			if (byName) return byName;
-		}
-		// Fall back to scanning all projects by session_id (or name as last resort).
-		for (const proj of listProjects()) {
-			const entries = pruneDeadEntries(proj);
-			const bySession = entries.find((e) => e.session_id === target);
-			if (bySession) return bySession;
-		}
-		for (const proj of listProjects()) {
-			const entries = pruneDeadEntries(proj);
-			const byName = entries.find((e) => e.name === target);
-			if (byName) return byName;
-		}
-		return null;
+		// Scoped to the connected pool only (peersInScope): you can reach exactly the
+		// peers the widget shows. Match by name first (preferred, human-facing), then by
+		// session_id. A peer outside the current scope is intentionally NOT resolved — the
+		// human must widen scope via /coms --project / --all first. This closes the old
+		// cross-project leak where a name match fell through to scanning every project.
+		const scope = peersInScope();
+		const byName = scope.find((e) => e.name === target);
+		if (byName) return byName;
+		return scope.find((e) => e.session_id === target) ?? null;
 	}
 
 	// ━━ Tools ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1184,22 +1177,44 @@ export default function (pi: ExtensionAPI) {
 		name: "coms_list",
 		label: "Coms List",
 		description:
-			"List peer agents discoverable via coms. Returns names, models, and live context-window usage. " +
-			"Use project=\"*\" to scan all projects. include_explicit=true reveals agents marked --explicit.",
+			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
+			"names, models, and live context-window usage. Discovery is scoped to what the human displays " +
+			"via /coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
 		parameters: Type.Object({
-			project: Type.Optional(Type.String({ description: "Project name, or \"*\" for all projects. Defaults to caller's project." })),
-			include_explicit: Type.Optional(Type.Boolean({ description: "Include agents launched with --explicit. Default false." })),
+			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /coms displays — a widening request is ignored." })),
+			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /coms --all." })),
 		}),
 		async execute(_callId, params) {
-			const includeExp = params.include_explicit === true;
-			const projectFilter = params.project ?? identity?.project ?? "default";
-			const projects = projectFilter === "*" ? listProjects() : [projectFilter];
+			if (!identity) {
+				return {
+					content: [{ type: "text" as const, text: "coms not initialised." }],
+					details: { agents: [], project: null },
+				};
+			}
+			// Clamp discovery to the human-set pool scope (displayProject + includeExplicit,
+			// driven by /coms). The LLM's project/include_explicit may NARROW within that
+			// scope but can never widen it — cross-project or explicit discovery requires a
+			// deliberate /coms --project / --all from the human. So coms_list returns exactly
+			// the pool, the same boundary coms_send enforces.
+			const scopeProject = displayProject ?? identity.project;
+			let projects: string[];
+			let widened = false;
+			if (scopeProject === "*") {
+				projects = params.project && params.project !== "*" ? [params.project] : listProjects();
+			} else {
+				projects = [scopeProject];
+				if (params.project && params.project !== scopeProject) widened = true;
+			}
+			// include_explicit may only narrow (turn OFF); it cannot reveal explicit peers
+			// unless the human already did via /coms --all.
+			const includeExp = includeExplicit && params.include_explicit !== false;
+			if (params.include_explicit === true && !includeExplicit) widened = true;
 
 			const collected: { entry: RegistryEntry; project: string }[] = [];
 			for (const proj of projects) {
 				for (const entry of pruneDeadEntries(proj)) {
 					if (entry.explicit && !includeExp) continue;
-					if (identity && entry.session_id === identity.session_id) continue;
+					if (entry.session_id === identity.session_id) continue;
 					collected.push({ entry, project: proj });
 				}
 			}
@@ -1223,8 +1238,14 @@ export default function (pi: ExtensionAPI) {
 				};
 			});
 
+			const notice = widened
+				? `\n\n(Discovery is scoped to "${scopeProject}"${includeExplicit ? "" : ", explicit peers hidden"}. ` +
+				  `Widening to other projects or revealing --explicit peers is a human action via ` +
+				  `/coms --project <name> or /coms --all.)`
+				: "";
+
 			const lines = agents.length === 0
-				? "No peer agents found."
+				? "No peer agents in your pool."
 				: agents.map((a) => {
 					const ctxStr = a.context_used_pct != null ? ` ${a.context_used_pct}%` : " ?%";
 					const live = a.alive ? "●" : "✗";
@@ -1232,8 +1253,8 @@ export default function (pi: ExtensionAPI) {
 				}).join("\n");
 
 			return {
-				content: [{ type: "text" as const, text: `${agents.length} peer(s):\n${lines}` }],
-				details: { agents, project: projectFilter },
+				content: [{ type: "text" as const, text: `${agents.length} peer(s) in pool (project ${scopeProject}):\n${lines}${notice}` }],
+				details: { agents, project: scopeProject, scoped: true, widenRequested: widened },
 			};
 		},
 		renderCall(args, theme) {
@@ -1268,7 +1289,7 @@ export default function (pi: ExtensionAPI) {
 			"Use coms_get (non-blocking) or coms_await (blocking) with the msg_id to retrieve the response. " +
 			"Throws if the receiver is unreachable or rejects the envelope.",
 		parameters: Type.Object({
-			target: Type.String({ description: "Peer name (preferred, scoped to your project) or session_id (global)." }),
+			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /coms --project or /coms --all." }),
 			prompt: Type.String({ description: "The prompt to send." }),
 			conversation_id: Type.Optional(Type.String()),
 			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
@@ -1279,7 +1300,15 @@ export default function (pi: ExtensionAPI) {
 			}
 			const target = resolveTarget(params.target);
 			if (!target) {
-				throw new Error(`coms: no live agent matching "${params.target}"`);
+				// Refuse without confirming whether the peer exists outside the pool — that
+				// existence is itself cross-project metadata. Point at the human-controlled
+				// widening path instead.
+				const scope = displayProject ?? identity.project;
+				throw new Error(
+					`coms: no connected peer "${params.target}" in your pool (project ${scope}). ` +
+					`Only peers shown in the coms pool are reachable. If you expected this peer, ask the ` +
+					`human to widen scope with /coms --project <name> or /coms --all, then retry.`,
+				);
 			}
 			const hops = currentInbound ? currentInbound.hops + 1 : 0;
 			if (hops >= MAX_HOPS) {

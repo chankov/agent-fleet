@@ -60,22 +60,42 @@ Each session registers a coms identity at start-up, resolved in this precedence 
    `default`, a deterministic color derived from the session id
 
 Names are de-duplicated per project (`resolveUniqueName`), so two hubs that both want `architect`
-become `architect` and `architect-2`. `--explicit` marks a **private** peer — addressable only by
-its exact name, never surfaced as a broadcast target. The registry lives under
-`~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runtime.
+become `architect` and `architect-2`. `--explicit` marks a **private** peer — kept out of every
+pool by default, so it is neither listed nor reachable until a human opts in with `/coms --all`
+(see [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)). The registry lives
+under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runtime.
 
 ### Commands & tools (local dispatcher plus coms)
 
 - `/coms` — coms control surface (peer list / status)
 - `/handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
-- `coms_list` — discover peers: names, models, live context usage, purpose. Pass project `"*"`
-  to list across all projects.
-- `coms_send` — send a prompt to a peer; returns a `msg_id`
+- `coms_list` — discover the peers in your pool: names, models, live context usage, purpose. Scoped
+  to your project and excluding private peers; the LLM cannot widen it (see
+  [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)).
+- `coms_send` — send a prompt to a peer **in your pool**; returns a `msg_id`
 - `coms_await` — **block** until that `msg_id`'s reply lands (default 30 min,
   `PI_COMS_TIMEOUT_MS`)
 - `coms_get` — **non-blocking** poll of a `msg_id` (status `pending|complete|error`)
 
-`/coms` and `/handoff` tab-complete live peer names.
+`/coms` and `/handoff` tab-complete live peer names **in your pool**.
+
+### Pool scope is the reach boundary
+
+The set of peers shown in the pool widget is the security boundary: **a peer is reachable only if it
+is in your pool.** `coms_list`, `coms_send`, and `/handoff` all resolve targets through the same
+`peersInScope()` helper, so the dispatcher can never message a peer it cannot see. Two knobs define
+the pool, and **both are human-only** — the LLM cannot widen scope to reach more peers:
+
+- **Project** — defaults to your own `identity.project`. A human can retarget with `/coms --project
+  <name>` (one project) or `/coms --all` (every project). `coms_list`'s own parameters cannot
+  override this; an LLM request for a wider project is clamped back to the current pool and flagged.
+- **Explicit (private) peers** — excluded from every pool by default. `/coms --all` opts them in.
+
+This closes a cross-project leak where a peer reachable through the mesh was *not* shown in the
+default project-scoped pool — so it could be messaged without being "connected." Now the reachable
+set is always a subset of what the widget shows. To reach a peer outside the pool, a human widens
+scope first; the dispatcher is told to **ask** rather than attempt it, and not to pass cross-project
+context to a peer the human has not approved.
 
 ### Peer as subagent
 
@@ -93,7 +113,9 @@ onward, hops accumulating up to `MAX_HOPS` (5).
 LLM to compose a **self-contained brief** ("everything the target needs, assume no shared history"),
 then `coms_send`s that brief to the peer, `coms_await`s the reply, and relays it back — in the
 configured user-facing language. The target peer takes over; the source relays the result. There is
-no raw session copy (pi sessions aren't portable between live agents).
+no raw session copy (pi sessions aren't portable between live agents). The target must be a peer in
+your pool — `/handoff` resolves through the same [scope boundary](#pool-scope-is-the-reach-boundary)
+as `coms_send`, so you cannot hand a session to a peer you cannot see.
 
 ### Pool widget
 
