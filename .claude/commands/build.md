@@ -9,7 +9,7 @@ Invoke the agent-skills:incremental-implementation skill alongside agent-skills:
 - **`/build`** — implement the *next* pending task, then stop (careful, one slice at a time).
 - **`/build auto`** — generate the plan if needed, get a single approval, then implement *every* task without stopping between them.
 
-`$ARGUMENTS` selects the mode. Treat `auto`, `all`, or `fast` as autonomous mode; anything else (or empty) is the default single-task mode.
+`$ARGUMENTS` selects the mode. Treat `auto` (canonical) or `all` as autonomous mode; anything else (or empty) is the default single-task mode. Note: autonomous mode is not faster *per task* — it runs the same test-driven loop — it only removes the human stepping *between* tasks.
 
 ## Default: one task
 
@@ -28,14 +28,16 @@ Pick the next pending task from the plan. Then:
 
 Use this once a spec exists and you want to collapse plan + build into one run. It removes the manual stepping between tasks — **not** the verification. Every task still earns a passing test and its own commit.
 
-1. **Require a spec.** If there is no `SPEC.md` (or equivalent), stop and tell the user to run `/spec` first. Do not invent requirements.
+1. **Require a spec.** Look only for a spec at a known path: `SPEC.md` at the repo root, `docs/SPEC.md`, or a file under `spec/`. A README or arbitrary doc does **not** count. If none exists, stop and tell the user to run `/spec` first — do not invent requirements.
 2. **Plan if needed.** If there is no `tasks/plan.md`, invoke agent-skills:planning-and-task-breakdown to generate one.
-3. **Single checkpoint.** Present the full plan and get explicit approval. This is the only human gate — after approval, run autonomously.
-4. **Execute every task in dependency order.** For each task, run the full default loop above (RED → GREEN → regression → build → commit per task → mark complete). One commit per task so any point is a clean rollback.
+3. **Single checkpoint.** Present the full plan and wait for an unambiguous affirmative (e.g. "approve", "go", "yes"). Treat hedged responses ("looks reasonable", "I guess") as **not** approved. This is the only human gate — after approval, run autonomously.
+4. **Execute every task in dependency order.** Use each task's declared dependencies; if they aren't explicit, execute in the order the plan lists them. For each task, run the full default loop above (RED → GREEN → regression → build → commit per task → mark complete). One commit per task so any point is a clean rollback.
 5. **Stop and ask the user** (do not push through) when:
    - a test can't be made to pass or the build breaks without an obvious fix → follow agent-skills:debugging-and-error-recovery
    - the spec is ambiguous, or a task needs a decision the spec doesn't cover
-   - a task is high-risk or irreversible — auth/permission changes, destructive data migrations, payments, deletions, deploys, or anything touching secrets → follow agent-skills:doubt-driven-development and get explicit sign-off before continuing
+   - a task is high-risk or irreversible — auth/permission changes, destructive data migrations, payments, deletions, deploys, anything touching secrets, **or anything you can't undo with `git revert`** → follow agent-skills:doubt-driven-development and get explicit sign-off before continuing
+
+   After the user resolves a blocker, they re-invoke `/build auto` — it resumes from the next pending task.
 6. **Summarize at the end:** tasks completed, tests added, commits made, and anything skipped, flagged, or left for the user.
 
 If any step fails, follow the agent-skills:debugging-and-error-recovery skill.
