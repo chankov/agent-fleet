@@ -170,8 +170,10 @@ For apps with LLM features. See the [OWASP GenAI Security Project](https://genai
 | LLM01 | Prompt Injection | Don't trust the system prompt as a boundary; enforce permissions in code |
 | LLM02 | Sensitive Information Disclosure | Keep secrets/PII out of prompts; filter outputs |
 | LLM03 | Supply Chain | Vet models, datasets, and plugins like any dependency |
+| LLM04 | Data and Model Poisoning | Use trusted model sources, verify integrity; vet fine-tuning and RAG data |
 | LLM05 | Improper Output Handling | Treat model output as untrusted; validate, parameterize, encode |
 | LLM06 | Excessive Agency | Scope tool permissions; confirm destructive actions |
 | LLM07 | System Prompt Leakage | Assume the system prompt can leak; put no secrets in it |
 | LLM08 | Vector and Embedding Weaknesses | Partition RAG embeddings per tenant; validate documents before indexing |
+| LLM09 | Misinformation | Ground answers with citations; validate critical claims; keep a human in the loop |
 | LLM10 | Unbounded Consumption | Cap tokens, request rate, and loop/recursion depth |
