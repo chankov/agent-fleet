@@ -173,4 +173,5 @@ For apps with LLM features. See the [OWASP GenAI Security Project](https://genai
 | LLM05 | Improper Output Handling | Treat model output as untrusted; validate, parameterize, encode |
 | LLM06 | Excessive Agency | Scope tool permissions; confirm destructive actions |
 | LLM07 | System Prompt Leakage | Assume the system prompt can leak; put no secrets in it |
+| LLM08 | Vector and Embedding Weaknesses | Partition RAG embeddings per tenant; validate documents before indexing |
 | LLM10 | Unbounded Consumption | Cap tokens, request rate, and loop/recursion depth |

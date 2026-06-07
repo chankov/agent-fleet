@@ -18,7 +18,7 @@ Security-first development practices for web applications. Treat every external 
 - Adding file uploads, webhooks, or callbacks
 - Handling payment or PII data
 
-## Threat Model First (Before You Write Controls)
+## Process: Threat Model First
 
 Controls bolted on without a threat model are guesses. Before hardening, spend five minutes thinking like an attacker:
 
@@ -72,9 +72,11 @@ If you can't name the trust boundaries for a feature, you're not ready to secure
 - **Never store sessions in client-accessible storage** (localStorage for auth tokens)
 - **Never expose stack traces** or internal error details to users
 
-## OWASP Top 10 Prevention
+## OWASP Top 10 Prevention Patterns
 
-### 1. Injection (SQL, NoSQL, OS Command)
+These are prevention patterns, not a ranking. For the 2021 ordering, see the quick-reference table in `references/security-checklist.md`.
+
+### Injection (SQL, NoSQL, OS Command)
 
 ```typescript
 // BAD: SQL injection via string concatenation
@@ -87,7 +89,7 @@ const user = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
 const user = await prisma.user.findUnique({ where: { id: userId } });
 ```
 
-### 2. Broken Authentication
+### Broken Authentication
 
 ```typescript
 // Password hashing
@@ -111,7 +113,7 @@ app.use(session({
 }));
 ```
 
-### 3. Cross-Site Scripting (XSS)
+### Cross-Site Scripting (XSS)
 
 ```typescript
 // BAD: Rendering user input as HTML
@@ -125,7 +127,7 @@ import DOMPurify from 'dompurify';
 const clean = DOMPurify.sanitize(userInput);
 ```
 
-### 4. Broken Access Control
+### Broken Access Control
 
 ```typescript
 // Always check authorization, not just authentication
@@ -145,7 +147,7 @@ app.patch('/api/tasks/:id', authenticate, async (req, res) => {
 });
 ```
 
-### 5. Security Misconfiguration
+### Security Misconfiguration
 
 ```typescript
 // Security headers (use helmet for Express)
@@ -170,7 +172,7 @@ app.use(cors({
 }));
 ```
 
-### 6. Sensitive Data Exposure
+### Sensitive Data Exposure
 
 ```typescript
 // Never return sensitive fields in API responses
@@ -184,7 +186,7 @@ const API_KEY = process.env.STRIPE_API_KEY;
 if (!API_KEY) throw new Error('STRIPE_API_KEY not configured');
 ```
 
-### 7. Server-Side Request Forgery (SSRF)
+### Server-Side Request Forgery (SSRF)
 
 Any time the server fetches a URL the user influenced — webhooks, "import from URL", image proxies, link previews — an attacker can aim it at internal services (cloud metadata, `localhost`, private IPs).
 
@@ -192,7 +194,7 @@ Any time the server fetches a URL the user influenced — webhooks, "import from
 // BAD: fetch whatever the user gives you
 await fetch(req.body.webhookUrl);
 
-// GOOD: allowlist scheme + host, block private/reserved IPs, forbid redirects
+// GOOD: allowlist scheme + host, reject if ANY resolved IP is private, forbid redirects
 import { lookup } from 'node:dns/promises';
 import ipaddr from 'ipaddr.js';
 
@@ -202,15 +204,20 @@ async function assertSafeUrl(raw: string): Promise<URL> {
   const url = new URL(raw);
   if (url.protocol !== 'https:') throw new Error('https only');
   if (!ALLOWED_HOSTS.has(url.hostname)) throw new Error('host not allowed');
-  const { address } = await lookup(url.hostname);
-  if (ipaddr.parse(address).range() !== 'unicast') throw new Error('private/reserved IP');
+  // Resolve ALL records; a single private/reserved address fails the check.
+  const addrs = await lookup(url.hostname, { all: true });
+  if (addrs.some((a) => ipaddr.parse(a.address).range() !== 'unicast')) {
+    throw new Error('private/reserved IP');
+  }
   return url;
 }
 
 await fetch(await assertSafeUrl(req.body.webhookUrl), { redirect: 'error' });
 ```
 
-Explicitly block link-local `169.254.169.254` (cloud metadata) — it's the #1 SSRF target.
+The `range() !== 'unicast'` check covers loopback, link-local `169.254.169.254` (cloud metadata, the #1 SSRF target), private, and unique-local ranges across IPv4 and IPv6.
+
+**Caveat — this still has a TOCTOU gap.** `fetch` resolves DNS again after the check, so an attacker using a short-TTL record can rebind to an internal IP between validation and connection. For high-risk surfaces, resolve once and connect to the pinned IP, or put a filtering agent in front (`request-filtering-agent` / `ssrf-req-filter`).
 
 ## Input Validation Patterns
 
@@ -351,6 +358,7 @@ If your app calls an LLM — chatbots, summarizers, agents, RAG — it inherits 
 - **Keep secrets and other users' data out of prompts (LLM02 / LLM07).** Anything in the context can be echoed back. Don't put API keys, cross-tenant data, or the full system prompt where the model can repeat it.
 - **Constrain tool and agent permissions (LLM06: Excessive Agency).** Scope tools to the minimum, require confirmation for destructive or irreversible actions, and validate every tool argument.
 - **Bound consumption (LLM10: Unbounded Consumption).** Cap tokens, request rate, and loop/recursion depth so a crafted input can't run up cost or hang the system.
+- **Isolate retrieval data (LLM08: Vector and Embedding Weaknesses).** In RAG, treat the vector store as a trust boundary: partition embeddings per tenant so one user can't retrieve another's data, and validate documents before indexing so poisoned content can't steer answers.
 
 ```typescript
 // BAD: trusting model output as a command or as markup
@@ -358,8 +366,13 @@ const sql = await llm.generate(`Write SQL for: ${userQuestion}`);
 await db.query(sql);                                   // arbitrary query execution
 container.innerHTML = await llm.reply(userMessage);   // stored XSS, via the model
 
-// GOOD: model output is data — validate, parameterize, encode
-const intent = CommandSchema.parse(JSON.parse(await llm.replyJson(userMessage)));
+// GOOD: model output is data — parse defensively, then validate, then encode
+let intent;
+try {
+  intent = CommandSchema.parse(JSON.parse(await llm.replyJson(userMessage)));
+} catch {
+  throw new ValidationError('unexpected model output'); // JSON.parse or schema failed
+}
 await runAllowlistedAction(intent.action, intent.params);
 container.textContent = await llm.reply(userMessage);
 ```
