@@ -37,6 +37,7 @@ Task arrives
     ├── CI/CD pipeline work? ──────────→ ci-cd-and-automation
     ├── Deprecating/migrating? ────────→ deprecation-and-migration
     ├── Writing docs/ADRs? ───────────→ documentation-and-adrs
+    ├── Adding logs/metrics/alerts? ───→ observability-and-instrumentation
     └── Deploying/launching? ─────────→ shipping-and-launch
 ```
 
@@ -153,7 +154,8 @@ For a complete feature, the typical skill sequence is:
 12. git-workflow-and-versioning → Clean commit history
 13. documentation-and-adrs      → Document decisions
 14. deprecation-and-migration   → Retire old systems and move users safely when needed
-15. shipping-and-launch         → Deploy safely
+15. observability-and-instrumentation → Make production behavior visible
+16. shipping-and-launch         → Deploy safely
 ```
 
 Not every task needs every skill. A bug fix might only need: `debugging-and-error-recovery` → `test-driven-development` → `code-review-and-quality`.
@@ -183,4 +185,5 @@ Not every task needs every skill. A bug fix might only need: `debugging-and-erro
 | Ship | ci-cd-and-automation | Automated quality gates on every change |
 | Ship | deprecation-and-migration | Remove old systems and migrate users safely |
 | Ship | documentation-and-adrs | Document the why, not just the what |
+| Ship | observability-and-instrumentation | Structured logs, RED metrics, traces, symptom-based alerts |
 | Ship | shipping-and-launch | Pre-launch checklist, monitoring, rollback plan |
