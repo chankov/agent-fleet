@@ -147,14 +147,14 @@ For a complete feature, the typical skill sequence is:
 5.  context-engineering         → Load the right context
 6.  source-driven-development   → Verify against official docs
 7.  incremental-implementation  → Build slice by slice
-8.  doubt-driven-development    → Cross-examine non-trivial decisions in-flight
-9.  test-driven-development     → Prove each slice works
-10. code-review-and-quality     → Review before merge
-11. code-simplification         → Reduce unnecessary complexity while preserving behavior
-12. git-workflow-and-versioning → Clean commit history
-13. documentation-and-adrs      → Document decisions
-14. deprecation-and-migration   → Retire old systems and move users safely when needed
-15. observability-and-instrumentation → Make production behavior visible
+8.  observability-and-instrumentation → Instrument as you build (runs parallel with 7-9, not after)
+9.  doubt-driven-development    → Cross-examine non-trivial decisions in-flight
+10. test-driven-development     → Prove each slice works
+11. code-review-and-quality     → Review before merge
+12. code-simplification         → Reduce unnecessary complexity while preserving behavior
+13. git-workflow-and-versioning → Clean commit history
+14. documentation-and-adrs      → Document decisions
+15. deprecation-and-migration   → Retire old systems and move users safely when needed
 16. shipping-and-launch         → Deploy safely
 ```
 
