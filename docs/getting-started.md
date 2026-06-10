@@ -108,6 +108,7 @@ The `.claude/commands/` directory contains slash commands for Claude Code:
 | `/spec` | spec-driven-development |
 | `/plan` | planning-and-task-breakdown |
 | `/build` | incremental-implementation + test-driven-development |
+| `/build auto` | planning-and-task-breakdown → incremental-implementation + test-driven-development (whole plan, one approval) |
 | `/test` | test-driven-development |
 | `/review` | code-review-and-quality |
 | `/ship` | shipping-and-launch |
