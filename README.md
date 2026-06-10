@@ -67,6 +67,12 @@ Copy any `SKILL.md` into `.cursor/rules/`, or reference the full `skills/` direc
 
 Install as a native plugin for skills, subagents, and slash commands. See [docs/antigravity-setup.md](docs/antigravity-setup.md).
 
+**Install from the repo:**
+
+```bash
+agy plugin install https://github.com/addyosmani/agent-skills.git
+```
+
 **Install from a local clone:**
 
 ```bash
