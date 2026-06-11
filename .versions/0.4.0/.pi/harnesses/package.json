@@ -1,9 +1,0 @@
-{
-  "name": "agent-skills-pi-harnesses-runtime-deps",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@sinclair/typebox": "^0.34.0",
-    "yaml": "^2.8.0"
-  }
-}

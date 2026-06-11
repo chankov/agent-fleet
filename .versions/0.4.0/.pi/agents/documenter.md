@@ -1,1 +1,0 @@
-/home/nchankov/repos/agent-skills/agents/documenter.md
