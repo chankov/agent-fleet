@@ -19,9 +19,10 @@
  *   /agents-grid N        — set column count (default 2)
  *   /agent-model <name>   — switch a persona's model from its declared candidates
  *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
- *   /agents-kill <name>   — SIGTERM a frozen specialist
+ *   /agents-kill <name>   — SIGTERM a frozen specialist (and its delegation tree)
  *   /agents-restart <name>— kill + re-run its last task fresh
- *   /zoom <name|rN>       — scrollable read-only view of an agent's stream
+ *   /zoom <name|rN|child> — scrollable read-only view of an agent's stream
+ *                           (team member, research helper rN, or delegate child id)
  *   /research <task>      — spawn a read-only research helper (@persona, --model)
  *   /research-cont rN ... — resume a finished research helper
  *   /research-rm rN       — remove a research helper (kill if running)
@@ -49,6 +50,7 @@ import {
 	type AutocompleteItem, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
+import { spawnPiAgent, killPiTree } from "./spawn.ts";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import * as net from "node:net";
@@ -56,6 +58,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 // ── Types ────────────────────────────────────────
 
@@ -67,6 +70,16 @@ interface AgentDef {
 	// Allowed switch targets for /agent-model and model profiles (frontmatter
 	// `models:` list). The default `model:` is implicitly a candidate too.
 	models?: string[];
+	// Mid-turn delegation (injected delegate tool): the sub-roles this persona
+	// may spawn, each with a model and an optional tool cap (frontmatter
+	// `subagents:` map). Model choice is configuration, never the child LLM's.
+	subagents?: Record<string, SubagentRole>;
+	// How deep this persona's delegation tree may go (frontmatter
+	// `delegate_depth:`). Default 1: it can spawn children, they cannot.
+	delegateDepth?: number;
+	// Non-fatal frontmatter problems (e.g. a subagents role without a model),
+	// surfaced once at session start.
+	warnings?: string[];
 	kind?: string;
 	// Per-agent thinking level for `/zoom` debugging. A pi --thinking level
 	// (off|minimal|low|medium|high|xhigh), default off. When non-off, thinking
@@ -86,6 +99,28 @@ interface TimelineEntry {
 	timestamp: number;
 }
 
+// A delegate child (or grandchild) of a dispatched specialist, reconstructed
+// from the JSONL events delegate.ts appends to the dispatch's delegation dir.
+// Satisfies Zoomable (def/status/timeline/zoomRender) so /zoom <child-id>
+// opens the same overlay specialists get; `parent` is "root" for direct
+// children or another child's id for sub-sub-agents.
+interface DelegationChild {
+	id: string;
+	parent: string;
+	role: string;
+	model: string;
+	tools: string;
+	def: { name: string };
+	status: "running" | "done" | "error";
+	toolCount: number;
+	tokens: number;
+	lastWork: string;
+	startedAt: number;
+	elapsed: number;
+	timeline: TimelineEntry[];
+	zoomRender?: (force?: boolean) => void;
+}
+
 interface AgentState {
 	def: AgentDef;
 	status: "idle" | "running" | "done" | "error";
@@ -97,6 +132,11 @@ interface AgentState {
 	sessionFile: string | null;
 	runCount: number;
 	timer?: ReturnType<typeof setInterval>;
+	// Mid-turn delegation (delegate tool). Children parsed live from the event
+	// file, keyed by child id; rendered as nested rows under the card and kept
+	// after completion for post-hoc /zoom. Reset on each dispatch.
+	delegations?: Map<string, DelegationChild>;
+	delegationsWatcher?: { close(): void };
 	// Kill / restart (Phase 2). The live child is stored so a frozen specialist
 	// can be SIGTERM'd. `killedByOperator` tells the close handler the exit was an
 	// operator kill (so it returns a "do not auto-retry" message instead of a
@@ -201,12 +241,17 @@ function extractNeedsResearch(output: string): string[] {
 //   persona-gate: on|off       — block input until a dispatcher persona is picked.
 //   model.<persona>: <spec>    — replace the persona's default model for this project.
 //   models.<persona>: <a>, <b> — replace the persona's model candidate list.
+//   subagents.<persona>.<role>: <model>[, tools=<caps>]
+//                              — replace/add one delegate sub-role for this project.
+//   delegate-depth.<persona>: <n> — replace the persona's delegation depth budget.
 
 interface AgentTeamOverrides {
 	language: string;
 	personaGate: boolean;
 	personaModels: Record<string, string>;
 	personaModelLists: Record<string, string[]>;
+	personaSubagents: Record<string, Record<string, SubagentRole>>;
+	personaDelegateDepth: Record<string, number>;
 }
 
 const DEFAULT_OVERRIDES: AgentTeamOverrides = {
@@ -214,10 +259,18 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	personaGate: false,
 	personaModels: {},
 	personaModelLists: {},
+	personaSubagents: {},
+	personaDelegateDepth: {},
 };
 
 function freshOverrides(): AgentTeamOverrides {
-	return { ...DEFAULT_OVERRIDES, personaModels: {}, personaModelLists: {} };
+	return {
+		...DEFAULT_OVERRIDES,
+		personaModels: {},
+		personaModelLists: {},
+		personaSubagents: {},
+		personaDelegateDepth: {},
+	};
 }
 
 function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
@@ -252,6 +305,23 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		const modelsKey = key.match(/^models\.([\w-]+)$/);
 		if (modelsKey && value) {
 			result.personaModelLists[modelsKey[1]] = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
+		const subKey = key.match(/^subagents\.([\w-]+)\.([\w-]+)$/);
+		if (subKey && value) {
+			// `<model>` or `<model>, tools=<caps>` — the caps list itself contains
+			// commas, hence the anchored optional group instead of a comma split.
+			const m = value.match(/^(\S+?)(?:\s*,\s*tools\s*=\s*([\w,-]+))?$/);
+			if (m) {
+				(result.personaSubagents[subKey[1]] ||= {})[subKey[2]] = {
+					model: m[1],
+					...(m[2] ? { tools: m[2] } : {}),
+				};
+			}
+		}
+		const depthKey = key.match(/^delegate-depth\.([\w-]+)$/);
+		if (depthKey && value) {
+			const n = parseInt(value, 10);
+			if (Number.isFinite(n) && n >= 0) result.personaDelegateDepth[depthKey[1]] = n;
 		}
 	}
 	return result;
@@ -301,6 +371,27 @@ function parseModelProfilesYaml(raw: string): Record<string, Record<string, stri
 
 // ── Frontmatter Parser ───────────────────────────
 
+// One declared delegate sub-role: the model the child runs on and an optional
+// tool cap that wins over tool inheritance (see delegate.ts write safety).
+interface SubagentRole {
+	model: string;
+	tools?: string;
+}
+
+// Inline forms of a subagents role value: `role: <model-spec>` shorthand or
+// `role: { model: x, tools: a,b }`. Regex extraction (not comma-splitting)
+// because the tools cap itself contains commas.
+function parseInlineSubagentRole(v: string): { model?: string; tools?: string } {
+	const s = v.trim();
+	if (!s) return {};
+	if (s.startsWith("{")) {
+		const model = s.match(/model\s*:\s*([^\s,}]+)/)?.[1];
+		const tools = s.match(/tools\s*:\s*([\w,-]+)/)?.[1];
+		return { ...(model ? { model } : {}), ...(tools ? { tools } : {}) };
+	}
+	return { model: s };
+}
+
 function parseAgentFile(filePath: string): AgentDef | null {
 	try {
 		const raw = readFileSync(filePath, "utf-8");
@@ -309,6 +400,8 @@ function parseAgentFile(filePath: string): AgentDef | null {
 
 		const frontmatter: Record<string, string> = {};
 		const lists: Record<string, string[]> = {};
+		const warnings: string[] = [];
+		let subagents: Record<string, SubagentRole> | undefined;
 		const fmLines = match[1].split("\n");
 		for (let i = 0; i < fmLines.length; i++) {
 			const line = fmLines[i];
@@ -316,6 +409,39 @@ function parseAgentFile(filePath: string): AgentDef | null {
 			if (idx <= 0) continue;
 			const key = line.slice(0, idx).trim();
 			const value = line.slice(idx + 1).trim();
+			if (key === "subagents") {
+				// One-level role map. Each role is `role: <model>`, an inline
+				// `role: { model: x, tools: y }`, or an indented `model:`/`tools:`
+				// block. Malformed roles are skipped with a warning, never fatal.
+				const entries: Record<string, { model?: string; tools?: string }> = {};
+				let currentRole: string | null = null;
+				let roleIndent = -1;
+				let j = i + 1;
+				while (j < fmLines.length) {
+					const m = fmLines[j].match(/^(\s+)([\w-]+)\s*:\s*(.*)$/);
+					if (!m) break;
+					const ind = m[1].length;
+					if (roleIndent === -1) roleIndent = ind;
+					if (ind < roleIndent) break;
+					if (ind === roleIndent) {
+						currentRole = m[2];
+						entries[currentRole] = parseInlineSubagentRole(m[3]);
+					} else if (currentRole) {
+						const v = m[3].trim();
+						if (m[2] === "model" && v) entries[currentRole].model = v;
+						else if (m[2] === "tools" && v) entries[currentRole].tools = v;
+					}
+					j++;
+				}
+				i = j - 1;
+				const roles: Record<string, SubagentRole> = {};
+				for (const [role, e] of Object.entries(entries)) {
+					if (e.model) roles[role] = { model: e.model, ...(e.tools ? { tools: e.tools } : {}) };
+					else warnings.push(`subagents role "${role}" declares no model — skipped`);
+				}
+				if (Object.keys(roles).length > 0) subagents = roles;
+				continue;
+			}
 			if (value) {
 				frontmatter[key] = value;
 				continue;
@@ -338,12 +464,22 @@ function parseAgentFile(filePath: string): AgentDef | null {
 
 		if (!frontmatter.name) return null;
 
+		let delegateDepth: number | undefined;
+		if (frontmatter.delegate_depth !== undefined) {
+			const n = parseInt(frontmatter.delegate_depth, 10);
+			if (Number.isFinite(n) && n >= 0) delegateDepth = n;
+			else warnings.push(`delegate_depth "${frontmatter.delegate_depth}" is not a non-negative integer — using default (1)`);
+		}
+
 		return {
 			name: frontmatter.name,
 			description: frontmatter.description || "",
 			tools: frontmatter.tools || "read,grep,find,ls",
 			model: frontmatter.model || undefined,
 			models: lists.models,
+			subagents,
+			delegateDepth,
+			warnings: warnings.length > 0 ? warnings : undefined,
 			kind: frontmatter.kind || undefined,
 			thinking: frontmatter.thinking || undefined,
 			systemPrompt: match[2].trim(),
@@ -397,6 +533,10 @@ const RESEARCH_TOOLS = "read,grep,find,ls";
 // dispatch_agent call may trigger, and how many questions are honored per round.
 const MAX_AUTO_RESEARCH_ROUNDS = 2;
 const MAX_AUTO_RESEARCH_QUESTIONS = 4;
+
+// Delegate budget: how many delegate() calls one dispatch may make (per
+// delegate.ts process; the depth budget bounds the tree separately).
+const DELEGATE_CALL_BUDGET = 6;
 
 // Appended to every research helper's system prompt so it knows its sandbox and how to
 // report. Kept separate from the dispatcher's clarification protocol: helpers don't
@@ -586,6 +726,18 @@ function resolveDamageControlExtension(cwd: string): string | null {
 		}
 	}
 	const local = join(cwd, ".pi", "harnesses", "damage-control", "index.ts");
+	return existsSync(local) ? local : null;
+}
+
+// The delegate extension injected into specialists that declare `subagents:`.
+// It lives next to this file; fall back to the conventional project path when
+// import.meta resolution doesn't map to a real file (e.g. a bundling loader).
+function resolveDelegateExtension(cwd: string): string | null {
+	try {
+		const p = fileURLToPath(new URL("./delegate.ts", import.meta.url));
+		if (existsSync(p)) return p;
+	} catch {}
+	const local = join(cwd, ".pi", "harnesses", "agent-hub", "delegate.ts");
 	return existsSync(local) ? local : null;
 }
 
@@ -1156,6 +1308,12 @@ export default function (pi: ExtensionAPI) {
 	// Resolved once at session_start: the damage-control harness to load into every
 	// spawned subagent (specialist + research helper) so guardrails follow them.
 	let damageControlExtPath: string | null = null;
+	// Resolved once at session_start: the delegate extension injected into
+	// specialists that declare `subagents:` (null → delegation disabled).
+	let delegateExtPath: string | null = null;
+	// Session-wide delegated-spend counter (tokens across all delegate children),
+	// surfaced in the status line. Resets on session_start.
+	let delegatedTokens = 0;
 
 	// ── Dispatcher persona gate (Phase 6) ──
 	// Every agent runs a declared persona; the dispatcher's is sourced from an
@@ -1192,8 +1350,10 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Findings from auto-research rounds are as ephemeral as the agent sessions
-		// that consumed them — wipe at session start.
+		// that consumed them — wipe at session start. Same for delegation event
+		// dirs (delegate children's events + sessions).
 		try { rmSync(join(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
+		try { rmSync(join(sessionDir, "delegations"), { recursive: true, force: true }); } catch {}
 
 		// Load all agent definitions
 		allAgentDefs = scanAgentDirs(cwd);
@@ -1370,6 +1530,31 @@ export default function (pi: ExtensionAPI) {
 		return truncateToWidth(line, width);
 	}
 
+	// One nested row per delegate child: "├ quality-1  sonnet-4.6 3.4k ● running 12s".
+	// Sub-sub-agents (parent !== "root") get an extra indent.
+	function renderChildLine(c: DelegationChild, w: number, theme: any): string {
+		const indent = w > 0 ? " " : "";
+		const contentWidth = Math.max(0, w - visibleWidth(indent));
+		if (contentWidth === 0) return "";
+		const status = cardStatus(c.status, c.status === "running" ? Date.now() - c.startedAt : c.elapsed);
+		const leftRaw = `${c.parent !== "root" ? "  " : ""}├ ${c.id}`;
+		const rightRaw = `${shortModel(c.model)} ${formatTokens(c.tokens)} ${status.text}`;
+		const rightWidth = visibleWidth(rightRaw);
+		if (rightWidth >= contentWidth) {
+			return indent + theme.fg("dim", truncateCardText(rightRaw, contentWidth));
+		}
+		const leftText = truncateCardText(leftRaw, Math.max(0, contentWidth - rightWidth - 1));
+		const gap = " ".repeat(Math.max(1, contentWidth - visibleWidth(leftText) - rightWidth));
+		return indent
+			+ theme.fg("muted", leftText)
+			+ gap
+			+ theme.fg("dim", `${shortModel(c.model)} ${formatTokens(c.tokens)} `)
+			+ theme.fg(status.color, status.text);
+	}
+
+	// Cap on nested rows per card; beyond it a "+N more" summary line renders.
+	const MAX_CHILD_ROWS = 6;
+
 	function renderCard(state: AgentState, colWidth: number, theme: any): string[] {
 		const w = Math.max(0, colWidth - 2);
 		const status = cardStatus(state.status, state.elapsed);
@@ -1386,10 +1571,29 @@ export default function (pi: ExtensionAPI) {
 			? (state.lastWork || state.task)
 			: state.def.description;
 
+		// Nested delegate-child rows + a subtree rollup line (children count and
+		// token total — sub-sub spend is included in both its own row and here).
+		const children = state.delegations ? Array.from(state.delegations.values()) : [];
+		const childLines: string[] = [];
+		if (children.length > 0) {
+			for (const c of children.slice(0, MAX_CHILD_ROWS)) {
+				childLines.push(renderBorderedLine(renderChildLine(c, w, theme), w, theme));
+			}
+			if (children.length > MAX_CHILD_ROWS) {
+				childLines.push(renderBorderedLine(" " + theme.fg("dim", `… +${children.length - MAX_CHILD_ROWS} more`), w, theme));
+			}
+			const subtreeTokens = children.reduce((n, c) => n + c.tokens, 0);
+			childLines.push(renderBorderedLine(
+				" " + theme.fg("dim", `└ ${children.length} delegate${children.length !== 1 ? "s" : ""} · ${formatTokens(subtreeTokens)} tok`),
+				w, theme,
+			));
+		}
+
 		return [
 			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
 			renderBorderedLine(headerLine, w, theme),
 			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
+			...childLines,
 			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
 		];
 	}
@@ -1448,13 +1652,16 @@ export default function (pi: ExtensionAPI) {
 						const rowAgents = agents.slice(i, i + cols);
 						const cards = rowAgents.map(a => renderCard(a, colWidth, theme));
 
+						// Cards vary in height (delegate-child rows) — pad every card in
+						// the row to the tallest one so columns stay aligned.
+						const cardHeight = Math.max(CARD_HEIGHT, ...cards.map(c => c.length));
 						while (cards.length < cols) {
-							cards.push(Array(CARD_HEIGHT).fill(" ".repeat(Math.max(0, colWidth))));
+							cards.push(Array(cardHeight).fill(" ".repeat(Math.max(0, colWidth))));
 						}
 
-						const cardHeight = cards[0].length;
+						const blank = " ".repeat(Math.max(0, colWidth));
 						for (let line = 0; line < cardHeight; line++) {
-							rows.push(cards.map(card => card[line] || ""));
+							rows.push(cards.map(card => card[line] ?? blank));
 						}
 					}
 
@@ -1561,9 +1768,127 @@ export default function (pi: ExtensionAPI) {
 		}), { placement: "belowEditor" });
 	}
 
+	// ── Delegation observability ─────────────────
+	// delegate.ts (running inside the specialist) appends JSONL events to
+	// <sessionDir>/delegations/<agentKey>/events.jsonl. The hub tails that file
+	// (fs.watch for responsiveness + a 1s poll fallback) and rebuilds child
+	// states for the nested card rows, /zoom, and the spend rollup.
+
+	function formatTokens(n: number): string {
+		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+		return `${n}`;
+	}
+
+	function updateDelegatedSpendStatus() {
+		if (!widgetCtx || delegatedTokens <= 0) return;
+		try { widgetCtx.ui.setStatus("delegated-spend", `Δ delegated: ${formatTokens(delegatedTokens)} tok`); } catch {}
+	}
+
+	function handleDelegationEvent(state: AgentState, e: any) {
+		if (!state.delegations || typeof e?.id !== "string") return;
+		if (e.t === "spawn") {
+			state.delegations.set(e.id, {
+				id: e.id,
+				parent: typeof e.parent === "string" ? e.parent : "root",
+				role: e.role || e.id,
+				model: e.model || "",
+				tools: e.tools || "",
+				def: { name: e.id },
+				status: "running",
+				toolCount: 0,
+				tokens: 0,
+				lastWork: "",
+				startedAt: e.ts || Date.now(),
+				elapsed: 0,
+				timeline: [],
+			});
+			return;
+		}
+		const child = state.delegations.get(e.id);
+		if (!child) return;
+		if (e.t === "timeline") {
+			appendTimelineText(child.timeline, e.kind === "thinking" ? "thinking" : "text", e.delta || "");
+			if (e.kind !== "thinking") {
+				const trailing = child.timeline[child.timeline.length - 1];
+				if (trailing?.kind === "text") {
+					child.lastWork = trailing.content.split("\n").filter((l) => l.trim()).pop() || "";
+				}
+			}
+			child.zoomRender?.();
+		} else if (e.t === "tool") {
+			child.toolCount++;
+			child.timeline.push({
+				kind: "tool",
+				title: `Tool: ${e.name || "tool"}`,
+				content: e.args || "",
+				timestamp: Date.now(),
+			});
+			child.zoomRender?.();
+		} else if (e.t === "usage") {
+			const add = (e.input || 0) + (e.output || 0);
+			child.tokens += add;
+			delegatedTokens += add;
+			updateDelegatedSpendStatus();
+		} else if (e.t === "exit") {
+			child.status = e.code === 0 ? "done" : "error";
+			child.elapsed = e.elapsed || (Date.now() - child.startedAt);
+			child.zoomRender?.(true);
+		}
+	}
+
+	// Tail the dispatch's delegation event file. Returns a closer that drains
+	// one final time so post-completion events (exit, last usage) land.
+	function startDelegationWatch(state: AgentState, dir: string) {
+		state.delegations = new Map();
+		const eventsFile = join(dir, "events.jsonl");
+		let offset = 0;
+		let pending = "";
+		const drain = () => {
+			let size: number;
+			try { size = fs.statSync(eventsFile).size; } catch { return; }
+			if (size <= offset) return;
+			let chunk: string;
+			try {
+				const fd = fs.openSync(eventsFile, "r");
+				try {
+					const buf = Buffer.alloc(size - offset);
+					fs.readSync(fd, buf, 0, buf.length, offset);
+					chunk = buf.toString("utf-8");
+				} finally {
+					fs.closeSync(fd);
+				}
+			} catch { return; }
+			offset = size;
+			pending += chunk;
+			const lines = pending.split("\n");
+			pending = lines.pop() || "";
+			let dirty = false;
+			for (const line of lines) {
+				if (!line.trim()) continue;
+				try {
+					handleDelegationEvent(state, JSON.parse(line));
+					dirty = true;
+				} catch {}
+			}
+			if (dirty) updateWidget();
+		};
+		const timer = setInterval(drain, 1000);
+		try { (timer as any).unref?.(); } catch {}
+		let watcher: fs.FSWatcher | null = null;
+		try { watcher = fs.watch(dir, () => drain()); } catch {}
+		state.delegationsWatcher = {
+			close() {
+				clearInterval(timer);
+				try { watcher?.close(); } catch {}
+				drain();
+			},
+		};
+	}
+
 	// ── Dispatch Agent (returns Promise) ─────────
 
-	function dispatchAgent(
+	async function dispatchAgent(
 		agentName: string,
 		task: string,
 		ctx: any,
@@ -1595,6 +1920,9 @@ export default function (pi: ExtensionAPI) {
 		state.killedByOperator = false;
 		state.restarting = false;
 		state.timeline = [];
+		state.delegationsWatcher?.close();
+		state.delegationsWatcher = undefined;
+		state.delegations = undefined;
 		updateWidget();
 
 		const startTime = Date.now();
@@ -1644,7 +1972,53 @@ this same session with the file paths — read them and continue from where you 
 off. Ask at most ${MAX_AUTO_RESEARCH_QUESTIONS} questions per pause. Use ASK_USER only
 for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked up.`;
 
-		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol;
+		// Mid-turn delegation: a persona that declares `subagents:` gets the
+		// delegate extension injected (`-e delegate.ts`), the `delegate` tool
+		// added to its allowlist (pi filters extension tools too), and its
+		// declared roles/budgets serialized into AGENT_HUB_DELEGATE_CONFIG. The
+		// hub pre-creates and tails the dispatch's delegation event dir for the
+		// nested card rows. Personas without `subagents:` spawn exactly as before.
+		const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
+			? state.def.subagents
+			: null;
+		const delegationActive = !!subagentRoles && !!delegateExtPath;
+		const extensions = damageControlExtPath ? [damageControlExtPath] : [];
+		let effectiveTools = state.def.tools;
+		let delegateEnv: Record<string, string> | undefined;
+		let delegationProtocol = "";
+		if (delegationActive) {
+			const delegationDir = join(sessionDir, "delegations", agentKey);
+			try { rmSync(delegationDir, { recursive: true, force: true }); } catch {}
+			mkdirSync(delegationDir, { recursive: true });
+			extensions.push(delegateExtPath!);
+			effectiveTools = `${state.def.tools},delegate`;
+			delegateEnv = {
+				AGENT_HUB_DELEGATE_CONFIG: JSON.stringify({
+					persona: state.def.name,
+					tag: "root",
+					roles: subagentRoles,
+					depth: state.def.delegateDepth ?? 1,
+					callBudget: DELEGATE_CALL_BUDGET,
+					parentTools: state.def.tools,
+					personaPrompt: state.def.systemPrompt,
+					eventDir: delegationDir,
+					damageControl: damageControlExtPath || undefined,
+					delegateExt: delegateExtPath,
+					cwd: ctx.cwd || process.cwd(),
+				}),
+			};
+			delegationProtocol = `
+
+## Delegation protocol
+You have a \`delegate\` tool with pre-configured sub-agents on cheaper models
+(roles: ${Object.keys(subagentRoles!).join(", ")}). Prefer delegating scoped, self-contained
+sub-tasks to them over doing everything yourself. A child shares NONE of your
+context — put everything it needs into its instruction/context. You may run
+several delegate calls in parallel, but parallel children are forced read-only.`;
+			startDelegationWatch(state, delegationDir);
+		}
+
+		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + delegationProtocol;
 
 		// Per-agent thinking: a persona can set `thinking:` in frontmatter to capture
 		// its reasoning into the zoom timeline (default off). Non-off enables thinking
@@ -1652,205 +2026,152 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 		const thinkingLevel = resolveThinkingLevel(state.def.thinking);
 		const wantThinking = thinkingLevel !== "off";
 
-		// Build args — first run creates session, subsequent runs resume
-		const args = [
-			"--mode", "json",
-			"-p",
-			"--no-extensions",
-			...(damageControlExtPath ? ["-e", damageControlExtPath] : []),
-			"--model", model,
-			"--tools", state.def.tools,
-			"--thinking", thinkingLevel,
-			"--append-system-prompt", appendedSystemPrompt,
-			"--session", agentSessionFile,
-		];
+		// Spawn via the shared helper — first run creates the session, subsequent
+		// runs resume it (-c). Stream events drive the card + zoom timeline.
+		// `detached` puts the specialist in its own process group so /agents-kill
+		// can SIGTERM the whole delegation tree (killPiTree).
+		let fullText = "";
+		const res = await spawnPiAgent({
+			model,
+			tools: effectiveTools,
+			thinking: thinkingLevel,
+			appendSystemPrompt: appendedSystemPrompt,
+			sessionFile: agentSessionFile,
+			resume: !!state.sessionFile,
+			prompt: task,
+			extensions,
+			env: delegateEnv,
+			detached: true,
+		}, {
+			onProcess: (p) => { state.proc = p; },
+			onTextDelta: (delta) => {
+				fullText += delta;
+				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
+				appendTimelineText(state.timeline, "text", delta);
+				updateWidget();
+				state.zoomRender?.();
+			},
+			onThinkingDelta: (delta) => {
+				if (!wantThinking) return;
+				appendTimelineText(state.timeline, "thinking", delta);
+				state.zoomRender?.();
+			},
+			onToolStart: (toolName, argStr) => {
+				state.toolCount++;
+				state.timeline.push({
+					kind: "tool",
+					title: `Tool: ${toolName}`,
+					content: argStr,
+					timestamp: Date.now(),
+				});
+				updateWidget();
+				state.zoomRender?.();
+			},
+			onUsage: (usage) => {
+				if (contextWindow > 0) {
+					state.contextPct = ((usage.input || 0) / contextWindow) * 100;
+					updateWidget();
+				}
+			},
+		});
 
-		// Continue existing session if we have one
-		if (state.sessionFile) {
-			args.push("-c");
+		clearInterval(state.timer);
+		state.elapsed = Date.now() - startTime;
+		state.proc = undefined;
+		// Stop tailing the delegation event file (one final drain inside close,
+		// so trailing exit/usage events land). Child states stay for /zoom.
+		state.delegationsWatcher?.close();
+		state.delegationsWatcher = undefined;
+
+		// The process could not be spawned at all (proc `error` event).
+		if (res.spawnError) {
+			state.status = "error";
+			state.lastWork = `Error: ${res.spawnError}`;
+			state.killedByOperator = false;
+			state.restarting = false;
+			updateWidget();
+			state.zoomRender?.(true);
+			const onTerminate = state.onTerminate;
+			state.onTerminate = undefined;
+			onTerminate?.();
+			return {
+				output: `Error spawning agent: ${res.spawnError}`,
+				exitCode: 1,
+				elapsed: state.elapsed,
+			};
 		}
 
-		args.push(task);
+		const full = res.output;
+		const code = res.exitCode;
 
-		const textChunks: string[] = [];
-		const stderrChunks: string[] = [];
+		// Operator kill (Phase 2). The exit was a SIGTERM from /agents-kill or
+		// /agents-restart, not a real completion: free the card (status → idle),
+		// fire any restart waiter, and return a message that tells the dispatcher
+		// LLM not to auto-retry. /agents-restart handles the fresh re-dispatch.
+		if (state.killedByOperator) {
+			// !! (not `=== true`): TS otherwise narrows the field to the `false`
+			// assigned during setup — the concurrent /agents-restart mutation that
+			// makes this true is invisible to the checker across the await.
+			const wasRestart = !!state.restarting;
+			state.killedByOperator = false;
+			state.restarting = false;
+			state.status = "idle";
+			state.lastWork = wasRestart ? "(killed for restart)" : "(killed by operator)";
+			updateWidget();
+			state.zoomRender?.(true);
+			ctx.ui.notify(`${displayName(state.def.name)} killed by operator`, "info");
+			const onTerminate = state.onTerminate;
+			state.onTerminate = undefined;
+			onTerminate?.();
+			return {
+				output: wasRestart
+					? `Agent "${displayName(state.def.name)}" was killed by the operator for a restart. A fresh run is starting now; WAIT for the follow-up result before acting — do not re-dispatch this agent yourself.`
+					: `Agent "${displayName(state.def.name)}" was killed by the operator. Do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
+				exitCode: code ?? 143,
+				elapsed: state.elapsed,
+			};
+		}
 
-		return new Promise((resolve) => {
-			const proc = spawn("pi", args, {
-				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
-			});
-			state.proc = proc;
+		state.status = code === 0 ? "done" : "error";
 
-			let buffer = "";
+		// Mark session file as available for resume
+		if (code === 0) {
+			state.sessionFile = agentSessionFile;
+		}
 
-			proc.stdout!.setEncoding("utf-8");
-			proc.stdout!.on("data", (chunk: string) => {
-				buffer += chunk;
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-				for (const line of lines) {
-					if (!line.trim()) continue;
-					try {
-						const event = JSON.parse(line);
-						if (event.type === "message_update") {
-							const delta = event.assistantMessageEvent;
-							if (delta?.type === "text_delta") {
-								textChunks.push(delta.delta || "");
-								const full = textChunks.join("");
-								const last = full.split("\n").filter((l: string) => l.trim()).pop() || "";
-								state.lastWork = last;
-								appendTimelineText(state.timeline, "text", delta.delta || "");
-								updateWidget();
-								state.zoomRender?.();
-							} else if (delta?.type === "thinking_delta" && wantThinking) {
-								appendTimelineText(state.timeline, "thinking", delta.delta || "");
-								state.zoomRender?.();
-							}
-						} else if (event.type === "tool_execution_start") {
-							state.toolCount++;
-							let argStr = "";
-							try { argStr = event.args != null ? JSON.stringify(event.args) : ""; } catch { argStr = ""; }
-							state.timeline.push({
-								kind: "tool",
-								title: `Tool: ${event.toolName || "tool"}`,
-								content: argStr,
-								timestamp: Date.now(),
-							});
-							updateWidget();
-							state.zoomRender?.();
-						} else if (event.type === "message_end") {
-							const msg = event.message;
-							if (msg?.usage && contextWindow > 0) {
-								state.contextPct = ((msg.usage.input || 0) / contextWindow) * 100;
-								updateWidget();
-							}
-						} else if (event.type === "agent_end") {
-							const msgs = event.messages || [];
-							const last = [...msgs].reverse().find((m: any) => m.role === "assistant");
-							if (last?.usage && contextWindow > 0) {
-								state.contextPct = ((last.usage.input || 0) / contextWindow) * 100;
-								updateWidget();
-							}
-						}
-					} catch {}
-				}
-			});
+		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+		updateWidget();
+		state.zoomRender?.(true);
 
-			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", (chunk: string) => {
-				stderrChunks.push(chunk);
-			});
+		ctx.ui.notify(
+			`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
+			state.status === "done" ? "success" : "error"
+		);
 
-			proc.on("close", (code) => {
-				if (buffer.trim()) {
-					try {
-						const event = JSON.parse(buffer);
-						if (event.type === "message_update") {
-							const delta = event.assistantMessageEvent;
-							if (delta?.type === "text_delta") {
-								textChunks.push(delta.delta || "");
-								appendTimelineText(state.timeline, "text", delta.delta || "");
-							} else if (delta?.type === "thinking_delta" && wantThinking) {
-								appendTimelineText(state.timeline, "thinking", delta.delta || "");
-							}
-						}
-					} catch {}
-				}
+		// Let a restart waiter proceed even when the agent finished naturally
+		// between the operator's /agents-restart and the kill landing.
+		const onTerminate = state.onTerminate;
+		state.onTerminate = undefined;
+		onTerminate?.();
 
-				clearInterval(state.timer);
-				state.elapsed = Date.now() - startTime;
-				state.proc = undefined;
+		// On a non-zero exit, surface stderr so failures with no JSON output
+		// (e.g. a bad --model spec or a provider whose API key isn't configured)
+		// reach the dispatcher as a readable message instead of an empty result.
+		let output = full;
+		if (code !== 0) {
+			const errText = res.stderr.trim();
+			const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
+			const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
+			output = full
+				? `${full}${errBlock}`
+				: `Agent "${displayName(state.def.name)}" exited with code ${code} and produced no output.${errBlock}`;
+		}
 
-				const full = textChunks.join("");
-
-				// Operator kill (Phase 2). The exit was a SIGTERM from /agents-kill or
-				// /agents-restart, not a real completion: free the card (status → idle),
-				// fire any restart waiter, and return a message that tells the dispatcher
-				// LLM not to auto-retry. /agents-restart handles the fresh re-dispatch.
-				if (state.killedByOperator) {
-					const wasRestart = state.restarting === true;
-					state.killedByOperator = false;
-					state.restarting = false;
-					state.status = "idle";
-					state.lastWork = wasRestart ? "(killed for restart)" : "(killed by operator)";
-					updateWidget();
-					state.zoomRender?.(true);
-					ctx.ui.notify(`${displayName(state.def.name)} killed by operator`, "info");
-					const onTerminate = state.onTerminate;
-					state.onTerminate = undefined;
-					onTerminate?.();
-					resolve({
-						output: wasRestart
-							? `Agent "${displayName(state.def.name)}" was killed by the operator for a restart. A fresh run is starting now; WAIT for the follow-up result before acting — do not re-dispatch this agent yourself.`
-							: `Agent "${displayName(state.def.name)}" was killed by the operator. Do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
-						exitCode: code ?? 143,
-						elapsed: state.elapsed,
-					});
-					return;
-				}
-
-				state.status = code === 0 ? "done" : "error";
-
-				// Mark session file as available for resume
-				if (code === 0) {
-					state.sessionFile = agentSessionFile;
-				}
-
-				state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
-				updateWidget();
-				state.zoomRender?.(true);
-
-				ctx.ui.notify(
-					`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
-					state.status === "done" ? "success" : "error"
-				);
-
-				// Let a restart waiter proceed even when the agent finished naturally
-				// between the operator's /agents-restart and the kill landing.
-				const onTerminate = state.onTerminate;
-				state.onTerminate = undefined;
-				onTerminate?.();
-
-				// On a non-zero exit, surface stderr so failures with no JSON output
-				// (e.g. a bad --model spec or a provider whose API key isn't configured)
-				// reach the dispatcher as a readable message instead of an empty result.
-				let output = full;
-				if (code !== 0) {
-					const errText = stderrChunks.join("").trim();
-					const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
-					const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
-					output = full
-						? `${full}${errBlock}`
-						: `Agent "${displayName(state.def.name)}" exited with code ${code} and produced no output.${errBlock}`;
-				}
-
-				resolve({
-					output,
-					exitCode: code ?? 1,
-					elapsed: state.elapsed,
-				});
-			});
-
-			proc.on("error", (err) => {
-				clearInterval(state.timer);
-				state.proc = undefined;
-				state.status = "error";
-				state.lastWork = `Error: ${err.message}`;
-				state.killedByOperator = false;
-				state.restarting = false;
-				updateWidget();
-				state.zoomRender?.(true);
-				const onTerminate = state.onTerminate;
-				state.onTerminate = undefined;
-				onTerminate?.();
-				resolve({
-					output: `Error spawning agent: ${err.message}`,
-					exitCode: 1,
-					elapsed: Date.now() - startTime,
-				});
-			});
-		});
+		return {
+			output,
+			exitCode: code ?? 1,
+			elapsed: state.elapsed,
+		};
 	}
 
 	// ── Research helpers (Phase 4) ───────────────
@@ -1903,7 +2224,7 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 	// handling but is forced read-only (RESEARCH_TOOLS), drives the research widget, and
 	// resolves with the findings — the CALLER decides what to do with them (the
 	// spawn_research tool returns them inline; the /research command delivers a follow-up).
-	function spawnResearch(
+	async function spawnResearch(
 		state: ResearchState,
 		prompt: string,
 		ctx: any,
@@ -1928,166 +2249,107 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 		const sessionPath = researchSessionPath(state.id);
 
 		// READ-ONLY by construction: RESEARCH_TOOLS only, regardless of persona frontmatter.
-		const args = [
-			"--mode", "json",
-			"-p",
-			"--no-extensions",
-			...(damageControlExtPath ? ["-e", damageControlExtPath] : []),
-			"--model", state.model,
-			"--tools", RESEARCH_TOOLS,
-			"--thinking", thinkingLevel,
-			"--append-system-prompt", state.def.systemPrompt + RESEARCH_PROTOCOL,
-			"--session", sessionPath,
-		];
-		if (state.sessionFile) args.push("-c");
-		args.push(prompt);
-
-		const textChunks: string[] = [];
-		const stderrChunks: string[] = [];
-
-		return new Promise((resolve) => {
-			const proc = spawn("pi", args, {
-				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
-			});
-			state.proc = proc;
-
-			let buffer = "";
-
-			proc.stdout!.setEncoding("utf-8");
-			proc.stdout!.on("data", (chunk: string) => {
-				buffer += chunk;
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-				for (const line of lines) {
-					if (!line.trim()) continue;
-					try {
-						const event = JSON.parse(line);
-						if (event.type === "message_update") {
-							const delta = event.assistantMessageEvent;
-							if (delta?.type === "text_delta") {
-								textChunks.push(delta.delta || "");
-								const full = textChunks.join("");
-								state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
-								appendTimelineText(state.timeline, "text", delta.delta || "");
-								updateResearchWidget();
-								state.zoomRender?.();
-							} else if (delta?.type === "thinking_delta" && wantThinking) {
-								appendTimelineText(state.timeline, "thinking", delta.delta || "");
-								state.zoomRender?.();
-							}
-						} else if (event.type === "tool_execution_start") {
-							state.toolCount++;
-							let argStr = "";
-							try { argStr = event.args != null ? JSON.stringify(event.args) : ""; } catch { argStr = ""; }
-							state.timeline.push({
-								kind: "tool",
-								title: `Tool: ${event.toolName || "tool"}`,
-								content: argStr,
-								timestamp: Date.now(),
-							});
-							updateResearchWidget();
-							state.zoomRender?.();
-						} else if (event.type === "message_end") {
-							const msg = event.message;
-							if (msg?.usage && contextWindow > 0) {
-								state.contextPct = ((msg.usage.input || 0) / contextWindow) * 100;
-								updateResearchWidget();
-							}
-						} else if (event.type === "agent_end") {
-							const msgs = event.messages || [];
-							const last = [...msgs].reverse().find((m: any) => m.role === "assistant");
-							if (last?.usage && contextWindow > 0) {
-								state.contextPct = ((last.usage.input || 0) / contextWindow) * 100;
-								updateResearchWidget();
-							}
-						}
-					} catch {}
-				}
-			});
-
-			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", (chunk: string) => {
-				stderrChunks.push(chunk);
-			});
-
-			proc.on("close", (code) => {
-				if (buffer.trim()) {
-					try {
-						const event = JSON.parse(buffer);
-						if (event.type === "message_update") {
-							const delta = event.assistantMessageEvent;
-							if (delta?.type === "text_delta") {
-								textChunks.push(delta.delta || "");
-								appendTimelineText(state.timeline, "text", delta.delta || "");
-							} else if (delta?.type === "thinking_delta" && wantThinking) {
-								appendTimelineText(state.timeline, "thinking", delta.delta || "");
-							}
-						}
-					} catch {}
-				}
-
-				clearInterval(state.timer);
-				state.elapsed = Date.now() - startTime;
-				state.proc = undefined;
-
-				const full = textChunks.join("");
-
-				// Operator kill (via /research-rm or /research-clear). Resolve gracefully so
-				// a spawn_research tool call awaiting this helper doesn't hang.
-				if (state.killedByOperator) {
-					state.killedByOperator = false;
-					state.status = "idle";
-					state.lastWork = "(killed by operator)";
-					updateResearchWidget();
-					state.zoomRender?.(true);
-					resolve({
-						output: `Research helper r${state.id} was killed by the operator before it finished.`,
-						exitCode: code ?? 143,
-						elapsed: state.elapsed,
-					});
-					return;
-				}
-
-				state.status = code === 0 ? "done" : "error";
-				if (code === 0) state.sessionFile = sessionPath;
-				state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+		let fullText = "";
+		const res = await spawnPiAgent({
+			model: state.model,
+			tools: RESEARCH_TOOLS,
+			thinking: thinkingLevel,
+			appendSystemPrompt: state.def.systemPrompt + RESEARCH_PROTOCOL,
+			sessionFile: sessionPath,
+			resume: !!state.sessionFile,
+			prompt,
+			extensions: damageControlExtPath ? [damageControlExtPath] : [],
+		}, {
+			onProcess: (p) => { state.proc = p; },
+			onTextDelta: (delta) => {
+				fullText += delta;
+				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
+				appendTimelineText(state.timeline, "text", delta);
 				updateResearchWidget();
-				state.zoomRender?.(true);
-
-				ctx.ui.notify(
-					`Research r${state.id} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
-					state.status === "done" ? "success" : "error",
-				);
-
-				let output = full;
-				if (code !== 0) {
-					const errText = stderrChunks.join("").trim();
-					const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
-					const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
-					output = full
-						? `${full}${errBlock}`
-						: `Research helper r${state.id} exited with code ${code} and produced no output.${errBlock}`;
-				}
-
-				resolve({ output, exitCode: code ?? 1, elapsed: state.elapsed });
-			});
-
-			proc.on("error", (err) => {
-				clearInterval(state.timer);
-				state.proc = undefined;
-				state.status = "error";
-				state.lastWork = `Error: ${err.message}`;
-				state.killedByOperator = false;
-				updateResearchWidget();
-				state.zoomRender?.(true);
-				resolve({
-					output: `Error spawning research helper: ${err.message}`,
-					exitCode: 1,
-					elapsed: Date.now() - startTime,
+				state.zoomRender?.();
+			},
+			onThinkingDelta: (delta) => {
+				if (!wantThinking) return;
+				appendTimelineText(state.timeline, "thinking", delta);
+				state.zoomRender?.();
+			},
+			onToolStart: (toolName, argStr) => {
+				state.toolCount++;
+				state.timeline.push({
+					kind: "tool",
+					title: `Tool: ${toolName}`,
+					content: argStr,
+					timestamp: Date.now(),
 				});
-			});
+				updateResearchWidget();
+				state.zoomRender?.();
+			},
+			onUsage: (usage) => {
+				if (contextWindow > 0) {
+					state.contextPct = ((usage.input || 0) / contextWindow) * 100;
+					updateResearchWidget();
+				}
+			},
 		});
+
+		clearInterval(state.timer);
+		state.elapsed = Date.now() - startTime;
+		state.proc = undefined;
+
+		// The process could not be spawned at all (proc `error` event).
+		if (res.spawnError) {
+			state.status = "error";
+			state.lastWork = `Error: ${res.spawnError}`;
+			state.killedByOperator = false;
+			updateResearchWidget();
+			state.zoomRender?.(true);
+			return {
+				output: `Error spawning research helper: ${res.spawnError}`,
+				exitCode: 1,
+				elapsed: state.elapsed,
+			};
+		}
+
+		const full = res.output;
+		const code = res.exitCode;
+
+		// Operator kill (via /research-rm or /research-clear). Resolve gracefully so
+		// a spawn_research tool call awaiting this helper doesn't hang.
+		if (state.killedByOperator) {
+			state.killedByOperator = false;
+			state.status = "idle";
+			state.lastWork = "(killed by operator)";
+			updateResearchWidget();
+			state.zoomRender?.(true);
+			return {
+				output: `Research helper r${state.id} was killed by the operator before it finished.`,
+				exitCode: code ?? 143,
+				elapsed: state.elapsed,
+			};
+		}
+
+		state.status = code === 0 ? "done" : "error";
+		if (code === 0) state.sessionFile = sessionPath;
+		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+		updateResearchWidget();
+		state.zoomRender?.(true);
+
+		ctx.ui.notify(
+			`Research r${state.id} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
+			state.status === "done" ? "success" : "error",
+		);
+
+		let output = full;
+		if (code !== 0) {
+			const errText = res.stderr.trim();
+			const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
+			const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
+			output = full
+				? `${full}${errBlock}`
+				: `Research helper r${state.id} exited with code ${code} and produced no output.${errBlock}`;
+		}
+
+		return { output, exitCode: code ?? 1, elapsed: state.elapsed };
 	}
 
 	// Deliver a /research result back to the dispatcher as a follow-up turn (the human
@@ -3334,7 +3596,18 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// Completions for /zoom: team member names plus research handles (rN).
+	// A delegate child anywhere in the team, by its id (e.g. "quality-1").
+	function findDelegationChild(arg: string): { child: DelegationChild; owner: AgentState } | null {
+		const lower = arg.toLowerCase();
+		for (const st of agentStates.values()) {
+			const child = st.delegations?.get(lower);
+			if (child) return { child, owner: st };
+		}
+		return null;
+	}
+
+	// Completions for /zoom: team member names, research handles (rN), and
+	// delegate child ids nested under their parent specialist.
 	const zoomCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const teamItems = Array.from(agentStates.values()).map(s => ({
 			value: s.def.name,
@@ -3344,7 +3617,13 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 			value: `r${s.id}`,
 			label: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"} (${s.status})`,
 		}));
-		const items = [...teamItems, ...researchItems];
+		const childItems = Array.from(agentStates.values()).flatMap(s =>
+			Array.from(s.delegations?.values() || []).map(c => ({
+				value: c.id,
+				label: `${c.id} — delegate of ${displayName(s.def.name)} (${c.status})`,
+			})),
+		);
+		const items = [...teamItems, ...researchItems, ...childItems];
 		if (items.length === 0) return null;
 		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
 		return filtered.length > 0 ? filtered : items;
@@ -3356,17 +3635,22 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const arg = args?.trim() || "";
-			// A research handle (rN/#N/N) targets a research helper; anything else is a
-			// team member name. Both satisfy Zoomable, so the same overlay renders either.
+			// A research handle (rN/#N/N) targets a research helper; a delegate child
+			// id (e.g. "quality-1") targets a nested child; anything else is a team
+			// member name. All satisfy Zoomable, so the same overlay renders each.
 			const rid = parseResearchHandle(arg);
 			const target: Zoomable | undefined = rid != null
 				? researchStates.get(rid)
-				: arg ? agentStates.get(arg.toLowerCase()) : undefined;
+				: arg
+					? agentStates.get(arg.toLowerCase()) ?? findDelegationChild(arg)?.child
+					: undefined;
 			if (!target) {
 				const teamKnown = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 				const researchKnown = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
-				const known = [teamKnown, researchKnown].filter(Boolean).join(", ");
-				ctx.ui.notify(`Usage: /zoom <name|rN>. Known: ${known || "none"}`, "error");
+				const childKnown = Array.from(agentStates.values())
+					.flatMap(s => Array.from(s.delegations?.keys() || [])).join(", ");
+				const known = [teamKnown, researchKnown, childKnown].filter(Boolean).join(", ");
+				ctx.ui.notify(`Usage: /zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
 				return;
 			}
 			// Open a read-only overlay over the live timeline. While it's open,
@@ -3687,10 +3971,11 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 				ctx.ui.notify(`${displayName(state.def.name)} is not running — nothing to kill.`, "warning");
 				return;
 			}
-			// Branch A: SIGTERM the child. The close handler resolves the awaited
+			// Branch A: SIGTERM the child's process group (killPiTree) so any live
+			// delegate children die with it. The close handler resolves the awaited
 			// dispatch with a "do not auto-retry" message, unblocking the dispatcher.
 			state.killedByOperator = true;
-			state.proc.kill("SIGTERM");
+			killPiTree(state.proc);
 			ctx.ui.notify(`Killing ${displayName(state.def.name)}...`, "info");
 		},
 	});
@@ -3719,7 +4004,7 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 					state.onTerminate = res;
 					state.killedByOperator = true;
 					state.restarting = true;
-					state.proc!.kill("SIGTERM");
+					killPiTree(state.proc!);
 				});
 			}
 			// Re-run fresh: a frozen session file may be inconsistent, so drop it (no -c).
@@ -4035,6 +4320,12 @@ ${researchCatalog}`;
 			widgetCtx.ui.setWidget("agent-team", undefined);
 			widgetCtx.ui.setWidget("agent-research", undefined);
 		}
+		// Stop tailing any delegation event files from a previous session.
+		for (const [, st] of Array.from(agentStates.entries())) {
+			st.delegationsWatcher?.close();
+			st.delegationsWatcher = undefined;
+		}
+		delegatedTokens = 0;
 		widgetCtx = _ctx;
 		contextWindow = _ctx.model?.contextWindow || 0;
 		damageControlExtPath = resolveDamageControlExtension(_ctx.cwd);
@@ -4044,6 +4335,7 @@ ${researchCatalog}`;
 				"warning",
 			);
 		}
+		delegateExtPath = resolveDelegateExtension(_ctx.cwd);
 
 		// ── Embedded coms init ──
 		// Always refresh the ctx the coms handlers use. Bind the endpoint + register
@@ -4139,6 +4431,19 @@ ${researchCatalog}`;
 
 		loadAgents(_ctx.cwd);
 
+		// Surface non-fatal persona frontmatter warnings (skipped subagents roles,
+		// bad delegate_depth) once per session.
+		const fmWarnings = allAgentDefs.flatMap(d => (d.warnings || []).map(w => `${d.name}: ${w}`));
+		if (fmWarnings.length > 0) {
+			_ctx.ui.notify(`Persona frontmatter warnings:\n${fmWarnings.join("\n")}`, "warning");
+		}
+		if (!delegateExtPath && allAgentDefs.some(d => d.subagents)) {
+			_ctx.ui.notify(
+				"delegate.ts not found next to agent-hub — `subagents:` declarations are inert (specialists dispatch without a delegate tool).",
+				"warning",
+			);
+		}
+
 		// Load per-project overrides (user-facing language, persona gate, models).
 		const overrides = parseAgentTeamOverrides(_ctx.cwd);
 		userLanguage = overrides.language;
@@ -4150,6 +4455,16 @@ ${researchCatalog}`;
 			const lower = def.name.toLowerCase();
 			if (overrides.personaModels[lower]) def.model = overrides.personaModels[lower];
 			if (overrides.personaModelLists[lower]) def.models = overrides.personaModelLists[lower];
+			// Delegation overrides: replace/add individual sub-roles (other declared
+			// roles keep their frontmatter values) and the depth budget.
+			const subOv = overrides.personaSubagents[lower];
+			if (subOv) {
+				def.subagents = { ...(def.subagents || {}) };
+				for (const [role, r] of Object.entries(subOv)) def.subagents[role] = r;
+			}
+			if (overrides.personaDelegateDepth[lower] !== undefined) {
+				def.delegateDepth = overrides.personaDelegateDepth[lower];
+			}
 		}
 
 		// Validate model profiles against the (post-override) declared candidates.
@@ -4232,9 +4547,9 @@ ${researchCatalog}`;
 			`/agents-grid <1-6>    Set grid column count\n` +
 			`/agent-model <name>   Switch a persona's model from its declared candidates\n` +
 			`/models [profile]     Apply a named model profile to the team\n` +
-			`/agents-kill <name>   SIGTERM a frozen specialist\n` +
+			`/agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
 			`/agents-restart <name> Kill + re-run its last task fresh\n` +
-			`/zoom <name|rN>       Scrollable read-only view of an agent's stream\n` +
+			`/zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream\n` +
 			`/research <task>      Spawn a read-only research helper (@persona, --model)\n` +
 			`/research-cont rN ... Resume a finished research helper\n` +
 			`/research-rm rN       Remove a research helper (kill if running)\n` +

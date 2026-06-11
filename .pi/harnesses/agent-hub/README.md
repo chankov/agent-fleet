@@ -42,6 +42,25 @@ another main agent** and **use a coms peer as a subagent**.
   error). Nothing outside the declared lists is ever selectable. Per project,
   `model.<persona>:` / `models.<persona>:` keys under `## agent-team` in
   `.ai/agent-skills-overrides.md` replace a persona's default model / candidate list.
+- **Mid-turn delegation (`delegate` tool)** — a persona that declares a `subagents:` map in its
+  frontmatter (`role: { model, tools? }` entries, or an indented `model:`/`tools:` block per role)
+  gets a real mid-turn `delegate(role, instruction, context?, allow_write?)` tool, injected as an
+  extra `-e delegate.ts` extension into its spawned process (the `delegate` tool name is appended to
+  its `--tools` allowlist — pi filters extension tools too). Only declared roles are spawnable, on
+  their declared models — model choice is configuration, never the child LLM's. Budgets are readable
+  refusals: at most 6 `delegate` calls per dispatch, and a per-persona `delegate_depth:` budget
+  (default 1 — children get `depth − 1` and refuse at 0). Write safety: children run read-only
+  (`read,grep,find,ls`) unless a SINGLE live child gets `allow_write: true`, which inherits the
+  parent's tools intersected with the role's `tools:` cap; concurrent children are always forced
+  read-only. Children report through `.pi/agent-sessions/delegations/<persona>/events.jsonl`; the
+  hub tails it and renders nested rows under the parent's card (child id, model, tokens, status),
+  each openable with `/zoom <child-id>`. Spend rolls up: every child row and the parent's subtree
+  total show tokens, and a session-wide `Δ delegated` counter sits in the status line.
+  `/agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
+  it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
+  `subagents.<persona>.<role>:` and `delegate-depth.<persona>:` keys under `## agent-team` in
+  `.ai/agent-skills-overrides.md` replace individual sub-roles / the depth budget. The pilot persona
+  is `code-reviewer` (quality/security/perf on sonnet, docs on haiku, pre-pass protocol).
 - **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
   session start; by default the dispatcher starts without the gate.
 - **Default damage-control guardrails** — `just hub` and `just hub-solo` load the hard-stop
@@ -132,8 +151,9 @@ context to a peer the human has not approved.
 The dispatcher uses a peer as a subagent by pairing the tools: `coms_send(target, prompt)` to
 issue the task, then `coms_await(msg_id)` to block for the reply (or `coms_get` to poll). This sits
 alongside `dispatch_agent` — local persona specialists are dispatched as subprocesses; remote peers
-are reached over coms. v1 keeps the two paths explicit (a unified `delegate()` that auto-routes is a
-later nicety). Multi-hop is inherited from coms: a peer handling a dispatched task can `coms_send`
+are reached over coms. The two paths stay explicit. (The specialist-level `delegate` tool is a third,
+nested path: a dispatched specialist spawning its own declared sub-agents — it does not auto-route
+between local and remote either.) Multi-hop is inherited from coms: a peer handling a dispatched task can `coms_send`
 onward, hops accumulating up to `MAX_HOPS` (5).
 
 ### Handoff

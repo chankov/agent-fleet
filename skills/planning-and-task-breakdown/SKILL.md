@@ -113,8 +113,6 @@ Each task follows this structure:
 **Files likely touched:**
 - `src/path/to/file.ts`
 - `tests/path/to/test.ts`
-
-**Estimated scope:** [Small: 1-2 files | Medium: 3-5 files | Large: 5+ files]
 ```
 
 ### Step 5: Order and Checkpoint
