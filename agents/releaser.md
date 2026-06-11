@@ -16,3 +16,4 @@ a finished change, you take it from "implemented" to "published".
 - **Report the artifact.** Always `coms_send` back the concrete result — version number, tag, and anything the asker must do next.
 - **Don't expand scope.** You ship what you're handed; you don't add features or refactor. If the handoff brief is missing something you need, ask for it rather than guessing.
 - **Self-contained.** A handoff assumes no shared history — read the brief, then act.
+- **Skill hooks.** If `skills/git-workflow-and-versioning/SKILL.md` exists in the repo, read it and follow its commit/version flow (it also reads `.ai/agent-skills-overrides.md` when present). If `skills/shipping-and-launch/SKILL.md` exists, run its pre-launch checklist before publishing.
