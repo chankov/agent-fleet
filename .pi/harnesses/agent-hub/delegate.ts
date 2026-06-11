@@ -7,14 +7,15 @@
  * persona declares `subagents:` in its frontmatter. Everything this extension
  * may spawn comes from AGENT_HUB_DELEGATE_CONFIG (JSON, serialized by the
  * hub): the declared sub-roles and their models, the remaining depth budget,
- * the call budget, and the event directory. The child process NEVER re-parses
- * persona files — model choice is configuration, not the LLM's whim.
+ * the tree-wide remaining spawn budget, and the event directory. The child
+ * process NEVER re-parses persona files — model choice is configuration, not
+ * the LLM's whim.
  *
  * Budgets (readable refusals, never silent):
- *   - call budget: at most `callBudget` delegate calls per dispatch (default 6)
- *   - depth budget: each child receives `depth − 1`; at 0 the tool exists but
- *     refuses, so a persona with `delegate_depth: 1` (the default) can spawn
- *     children that cannot delegate further
+ *   - tree-wide spawn budget: at most 4 delegate children per dispatch
+ *   - depth budget: each child receives `depth − 1`; the hub normally omits
+ *     delegate tooling from children at remaining depth 0, so a persona with
+ *     `delegate_depth: 1` (the default and max) can spawn terminal children
  *
  * Write safety: a child is read-only (read,grep,find,ls) unless it is the ONLY
  * live child and the parent passed `allow_write: true` — then it inherits the
@@ -33,12 +34,19 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { appendFileSync, mkdirSync } from "fs";
-import { join } from "path";
 import type { ChildProcess } from "child_process";
 import { spawnPiAgent } from "./spawn.ts";
+import {
+	delegateBudgetRefusal,
+	DELEGATE_TREE_SPAWN_BUDGET,
+	normalizeDelegateRuntimeBudgets,
+	planDelegateSpawn,
+	resolveDelegateTools,
+	safeAgentKey,
+	safePathWithin,
+} from "./helpers.ts";
 
-const READ_ONLY_TOOLS = "read,grep,find,ls";
-const DEFAULT_CALL_BUDGET = 6;
+const DEFAULT_CALL_BUDGET = DELEGATE_TREE_SPAWN_BUDGET;
 const RESULT_CAP = 8000;
 // How often buffered text/thinking deltas are flushed into the event file.
 const TIMELINE_FLUSH_MS = 700;
@@ -53,6 +61,7 @@ export interface DelegateConfig {
 	roles: Record<string, { model: string; tools?: string }>;
 	depth: number;
 	callBudget: number;
+	remainingSpawns?: number;
 	parentTools: string;
 	personaPrompt: string;
 	eventDir: string;
@@ -73,15 +82,9 @@ widen scope, do not start unrelated work. Report your findings/result concisely
 and concretely (cite locations as path:line where relevant); your final message
 is returned to your parent verbatim, so make it self-contained.${canDelegate ? `
 You may delegate narrow sub-tasks further via your own delegate tool, within
-its declared roles and budgets.` : `
-You CANNOT delegate further — your depth budget is exhausted. Do the work
-yourself with the tools you have.`}`;
-}
-
-// Intersect two comma-separated tool lists, preserving the cap's order.
-function intersectTools(base: string, cap: string): string {
-	const baseSet = new Set(base.split(",").map(s => s.trim()).filter(Boolean));
-	return cap.split(",").map(s => s.trim()).filter(t => t && baseSet.has(t)).join(",");
+its declared roles and remaining tree budget.` : `
+You CANNOT delegate further — your remaining depth is 0, so this child has no
+delegate tooling. Do the work yourself with the tools you have.`}`;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -95,7 +98,10 @@ export default function (pi: ExtensionAPI) {
 	// parent simply has no delegate tool.
 	if (!cfg || !cfg.roles || !cfg.eventDir) return;
 	const config = cfg;
-	config.callBudget = config.callBudget > 0 ? config.callBudget : DEFAULT_CALL_BUDGET;
+	const budgets = normalizeDelegateRuntimeBudgets(config, DEFAULT_CALL_BUDGET);
+	config.depth = budgets.depth;
+	config.callBudget = budgets.callBudget;
+	config.remainingSpawns = budgets.remainingSpawns;
 
 	let callCount = 0;
 	let childSeq = 0;
@@ -117,11 +123,14 @@ export default function (pi: ExtensionAPI) {
 
 	const emit = (event: Record<string, unknown>) => {
 		try {
-			appendFileSync(join(config.eventDir, "events.jsonl"), JSON.stringify(event) + "\n", "utf-8");
+			appendFileSync(safePathWithin(config.eventDir, "events.jsonl"), JSON.stringify(event) + "\n", "utf-8");
 		} catch {}
 	};
 
-	const roleNames = Object.keys(config.roles);
+	const roleNames = Object.keys(config.roles).filter((name) => {
+		try { safeAgentKey(name); return true; } catch { return false; }
+	});
+	if (roleNames.length === 0) return;
 
 	pi.registerTool({
 		name: "delegate",
@@ -129,9 +138,9 @@ export default function (pi: ExtensionAPI) {
 		description:
 			`Spawn one of your declared sub-agents on its pre-configured model and wait for its report. ` +
 			`Declared roles: ${roleNames.join(", ")}. Use it to fan out scoped sub-tasks (reviews, scans, ` +
-			`doc checks) instead of doing everything yourself; you may run several delegate calls in ` +
-			`parallel, but parallel children are forced read-only. The child does not share your context — ` +
-			`pass everything it needs in \`instruction\`/\`context\`.`,
+			`doc checks) instead of doing everything yourself; at most ${DELEGATE_TREE_SPAWN_BUDGET} ` +
+			`children may be spawned per dispatch, and parallel children are forced read-only. The child ` +
+			`does not share your context — pass everything it needs in \`instruction\`/\`context\`.`,
 		parameters: Type.Object({
 			role: Type.String({ description: `Declared sub-role to spawn. One of: ${roleNames.join(", ")}` }),
 			instruction: Type.String({ description: "The specific, self-contained task for the sub-agent." }),
@@ -143,7 +152,7 @@ export default function (pi: ExtensionAPI) {
 			allow_write: Type.Optional(Type.Boolean({
 				description: "Let the child inherit your tools (including write access). Honored only while it " +
 					"is your ONLY live child; concurrent children are always read-only. A role-level tools cap " +
-					"still wins.",
+					"still wins and refuses delegation if it leaves no tools.",
 			})),
 		}),
 
@@ -153,19 +162,14 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			// Readable refusals — budget exhaustion is an answer, not a mystery.
-			if (config.depth <= 0) {
-				return {
-					content: [{ type: "text" as const, text:
-						`Delegation refused: your depth budget is 0 — you are already at the bottom of the ` +
-						`delegation tree. Do this task yourself with your own tools.` }],
-				};
-			}
-			if (callCount >= config.callBudget) {
-				return {
-					content: [{ type: "text" as const, text:
-						`Delegation refused: call budget exhausted (${config.callBudget} delegate calls per ` +
-						`dispatch). Finish with the results you already have.` }],
-				};
+			const budgetRefusal = delegateBudgetRefusal({
+				depth: config.depth,
+				callBudget: config.callBudget,
+				remainingSpawns: config.remainingSpawns ?? 0,
+				callCount,
+			});
+			if (budgetRefusal) {
+				return { content: [{ type: "text" as const, text: budgetRefusal }] };
 			}
 			const roleKey = roleNames.find(r => r.toLowerCase() === role.toLowerCase());
 			if (!roleKey) {
@@ -177,42 +181,58 @@ export default function (pi: ExtensionAPI) {
 			}
 			const roleDef = config.roles[roleKey];
 
-			callCount++;
-			childSeq++;
-			const childId = config.tag === "root" ? `${roleKey}-${childSeq}` : `${config.tag}.${roleKey}-${childSeq}`;
-
 			// Write safety: read-only unless this is the only live child AND the
 			// parent explicitly granted write. The role's tools cap always wins.
-			const concurrent = liveCount > 0;
-			liveCount++;
-			const wantedWrite = allow_write === true;
-			const base = wantedWrite && !concurrent ? config.parentTools : READ_ONLY_TOOLS;
-			let effectiveTools = roleDef.tools ? intersectTools(base, roleDef.tools) : base;
-			if (!effectiveTools) effectiveTools = READ_ONLY_TOOLS;
-			const writeDowngraded = wantedWrite && concurrent;
+			const tools = resolveDelegateTools({
+				parentTools: config.parentTools,
+				roleTools: roleDef.tools,
+				allowWrite: allow_write === true,
+				concurrent: liveCount > 0,
+			});
+			if (tools.refused) {
+				return {
+					content: [{ type: "text" as const, text:
+						`Delegation refused: role "${roleKey}" declares tools "${roleDef.tools}" but none are ` +
+						`available under the current parent/concurrency tool policy.` }],
+				};
+			}
+			const effectiveTools = tools.effectiveTools;
+			const writeDowngraded = tools.writeDowngraded;
 
-			// A child with remaining depth gets its own delegate tool (and the
-			// tool's name in its allowlist — pi filters extension tools too).
-			const childDepth = config.depth - 1;
-			const childCanDelegate = childDepth > 0;
-			const childExtensions = [
-				...(config.damageControl ? [config.damageControl] : []),
-				...(childCanDelegate ? [config.delegateExt] : []),
-			];
-			const childTools = childCanDelegate ? `${effectiveTools},delegate` : effectiveTools;
-			const childConfig: DelegateConfig = {
+			callCount++;
+			childSeq++;
+			const plan = planDelegateSpawn({
+				tag: config.tag,
+				roleKey,
+				childSeq,
+				depth: config.depth,
+				remainingSpawns: config.remainingSpawns ?? 0,
+				effectiveTools,
+				damageControl: config.damageControl,
+				delegateExt: config.delegateExt,
+			});
+			config.remainingSpawns = plan.nextRemainingSpawns;
+			const childId = plan.childId;
+			const childDepth = plan.childDepth;
+			const childRemainingSpawns = plan.childRemainingSpawns;
+			const childCanDelegate = plan.childCanDelegate;
+			const childExtensions = plan.childExtensions;
+			const childTools = plan.childTools;
+			const childConfig: DelegateConfig | null = plan.includeDelegateConfig ? {
 				...config,
 				tag: childId,
 				depth: childDepth,
+				remainingSpawns: childRemainingSpawns,
 				parentTools: effectiveTools,
-			};
+			} : null;
 
-			const sessionsDir = join(config.eventDir, "sessions");
+			const sessionsDir = safePathWithin(config.eventDir, "sessions");
+			const childSessionFile = safePathWithin(sessionsDir, `${childId}.jsonl`);
 			try { mkdirSync(sessionsDir, { recursive: true }); } catch {}
 
 			emit({
 				t: "spawn", id: childId, parent: config.tag, role: roleKey,
-				model: roleDef.model, tools: effectiveTools, ts: Date.now(),
+				model: roleDef.model, tools: effectiveTools, remainingSpawns: childRemainingSpawns, ts: Date.now(),
 			});
 			onUpdate?.({
 				content: [{ type: "text", text: `Delegating to ${roleKey} (${roleDef.model})...` }],
@@ -245,16 +265,17 @@ export default function (pi: ExtensionAPI) {
 				: instruction;
 
 			let res;
+			liveCount++;
 			try {
 				res = await spawnPiAgent({
 					model: roleDef.model,
 					tools: childTools,
 					thinking: "off",
-					appendSystemPrompt: config.personaPrompt + subagentProtocol(config.persona, roleKey, childCanDelegate),
-					sessionFile: join(sessionsDir, `${childId}.jsonl`),
+					appendSystemPrompt: subagentProtocol(config.persona, roleKey, childCanDelegate),
+					sessionFile: childSessionFile,
 					prompt,
 					extensions: childExtensions,
-					env: { AGENT_HUB_DELEGATE_CONFIG: JSON.stringify(childConfig) },
+					env: childConfig ? { AGENT_HUB_DELEGATE_CONFIG: JSON.stringify(childConfig) } : undefined,
 					cwd: config.cwd,
 				}, {
 					onProcess: (p) => { childProc = p; liveChildren.add(p); },

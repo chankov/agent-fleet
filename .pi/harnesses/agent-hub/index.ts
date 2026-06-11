@@ -51,6 +51,7 @@ import {
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
 import { spawnPiAgent, killPiTree } from "./spawn.ts";
+import { clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, MAX_DELEGATE_DEPTH, parseTeamsYaml, safeAgentKey, safePathWithin } from "./helpers.ts";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import * as net from "node:net";
@@ -252,6 +253,7 @@ interface AgentTeamOverrides {
 	personaModelLists: Record<string, string[]>;
 	personaSubagents: Record<string, Record<string, SubagentRole>>;
 	personaDelegateDepth: Record<string, number>;
+	warnings: string[];
 }
 
 const DEFAULT_OVERRIDES: AgentTeamOverrides = {
@@ -261,6 +263,7 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	personaModelLists: {},
 	personaSubagents: {},
 	personaDelegateDepth: {},
+	warnings: [],
 };
 
 function freshOverrides(): AgentTeamOverrides {
@@ -270,6 +273,7 @@ function freshOverrides(): AgentTeamOverrides {
 		personaModelLists: {},
 		personaSubagents: {},
 		personaDelegateDepth: {},
+		warnings: [],
 	};
 }
 
@@ -300,13 +304,14 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		const value = kv[2].trim();
 		if (key === "language" && value) result.language = value;
 		if (key === "persona-gate") result.personaGate = /^(on|true|yes|1)$/i.test(value);
-		const modelKey = key.match(/^model\.([\w-]+)$/);
+		const slug = "[a-z0-9]+(?:-[a-z0-9]+)*";
+		const modelKey = key.match(new RegExp(`^model\\.(${slug})$`));
 		if (modelKey && value) result.personaModels[modelKey[1]] = value;
-		const modelsKey = key.match(/^models\.([\w-]+)$/);
+		const modelsKey = key.match(new RegExp(`^models\\.(${slug})$`));
 		if (modelsKey && value) {
 			result.personaModelLists[modelsKey[1]] = value.split(",").map(s => s.trim()).filter(Boolean);
 		}
-		const subKey = key.match(/^subagents\.([\w-]+)\.([\w-]+)$/);
+		const subKey = key.match(new RegExp(`^subagents\\.(${slug})\\.(${slug})$`));
 		if (subKey && value) {
 			// `<model>` or `<model>, tools=<caps>` — the caps list itself contains
 			// commas, hence the anchored optional group instead of a comma split.
@@ -318,33 +323,18 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 				};
 			}
 		}
-		const depthKey = key.match(/^delegate-depth\.([\w-]+)$/);
+		const depthKey = key.match(new RegExp(`^delegate-depth\\.(${slug})$`));
 		if (depthKey && value) {
-			const n = parseInt(value, 10);
-			if (Number.isFinite(n) && n >= 0) result.personaDelegateDepth[depthKey[1]] = n;
+			const n = Number(value);
+			if (Number.isInteger(n) && n >= 0) {
+				result.personaDelegateDepth[depthKey[1]] = clampDelegateDepth(n);
+				if (n > MAX_DELEGATE_DEPTH) {
+					result.warnings.push(`delegate-depth.${depthKey[1]} ${n} exceeds the maximum (${MAX_DELEGATE_DEPTH}) — clamped to ${MAX_DELEGATE_DEPTH}`);
+				}
+			}
 		}
 	}
 	return result;
-}
-
-// ── Teams YAML Parser ────────────────────────────
-
-function parseTeamsYaml(raw: string): Record<string, string[]> {
-	const teams: Record<string, string[]> = {};
-	let current: string | null = null;
-	for (const line of raw.split("\n")) {
-		const teamMatch = line.match(/^(\S[^:]*):$/);
-		if (teamMatch) {
-			current = teamMatch[1].trim();
-			teams[current] = [];
-			continue;
-		}
-		const itemMatch = line.match(/^\s+-\s+(.+)$/);
-		if (itemMatch && current) {
-			teams[current].push(itemMatch[1].trim());
-		}
-	}
-	return teams;
 }
 
 // ── Model Profiles Parser (.pi/agents/model-profiles.yaml) ──
@@ -418,7 +408,7 @@ function parseAgentFile(filePath: string): AgentDef | null {
 				let roleIndent = -1;
 				let j = i + 1;
 				while (j < fmLines.length) {
-					const m = fmLines[j].match(/^(\s+)([\w-]+)\s*:\s*(.*)$/);
+					const m = fmLines[j].match(/^(\s+)([a-z0-9]+(?:-[a-z0-9]+)*)\s*:\s*(.*)$/);
 					if (!m) break;
 					const ind = m[1].length;
 					if (roleIndent === -1) roleIndent = ind;
@@ -463,12 +453,21 @@ function parseAgentFile(filePath: string): AgentDef | null {
 		}
 
 		if (!frontmatter.name) return null;
+		try {
+			safeAgentKey(frontmatter.name);
+		} catch {
+			return null;
+		}
 
 		let delegateDepth: number | undefined;
 		if (frontmatter.delegate_depth !== undefined) {
-			const n = parseInt(frontmatter.delegate_depth, 10);
-			if (Number.isFinite(n) && n >= 0) delegateDepth = n;
-			else warnings.push(`delegate_depth "${frontmatter.delegate_depth}" is not a non-negative integer — using default (1)`);
+			const n = Number(frontmatter.delegate_depth);
+			if (Number.isInteger(n) && n >= 0) {
+				delegateDepth = clampDelegateDepth(n);
+				if (n > MAX_DELEGATE_DEPTH) warnings.push(`delegate_depth "${frontmatter.delegate_depth}" exceeds the maximum (${MAX_DELEGATE_DEPTH}) — clamped to ${MAX_DELEGATE_DEPTH}`);
+			} else {
+				warnings.push(`delegate_depth "${frontmatter.delegate_depth}" is not a non-negative integer — using default (1)`);
+			}
 		}
 
 		return {
@@ -534,9 +533,9 @@ const RESEARCH_TOOLS = "read,grep,find,ls";
 const MAX_AUTO_RESEARCH_ROUNDS = 2;
 const MAX_AUTO_RESEARCH_QUESTIONS = 4;
 
-// Delegate budget: how many delegate() calls one dispatch may make (per
-// delegate.ts process; the depth budget bounds the tree separately).
-const DELEGATE_CALL_BUDGET = 6;
+// Conservative delegation budgets: one delegate layer only, with four total
+// child spawns reserved tree-wide for a dispatch.
+const DELEGATE_CALL_BUDGET = DELEGATE_TREE_SPAWN_BUDGET;
 
 // Appended to every research helper's system prompt so it knows its sandbox and how to
 // report. Kept separate from the dispatcher's clarification protocol: helpers don't
@@ -1344,7 +1343,7 @@ export default function (pi: ExtensionAPI) {
 
 	function loadAgents(cwd: string) {
 		// Create session storage dir
-		sessionDir = join(cwd, ".pi", "agent-sessions");
+		sessionDir = safePathWithin(cwd, ".pi", "agent-sessions");
 		if (!existsSync(sessionDir)) {
 			mkdirSync(sessionDir, { recursive: true });
 		}
@@ -1352,8 +1351,8 @@ export default function (pi: ExtensionAPI) {
 		// Findings from auto-research rounds are as ephemeral as the agent sessions
 		// that consumed them — wipe at session start. Same for delegation event
 		// dirs (delegate children's events + sessions).
-		try { rmSync(join(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
-		try { rmSync(join(sessionDir, "delegations"), { recursive: true, force: true }); } catch {}
+		try { rmSync(safePathWithin(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
+		try { rmSync(safePathWithin(sessionDir, "delegations"), { recursive: true, force: true }); } catch {}
 
 		// Load all agent definitions
 		allAgentDefs = scanAgentDirs(cwd);
@@ -1398,8 +1397,8 @@ export default function (pi: ExtensionAPI) {
 		for (const member of members) {
 			const def = defsByName.get(member.toLowerCase());
 			if (!def) continue;
-			const key = def.name.toLowerCase().replace(/\s+/g, "-");
-			const sessionFile = join(sessionDir, `${key}.json`);
+			const key = safeAgentKey(def.name);
+			const sessionFile = safePathWithin(sessionDir, `${key}.json`);
 			agentStates.set(def.name.toLowerCase(), {
 				def,
 				status: "idle",
@@ -1940,8 +1939,8 @@ export default function (pi: ExtensionAPI) {
 				: "openrouter/google/gemini-3-flash-preview");
 
 		// Session file for this agent
-		const agentKey = state.def.name.toLowerCase().replace(/\s+/g, "-");
-		const agentSessionFile = join(sessionDir, `${agentKey}.json`);
+		const agentKey = safeAgentKey(state.def.name);
+		const agentSessionFile = safePathWithin(sessionDir, `${agentKey}.json`);
 
 		// Clarification protocol — every specialist learns to bubble up questions
 		// to the dispatcher instead of guessing.
@@ -1987,7 +1986,7 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 		let delegateEnv: Record<string, string> | undefined;
 		let delegationProtocol = "";
 		if (delegationActive) {
-			const delegationDir = join(sessionDir, "delegations", agentKey);
+			const delegationDir = safePathWithin(sessionDir, "delegations", agentKey);
 			try { rmSync(delegationDir, { recursive: true, force: true }); } catch {}
 			mkdirSync(delegationDir, { recursive: true });
 			extensions.push(delegateExtPath!);
@@ -1997,8 +1996,9 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 					persona: state.def.name,
 					tag: "root",
 					roles: subagentRoles,
-					depth: state.def.delegateDepth ?? 1,
+					depth: clampDelegateDepth(state.def.delegateDepth ?? MAX_DELEGATE_DEPTH),
 					callBudget: DELEGATE_CALL_BUDGET,
+					remainingSpawns: DELEGATE_TREE_SPAWN_BUDGET,
 					parentTools: state.def.tools,
 					personaPrompt: state.def.systemPrompt,
 					eventDir: delegationDir,
@@ -2013,8 +2013,9 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 You have a \`delegate\` tool with pre-configured sub-agents on cheaper models
 (roles: ${Object.keys(subagentRoles!).join(", ")}). Prefer delegating scoped, self-contained
 sub-tasks to them over doing everything yourself. A child shares NONE of your
-context — put everything it needs into its instruction/context. You may run
-several delegate calls in parallel, but parallel children are forced read-only.`;
+context — put everything it needs into its instruction/context. You may run up
+to ${DELEGATE_TREE_SPAWN_BUDGET} delegate calls for this dispatch; parallel children are forced read-only.
+Children are terminal workers: they do not receive delegate tooling at remaining depth 0.`;
 			startDelegationWatch(state, delegationDir);
 		}
 
@@ -2177,7 +2178,7 @@ several delegate calls in parallel, but parallel children are forced read-only.`
 	// ── Research helpers (Phase 4) ───────────────
 
 	function researchSessionPath(id: number): string {
-		return join(sessionDir, `research-${id}.json`);
+		return safePathWithin(sessionDir, `research-${id}.json`);
 	}
 
 	// A synthesized def for an anonymous (no-persona) research helper.
@@ -2890,16 +2891,16 @@ several delegate calls in parallel, but parallel children are forced read-only.`
 						});
 					}
 
-					const findingsDir = join(sessionDir, "findings");
+					const findingsDir = safePathWithin(sessionDir, "findings");
 					mkdirSync(findingsDir, { recursive: true });
-					const agentKey = agent.toLowerCase().replace(/\s+/g, "-");
+					const agentKey = safeAgentKey(agentStates.get(agent.toLowerCase())?.def.name ?? agent);
 
 					const answered = await Promise.all(researchQs.map(async (q) => {
 						const rDef = anonResearchDef();
 						const rState = createResearchState(rDef, false, resolveResearchModel(rDef, undefined, ctx));
 						updateResearchWidget();
 						const rRes = await spawnResearch(rState, q, ctx);
-						const file = join(findingsDir, `${agentKey}-r${rState.id}.md`);
+						const file = safePathWithin(findingsDir, `${agentKey}-r${rState.id}.md`);
 						const body = `# Research findings r${rState.id}\n\n**Question:** ${q}\n\n` +
 							(rRes.exitCode === 0 ? rRes.output : `(research helper failed, exit ${rRes.exitCode})\n\n${rRes.output}`) + "\n";
 						writeFileSync(file, body, "utf-8");
@@ -2933,7 +2934,7 @@ several delegate calls in parallel, but parallel children are forced read-only.`
 				const unresolved = extractNeedsResearch(result.output);
 				const researchNotice = researchRounds.length > 0
 					? `\n\nℹ ${agent} auto-paused for research ${researchRounds.length} round(s); ${answeredCount} question(s) answered by read-only helpers. ` +
-					  `Findings were saved under ${join(sessionDir, "findings")} and read by the agent directly — they are NOT inlined here.`
+					  `Findings were saved under ${safePathWithin(sessionDir, "findings")} and read by the agent directly — they are NOT inlined here.`
 					: "";
 				const budgetNotice = unresolved.length > 0 && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS
 					? `\n\n⚠ ${agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. ` +
@@ -4420,7 +4421,7 @@ ${researchCatalog}`;
 		}
 
 		// Wipe old agent session files so subagents start fresh
-		const sessDir = join(_ctx.cwd, ".pi", "agent-sessions");
+		const sessDir = safePathWithin(_ctx.cwd, ".pi", "agent-sessions");
 		if (existsSync(sessDir)) {
 			for (const f of readdirSync(sessDir)) {
 				if (f.endsWith(".json")) {
@@ -4447,6 +4448,9 @@ ${researchCatalog}`;
 		// Load per-project overrides (user-facing language, persona gate, models).
 		const overrides = parseAgentTeamOverrides(_ctx.cwd);
 		userLanguage = overrides.language;
+		if (overrides.warnings.length > 0) {
+			_ctx.ui.notify(`agent-skills-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
+		}
 
 		// Model switching state resets each session; per-project overrides replace
 		// the persona defs' default model / candidate list before anything reads them.

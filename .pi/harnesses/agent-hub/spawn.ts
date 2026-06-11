@@ -82,7 +82,7 @@ export function spawnPiAgent(
 		"--session", opts.sessionFile,
 	];
 	if (opts.resume) args.push("-c");
-	args.push(opts.prompt);
+	args.push("--", opts.prompt);
 
 	const textChunks: string[] = [];
 	const stderrChunks: string[] = [];

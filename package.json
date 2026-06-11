@@ -41,7 +41,7 @@
     ".pi/extensions/*/package.json",
     ".pi/extensions/*/README.md",
     ".pi/harnesses/*.json",
-    ".pi/harnesses/*/index.ts",
+    ".pi/harnesses/*/*.ts",
     ".pi/harnesses/*/package.json",
     ".pi/harnesses/*/README.md",
     ".pi/skills/",

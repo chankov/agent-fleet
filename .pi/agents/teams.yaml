@@ -7,14 +7,14 @@ default:
   - bowser
   - security-auditor
 
-debug:  
+debug:
   - builder
   - code-reviewer
   - documenter
   - bowser
   - security-auditor
 
-info:  
+info:
   - documenter
   - code-reviewer
 

@@ -83,7 +83,7 @@ Read by the `.pi/harnesses/agent-hub/` pi harness on every session start. The ov
 | `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). |
 | `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/agent-model` and `/models` profiles (comma-separated pi model specs). |
 | `subagents.<persona>.<role>` | persona frontmatter `subagents:` | Replaces or adds one delegate sub-role for this project: `<model>[, tools=<caps>]`. Other declared roles keep their frontmatter values. |
-| `delegate-depth.<persona>` | persona frontmatter `delegate_depth:` (default 1) | Replaces the persona's delegation depth budget: `0` makes its delegate tool refuse (delegation off for this project), `2` lets its children delegate one level further. |
+| `delegate-depth.<persona>` | persona frontmatter `delegate_depth:` (default/max 1) | Replaces the persona's delegation depth budget: `0` makes its delegate tool refuse (delegation off for this project), `1` lets it spawn terminal children. Values above 1 are clamped to 1; children at remaining depth 0 do not receive delegate tooling. |
 
 Example — switch the dispatcher to Bulgarian, pin the builder to sonnet, and move
 the code-reviewer's docs sub-reviewer to a different model for this project:
@@ -94,7 +94,7 @@ language: Bulgarian
 model.builder: github-copilot/claude-sonnet-4.6
 models.builder: github-copilot/claude-sonnet-4.6, github-copilot/claude-haiku-4.5
 subagents.code-reviewer.docs: github-copilot/claude-sonnet-4.6, tools=read,grep
-delegate-depth.code-reviewer: 2
+delegate-depth.code-reviewer: 1
 ```
 
 ## The setup file — `.ai/agent-skills-setup.md`

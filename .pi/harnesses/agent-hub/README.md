@@ -48,12 +48,14 @@ another main agent** and **use a coms peer as a subagent**.
   extra `-e delegate.ts` extension into its spawned process (the `delegate` tool name is appended to
   its `--tools` allowlist — pi filters extension tools too). Only declared roles are spawnable, on
   their declared models — model choice is configuration, never the child LLM's. Budgets are readable
-  refusals: at most 6 `delegate` calls per dispatch, and a per-persona `delegate_depth:` budget
-  (default 1 — children get `depth − 1` and refuse at 0). Write safety: children run read-only
-  (`read,grep,find,ls`) unless a SINGLE live child gets `allow_write: true`, which inherits the
-  parent's tools intersected with the role's `tools:` cap; concurrent children are always forced
-  read-only. Children report through `.pi/agent-sessions/delegations/<persona>/events.jsonl`; the
-  hub tails it and renders nested rows under the parent's card (child id, model, tokens, status),
+  refusals: at most 4 delegate children per dispatch, tree-wide, and a per-persona `delegate_depth:`
+  budget capped at 1 (the default). Children spawned with remaining depth 0 do not receive the
+  `delegate` extension/tool. Write safety: children run read-only (`read,grep,find,ls`) unless a
+  SINGLE live child gets `allow_write: true`, which inherits the parent's tools intersected with the
+  role's `tools:` cap; if a declared role cap leaves no available tools, delegation is refused.
+  Concurrent children are always forced read-only. Children report through
+  `.pi/agent-sessions/delegations/<persona>/events.jsonl`; the hub tails it and renders nested rows
+  under the parent's card (child id, model, tokens, status),
   each openable with `/zoom <child-id>`. Spend rolls up: every child row and the parent's subtree
   total show tokens, and a session-wide `Δ delegated` counter sits in the status line.
   `/agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
