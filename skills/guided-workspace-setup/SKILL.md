@@ -204,8 +204,8 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *Ship* — `git-workflow-and-versioning` ★, `ci-cd-and-automation`, `deprecation-and-migration`, `documentation-and-adrs`, `shipping-and-launch`
    - *Meta* — `using-agent-skills` ★, `designing-agents` *(`guided-workspace-setup` is installer-only — never offered)*
 2. **Agent personas** *(`Group` column = `writeable` / `read-only`)* — one screen. Read-only personas carry `tools: read,bash,grep,find,ls` and an explicit "Do NOT modify files." rule:
-   - *writeable* — `builder`, `documenter`
-   - *read-only* — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `planner`, `plan-reviewer`, `scout`
+   - *writeable* — `builder`, `documenter`, `planner` *(scoped: writes only the plan document in the plan directory; bash limited to read-only git inspection)*
+   - *read-only* — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `plan-reviewer`, `scout`
 3. **Commands / prompts** *(single-type — no `Group` column)* — mapped to the chosen agent; items without a per-agent source are filtered out, no cross-tool substitution. Full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
 4. **References & Hooks** *(`Group` column = `reference` / `hook`)* — one screen for the shared non-agent-specific artifacts:
    - *reference* — testing, performance, security, accessibility checklists
@@ -217,6 +217,8 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *orchestration* — `agent-hub`, `pi-pi`
    - *safety* — `damage-control`
    - *messaging* — `coms`, `coms-net`
+
+   **Mandatory pairing: `agent-hub` ⇒ `damage-control`.** When `agent-hub` is ticked (installed or kept), auto-tick `damage-control` in the same pass and refuse to untick it while `agent-hub` stays selected — explain that the hub loads damage-control into every spawned specialist and research subprocess (`--no-extensions -e …/damage-control/index.ts`) as their only guardrail, so removing it leaves subagents unguarded. `damage-control` without `agent-hub` remains freely selectable.
 
    **Harness companions (refreshed with the group, not separate rows).** A harness directory does not run on its own — the launch recipes live in the `justfile`, and several harnesses shell out to support files. So whenever **any** harness in this group is ticked (installed/kept) or unticked (removed), refresh its companions from source in the same pass — they are not shown as their own menu rows:
    - `justfile` — the `just hub` / `just team-up` / `just coms` launch recipes plus private helpers.
@@ -392,6 +394,7 @@ Close the report with one line explaining the installer-cleanup outcome:
 - An existing, differing target file overwritten without asking the user.
 - A re-run that ignores the existing `## install-status` and reinstalls everything.
 - A `pi` workspace using `agent-hub` reached Step 7 without being offered the legacy `## agent-team` / `language: <value>` override, or an existing language value was overwritten instead of preserved.
+- `agent-hub` installed or kept without `damage-control` — the mandatory pairing was skipped, or an untick of `damage-control` was accepted while `agent-hub` stayed selected.
 - The overrides file padded with install status, summaries, or prose instead of terse `key: value` sections.
 - A re-run that detects a non-empty version delta but skips the "Changes since v<recorded> → v<current>" block in Step 9.
 - A `conflicting upgrade` row pre-checked, or the three-way diff omitted for it.
@@ -426,6 +429,7 @@ After completing the workflow, confirm:
 - [ ] Settings-file edits were limited to agent-skills' own hook entries; no user keys, env vars, or third-party MCP entries were modified.
 - [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.
 - [ ] For `pi` workspaces using `agent-hub`, the legacy `## agent-team` language override was offered, existing values were preserved, and omitting the section was treated as default English.
+- [ ] If `agent-hub` was installed or kept, `damage-control` was installed/kept alongside it (mandatory pairing) and could not be deselected while `agent-hub` remained.
 - [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session, and a `version:` line in `## workspace-summary` that matches the package version from Step 2.
 - [ ] Step 9 was rendered as compact action-grouped lines (Add / Refresh / Remove / Keep-count / Records / Method), not a wide `Target paths` + `Notes` table that overflows the widget.
 - [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" heading followed by short per-change bullets sourced from `CHANGELOG.md` — never one long overflowing line.

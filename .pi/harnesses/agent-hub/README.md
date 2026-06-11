@@ -25,6 +25,12 @@ another main agent** and **use a coms peer as a subagent**.
   orchestrator routes by persona; each persona's model + thinking level is shown in its catalog.
 - **Human handoff path** — `ask_user` is exposed when `pi-ask-user` is available, so specialists can
   bubble decisions back through the dispatcher.
+- **Auto-research pipe (`NEEDS_RESEARCH:`)** — a specialist that lacks information pauses by ending
+  its turn with `NEEDS_RESEARCH: <question>` lines (mirror of the `ASK_USER:` protocol). The hub
+  intercepts them **in code**: it fans out read-only research helpers (max 4 questions per pause,
+  2 pauses per dispatch), writes each helper's findings to `.pi/agent-sessions/findings/*.md`, and
+  resumes the specialist's session with the file paths. The dispatcher LLM sees only a one-line
+  notice — raw findings never enter its context. Findings files are wiped at session start.
 - **Agent controls** — `/zoom` inspects a live agent timeline; kill/restart controls manage running
   child agents; per-agent `model:` fields select models from team config.
 - **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
@@ -201,8 +207,10 @@ harness (from this session's `-e` flags, else the repo-local `.pi/harnesses/dama
 and re-loads *only* that one into each child via `-e`. `--no-extensions` keeps discovery off, so
 children never auto-load the `.pi/extensions/` utilities or recursively re-load `agent-hub`; the
 explicit `-e` still applies, so every child's tool calls are checked against the same
-`.pi/damage-control-rules.yaml`. If damage-control can't be resolved, children spawn unguarded as
-before. Research helpers are additionally read-only by construction.
+`.pi/damage-control-rules.yaml`. If damage-control can't be resolved, a session-start warning is
+shown and children spawn unguarded. Research helpers are additionally read-only by construction.
+The guided setup (`guided-workspace-setup`) enforces the pairing: installing or keeping `agent-hub`
+always installs/keeps `damage-control` with it.
 
 ### Related recipes
 

@@ -138,15 +138,7 @@ Add explicit checkpoints:
 
 ## Task Sizing Guidelines
 
-| Size | Files | Scope | Example |
-|------|-------|-------|---------|
-| **XS** | 1 | Single function or config change | Add a validation rule |
-| **S** | 1-2 | One component or endpoint | Add a new API endpoint |
-| **M** | 3-5 | One feature slice | User registration flow |
-| **L** | 5-8 | Multi-component feature | Search with filtering and pagination |
-| **XL** | 8+ | **Too large — break it down further** | — |
-
-If a task is L or larger, it should be broken into smaller tasks. An agent performs best on S and M tasks.
+If a task is 5-8 files (Multi-component feature , such as Search with filtering and pagination) or larger, it should be broken into smaller tasks. An agent performs best on 1-5 file tasks.
 
 **When to break a task down further:**
 - It would take more than one focused session (roughly 2+ hours of agent work)
@@ -221,7 +213,7 @@ When multiple agents or sessions are available:
 - Starting implementation without a written task list
 - Tasks that say "implement the feature" without acceptance criteria
 - No verification steps in the plan
-- All tasks are XL-sized
+- All tasks touches more than 8+ files
 - No checkpoints between tasks
 - Dependency order isn't considered
 
@@ -235,3 +227,4 @@ Before starting implementation, confirm:
 - [ ] No task touches more than ~5 files
 - [ ] Checkpoints exist between major phases
 - [ ] The human has reviewed and approved the plan
+- [ ] No open questions left (All are resolved/answered/commented)

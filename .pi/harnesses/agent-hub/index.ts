@@ -47,7 +47,7 @@ import {
 	type AutocompleteItem, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
-import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
+import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import * as net from "node:net";
 import * as fs from "node:fs";
@@ -161,6 +161,27 @@ function extractAskUserQuestions(output: string): string[] {
 	for (const rawLine of output.split("\n")) {
 		const line = rawLine.trim();
 		const match = line.match(/^ASK_USER\s*:\s*(.+)$/i);
+		if (match) {
+			const q = match[1].trim();
+			if (q && !questions.includes(q)) questions.push(q);
+		}
+	}
+	return questions;
+}
+
+// ── NEEDS_RESEARCH: marker extraction ────────────
+// Specialists emit `NEEDS_RESEARCH: <question>` per the research protocol when they
+// need reconnaissance they cannot perform with their own tools. The HUB (not the
+// dispatcher LLM) intercepts these in code: it fans out read-only research helpers,
+// writes each helper's findings to a file under .pi/agent-sessions/findings/, and
+// resumes the specialist's session with the file paths — so large findings never
+// pass through the dispatcher's context.
+
+function extractNeedsResearch(output: string): string[] {
+	const questions: string[] = [];
+	for (const rawLine of output.split("\n")) {
+		const line = rawLine.trim();
+		const match = line.match(/^NEEDS_RESEARCH\s*:\s*(.+)$/i);
 		if (match) {
 			const q = match[1].trim();
 			if (q && !questions.includes(q)) questions.push(q);
@@ -305,6 +326,11 @@ function appendTimelineText(timeline: TimelineEntry[], kind: "text" | "thinking"
 // no write/edit — regardless of what its persona declares. This is the defining
 // constraint of a research helper vs. a full specialist (requirement 3).
 const RESEARCH_TOOLS = "read,grep,find,ls";
+
+// Auto-research pipe budgets: how many NEEDS_RESEARCH pause/resume rounds a single
+// dispatch_agent call may trigger, and how many questions are honored per round.
+const MAX_AUTO_RESEARCH_ROUNDS = 2;
+const MAX_AUTO_RESEARCH_QUESTIONS = 4;
 
 // Appended to every research helper's system prompt so it knows its sandbox and how to
 // report. Kept separate from the dispatcher's clarification protocol: helpers don't
@@ -1077,6 +1103,10 @@ export default function (pi: ExtensionAPI) {
 			mkdirSync(sessionDir, { recursive: true });
 		}
 
+		// Findings from auto-research rounds are as ephemeral as the agent sessions
+		// that consumed them — wipe at session start.
+		try { rmSync(join(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
+
 		// Load all agent definitions
 		allAgentDefs = scanAgentDirs(cwd);
 
@@ -1498,7 +1528,21 @@ return a single line of the form:
 
 You may emit multiple ASK_USER lines if you have several questions. The dispatcher
 will surface each to the human user in ${userLanguage} and re-dispatch you with the
-answers. Do not invent values, do not pick "reasonable defaults" silently — ask.`;
+answers. Do not invent values, do not pick "reasonable defaults" silently — ask.
+
+## Research protocol
+If you need reconnaissance you cannot perform with your own tools (broad code search,
+reading unfamiliar areas of the codebase, summarizing docs), DO NOT guess and DO NOT
+ask the user. Pause for research instead: end your turn with one or more lines of the
+form
+
+  NEEDS_RESEARCH: <one specific, self-contained question>
+
+with nothing after them. Your session pauses there; read-only research helpers are
+spawned for you, each helper's findings are saved to a file, and you are resumed in
+this same session with the file paths — read them and continue from where you left
+off. Ask at most ${MAX_AUTO_RESEARCH_QUESTIONS} questions per pause. Use ASK_USER only
+for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked up.`;
 
 		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol;
 
@@ -2465,7 +2509,48 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 					});
 				}
 
-				const result = await dispatchAgent(agent, task, ctx);
+				let result = await dispatchAgent(agent, task, ctx);
+
+				// Auto-research pipe: when the specialist pauses with NEEDS_RESEARCH
+				// lines, the hub (in code, not the dispatcher LLM) fans out read-only
+				// helpers, writes findings to files, and resumes the specialist's
+				// session with the paths. The dispatcher only ever sees a short notice,
+				// keeping its context clean of raw findings.
+				const researchRounds: { questions: string[]; files: string[] }[] = [];
+				while (result.exitCode === 0 && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS) {
+					const researchQs = extractNeedsResearch(result.output).slice(0, MAX_AUTO_RESEARCH_QUESTIONS);
+					if (researchQs.length === 0) break;
+
+					if (onUpdate) {
+						onUpdate({
+							content: [{ type: "text", text: `${agent} paused for research (${researchQs.length} question(s)) — spawning read-only helpers...` }],
+							details: { agent, task, status: "researching" },
+						});
+					}
+
+					const findingsDir = join(sessionDir, "findings");
+					mkdirSync(findingsDir, { recursive: true });
+					const agentKey = agent.toLowerCase().replace(/\s+/g, "-");
+
+					const answered = await Promise.all(researchQs.map(async (q) => {
+						const rDef = anonResearchDef();
+						const rState = createResearchState(rDef, false, resolveResearchModel(rDef, undefined, ctx));
+						updateResearchWidget();
+						const rRes = await spawnResearch(rState, q, ctx);
+						const file = join(findingsDir, `${agentKey}-r${rState.id}.md`);
+						const body = `# Research findings r${rState.id}\n\n**Question:** ${q}\n\n` +
+							(rRes.exitCode === 0 ? rRes.output : `(research helper failed, exit ${rRes.exitCode})\n\n${rRes.output}`) + "\n";
+						writeFileSync(file, body, "utf-8");
+						return { question: q, file };
+					}));
+
+					researchRounds.push({ questions: researchQs, files: answered.map(a => a.file) });
+
+					const resumePrompt = "Research findings for your NEEDS_RESEARCH questions are ready. " +
+						"Read each file with your read tool, then continue from where you paused:\n" +
+						answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
+					result = await dispatchAgent(agent, resumePrompt, ctx);
+				}
 
 				const truncated = result.output.length > 8000
 					? result.output.slice(0, 8000) + "\n\n... [truncated]"
@@ -2482,8 +2567,19 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 					  questions.map((q, i) => `  ${i + 1}. ${q}`).join("\n")
 					: "";
 
+				const answeredCount = researchRounds.reduce((n, r) => n + r.questions.length, 0);
+				const unresolved = extractNeedsResearch(result.output);
+				const researchNotice = researchRounds.length > 0
+					? `\n\nℹ ${agent} auto-paused for research ${researchRounds.length} round(s); ${answeredCount} question(s) answered by read-only helpers. ` +
+					  `Findings were saved under ${join(sessionDir, "findings")} and read by the agent directly — they are NOT inlined here.`
+					: "";
+				const budgetNotice = unresolved.length > 0 && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS
+					? `\n\n⚠ ${agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. ` +
+					  `Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`
+					: "";
+
 				return {
-					content: [{ type: "text", text: `${summary}${questionsNotice}\n\n${truncated}` }],
+					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}\n\n${truncated}` }],
 					details: {
 						agent,
 						task,
@@ -2492,6 +2588,7 @@ answers. Do not invent values, do not pick "reasonable defaults" silently — as
 						exitCode: result.exitCode,
 						fullOutput: result.output,
 						questions,
+						researchRounds,
 					},
 				};
 			} catch (err: any) {
@@ -3733,6 +3830,12 @@ ${researchCatalog}`;
 		widgetCtx = _ctx;
 		contextWindow = _ctx.model?.contextWindow || 0;
 		damageControlExtPath = resolveDamageControlExtension(_ctx.cwd);
+		if (!damageControlExtPath) {
+			_ctx.ui.notify(
+				"damage-control harness not found — specialists and research helpers will spawn UNGUARDED. Install .pi/harnesses/damage-control/ (guided setup pairs it with agent-hub).",
+				"warning",
+			);
+		}
 
 		// ── Embedded coms init ──
 		// Always refresh the ctx the coms handlers use. Bind the endpoint + register
