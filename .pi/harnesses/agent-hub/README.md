@@ -33,6 +33,15 @@ another main agent** and **use a coms peer as a subagent**.
   notice — raw findings never enter its context. Findings files are wiped at session start.
 - **Agent controls** — `/zoom` inspects a live agent timeline; kill/restart controls manage running
   child agents; per-agent `model:` fields select models from team config.
+- **Model switching** — a persona's frontmatter `models:` list declares the models it may switch to
+  (the default `model:` is implicitly a candidate). `/agent-model <persona>` picks from that list;
+  the choice lasts for the session and takes effect on the persona's next dispatch
+  (`/agents-restart <persona>` applies it immediately). `/models [profile]` applies a named profile
+  from `.pi/agents/model-profiles.yaml` — a macro over the same declared candidates, validated at
+  session start (a profile with any entry outside a persona's candidates is dropped whole, with an
+  error). Nothing outside the declared lists is ever selectable. Per project,
+  `model.<persona>:` / `models.<persona>:` keys under `## agent-team` in
+  `.ai/agent-skills-overrides.md` replace a persona's default model / candidate list.
 - **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
   session start; by default the dispatcher starts without the gate.
 - **Default damage-control guardrails** — `just hub` and `just hub-solo` load the hard-stop

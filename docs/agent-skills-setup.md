@@ -79,12 +79,17 @@ Read by the `.pi/harnesses/agent-hub/` pi harness on every session start. The ov
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `language` | `English` | User-facing language the dispatcher uses for every `ask_user` question, every `context` field, and every summary. Specialist task strings always stay in English regardless. |
+| `persona-gate` | `off` | When `on`, blocks input at session start until an orchestrator persona is picked. |
+| `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). |
+| `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/agent-model` and `/models` profiles (comma-separated pi model specs). |
 
-Example — switch the dispatcher to Bulgarian:
+Example — switch the dispatcher to Bulgarian and pin the builder to sonnet for this project:
 
 ```markdown
 ## agent-team
 language: Bulgarian
+model.builder: github-copilot/claude-sonnet-4.6
+models.builder: github-copilot/claude-sonnet-4.6, github-copilot/claude-haiku-4.5
 ```
 
 ## The setup file — `.ai/agent-skills-setup.md`

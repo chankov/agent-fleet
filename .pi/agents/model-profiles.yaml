@@ -1,0 +1,12 @@
+# Named model profiles for /models — each entry must be one of the persona's
+# declared candidates (frontmatter `model:` + `models:` list). A profile with
+# any invalid entry is dropped whole at session start, with an error notify.
+#
+# Profiles only switch the personas they list; everyone else keeps their
+# current model. They never touch delegate-children (`subagents:`) models.
+max:
+  code-reviewer: github-copilot/claude-opus-4.8
+  builder: openai-codex/gpt-5.5
+budget:
+  code-reviewer: github-copilot/claude-sonnet-4.6
+  builder: openai-codex/gpt-5.3-codex-spark

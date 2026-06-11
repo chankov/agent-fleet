@@ -17,6 +17,8 @@
  *   /agents-team          — switch active team
  *   /agents-list          — list loaded agents
  *   /agents-grid N        — set column count (default 2)
+ *   /agent-model <name>   — switch a persona's model from its declared candidates
+ *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
  *   /agents-kill <name>   — SIGTERM a frozen specialist
  *   /agents-restart <name>— kill + re-run its last task fresh
  *   /zoom <name|rN>       — scrollable read-only view of an agent's stream
@@ -62,6 +64,9 @@ interface AgentDef {
 	description: string;
 	tools: string;
 	model?: string;
+	// Allowed switch targets for /agent-model and model profiles (frontmatter
+	// `models:` list). The default `model:` is implicitly a candidate too.
+	models?: string[];
 	kind?: string;
 	// Per-agent thinking level for `/zoom` debugging. A pi --thinking level
 	// (off|minimal|low|medium|high|xhigh), default off. When non-off, thinking
@@ -192,30 +197,41 @@ function extractNeedsResearch(output: string): string[] {
 
 // ── Overrides Parser (.ai/agent-skills-overrides.md) ──
 // Reads the `## agent-team` section. Supported keys:
-//   language: <name>   — user-facing language. Default: English.
+//   language: <name>           — user-facing language. Default: English.
+//   persona-gate: on|off       — block input until a dispatcher persona is picked.
+//   model.<persona>: <spec>    — replace the persona's default model for this project.
+//   models.<persona>: <a>, <b> — replace the persona's model candidate list.
 
 interface AgentTeamOverrides {
 	language: string;
 	personaGate: boolean;
+	personaModels: Record<string, string>;
+	personaModelLists: Record<string, string[]>;
 }
 
 const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	language: "English",
 	personaGate: false,
+	personaModels: {},
+	personaModelLists: {},
 };
+
+function freshOverrides(): AgentTeamOverrides {
+	return { ...DEFAULT_OVERRIDES, personaModels: {}, personaModelLists: {} };
+}
 
 function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 	const path = join(cwd, ".ai", "agent-skills-overrides.md");
-	if (!existsSync(path)) return { ...DEFAULT_OVERRIDES };
+	if (!existsSync(path)) return freshOverrides();
 
 	let raw: string;
 	try {
 		raw = readFileSync(path, "utf-8");
 	} catch {
-		return { ...DEFAULT_OVERRIDES };
+		return freshOverrides();
 	}
 
-	const result: AgentTeamOverrides = { ...DEFAULT_OVERRIDES };
+	const result: AgentTeamOverrides = freshOverrides();
 	let inSection = false;
 	for (const rawLine of raw.split("\n")) {
 		const line = rawLine.replace(/\r$/, "");
@@ -225,12 +241,18 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			continue;
 		}
 		if (!inSection) continue;
-		const kv = line.match(/^\s*([a-zA-Z][\w-]*)\s*:\s*(.+?)\s*$/);
+		const kv = line.match(/^\s*([a-zA-Z][\w.-]*)\s*:\s*(.+?)\s*$/);
 		if (!kv) continue;
 		const key = kv[1].toLowerCase();
 		const value = kv[2].trim();
 		if (key === "language" && value) result.language = value;
 		if (key === "persona-gate") result.personaGate = /^(on|true|yes|1)$/i.test(value);
+		const modelKey = key.match(/^model\.([\w-]+)$/);
+		if (modelKey && value) result.personaModels[modelKey[1]] = value;
+		const modelsKey = key.match(/^models\.([\w-]+)$/);
+		if (modelsKey && value) {
+			result.personaModelLists[modelsKey[1]] = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
 	}
 	return result;
 }
@@ -255,6 +277,28 @@ function parseTeamsYaml(raw: string): Record<string, string[]> {
 	return teams;
 }
 
+// ── Model Profiles Parser (.pi/agents/model-profiles.yaml) ──
+// Two-level YAML: profile name → persona → model spec. Validated at session
+// start against each persona's declared candidates; an invalid entry drops the
+// whole profile (never a partial apply).
+
+function parseModelProfilesYaml(raw: string): Record<string, Record<string, string>> {
+	const profiles: Record<string, Record<string, string>> = {};
+	let current: string | null = null;
+	for (const line of raw.split("\n")) {
+		if (/^\s*(#|$)/.test(line)) continue;
+		const top = line.match(/^(\S[^:]*):\s*$/);
+		if (top) {
+			current = top[1].trim();
+			profiles[current] = {};
+			continue;
+		}
+		const kv = line.match(/^\s+([\w-]+)\s*:\s*(.+?)\s*$/);
+		if (kv && current) profiles[current][kv[1].toLowerCase()] = kv[2];
+	}
+	return profiles;
+}
+
 // ── Frontmatter Parser ───────────────────────────
 
 function parseAgentFile(filePath: string): AgentDef | null {
@@ -264,10 +308,31 @@ function parseAgentFile(filePath: string): AgentDef | null {
 		if (!match) return null;
 
 		const frontmatter: Record<string, string> = {};
-		for (const line of match[1].split("\n")) {
+		const lists: Record<string, string[]> = {};
+		const fmLines = match[1].split("\n");
+		for (let i = 0; i < fmLines.length; i++) {
+			const line = fmLines[i];
 			const idx = line.indexOf(":");
-			if (idx > 0) {
-				frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+			if (idx <= 0) continue;
+			const key = line.slice(0, idx).trim();
+			const value = line.slice(idx + 1).trim();
+			if (value) {
+				frontmatter[key] = value;
+				continue;
+			}
+			// Empty value → possibly a YAML list (e.g. `models:` followed by `- item`
+			// lines). Consume the indented items so they aren't re-parsed as keys.
+			const items: string[] = [];
+			let j = i + 1;
+			while (j < fmLines.length) {
+				const m = fmLines[j].match(/^\s+-\s+(.+)$/);
+				if (!m) break;
+				items.push(m[1].trim());
+				j++;
+			}
+			if (items.length > 0) {
+				lists[key] = items;
+				i = j - 1;
 			}
 		}
 
@@ -278,6 +343,7 @@ function parseAgentFile(filePath: string): AgentDef | null {
 			description: frontmatter.description || "",
 			tools: frontmatter.tools || "read,grep,find,ls",
 			model: frontmatter.model || undefined,
+			models: lists.models,
 			kind: frontmatter.kind || undefined,
 			thinking: frontmatter.thinking || undefined,
 			systemPrompt: match[2].trim(),
@@ -1069,6 +1135,12 @@ export default function (pi: ExtensionAPI) {
 	let researchPersonas: AgentDef[] = [];
 	let allAgentDefs: AgentDef[] = [];
 	let teams: Record<string, string[]> = {};
+	// Named model profiles from .pi/agents/model-profiles.yaml (validated at
+	// session start) and the session-lifetime per-persona model overrides set by
+	// /agent-model and /models (lowercase persona name → pi model spec). Overrides
+	// reset on session_start; profiles make re-applying cheap.
+	let modelProfiles: Record<string, Record<string, string>> = {};
+	const modelOverrides = new Map<string, string>();
 	let activeTeamName = "";
 	let gridCols = 2;
 	// View mode toggled by Alt+A: "dashboard" = full bordered card grid above the
@@ -1095,6 +1167,22 @@ export default function (pi: ExtensionAPI) {
 	let dispatcherPersona: AgentDef | null = null;
 	let personaGateEnabled = false;
 	let personaGateSatisfied = true;
+
+	// Candidate models a persona may switch to: the default `model:` plus the
+	// `models:` list, deduped, order preserved.
+	function allowedModels(def: AgentDef): string[] {
+		const out: string[] = [];
+		for (const m of [def.model, ...(def.models || [])]) {
+			if (m && !out.includes(m)) out.push(m);
+		}
+		return out;
+	}
+
+	// The model a persona would dispatch on right now: session override →
+	// frontmatter default → undefined (dispatcher's model).
+	function resolvedModel(def: AgentDef): string | undefined {
+		return modelOverrides.get(def.name.toLowerCase()) ?? def.model;
+	}
 
 	function loadAgents(cwd: string) {
 		// Create session storage dir
@@ -1125,6 +1213,19 @@ export default function (pi: ExtensionAPI) {
 		// If no teams defined, create a default "all" team
 		if (Object.keys(teams).length === 0) {
 			teams = { all: allAgentDefs.map(d => d.name) };
+		}
+
+		// Load model profiles (raw — validated at session_start once per-project
+		// overrides have been applied to the persona defs).
+		const profilesPath = join(cwd, ".pi", "agents", "model-profiles.yaml");
+		if (existsSync(profilesPath)) {
+			try {
+				modelProfiles = parseModelProfilesYaml(readFileSync(profilesPath, "utf-8"));
+			} catch {
+				modelProfiles = {};
+			}
+		} else {
+			modelProfiles = {};
 		}
 	}
 
@@ -1275,7 +1376,7 @@ export default function (pi: ExtensionAPI) {
 		const headerLine = renderCardHeaderLine(
 			displayName(state.def.name),
 			state.contextPct,
-			shortModel(state.def.model),
+			shortModel(resolvedModel(state.def)),
 			status.text,
 			status.color,
 			w,
@@ -1502,14 +1603,13 @@ export default function (pi: ExtensionAPI) {
 			updateWidget();
 		}, 1000);
 
-		// Per-agent model: a persona can declare `model:` in frontmatter (a full
-		// pi spec, e.g. anthropic/claude-opus-4-7) to run on a stronger/cheaper
-		// model than the dispatcher. Falls back to the dispatcher's model.
-		const model = state.def.model
-			? state.def.model
-			: ctx.model
+		// Per-agent model: a session override (/agent-model, /models) wins;
+		// otherwise the persona's frontmatter `model:` (a full pi spec, e.g.
+		// anthropic/claude-opus-4-7). Falls back to the dispatcher's model.
+		const model = resolvedModel(state.def)
+			?? (ctx.model
 				? `${ctx.model.provider}/${ctx.model.id}`
-				: "openrouter/google/gemini-3-flash-preview";
+				: "openrouter/google/gemini-3-flash-preview");
 
 		// Session file for this agent
 		const agentKey = state.def.name.toLowerCase().replace(/\s+/g, "-");
@@ -3175,7 +3275,8 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 			const names = Array.from(agentStates.values())
 				.map(s => {
 					const session = s.sessionFile ? "resumed" : "new";
-					const model = s.def.model || "dispatcher's";
+					const override = modelOverrides.get(s.def.name.toLowerCase());
+					const model = override ? `${override} (switched)` : (s.def.model || "dispatcher's");
 					return `${displayName(s.def.name)} (${s.status}, ${session}, model: ${model}, runs: ${s.runCount}): ${s.def.description}`;
 				})
 				.join("\n");
@@ -3291,6 +3392,113 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 				overlayOptions: { width: "80%", anchor: "center" },
 			});
 			target.zoomRender = undefined;
+		},
+	});
+
+	// /agent-model <persona> — switch a persona's model among its declared
+	// candidates (frontmatter `model:` + `models:`). Session-lifetime: the choice
+	// resets on session_start and takes effect on the persona's NEXT dispatch
+	// (/agents-restart applies it immediately). Nothing outside the declared list
+	// is ever selectable.
+	pi.registerCommand("agent-model", {
+		description: "Switch a persona's model from its declared candidates: /agent-model <persona>",
+		getArgumentCompletions: agentNameCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = (args || "").trim().toLowerCase();
+			const state = name ? agentStates.get(name) : undefined;
+			if (!state) {
+				const known = Array.from(agentStates.values()).map(s => s.def.name).join(", ");
+				ctx.ui.notify(`Usage: /agent-model <persona>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			if (!state.def.models || state.def.models.length === 0) {
+				ctx.ui.notify(
+					`${displayName(state.def.name)} declares no model candidates — add a \`models:\` list to ${state.def.file} or a \`models.${state.def.name}:\` override in .ai/agent-skills-overrides.md.`,
+					"warning",
+				);
+				return;
+			}
+			const candidates = allowedModels(state.def);
+			const current = resolvedModel(state.def);
+			// A persona without a frontmatter default runs on the dispatcher's model —
+			// offer that as an explicit candidate so the override can be cleared.
+			const DISPATCHER_DEFAULT = "(dispatcher's model)";
+			if (!state.def.model) candidates.unshift(DISPATCHER_DEFAULT);
+			const options = candidates.map(m => {
+				const isDefault = state.def.model ? m === state.def.model : m === DISPATCHER_DEFAULT;
+				const isCurrent = current ? m === current : m === DISPATCHER_DEFAULT;
+				const tags = [isDefault ? "default" : "", isCurrent ? "current" : ""].filter(Boolean);
+				return tags.length ? `${m} (${tags.join(", ")})` : m;
+			});
+			const choice = await ctx.ui.select(`Model for ${displayName(state.def.name)}`, options);
+			if (choice === undefined) return;
+			const picked = candidates[options.indexOf(choice)];
+			const pickedIsCurrent = current ? picked === current : picked === DISPATCHER_DEFAULT;
+			if (pickedIsCurrent) {
+				ctx.ui.notify(`${displayName(state.def.name)} is already on ${picked}`, "info");
+				return;
+			}
+			if (picked === state.def.model || picked === DISPATCHER_DEFAULT) {
+				modelOverrides.delete(name);
+			} else {
+				modelOverrides.set(name, picked);
+			}
+			updateWidget();
+			ctx.ui.notify(
+				`${displayName(state.def.name)} → ${picked} (applies on next dispatch; /agents-restart ${state.def.name} to apply now)`,
+				"success",
+			);
+		},
+	});
+
+	// Completions for /models: profile names with their persona → model summary.
+	const modelProfileCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = Object.entries(modelProfiles).map(([name, entries]) => ({
+			value: name,
+			label: `${name} — ${Object.entries(entries).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
+		}));
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /models [profile] — apply a named model profile (a validated macro over the
+	// personas' declared candidates). Bare /models opens a picker.
+	pi.registerCommand("models", {
+		description: "Apply a model profile to the team: /models [profile]",
+		getArgumentCompletions: modelProfileCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = Object.keys(modelProfiles);
+			if (names.length === 0) {
+				ctx.ui.notify("No model profiles loaded — define .pi/agents/model-profiles.yaml (invalid profiles are dropped at session start).", "warning");
+				return;
+			}
+			let profileName = (args || "").trim();
+			if (!profileName) {
+				const options = names.map(n =>
+					`${n} — ${Object.entries(modelProfiles[n]).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
+				);
+				const choice = await ctx.ui.select("Select model profile", options);
+				if (choice === undefined) return;
+				profileName = names[options.indexOf(choice)];
+			}
+			const profile = modelProfiles[profileName];
+			if (!profile) {
+				ctx.ui.notify(`No profile "${profileName}". Known: ${names.join(", ")}`, "error");
+				return;
+			}
+			const applied: string[] = [];
+			for (const [persona, model] of Object.entries(profile)) {
+				const def = allAgentDefs.find(d => d.name.toLowerCase() === persona);
+				if (!def) continue; // validated at session start; defensive
+				if (model === def.model) modelOverrides.delete(persona);
+				else modelOverrides.set(persona, model);
+				applied.push(`${displayName(persona)} → ${shortModel(model)}`);
+			}
+			updateWidget();
+			ctx.ui.notify(`Profile "${profileName}": ${applied.join(", ")} (applies on next dispatch)`, "success");
 		},
 	});
 
@@ -3931,9 +4139,40 @@ ${researchCatalog}`;
 
 		loadAgents(_ctx.cwd);
 
-		// Load per-project overrides (user-facing language, persona gate).
+		// Load per-project overrides (user-facing language, persona gate, models).
 		const overrides = parseAgentTeamOverrides(_ctx.cwd);
 		userLanguage = overrides.language;
+
+		// Model switching state resets each session; per-project overrides replace
+		// the persona defs' default model / candidate list before anything reads them.
+		modelOverrides.clear();
+		for (const def of allAgentDefs) {
+			const lower = def.name.toLowerCase();
+			if (overrides.personaModels[lower]) def.model = overrides.personaModels[lower];
+			if (overrides.personaModelLists[lower]) def.models = overrides.personaModelLists[lower];
+		}
+
+		// Validate model profiles against the (post-override) declared candidates.
+		// Any violation drops the whole profile — never a partial apply.
+		const profileErrors: string[] = [];
+		for (const [profileName, entries] of Object.entries(modelProfiles)) {
+			for (const [persona, model] of Object.entries(entries)) {
+				const def = allAgentDefs.find(d => d.name.toLowerCase() === persona);
+				if (!def) {
+					profileErrors.push(`profile "${profileName}": unknown persona "${persona}"`);
+				} else if (!allowedModels(def).includes(model)) {
+					profileErrors.push(`profile "${profileName}": ${persona} does not declare ${model} (model:/models: in ${def.file})`);
+				}
+			}
+		}
+		if (profileErrors.length > 0) {
+			const dropped = new Set(profileErrors.map(e => e.match(/^profile "([^"]+)"/)![1]));
+			for (const name of dropped) delete modelProfiles[name];
+			_ctx.ui.notify(
+				`model-profiles.yaml: dropped ${Array.from(dropped).map(n => `"${n}"`).join(", ")}:\n${profileErrors.join("\n")}`,
+				"error",
+			);
+		}
 
 		// Dispatcher persona gate (Phase 6 / requirement 1). Orchestrator personas are
 		// persona files tagged `kind: orchestrator` (decision G5 — keeps builder/scout
@@ -3991,6 +4230,8 @@ ${researchCatalog}`;
 			`/agents-team          Select a team\n` +
 			`/agents-list          List active agents and status\n` +
 			`/agents-grid <1-6>    Set grid column count\n` +
+			`/agent-model <name>   Switch a persona's model from its declared candidates\n` +
+			`/models [profile]     Apply a named model profile to the team\n` +
 			`/agents-kill <name>   SIGTERM a frozen specialist\n` +
 			`/agents-restart <name> Kill + re-run its last task fresh\n` +
 			`/zoom <name|rN>       Scrollable read-only view of an agent's stream\n` +
