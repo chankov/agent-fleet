@@ -63,7 +63,7 @@ Copy any `SKILL.md` into `.cursor/rules/`, or reference the full `skills/` direc
 </details>
 
 <details>
-<summary><b>Antigravity CLI (Recommended)</b></summary>
+<summary><b>Antigravity CLI</b></summary>
 
 Install as a native plugin for skills, subagents, and slash commands. See [docs/antigravity-setup.md](docs/antigravity-setup.md).
 
@@ -293,7 +293,7 @@ agent-skills/
 ├── hooks/                             # Session lifecycle hooks
 ├── .claude/commands/                  # 7 slash commands (Claude Code)
 ├── .gemini/commands/                  # 7 slash commands (Gemini CLI)
-├── commands/                          # 7 slash commands (Antigravity CLI)
+├── commands/                          # 8 slash commands (Antigravity CLI)
 ├── plugin.json                        # Antigravity plugin manifest
 └── docs/                              # Setup guides per tool
 ```
