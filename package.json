@@ -56,12 +56,8 @@
     "docs/npm-install.md",
     "docs/skill-anatomy.md",
     "docs/getting-started.md",
-    "docs/cursor-setup.md",
-    "docs/copilot-setup.md",
-    "docs/gemini-cli-setup.md",
     "docs/opencode-setup.md",
     "docs/pi-setup.md",
-    "docs/windsurf-setup.md",
     ".versions/",
     "CHANGELOG.md",
     "LICENSE",
@@ -75,7 +71,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node bin/cli.js --version && node bin/cli.js --help",
+    "test": "node bin/cli.js --version && node bin/cli.js --help && node bin/cli.js transform-persona --list --agent claude-code && node --test \"bin/test/*.test.js\"",
     "pack:dry": "npm pack --dry-run",
     "changeset": "changeset",
     "version": "changeset version",

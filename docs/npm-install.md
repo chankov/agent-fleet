@@ -167,6 +167,32 @@ npx agent-skills update --workspace .
 # it to review per-artifact diffs.
 ```
 
+### `npx @chankov/agent-skills transform-persona`
+
+Generates per-agent subagent definitions from the canonical personas in
+`agents/*.md`. `pi` gets the canonical file unchanged; `claude-code` and
+`opencode` get a transformed copy — `tools`/`model` translated to the target's
+vocabulary (`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …; `mode:
+subagent` + tool denials for OpenCode), agent-hub-only frontmatter dropped,
+body untouched. pi-only personas (`bowser`, `orchestrator`,
+`orchestrator-careful`) are refused for other agents. This is what
+`/setup-agent-skills` runs during apply; transformed installs are always
+copies (never symlinks), recorded with `transformed: true`.
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--agent <claude-code\|opencode\|pi>` | — (required) | Target agent |
+| `--list` | off | Print the availability matrix (persona → target path) |
+| `--all` | off | Transform every available persona |
+| `--workspace <path>` | — | Write into `<path>`; omit to print to stdout |
+| `--dry-run` | off | With `--workspace`: show what would be written |
+
+```bash
+npx @chankov/agent-skills transform-persona --list --agent claude-code
+npx @chankov/agent-skills transform-persona --agent claude-code code-reviewer
+npx @chankov/agent-skills transform-persona --agent opencode --all --workspace .
+```
+
 ## Versioning
 
 The package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html):

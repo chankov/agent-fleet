@@ -21,4 +21,3 @@ tmp/
 .versions/
 .ai/commands/
 .pi/agents/*.txt
-.changeset/

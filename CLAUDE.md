@@ -5,9 +5,9 @@ This is the agent-skills project — a collection of production-grade engineerin
 ## Project Structure
 
 ```
-bin/          → npm CLI: cli.js (agent-skills entrypoint), lib/{doctor,detect-agent}.js, snapshot-version.js
+bin/          → npm CLI: cli.js (agent-skills entrypoint), lib/{doctor,detect-agent,transform-persona}.js, test/ (node --test), snapshot-version.js
 skills/       → Core skills (SKILL.md per directory)
-agents/       → Reusable agent personas (code-reviewer, test-engineer, security-auditor)
+agents/       → 14 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code/opencode get generated copies; bowser + orchestrators are pi-only)
 hooks/        → Session lifecycle hooks
 scripts/      → Standalone scripts (coms-net hub server for the coms-net pi extension)
 justfile      → Recipes to launch pi with each harness
@@ -51,7 +51,8 @@ docs/         → Setup guides, agent-skills-setup.md (per-project overrides + i
 
 ## Commands
 
-- `npm test` — Runs `node bin/cli.js --version && node bin/cli.js --help` as a basic CLI smoke test
+- `npm test` — CLI smoke test (`--version`, `--help`, `transform-persona --list`) plus the `node --test` unit tests in `bin/test/`
+- `node bin/cli.js transform-persona --agent <a> [--list|--all|names…]` — Generate per-agent persona files from `agents/*.md`; the mapping lives in `bin/lib/transform-persona.js`, under test — never transform persona frontmatter by hand
 - `npm run pack:dry` — `npm pack --dry-run` to verify the tarball contents match `package.json`'s `files` allowlist
 - `npx changeset` — Add a changeset for any user-visible change (see CONTRIBUTING.md for bump rules)
 - `node bin/snapshot-version.js` — Build the `.versions/<x.y.z>/` snapshot manually (the release workflow runs this automatically)

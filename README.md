@@ -47,13 +47,14 @@ That's it for guided setup. `npx` fetches the package, the CLI detects your codi
 analysing the workspace, showing grouped menus, and confirming everything
 before writing a single file.
 
-Three CLI commands:
+Main CLI commands:
 
 | Command | What it does |
 |---|---|
 | `npx @chankov/agent-skills init` | Materialize the package + hand off to `/setup-agent-skills` |
 | `npx @chankov/agent-skills doctor` | Scan for broken symlinks and stale persona refs |
 | `npx @chankov/agent-skills update` | Surface the version delta + hand off to `/setup-agent-skills` for the per-artifact diff |
+| `npx @chankov/agent-skills transform-persona` | Generate per-agent subagent files from the canonical personas (used by setup during apply) |
 
 Versioned with [semver](https://semver.org); changelog in
 [CHANGELOG.md](CHANGELOG.md); full docs in [docs/npm-install.md](docs/npm-install.md).
@@ -91,39 +92,6 @@ Updates flow through `git pull`. Symlinks need Developer Mode on Windows.
 </details>
 
 <details>
-<summary><b>Cursor</b></summary>
-
-Copy any `SKILL.md` into `.cursor/rules/`, or reference the full `skills/` directory. See [docs/cursor-setup.md](docs/cursor-setup.md).
-
-</details>
-
-<details>
-<summary><b>Gemini CLI</b></summary>
-
-Install as native skills for auto-discovery, or add to `GEMINI.md` for persistent context. See [docs/gemini-cli-setup.md](docs/gemini-cli-setup.md).
-
-**Install from the repo:**
-
-```bash
-gemini skills install https://github.com/chankov/agent-skills.git --path skills
-```
-
-**Install from a local clone:**
-
-```bash
-gemini skills install ./agent-skills/skills/
-```
-
-</details>
-
-<details>
-<summary><b>Windsurf</b></summary>
-
-Add skill contents to your Windsurf rules configuration. See [docs/windsurf-setup.md](docs/windsurf-setup.md).
-
-</details>
-
-<details>
 <summary><b>OpenCode</b></summary>
 
 Uses agent-driven skill execution via `AGENTS.md` and the `skill` tool.
@@ -157,20 +125,6 @@ This includes the bundled `pi-ask-user` package, so the interactive `ask_user` t
 pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and pi extensions from `.pi/extensions/` (currently: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`; one-time `npm ci` required — see setup doc). For clone/symlink setup, install `pi-ask-user` separately with `pi install -l npm:pi-ask-user` unless it is already listed by `pi list`. See [docs/pi-setup.md](docs/pi-setup.md).
 
 The repo also ships 5 selectable pi extension *harnesses* — agent orchestration, safety auditing, and Pi-to-Pi messaging — ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT). `just hub` loads the hard-stop `damage-control` guard before `agent-hub` by default. See the [pi extension catalog](docs/pi-extensions.md) for the full list, setup, and how to run each one.
-
-</details>
-
-<details>
-<summary><b>GitHub Copilot</b></summary>
-
-Use agent definitions from `agents/` as Copilot personas and skill content in `.github/copilot-instructions.md`. See [docs/copilot-setup.md](docs/copilot-setup.md).
-
-</details>
-
-<details>
-<summary><b>Codex / Other Agents</b></summary>
-
-Skills are plain Markdown - they work with any agent that accepts system prompts or instruction files. See [docs/getting-started.md](docs/getting-started.md).
 
 </details>
 
@@ -234,17 +188,48 @@ The commands above are the entry points. Under the hood, they activate these 20 
 
 ## Agent Personas
 
-Pre-configured specialist personas for targeted reviews:
+14 pre-configured specialist personas live in [agents/](agents/) — reusable subagent definitions your coding agent can delegate work to. Each persona is one Markdown file with YAML frontmatter; the canonical format is pi-flavored, and the setup commands transform it per target agent on install (see [Installing personas](#installing-personas)).
 
-| Agent | Role | Perspective |
-|-------|------|-------------|
-| [code-reviewer](agents/code-reviewer.md) | Senior Staff Engineer | Five-axis code review with "would a staff engineer approve this?" standard. Read-only. |
-| [test-engineer](agents/test-engineer.md) | QA Specialist | Test strategy, coverage analysis, and the Prove-It pattern |
-| [security-auditor](agents/security-auditor.md) | Security Engineer | Vulnerability detection, threat modeling, OWASP assessment. Read-only. |
-| [planner](agents/planner.md) | Architect | Produces numbered, step-by-step implementation plans. Read-only. |
-| [plan-reviewer](agents/plan-reviewer.md) | Plan Critic | Stress-tests plans for assumptions, gaps, ordering, and feasibility. Read-only. |
-| [builder](agents/builder.md) | Implementer | Carries out an approved plan with minimal, idiomatic code. |
-| [documenter](agents/documenter.md) | Tech Writer | READMEs, inline docs, usage examples in the project's voice. |
+| Persona | Role | Access | Primary skill | Agents |
+|---|---|---|---|---|
+| [planner](agents/planner.md) | Architect — writes dependency-ordered PLAN files with acceptance criteria | rw (plan file only) | [planning-and-task-breakdown](skills/planning-and-task-breakdown/SKILL.md) | all |
+| [plan-reviewer](agents/plan-reviewer.md) | Plan critic — stress-tests plans for gaps, ordering, feasibility | read-only | [planning-and-task-breakdown](skills/planning-and-task-breakdown/SKILL.md) | all |
+| [builder](agents/builder.md) | Implementer — lands changes in small verifiable increments | rw | [incremental-implementation](skills/incremental-implementation/SKILL.md) | all |
+| [code-reviewer](agents/code-reviewer.md) | Senior staff engineer — five-axis review before merge | read-only | [code-review-and-quality](skills/code-review-and-quality/SKILL.md) | all |
+| [test-engineer](agents/test-engineer.md) | QA — test strategy, coverage analysis, the Prove-It pattern | rw | [test-driven-development](skills/test-driven-development/SKILL.md) | all |
+| [security-auditor](agents/security-auditor.md) | Security engineer — vulnerability detection, threat modeling, OWASP | read-only | [security-and-hardening](skills/security-and-hardening/SKILL.md) | all |
+| [documenter](agents/documenter.md) | Tech writer — READMEs, inline docs, usage examples | rw | [documentation-and-adrs](skills/documentation-and-adrs/SKILL.md) | all |
+| [architect](agents/architect.md) | System architect — design decisions and migration strategy | rw | [api-and-interface-design](skills/api-and-interface-design/SKILL.md) | all |
+| [releaser](agents/releaser.md) | Release owner — changeset → version-bump → tag flow | rw | [git-workflow-and-versioning](skills/git-workflow-and-versioning/SKILL.md), [shipping-and-launch](skills/shipping-and-launch/SKILL.md) | all |
+| [researcher](agents/researcher.md) | Fast read-only recon — reports findings with file:line citations | read-only | — | all |
+| [deep-researcher](agents/deep-researcher.md) | Deep recon for hard, cross-cutting questions | read-only | — | all |
+| [bowser](agents/bowser.md) | Headless browser automation via Playwright CLI | rw | — | pi only |
+| [orchestrator](agents/orchestrator.md) | Balanced agent-hub dispatcher flavor | — | — | pi only |
+| [orchestrator-careful](agents/orchestrator-careful.md) | Review-first dispatcher flavor with verification gates | — | — | pi only |
+
+### How personas connect to skills
+
+Personas are the *who*, skills are the *how*. Each working persona carries a conditional hook to its primary skill: if `skills/<skill-name>/SKILL.md` exists in the repo it is working on, the persona reads it before starting and follows its process and output format. Install the matching skill alongside the persona to get the full structured workflow — without it, the persona still works on its built-in rules. The research personas, `bowser`, and the orchestrators deliberately carry no skill hook (recon must stay lean; the orchestration prompt is built by agent-hub). Several personas also honour the per-project overrides in `.ai/agent-skills-overrides.md` — e.g. `planner` writes its plan where `## planning-and-task-breakdown` says, and reviewers validate against the project's `rules:` folders.
+
+### Installing personas
+
+`/setup-agent-skills` offers every persona available for the chosen agent and installs it to the right place, transforming the frontmatter deterministically (via `npx @chankov/agent-skills transform-persona`):
+
+| Agent | Installed to | Transformation |
+|---|---|---|
+| Claude Code | `.claude/agents/<name>.md` | tools renamed (`read→Read`, `find/ls→Glob`, …), model mapped to `opus`/`sonnet`/`haiku`, agent-hub keys dropped |
+| OpenCode | `.opencode/agent/<name>.md` | `mode: subagent` added, write-capable tools denied per persona, agent-hub keys dropped |
+| pi | `agents/<name>.md` | none — the canonical format is the pi format |
+
+When this repo is installed as a Claude Code plugin, the `agents/` directory is auto-discovered — every non-pi-only persona is immediately available as a subagent without a separate install.
+
+### Teams of subagents
+
+The personas are designed to be composed, not used one at a time:
+
+- **pi (agent-hub harness)** — the dispatcher spawns personas as specialist subagents. Named teams in [.pi/agents/teams.yaml](.pi/agents/teams.yaml) scope which personas it may use: `default` (plan → build → review → document), `debug`, `info`, and `frontend`. `just team-up <name>` instead spawns the [peers.yaml](.pi/agents/peers.yaml) personas (`architect`, `releaser`) as standalone, addressable peers in tmux panes. Personas with a `subagents:` block (e.g. `code-reviewer`'s `preflight`/`quality`/`perf`/`docs`) additionally delegate slices of their own job to pre-configured children.
+- **Claude Code** — installed personas are native subagents: the main agent delegates to them automatically based on their `description`, or you invoke one explicitly ("use the code-reviewer subagent on this diff"). Chain them along the lifecycle: `/plan` work goes to `planner`, then `plan-reviewer` critiques, `builder` implements, and `code-reviewer` + `security-auditor` gate the merge.
+- **OpenCode** — installed personas are subagents (`mode: subagent`): mention one with `@<name>` to invoke it directly, or let the primary agent delegate to it by description.
 
 ---
 
@@ -334,7 +319,7 @@ agent-skills/
 │   ├── documentation-and-adrs/        #   Ship
 │   ├── shipping-and-launch/           #   Ship
 │   └── using-agent-skills/            #   Meta: how to use this pack
-├── agents/                            # 3 specialist personas
+├── agents/                            # 14 reusable agent personas
 ├── references/                        # 4 supplementary checklists
 ├── hooks/                             # Session lifecycle hooks
 ├── .claude/commands/                  # 7 Claude slash commands

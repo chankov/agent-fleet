@@ -59,13 +59,15 @@ Target map, relative to the workspace root:
 | Artifact | claude-code | opencode | pi |
 |---|---|---|---|
 | Skills | `.claude/skills/<name>/` | per `docs/opencode-setup.md` | `.pi/skills/<name>/` |
-| Personas | `.claude/agents/<name>.md` | per `docs/opencode-setup.md` | `agents/<name>.md` |
+| Personas | `.claude/agents/<name>.md` *(generated)* | `.opencode/agent/<name>.md` *(generated)* | `agents/<name>.md` |
 | Commands / prompts | `.claude/commands/<name>.md` | `.opencode/commands/as-<name>.md` | `.pi/prompts/<name>.md` |
 | References | `.claude/references/<name>.md` | per `docs/opencode-setup.md` | per `docs/pi-setup.md` |
 | Hooks | `.claude/hooks/<name>`, registered in `.claude/settings.json` | per `docs/opencode-setup.md` | per `docs/pi-setup.md` |
 | pi extensions | — | — | `.pi/extensions/<name>/` |
 | pi harnesses | — | — | `.pi/harnesses/<name>/` |
 | pi harness support | — | — | `justfile` (agent-skills managed region), `scripts/*.ts`, `.pi/agents/*.yaml`, `.pi/damage-control-rules.yaml`, `.pi/harnesses/package.json` |
+
+**Personas are generated, not copied.** The canonical persona format in `agents/*.md` is pi-flavored (agent-hub frontmatter: `models`, `thinking`, `delegate_depth`, `subagents`, …). For `pi` the file is installed as-is (copy or symlink). For `claude-code` and `opencode` the install runs the deterministic transformer instead — `node <source-root>/bin/cli.js transform-persona --agent <agent> --workspace <workspace> <name…>` — which translates `tools`/`model` to the target's vocabulary, adds `mode: subagent` for opencode, and drops the agent-hub-only keys. Never transform persona frontmatter by hand in this skill; the mapping lives in `bin/lib/transform-persona.js`, under test. Its `--list` flag prints the per-agent availability matrix (pi-only personas — `bowser`, `orchestrator`, `orchestrator-careful` — are excluded for other agents and must not appear in their menu).
 
 The **pi harness support** row is not a menu group of its own — it is the set of shared files the harnesses need in order to launch (the `justfile` recipes, the `team-up`/`coms-net` scripts, the peer/team YAML, the damage-control rules, and the harness `package.json` of runtime deps). These travel **with** the pi harnesses group (Step 6, group 6): whenever any harness is installed, refreshed, or removed, this support set is refreshed from source in the same pass. The `justfile` specifically is refreshed from the **current** source, so retired-harness recipes are pruned and new-harness recipes added automatically — see Step 6 and Step 10 for the merge and removal rules.
 
@@ -96,7 +98,7 @@ If Step 4 found prior state — `.ai/agent-skills-setup.md` exists **or** any of
 
 Walk every install-target directory the chosen agent uses and look for **broken symlinks** — links whose source has been moved, renamed, or deleted. Directories to check, when present:
 
-- `agents/`, `.claude/agents/`, `.opencode/agents/`, `.codex/agents/`, `.gemini/agents/`, `.github/agents/`, `.pi/agents/`
+- `agents/`, `.claude/agents/`, `.opencode/agent/`, `.opencode/agents/` (legacy), `.pi/agents/`
 - `.claude/skills/`, `.opencode/skills/`, `.pi/skills/`, `.agents/skills`
 - `.claude/commands/`, `.opencode/commands/`, `.pi/prompts/`
 - `.claude/references/`, `.claude/hooks/`
@@ -104,7 +106,7 @@ Walk every install-target directory the chosen agent uses and look for **broken 
 For each broken link discovered:
 
 1. Resolve where the link **was** pointing (`readlink`) and look up the canonical replacement in the source `agents/` or `skills/` tree — many breakages are stale names from the pre-merge layout (e.g. `reviewer` → `code-reviewer`, `red-team` → `security-auditor`).
-2. If a canonical replacement exists, offer to repoint the symlink to it.
+2. If a canonical replacement exists, offer to repair it. For persona links under `.claude/agents/` or `.opencode/agent(s)/` the repair **regenerates a transformed copy** (`transform-persona`) — never a raw symlink into the source; everywhere else it repoints the symlink.
 3. If no replacement exists, offer to delete the broken link.
 4. Never overwrite a regular file you find at a target path — only act on symlinks whose target is missing.
 
@@ -203,9 +205,12 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *Review* — `code-review-and-quality` ★, `code-simplification`, `security-and-hardening`, `performance-optimization`
    - *Ship* — `git-workflow-and-versioning` ★, `ci-cd-and-automation`, `deprecation-and-migration`, `documentation-and-adrs`, `shipping-and-launch`
    - *Meta* — `using-agent-skills` ★, `designing-agents` *(`guided-workspace-setup` is installer-only — never offered)*
-2. **Agent personas** *(`Group` column = `writeable` / `read-only`)* — one screen. Read-only personas carry `tools: read,bash,grep,find,ls` and an explicit "Do NOT modify files." rule:
-   - *writeable* — `builder`, `documenter`, `planner` *(scoped: writes only the plan document in the plan directory; bash limited to read-only git inspection)*
-   - *read-only* — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `plan-reviewer`
+2. **Agent personas** *(`Group` column = `rw` / `ro` / `pi-only`)* — one screen listing the **full availability matrix** for the chosen agent (never a hardcoded subset; `transform-persona --list --agent <agent>` is the authoritative roster). Read-only personas carry a read-only toolset and an explicit "Do NOT modify files." rule:
+   - *rw* — `builder` ★, `test-engineer` ★, `documenter`, `planner` *(scoped: writes only the plan document in the plan directory; bash limited to read-only git inspection)*, `architect`, `releaser`
+   - *ro* — `code-reviewer` ★, `security-auditor`, `plan-reviewer`, `researcher`, `deep-researcher`
+   - *pi-only* *(shown only when the agent is `pi`)* — `bowser`, `orchestrator`, `orchestrator-careful`
+
+   For `claude-code`/`opencode`, installed rows are **generated artifacts** (see Step 3): record them with `transformed: true` in `## install-status`, and compute their status by comparing the installed file against `transform(current source)` — and for upgrades against `transform(.versions/<recorded>/agents/<name>.md)` — never against the raw canonical source, whose bytes legitimately differ from the generated output.
 3. **Commands / prompts** *(single-type — no `Group` column)* — mapped to the chosen agent; items without a per-agent source are filtered out, no cross-tool substitution. Full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
 4. **References & Hooks** *(`Group` column = `reference` / `hook`)* — one screen for the shared non-agent-specific artifacts:
    - *reference* — testing, performance, security, accessibility checklists
@@ -276,6 +281,8 @@ Ask `copy` or `symlink` for this run.
 - `copy` — copy each artifact into its target path.
 - `symlink` — link each target path to the source artifact in the agent-skills repo.
 
+**Exception:** personas for `claude-code` and `opencode` are always materialized as generated files via `transform-persona` (Step 3), even in symlink mode — a symlink would expose the untransformed pi-flavored source. Only `pi` persona installs may symlink. State this in the Step 9 summary when the method is `symlink` and personas are selected.
+
 ### 9. Confirm the plan
 
 Present the plan compactly — the **"Keep it narrow"** rule from Step 6 applies here too, since this confirmation renders in the same `pi-ask-user` widget. Do **not** render a wide multi-column table: a `Target paths` column plus a `Notes` column plus an `Artifacts` cell that lists every skill name is exactly what overflows the terminal and forces the user to zoom out. Instead, group the plan by action — one short line per action, each artifact list wrapping naturally:
@@ -293,7 +300,7 @@ Target paths are deterministic from the per-agent source map, so omit them from 
 
 ### 10. Apply the setup
 
-Apply the changes: create directories, add or update selected artifacts, and remove deselected ones — **bound by the removal-scope rule from Step 6**. Before deleting any target, verify both conditions: (a) the name is in the agent-skills inventory and (b) the item is either listed in `## install-status` or is a symlink resolving into the source repo. If either check fails, skip the deletion silently and log the path under a "Skipped — not owned by agent-skills" line in the final report.
+Apply the changes: create directories, add or update selected artifacts, and remove deselected ones — **bound by the removal-scope rule from Step 6**. Selected personas for `claude-code`/`opencode` are applied with `node <source-root>/bin/cli.js transform-persona --agent <agent> --workspace <workspace> <name…>` and recorded with `transformed: true`; pi personas follow the normal copy/symlink path. Before deleting any target, verify both conditions: (a) the name is in the agent-skills inventory and (b) the item is either listed in `## install-status` or is a symlink resolving into the source repo. If either check fails, skip the deletion silently and log the path under a "Skipped — not owned by agent-skills" line in the final report.
 
 **Apply without mid-flight questions.** Refresh every ticked item from its per-agent source unconditionally. Do not pause to ask whether to overwrite a modified file — `installed · modified` already appeared in Step 6 with the explicit warning that refreshing overwrites local edits, and the user's tick is the consent. The Step 9 confirmation is the single gate; nothing further is asked during apply. (If the apply hits a genuine error — permission denied, source missing, broken target type — stop, report it, and ask how to proceed; that is not the same as soliciting consent.)
 
@@ -354,6 +361,7 @@ Close the report with one line explaining the installer-cleanup outcome:
 | "`.pi/prompts/design-agent.md` doesn't exist, but `.claude/commands/design-agent.md` does — I'll symlink to the Claude file so the user gets the prompt." | That mixes runtimes silently and lets the source repo's claude-code tree drive a pi target. The source availability filter forbids it: items without a per-agent source are not offered at all. |
 | "The harness directories installed fine — the `justfile` is just launch shortcuts, I'll leave the existing one." | The `justfile` is how harnesses are launched; if it is not refreshed from the current source, retired-harness recipes linger (pointing at deleted `.pi/harnesses/<name>/` dirs) and newly added harnesses have no recipe at all. It is a companion of the harness group and must be refreshed whenever any harness changes. |
 | "I'll just copy the source `justfile` over the target's to refresh it." | A wholesale copy clobbers any recipes the user authored. Refresh only the managed region between the `agent-skills:harnesses` sentinels; a user-edited `justfile` outside that region is `mod`/`cflt` and gets the three-way diff first — never a silent overwrite. |
+| "The persona is just markdown — I'll copy it as-is for claude-code; the extra frontmatter keys are harmless." | The canonical frontmatter carries pi tool names (`find`, `ls`), pi model routes (`openai-codex/…`), and agent-hub keys the target cannot read. The `transform-persona` CLI exists so the installed file is correct and deterministic — raw copies and hand-transforms both drift. |
 | "I'll skip the workspace analysis and just ask the user everything." | The analysis is what makes the override offer accurate. Asking blind produces an overrides file the user has to hand-correct afterwards. |
 | "I'll record the full install detail in the overrides file too — one place is simpler." | Other skills load the overrides file on every run. Install detail belongs only in `agent-skills-setup.md`; padding the overrides file taxes every later session. |
 | "There's an unfamiliar skill in `.claude/skills/` — the user must have forgotten to uncheck it, I'll remove it." | The removal scope rule exists exactly to prevent this. If the name is not in the agent-skills inventory or not in `## install-status`, it is user-owned; leave it alone and log it as skipped. |
@@ -382,6 +390,9 @@ Close the report with one line explaining the installer-cleanup outcome:
 - A `recommended` reply that silently unticks already-installed items instead of adding `★` items on top.
 - `setup`, `doctor`, or `guided-workspace-setup` shown in the install menu — they are installer-only.
 - An item offered for one agent whose per-agent source file does not exist (cross-tool substitution).
+- A persona for `claude-code`/`opencode` copied or symlinked raw instead of generated via `transform-persona` — or its frontmatter "transformed" by hand in prose instead of by the CLI.
+- A pi-only persona (`bowser`, `orchestrator`, `orchestrator-careful`) offered in a non-`pi` menu, or the personas group showing a hardcoded subset instead of the full `transform-persona --list` roster.
+- A transformed persona row diffed against the raw canonical source instead of against the generated output (false `modified` status on every re-run).
 - A mid-apply prompt asking whether to overwrite a modified target file — that consent belongs in Step 6 / Step 9, not in Step 10.
 - A target file or directory deleted whose name is not in the agent-skills inventory, or that is not recorded in `## install-status` and is not a symlink into the source repo.
 - Edits to `settings.json` / env vars / MCP config beyond removing agent-skills' own hook registrations.
@@ -421,6 +432,7 @@ After completing the workflow, confirm:
 - [ ] Every row carried an explicit `St` token (`ok`, `upd`, `mod`, `cflt`, `gone`, `new`, `pkg`, `—`, or `brk`) with the legend shown once above the table — never blank and never the long `installed · …` state names that overflow the widget.
 - [ ] Installed items were pre-checked `[x]`; not-installed items were pre-checked `[ ]`; `recommended` added `★` items on top of the pre-selection without unticking installed ones.
 - [ ] Items lacking a per-agent source were filtered out of the menu — no cross-tool substitution offered.
+- [ ] The personas group listed the full `transform-persona --list` roster for the chosen agent; pi-only personas appeared only for `pi`; selected personas for `claude-code`/`opencode` were written by the `transform-persona` CLI and recorded with `transformed: true`.
 - [ ] Apply ran without any overwrite-this-file prompt; ticked items refreshed unconditionally and unticked modified items were preserved.
 - [ ] `setup`, `doctor`, and `guided-workspace-setup` were excluded from the install menu.
 - [ ] Every selected artifact exists at its resolved target path; every deselected one was removed **only if** the removal-scope rule allowed it (in inventory + in install record / symlink-into-source).

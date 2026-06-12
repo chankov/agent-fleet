@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 // agent-skills — thin dispatcher into the LLM-driven guided setup.
 //
-// Three commands:
-//   init     materialize the package, detect the coding agent, hand off to /setup-agent-skills
-//   doctor   deterministic preflight scan (broken symlinks, stale persona refs)
-//   update   refresh the package, then hand off to /setup-agent-skills for the version-diff
+// Main commands:
+//   init               materialize the package, detect the coding agent, hand off to /setup-agent-skills
+//   doctor             deterministic preflight scan (broken symlinks, stale persona refs)
+//   update             refresh the package, then hand off to /setup-agent-skills for the version-diff
+//   transform-persona  generate per-agent subagent files from the canonical agents/*.md
 //
 // The CLI itself never decides which skills to install or what to overwrite —
 // that is the job of the guided-workspace-setup skill, run by the user's
 // coding agent. We just put the source files where the agent can find them
 // and print the next-step command.
 
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -20,6 +21,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout, exit } from "node:process";
 
 import { runDoctor } from "./lib/doctor.js";
+import { listPersonas, transformPersona } from "./lib/transform-persona.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
 import { bootstrap, cleanupInstaller, readBootstrapMarker } from "./lib/bootstrap.js";
@@ -54,6 +56,8 @@ const parsed = (() => {
         yes:       { type: "boolean", short: "y" },
         "dry-run": { type: "boolean" },
         launch:    { type: "boolean" },
+        all:       { type: "boolean" },
+        list:      { type: "boolean" },
         help:      { type: "boolean", short: "h" },
       },
     });
@@ -85,7 +89,8 @@ switch (sub) {
   case "doctor":            await cmdDoctor();           break;
   case "update":            await cmdUpdate();           break;
   case "check-update":      await cmdCheckUpdate();      break;
-  case "cleanup-installer": await cmdCleanupInstaller(); break;
+  case "cleanup-installer":  await cmdCleanupInstaller();  break;
+  case "transform-persona":  await cmdTransformPersona();  break;
   default:                  fail(`unknown command: ${sub}\n\nRun "agent-skills --help" for usage.`);
 }
 
@@ -303,6 +308,59 @@ async function cmdCleanupInstaller() {
   }
 }
 
+async function cmdTransformPersona() {
+  // Generates per-agent subagent definitions from the canonical agents/*.md.
+  // The guided-workspace-setup skill calls this during apply, so the
+  // frontmatter mapping stays deterministic and under test (lib/transform-persona.js).
+  const agent = opts.agent;
+  if (!agent || !AGENTS.includes(agent)) {
+    fail(`transform-persona needs --agent (one of: ${AGENTS.join(", ")})`);
+  }
+
+  const available = listPersonas(pkgRoot, { agent });
+
+  if (opts.list) {
+    for (const p of available) console.log(`${p.name} → ${p.targetRelPath}`);
+    return;
+  }
+
+  const names = opts.all ? available.map((p) => p.name) : parsed.positionals;
+  if (names.length === 0) {
+    fail("name one or more personas, or pass --all / --list");
+  }
+
+  // Writing only happens when --workspace is given explicitly; otherwise the
+  // transformed content goes to stdout (workspace would default to cwd, which
+  // is too easy to splat by accident).
+  const wantsWrite = opts.workspace !== undefined;
+  if (wantsWrite) await mustBeDirectory(workspace, "workspace");
+
+  for (const name of names) {
+    const sourcePath = join(pkgRoot, "agents", `${name}.md`);
+    if (!existsSync(sourcePath)) {
+      fail(`unknown persona "${name}" — run \`agent-skills transform-persona --list --agent ${agent}\``);
+    }
+    let out;
+    try {
+      out = transformPersona(readFileSync(sourcePath, "utf8"), { agent });
+    } catch (err) {
+      fail(err.message); // e.g. pi-only persona requested for claude-code/opencode
+    }
+    if (wantsWrite) {
+      const dest = join(workspace, out.targetRelPath);
+      if (opts["dry-run"]) {
+        console.log(`  ✓ would write: ${out.targetRelPath}`);
+      } else {
+        mkdirSync(dirname(dest), { recursive: true });
+        writeFileSync(dest, out.content);
+        console.log(`  ✓ wrote: ${out.targetRelPath}`);
+      }
+    } else {
+      process.stdout.write(out.content);
+    }
+  }
+}
+
 async function cmdCheckUpdate() {
   // Entry point for hook scripts and pi extensions. Blocks on a single
   // registry fetch (short timeout); emits a one-line banner to stdout if an
@@ -484,6 +542,30 @@ Options:
 `);
     return;
   }
+  if (sub === "transform-persona") {
+    console.log(`agent-skills transform-persona --agent <agent> [options] [persona…]
+
+  Generate per-agent subagent definitions from the canonical agents/*.md
+  personas. pi gets the canonical file unchanged; claude-code and opencode get
+  a transformed copy (tools/model translated, agent-hub-only keys dropped).
+  pi-only personas (bowser, orchestrator, orchestrator-careful) are refused
+  for other agents.
+
+Options:
+  --agent <claude-code|opencode|pi>   Target agent (required)
+  --list                              List available personas + target paths
+  --all                               Transform every available persona
+  --workspace <path>                  Write into <path>/<target>; omit to print to stdout
+  --dry-run                           With --workspace: show what would be written
+  -h, --help                          Show this help
+
+Examples:
+  agent-skills transform-persona --list --agent claude-code
+  agent-skills transform-persona --agent claude-code code-reviewer
+  agent-skills transform-persona --agent opencode --all --workspace ~/projects/foo
+`);
+    return;
+  }
   if (sub === "update") {
     console.log(`agent-skills update [options]
 
@@ -517,6 +599,8 @@ Commands:
   check-update        One-line registry check (used by session hooks; safe to script)
   cleanup-installer   Remove the installer slash commands from a workspace (used
                       by the skill at end of setup; safe to run by hand)
+  transform-persona   Generate per-agent subagent files from the canonical
+                      agents/*.md personas (used by the setup skill during apply)
 
 Options:
   -v, --version    Print the package version

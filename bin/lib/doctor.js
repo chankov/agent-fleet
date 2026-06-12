@@ -13,6 +13,7 @@
 
 import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname, basename, relative, isAbsolute } from "node:path";
+import { transformPersona } from "./transform-persona.js";
 
 // Known canonical replacements for personas renamed during the merge.
 const PERSONA_RENAMES = {
@@ -27,10 +28,8 @@ const TARGET_DIRS = [
   // Personas
   "agents",
   ".claude/agents",
-  ".opencode/agents",
-  ".codex/agents",
-  ".gemini/agents",
-  ".github/agents",
+  ".opencode/agent",
+  ".opencode/agents", // legacy plural form from older installs
   ".pi/agents",
   // Skills
   ".claude/skills",
@@ -92,14 +91,25 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
         sourceRoot,
       });
 
+      // Personas under .claude/agents/ and .opencode/agent(s)/ must be
+      // GENERATED from the canonical source, never symlinked raw — a raw
+      // link would expose the untransformed pi-flavored frontmatter.
+      const personaAgent =
+        rel === ".claude/agents" ? "claude-code"
+        : rel === ".opencode/agent" || rel === ".opencode/agents" ? "opencode"
+        : null;
+
       findings.push({
         type: "broken-symlink",
         path: relative(workspace, fullPath),
         issue: `broken symlink → missing ${relative(workspace, absTarget)}`,
         fix: replacement
-          ? `repoint to ${relative(workspace, join(sourceRoot, replacement))}`
+          ? personaAgent
+            ? `regenerate from ${relative(workspace, join(sourceRoot, replacement))} (transformed for ${personaAgent})`
+            : `repoint to ${relative(workspace, join(sourceRoot, replacement))}`
           : "delete",
         replacement,
+        personaAgent,
         absPath: fullPath,
       });
     }
@@ -141,7 +151,13 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
   for (const f of findings) {
     try {
       if (f.type === "broken-symlink") {
-        if (f.replacement) {
+        if (f.replacement && f.personaAgent) {
+          const source = readFileSync(join(sourceRoot, f.replacement), "utf8");
+          const { content } = transformPersona(source, { agent: f.personaAgent });
+          unlinkSync(f.absPath);
+          writeFileSync(f.absPath, content);
+          repaired++;
+        } else if (f.replacement) {
           const newTarget = join(sourceRoot, f.replacement);
           unlinkSync(f.absPath);
           symlinkSync(newTarget, f.absPath);

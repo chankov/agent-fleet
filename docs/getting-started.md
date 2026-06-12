@@ -45,7 +45,7 @@ Copy the relevant `SKILL.md` content into your agent's system prompt, rules file
 
 **System prompt:** Paste the skill content at the start of the session.
 
-**Rules file:** Add skill content to your project's rules file (CLAUDE.md, .cursorrules, etc.).
+**Rules file:** Add skill content to your project's rules file (CLAUDE.md, AGENTS.md, etc.).
 
 **Conversation:** Reference the skill when giving instructions: "Follow the test-driven-development process for this change."
 
