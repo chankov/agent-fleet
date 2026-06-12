@@ -1,5 +1,46 @@
 # agent-skills changelog
 
+## 1.0.0
+
+### Major Changes
+
+- 0bee132: Retire the `scout` persona and remove the `pi-pi` harness
+
+  - `agents/scout.md` is gone. Use `spawn_research` (agent-hub) or the `planner` persona for read-only recon; install records and setup docs no longer offer `scout`.
+  - The `pi-pi` meta-agent harness (`.pi/harnesses/pi-pi/`), its expert personas (`agents/pi-pi/`), the `ext-pi-pi` just recipe, the `pi-pi` team in `.pi/agents/teams.yaml`, and the `docs/pi-specs/pi-pi.md` spec are removed. `FIRECRAWL_API_KEY` is no longer used by anything in this repo.
+  - The doctor scan no longer walks `agents/pi-pi/` or `.pi/agents/pi-pi/`; existing installs with `scout` or `pi-pi` symlinks will surface them as broken links to repair or delete on the next doctor run.
+
+### Minor Changes
+
+- 0bee132: agent-hub: delegate sub-roles rolled out to five more personas, on an OpenAI-first model ladder
+
+  - `planner`, `plan-reviewer`, `builder`, `test-engineer`, and `security-auditor` now declare `subagents:` sub-roles and a "Delegation pre-pass" prompt section, so each can fan out read-only helpers mid-turn via the `delegate` tool (within the existing budgets: 4 children per dispatch, depth 1, parallel children read-only).
+    - `planner` — `scout` + `rules` (spark) map the codebase and project rules in parallel before drafting; `risk` (gpt-5.4) optionally challenges the draft breakdown.
+    - `plan-reviewer` — `feasibility` (gpt-5.4) verifies plan claims against the codebase; `deps` (spark) checks dependency ordering and file overlap.
+    - `security-auditor` — solo `recon` (spark) maps the attack surface first, then `input-sweep` (gpt-5.4) and `secrets-sweep` (spark) fan out; exploit reasoning stays with the parent.
+    - `builder` — `recon` (spark) maps call sites before edits; `verifier` (spark) is the single `allow_write: true` child that runs the test suite after them. Implementation is never delegated.
+    - `test-engineer` — `coverage-scout` + `conventions` (spark) inventory coverage gaps and test patterns; test writing is never delegated.
+  - Model ladder is OpenAI-first: `openai-codex/gpt-5.3-codex-spark` for recon/mechanical sweeps, `openai-codex/gpt-5.4` for analysis sweeps, `openai-codex/gpt-5.5` (xhigh) parents reserved for synthesis and verdicts.
+  - `code-reviewer` sub-roles rerouted accordingly: `quality`/`perf` move from sonnet to `gpt-5.4`, `docs` from haiku to spark; `gpt-5.4` and spark join its candidate list. The parent stays on opus 4.8.
+  - `plan-reviewer`'s parent model switches from opus 4.8 to `openai-codex/gpt-5.5` with `thinking: xhigh`; candidates are `gpt-5.4` and spark.
+  - The personas gaining sub-roles also gain `models:` candidate lists (`gpt-5.4`, spark), so `/agent-model <persona>` and `/agent-model <persona>.<role>` have switch targets.
+  - `.pi/agents/model-profiles.yaml`: `max` and `budget` profiles now cover `planner`, `plan-reviewer`, `security-auditor`, and `test-engineer`; `budget` moves `code-reviewer` from sonnet to `gpt-5.4`.
+
+- 0bee132: Personas are now installable for every supported coding agent, with deterministic per-agent transformation:
+
+  - New `agent-skills transform-persona` CLI subcommand (backed by `bin/lib/transform-persona.js`, under `node --test` coverage) generates per-agent subagent files from the canonical `agents/*.md`: Claude Code gets `.claude/agents/<name>.md` with tools/model translated (`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …), OpenCode gets `.opencode/agent/<name>.md` with `mode: subagent` + tool denials, pi gets the canonical file unchanged. Agent-hub-only frontmatter (`models`, `thinking`, `delegate_depth`, `subagents`, `kind`, `skills`) never leaks into transformed output.
+  - `/setup-agent-skills` now offers the **full persona roster** per agent (was a hardcoded 7): all 14 for pi; 11 for claude-code/opencode (`bowser`, `orchestrator`, `orchestrator-careful` are pi-only). Transformed installs are always generated copies — even in symlink mode — recorded with `transformed: true` and diffed against generated output on re-runs.
+  - README: full 14-persona table with access level, primary-skill mapping, and per-agent availability, plus new sections on how personas connect to skills and how to compose them into subagent teams (pi agent-hub teams/peers, Claude Code subagents, OpenCode `@`-mentions).
+  - **Removed** support surfaces for Cursor, Gemini CLI, Windsurf, GitHub Copilot, and Codex: their `docs/*-setup.md` guides and README install sections are gone, and the doctor no longer scans `.codex/agents/`, `.gemini/agents/`, or `.github/agents/` (it now also scans `.opencode/agent/`, and repairs broken persona links under `.claude/agents/` / `.opencode/agent(s)/` by regenerating transformed copies instead of re-symlinking the raw source). If you followed one of the deleted guides, the skills remain plain Markdown and still work — but the repo no longer documents or maintains those paths.
+
+- 0bee132: agent-hub: sub-role model switching, project rules, and a review preflight
+
+  - `/agent-model <persona>.<role>` switches a delegate sub-role's model among the role's declared default plus the parent persona's candidate list; applied via the delegate config on the persona's next dispatch (nested children inherit it). `/models` profiles still never touch sub-roles.
+  - New `rules:` key under `## agent-team` in `.ai/agent-skills-overrides.md`: comma-separated repo-relative folders of project rule files, each searched recursively through all subfolders. The harness injects a "Project rules" block into every dispatched specialist; missing folders warn at session start.
+  - The planner and code-reviewer personas resolve the `rules:` entry, validate their subject against the discovered rules, and pass the relevant rules on — cited in plan acceptance criteria (planner) or handed to the right delegate sub-reviewer (code-reviewer).
+  - code-reviewer gains a `preflight` sub-role (default `openai-codex/gpt-5.3-codex-spark`) that runs as the mandatory first delegate call: it studies the rules and the files under review and returns a summary that drives the rest of the fan-out.
+  - code-reviewer's `security` delegate sub-role is removed — deep security review is owned by the separate `security-auditor` persona, which the reviewer now recommends dispatching when it spots deeper risk.
+
 ## 0.4.5
 
 ### Patch Changes
