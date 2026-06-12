@@ -113,7 +113,6 @@ The `agents/` directory contains pre-configured agent personas:
 | `planner.md` | Numbered implementation plans (read-only) |
 | `plan-reviewer.md` | Critiques and validates plans (read-only) |
 | `builder.md` | Implements an approved plan |
-| `scout.md` | Fast codebase recon (read-only) |
 | `documenter.md` | READMEs and inline docs |
 
 Load an agent definition when you need specialized review. For example, ask your coding agent to "review this change using the code-reviewer agent persona" and provide the agent definition.

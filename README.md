@@ -244,7 +244,6 @@ Pre-configured specialist personas for targeted reviews:
 | [planner](agents/planner.md) | Architect | Produces numbered, step-by-step implementation plans. Read-only. |
 | [plan-reviewer](agents/plan-reviewer.md) | Plan Critic | Stress-tests plans for assumptions, gaps, ordering, and feasibility. Read-only. |
 | [builder](agents/builder.md) | Implementer | Carries out an approved plan with minimal, idiomatic code. |
-| [scout](agents/scout.md) | Recon | Fast codebase exploration — structure, patterns, entry points. Read-only. |
 | [documenter](agents/documenter.md) | Tech Writer | READMEs, inline docs, usage examples in the project's voice. |
 
 ---

@@ -96,7 +96,7 @@ If Step 4 found prior state — `.ai/agent-skills-setup.md` exists **or** any of
 
 Walk every install-target directory the chosen agent uses and look for **broken symlinks** — links whose source has been moved, renamed, or deleted. Directories to check, when present:
 
-- `agents/` (and its `pi-pi/` subdirectory), `.claude/agents/`, `.opencode/agents/`, `.codex/agents/`, `.gemini/agents/`, `.github/agents/`, `.pi/agents/`
+- `agents/`, `.claude/agents/`, `.opencode/agents/`, `.codex/agents/`, `.gemini/agents/`, `.github/agents/`, `.pi/agents/`
 - `.claude/skills/`, `.opencode/skills/`, `.pi/skills/`, `.agents/skills`
 - `.claude/commands/`, `.opencode/commands/`, `.pi/prompts/`
 - `.claude/references/`, `.claude/hooks/`
@@ -205,7 +205,7 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *Meta* — `using-agent-skills` ★, `designing-agents` *(`guided-workspace-setup` is installer-only — never offered)*
 2. **Agent personas** *(`Group` column = `writeable` / `read-only`)* — one screen. Read-only personas carry `tools: read,bash,grep,find,ls` and an explicit "Do NOT modify files." rule:
    - *writeable* — `builder`, `documenter`, `planner` *(scoped: writes only the plan document in the plan directory; bash limited to read-only git inspection)*
-   - *read-only* — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `plan-reviewer`, `scout`
+   - *read-only* — `code-reviewer` ★, `test-engineer` ★, `security-auditor`, `plan-reviewer`
 3. **Commands / prompts** *(single-type — no `Group` column)* — mapped to the chosen agent; items without a per-agent source are filtered out, no cross-tool substitution. Full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
 4. **References & Hooks** *(`Group` column = `reference` / `hook`)* — one screen for the shared non-agent-specific artifacts:
    - *reference* — testing, performance, security, accessibility checklists
@@ -214,7 +214,7 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★, `btw`
    - *runtime-skill* — `bowser`
 6. **pi harnesses** *(pi only; `Group` column = harness category — install many, load through the explicit recipes; `just hub` stacks `damage-control` before `agent-hub`)* — one screen for all harnesses:
-   - *orchestration* — `agent-hub`, `pi-pi`
+   - *orchestration* — `agent-hub`
    - *safety* — `damage-control`
    - *messaging* — `coms`, `coms-net`
 

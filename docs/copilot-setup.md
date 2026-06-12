@@ -30,12 +30,10 @@ cp /path/to/agent-skills/agents/security-auditor.md .github/agents/security-audi
 cp /path/to/agent-skills/agents/planner.md       .github/agents/planner.md
 cp /path/to/agent-skills/agents/plan-reviewer.md .github/agents/plan-reviewer.md
 cp /path/to/agent-skills/agents/builder.md       .github/agents/builder.md
-cp /path/to/agent-skills/agents/scout.md         .github/agents/scout.md
 cp /path/to/agent-skills/agents/documenter.md    .github/agents/documenter.md
 ```
 
 Invoke agents in Copilot Chat:
-- `@scout Locate where auth is enforced`
 - `@planner Draft a plan for migrating users to OAuth`
 - `@plan-reviewer Critique the migration plan`
 - `@builder Implement the approved plan`

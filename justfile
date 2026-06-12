@@ -66,10 +66,6 @@ team-up team="full":
 team-up-dry team="full":
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run
 
-# Pi Pi: meta-agent that builds pi agents via parallel expert research
-ext-pi-pi:
-    pi -e .pi/harnesses/pi-pi/index.ts
-
 # ---------------------------------------------------------------- coms (Pi-to-Pi messaging)
 
 # Coms: peer-to-peer messaging between pi agents on the same machine

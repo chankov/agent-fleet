@@ -76,7 +76,6 @@ runtime itself.
 |-----------|----------|--------------|-----|
 | [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, and peer-as-subagent | `just hub` |
 | [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; also loaded before `agent-hub` by the hub recipes | `just ext-damage-control` |
-| [pi-pi](../.pi/harnesses/pi-pi/README.md) | Orchestration | Meta-agent that builds pi agents via parallel expert research | `just ext-pi-pi` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine | `just local-coms` |
 | [coms-net](../.pi/harnesses/coms-net/README.md) | Messaging | HTTP/SSE communication network across hosts (needs the hub) | `just coms` |
 
@@ -114,7 +113,6 @@ The `justfile` sets `dotenv-load`, so a `.env` file at the repo root is auto-loa
 
 | Variable | Needed by | Purpose |
 |----------|-----------|---------|
-| `FIRECRAWL_API_KEY` | `pi-pi` | Expert agents crawl current pi documentation via Firecrawl |
 | `PI_COMS_NET_AUTH_TOKEN` | `coms-net` | Shared secret — required to bind a LAN/remote hub |
 | `PI_COMS_NET_PORT` | `coms-net` | Pin the hub port so the URL is stable across restarts |
 | `PI_COMS_NET_SERVER_URL` | `coms-net` | Hub URL for clients (blank = auto-discover the local `server.json`) |
@@ -127,8 +125,8 @@ For `127.0.0.1`-only `coms-net` use, the hub auto-generates a token — no env n
 
 These ported files are runtime dependencies of the extensions above:
 
-- **`agents/`** — canonical persona Markdown files for shared and pi-specific agents,
-  including the `agents/pi-pi/` research experts. Read by `agent-hub` and `pi-pi`.
+- **`agents/`** — canonical persona Markdown files for shared and pi-specific agents.
+  Read by `agent-hub`.
 - **`.pi/agents/`** — pi YAML configs only (`teams.yaml`, `peers.yaml`).
   The earlier `reviewer` and `red-team` personas were folded into `code-reviewer` and
   `security-auditor`; the remaining team/peer configs already reference the canonical names.
@@ -141,7 +139,7 @@ These ported files are runtime dependencies of the extensions above:
   built-ins; run it with `node --experimental-strip-types scripts/coms-net-server.ts`
   (Node >= 22.6, or `just coms-net-server`).
 - **`docs/pi-specs/`** — the original design specifications: `agent-forge` (now consolidated
-  into `agent-hub`), `agent-workflow` (retired `agent-chain`), `damage-control`, and `pi-pi`.
+  into `agent-hub`), `agent-workflow` (retired `agent-chain`), and `damage-control`.
 
 ---
 

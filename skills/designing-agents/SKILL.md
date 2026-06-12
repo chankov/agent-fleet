@@ -11,7 +11,7 @@ This repo has three kinds of artifacts that shape how an agent works. Each is au
 
 - **Agent personas** live in `agents/<name>.md`. They define a *role* another agent adopts when it needs specialized review, audit, or analysis. Example: `code-reviewer`, `security-auditor`, `test-engineer`.
 - **Skills** live in `skills/<name>/SKILL.md`. They define a *workflow* — a repeatable process with gated steps, anti-rationalization guardrails, and verification. Example: `spec-driven-development`, `test-driven-development`, `context-engineering`.
-- **pi harnesses** live in `.pi/harnesses/<name>/`. They define a *session environment* — a TypeScript pi extension that reshapes the whole session: setting UI surfaces, gating tool calls, registering new tools or commands, or orchestrating sub-agents. Example: `agent-hub`, `damage-control`, `coms`, `pi-pi`.
+- **pi harnesses** live in `.pi/harnesses/<name>/`. They define a *session environment* — a TypeScript pi extension that reshapes the whole session: setting UI surfaces, gating tool calls, registering new tools or commands, or orchestrating sub-agents. Example: `agent-hub`, `damage-control`, `coms`.
 
 Personas and skills are prose that change an agent's *judgment*. A harness is code that changes the agent's *environment* — what it can do and what it sees. All three fail the same way: a persona that reads like general advice gets cited but ignored; a skill that skips its guardrails becomes a suggestion; a harness built without studying the existing ones collides with pi's auto-discovery or fights another extension. This skill is the workflow for authoring any of the three so the result measurably changes behavior.
 
@@ -75,7 +75,7 @@ Two personas covering similar ground produce inconsistent reviews. Two skills pr
 Follow the existing pattern:
 - **Persona**: `<role>` or `<role>-<specialty>` (`code-reviewer`, `security-auditor`, `accessibility-reviewer`)
 - **Skill**: verb-phrase or noun-phrase describing the process (`spec-driven-development`, `context-engineering`, `planning-and-task-breakdown`)
-- **Harness**: short noun describing the session surface (`agent-hub`, `damage-control`, `coms-net`, `pi-pi`)
+- **Harness**: short noun describing the session surface (`agent-hub`, `damage-control`, `coms-net`)
 - Bad for any: `helper`, `assistant`, `smart-agent`, `codeReviewer`
 
 The name must match across: the directory/file name, the frontmatter or `package.json` `name`, and the H1 title (persona/skill) or README H1 (harness).

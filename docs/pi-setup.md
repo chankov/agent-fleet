@@ -165,9 +165,9 @@ Verify by starting `pi` and running `/chrome_devtools-status` — expect `Chrome
 
 #### Extension harnesses — orchestration, safety, messaging
 
-This repo ships **5 supported session harnesses** ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT):
+This repo ships **4 supported session harnesses** ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT):
 
-- **Orchestration** — `agent-hub` (dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms), `pi-pi`
+- **Orchestration** — `agent-hub` (dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms)
 - **Safety** — `damage-control`
 - **Pi-to-Pi messaging** — `coms`, `coms-net`
 
@@ -182,7 +182,7 @@ just hub                          # launch the guarded consolidated multi-agent 
 pi -e /path/to/agent-skills/.pi/harnesses/damage-control/index.ts -e /path/to/agent-skills/.pi/harnesses/agent-hub/index.ts
 ```
 
-The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. Install both at once with `just install` from the clone, or run `npm ci` in `.pi/harnesses/` as well. The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `coms-net` and `pi-pi`), and what changed from upstream.
+The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. Install both at once with `just install` from the clone, or run `npm ci` in `.pi/harnesses/` as well. The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `coms-net`), and what changed from upstream.
 
 Each extension — utility or harness — has its own `README.md` describing what it provides.
 

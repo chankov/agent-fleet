@@ -4397,7 +4397,7 @@ ${comsSection}
 - NEVER try to read, write, or execute code directly — you have no such tools.
 - ALWAYS use \`dispatch_agent\` to get work done; use \`spawn_research\` for read-only recon.
 ${ambiguityRule}
-- You can chain agents: spawn_research to gather context, scout to explore, builder to implement.
+- You can chain agents: spawn_research to gather context, builder to implement.
 - You can dispatch the same agent multiple times with different tasks.
 - Keep tasks focused — one clear objective per dispatch.
 
@@ -4625,7 +4625,7 @@ ${researchCatalog}`;
 		}
 
 		// Dispatcher persona gate (Phase 6 / requirement 1). Orchestrator personas are
-		// persona files tagged `kind: orchestrator` (decision G5 — keeps builder/scout
+		// persona files tagged `kind: orchestrator` (decision G5 — keeps builder
 		// out of the dispatcher picker). The gate is enabled only when turned on AND at
 		// least one orchestrator persona exists, so it never blocks with nothing to pick.
 		orchestratorPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "orchestrator");

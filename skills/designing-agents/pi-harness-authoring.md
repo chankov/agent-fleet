@@ -11,9 +11,9 @@ is their catalog. A harness can:
 
 - set status, widgets, or overlays — `agent-hub`, `damage-control`
 - gate every tool call and block or confirm it — `damage-control`
-- register a new tool or `/command` — `agent-hub`, `coms`, `pi-pi`
-- inject text into the system prompt — `agent-hub`, `pi-pi`
-- orchestrate sub-agents — `agent-hub`, `pi-pi`
+- register a new tool or `/command` — `agent-hub`, `coms`
+- inject text into the system prompt — `agent-hub`
+- orchestrate sub-agents — `agent-hub`
 - add cross-agent messaging — `agent-hub`, `coms`, `coms-net`
 
 ### Harness vs. utility extension — where it lives
@@ -150,7 +150,7 @@ Do not write from scratch. Pick the nearest pattern and adapt it:
 |---|---|---|
 | Blocks tool calls from a rules file | `damage-control` | 200 |
 | Sets widgets/status or registers orchestration commands/tools | `agent-hub` | large |
-| Orchestrates sub-agents | `agent-hub`, `pi-pi` | large |
+| Orchestrates sub-agents | `agent-hub` | large |
 | Adds local cross-agent messaging | `coms`, `agent-hub` | large |
 | Adds networked cross-agent messaging | `coms-net` | large |
 
