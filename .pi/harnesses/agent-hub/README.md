@@ -36,10 +36,15 @@ another main agent** and **use a coms peer as a subagent**.
 - **Model switching** — a persona's frontmatter `models:` list declares the models it may switch to
   (the default `model:` is implicitly a candidate). `/agent-model <persona>` picks from that list;
   the choice lasts for the session and takes effect on the persona's next dispatch
-  (`/agents-restart <persona>` applies it immediately). `/models [profile]` applies a named profile
+  (`/agents-restart <persona>` applies it immediately). The dot form
+  `/agent-model <persona>.<role>` switches a delegate sub-role's model instead — its candidates are
+  the role's declared default plus the parent persona's own candidate list; the switch is applied
+  when the parent is next dispatched (it lands in the serialized delegate config, so nested
+  children inherit it). `/models [profile]` applies a named profile
   from `.pi/agents/model-profiles.yaml` — a macro over the same declared candidates, validated at
   session start (a profile with any entry outside a persona's candidates is dropped whole, with an
-  error). Nothing outside the declared lists is ever selectable. Per project,
+  error); profiles never touch sub-role models — only `/agent-model` reaches those. Nothing
+  outside the declared lists is ever selectable. Per project,
   `model.<persona>:` / `models.<persona>:` keys under `## agent-team` in
   `.ai/agent-skills-overrides.md` replace a persona's default model / candidate list.
 - **Mid-turn delegation (`delegate` tool)** — a persona that declares a `subagents:` map in its
@@ -62,7 +67,11 @@ another main agent** and **use a coms peer as a subagent**.
   it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
   `subagents.<persona>.<role>:` and `delegate-depth.<persona>:` keys under `## agent-team` in
   `.ai/agent-skills-overrides.md` replace individual sub-roles / the depth budget. The pilot persona
-  is `code-reviewer` (quality/security/perf on sonnet, docs on haiku, pre-pass protocol).
+  is `code-reviewer` (preflight on gpt-5.3-codex-spark, quality/perf on sonnet, docs on haiku):
+  its first delegate call is always `preflight`, which studies the project rules and the files
+  under review and returns a summary that drives the rest of the fan-out. Deep security review is
+  not a sub-role — it belongs to the separate `security-auditor` persona, which the reviewer
+  recommends dispatching when it spots deeper risk.
 - **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
   session start; by default the dispatcher starts without the gate.
 - **Default damage-control guardrails** — `just hub` and `just hub-solo` load the hard-stop
@@ -97,6 +106,21 @@ language: Bulgarian
 Omit the section to keep the default `English`. `language` applies to dispatcher replies,
 `ask_user` questions and `context` fields, handoff summaries, and user-facing status text;
 specialist task strings stay in English.
+
+The same section can point the team at the project's own rule files:
+
+```markdown
+## agent-team
+rules: docs/rules, .ai/rules
+```
+
+`rules:` lists repo-relative folders, each searched **recursively** through all subfolders. When
+set, every dispatched specialist's system prompt gains a "Project rules" block naming the folders;
+the planner and code-reviewer personas additionally validate their subject against the relevant
+rules and pass them on (cited in plan acceptance criteria / handed to delegate sub-reviewers).
+Folders that don't exist produce a session-start warning, never an error. The full key list for
+`## agent-team` (models, sub-roles, depth budgets, persona gate) is documented in
+`docs/agent-skills-setup.md`.
 
 ## The coms layer
 

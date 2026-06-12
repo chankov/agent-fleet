@@ -183,14 +183,14 @@ To pin a workspace to a specific version, install the package as a project
 dependency instead of using `npx`:
 
 ```bash
-npm install --save-dev @chankov/agent-skills@1.4.2
-npx agent-skills init   # resolves to the pinned 1.4.2
+npm install --save-dev @chankov/agent-skills@0.4.5
+npx agent-skills init   # resolves to the pinned 0.4.5
 ```
 
 Or pin globally:
 
 ```bash
-npm install -g @chankov/agent-skills@1.4.2
+npm install -g @chankov/agent-skills@0.4.5
 ```
 
 ### What "update" actually changes

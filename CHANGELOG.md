@@ -1,5 +1,45 @@
 # agent-skills changelog
 
+## 0.4.5
+
+### Patch Changes
+
+- agent-hub: mid-turn nested subagents via an injected `delegate` tool. A persona
+  that declares a `subagents:` frontmatter map (role → model + optional tools
+  cap) gets a real `delegate(role, instruction, context?, allow_write?)` tool in
+  its spawned process, so a top-tier specialist can fan out scoped sub-tasks to
+  cheaper models mid-turn. Budgets are readable refusals with conservative limits:
+  max delegate depth is clamped to 1 and each dispatch has a tree-wide budget of 4
+  children; depth-0 children do not receive delegate tooling/config. Children are
+  read-only unless a single live child gets `allow_write: true` (role-level
+  `tools:` cap wins and fails closed if it leaves no available tools); children
+  report through a delegation event file the hub tails into nested grid rows with
+  per-child `/zoom`, token rollups on the parent card, and a session-wide
+  delegated-spend counter; `/agents-kill` SIGTERMs the specialist's whole process
+  group so the delegation tree dies with it. Spawn + JSON-stream parsing extracted
+  into a shared `spawnPiAgent()` helper (`spawn.ts`) used by dispatch, research
+  helpers, and `delegate.ts`; all harness TypeScript support files are included in
+  the npm package. Per-project `subagents.<persona>.<role>:` /
+  `delegate-depth.<persona>:` override keys under `## agent-team`. Pilot persona:
+  code-reviewer (quality/security/perf on sonnet, docs on haiku, delegation
+  pre-pass protocol).
+- agent-hub: runtime persona model switching. Personas declare allowed switch
+  targets via a frontmatter `models:` list; `/agent-model <persona>` picks from
+  the declared candidates (session-lifetime, applies on next dispatch), and
+  `/models [profile]` applies a named team profile from
+  `.pi/agents/model-profiles.yaml` (validated at session start against each
+  persona's candidates — invalid profiles are dropped whole). Per-project
+  `model.<persona>:` / `models.<persona>:` keys under `## agent-team` in
+  `.ai/agent-skills-overrides.md` override the default model and candidate list.
+  Pilot candidate lists added to the code-reviewer and builder personas.
+- Planner persona upgrade + mandatory damage-control pairing for agent-hub.
+
+  - `agents/planner.md` rewritten: scoped `write` (plan document + provided assets, only inside the override-resolved `plan-dir`), `bash` restricted to read-only git inspection (`git status` / `git diff --stat` / `git diff` / `git log`), explicit use of the `planning-and-task-breakdown` skill when present, an orient-first process, and a dispatcher contract (`PLAN_FILE:` / `NEEDS_RESEARCH:` markers, ASK_USER for ambiguity).
+  - `agent-hub` now shows a session-start warning when the `damage-control` harness cannot be resolved (specialist/research subprocesses would spawn unguarded).
+  - `agent-hub` auto-research pipe: specialists can pause with `NEEDS_RESEARCH: <question>` lines (mirror of `ASK_USER:`); the hub intercepts them in code, fans out read-only research helpers, writes findings to `.pi/agent-sessions/findings/*.md`, and resumes the specialist's session with the file paths — the dispatcher LLM sees only a one-line notice, keeping its context clean of raw findings. Budgets: 4 questions per pause, 2 pauses per dispatch.
+  - `guided-workspace-setup` enforces a mandatory pairing: installing or keeping `agent-hub` auto-installs/keeps `damage-control`, which cannot be deselected while `agent-hub` stays; `planner` moved to the _writeable_ persona group (scoped writes).
+  - Personas mapped to repo skills (conditional "if the skill exists in the repo" hooks): `builder` → incremental-implementation, `code-reviewer` → code-review-and-quality, `test-engineer` → test-driven-development (+ explicit `tools:` incl. write/bash — the missing key previously defaulted to read-only under agent-hub), `security-auditor` → security-and-hardening, `documenter` → documentation-and-adrs, `plan-reviewer` → planning-and-task-breakdown (checklist as review criteria), `architect` → api-and-interface-design + ADRs, `releaser` → git-workflow-and-versioning + shipping-and-launch. Dispatched specialists also carry the `NEEDS_RESEARCH` pause hook; peers and recon personas deliberately do not. See `docs/plans/personas/PLAN-persona-skill-mapping.md`.
+
 ## 0.4.4
 
 ### Patch Changes

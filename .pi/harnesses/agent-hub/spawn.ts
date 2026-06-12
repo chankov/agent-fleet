@@ -82,19 +82,23 @@ export function spawnPiAgent(
 		"--session", opts.sessionFile,
 	];
 	if (opts.resume) args.push("-c");
-	args.push("--", opts.prompt);
 
 	const textChunks: string[] = [];
 	const stderrChunks: string[] = [];
 
 	return new Promise((resolve) => {
 		const proc = spawn("pi", args, {
-			stdio: ["ignore", "pipe", "pipe"],
+			// pi's CLI does not accept a standalone `--` option separator, so pass
+			// the prompt through stdin. Print mode documents stdin as prompt input,
+			// and this keeps prompts that start with `-` from being parsed as flags.
+			stdio: ["pipe", "pipe", "pipe"],
 			env: { ...process.env, ...(opts.env || {}) },
 			...(opts.cwd ? { cwd: opts.cwd } : {}),
 			...(opts.detached ? { detached: true } : {}),
 		});
 		cbs.onProcess?.(proc);
+		proc.stdin?.on("error", () => {});
+		proc.stdin?.end(opts.prompt);
 
 		let buffer = "";
 		const handleEvent = (event: any) => {

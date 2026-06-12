@@ -17,7 +17,8 @@
  *   /agents-team          — switch active team
  *   /agents-list          — list loaded agents
  *   /agents-grid N        — set column count (default 2)
- *   /agent-model <name>   — switch a persona's model from its declared candidates
+ *   /agent-model <persona>[.<role>] — switch a persona's (or delegate sub-role's)
+ *                           model from its declared candidates
  *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
  *   /agents-kill <name>   — SIGTERM a frozen specialist (and its delegation tree)
  *   /agents-restart <name>— kill + re-run its last task fresh
@@ -245,6 +246,8 @@ function extractNeedsResearch(output: string): string[] {
 //   subagents.<persona>.<role>: <model>[, tools=<caps>]
 //                              — replace/add one delegate sub-role for this project.
 //   delegate-depth.<persona>: <n> — replace the persona's delegation depth budget.
+//   rules: <dir>[, <dir>...]   — repo-relative folders of project rule files,
+//                              each searched recursively by the personas.
 
 interface AgentTeamOverrides {
 	language: string;
@@ -253,6 +256,7 @@ interface AgentTeamOverrides {
 	personaModelLists: Record<string, string[]>;
 	personaSubagents: Record<string, Record<string, SubagentRole>>;
 	personaDelegateDepth: Record<string, number>;
+	rulesDirs: string[];
 	warnings: string[];
 }
 
@@ -263,6 +267,7 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	personaModelLists: {},
 	personaSubagents: {},
 	personaDelegateDepth: {},
+	rulesDirs: [],
 	warnings: [],
 };
 
@@ -273,6 +278,7 @@ function freshOverrides(): AgentTeamOverrides {
 		personaModelLists: {},
 		personaSubagents: {},
 		personaDelegateDepth: {},
+		rulesDirs: [],
 		warnings: [],
 	};
 }
@@ -304,6 +310,9 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		const value = kv[2].trim();
 		if (key === "language" && value) result.language = value;
 		if (key === "persona-gate") result.personaGate = /^(on|true|yes|1)$/i.test(value);
+		if (key === "rules" && value) {
+			result.rulesDirs = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
 		const slug = "[a-z0-9]+(?:-[a-z0-9]+)*";
 		const modelKey = key.match(new RegExp(`^model\\.(${slug})$`));
 		if (modelKey && value) result.personaModels[modelKey[1]] = value;
@@ -1292,6 +1301,11 @@ export default function (pi: ExtensionAPI) {
 	// reset on session_start; profiles make re-applying cheap.
 	let modelProfiles: Record<string, Record<string, string>> = {};
 	const modelOverrides = new Map<string, string>();
+	// Session-lifetime model overrides for delegate sub-roles, set by
+	// /agent-model <persona>.<role>. Keyed "<persona>.<role>" (lowercase); applied
+	// when the dispatch serializes AGENT_HUB_DELEGATE_CONFIG, so nested children
+	// inherit them. Resets on session_start. /models profiles never touch these.
+	const subagentModelOverrides = new Map<string, string>();
 	let activeTeamName = "";
 	let gridCols = 2;
 	// View mode toggled by Alt+A: "dashboard" = full bordered card grid above the
@@ -1304,6 +1318,10 @@ export default function (pi: ExtensionAPI) {
 	let sessionDir = "";
 	let contextWindow = 0;
 	let userLanguage: string = DEFAULT_OVERRIDES.language;
+	// Project rule folders from the overrides file's `rules:` key (repo-relative,
+	// validated at session_start). Non-empty → every dispatched specialist gets a
+	// "Project rules" prompt block; personas do the recursive discovery themselves.
+	let projectRulesDirs: string[] = [];
 	// Resolved once at session_start: the damage-control harness to load into every
 	// spawned subagent (specialist + research helper) so guardrails follow them.
 	let damageControlExtPath: string | null = null;
@@ -1971,14 +1989,35 @@ this same session with the file paths — read them and continue from where you 
 off. Ask at most ${MAX_AUTO_RESEARCH_QUESTIONS} questions per pause. Use ASK_USER only
 for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked up.`;
 
+		// Project rules — when the overrides file lists rule folders, every
+		// specialist learns where they are and that discovery is recursive. The
+		// validation duty itself is written into the planner/code-reviewer personas.
+		const rulesProtocol = projectRulesDirs.length > 0
+			? `
+
+## Project rules
+This project keeps its own rules in: ${projectRulesDirs.join(", ")} (repo-relative).
+Discover rule files recursively through all subfolders (\`find <dir> -type f\`),
+read the rules relevant to your task, and comply with them. If you plan or review
+work, validate your subject against the rules; when delegating, pass the relevant
+rule file paths and the specific points to check on to the child.`
+			: "";
+
 		// Mid-turn delegation: a persona that declares `subagents:` gets the
 		// delegate extension injected (`-e delegate.ts`), the `delegate` tool
 		// added to its allowlist (pi filters extension tools too), and its
 		// declared roles/budgets serialized into AGENT_HUB_DELEGATE_CONFIG. The
 		// hub pre-creates and tails the dispatch's delegation event dir for the
 		// nested card rows. Personas without `subagents:` spawn exactly as before.
+		// Effective roles: each role's model replaced by its /agent-model
+		// "<persona>.<role>" session override when one exists. Serialized into the
+		// delegate config, so nested children inherit the switch for free.
+		const personaKey = state.def.name.toLowerCase();
 		const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
-			? state.def.subagents
+			? Object.fromEntries(Object.entries(state.def.subagents).map(([role, r]) => {
+				const override = subagentModelOverrides.get(`${personaKey}.${role.toLowerCase()}`);
+				return [role, override ? { ...r, model: override } : r];
+			}))
 			: null;
 		const delegationActive = !!subagentRoles && !!delegateExtPath;
 		const extensions = damageControlExtPath ? [damageControlExtPath] : [];
@@ -2019,7 +2058,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			startDelegationWatch(state, delegationDir);
 		}
 
-		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + delegationProtocol;
+		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + delegationProtocol;
 
 		// Per-agent thinking: a persona can set `thinking:` in frontmatter to capture
 		// its reasoning into the zoom timeline (default off). Non-off enables thinking
@@ -3540,7 +3579,13 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					const session = s.sessionFile ? "resumed" : "new";
 					const override = modelOverrides.get(s.def.name.toLowerCase());
 					const model = override ? `${override} (switched)` : (s.def.model || "dispatcher's");
-					return `${displayName(s.def.name)} (${s.status}, ${session}, model: ${model}, runs: ${s.runCount}): ${s.def.description}`;
+					const switchedRoles = Object.keys(s.def.subagents || {})
+						.map(role => ({ role, m: subagentModelOverrides.get(`${s.def.name.toLowerCase()}.${role.toLowerCase()}`) }))
+						.filter((x): x is { role: string; m: string } => !!x.m);
+					const subLabel = switchedRoles.length
+						? `, switched sub-roles: ${switchedRoles.map(x => `${x.role}→${shortModel(x.m)}`).join(", ")}`
+						: "";
+					return `${displayName(s.def.name)} (${s.status}, ${session}, model: ${model}, runs: ${s.runCount}${subLabel}): ${s.def.description}`;
 				})
 				.join("\n");
 			_ctx.ui.notify(names || "No agents loaded", "info");
@@ -3680,21 +3725,96 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		},
 	});
 
-	// /agent-model <persona> — switch a persona's model among its declared
-	// candidates (frontmatter `model:` + `models:`). Session-lifetime: the choice
-	// resets on session_start and takes effect on the persona's NEXT dispatch
-	// (/agents-restart applies it immediately). Nothing outside the declared list
-	// is ever selectable.
+	// Completions for /agent-model: persona names plus a `persona.role` entry per
+	// declared delegate sub-role, labeled with the model currently in effect.
+	const agentModelCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const personaItems = Array.from(agentStates.values()).map(s => ({
+			value: s.def.name,
+			label: `${displayName(s.def.name)} (${s.status})`,
+		}));
+		const roleItems = Array.from(agentStates.values()).flatMap(s =>
+			Object.entries(s.def.subagents || {}).map(([role, r]) => {
+				const override = subagentModelOverrides.get(`${s.def.name.toLowerCase()}.${role.toLowerCase()}`);
+				return {
+					value: `${s.def.name}.${role}`,
+					label: `${s.def.name}.${role} — ${shortModel(override ?? r.model)}${override ? " (switched)" : ""}`,
+				};
+			}),
+		);
+		const items = [...personaItems, ...roleItems];
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /agent-model <persona>[.<role>] — switch a persona's model among its
+	// declared candidates (frontmatter `model:` + `models:`), or a delegate
+	// sub-role's model among its declared default + the parent persona's
+	// candidates. Session-lifetime: the choice resets on session_start and takes
+	// effect on the persona's NEXT dispatch (/agents-restart applies it
+	// immediately). Nothing outside the declared lists is ever selectable.
 	pi.registerCommand("agent-model", {
-		description: "Switch a persona's model from its declared candidates: /agent-model <persona>",
-		getArgumentCompletions: agentNameCompletions,
+		description: "Switch a persona's or sub-role's model from its declared candidates: /agent-model <persona>[.<role>]",
+		getArgumentCompletions: agentModelCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
-			const name = (args || "").trim().toLowerCase();
+			const arg = (args || "").trim().toLowerCase();
+
+			// Dot form: <persona>.<role> targets a delegate sub-role. Candidates are
+			// the role's declared model (default) + the parent's candidate list.
+			if (arg.includes(".")) {
+				const dot = arg.indexOf(".");
+				const personaName = arg.slice(0, dot);
+				const roleName = arg.slice(dot + 1);
+				const parent = agentStates.get(personaName);
+				const roles = parent?.def.subagents || {};
+				const roleKey = Object.keys(roles).find(r => r.toLowerCase() === roleName);
+				if (!parent || !roleKey) {
+					const valid = Array.from(agentStates.values()).flatMap(s =>
+						Object.keys(s.def.subagents || {}).map(r => `${s.def.name}.${r}`));
+					ctx.ui.notify(
+						`No sub-role "${arg}". Valid targets: ${valid.join(", ") || "none (no persona declares subagents:)"}`,
+						"error",
+					);
+					return;
+				}
+				const role = roles[roleKey];
+				const overrideKey = `${personaName}.${roleKey.toLowerCase()}`;
+				const candidates: string[] = [];
+				for (const m of [role.model, ...allowedModels(parent.def)]) {
+					if (m && !candidates.includes(m)) candidates.push(m);
+				}
+				const current = subagentModelOverrides.get(overrideKey) ?? role.model;
+				const options = candidates.map(m => {
+					const tags = [m === role.model ? "default" : "", m === current ? "current" : ""].filter(Boolean);
+					return tags.length ? `${m} (${tags.join(", ")})` : m;
+				});
+				const label = `${displayName(parent.def.name)}.${roleKey}`;
+				const choice = await ctx.ui.select(`Model for ${label}`, options);
+				if (choice === undefined) return;
+				const picked = candidates[options.indexOf(choice)];
+				if (picked === current) {
+					ctx.ui.notify(`${label} is already on ${picked}`, "info");
+					return;
+				}
+				if (picked === role.model) {
+					subagentModelOverrides.delete(overrideKey);
+				} else {
+					subagentModelOverrides.set(overrideKey, picked);
+				}
+				updateWidget();
+				ctx.ui.notify(
+					`${label} → ${picked} (applies on next dispatch of ${parent.def.name})`,
+					"success",
+				);
+				return;
+			}
+
+			const name = arg;
 			const state = name ? agentStates.get(name) : undefined;
 			if (!state) {
 				const known = Array.from(agentStates.values()).map(s => s.def.name).join(", ");
-				ctx.ui.notify(`Usage: /agent-model <persona>. Known: ${known || "none"}`, "error");
+				ctx.ui.notify(`Usage: /agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
 				return;
 			}
 			if (!state.def.models || state.def.models.length === 0) {
@@ -4452,9 +4572,20 @@ ${researchCatalog}`;
 			_ctx.ui.notify(`agent-skills-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
 		}
 
+		// Project rule folders: keep the configured list as-is (personas resolve it
+		// against the repo root), but warn once per missing folder — a typo'd path
+		// would otherwise silently yield zero rules.
+		projectRulesDirs = overrides.rulesDirs;
+		for (const dir of projectRulesDirs) {
+			if (!existsSync(join(_ctx.cwd, dir))) {
+				_ctx.ui.notify(`agent-skills-overrides: rules folder "${dir}" not found in ${_ctx.cwd}`, "warning");
+			}
+		}
+
 		// Model switching state resets each session; per-project overrides replace
 		// the persona defs' default model / candidate list before anything reads them.
 		modelOverrides.clear();
+		subagentModelOverrides.clear();
 		for (const def of allAgentDefs) {
 			const lower = def.name.toLowerCase();
 			if (overrides.personaModels[lower]) def.model = overrides.personaModels[lower];
@@ -4549,7 +4680,7 @@ ${researchCatalog}`;
 			`/agents-team          Select a team\n` +
 			`/agents-list          List active agents and status\n` +
 			`/agents-grid <1-6>    Set grid column count\n` +
-			`/agent-model <name>   Switch a persona's model from its declared candidates\n` +
+			`/agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
 			`/models [profile]     Apply a named model profile to the team\n` +
 			`/agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
 			`/agents-restart <name> Kill + re-run its last task fresh\n` +
