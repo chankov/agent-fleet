@@ -5,8 +5,16 @@
 # Profiles only switch the personas they list; everyone else keeps their
 # current model. They never touch delegate-children (`subagents:`) models.
 max:
-  code-reviewer: github-copilot/claude-opus-4.8
+  code-reviewer: openai-codex/gpt-5.5
   builder: openai-codex/gpt-5.5
+  planner: openai-codex/gpt-5.5
+  plan-reviewer: openai-codex/gpt-5.5
+  security-auditor: openai-codex/gpt-5.5
+  test-engineer: openai-codex/gpt-5.5
 budget:
-  code-reviewer: github-copilot/claude-sonnet-4.6
+  code-reviewer: openai-codex/gpt-5.4
   builder: openai-codex/gpt-5.3-codex-spark
+  planner: openai-codex/gpt-5.3-codex-spark
+  plan-reviewer: openai-codex/gpt-5.4
+  security-auditor: openai-codex/gpt-5.4
+  test-engineer: openai-codex/gpt-5.3-codex-spark

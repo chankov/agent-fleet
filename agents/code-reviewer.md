@@ -5,6 +5,8 @@ tools: read,bash,grep,find,ls
 model: github-copilot/claude-opus-4.8
 models:
   - openai-codex/gpt-5.5
+  - openai-codex/gpt-5.4
+  - openai-codex/gpt-5.3-codex-spark
   - github-copilot/claude-sonnet-4.6
   - github-copilot/claude-haiku-4.5
 thinking: medium
@@ -14,13 +16,13 @@ subagents:
     model: openai-codex/gpt-5.3-codex-spark
     tools: read,grep,find,ls
   quality:
-    model: github-copilot/claude-sonnet-4.6
+    model: openai-codex/gpt-5.4
     tools: read,grep,find,ls
   perf:
-    model: github-copilot/claude-sonnet-4.6
+    model: openai-codex/gpt-5.4
     tools: read,grep,find,ls
   docs:
-    model: github-copilot/claude-haiku-4.5
+    model: openai-codex/gpt-5.3-codex-spark
     tools: read,grep,find,ls
 ---
 

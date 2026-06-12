@@ -66,12 +66,28 @@ another main agent** and **use a coms peer as a subagent**.
   `/agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
   it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
   `subagents.<persona>.<role>:` and `delegate-depth.<persona>:` keys under `## agent-team` in
-  `.ai/agent-skills-overrides.md` replace individual sub-roles / the depth budget. The pilot persona
-  is `code-reviewer` (preflight on gpt-5.3-codex-spark, quality/perf on sonnet, docs on haiku):
-  its first delegate call is always `preflight`, which studies the project rules and the files
-  under review and returns a summary that drives the rest of the fan-out. Deep security review is
-  not a sub-role — it belongs to the separate `security-auditor` persona, which the reviewer
-  recommends dispatching when it spots deeper risk.
+  `.ai/agent-skills-overrides.md` replace individual sub-roles / the depth budget. Six personas
+  ship with declared sub-roles, on a three-tier OpenAI model ladder — `gpt-5.3-codex-spark` for
+  recon/grep sweeps, `gpt-5.4` for analysis sweeps, the `gpt-5.5` (or opus) parent reserved for
+  synthesis and verdicts:
+  - `code-reviewer` — `preflight`+`docs` (spark), `quality`+`perf` (gpt-5.4); its first delegate
+    call is always `preflight`, which studies the project rules and the files under review and
+    returns a summary that drives the rest of the fan-out. Deep security review is not a
+    sub-role — it belongs to the separate `security-auditor` persona, which the reviewer
+    recommends dispatching when it spots deeper risk.
+  - `planner` — `scout`+`rules` (spark) fan out before the plan is drafted; `risk` (gpt-5.4)
+    optionally challenges the draft breakdown.
+  - `plan-reviewer` — `feasibility` (gpt-5.4) checks plan claims against the actual codebase;
+    `deps` (spark) verifies dependency ordering and file overlap. No preflight — the plan is
+    the map.
+  - `security-auditor` — solo `recon` (spark) maps the attack surface first, then
+    `input-sweep` (gpt-5.4) and `secrets-sweep` (spark) fan out; exploit reasoning stays with
+    the parent.
+  - `builder` — `recon` (spark) maps call sites before edits; `verifier` (spark, the one
+    `allow_write: true` child) runs the test suite after them. Implementation is never
+    delegated.
+  - `test-engineer` — `coverage-scout`+`conventions` (spark) inventory gaps and test patterns;
+    test writing is never delegated.
 - **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
   session start; by default the dispatcher starts without the gate.
 - **Default damage-control guardrails** — `just hub` and `just hub-solo` load the hard-stop
