@@ -59,9 +59,11 @@ function descriptionFromMd(filePath) {
 }
 
 function descriptionFromToml(filePath) {
-  const content = fs.readFileSync(filePath, 'utf8');
-  const match   = content.match(/^description\s*=\s*"((?:[^"\\]|\\.)*)"/m);
-  return match ? match[1].replace(/\\"/g, '"') : null;
+  const content     = fs.readFileSync(filePath, 'utf8');
+  const doubleMatch = content.match(/^description\s*=\s*"((?:[^"\\]|\\.)*)"/m);
+  if (doubleMatch) return doubleMatch[1].replace(/\\"/g, '"');
+  const singleMatch = content.match(/^description\s*=\s*'([^']*)'/m);
+  return singleMatch ? singleMatch[1] : null;
 }
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -72,10 +74,15 @@ function loadCommands({ dir, ext }) {
     fs.readdirSync(dir)
       .filter(f => f.endsWith(ext))
       .map(f => {
-        const stem    = path.basename(f, ext);
-        const full    = path.join(dir, f);
-        const desc    = ext === '.md' ? descriptionFromMd(full) : descriptionFromToml(full);
-        return [stem, desc];
+        const stem = path.basename(f, ext);
+        const full = path.join(dir, f);
+        try {
+          const desc = ext === '.md' ? descriptionFromMd(full) : descriptionFromToml(full);
+          return [stem, desc];
+        } catch (e) {
+          console.log(`  ✗  ${stem} — cannot read file: ${e.message}`);
+          return [stem, null];
+        }
       })
   );
 }
@@ -92,20 +99,19 @@ function main() {
   // Canonical command list: use Claude stems as the reference.
   // Map each Claude stem to its TOML equivalent for lookup.
   const claudeStems = Object.keys(byTool.claude).sort();
-  const tomlStems   = new Set([
+  const allTomlStems = new Set([
     ...Object.keys(byTool.gemini),
     ...Object.keys(byTool.antigravity),
+  ]);
+  const allCanonicalStems = new Set([
+    ...claudeStems,
+    ...[...allTomlStems].map(s => NAME_MAP_REVERSE[s] ?? s),
   ]);
 
   let errors = 0;
 
   // ── Parity check ────────────────────────────────────────────────────────────
   console.log('Checking command parity...');
-
-  const allTomlStems = new Set([
-    ...Object.keys(byTool.gemini),
-    ...Object.keys(byTool.antigravity),
-  ]);
 
   // Commands in Claude not found in TOML dirs
   for (const stem of claudeStems) {
@@ -150,20 +156,15 @@ function main() {
       console.log(`  ✓  ${claudeStem}`);
     } else {
       console.log(`  ✗  ${claudeStem}`);
-      if (descClaude !== descGemini)
-        console.log(`       .claude:      ${descClaude}`);
-      if (descGemini !== descAgy)
-        console.log(`       .gemini:      ${descGemini}`);
-      if (descClaude !== descAgy && descClaude === descGemini)
-        console.log(`       commands/:    ${descAgy}`);
-      else if (descClaude !== descAgy)
-        console.log(`       commands/:    ${descAgy}`);
+      console.log(`       .claude:      ${descClaude}`);
+      console.log(`       .gemini:      ${descGemini}`);
+      console.log(`       commands/:    ${descAgy}`);
       errors++;
     }
   }
 
   const status = errors > 0 ? 'FAILED' : 'PASSED';
-  console.log(`\n${claudeStems.length} commands checked — ${errors} error(s) — ${status}`);
+  console.log(`\n${allCanonicalStems.size} commands checked — ${errors} error(s) — ${status}`);
 
   if (errors > 0) process.exit(1);
 }
