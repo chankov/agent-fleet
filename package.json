@@ -38,6 +38,8 @@
     ".pi/prompts/",
     ".pi/extensions/*.json",
     ".pi/extensions/*/index.ts",
+    ".pi/extensions/*/state.js",
+    ".pi/extensions/*/state.test.js",
     ".pi/extensions/*/package.json",
     ".pi/extensions/*/README.md",
     ".pi/harnesses/*.json",
@@ -71,7 +73,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node bin/cli.js --version && node bin/cli.js --help && node bin/cli.js transform-persona --list --agent claude-code && node --test \"bin/test/*.test.js\"",
+    "test": "node bin/cli.js --version && node bin/cli.js --help && node bin/cli.js transform-persona --list --agent claude-code && node --test \"bin/test/*.test.js\" \".pi/extensions/btw/state.test.js\"",
     "pack:dry": "npm pack --dry-run",
     "changeset": "changeset",
     "version": "changeset version",
