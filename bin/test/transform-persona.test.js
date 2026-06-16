@@ -85,8 +85,8 @@ test("code-reviewer → claude-code: exact frontmatter", () => {
   assert.equal(fm[0], "name: code-reviewer");
   assert.match(fm[1], /^description: Senior code reviewer/);
   assert.equal(fm[2], "tools: Read, Bash, Grep, Glob");
-  assert.equal(fm[3], "model: opus"); // github-copilot/claude-opus-4.8 → opus
-  assert.equal(fm.length, 4, "nothing else survives the transform");
+  // model: openai-codex/gpt-5.5 (default) is a non-Claude route → inherit the session model
+  assert.equal(fm.length, 3, "non-Claude default route inherits model; nothing else survives");
 });
 
 test("code-reviewer → opencode: subagent mode + denial map", () => {
