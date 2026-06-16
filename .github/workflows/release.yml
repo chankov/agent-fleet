@@ -46,6 +46,10 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
+          # Force every release to a patch bump (x.y.Z+1) regardless of the
+          # level authored in each changeset — mirrors the local `version`
+          # script so CI and local releases agree.
+          version: node bin/force-patch-changesets.js && npx changeset version
           publish: npx changeset publish
           commit: "chore: release"
           title: "chore: release"

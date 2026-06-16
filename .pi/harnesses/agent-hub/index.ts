@@ -1651,7 +1651,15 @@ export default function (pi: ExtensionAPI) {
 
 		// Nested delegate-child rows + a subtree rollup line (children count and
 		// token total — sub-sub spend is included in both its own row and here).
+		// Running children sort ahead of finished ones so a live child is never the
+		// row dropped by MAX_CHILD_ROWS; spawn order (startedAt) breaks ties within
+		// a group so the list stays stable as children complete.
 		const children = state.delegations ? Array.from(state.delegations.values()) : [];
+		children.sort((a, b) => {
+			const ar = a.status === "running" ? 0 : 1;
+			const br = b.status === "running" ? 0 : 1;
+			return ar !== br ? ar - br : a.startedAt - b.startedAt;
+		});
 		const childLines: string[] = [];
 		if (children.length > 0) {
 			for (const c of children.slice(0, MAX_CHILD_ROWS)) {

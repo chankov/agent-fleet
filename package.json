@@ -78,7 +78,7 @@
     "test": "node bin/cli.js --version && node bin/cli.js --help && node bin/cli.js transform-persona --list --agent claude-code && node --test \"bin/test/*.test.js\" \".pi/extensions/btw/state.test.js\"",
     "pack:dry": "npm pack --dry-run",
     "changeset": "changeset",
-    "version": "changeset version",
+    "version:changeset": "node bin/force-patch-changesets.js && changeset version",
     "release": "changeset publish"
   },
   "devDependencies": {
