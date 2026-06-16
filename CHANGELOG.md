@@ -1,5 +1,12 @@
 # agent-skills changelog
 
+## 1.1.0
+
+### Minor Changes
+
+- agent-hub: per-persona thinking levels. Each persona's `thinking:` frontmatter sets its pi `--thinking` reasoning effort, switchable at runtime with `/agent-model-thinking <persona>` (off · minimal · low · medium · high · xhigh) and overridable per project via a `thinking.<persona>:` key under `## agent-team`. The level renders as a short badge after the model in the dashboard cards and the compact below-editor view (e.g. `gpt-5.5 (xh)`), and the compact view now shows the model + badge per running agent. Default levels are tiered by role (architect/security/planner xhigh; builder/reviewers/orchestrator high; test/bowser medium; researcher/releaser low; documenter minimal).
+- `/orchestrate` command for claude-code (`/orchestrate`) and opencode (`/as-orchestrate`): the main session / primary agent becomes an orchestrator that drives a config-defined team of installed subagents — default team `planner` + `builder` (no reviewer) — routing them as a **runtime roster, not a fixed pipeline** (skip planning when a plan exists, re-run `researcher` anytime, loop back to `planner`), and handling the `PLAN_FILE:` / `NEEDS_RESEARCH:` handoff markers. Named teams live in a per-agent `orchestrate-teams.yaml` (mirroring pi's `.pi/agents/teams.yaml`) and switch at runtime with `/orchestrate <team> "<task>"`. pi is excluded — it orchestrates via the `agent-hub` harness. `guided-workspace-setup` now offers `/orchestrate` `★`-recommended (with its team-config companion) for claude-code + opencode, drives the claude-code install menu via `AskUserQuestion` questionnaires (quick-path + ≤4-option chunks), and gates the lifecycle hooks to claude-code only.
+
 ## 1.0.0
 
 ### Major Changes
