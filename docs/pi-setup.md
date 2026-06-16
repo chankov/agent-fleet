@@ -138,7 +138,7 @@ The always-on utilities:
 - `chrome-devtools-mcp/` — bridges the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) server into pi as native tools, unlocking the `browser-testing-with-devtools` skill on pi.
 - `compact-and-continue/` — registers the `request_compaction` tool that queues pi context compaction to run after the current agent turn ends, optionally resuming work from a self-contained continuation prompt. Used by `/build` to offer a "Compact & continue" option at slice-approval time.
 - `agent-skills-update-check/` — surfaces an "update available" banner once per session when `@chankov/agent-skills` has a newer published version than the one recorded in `.ai/agent-skills-setup.md`. Never blocks startup (soft 3s check); honors `AGENT_SKILLS_NO_UPDATE_CHECK` / `NO_UPDATE_NOTIFIER` / `CI` opt-outs.
-- `btw/` — adds the `/btw <task>` prompt command: forks the current session into a fire-and-forget background side task that inherits the full conversation as context, runs in the same cwd, and returns its result as a chat card (kept out of the main agent's LLM context). See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
+- `btw/` — adds the `/btw <task>` prompt command (and `Alt+Shift+B` shortcut): forks the current session into an in-process sub-session that inherits the full conversation as context, runs in the same cwd, and streams into a live modal with a follow-up composer. A compact result card lands in the main transcript at idle (kept out of the main agent's LLM context). See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
 
 To install, symlink the directories into your project's `.pi/extensions/`:
 

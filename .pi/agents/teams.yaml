@@ -1,24 +1,39 @@
+# Първият team се активира при старт. Смяна: /agents-team
+# researcher / deep-researcher не се листват — винаги достъпни през spawn_research.
+
 default:
   - planner
   - plan-reviewer
   - builder
+  - test-engineer
   - code-reviewer
   - documenter
-  - bowser
-  - security-auditor
 
 debug:
+  - test-engineer
   - builder
-  - code-reviewer
-  - documenter
-  - bowser
-  - security-auditor
-
-info:
-  - documenter
   - code-reviewer
 
 frontend:
   - planner
   - builder
   - bowser
+  - code-reviewer
+
+security:
+  - security-auditor
+  - builder
+  - test-engineer
+  - code-reviewer
+
+hotfix:
+  - builder
+  - code-reviewer
+
+release:
+  - releaser
+  - documenter
+
+info:
+  - documenter
+  - code-reviewer

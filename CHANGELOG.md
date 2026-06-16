@@ -12,6 +12,27 @@
 
 ### Minor Changes
 
+- 75b1a7f: Rewrite the `btw` pi extension around an in-process sub-session and a live modal
+
+  `/btw <task>` no longer spawns a child `pi` process and waits to report back as a
+  single expanded chat card. It now forks the current session into an **in-process
+  sub-session** (`createAgentSession`, default coding tools, no extension runtime) and
+  opens a **top-center modal** that streams the sub-session's transcript live and
+  accepts follow-ups — mid-run follow-ups steer the active turn, idle ones start a fresh
+  turn.
+
+  - New `Alt+Shift+B` shortcut (and bare `/btw`) reopens the modal on the last-viewed thread.
+  - `Esc` hides the modal while the task keeps running; completion only toasts and never
+    steals focus. `←/→` switches between concurrent threads; `↑/↓` scrolls; `Ctrl+C`
+    copies the selected entry.
+  - Each finished turn writes the full answer to `.pi/btw-sessions/<id>.result.md` and
+    drops a **compact** card (✓/✗ + task + elapsed + first lines + artifact path) into
+    the main transcript at idle — replacing the old expanded-by-default card.
+
+  The token-thinness invariants are unchanged: command-only surface, no model-callable
+  tool, and the `on("context")` filter still keeps every btw card out of the main
+  agent's LLM context.
+
 - 0bee132: agent-hub: delegate sub-roles rolled out to five more personas, on an OpenAI-first model ladder
 
   - `planner`, `plan-reviewer`, `builder`, `test-engineer`, and `security-auditor` now declare `subagents:` sub-roles and a "Delegation pre-pass" prompt section, so each can fan out read-only helpers mid-turn via the `delegate` tool (within the existing budgets: 4 children per dispatch, depth 1, parallel children read-only).
@@ -26,6 +47,7 @@
   - The personas gaining sub-roles also gain `models:` candidate lists (`gpt-5.4`, spark), so `/agent-model <persona>` and `/agent-model <persona>.<role>` have switch targets.
   - `.pi/agents/model-profiles.yaml`: `max` and `budget` profiles now cover `planner`, `plan-reviewer`, `security-auditor`, and `test-engineer`; `budget` moves `code-reviewer` from sonnet to `gpt-5.4`.
 
+- 412273e: Reorganize agent-hub team sets around SDD gates: `default` gains `test-engineer` as the verify gate and drops the always-on `security-auditor` and `bowser`; `debug` is rebuilt around the Prove-It pattern (test-engineer, builder, code-reviewer); `frontend` gains a `code-reviewer` merge gate; new `security` (conditional audit cycle), `hotfix` (minimal builder + reviewer pair), and `release` (releaser + documenter — releaser was previously unreachable via dispatch) teams.
 - 0bee132: Personas are now installable for every supported coding agent, with deterministic per-agent transformation:
 
   - New `agent-skills transform-persona` CLI subcommand (backed by `bin/lib/transform-persona.js`, under `node --test` coverage) generates per-agent subagent files from the canonical `agents/*.md`: Claude Code gets `.claude/agents/<name>.md` with tools/model translated (`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …), OpenCode gets `.opencode/agent/<name>.md` with `mode: subagent` + tool denials, pi gets the canonical file unchanged. Agent-hub-only frontmatter (`models`, `thinking`, `delegate_depth`, `subagents`, `kind`, `skills`) never leaks into transformed output.
