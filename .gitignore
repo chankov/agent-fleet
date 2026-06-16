@@ -21,3 +21,6 @@ tmp/
 .versions/
 .ai/commands/
 .pi/agents/*.txt
+.claude/
+ONBOARDING.md
+.changeset/

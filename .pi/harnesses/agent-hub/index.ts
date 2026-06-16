@@ -19,6 +19,8 @@
  *   /agents-grid N        — set column count (default 2)
  *   /agent-model <persona>[.<role>] — switch a persona's (or delegate sub-role's)
  *                           model from its declared candidates
+ *   /agent-model-thinking <persona> — switch a persona's thinking level
+ *                           (off|minimal|low|medium|high|xhigh)
  *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
  *   /agents-kill <name>   — SIGTERM a frozen specialist (and its delegation tree)
  *   /agents-restart <name>— kill + re-run its last task fresh
@@ -243,6 +245,8 @@ function extractNeedsResearch(output: string): string[] {
 //   persona-gate: on|off       — block input until a dispatcher persona is picked.
 //   model.<persona>: <spec>    — replace the persona's default model for this project.
 //   models.<persona>: <a>, <b> — replace the persona's model candidate list.
+//   thinking.<persona>: <level> — replace the persona's thinking level for this
+//                              project (off|minimal|low|medium|high|xhigh).
 //   subagents.<persona>.<role>: <model>[, tools=<caps>]
 //                              — replace/add one delegate sub-role for this project.
 //   delegate-depth.<persona>: <n> — replace the persona's delegation depth budget.
@@ -254,6 +258,7 @@ interface AgentTeamOverrides {
 	personaGate: boolean;
 	personaModels: Record<string, string>;
 	personaModelLists: Record<string, string[]>;
+	personaThinking: Record<string, string>;
 	personaSubagents: Record<string, Record<string, SubagentRole>>;
 	personaDelegateDepth: Record<string, number>;
 	rulesDirs: string[];
@@ -265,6 +270,7 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	personaGate: false,
 	personaModels: {},
 	personaModelLists: {},
+	personaThinking: {},
 	personaSubagents: {},
 	personaDelegateDepth: {},
 	rulesDirs: [],
@@ -276,6 +282,7 @@ function freshOverrides(): AgentTeamOverrides {
 		...DEFAULT_OVERRIDES,
 		personaModels: {},
 		personaModelLists: {},
+		personaThinking: {},
 		personaSubagents: {},
 		personaDelegateDepth: {},
 		rulesDirs: [],
@@ -319,6 +326,15 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		const modelsKey = key.match(new RegExp(`^models\\.(${slug})$`));
 		if (modelsKey && value) {
 			result.personaModelLists[modelsKey[1]] = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
+		const thinkingKey = key.match(new RegExp(`^thinking\\.(${slug})$`));
+		if (thinkingKey && value) {
+			const level = value.toLowerCase();
+			if (VALID_THINKING_LEVELS.has(level)) {
+				result.personaThinking[thinkingKey[1]] = level;
+			} else {
+				result.warnings.push(`thinking.${thinkingKey[1]} "${value}" is not a valid level (off|minimal|low|medium|high|xhigh) — ignored`);
+			}
 		}
 		const subKey = key.match(new RegExp(`^subagents\\.(${slug})\\.(${slug})$`));
 		if (subKey && value) {
@@ -500,7 +516,10 @@ function parseAgentFile(filePath: string): AgentDef | null {
 
 // ── Thinking level + timeline helpers (Phase 3) ──
 
-const VALID_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+// pi --thinking levels, off→xhigh. Single source of truth for the validator, the
+// /agent-model-thinking picker, and the display badge.
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+const VALID_THINKING_LEVELS = new Set<string>(THINKING_LEVELS);
 
 // Map a persona's `thinking:` frontmatter value to a pi --thinking level.
 // Pass-through for valid levels; truthy words ("on"/"true"/"yes"/"1") → "low";
@@ -511,6 +530,22 @@ function resolveThinkingLevel(raw?: string): string {
 	if (VALID_THINKING_LEVELS.has(v)) return v;
 	if (v === "on" || v === "true" || v === "yes" || v === "1") return "low";
 	return "off";
+}
+
+// Short display codes for the thinking level, shown as a "(code)" badge after the
+// model in cards + the compact view (e.g. gpt-5.5 (xh)). `off` → "" so no badge
+// renders for the common no-extended-thinking case.
+const THINKING_ABBREV: Record<string, string> = {
+	off: "",
+	minimal: "min",
+	low: "low",
+	medium: "med",
+	high: "hi",
+	xhigh: "xh",
+};
+
+function abbrevThinking(level: string): string {
+	return THINKING_ABBREV[level] ?? "";
 }
 
 // Coalesce a streaming text/thinking delta into the timeline: extend the trailing
@@ -1301,6 +1336,11 @@ export default function (pi: ExtensionAPI) {
 	// reset on session_start; profiles make re-applying cheap.
 	let modelProfiles: Record<string, Record<string, string>> = {};
 	const modelOverrides = new Map<string, string>();
+	// Session-lifetime per-persona thinking-level overrides set by
+	// /agent-model-thinking (lowercase persona name → pi --thinking level). Wins
+	// over the persona's frontmatter `thinking:`; resets on session_start; takes
+	// effect on the persona's next dispatch (/agents-restart applies it now).
+	const thinkingOverrides = new Map<string, string>();
 	// Session-lifetime model overrides for delegate sub-roles, set by
 	// /agent-model <persona>.<role>. Keyed "<persona>.<role>" (lowercase); applied
 	// when the dispatch serializes AGENT_HUB_DELEGATE_CONFIG, so nested children
@@ -1357,6 +1397,13 @@ export default function (pi: ExtensionAPI) {
 	// frontmatter default → undefined (dispatcher's model).
 	function resolvedModel(def: AgentDef): string | undefined {
 		return modelOverrides.get(def.name.toLowerCase()) ?? def.model;
+	}
+
+	// The raw thinking value a persona would dispatch with right now: session
+	// override (/agent-model-thinking) → frontmatter `thinking:`. Pass through
+	// resolveThinkingLevel before use to get a valid pi --thinking level.
+	function resolvedThinking(def: AgentDef): string | undefined {
+		return thinkingOverrides.get(def.name.toLowerCase()) ?? def.thinking;
 	}
 
 	function loadAgents(cwd: string) {
@@ -1452,6 +1499,17 @@ export default function (pi: ExtensionAPI) {
 		return model ? model.split("/").pop()! : "default";
 	}
 
+	// A " (code)" thinking badge for display, or "" when the level is off.
+	function thinkingSuffix(rawThinking: string | undefined): string {
+		const code = abbrevThinking(resolveThinkingLevel(rawThinking));
+		return code ? ` (${code})` : "";
+	}
+
+	// The model + thinking badge a persona would dispatch with: "gpt-5.5 (xh)".
+	function modelWithThinking(def: AgentDef): string {
+		return shortModel(resolvedModel(def)) + thinkingSuffix(resolvedThinking(def));
+	}
+
 	function contextLabel(contextPct: number): string {
 		return `${Math.ceil(contextPct)}%`;
 	}
@@ -1526,12 +1584,14 @@ export default function (pi: ExtensionAPI) {
 			+ theme.fg("dim", "│");
 	}
 
-	// One-line agent summary for compact view: " Name   42%  ● running 12s".
+	// One-line agent summary for compact view: " Name   42%  gpt-5.5 (xh)  ● running 12s".
 	// nameWidth aligns the name column across the running set; the styled line is
-	// truncated to the widget width so ANSI runs never overflow.
+	// truncated to the widget width so ANSI runs never overflow. `model` already
+	// carries the thinking badge (modelWithThinking); pass "" to omit it.
 	function renderCompactLine(
 		nameRaw: string,
 		contextPct: number,
+		model: string,
 		status: { color: string; text: string },
 		nameWidth: number,
 		width: number,
@@ -1543,6 +1603,7 @@ export default function (pi: ExtensionAPI) {
 		const line = " "
 			+ theme.fg("accent", theme.bold(name))
 			+ "  " + theme.fg("dim", ctx)
+			+ (model ? "  " + theme.fg("dim", model) : "")
 			+ "  " + theme.fg(status.color, status.text);
 		return truncateToWidth(line, width);
 	}
@@ -1578,7 +1639,7 @@ export default function (pi: ExtensionAPI) {
 		const headerLine = renderCardHeaderLine(
 			displayName(state.def.name),
 			state.contextPct,
-			shortModel(resolvedModel(state.def)),
+			modelWithThinking(state.def),
 			status.text,
 			status.color,
 			w,
@@ -1625,7 +1686,7 @@ export default function (pi: ExtensionAPI) {
 		const headerLine = renderCardHeaderLine(
 			`r${state.id} ${label}${turnStr}`,
 			state.contextPct,
-			shortModel(state.model),
+			shortModel(state.model) + thinkingSuffix(state.def.thinking),
 			status.text,
 			status.color,
 			w,
@@ -1762,12 +1823,13 @@ export default function (pi: ExtensionAPI) {
 			invalidate() {},
 			render(width: number): string[] {
 				if (viewMode !== "compact") return [];
-				const running: { name: string; ctx: number; status: { color: string; text: string } }[] = [
+				const running: { name: string; ctx: number; model: string; status: { color: string; text: string } }[] = [
 					...Array.from(agentStates.values())
 						.filter(a => a.status === "running")
 						.map(a => ({
 							name: displayName(a.def.name),
 							ctx: a.contextPct,
+							model: modelWithThinking(a.def),
 							status: cardStatus(a.status, a.elapsed),
 						})),
 					...Array.from(researchStates.values())
@@ -1775,12 +1837,13 @@ export default function (pi: ExtensionAPI) {
 						.map(s => ({
 							name: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"}`,
 							ctx: s.contextPct,
+							model: shortModel(s.model) + thinkingSuffix(s.def.thinking),
 							status: cardStatus(s.status, s.elapsed),
 						})),
 				];
 				if (running.length === 0) return [];
 				const nameWidth = Math.min(24, Math.max(...running.map(r => visibleWidth(r.name))));
-				return running.map(r => renderCompactLine(r.name, r.ctx, r.status, nameWidth, width, theme));
+				return running.map(r => renderCompactLine(r.name, r.ctx, r.model, r.status, nameWidth, width, theme));
 			},
 		}), { placement: "belowEditor" });
 	}
@@ -2060,10 +2123,11 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 
 		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + delegationProtocol;
 
-		// Per-agent thinking: a persona can set `thinking:` in frontmatter to capture
-		// its reasoning into the zoom timeline (default off). Non-off enables thinking
-		// deltas in the JSON stream so `/zoom` can show them.
-		const thinkingLevel = resolveThinkingLevel(state.def.thinking);
+		// Per-agent thinking: the persona's `thinking:` frontmatter (or a
+		// /agent-model-thinking session override) sets the pi --thinking reasoning
+		// level. Non-off also enables thinking deltas in the JSON stream so `/zoom`
+		// can show the reasoning.
+		const thinkingLevel = resolveThinkingLevel(resolvedThinking(state.def));
 		const wantThinking = thinkingLevel !== "off";
 
 		// Spawn via the shared helper — first run creates the session, subsequent
@@ -3579,13 +3643,17 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					const session = s.sessionFile ? "resumed" : "new";
 					const override = modelOverrides.get(s.def.name.toLowerCase());
 					const model = override ? `${override} (switched)` : (s.def.model || "dispatcher's");
+					const thinkOverride = thinkingOverrides.get(s.def.name.toLowerCase());
+					const thinking = thinkOverride
+						? `${resolveThinkingLevel(thinkOverride)} (switched)`
+						: resolveThinkingLevel(s.def.thinking);
 					const switchedRoles = Object.keys(s.def.subagents || {})
 						.map(role => ({ role, m: subagentModelOverrides.get(`${s.def.name.toLowerCase()}.${role.toLowerCase()}`) }))
 						.filter((x): x is { role: string; m: string } => !!x.m);
 					const subLabel = switchedRoles.length
 						? `, switched sub-roles: ${switchedRoles.map(x => `${x.role}→${shortModel(x.m)}`).join(", ")}`
 						: "";
-					return `${displayName(s.def.name)} (${s.status}, ${session}, model: ${model}, runs: ${s.runCount}${subLabel}): ${s.def.description}`;
+					return `${displayName(s.def.name)} (${s.status}, ${session}, model: ${model}, thinking: ${thinking}, runs: ${s.runCount}${subLabel}): ${s.def.description}`;
 				})
 				.join("\n");
 			_ctx.ui.notify(names || "No agents loaded", "info");
@@ -3852,6 +3920,62 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			updateWidget();
 			ctx.ui.notify(
 				`${displayName(state.def.name)} → ${picked} (applies on next dispatch; /agents-restart ${state.def.name} to apply now)`,
+				"success",
+			);
+		},
+	});
+
+	// Completions for /agent-model-thinking: persona names labeled with the
+	// thinking level currently in effect.
+	const agentThinkingCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = Array.from(agentStates.values()).map(s => ({
+			value: s.def.name,
+			label: `${displayName(s.def.name)} — ${resolveThinkingLevel(resolvedThinking(s.def))}`,
+		}));
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /agent-model-thinking <persona> — switch a persona's reasoning effort among
+	// pi's --thinking levels (off|minimal|low|medium|high|xhigh). Session-lifetime:
+	// the choice resets on session_start and takes effect on the persona's NEXT
+	// dispatch (/agents-restart applies it immediately). Selecting the frontmatter
+	// default clears the override.
+	pi.registerCommand("agent-model-thinking", {
+		description: "Switch a persona's thinking level from pi's --thinking levels: /agent-model-thinking <persona>",
+		getArgumentCompletions: agentThinkingCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = (args || "").trim().toLowerCase();
+			const state = name ? agentStates.get(name) : undefined;
+			if (!state) {
+				const known = Array.from(agentStates.values()).map(s => s.def.name).join(", ");
+				ctx.ui.notify(`Usage: /agent-model-thinking <persona>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			const defaultLevel = resolveThinkingLevel(state.def.thinking);
+			const current = resolveThinkingLevel(resolvedThinking(state.def));
+			const levels = [...THINKING_LEVELS];
+			const options = levels.map(l => {
+				const tags = [l === defaultLevel ? "default" : "", l === current ? "current" : ""].filter(Boolean);
+				return tags.length ? `${l} (${tags.join(", ")})` : l;
+			});
+			const choice = await ctx.ui.select(`Thinking level for ${displayName(state.def.name)}`, options);
+			if (choice === undefined) return;
+			const picked = levels[options.indexOf(choice)];
+			if (picked === current) {
+				ctx.ui.notify(`${displayName(state.def.name)} is already on thinking: ${picked}`, "info");
+				return;
+			}
+			if (picked === defaultLevel) {
+				thinkingOverrides.delete(name);
+			} else {
+				thinkingOverrides.set(name, picked);
+			}
+			updateWidget();
+			ctx.ui.notify(
+				`${displayName(state.def.name)} thinking → ${picked} (applies on next dispatch; /agents-restart ${state.def.name} to apply now)`,
 				"success",
 			);
 		},
@@ -4586,10 +4710,12 @@ ${researchCatalog}`;
 		// the persona defs' default model / candidate list before anything reads them.
 		modelOverrides.clear();
 		subagentModelOverrides.clear();
+		thinkingOverrides.clear();
 		for (const def of allAgentDefs) {
 			const lower = def.name.toLowerCase();
 			if (overrides.personaModels[lower]) def.model = overrides.personaModels[lower];
 			if (overrides.personaModelLists[lower]) def.models = overrides.personaModelLists[lower];
+			if (overrides.personaThinking[lower]) def.thinking = overrides.personaThinking[lower];
 			// Delegation overrides: replace/add individual sub-roles (other declared
 			// roles keep their frontmatter values) and the depth budget.
 			const subOv = overrides.personaSubagents[lower];
@@ -4681,6 +4807,7 @@ ${researchCatalog}`;
 			`/agents-list          List active agents and status\n` +
 			`/agents-grid <1-6>    Set grid column count\n` +
 			`/agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
+			`/agent-model-thinking <persona> Switch a persona's thinking level\n` +
 			`/models [profile]     Apply a named model profile to the team\n` +
 			`/agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
 			`/agents-restart <name> Kill + re-run its last task fresh\n` +

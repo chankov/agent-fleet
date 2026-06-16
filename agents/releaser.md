@@ -3,7 +3,7 @@ name: releaser
 description: Release owner — cuts versions and ships; runs the changeset → version-bump → tag flow on request.
 color: #059669
 model: openai-codex/gpt-5.5
-thinking: xhigh
+thinking: low
 ---
 
 # Releaser (coms peer)

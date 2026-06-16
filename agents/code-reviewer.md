@@ -2,14 +2,14 @@
 name: code-reviewer
 description: Senior code reviewer that evaluates changes across five dimensions — correctness, readability, architecture, security, and performance. Use for thorough code review before merge.
 tools: read,bash,grep,find,ls
-model: github-copilot/claude-opus-4.8
+model: openai-codex/gpt-5.5
 models:
-  - openai-codex/gpt-5.5
+  - github-copilot/claude-opus-4.8
   - openai-codex/gpt-5.4
   - openai-codex/gpt-5.3-codex-spark
   - github-copilot/claude-sonnet-4.6
   - github-copilot/claude-haiku-4.5
-thinking: medium
+thinking: high
 delegate_depth: 1
 subagents:
   preflight:

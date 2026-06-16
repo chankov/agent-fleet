@@ -6,7 +6,7 @@ model: openai-codex/gpt-5.5
 models:
   - openai-codex/gpt-5.4
   - openai-codex/gpt-5.3-codex-spark
-thinking: xhigh
+thinking: high
 delegate_depth: 1
 subagents:
   feasibility:

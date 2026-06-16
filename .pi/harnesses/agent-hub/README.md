@@ -47,6 +47,14 @@ another main agent** and **use a coms peer as a subagent**.
   outside the declared lists is ever selectable. Per project,
   `model.<persona>:` / `models.<persona>:` keys under `## agent-team` in
   `.ai/agent-skills-overrides.md` replace a persona's default model / candidate list.
+- **Thinking levels** — each persona's frontmatter `thinking:` sets its pi `--thinking`
+  reasoning effort (`off` · `minimal` · `low` · `medium` · `high` · `xhigh`). `/agent-model-thinking
+  <persona>` switches it among those six levels for the session; like a model switch it takes effect
+  on the persona's next dispatch (`/agents-restart <persona>` applies it now), and selecting the
+  frontmatter default clears the override. The level shows as a short badge after the model
+  everywhere a model is rendered — `gpt-5.5 (xh)` in the dashboard cards and the compact below-editor
+  view (`min`/`low`/`med`/`hi`/`xh`; `off` shows no badge). Per project, a `thinking.<persona>:` key
+  under `## agent-team` in `.ai/agent-skills-overrides.md` replaces a persona's default level.
 - **Mid-turn delegation (`delegate` tool)** — a persona that declares a `subagents:` map in its
   frontmatter (`role: { model, tools? }` entries, or an indented `model:`/`tools:` block per role)
   gets a real mid-turn `delegate(role, instruction, context?, allow_write?)` tool, injected as an

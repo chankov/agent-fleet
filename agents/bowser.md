@@ -5,7 +5,7 @@ model: openai-codex/gpt-5.3-codex-spark
 color: orange
 skills:
   - playwright-bowser
-thinking: xhigh
+thinking: medium
 ---
 
 # Playwright Bowser Agent

@@ -82,19 +82,21 @@ Read by the `.pi/harnesses/agent-hub/` pi harness on every session start. The ov
 | `persona-gate` | `off` | When `on`, blocks input at session start until an orchestrator persona is picked. |
 | `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). |
 | `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/agent-model` and `/models` profiles (comma-separated pi model specs). |
+| `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |
 | `subagents.<persona>.<role>` | persona frontmatter `subagents:` | Replaces or adds one delegate sub-role for this project: `<model>[, tools=<caps>]`. Other declared roles keep their frontmatter values. |
 | `delegate-depth.<persona>` | persona frontmatter `delegate_depth:` (default/max 1) | Replaces the persona's delegation depth budget: `0` makes its delegate tool refuse (delegation off for this project), `1` lets it spawn terminal children. Values above 1 are clamped to 1; children at remaining depth 0 do not receive delegate tooling. |
 | `rules` | none | Comma-separated repo-relative folders holding the project's own rule files. Each folder is searched **recursively** through all subfolders. The harness tells every dispatched specialist where the rules live; the planner and code-reviewer personas read the relevant rules, validate their subject against them, and pass them on (cited in plan acceptance criteria / handed to delegate sub-reviewers). Missing folders produce a session-start warning. |
 
-Example — switch the dispatcher to Bulgarian, pin the builder to sonnet, move
-the code-reviewer's docs sub-reviewer to a different model, and point the team
-at the project's rule folders:
+Example — switch the dispatcher to Bulgarian, pin the builder to sonnet, raise the
+code-reviewer's thinking level, move the code-reviewer's docs sub-reviewer to a
+different model, and point the team at the project's rule folders:
 
 ```markdown
 ## agent-team
 language: Bulgarian
 model.builder: github-copilot/claude-sonnet-4.6
 models.builder: github-copilot/claude-sonnet-4.6, github-copilot/claude-haiku-4.5
+thinking.code-reviewer: xhigh
 subagents.code-reviewer.docs: github-copilot/claude-sonnet-4.6, tools=read,grep
 delegate-depth.code-reviewer: 1
 rules: docs/rules, .ai/rules
