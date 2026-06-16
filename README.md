@@ -17,7 +17,7 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 
 ## Commands
 
-7 slash commands that map to the development lifecycle. Each one activates the right skills automatically.
+8 slash commands that map to the development lifecycle. Each one activates the right skills automatically.
 
 | What you're doing | Command | Key principle |
 |-------------------|---------|---------------|
@@ -28,6 +28,9 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 | Review before merge | `/review` | Improve code health |
 | Simplify the code | `/code-simplify` | Clarity over cleverness |
 | Ship to production | `/ship` | Faster is safer |
+| Orchestrate a team | `/orchestrate` | Main session drives subagents |
+
+`/orchestrate` turns the main session into an **orchestrator** that drives a config-defined team of subagents (default `planner` + `builder`, no reviewer), routing them as a runtime roster and handling the `NEEDS_RESEARCH` / `PLAN_FILE` handoffs. The named teams live in `.claude/orchestrate-teams.yaml` (mirroring pi's `.pi/agents/teams.yaml`) and are switchable at runtime: `/orchestrate <team> "<task>"`. It ships for **claude-code** and **opencode** (`/as-orchestrate`); pi orchestrates via the `agent-hub` harness instead.
 
 Skills also activate automatically based on what you're doing — designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`, and so on.
 
@@ -103,6 +106,7 @@ The repo also ships **optional** OpenCode slash commands in `.opencode/commands/
 - `/as-build`
 - `/as-test`
 - `/as-review`
+- `/as-orchestrate`
 - `/as-code-simplify`
 - `/as-ship`
 - `/as-design-agent`
@@ -322,7 +326,7 @@ agent-skills/
 ├── agents/                            # 14 reusable agent personas
 ├── references/                        # 4 supplementary checklists
 ├── hooks/                             # Session lifecycle hooks
-├── .claude/commands/                  # 7 Claude slash commands
+├── .claude/commands/                  # 8 Claude slash commands
 ├── .pi/prompts/                       # 7 pi prompt-template commands
 └── docs/                              # Setup guides per tool
 ```

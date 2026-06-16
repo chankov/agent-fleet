@@ -152,6 +152,47 @@ Commit this file if the team should share install state — keep paths relative
 so it stays portable. A self-referencing checkout (agent-skills itself) may
 instead `.gitignore` it, since its recorded paths are local to one machine.
 
+## The `/orchestrate` command and its team config
+
+`/orchestrate` turns the main session (Claude Code) or primary agent (OpenCode)
+into an **orchestrator** that drives a config-defined team of installed
+subagents — subagents cannot nest, so all dispatching is the main session's job.
+The default team is `planner` + `builder` (no reviewer); the orchestrator routes
+the team as a **runtime roster, not a fixed `researcher → planner → builder`
+pipeline** — it skips planning when a plan already exists, re-runs `researcher`
+at any point, and loops back to `planner` when the build surfaces a wrong plan.
+It honours the existing subagent handoff markers: `PLAN_FILE: <path>` from the
+planner, and `NEEDS_RESEARCH: <question>` from planner/builder (which dispatches a
+read-only `researcher` and resumes the paused persona with the findings inlined).
+
+The named teams live in a per-agent config that mirrors pi's
+`.pi/agents/teams.yaml` (a map of team-name → ordered persona list, first key =
+default; `researcher`/`deep-researcher` deliberately unlisted but always
+available). The reader differs by runtime: pi's harness parses its YAML, while
+`/orchestrate` has the **command's instructions** read the YAML via the Read tool
+(no harness runtime in claude-code/opencode):
+
+| | Config file | Command |
+|---|---|---|
+| claude-code | `.claude/orchestrate-teams.yaml` | `/orchestrate` |
+| opencode | `.opencode/orchestrate-teams.yaml` | `/as-orchestrate` |
+| pi | `.pi/agents/teams.yaml` | via the `agent-hub` harness (no `/orchestrate`) |
+
+Switch teams at runtime with `/orchestrate <team> "<task>"` (parallel of pi's
+`/agents-team`); use `/orchestrate team=<name> <task>` to disambiguate when the
+task text starts with a word that collides with a team key.
+
+**Guided-setup behaviour.** `guided-workspace-setup` offers `/orchestrate`
+**`★`-recommended** for claude-code + opencode (hidden for pi via the existing
+source-availability filter — there is no `.pi/prompts/orchestrate.md`), and
+installs the agent's `orchestrate-teams.yaml` as a **companion** of the command
+(a user-edited config is preserved on uninstall, never silently clobbered).
+Two artifacts stay **claude-only**: the lifecycle **hooks** (they register into
+`.claude/settings.json`, which opencode/pi have no install path for) and the
+**`AskUserQuestion` questionnaire menu mode** (the primary menu interaction on
+claude-code). The orchestrate command and its team config are *not* claude-only —
+they ship for opencode too.
+
 ## Templates
 
 ### `.ai/agent-skills-overrides.md`

@@ -14,8 +14,9 @@ justfile      → Recipes to launch pi with each harness
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
 .github/workflows/release.yml → On merge to main: opens "Version Packages" PR or runs `changeset publish`
-.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /code-simplify, /ship, /design-agent, /prime, /setup-agent-skills)
-.opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ — keep in sync
+.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /orchestrate, /code-simplify, /ship, /design-agent, /prime, /setup-agent-skills)
+.claude/orchestrate-teams.yaml → named-team roster read by /orchestrate (mirrors .pi/agents/teams.yaml); companion installed with the command; opencode copy at .opencode/orchestrate-teams.yaml
+.opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ (includes as-orchestrate) — keep in sync. /orchestrate ships for claude-code + opencode only; pi orchestrates via the agent-hub harness
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue)
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just hub` stacks damage-control before agent-hub)

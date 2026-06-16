@@ -26,13 +26,16 @@ It maintains two files in the target's `.ai/` directory: `agent-skills-overrides
 
 ### 1. Detect interaction capability
 
-Determine which interaction mode this runtime supports, in order of preference:
+Determine which interaction mode this runtime supports. The mode is chosen by agent:
 
-- **Native multi-select widget** (e.g. a runtime that renders true checkbox lists) — use it for every group in Step 6. On `pi`, this widget is provided by the external `pi-ask-user` package; when it is absent, Step 5b bootstraps it first (install → reload → re-run) so this mode becomes available on the second pass. On `claude-code` and `opencode`, the runtime supplies the widget directly.
-- **`AskUserQuestion` with `multiSelect: true`** — usable when a group has ≤ 4 options, since the tool caps options at 4. Larger groups fall back to the next mode.
-- **Tabular fallback** — print the group table (Step 6 format) and ask the user to reply with the picks. Always accept the shortcuts `all`, `recommended`, `none`, or a comma-separated list of item names/numbers.
+- **`claude-code` → `AskUserQuestion` questionnaires (primary).** Drive every Step 6 group through `AskUserQuestion` rather than printing a table and waiting for a free-text reply. Because the tool caps at 4 options per question and supports `multiSelect: true`, use this two-tier strategy:
+  - **Quick path first.** For each group, ask one `AskUserQuestion` (multiSelect off) offering `Recommended set` / `Everything` / `Customise` / `Skip group`. Only when the user picks `Customise` do you drill in. This avoids questionnaire fatigue on the ~20-item Skills group.
+  - **Customise drill-in.** Present the group's items as `AskUserQuestion` multiSelect prompts chunked by sub-category (the existing `Group` column), ≤ 4 options per question; a sub-category with > 4 items splits into sequential questions. Pre-selection still follows the Step 6 state rules (installed → pre-checked).
 
-Because the groups in Step 6 are large (the Skills group alone holds ~20 items), a true checkbox widget matters: on `pi`, prefer bootstrapping `pi-ask-user` (Step 5b) over falling straight to the tabular fallback.
+  The selection semantics are **identical** to the tabular menu (unchecked installed item = remove, `recommended` adds `★` on top, etc.) — only the rendering differs.
+- **`pi` → native multi-select widget.** Provided by the external `pi-ask-user` package; when it is absent, Step 5b bootstraps it first (install → reload → re-run) so this mode becomes available on the second pass. Because the Step 6 groups are large, prefer bootstrapping `pi-ask-user` over falling straight to the tabular fallback.
+- **`opencode` / any other runtime → native multi-select widget if supplied**, else the tabular fallback below.
+- **Tabular fallback** (any runtime lacking the above) — print the group table (Step 6 format) and ask the user to reply with the picks. Always accept the shortcuts `all`, `recommended`, `none`, or a comma-separated list of item names/numbers.
 
 ### 2. Resolve inputs
 
@@ -61,8 +64,9 @@ Target map, relative to the workspace root:
 | Skills | `.claude/skills/<name>/` | per `docs/opencode-setup.md` | `.pi/skills/<name>/` |
 | Personas | `.claude/agents/<name>.md` *(generated)* | `.opencode/agent/<name>.md` *(generated)* | `agents/<name>.md` |
 | Commands / prompts | `.claude/commands/<name>.md` | `.opencode/commands/as-<name>.md` | `.pi/prompts/<name>.md` |
+| `/orchestrate` team config *(companion of the `orchestrate` command)* | `.claude/orchestrate-teams.yaml` | `.opencode/orchestrate-teams.yaml` | — |
 | References | `.claude/references/<name>.md` | per `docs/opencode-setup.md` | per `docs/pi-setup.md` |
-| Hooks | `.claude/hooks/<name>`, registered in `.claude/settings.json` | per `docs/opencode-setup.md` | per `docs/pi-setup.md` |
+| Hooks *(claude-code only)* | `.claude/hooks/<name>`, registered in `.claude/settings.json` | — | — |
 | pi extensions | — | — | `.pi/extensions/<name>/` |
 | pi harnesses | — | — | `.pi/harnesses/<name>/` |
 | pi harness support | — | — | `justfile` (agent-skills managed region), `scripts/*.ts`, `.pi/agents/*.yaml`, `.pi/damage-control-rules.yaml`, `.pi/harnesses/package.json` |
@@ -144,7 +148,7 @@ On the **re-run**, Step 4 finds `pi-ask-user` installed, this step is a no-op, a
 
 ### 6. Present the install menu
 
-Offer every installable artifact, split into the groups below. **Each group is its own multi-select prompt** so the user picks one screen at a time. The groups are deliberately broad — 7 total (4 shared + 3 pi-only), so a non-`pi` workspace sees only 4 screens. Several groups bundle more than one artifact type; within such a group, a leading `Group` column labels the sub-category and rows are ordered by it so the table still reads as labeled sections. Render every group's items as a markdown table using this fixed format:
+Offer every installable artifact, split into the groups below. **Each group is its own multi-select prompt** so the user picks one screen at a time. On `claude-code` (per Step 1) each group is rendered as `AskUserQuestion` questionnaire chunks (quick-path, then ≤ 4-option drill-in) rather than one wide table — but the **selection semantics are identical** (unchecked installed item = remove, `recommended` adds `★` on top, etc.). The groups are deliberately broad — 7 total (4 shared + 3 pi-only), so a non-`pi` workspace sees only 4 screens. Several groups bundle more than one artifact type; within such a group, a leading `Group` column labels the sub-category and rows are ordered by it so the table still reads as labeled sections. Render every group's items as a markdown table using this fixed format:
 
 | Pick | Item | Group | St | Purpose |
 |---|---|---|---|---|
@@ -191,8 +195,10 @@ For an already-configured workspace, an **unchecked installed item means *remove
 | Skills | `skills/<name>/SKILL.md` | `skills/<name>/SKILL.md` | `skills/<name>/SKILL.md` |
 | Personas | `agents/<name>.md` | `agents/<name>.md` | `agents/<name>.md` |
 | Commands / prompts | `.claude/commands/<name>.md` | `.opencode/commands/as-<name>.md` | `.pi/prompts/<name>.md` |
+| `/orchestrate` team config | `.claude/orchestrate-teams.yaml` | `.opencode/orchestrate-teams.yaml` | — |
 | pi extensions / harnesses / runtime skills | — | — | `.pi/extensions/<name>/`, `.pi/harnesses/<name>/`, `.pi/skills/<name>/` |
-| References / hooks | source files in `references/` / `hooks/` |
+| References | source files in `references/` (all agents) |
+| Hooks | source files in `hooks/` | — | — |
 
 If the per-agent source is missing, the row is **not shown** — never silently fall back to a different agent's tree (for example: do not symlink `.claude/commands/design-agent.md` from `.pi/prompts/design-agent.md` when the agent is `pi`). When the user explicitly asks for an item the source lacks for their agent, say so plainly and stop; the answer is to author the missing source file first, not to cross-link runtimes.
 
@@ -211,10 +217,14 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *pi-only* *(shown only when the agent is `pi`)* — `bowser`, `orchestrator`, `orchestrator-careful`
 
    For `claude-code`/`opencode`, installed rows are **generated artifacts** (see Step 3): record them with `transformed: true` in `## install-status`, and compute their status by comparing the installed file against `transform(current source)` — and for upgrades against `transform(.versions/<recorded>/agents/<name>.md)` — never against the raw canonical source, whose bytes legitimately differ from the generated output.
-3. **Commands / prompts** *(single-type — no `Group` column)* — mapped to the chosen agent; items without a per-agent source are filtered out, no cross-tool substitution. Full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
+3. **Commands / prompts** *(single-type — no `Group` column)* — mapped to the chosen agent; items without a per-agent source are filtered out, no cross-tool substitution. Full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `orchestrate` ★, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`; and `orchestrate` has a source for `claude-code` (`.claude/commands/orchestrate.md`) and `opencode` (`.opencode/commands/as-orchestrate.md`) but **not** `pi` (no `.pi/prompts/orchestrate.md`), so the existing source-availability filter surfaces it for claude-code + opencode and hides it for pi automatically. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-skills repo and act on target workspaces from there.)*
+
+   **`orchestrate` carries a team-config companion.** `orchestrate-teams.yaml` (the named-team roster the `/orchestrate` command reads) is not its own menu row — it is a companion of the `orchestrate` command (same idea as the pi harness `justfile` companion). Whenever `orchestrate` is installed/kept/removed, install/remove the agent's team config from source in the same pass — `.claude/orchestrate-teams.yaml` for claude-code, `.opencode/orchestrate-teams.yaml` for opencode. Treat it as a normal versioned artifact for the Step 6 status tokens: a user-edited copy is `mod`/`cflt` and gets the three-way-diff treatment, never a silent clobber of their team definitions. **Removal safety:** when `orchestrate` is removed, the team config is removed **only** if it still matches the shipped source (unedited); a user-edited `orchestrate-teams.yaml` is preserved and listed under "Skipped — user-modified" rather than deleted, so custom team definitions survive an uninstall.
 4. **References & Hooks** *(`Group` column = `reference` / `hook`)* — one screen for the shared non-agent-specific artifacts:
-   - *reference* — testing, performance, security, accessibility checklists
-   - *hook* — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`)
+   - *reference* — testing, performance, security, accessibility checklists *(offered for every agent)*
+   - *hook* — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`) *(**claude-code only** — hooks register into `.claude/settings.json`, and neither `docs/opencode-setup.md` nor `docs/pi-setup.md` defines a hook install path)*
+
+   The **hook** sub-category is shown only when the agent is `claude-code`. For `opencode`/`pi` this group degrades to **References only** — no hook rows.
 5. **pi extensions & runtime skills** *(pi only; `Group` column = `extension` / `runtime-skill`)* — always-on once installed:
    - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★, `btw`
    - *runtime-skill* — `bowser`
@@ -390,6 +400,7 @@ Close the report with one line explaining the installer-cleanup outcome:
 - A `recommended` reply that silently unticks already-installed items instead of adding `★` items on top.
 - `setup`, `doctor`, or `guided-workspace-setup` shown in the install menu — they are installer-only.
 - An item offered for one agent whose per-agent source file does not exist (cross-tool substitution).
+- Hook rows offered to a non-`claude-code` agent (group 4 should degrade to References-only for `opencode`/`pi`).
 - A persona for `claude-code`/`opencode` copied or symlinked raw instead of generated via `transform-persona` — or its frontmatter "transformed" by hand in prose instead of by the CLI.
 - A pi-only persona (`bowser`, `orchestrator`, `orchestrator-careful`) offered in a non-`pi` menu, or the personas group showing a hardcoded subset instead of the full `transform-persona --list` roster.
 - A transformed persona row diffed against the raw canonical source instead of against the generated output (false `modified` status on every re-run).
@@ -432,6 +443,8 @@ After completing the workflow, confirm:
 - [ ] Every row carried an explicit `St` token (`ok`, `upd`, `mod`, `cflt`, `gone`, `new`, `pkg`, `—`, or `brk`) with the legend shown once above the table — never blank and never the long `installed · …` state names that overflow the widget.
 - [ ] Installed items were pre-checked `[x]`; not-installed items were pre-checked `[ ]`; `recommended` added `★` items on top of the pre-selection without unticking installed ones.
 - [ ] Items lacking a per-agent source were filtered out of the menu — no cross-tool substitution offered.
+- [ ] Hooks were offered only for `claude-code`; References were still offered for all agents.
+- [ ] On `claude-code`, groups were driven via `AskUserQuestion` (quick-path + ≤ 4-option chunks), not free-text table replies.
 - [ ] The personas group listed the full `transform-persona --list` roster for the chosen agent; pi-only personas appeared only for `pi`; selected personas for `claude-code`/`opencode` were written by the `transform-persona` CLI and recorded with `transformed: true`.
 - [ ] Apply ran without any overwrite-this-file prompt; ticked items refreshed unconditionally and unticked modified items were preserved.
 - [ ] `setup`, `doctor`, and `guided-workspace-setup` were excluded from the install menu.
