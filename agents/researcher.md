@@ -4,6 +4,9 @@ description: Read-only reconnaissance — searches code, reads files and docs, a
 tools: read,grep,find,ls
 kind: research
 model: openai-codex/gpt-5.3-codex-spark
+models:
+  - openai-codex/gpt-5.5
+  - openai-codex/gpt-5.4
 thinking: low
 ---
 

@@ -4,6 +4,9 @@ description: Read-only deep reconnaissance for hard, ambiguous, or high-stakes q
 tools: read,grep,find,ls
 kind: research
 model: openai-codex/gpt-5.5
+models:
+  - openai-codex/gpt-5.4
+  - openai-codex/gpt-5.3-codex-spark
 thinking: high
 ---
 

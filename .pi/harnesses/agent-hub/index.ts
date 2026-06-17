@@ -17,11 +17,12 @@
  *   /agents-team          — switch active team
  *   /agents-list          — list loaded agents
  *   /agents-grid N        — set column count (default 2)
- *   /agent-model <persona>[.<role>] — switch a persona's (or delegate sub-role's)
- *                           model from its declared candidates
- *   /agent-model-thinking <persona> — switch a persona's thinking level
- *                           (off|minimal|low|medium|high|xhigh)
+ *   /agent-model <persona>[.<role>] — switch a team or research persona's (or
+ *                           delegate sub-role's) model from its declared candidates
+ *   /agent-model-thinking <persona> — switch a team or research persona's thinking
+ *                           level (off|minimal|low|medium|high|xhigh)
  *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
+ *   /agent-models-substitute <source> <target> — swap one model across all personas
  *   /agents-kill <name>   — SIGTERM a frozen specialist (and its delegation tree)
  *   /agents-restart <name>— kill + re-run its last task fresh
  *   /zoom <name|rN|child> — scrollable read-only view of an agent's stream
@@ -1452,6 +1453,16 @@ export default function (pi: ExtensionAPI) {
 		return thinkingOverrides.get(def.name.toLowerCase()) ?? def.thinking;
 	}
 
+	// Resolve a model/thinking-switchable persona def by its (lowercased) name:
+	// a live team member's def first, then a research persona (researcher /
+	// deep-researcher). Lets /agent-model and /agent-model-thinking target
+	// research helpers exactly like standard team members — the override maps
+	// are keyed by name, so the switch is honored on the helper's next spawn.
+	function switchablePersonaDef(name: string): AgentDef | undefined {
+		return agentStates.get(name)?.def
+			?? researchPersonas.find(d => d.name.toLowerCase() === name);
+	}
+
 	function loadAgents(cwd: string) {
 		// Create session storage dir
 		sessionDir = safePathWithin(cwd, ".pi", "agent-sessions");
@@ -1744,7 +1755,7 @@ export default function (pi: ExtensionAPI) {
 		const headerLine = renderCardHeaderLine(
 			`r${state.id} ${label}${turnStr}`,
 			state.contextPct,
-			shortModel(state.model) + thinkingSuffix(state.def.thinking),
+			shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
 			status.text,
 			status.color,
 			w,
@@ -1895,7 +1906,7 @@ export default function (pi: ExtensionAPI) {
 						.map(s => ({
 							name: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"}`,
 							ctx: s.contextPct,
-							model: shortModel(s.model) + thinkingSuffix(s.def.thinking),
+							model: shortModel(s.model) + thinkingSuffix(resolvedThinking(s.def)),
 							status: cardStatus(s.status, s.elapsed),
 						})),
 				];
@@ -2354,10 +2365,12 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 	}
 
 	// Resolve the model for a research helper: an explicit --model wins, then the
-	// persona's own model, then the dispatcher's model (the default for anon helpers).
+	// persona's resolved model (session override via /agent-model → frontmatter
+	// default), then the dispatcher's model (the default for anon helpers).
 	function resolveResearchModel(def: AgentDef, explicit: string | undefined, ctx: any): string {
 		if (explicit) return explicit;
-		if (def.model) return def.model;
+		const resolved = resolvedModel(def);
+		if (resolved) return resolved;
 		return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview";
 	}
 
@@ -2406,7 +2419,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			updateResearchWidget();
 		}, 1000);
 
-		const thinkingLevel = resolveThinkingLevel(state.def.thinking);
+		const thinkingLevel = resolveThinkingLevel(resolvedThinking(state.def));
 		const wantThinking = thinkingLevel !== "off";
 		const sessionPath = researchSessionPath(state.id);
 
@@ -3997,6 +4010,12 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			value: s.def.name,
 			label: `${displayName(s.def.name)} (${s.status})`,
 		}));
+		// Research personas (researcher / deep-researcher) are switchable too —
+		// spawned on demand, so they have no live status to show.
+		const researchItems = researchPersonas.map(d => ({
+			value: d.name,
+			label: `${displayName(d.name)} (research — ${shortModel(resolvedModel(d))})`,
+		}));
 		const roleItems = Array.from(agentStates.values()).flatMap(s =>
 			Object.entries(s.def.subagents || {}).map(([role, r]) => {
 				const override = subagentModelOverrides.get(`${s.def.name.toLowerCase()}.${role.toLowerCase()}`);
@@ -4006,7 +4025,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 				};
 			}),
 		);
-		const items = [...personaItems, ...roleItems];
+		const items = [...personaItems, ...researchItems, ...roleItems];
 		if (items.length === 0) return null;
 		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
 		return filtered.length > 0 ? filtered : items;
@@ -4076,59 +4095,71 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			}
 
 			const name = arg;
-			const state = name ? agentStates.get(name) : undefined;
-			if (!state) {
-				const known = Array.from(agentStates.values()).map(s => s.def.name).join(", ");
+			// Team member (live state) OR a research persona — both switchable.
+			const def = name ? switchablePersonaDef(name) : undefined;
+			if (!def) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => s.def.name),
+					...researchPersonas.map(d => d.name),
+				].join(", ");
 				ctx.ui.notify(`Usage: /agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
 				return;
 			}
-			if (!state.def.models || state.def.models.length === 0) {
+			if (!def.models || def.models.length === 0) {
 				ctx.ui.notify(
-					`${displayName(state.def.name)} declares no model candidates — add a \`models:\` list to ${state.def.file} or a \`models.${state.def.name}:\` override in .ai/agent-skills-overrides.md.`,
+					`${displayName(def.name)} declares no model candidates — add a \`models:\` list to ${def.file} or a \`models.${def.name}:\` override in .ai/agent-skills-overrides.md.`,
 					"warning",
 				);
 				return;
 			}
-			const candidates = allowedModels(state.def);
-			const current = resolvedModel(state.def);
+			const candidates = allowedModels(def);
+			const current = resolvedModel(def);
 			// A persona without a frontmatter default runs on the dispatcher's model —
 			// offer that as an explicit candidate so the override can be cleared.
 			const DISPATCHER_DEFAULT = "(dispatcher's model)";
-			if (!state.def.model) candidates.unshift(DISPATCHER_DEFAULT);
+			if (!def.model) candidates.unshift(DISPATCHER_DEFAULT);
 			const options = candidates.map(m => {
-				const isDefault = state.def.model ? m === state.def.model : m === DISPATCHER_DEFAULT;
+				const isDefault = def.model ? m === def.model : m === DISPATCHER_DEFAULT;
 				const isCurrent = current ? m === current : m === DISPATCHER_DEFAULT;
 				const tags = [isDefault ? "default" : "", isCurrent ? "current" : ""].filter(Boolean);
 				return tags.length ? `${m} (${tags.join(", ")})` : m;
 			});
-			const choice = await ctx.ui.select(`Model for ${displayName(state.def.name)}`, options);
+			const choice = await ctx.ui.select(`Model for ${displayName(def.name)}`, options);
 			if (choice === undefined) return;
 			const picked = candidates[options.indexOf(choice)];
 			const pickedIsCurrent = current ? picked === current : picked === DISPATCHER_DEFAULT;
 			if (pickedIsCurrent) {
-				ctx.ui.notify(`${displayName(state.def.name)} is already on ${picked}`, "info");
+				ctx.ui.notify(`${displayName(def.name)} is already on ${picked}`, "info");
 				return;
 			}
-			if (picked === state.def.model || picked === DISPATCHER_DEFAULT) {
+			if (picked === def.model || picked === DISPATCHER_DEFAULT) {
 				modelOverrides.delete(name);
 			} else {
 				modelOverrides.set(name, picked);
 			}
 			updateWidget();
-			ctx.ui.notify(
-				`${displayName(state.def.name)} → ${picked} (applies on next dispatch; /agents-restart ${state.def.name} to apply now)`,
-				"success",
-			);
+			// Research helpers spawn fresh each time, so the switch lands on their
+			// next spawn; team members apply on next dispatch (restartable now).
+			const applyHint = (def.kind || "").toLowerCase() === "research"
+				? "applies on next /research or spawn_research"
+				: `applies on next dispatch; /agents-restart ${def.name} to apply now`;
+			ctx.ui.notify(`${displayName(def.name)} → ${picked} (${applyHint})`, "success");
 		},
 	});
 
 	// Completions for /agent-model-thinking: persona names labeled with the
 	// thinking level currently in effect.
 	const agentThinkingCompletions = (prefix: string): AutocompleteItem[] | null => {
-		const items = Array.from(agentStates.values()).map(s => ({
-			value: s.def.name,
-			label: `${displayName(s.def.name)} — ${resolveThinkingLevel(resolvedThinking(s.def))}`,
-		}));
+		const items = [
+			...Array.from(agentStates.values()).map(s => ({
+				value: s.def.name,
+				label: `${displayName(s.def.name)} — ${resolveThinkingLevel(resolvedThinking(s.def))}`,
+			})),
+			...researchPersonas.map(d => ({
+				value: d.name,
+				label: `${displayName(d.name)} (research) — ${resolveThinkingLevel(resolvedThinking(d))}`,
+			})),
+		];
 		if (items.length === 0) return null;
 		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
 		return filtered.length > 0 ? filtered : items;
@@ -4145,24 +4176,28 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const name = (args || "").trim().toLowerCase();
-			const state = name ? agentStates.get(name) : undefined;
-			if (!state) {
-				const known = Array.from(agentStates.values()).map(s => s.def.name).join(", ");
+			// Team member (live state) OR a research persona — both switchable.
+			const def = name ? switchablePersonaDef(name) : undefined;
+			if (!def) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => s.def.name),
+					...researchPersonas.map(d => d.name),
+				].join(", ");
 				ctx.ui.notify(`Usage: /agent-model-thinking <persona>. Known: ${known || "none"}`, "error");
 				return;
 			}
-			const defaultLevel = resolveThinkingLevel(state.def.thinking);
-			const current = resolveThinkingLevel(resolvedThinking(state.def));
+			const defaultLevel = resolveThinkingLevel(def.thinking);
+			const current = resolveThinkingLevel(resolvedThinking(def));
 			const levels = [...THINKING_LEVELS];
 			const options = levels.map(l => {
 				const tags = [l === defaultLevel ? "default" : "", l === current ? "current" : ""].filter(Boolean);
 				return tags.length ? `${l} (${tags.join(", ")})` : l;
 			});
-			const choice = await ctx.ui.select(`Thinking level for ${displayName(state.def.name)}`, options);
+			const choice = await ctx.ui.select(`Thinking level for ${displayName(def.name)}`, options);
 			if (choice === undefined) return;
 			const picked = levels[options.indexOf(choice)];
 			if (picked === current) {
-				ctx.ui.notify(`${displayName(state.def.name)} is already on thinking: ${picked}`, "info");
+				ctx.ui.notify(`${displayName(def.name)} is already on thinking: ${picked}`, "info");
 				return;
 			}
 			if (picked === defaultLevel) {
@@ -4171,10 +4206,12 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 				thinkingOverrides.set(name, picked);
 			}
 			updateWidget();
-			ctx.ui.notify(
-				`${displayName(state.def.name)} thinking → ${picked} (applies on next dispatch; /agents-restart ${state.def.name} to apply now)`,
-				"success",
-			);
+			// Research helpers spawn fresh each time, so the switch lands on their
+			// next spawn; team members apply on next dispatch (restartable now).
+			const applyHint = (def.kind || "").toLowerCase() === "research"
+				? "applies on next /research or spawn_research"
+				: `applies on next dispatch; /agents-restart ${def.name} to apply now`;
+			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "success");
 		},
 	});
 
@@ -4225,6 +4262,116 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			}
 			updateWidget();
 			ctx.ui.notify(`Profile "${profileName}": ${applied.join(", ")} (applies on next dispatch)`, "success");
+		},
+	});
+
+	// All known model strings across every persona (allowedModels union), deduped
+	// preserving first-seen order. Used for /agent-models-substitute autocomplete.
+	function allKnownModels(): string[] {
+		const seen = new Set<string>();
+		const out: string[] = [];
+		for (const def of allAgentDefs) {
+			for (const m of allowedModels(def)) {
+				if (m && !seen.has(m)) { seen.add(m); out.push(m); }
+			}
+		}
+		return out;
+	}
+
+	// Completions for /agent-models-substitute: a flat list of known models.
+	// Free text allowed too — we just suggest, never restrict, so ad-hoc targets
+	// (e.g. a model a persona does not declare) still produce a clean "skipped"
+	// report at apply time.
+	const substituteCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = allKnownModels().map(m => ({ value: m, label: m }));
+		if (items.length === 0) return null;
+		const p = prefix.toLowerCase();
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(p));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /agent-models-substitute <source> <target> — replace one model across all
+	// personas (team members + research + orchestrator; never the dispatcher).
+	// Per-persona validity: target must be in that persona's allowedModels.
+	// Applies session-lifetime (same lifetime as /agent-model); takes effect on
+	// the persona's NEXT dispatch (/agents-restart applies it immediately).
+	// One-step flow: dry-run summary is shown up front, then the swap is
+	// applied unconditionally — the operator runs the command to commit.
+	pi.registerCommand("agent-models-substitute", {
+		description: "Replace one model across all personas: /agent-models-substitute <source> <target>",
+		getArgumentCompletions: substituteCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (tokens.length !== 2) {
+				ctx.ui.notify(
+					`Usage: /agent-models-substitute <source> <target>. ` +
+					`Both must be model specs (e.g. openai-codex/gpt-5.3-codex-spark).`,
+					"error",
+				);
+				return;
+			}
+			const [source, target] = tokens;
+
+			// Build the dry-run. Walk every loaded persona (team + research +
+			// orchestrator all live in allAgentDefs) and decide per-persona:
+			//   - "match"   : current effective model === source AND target is a
+			//                 declared candidate → will be switched.
+			//   - "skip"    : any other case, with a reason.
+			const matches: { def: AgentDef; current: string }[] = [];
+			const skipped: { def: AgentDef; reason: string }[] = [];
+			for (const def of allAgentDefs) {
+				const current = resolvedModel(def);
+				if (!current) {
+					skipped.push({ def, reason: "no default model (runs on dispatcher's model)" });
+					continue;
+				}
+				if (current !== source) {
+					skipped.push({ def, reason: `current is ${current} (not ${source})` });
+					continue;
+				}
+				if (!allowedModels(def).includes(target)) {
+					skipped.push({ def, reason: `target ${target} not in declared candidates (model:/models: in ${def.file})` });
+					continue;
+				}
+				matches.push({ def, current });
+			}
+
+			// If target === source, the substitution is a no-op. We still report
+			// it so the operator sees that the request was understood.
+			if (source === target) {
+				ctx.ui.notify(
+					`Source and target are the same (${source}); nothing to do. ` +
+					`Affected: ${matches.length}, skipped: ${skipped.length}.`,
+					"info",
+				);
+				return;
+			}
+
+			// Apply: for every match, if the persona's frontmatter default IS the
+			// target, clear any existing override (so it tracks frontmatter
+			// updates); otherwise record target in modelOverrides. Mirrors
+			// /agent-model and /models.
+			const applied: string[] = [];
+			for (const { def } of matches) {
+				const key = def.name.toLowerCase();
+				if (def.model === target) {
+					modelOverrides.delete(key);
+				} else {
+					modelOverrides.set(key, target);
+				}
+				applied.push(`${displayName(def.name)}: ${source} → ${target}`);
+			}
+
+			const skipDetails = skipped.map(s => `${displayName(s.def.name)}: ${s.reason}`);
+			const summary = [
+				`Substitution ${source} → ${target}:`,
+				`  Affected: ${applied.length}${applied.length ? ` (${applied.join(", ")})` : ""}`,
+				`  Skipped: ${skipped.length}${skipped.length ? ` (${skipDetails.join("; ")})` : ""}`,
+				`  Applies on next dispatch (/agents-restart to apply now).`,
+			].join("\n");
+			updateWidget();
+			ctx.ui.notify(summary, applied.length > 0 ? "success" : "info");
 		},
 	});
 
@@ -4578,7 +4725,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		// spawn_research. Independent of team membership.
 		const researchCatalog = researchPersonas.length > 0
 			? researchPersonas
-				.map(d => `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${d.model || "(dispatcher's default)"} · **Thinking:** ${resolveThinkingLevel(d.thinking)}\n${d.description}`)
+				.map(d => `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${resolvedModel(d) || "(dispatcher's default)"} · **Thinking:** ${resolveThinkingLevel(resolvedThinking(d))}\n${d.description}`)
 				.join("\n\n")
 			: "(No research personas defined. Call `spawn_research` without `persona` for an ad-hoc read-only helper.)";
 
@@ -5035,6 +5182,7 @@ ${researchCatalog}`;
 			`/agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
 			`/agent-model-thinking <persona> Switch a persona's thinking level\n` +
 			`/models [profile]     Apply a named model profile to the team\n` +
+			`/agent-models-substitute <src> <tgt> Swap one model across all personas\n` +
 			`/agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
 			`/agents-restart <name> Kill + re-run its last task fresh\n` +
 			`/zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream\n` +

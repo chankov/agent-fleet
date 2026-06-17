@@ -64,6 +64,16 @@ another main agent** and **use a coms peer as a subagent**.
   outside the declared lists is ever selectable. Per project,
   `model.<persona>:` / `models.<persona>:` keys under `## agent-team` in
   `.ai/agent-skills-overrides.md` replace a persona's default model / candidate list.
+  Research personas (`researcher` / `deep-researcher`, `kind: research`) are switchable the same
+  way — `/agent-model <persona>` and `/agent-model-thinking <persona>` accept them alongside team
+  members. Since research helpers are spawned fresh on each `/research` / `spawn_research`, the
+  switch lands on their next spawn (there is no running instance to `/agents-restart`).
+  `/agent-models-substitute <source> <target>` is the global one-shot form: walks every loaded
+  persona (team + research + orchestrator), and for each whose **current effective model** is
+  `<source>` and whose declared candidates include `<target>`, sets the session override to
+  `<target>`. One-step flow — the dry-run summary (affected vs skipped, with reasons) is shown
+  inline, then the swap is applied immediately and takes effect on each persona's next dispatch
+  (`/agents-restart` to apply now). It never touches the dispatcher or delegate sub-roles.
 - **Thinking levels** — each persona's frontmatter `thinking:` sets its pi `--thinking`
   reasoning effort (`off` · `minimal` · `low` · `medium` · `high` · `xhigh`). `/agent-model-thinking
   <persona>` switches it among those six levels for the session; like a model switch it takes effect
