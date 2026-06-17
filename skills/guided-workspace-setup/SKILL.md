@@ -210,6 +210,7 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    - *Verify* — `browser-testing-with-devtools`, `debugging-and-error-recovery` ★
    - *Review* — `code-review-and-quality` ★, `code-simplification`, `security-and-hardening`, `performance-optimization`
    - *Ship* — `git-workflow-and-versioning` ★, `ci-cd-and-automation`, `deprecation-and-migration`, `documentation-and-adrs`, `shipping-and-launch`
+   - *Orchestrate* — `orchestration-verification` ★ *(the Verification Contract enforced by the `orchestrator` persona + agent-hub harness; also read by the `builder`/`test-engineer`/`code-reviewer` personas for their structured returns, so recommend it whenever any of those personas or the `orchestrate` command is selected)*
    - *Meta* — `using-agent-skills` ★, `designing-agents` *(`guided-workspace-setup` is installer-only — never offered)*
 2. **Agent personas** *(`Group` column = `rw` / `ro` / `pi-only`)* — one screen listing the **full availability matrix** for the chosen agent (never a hardcoded subset; `transform-persona --list --agent <agent>` is the authoritative roster). Read-only personas carry a read-only toolset and an explicit "Do NOT modify files." rule:
    - *rw* — `builder` ★, `test-engineer` ★, `documenter`, `planner` *(scoped: writes only the plan document in the plan directory; bash limited to read-only git inspection)*, `architect`, `releaser`

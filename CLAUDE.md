@@ -35,6 +35,7 @@ docs/         → Setup guides, agent-skills-setup.md (per-project overrides + i
 **Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, shipping-and-launch
+**Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness)
 **Onboard:** guided-workspace-setup
 
 ## Conventions

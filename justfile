@@ -42,14 +42,19 @@ ext-damage-control:
 
 # ---------------------------------------------------------------- orchestration
 
-# Accepts coms identity flags: --name --purpose --project --color --explicit
-# Guarded agent hub: damage-control + dispatcher grid + research helpers + embedded coms
+# Accepts coms identity flags: --name --purpose --project --color --explicit.
+# Loads the orchestrator persona by default (the Verification-Contract dispatcher that owns
+# the acceptance assertions — see skills/orchestration-verification); it is appended only if
+# agents/orchestrator.md is installed, so the hub still launches when it is absent. Override
+# with your own --system-prompt <persona>.md passed after `just hub`.
+# Guarded agent hub: damage-control + dispatcher grid + research helpers + embedded coms + orchestrator
 hub *args:
-    pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts {{args}}
+    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts $persona {{args}}
 
-# Agent hub (solo): guarded hub without the coms layer — fixed specialists + research only
+# Agent hub (solo): guarded hub without the coms layer — fixed specialists + research only.
+# Same orchestrator-persona default as `just hub` (appended only when agents/orchestrator.md exists).
 hub-solo *args:
-    pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts --solo {{args}}
+    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts --solo $persona {{args}}
 
 # Internal helper for team-up: launch a reusable coms peer (coms + compact-and-continue + a persona).
 # Hidden from `just --list` because recipes prefixed with `_` are private.
