@@ -1372,6 +1372,52 @@ export default function (pi: ExtensionAPI) {
 	// surfaced in the status line. Resets on session_start.
 	let delegatedTokens = 0;
 
+	// ── Verification Contract: assertion ledger (advisory) ──
+	// The dispatcher (orchestrator persona) owns a list of checkable acceptance
+	// assertions built from the request before any builder runs, recorded via the
+	// set_assertions / update_assertion tools. The hub persists the ledger to
+	// <sessionDir>/assertions.json (wiped on session_start like findings/) and
+	// renders a one-line status, so the contract survives compaction without
+	// flooding the dispatcher LLM context. Advisory by design: status is surfaced,
+	// but a dispatch is never hard-refused on an unproven assertion (PRD open
+	// question 2 — start advisory, revisit enforcement at Checkpoint A). The only
+	// in-tool refusal is cosmetic: "proven" requires named evidence.
+	type AssertionStatus = "open" | "proven" | "unproven" | "failed";
+	interface Assertion {
+		id: string;        // A1, A2, …
+		tag: string;       // test | runtime-ui | code-grep | manual
+		text: string;      // one checkable pass condition
+		status: AssertionStatus;
+		evidence?: string; // named evidence for proven / failed
+	}
+	let assertions: Assertion[] = [];
+
+	function persistAssertions() {
+		if (!sessionDir) return;
+		try {
+			writeFileSync(safePathWithin(sessionDir, "assertions.json"), JSON.stringify(assertions, null, 2));
+		} catch {}
+	}
+
+	function assertionStatusLine(): string {
+		if (assertions.length === 0) return "";
+		const count = (s: AssertionStatus) => assertions.filter(a => a.status === s).length;
+		const open = assertions.filter(a => a.status === "open" || a.status === "unproven").map(a => a.id);
+		const failed = assertions.filter(a => a.status === "failed").map(a => a.id);
+		const head = `Assertions: ${count("proven")}✓ ${open.length}○ ${count("failed")}✗`;
+		if (failed.length) return `${head} · failed: ${failed.join(",")}`;
+		if (open.length) return `${head} · open: ${open.join(",")}`;
+		return `${head} · all proven`;
+	}
+
+	// One-line status only — the full ledger lives on disk and in this closure,
+	// never re-injected into the dispatcher LLM context.
+	function updateAssertionStatus() {
+		const line = assertionStatusLine();
+		if (!line) return;
+		try { widgetCtx?.ui?.setStatus("assertions", line); } catch {}
+	}
+
 	// ── Dispatcher persona gate (Phase 6) ──
 	// Every agent runs a declared persona; the dispatcher's is sourced from an
 	// orchestrator persona file (frontmatter `kind: orchestrator`). The gate blocks
@@ -1418,6 +1464,10 @@ export default function (pi: ExtensionAPI) {
 		// dirs (delegate children's events + sessions).
 		try { rmSync(safePathWithin(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
 		try { rmSync(safePathWithin(sessionDir, "delegations"), { recursive: true, force: true }); } catch {}
+		// The assertion ledger is per-task and as ephemeral as the session that owns
+		// it — wipe on session start like findings/, then start with an empty ledger.
+		try { rmSync(safePathWithin(sessionDir, "assertions.json"), { force: true }); } catch {}
+		assertions = [];
 
 		// Load all agent definitions
 		allAgentDefs = scanAgentDirs(cwd);
@@ -3240,6 +3290,145 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		},
 	});
 
+	// ── Verification Contract tools (assertion ledger) ──
+	// set_assertions builds/rebuilds the ledger before dispatching; update_assertion
+	// records a gate outcome. Both persist to disk and refresh the one-line status;
+	// neither blocks a dispatch (advisory). See skills/orchestration-verification.
+
+	pi.registerTool({
+		name: "set_assertions",
+		label: "Set Assertions",
+		description:
+			"Record the acceptance-assertion ledger for the current task (the Verification Contract). Call this BEFORE dispatching a builder, with one checkable assertion per requirement, and again to REBUILD the whole ledger on a 'wrong again' regression reset (it replaces any existing list). Each assertion needs an id (A1, A2, …), a verification tag (test | runtime-ui | code-grep | manual), and one pass condition. See skills/orchestration-verification/SKILL.md for the format. The ledger is persisted and its status is shown to the human; it does not block dispatch.",
+		parameters: Type.Object({
+			assertions: Type.Array(
+				Type.Object({
+					id: Type.String({ description: "Stable id, e.g. A1, A2 — referenced verbatim in dispatches and returns." }),
+					tag: Type.String({ description: "How it will be proven: test | runtime-ui | code-grep | manual." }),
+					text: Type.String({ description: "One checkable pass condition (split compound requirements into separate assertions)." }),
+				}),
+				{ description: "The full assertion list — replaces any existing ledger." },
+			),
+		}),
+		async execute(_callId, params, _signal, _onUpdate, _ctx) {
+			const input = (params as { assertions: Array<{ id: string; tag: string; text: string }> }).assertions || [];
+			assertions = input.map(a => ({
+				id: String(a.id).trim(),
+				tag: String(a.tag).trim(),
+				text: String(a.text).trim(),
+				status: "open" as AssertionStatus,
+			}));
+			persistAssertions();
+			updateAssertionStatus();
+			const ids = assertions.map(a => a.id).join(", ") || "(none)";
+			return {
+				content: [{ type: "text" as const, text: `Ledger set: ${assertions.length} assertion(s) open — ${ids}. Pass the relevant ones verbatim into each dispatch and advance only on proven.` }],
+				details: { count: assertions.length },
+			};
+		},
+		renderCall(args, theme) {
+			const n = Array.isArray((args as any).assertions) ? (args as any).assertions.length : 0;
+			return new Text(
+				theme.fg("toolTitle", theme.bold("set_assertions ")) +
+				theme.fg("muted", `${n} assertion(s)`),
+				0, 0,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "update_assertion",
+		label: "Update Assertion",
+		description:
+			"Update one acceptance assertion's status after a verification gate. status is proven (name the evidence — test name, command output, file:line, or runtime observation), unproven (not yet checked), or failed (checked and wrong). Advance the task only on proven; treat unproven/failed as not done. A runtime-ui assertion is proven only by an actual runtime observation, never a static review.",
+		parameters: Type.Object({
+			id: Type.String({ description: "Assertion id to update, e.g. A2." }),
+			status: Type.String({ description: "One of: proven | unproven | failed." }),
+			evidence: Type.Optional(Type.String({ description: "Named evidence for proven/failed — test name, command output, file:line, or runtime observation." })),
+		}),
+		async execute(_callId, params, _signal, _onUpdate, _ctx) {
+			const { id, status, evidence } = params as { id: string; status: string; evidence?: string };
+			const wanted = String(status).trim().toLowerCase();
+			if (!["proven", "unproven", "failed"].includes(wanted)) {
+				return {
+					content: [{ type: "text" as const, text: `status must be one of proven | unproven | failed (got "${status}").` }],
+					details: { status: "error" },
+				};
+			}
+			const a = assertions.find(x => x.id.toLowerCase() === String(id).trim().toLowerCase());
+			if (!a) {
+				const known = assertions.map(x => x.id).join(", ") || "(empty)";
+				return {
+					content: [{ type: "text" as const, text: `No assertion "${id}" in the ledger. Call set_assertions first, or check the id. Current: ${known}.` }],
+					details: { status: "error" },
+				};
+			}
+			if (wanted === "proven" && !(evidence && evidence.trim())) {
+				return {
+					content: [{ type: "text" as const, text: `${a.id} stays ${a.status}: mark it proven only with named evidence (test, command output, file:line, or a runtime observation).` }],
+					details: { status: "rejected" },
+				};
+			}
+			a.status = wanted as AssertionStatus;
+			a.evidence = wanted === "unproven" ? undefined : (evidence?.trim() || undefined);
+			persistAssertions();
+			updateAssertionStatus();
+			const open = assertions.filter(x => x.status === "open" || x.status === "unproven").map(x => x.id);
+			const failed = assertions.filter(x => x.status === "failed").map(x => x.id);
+			const tail = failed.length
+				? `Failed: ${failed.join(", ")}. Still open: ${open.join(", ") || "none"}.`
+				: open.length
+					? `Still open: ${open.join(", ")}.`
+					: "All assertions proven.";
+			return {
+				content: [{ type: "text" as const, text: `${a.id} → ${a.status}${a.evidence ? ` (${a.evidence})` : ""}. ${tail}` }],
+				details: { id: a.id, status: a.status },
+			};
+		},
+		renderCall(args, theme) {
+			const id = (args as any).id || "";
+			const status = (args as any).status || "";
+			return new Text(
+				theme.fg("toolTitle", theme.bold("update_assertion ")) +
+				theme.fg("accent", id) +
+				theme.fg("dim", " → ") +
+				theme.fg("muted", status),
+				0, 0,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "get_assertions",
+		label: "Get Assertions",
+		description:
+			"Read back the full acceptance-assertion ledger — every id, tag, status, pass condition, and named evidence. Use this to recover the ledger after a context compaction (the dispatcher status line shows only counts, not the assertion text) before re-dispatching or reporting done. Read-only: it never changes the ledger.",
+		parameters: Type.Object({}),
+		async execute(_callId, _params, _signal, _onUpdate, _ctx) {
+			if (assertions.length === 0) {
+				return {
+					content: [{ type: "text" as const, text: "Ledger is empty. Call set_assertions to build the acceptance assertions before dispatching." }],
+					details: { count: 0 },
+				};
+			}
+			const lines = assertions.map(a => {
+				const ev = a.evidence ? ` — evidence: ${a.evidence}` : "";
+				return `${a.id} [${a.tag}] ${a.status.toUpperCase()}: ${a.text}${ev}`;
+			});
+			return {
+				content: [{ type: "text" as const, text: `${assertionStatusLine()}\n${lines.join("\n")}` }],
+				details: { count: assertions.length },
+			};
+		},
+		renderCall(_args, theme) {
+			return new Text(
+				theme.fg("toolTitle", theme.bold("get_assertions ")) +
+				theme.fg("muted", `${assertions.length} assertion(s)`),
+				0, 0,
+			);
+		},
+	});
+
 	// ── Embedded coms tools (dispatcher ⇄ peers) ──
 
 	pi.registerTool({
@@ -4426,8 +4615,8 @@ ask the human. You MUST instead:
   the user in ${userLanguage} and wait for their reply in the next turn.`;
 
 		const toolList = askUserAvailable
-			? "three tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), and `ask_user` (talk to the human)"
-			: "two tools: `dispatch_agent` (delegate work to a specialist) and `spawn_research` (run a read-only research helper). `ask_user` is NOT available — see the section below";
+			? "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger), and `ask_user` (talk to the human)"
+			: "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), and `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger). `ask_user` is NOT available — see the section below";
 
 		const dispatchSection = askUserAvailable
 			? `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
@@ -4510,6 +4699,31 @@ ${dispatchSection}
 - Summarize the outcome for the user in ${userLanguage}.
 
 ${askUserBlock}
+
+## Verification Contract (assertion ledger)
+A clearly stated requirement must never be silently dropped. You OWN a ledger of checkable
+acceptance assertions; build it before you dispatch, and refuse "done" until each is proven.
+- BEFORE dispatching a builder for any non-trivial task, convert the request into numbered
+  assertions and record them with \`set_assertions\` — one pass condition each, tagged
+  test | runtime-ui | code-grep | manual (see skills/orchestration-verification/SKILL.md).
+  Pass the relevant assertions VERBATIM into each dispatch.
+- After each verification gate, call \`update_assertion\` with proven (and name the evidence),
+  unproven, or failed. Advance ONLY on proven; unproven and failed both mean not done.
+- A runtime-ui assertion (visibility, placement, "appears in the table") is proven only by an
+  actual runtime observation — dispatch a browser-capable specialist; a static review never
+  closes it.
+- For "make X behave like existing Y" requests, FIRST spawn_research a deep-researcher parity
+  inventory of every site where the exemplar is special-cased, and turn each site into an
+  assertion — otherwise the exemplar ships and its siblings are missed.
+- On a "wrong again" correction, call \`set_assertions\` again to rebuild the ledger from the
+  LATEST correction before re-dispatching (a regression reset — old summaries are now suspect).
+- After a context compaction your status line shows only counts (e.g. "2✓ 3○"), not the
+  assertion text. Call \`get_assertions\` to read the full ledger back — ids, tags, pass
+  conditions, and the named evidence on each proven/failed assertion — before you re-dispatch
+  or report done. This is your bounded read-only window onto recorded ground truth; you do not
+  author code.
+The ledger is persisted and its status is shown to the human; it is advisory — it informs your
+gating, it does not auto-block a dispatch.
 
 ## Research helpers (read-only)
 - \`spawn_research\` runs a READ-ONLY helper (read/grep/find/ls — no bash, no writes)
@@ -4781,10 +4995,14 @@ ${researchCatalog}`;
 		// this MUST happen at session_start, not at extension load.
 		askUserAvailable = pi.getAllTools().some(t => t.name === "ask_user");
 
-		// Dispatcher's tool surface: dispatch_agent + spawn_research always; the coms_*
-		// tools when the peer layer bound successfully; ask_user only when pi-ask-user is
-		// installed. Per decision G4 the dispatcher persona NEVER narrows this surface.
-		const dispatcherTools = ["dispatch_agent", "spawn_research"];
+		// Dispatcher's tool surface: dispatch_agent + spawn_research always; the
+		// assertion-ledger tools (set/update/get) own the Verification Contract —
+		// get_assertions is the bounded read-only recovery path so the dispatcher can
+		// re-read the full ledger after a compaction (the status line shows only counts).
+		// The coms_* tools when the peer layer bound successfully; ask_user only when
+		// pi-ask-user is installed. Per decision G4 the dispatcher persona NEVER narrows
+		// this surface.
+		const dispatcherTools = ["dispatch_agent", "spawn_research", "set_assertions", "update_assertion", "get_assertions"];
 		if (comsReady) dispatcherTools.push("coms_list", "coms_send", "coms_get", "coms_await");
 		if (askUserAvailable) dispatcherTools.push("ask_user");
 		pi.setActiveTools(dispatcherTools);

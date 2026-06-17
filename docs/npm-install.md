@@ -174,8 +174,8 @@ Generates per-agent subagent definitions from the canonical personas in
 `opencode` get a transformed copy — `tools`/`model` translated to the target's
 vocabulary (`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …; `mode:
 subagent` + tool denials for OpenCode), agent-hub-only frontmatter dropped,
-body untouched. pi-only personas (`bowser`, `orchestrator`,
-`orchestrator-careful`) are refused for other agents. This is what
+body untouched. pi-only personas (`bowser`, `orchestrator`) are refused for
+other agents. This is what
 `/setup-agent-skills` runs during apply; transformed installs are always
 copies (never symlinks), recorded with `transformed: true`.
 

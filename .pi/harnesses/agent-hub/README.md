@@ -31,6 +31,23 @@ another main agent** and **use a coms peer as a subagent**.
   2 pauses per dispatch), writes each helper's findings to `.pi/agent-sessions/findings/*.md`, and
   resumes the specialist's session with the file paths. The dispatcher LLM sees only a one-line
   notice — raw findings never enter its context. Findings files are wiped at session start.
+- **Verification Contract (assertion ledger)** — the dispatcher owns a ledger of checkable
+  acceptance assertions built from the request *before* any builder runs, so a clearly stated
+  requirement is never silently dropped. `set_assertions` records the numbered, tagged assertions
+  (`test` | `runtime-ui` | `code-grep` | `manual`, one pass condition each) and rebuilds the whole
+  ledger on a "wrong again" regression reset; `update_assertion` marks each one proven (named
+  evidence required), unproven, or failed after a verification gate; `get_assertions` reads the
+  full ledger (ids, tags, pass conditions, evidence) back. The hub persists the ledger to
+  `.pi/agent-sessions/assertions.json` (wiped at session start like `findings/`) and renders a
+  one-line status (`Assertions: 2✓ 1○ 1✗ · open: A4`) so the contract survives compaction without
+  re-flooding the dispatcher LLM context — after a compaction the dispatcher calls `get_assertions`
+  to recover the full text the status line omits. The `orchestrator` persona drives it — a deep-researcher
+  parity inventory for "behave like" requests, runtime proof for UI/visibility assertions, the
+  regression reset on a re-ask — per
+  [`orchestration-verification`](../../../skills/orchestration-verification/SKILL.md). **Advisory by
+  design** (PRD open question 2): status is surfaced and "proven" requires named evidence, but a
+  dispatch is never hard-refused on an unproven assertion — code-enforcement is the Checkpoint A
+  decision.
 - **Agent controls** — `/zoom` inspects a live agent timeline; kill/restart controls manage running
   child agents; per-agent `model:` fields select models from team config.
 - **Model switching** — a persona's frontmatter `models:` list declares the models it may switch to
@@ -243,10 +260,14 @@ Orchestration, research helpers, and the grid keep working.
 `setActiveTools` always preserves the orchestration surface and adds coms when ready:
 
 ```ts
-const dispatcherTools = ["dispatch_agent", "spawn_research"];
+const dispatcherTools = ["dispatch_agent", "spawn_research", "set_assertions", "update_assertion", "get_assertions"];
 if (comsReady)        dispatcherTools.push("coms_list", "coms_send", "coms_get", "coms_await");
 if (askUserAvailable) dispatcherTools.push("ask_user");
 ```
+
+`set_assertions` / `update_assertion` / `get_assertions` are the always-on Verification Contract ledger tools (see
+[What it does](#what-it-does)); like `dispatch_agent` / `spawn_research` they are part of the
+orchestration surface the dispatcher persona never narrows.
 
 The dispatcher persona is **flavor-only** (decision G4 / 9) — it enriches the role but never narrows
 this tool set, so coms and dispatch stay available regardless of the chosen persona.

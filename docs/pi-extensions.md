@@ -93,6 +93,16 @@ harnesses:
   with compact/full view toggling.
 - **Specialist delegation** — `dispatch_agent` for writable child-agent work and
   `spawn_research` / `/research` for read-only investigation.
+- **Verification Contract** — the dispatcher owns a ledger of checkable acceptance assertions
+  built before any builder runs, via the `set_assertions` / `update_assertion` tools. Each
+  assertion is tagged (`test` | `runtime-ui` | `code-grep` | `manual`) and advanced only on
+  *proven with evidence*; the ledger persists to `.pi/agent-sessions/assertions.json` (wiped at
+  session start like `findings/`) and shows a one-line status, keeping the contract out of the
+  dispatcher LLM context. It kills the parity failure (exemplar shipped, siblings missed) by
+  requiring a parity/touchpoint inventory for "behave like" requests and runtime proof for UI
+  assertions — see the [`orchestration-verification`](../skills/orchestration-verification/SKILL.md)
+  skill, which the `orchestrator` persona drives. Advisory in this phase (surfaced, not a hard
+  dispatch refusal).
 - **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
 - **Operator controls** — `/zoom` timeline inspection plus child-agent kill/restart controls.

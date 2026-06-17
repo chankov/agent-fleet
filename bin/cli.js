@@ -548,8 +548,7 @@ Options:
   Generate per-agent subagent definitions from the canonical agents/*.md
   personas. pi gets the canonical file unchanged; claude-code and opencode get
   a transformed copy (tools/model translated, agent-hub-only keys dropped).
-  pi-only personas (bowser, orchestrator, orchestrator-careful) are refused
-  for other agents.
+  pi-only personas (bowser, orchestrator) are refused for other agents.
 
 Options:
   --agent <claude-code|opencode|pi>   Target agent (required)

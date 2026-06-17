@@ -47,13 +47,39 @@ runtime from the task state** (the listed order is only a sensible starting defa
 
 Do **not** enforce a hard `researcher → planner → builder` sequence.
 
+## The Verification Contract (applies across every step)
+
+Read `skills/orchestration-verification/SKILL.md` before non-trivial work and hold its
+contract for the whole run. Subagents here cannot persist a shared ledger, so **you** keep
+the acceptance assertions in your own working notes and refuse "done" until each is proven.
+
+- **Build the assertions first.** Before dispatching `builder` for any non-trivial task,
+  convert the request into numbered, tagged assertions (`test` | `runtime-ui` | `code-grep`
+  | `manual`, one checkable pass condition each). Pass the relevant assertions **verbatim**
+  into each dispatch and advance only on assertions that come back *proven with named
+  evidence* — propagation in prose is not verification.
+- **Inventory parity for "behave like X" requests.** When the request is "make X behave like
+  existing Y", dispatch `researcher` / `deep-researcher` **first** to enumerate every site
+  where the exemplar is special-cased (flags, branches, display, validation, translations,
+  fixtures, tests), and turn each site into an assertion covering the *whole* set — otherwise
+  the exemplar ships and its siblings are missed.
+- **Require runtime proof for UI assertions.** A `runtime-ui` assertion (visibility,
+  placement, "appears in the table") is closed only by an actual runtime observation via
+  `browser-testing-with-devtools`, never a static review.
+- **Accept assertion status, not verdicts.** Treat specialist returns as `assertions_proven`
+  / `assertions_unproven` / `assertions_failed`; demote any "approved" claim with no named
+  evidence to unproven and re-dispatch it.
+- **Reset on "wrong again".** When the user reports a delivered requirement is wrong again,
+  treat prior summaries as suspect, rebuild the affected assertions from the **latest**
+  correction (re-running the parity inventory for "behave like" cases), then re-dispatch.
+
 ## Step 2 — Route to specialists, honouring handoff markers
 
 State the chosen next step (and why) before each dispatch, so routing is visible.
 
 - `planner` → read its `PLAN_FILE: <path>` and load the plan.
 - `builder` → loop over the plan's `## Task List`, **one task per dispatch**, checking each
-  task's acceptance criteria before moving on.
+  task's acceptance criteria **and the relevant acceptance assertions** before moving on.
 - **Marker-less personas** (`plan-reviewer` / `code-reviewer`) emit no handoff marker —
   their returned report **is** the result; "done" = the report came back, nothing to wait
   for. Fold findings forward; if a `code-reviewer` raised must-fix issues, loop back to
@@ -74,10 +100,13 @@ Whenever any persona's result contains one or more `NEEDS_RESEARCH: <question>` 
 ## Step 4 — Reviewer only if present
 
 The `default` roster has **no reviewer**. After the final builder task's acceptance criteria
-pass, report completion and **state explicitly that review/verification was not run** (the
-user can pick the `full` team or run `/as-review`). When the active team *does* include a
-reviewer, run it as a normal step.
+pass, report completion and **state explicitly that review/verification was not run** and
+which acceptance assertions therefore remain unproven (the user can pick the `full` team or
+run `/as-review`). When the active team *does* include a reviewer, run it as a normal step and
+require it to report parity across sibling cases, not just the exemplar.
 
 ## Step 5 — Report
 
-Report crisply: **active team**, what changed, what was verified, what's next.
+Report crisply: **active team**, what changed, which acceptance assertions are **proven (with
+evidence)**, which remain **unproven or failed**, and what's next. Never report "done" while a
+relevant assertion is unproven.

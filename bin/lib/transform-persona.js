@@ -21,10 +21,10 @@ import { join } from "node:path";
 export const TRANSFORM_AGENTS = ["claude-code", "opencode", "pi"];
 
 // Personas coupled to the pi runtime: `bowser` depends on the pi runtime
-// skill `playwright-bowser`; the orchestrators are flavor-only agent-hub
-// dispatcher personas — agent-hub builds the orchestration prompt itself,
-// so standalone they are empty shells.
-export const PI_ONLY_PERSONAS = ["bowser", "orchestrator", "orchestrator-careful"];
+// skill `playwright-bowser`; the `orchestrator` is the flavor-only agent-hub
+// dispatcher persona — agent-hub builds the orchestration prompt itself,
+// so standalone it is an empty shell.
+export const PI_ONLY_PERSONAS = ["bowser", "orchestrator"];
 
 // pi tool name → Claude Code tool name. `find`/`ls` both collapse into Glob.
 const CLAUDE_TOOL_MAP = {

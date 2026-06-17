@@ -69,7 +69,10 @@ not start reading the diff in depth yourself:
    for documentation/release-notes/AGENTS.md review). Each instruction must
    be self-contained (the child shares none of your context): name the exact
    files or diff to scan, what to flag with file:line locations, and the
-   relevant rule files + points to check.
+   relevant rule files + points to check. For "behave like" / generalisation
+   changes, instruct `quality` and `perf` to apply the parity axis: for every
+   exemplar special-case they find, verify each sibling member of the set is
+   handled the same way.
 3. Read IN DEPTH only the locations your sub-reviewers flagged. Verify or
    reject every flagged finding yourself — you own the final verdict; a
    sub-reviewer's flag is a lead, not a conclusion.
@@ -82,6 +85,7 @@ If no `delegate` tool is available, do the whole review yourself as below
 ## Skill and research hooks
 
 - If `skills/code-review-and-quality/SKILL.md` exists in the repo, read it before starting and follow its process and output format.
+- If `skills/orchestration-verification/SKILL.md` exists and the change carries acceptance assertions, report assertion status, not just a verdict: alongside the template below, list each assertion as proven (with named evidence), unproven, or failed. A prose "APPROVE" never substitutes for per-assertion evidence — an assertion you did not verify is unproven, not approved.
 - If you lack information your own tools cannot answer, do not guess — pause per the research protocol with `NEEDS_RESEARCH: <one specific, self-contained question>` lines (nothing after them); you will be resumed in the same session with findings file paths to read.
 
 ## Review Framework
@@ -126,6 +130,12 @@ attack surface), say so in the report and recommend dispatching
 - Any synchronous operations that should be async?
 - Any unnecessary re-renders (in UI components)?
 - Any missing pagination on list endpoints?
+
+### 6. Parity / Generalisation
+- Where the change special-cases an exemplar (one type, role, state, or variant), is every sibling member of the set handled the same way?
+- "Make X behave like existing Y" changes fail here most often — the exemplar is implemented and its siblings are missed. Confirm each member, not just the one that has fixtures.
+- A leftover exemplar-only branch in display or validation with no sibling counterpart is at least an **Important** finding.
+- For UI / visibility / placement behavior, require runtime evidence (DOM, screenshot, network) — do not approve it on a static reading. If you cannot observe the runtime yourself, mark the assertion unproven and recommend a runtime check rather than approving it.
 
 ## Output Format
 

@@ -192,7 +192,7 @@ The commands above are the entry points. Under the hood, they activate these 20 
 
 ## Agent Personas
 
-14 pre-configured specialist personas live in [agents/](agents/) — reusable subagent definitions your coding agent can delegate work to. Each persona is one Markdown file with YAML frontmatter; the canonical format is pi-flavored, and the setup commands transform it per target agent on install (see [Installing personas](#installing-personas)).
+13 pre-configured specialist personas live in [agents/](agents/) — reusable subagent definitions your coding agent can delegate work to. Each persona is one Markdown file with YAML frontmatter; the canonical format is pi-flavored, and the setup commands transform it per target agent on install (see [Installing personas](#installing-personas)).
 
 | Persona | Role | Access | Primary skill | Agents |
 |---|---|---|---|---|
@@ -208,12 +208,11 @@ The commands above are the entry points. Under the hood, they activate these 20 
 | [researcher](agents/researcher.md) | Fast read-only recon — reports findings with file:line citations | read-only | — | all |
 | [deep-researcher](agents/deep-researcher.md) | Deep recon for hard, cross-cutting questions | read-only | — | all |
 | [bowser](agents/bowser.md) | Headless browser automation via Playwright CLI | rw | — | pi only |
-| [orchestrator](agents/orchestrator.md) | Balanced agent-hub dispatcher flavor | — | — | pi only |
-| [orchestrator-careful](agents/orchestrator-careful.md) | Review-first dispatcher flavor with verification gates | — | — | pi only |
+| [orchestrator](agents/orchestrator.md) | Verification-Contract agent-hub dispatcher — owns acceptance assertions, parity inventory, runtime-proof gate | — | [orchestration-verification](skills/orchestration-verification/SKILL.md) | pi only |
 
 ### How personas connect to skills
 
-Personas are the *who*, skills are the *how*. Each working persona carries a conditional hook to its primary skill: if `skills/<skill-name>/SKILL.md` exists in the repo it is working on, the persona reads it before starting and follows its process and output format. Install the matching skill alongside the persona to get the full structured workflow — without it, the persona still works on its built-in rules. The research personas, `bowser`, and the orchestrators deliberately carry no skill hook (recon must stay lean; the orchestration prompt is built by agent-hub). Several personas also honour the per-project overrides in `.ai/agent-skills-overrides.md` — e.g. `planner` writes its plan where `## planning-and-task-breakdown` says, and reviewers validate against the project's `rules:` folders.
+Personas are the *who*, skills are the *how*. Each working persona carries a conditional hook to its primary skill: if `skills/<skill-name>/SKILL.md` exists in the repo it is working on, the persona reads it before starting and follows its process and output format. Install the matching skill alongside the persona to get the full structured workflow — without it, the persona still works on its built-in rules. The research personas and `bowser` deliberately carry no skill hook (recon must stay lean; the orchestration prompt is built by agent-hub). The single `orchestrator` is the exception: it references [`orchestration-verification`](skills/orchestration-verification/SKILL.md) for the acceptance-assertion, parity-inventory, and structured-return formats of the Verification Contract it enforces. Several personas also honour the per-project overrides in `.ai/agent-skills-overrides.md` — e.g. `planner` writes its plan where `## planning-and-task-breakdown` says, and reviewers validate against the project's `rules:` folders.
 
 ### Installing personas
 
@@ -323,7 +322,7 @@ agent-skills/
 │   ├── documentation-and-adrs/        #   Ship
 │   ├── shipping-and-launch/           #   Ship
 │   └── using-agent-skills/            #   Meta: how to use this pack
-├── agents/                            # 14 reusable agent personas
+├── agents/                            # 13 reusable agent personas
 ├── references/                        # 4 supplementary checklists
 ├── hooks/                             # Session lifecycle hooks
 ├── .claude/commands/                  # 8 Claude slash commands

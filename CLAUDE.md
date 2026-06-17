@@ -7,7 +7,7 @@ This is the agent-skills project — a collection of production-grade engineerin
 ```
 bin/          → npm CLI: cli.js (agent-skills entrypoint), lib/{doctor,detect-agent,transform-persona}.js, test/ (node --test), snapshot-version.js
 skills/       → Core skills (SKILL.md per directory)
-agents/       → 14 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code/opencode get generated copies; bowser + orchestrators are pi-only)
+agents/       → 13 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code/opencode get generated copies; bowser + orchestrator are pi-only)
 hooks/        → Session lifecycle hooks
 scripts/      → Standalone scripts (coms-net hub server for the coms-net pi extension)
 justfile      → Recipes to launch pi with each harness
