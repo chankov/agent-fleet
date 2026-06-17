@@ -3,6 +3,9 @@ name: releaser
 description: Release owner — cuts versions and ships; runs the changeset → version-bump → tag flow on request.
 color: #059669
 model: openai-codex/gpt-5.5
+models:
+  - ollama/glm-5.2:cloud
+  - ollama/nemotron-3-ultra:cloud
 thinking: low
 ---
 

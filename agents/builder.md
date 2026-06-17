@@ -6,6 +6,10 @@ model: openai-codex/gpt-5.5
 models:
   - openai-codex/gpt-5.4
   - openai-codex/gpt-5.3-codex-spark
+  - ollama/minimax-m3:cloud
+  - ollama/kimi-k2.7-code:cloud
+  - ollama/glm-5.2:cloud
+  - ollama/nemotron-3-ultra:cloud
 thinking: high
 delegate_depth: 1
 subagents:

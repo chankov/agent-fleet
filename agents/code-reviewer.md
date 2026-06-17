@@ -9,6 +9,10 @@ models:
   - openai-codex/gpt-5.3-codex-spark
   - github-copilot/claude-sonnet-4.6
   - github-copilot/claude-haiku-4.5
+  - ollama/nemotron-3-ultra:cloud
+  - ollama/kimi-k2.7-code:cloud
+  - ollama/glm-5.2:cloud
+  - ollama/minimax-m3:cloud
 thinking: high
 delegate_depth: 1
 subagents:

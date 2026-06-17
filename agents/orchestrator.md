@@ -3,6 +3,9 @@ name: orchestrator
 description: Verification-Contract orchestrator — plans, builds, and verifies in small slices, owns the acceptance assertions, and requires runtime proof before "done"; biased to correctness and reversibility, confirms before risky steps.
 kind: orchestrator
 model: openai-codex/gpt-5.5
+models:
+  - ollama/minimax-m3:cloud
+  - ollama/nemotron-3-ultra:cloud
 thinking: xhigh
 ---
 
