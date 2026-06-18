@@ -39,6 +39,12 @@ For an HTTP/SSE transport that works across hosts, use [`coms-net`](../coms-net/
 pi -e .pi/harnesses/coms/index.ts
 ```
 
+For a guarded coms node that also keeps every auto-discovered local extension (MCP bridges,
+project-specific extensions) and command, use the `just safe-coms <name>` recipe — it loads
+`damage-control` + `coms` *on top of* normal extension discovery (no `--no-extensions`), so the
+local-only tools stay scoped to that dispatcher process and never leak into the `--no-extensions`
+specialists an `agent-hub` session spawns.
+
 ## Upstream changes
 
 - Theme integration removed — the `themeMap.ts` import and the `applyExtensionDefaults()`

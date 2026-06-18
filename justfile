@@ -83,6 +83,18 @@ team-up-dry team="full":
 local-coms *args:
     pi -e .pi/harnesses/coms/index.ts {{args}}
 
+# Safe coms: a FULL pi (all auto-discovered local .pi/extensions/ + global extensions and
+# commands) plus damage-control guardrails and the coms peer layer, under a chosen name.
+# Unlike `just hub`, this does NOT pass --no-extensions, so every local-only extension (MCP
+# bridges like chrome-devtools-mcp, project-specific extensions, …) loads into THIS process.
+# Use it as the agent-hub dispatcher/orchestrator peer that needs those local tools: spawned
+# specialists run --no-extensions, so the tools stay scoped here and never leak into subagents.
+# The required `name` becomes this peer's coms identity (--name), so it is discoverable
+# under exactly that name to other coms peers in the project pool.
+# e.g. just safe-coms orchestrator
+safe-coms name *args:
+    pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/coms/index.ts --name {{name}} {{args}}
+
 # Start a local coms-net hub (binds 127.0.0.1, OS-assigned port)
 coms-net-server:
     -lsof -ti :${PI_COMS_NET_PORT:-52965} | xargs -r kill -TERM 2>/dev/null
