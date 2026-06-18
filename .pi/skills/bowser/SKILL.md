@@ -34,6 +34,13 @@ playwright-cli install-browser --with-deps   # include system dependencies
 
 Full install docs: <https://playwright.dev/agent-cli/installation>
 
+## When to use this vs Chrome DevTools MCP
+
+This skill (`playwright-cli`) and the `chrome-devtools-mcp` pi extension are **complementary**, not redundant — they differ by tool model, not just headless-vs-headful (both can do either):
+
+- **`bowser` / `playwright-cli` (this skill)** — CLI-driven, headless-first, parallel named sessions, token-efficient (no tool schemas in context). It needs only Bash, so it works as a **dispatched subagent** under `--no-extensions`. Use it for automated, parallel, or background runtime-UI evidence and scraping.
+- **`web-debugger` / `chrome-devtools-mcp`** — live `chrome_devtools__*` tools (DOM/console/network/performance traces) for **interactive headful** debugging with a human in the loop. Those tools come from an always-on extension, so they are reachable in the main session or a **coms peer**, not a `--no-extensions` subagent. Use it to *understand* a failure in a running dev app.
+
 ## Key Details
 
 - **Headless by default** — pass `--headed` to `open` to see the browser

@@ -10,6 +10,10 @@ After installing, pi exposes the full Chrome DevTools MCP toolset under the `chr
 
 This unlocks the workflow described in `skills/browser-testing-with-devtools/` for pi users.
 
+## When to use this vs `bowser`
+
+These tools are the **interactive** browser stack — a live headful Chrome with `chrome_devtools__*` DOM/console/network/performance tools, driven by the `web-debugger` persona (run it as a coms peer so the extension loads into its process — see `.pi/agents/peers.yaml`). For **automated, headless, parallel** browser work that can run as a dispatched `--no-extensions` subagent, use the `bowser` persona / `.pi/skills/bowser/` instead (it drives `playwright-cli` over Bash). They are complementary; the full decision lives in [docs/pi-extensions.md](../../../docs/pi-extensions.md#two-browser-stacks--when-to-use-which).
+
 ## Install
 
 Symlink both extensions from this repo into your project's `.pi/extensions/`:

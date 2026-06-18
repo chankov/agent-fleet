@@ -117,6 +117,27 @@ harnesses:
 
 ---
 
+## Two browser stacks — when to use which
+
+This repo ships **two** ways to drive a browser from a pi agent. They are complementary, not redundant — the axis that separates them is the **tool model** (and where they can run), not just headless-vs-headful, since both can do either:
+
+| | `bowser` / `playwright-cli` | `web-debugger` / `chrome-devtools-mcp` |
+|---|---|---|
+| Tool model | CLI over **Bash** (no tool schemas in context) | live `chrome_devtools__*` MCP tools |
+| Strength | headless, parallel named sessions, background automation, scraping, token-efficient | interactive headful debugging, live DOM/console/network, performance traces |
+| Where it runs | **dispatched subagent** (survives `--no-extensions`), peer, or main session | main session or **coms peer** (the extension must be loaded into the process) |
+| Persona | `bowser` | `web-debugger` |
+| Skill | `.pi/skills/bowser/` | `skills/browser-testing-with-devtools/` |
+
+**Policy:**
+
+- **Automated / CI / background / parallel runtime-UI evidence** → `bowser` (headless `playwright-cli`). This is what the `orchestrator` delegates as a subagent to close `runtime-ui` acceptance assertions.
+- **Interactive debugging of a running dev app** → `web-debugger` (headful `chrome-devtools-mcp`), reached as a coms peer or run on the main session.
+- **Manual visual inspection / login flows** → `web-debugger` headful, or attach to an existing Chrome.
+- **Always require runtime evidence** — snapshot + console + network before/after a critical interaction; a screenshot only for visual/layout confirmation.
+
+Why `web-debugger` is a coms peer and not a dispatchable subagent: its `chrome_devtools__*` tools come from the always-on `chrome-devtools-mcp` extension, and agent-hub spawns subagents with `--no-extensions`, so a dispatched child would not have those tools. A coms peer is its own pi process that loads the extension explicitly (via the `extensions:` field in `.pi/agents/peers.yaml`, routed through the `_peer-plus` recipe), and a long-lived peer maps naturally onto one persistent live browser. `bowser` has no such constraint because it only needs Bash + the `playwright-cli` binary on PATH.
+
 ## Environment variables
 
 The `justfile` sets `dotenv-load`, so a `.env` file at the repo root is auto-loaded
@@ -141,6 +162,10 @@ These ported files are runtime dependencies of the extensions above:
 - **`.pi/agents/`** — pi YAML configs only (`teams.yaml`, `peers.yaml`).
   The earlier `reviewer` and `red-team` personas were folded into `code-reviewer` and
   `security-auditor`; the remaining team/peer configs already reference the canonical names.
+  A peer entry may carry an optional `extensions:` field (comma-separated names under
+  `.pi/extensions/`) — `team-up` then routes it through the `_peer-plus` recipe so those
+  extensions load into the peer process. The `web-debugger` peer uses this to get
+  `chrome-devtools-mcp`'s `chrome_devtools__*` tools (see the two-browser-stacks section above).
 - **`.pi/damage-control-rules.yaml`** — the destructive-command / protected-path rule set
   for `damage-control`.
 - **`.pi/skills/bowser/`** — a pi-runtime skill for headless Playwright browser
