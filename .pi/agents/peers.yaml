@@ -15,10 +15,6 @@
 #             tools a --no-extensions subagent could not get.
 
 full:
-  - name: browser
-    persona: bowser
-    model: openai-codex/gpt-5.3-codex-spark
-  - name: web-debugger
     persona: web-debugger
     model: openai-codex/gpt-5.5
     extensions: chrome-devtools-mcp
@@ -30,9 +26,6 @@ full:
     model: openai-codex/gpt-5.3-codex-spark   
 
 web:
-  - name: browser
-    persona: bowser
-    model: openai-codex/gpt-5.3-codex-spark
   - name: web-debugger
     persona: web-debugger
     model: openai-codex/gpt-5.5

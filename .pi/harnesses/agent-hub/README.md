@@ -134,7 +134,9 @@ another main agent** and **use a coms peer as a subagent**.
   files and exchange messages over a unix socket (named pipe on Windows).
 
 Inherited `/zoom` behavior in this harness expands the latest event by default. Use `Space` or
-`Ctrl+C` to copy the selected row content, and `Esc` to close the overlay.
+`Ctrl+C` to copy the selected row content, and `Q` or `Esc` to close the overlay. The overlay sizes
+to the terminal and keeps the selected (and last) entry fully visible while you navigate with
+`↑/↓`.
 
 Press **`Alt+A`** to toggle the agent view between the full **dashboard** (bordered card grid drawn
 *above* the input box) and a **compact** view that shows one line per *running* agent —
@@ -142,6 +144,20 @@ Press **`Alt+A`** to toggle the agent view between the full **dashboard** (borde
 done agents are hidden in compact mode, and the coms pool widget collapses too, so an idle session
 collapses to just the prompt and footer. The current mode and binding are shown in the footer
 (`Alt+A view:dashboard` / `Alt+A view:compact`).
+
+### Compact-view agent switcher
+
+In **compact view**, the running-subagents list below the input doubles as a switcher. **`Alt+]`**
+and **`Alt+[`** move a marker (`›` + highlight) to the next/previous running subagent; **`Alt+\`**
+opens the read-only `/zoom` overlay on the marked one (`Q`/`Esc` to close). This only changes what
+you *view* — **the input box always prompts the main session**, and `main` is never a marker target
+(it is the session under the input, not a subagent). There is no transcript takeover: a subagent's
+stream is surfaced through the modal zoom overlay, never by replacing the main scrollback. The keys
+are inert in dashboard mode (use `/zoom <name>` there).
+
+> Terminal note: `Alt+[` emits `ESC [` (a CSI prefix) and may be swallowed by some terminals'
+> escape parsers; `Alt+]` and `Alt+\` are the reliable pair. `Alt+↑/↓/←/→` are reserved by the pi
+> editor, which is why the switcher uses the bracket/backslash keys.
 
 ## Configuration
 

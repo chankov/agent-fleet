@@ -39,6 +39,12 @@
  *   Alt+A                 — toggle agent view: dashboard grid (above editor) ↔
  *                           compact running-agents list (below editor: one line
  *                           per *running* agent — name · context · state)
+ *   Alt+] / Alt+[         — compact view: mark next/previous running subagent
+ *   Alt+\                 — compact view: zoom the marked subagent (Q/Esc closes)
+ *
+ * Note: the marker/zoom only affect what you *view* — typing always prompts the
+ * main session (there is no transcript takeover; zoom is a modal overlay). main
+ * is never a marker target.
  *
  * Identity flags (coms): --name --purpose --project --color --explicit
  *
@@ -633,7 +639,7 @@ class ZoomUI {
 			if (this.followTail && this.selectedIndex >= n - 1) this.autoExpandedTailIndex = this.selectedIndex;
 		} else if (matchesKey(data, Key.space) || matchesKey(data, Key.ctrl("c"))) {
 			void this.copySelected();
-		} else if (matchesKey(data, Key.escape)) {
+		} else if (matchesKey(data, Key.escape) || matchesKey(data, "q") || matchesKey(data, Key.shift("q"))) {
 			this.onDone();
 			return;
 		}
@@ -652,13 +658,54 @@ class ZoomUI {
 		}
 	}
 
-	private ensureVisible(height: number) {
-		const pageSize = Math.max(1, Math.floor(height / 3));
-		if (this.selectedIndex < this.scrollOffset) {
-			this.scrollOffset = this.selectedIndex;
-		} else if (this.selectedIndex >= this.scrollOffset + pageSize) {
-			this.scrollOffset = this.selectedIndex - pageSize + 1;
+	// Render one timeline entry (card + trailing spacer) to its exact lines, so the
+	// scroll math and viewport capping can use real heights — an expanded markdown
+	// entry is many lines, a collapsed one is two. Mirrors the old inline card build.
+	private renderItemBlock(item: TimelineEntry, absoluteIndex: number, width: number, theme: any, mdTheme: any): string[] {
+		const isSelected = absoluteIndex === this.selectedIndex;
+		const isExpanded = isSelected && absoluteIndex === this.expandedIndex;
+
+		const cardBox = new Box(1, 0, (s: string) => isSelected ? theme.bg("selectedBg", s) : s);
+
+		let icon = "○", color = "dim";
+		if (item.kind === "text") { icon = "🤖"; color = "accent"; }
+		else if (item.kind === "tool") { icon = "🛠️"; color = "warning"; }
+		else if (item.kind === "thinking") { icon = "💭"; color = "dim"; }
+
+		cardBox.addChild(new Text(`${theme.fg(color, icon)} ${theme.bold(item.title)}`, 0, 0));
+
+		if (isExpanded) {
+			cardBox.addChild(new Spacer(1));
+			cardBox.addChild(new Markdown(item.content || "(empty)", 2, 0, mdTheme));
+		} else {
+			const flat = (item.content || "").replace(/\s+/g, " ").trim();
+			const preview = truncateToWidth(flat, Math.max(0, width - 8));
+			cardBox.addChild(new Text(theme.fg("dim", "  " + (preview || "…")), 0, 0));
 		}
+
+		const block = new Container();
+		block.addChild(cardBox);
+		block.addChild(new Spacer(1));
+		return block.render(width);
+	}
+
+	// Height-aware scroll: scroll the viewport so the selected entry's FULL height
+	// fits in the content budget. Entries above the selection may be tall (expanded
+	// markdown), so a per-entry-is-one-line assumption clipped the last/expanded
+	// entry below the fold — this counts real line heights instead.
+	private ensureVisible(heights: number[], contentHeight: number) {
+		if (this.selectedIndex < this.scrollOffset) this.scrollOffset = this.selectedIndex;
+		const sumToSelected = (from: number): number => {
+			let s = 0;
+			for (let i = from; i <= this.selectedIndex; i++) s += heights[i] ?? 0;
+			return s;
+		};
+		// Push the top of the window down until the selected entry fits (or it is
+		// the only entry shown, in which case the overlay clips a too-tall entry).
+		while (this.scrollOffset < this.selectedIndex && sumToSelected(this.scrollOffset) > contentHeight) {
+			this.scrollOffset++;
+		}
+		if (this.scrollOffset < 0) this.scrollOffset = 0;
 	}
 
 	render(width: number, height: number, theme: any): string[] {
@@ -674,57 +721,47 @@ class ZoomUI {
 			}
 		}
 		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, items.length - 1));
-		this.ensureVisible(height);
 
-		const container = new Container();
 		const mdTheme = getPiMdTheme();
 		const st = this.state.status;
 		const statusColor = st === "error" ? "error" : st === "running" ? "warning" : "success";
 
-		container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-		container.addChild(new Text(
+		// Chrome (border + header + footer) is rendered separately from the body so
+		// the body can be windowed to an exact line budget — header and footer always
+		// stay visible no matter how tall the expanded entries are.
+		const top = new Container();
+		top.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+		top.addChild(new Text(
 			`${theme.fg("accent", theme.bold(" ZOOM"))} ${theme.fg("dim", "|")} ${theme.bold(displayName(this.state.def.name))} ${theme.fg("dim", "|")} ${theme.fg(statusColor, st)} ${theme.fg("dim", "|")} ${theme.fg("success", String(items.length))} events`,
 			1, 0,
 		));
-		container.addChild(new Spacer(1));
+		top.addChild(new Spacer(1));
+		const topLines = top.render(width);
 
+		const bottom = new Container();
+		bottom.addChild(new Text(theme.fg("dim", " ↑/↓ Navigate • Enter Collapse/Expand • Space/Ctrl+C Copy • Q/Esc Close • live"), 1, 0));
+		bottom.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+		const bottomLines = bottom.render(width);
+
+		const contentHeight = Math.max(3, height - topLines.length - bottomLines.length);
+
+		let bodyLines: string[];
 		if (items.length === 0) {
-			container.addChild(new Text(theme.fg("dim", "  No activity captured yet."), 1, 0));
+			bodyLines = [theme.fg("dim", "  No activity captured yet.")];
+		} else {
+			const blocks = items.map((item, i) => this.renderItemBlock(item, i, width, theme, mdTheme));
+			const heights = blocks.map(b => b.length);
+			this.ensureVisible(heights, contentHeight);
+			bodyLines = [];
+			for (let i = this.scrollOffset; i < blocks.length; i++) {
+				// Always show the first windowed entry (the selected one fits by
+				// construction); stop before a later entry would overflow the budget.
+				if (bodyLines.length > 0 && bodyLines.length + heights[i] > contentHeight) break;
+				bodyLines.push(...blocks[i]);
+			}
 		}
 
-		const visibleItems = items.slice(this.scrollOffset);
-		visibleItems.forEach((item, idx) => {
-			const absoluteIndex = idx + this.scrollOffset;
-			const isSelected = absoluteIndex === this.selectedIndex;
-			const isExpanded = isSelected && absoluteIndex === this.expandedIndex;
-
-			const cardBox = new Box(1, 0, (s: string) => isSelected ? theme.bg("selectedBg", s) : s);
-
-			let icon = "○", color = "dim";
-			if (item.kind === "text") { icon = "🤖"; color = "accent"; }
-			else if (item.kind === "tool") { icon = "🛠️"; color = "warning"; }
-			else if (item.kind === "thinking") { icon = "💭"; color = "dim"; }
-
-			cardBox.addChild(new Text(`${theme.fg(color, icon)} ${theme.bold(item.title)}`, 0, 0));
-
-			if (isExpanded) {
-				cardBox.addChild(new Spacer(1));
-				cardBox.addChild(new Markdown(item.content || "(empty)", 2, 0, mdTheme));
-			} else {
-				const flat = (item.content || "").replace(/\s+/g, " ").trim();
-				const preview = truncateToWidth(flat, Math.max(0, width - 8));
-				cardBox.addChild(new Text(theme.fg("dim", "  " + (preview || "…")), 0, 0));
-			}
-
-			container.addChild(cardBox);
-			if (visibleItems.length < 15) container.addChild(new Spacer(1));
-		});
-
-		container.addChild(new Spacer(1));
-		container.addChild(new Text(theme.fg("dim", " ↑/↓ Navigate • Enter Collapse/Expand • Space/Ctrl+C Copy • Esc Close • live"), 1, 0));
-		container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-
-		return container.render(width);
+		return [...topLines, ...bodyLines, ...bottomLines];
 	}
 }
 
@@ -1354,6 +1391,11 @@ export default function (pi: ExtensionAPI) {
 	// rendered BELOW the editor, just above the footer. Idle/done agents are hidden
 	// in compact mode, so an idle session shows nothing but the prompt + footer.
 	let viewMode: "dashboard" | "compact" = "dashboard";
+	// Compact-view agent switcher: the key of the marked subagent (lowercase persona
+	// name for team specialists, `rN` for research helpers — matching /zoom
+	// resolution), or null when nothing is marked. main is never listed (it is the
+	// session under the input box). Alt+]/Alt+[ move it; Alt+\ zooms it.
+	let markedAgent: string | null = null;
 	let runningWidgetInstalled = false;
 	let widgetCtx: any;
 	let sessionDir = "";
@@ -1657,16 +1699,23 @@ export default function (pi: ExtensionAPI) {
 		nameWidth: number,
 		width: number,
 		theme: any,
+		marked = false,
 	): string {
 		const vis = visibleWidth(nameRaw);
 		const name = vis >= nameWidth ? nameRaw : nameRaw + " ".repeat(nameWidth - vis);
 		const ctx = contextLabel(contextPct).padStart(4);
-		const line = " "
+		// The marked row (compact-view switcher) gets a `›` lead + a full-width
+		// selectedBg highlight, mirroring ZoomUI's selected-row treatment.
+		const lead = marked ? theme.fg("accent", "›") : " ";
+		const line = lead
 			+ theme.fg("accent", theme.bold(name))
 			+ "  " + theme.fg("dim", ctx)
 			+ (model ? "  " + theme.fg("dim", model) : "")
 			+ "  " + theme.fg(status.color, status.text);
-		return truncateToWidth(line, width);
+		const truncated = truncateToWidth(line, width);
+		if (!marked) return truncated;
+		const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
+		return theme.bg("selectedBg", truncated + pad);
 	}
 
 	// One nested row per delegate child: "├ quality-1  sonnet-4.6 3.4k ● running 12s".
@@ -1885,6 +1934,43 @@ export default function (pi: ExtensionAPI) {
 	// live state + viewMode each time. In dashboard mode it renders nothing. In
 	// compact mode it lists only *running* team specialists and research helpers,
 	// one line each — idle/done agents are omitted.
+	// Ordered list of switchable subagents for the compact-view marker: running team
+	// specialists then running research helpers. main is the session under the input
+	// box, so it is never listed. Each entry's `key` matches /zoom resolution
+	// (lowercase persona name for team, `rN` for research), so Alt+\ can resolve it.
+	function switchableAgents(): { key: string; name: string; ctx: number; model: string; status: { color: string; text: string } }[] {
+		return [
+			...Array.from(agentStates.values())
+				.filter(a => a.status === "running")
+				.map(a => ({
+					key: a.def.name.toLowerCase(),
+					name: displayName(a.def.name),
+					ctx: a.contextPct,
+					model: modelWithThinking(a.def),
+					status: cardStatus(a.status, a.elapsed),
+				})),
+			...Array.from(researchStates.values())
+				.filter(s => s.status === "running")
+				.map(s => ({
+					key: `r${s.id}`,
+					name: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"}`,
+					ctx: s.contextPct,
+					model: shortModel(s.model) + thinkingSuffix(resolvedThinking(s.def)),
+					status: cardStatus(s.status, s.elapsed),
+				})),
+		];
+	}
+
+	// Keep markedAgent pointing at a still-running entry: if the marked one is gone
+	// (finished/killed), clamp to the nearest surviving entry, or null when empty.
+	// Called from the cycle shortcuts and before a zoom.
+	function clampMarker() {
+		const keys = switchableAgents().map(a => a.key);
+		if (keys.length === 0) { markedAgent = null; return; }
+		if (markedAgent && keys.includes(markedAgent)) return;
+		markedAgent = keys[0];
+	}
+
 	function installRunningWidget() {
 		if (!widgetCtx || runningWidgetInstalled) return;
 		runningWidgetInstalled = true;
@@ -1892,27 +1978,10 @@ export default function (pi: ExtensionAPI) {
 			invalidate() {},
 			render(width: number): string[] {
 				if (viewMode !== "compact") return [];
-				const running: { name: string; ctx: number; model: string; status: { color: string; text: string } }[] = [
-					...Array.from(agentStates.values())
-						.filter(a => a.status === "running")
-						.map(a => ({
-							name: displayName(a.def.name),
-							ctx: a.contextPct,
-							model: modelWithThinking(a.def),
-							status: cardStatus(a.status, a.elapsed),
-						})),
-					...Array.from(researchStates.values())
-						.filter(s => s.status === "running")
-						.map(s => ({
-							name: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"}`,
-							ctx: s.contextPct,
-							model: shortModel(s.model) + thinkingSuffix(resolvedThinking(s.def)),
-							status: cardStatus(s.status, s.elapsed),
-						})),
-				];
+				const running = switchableAgents();
 				if (running.length === 0) return [];
 				const nameWidth = Math.min(24, Math.max(...running.map(r => visibleWidth(r.name))));
-				return running.map(r => renderCompactLine(r.name, r.ctx, r.model, r.status, nameWidth, width, theme));
+				return running.map(r => renderCompactLine(r.name, r.ctx, r.model, r.status, nameWidth, width, theme, r.key === markedAgent));
 			},
 		}), { placement: "belowEditor" });
 	}
@@ -3909,6 +3978,64 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		},
 	});
 
+	// Compact-view agent switcher. Alt+] / Alt+[ move the marker through the running
+	// subagents; Alt+\ zooms the marked one (same overlay as /zoom). main is never a
+	// target — it is the session under the input, which always takes typed prompts.
+	// Keys verified free of pi's reserved editor bindings (keybindings.d.ts): alt+up/
+	// down/left/right and ctrl+] / ctrl+alt+] are reserved, but alt+[ / alt+] / alt+\
+	// are not. Caveat: alt+[ emits `ESC [` (CSI prefix) on some terminals and may be
+	// eaten by the escape parser — alt+] and alt+\ are the reliable pair.
+	function cycleMarker(delta: number, ctx: any) {
+		widgetCtx = ctx;
+		if (viewMode !== "compact") {
+			ctx.ui.notify("Agent switching is a compact-view feature — press Alt+A first", "info");
+			return;
+		}
+		const keys = switchableAgents().map(a => a.key);
+		if (keys.length === 0) {
+			ctx.ui.notify("No running subagents to switch between", "info");
+			return;
+		}
+		const cur = markedAgent ? keys.indexOf(markedAgent) : -1;
+		markedAgent = cur === -1
+			? (delta > 0 ? keys[0] : keys[keys.length - 1])
+			: keys[(cur + delta + keys.length) % keys.length];
+		updateWidget();
+	}
+
+	pi.registerShortcut("alt+]", {
+		description: "Compact view: mark next subagent",
+		handler: (ctx) => cycleMarker(1, ctx),
+	});
+	pi.registerShortcut("alt+[", {
+		description: "Compact view: mark previous subagent",
+		handler: (ctx) => cycleMarker(-1, ctx),
+	});
+	pi.registerShortcut("alt+\\", {
+		description: "Compact view: zoom the marked subagent",
+		handler: async (ctx) => {
+			widgetCtx = ctx;
+			if (viewMode !== "compact") {
+				ctx.ui.notify("Agent zoom from the marker is a compact-view feature — press Alt+A first", "info");
+				return;
+			}
+			clampMarker();
+			if (!markedAgent) {
+				ctx.ui.notify("No running subagent marked to zoom", "info");
+				return;
+			}
+			const rid = parseResearchHandle(markedAgent);
+			const target: Zoomable | undefined = rid != null
+				? researchStates.get(rid)
+				: agentStates.get(markedAgent);
+			if (!target) {
+				ctx.ui.notify(`Marked agent ${markedAgent} is no longer available`, "warning");
+				return;
+			}
+			await openZoom(target, ctx);
+		},
+	});
+
 	// Completions over loaded agent names, annotated with current status.
 	const agentNameCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = Array.from(agentStates.values()).map(s => ({
@@ -3953,6 +4080,35 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		return filtered.length > 0 ? filtered : items;
 	};
 
+	// Open the read-only zoom overlay over a live timeline. Shared by /zoom and the
+	// compact-view Alt+\ switcher. While open, `target.zoomRender` lets the stream
+	// parser refresh it on new events (throttled to ~12fps; force=true pushes the
+	// final frame on completion).
+	async function openZoom(target: Zoomable, ctx: any): Promise<void> {
+		let lastRender = 0;
+		await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
+			const ui = new ZoomUI(target, () => done(undefined), (message, type) => ctx.ui.notify(message, type as any));
+			target.zoomRender = (force?: boolean) => {
+				const now = Date.now();
+				if (force || now - lastRender > 80) {
+					lastRender = now;
+					tui.requestRender();
+				}
+			};
+			return {
+				// Pass the real terminal height (not a hard-coded 30) so the
+				// height-aware scroll keeps the selected/last entry fully visible.
+				render: (w: number) => ui.render(w, Math.max(10, Math.floor(((tui.terminal?.rows ?? 36) * 0.85))), theme),
+				handleInput: (data: string) => ui.handleInput(data, tui),
+				invalidate: () => {},
+			};
+		}, {
+			overlay: true,
+			overlayOptions: { width: "80%", anchor: "center", maxHeight: "90%" },
+		});
+		target.zoomRender = undefined;
+	}
+
 	pi.registerCommand("zoom", {
 		description: "Scrollable read-only view of an agent's stream: /zoom <name|rN>",
 		getArgumentCompletions: zoomCompletions,
@@ -3977,29 +4133,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 				ctx.ui.notify(`Usage: /zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
 				return;
 			}
-			// Open a read-only overlay over the live timeline. While it's open,
-			// `target.zoomRender` lets the stream parser refresh it on new events
-			// (throttled to ~12fps; force=true pushes the final frame on completion).
-			let lastRender = 0;
-			await ctx.ui.custom((tui, theme, _kb, done) => {
-				const ui = new ZoomUI(target, () => done(undefined), (message, type) => ctx.ui.notify(message, type as any));
-				target.zoomRender = (force?: boolean) => {
-					const now = Date.now();
-					if (force || now - lastRender > 80) {
-						lastRender = now;
-						tui.requestRender();
-					}
-				};
-				return {
-					render: (w: number) => ui.render(w, 30, theme),
-					handleInput: (data: string) => ui.handleInput(data, tui),
-					invalidate: () => {},
-				};
-			}, {
-				overlay: true,
-				overlayOptions: { width: "80%", anchor: "center" },
-			});
-			target.zoomRender = undefined;
+			await openZoom(target, ctx);
 		},
 	});
 
