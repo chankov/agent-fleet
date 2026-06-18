@@ -34,7 +34,7 @@ function bodyOf(content) {
 
 // ── availability matrix ─────────────────────────────────────────────────────
 
-test("matrix: pi lists every persona, others exclude the pi-only pair", () => {
+test("matrix: pi lists every persona, others exclude the pi-only set", () => {
   const pi = listPersonas(sourceRoot, { agent: "pi" }).map((p) => p.name);
   assert.deepEqual(pi.sort(), [...allPersonaNames].sort());
 

@@ -216,6 +216,7 @@ This skill is the single canonical source for the four Verification-Contract art
 | [researcher](agents/researcher.md) | Fast read-only recon — reports findings with file:line citations | read-only | — | all |
 | [deep-researcher](agents/deep-researcher.md) | Deep recon for hard, cross-cutting questions | read-only | — | all |
 | [bowser](agents/bowser.md) | Headless browser automation via Playwright CLI | rw | — | pi only |
+| [web-debugger](agents/web-debugger.md) | Interactive headful Chrome debugging via Chrome DevTools MCP (coms peer) | rw | [browser-testing-with-devtools](skills/browser-testing-with-devtools/SKILL.md) | pi only |
 | [orchestrator](agents/orchestrator.md) | Verification-Contract agent-hub dispatcher — owns acceptance assertions, parity inventory, runtime-proof gate | — | [orchestration-verification](skills/orchestration-verification/SKILL.md) | pi only |
 
 ### How personas connect to skills

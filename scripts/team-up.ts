@@ -25,12 +25,15 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
 
 // Safe charset for any value spliced into a shell command line.
-const SAFE = /^[A-Za-z0-9._/-]+$/;
+const SAFE = /^[A-Za-z0-9._/,-]+$/;
 
 interface Peer {
 	name?: string;
 	persona?: string;
 	model?: string;
+	// Optional comma-separated extension names under .pi/extensions/ to load into
+	// this peer (routes it through `just _peer-plus` instead of `just _peer`).
+	extensions?: string;
 }
 
 function stripQuotes(v: string): string {
@@ -142,7 +145,11 @@ function main(): void {
 				process.exit(1);
 			}
 		}
-		const parts = ["just", "_peer", p.persona, p.name];
+		// A peer that needs extra extensions (e.g. chrome-devtools-mcp) routes through
+		// `_peer-plus <extensions> <persona> <name> [<model>]`; otherwise plain `_peer`.
+		const parts = p.extensions
+			? ["just", "_peer-plus", p.extensions, p.persona, p.name]
+			: ["just", "_peer", p.persona, p.name];
 		if (p.model) parts.push(p.model);
 		cmds.push({ label: p.name, cmd: parts.join(" ") });
 	}

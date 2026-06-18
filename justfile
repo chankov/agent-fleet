@@ -61,6 +61,12 @@ hub-solo *args:
 _peer persona name="" model="":
     persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }}
 
+# Like _peer, but also loads extra always-on extensions (comma-separated names under
+# .pi/extensions/) into the peer process — e.g. a chrome-devtools-mcp browser-debug peer
+# whose `chrome_devtools__*` tools a normal --no-extensions subagent could not get.
+_peer-plus extensions persona name="" model="":
+    persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts $extra --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }}
+
 # Team up: spawn every peer of a team from .pi/agents/peers.yaml into tmux panes.
 # Positional arg: team (defaults to "full"). e.g. just team-up full
 team-up team="full":

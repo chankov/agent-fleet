@@ -9,14 +9,39 @@
 #             frontmatter `description`/`color` become the coms purpose/color
 #   model   — optional pi --model spec (e.g. anthropic/claude-opus-4-7); omit to
 #             inherit pi's default model
+#   extensions — optional comma-separated extension names under .pi/extensions/ to
+#             load into this peer (routes it through `_peer-plus`). Use for a
+#             chrome-devtools-mcp browser-debug peer whose `chrome_devtools__*`
+#             tools a --no-extensions subagent could not get.
 
 full:
-  - name: architect
-    persona: architect
-    model: anthropic/claude-opus-4-7
-  - name: releaser
-    persona: releaser
+  - name: browser
+    persona: bowser
+    model: openai-codex/gpt-5.3-codex-spark
+  - name: web-debugger
+    persona: web-debugger
+    model: openai-codex/gpt-5.5
+    extensions: chrome-devtools-mcp
+  - name: documenter
+    persona: documenter
+    model: openai-codex/gpt-5.3-codex-spark    
+  - name: researcher
+    persona: researcher
+    model: openai-codex/gpt-5.3-codex-spark   
 
-ship:
-  - name: releaser
-    persona: releaser
+web:
+  - name: browser
+    persona: bowser
+    model: openai-codex/gpt-5.3-codex-spark
+  - name: web-debugger
+    persona: web-debugger
+    model: openai-codex/gpt-5.5
+    extensions: chrome-devtools-mcp
+
+docs:
+  - name: documenter
+    persona: documenter
+    model: openai-codex/gpt-5.3-codex-spark    
+  - name: researcher
+    persona: researcher
+    model: openai-codex/gpt-5.3-codex-spark    

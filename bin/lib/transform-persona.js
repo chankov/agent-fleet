@@ -21,11 +21,13 @@ import { join } from "node:path";
 export const TRANSFORM_AGENTS = ["claude-code", "opencode", "pi"];
 
 // Personas coupled to the pi runtime: `bowser` depends on the pi runtime
-// skill `bowser` (which drives the external `playwright-cli` tool); the
+// skill `bowser` (which drives the external `playwright-cli` tool);
+// `web-debugger` depends on the always-on `chrome-devtools-mcp` extension's
+// `chrome_devtools__*` tools (loaded into its coms-peer process); the
 // `orchestrator` is the flavor-only agent-hub
 // dispatcher persona — agent-hub builds the orchestration prompt itself,
 // so standalone it is an empty shell.
-export const PI_ONLY_PERSONAS = ["bowser", "orchestrator"];
+export const PI_ONLY_PERSONAS = ["bowser", "web-debugger", "orchestrator"];
 
 // pi tool name → Claude Code tool name. `find`/`ls` both collapse into Glob.
 const CLAUDE_TOOL_MAP = {
