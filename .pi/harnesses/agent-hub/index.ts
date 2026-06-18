@@ -5352,7 +5352,12 @@ ${researchCatalog}`;
 					theme.fg("muted", " · ") +
 					theme.fg("accent", activeTeamName);
 				const hint = theme.fg("muted", "Alt+A ") + theme.fg("dim", `view:${viewMode}`);
-				const right = hint +
+				// The btw extension flips this global the first time a /btw command or
+				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.
+				const btwHint = (globalThis as { __btwActivated?: boolean }).__btwActivated
+					? theme.fg("muted", "  ·  Alt+' ") + theme.fg("dim", "btw")
+					: "";
+				const right = hint + btwHint +
 					theme.fg("muted", "  ·  ") +
 					theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
 				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));

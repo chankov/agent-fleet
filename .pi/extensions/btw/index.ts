@@ -9,7 +9,7 @@
  *
  * Design constraints (all intentional — see .pi/extensions/btw/README.md):
  *   - Command-only surface. No model-callable tool, no subcommands. `/btw <task>`
- *     starts a task and opens the modal; `/btw` (no args) or `Alt+Shift+B` reopens it.
+ *     starts a task and opens the modal; `/btw` (no args) or `Alt+'` reopens it.
  *   - In-process sub-session, NOT a child `pi` process. The fork is a real
  *     `AgentSession` with fixed built-in tools and NO extensions/custom tools (the
  *     sub-session loads no extension runtime → no recursion, mirroring the old
@@ -155,6 +155,14 @@ export default function btwExtension(pi: ExtensionAPI) {
 	let currentModal: CurrentModalHandle | undefined;
 	// Set on session_shutdown so abort()-driven prompt rejections don't push cards.
 	let shuttingDown = false;
+
+	// Cross-extension signal: once any btw command/shortcut has run this session, the
+	// agent-hub harness footer surfaces the "Alt+' btw" hint next to its "Alt+A view:"
+	// hint. A bare globalThis flag is the pragmatic bridge between two independent
+	// always-on extensions (no shared module). Harmless when agent-hub isn't loaded.
+	function markBtwActivated(): void {
+		(globalThis as { __btwActivated?: boolean }).__btwActivated = true;
+	}
 
 	function sessionsDir(ctx: ExtensionContext): string {
 		return join(ctx.cwd, ".pi", "btw-sessions");
@@ -807,6 +815,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 		description: "Start a side task in a live modal (full session context), or reopen the modal. Usage: /btw [task]",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			latestCtx = ctx;
+			markBtwActivated();
 			const note = args.trim();
 			if (!note) {
 				if (threads.size > 0) {
@@ -820,11 +829,14 @@ export default function btwExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// Alt+Shift+B, not Alt+B: pi reserves alt+b for the editor's cursor-word-left.
-	pi.registerShortcut("alt+shift+b", {
+	// Alt+' reopens the modal. Chosen at the operator's request: unlike Alt+B (pi's
+	// editor cursor-word-left) it doesn't collide with a composer motion. Was
+	// Alt+Shift+B → Alt+B → Alt+' — pick another binding here if your terminal eats it.
+	pi.registerShortcut("alt+'", {
 		description: "Open the btw side-task modal",
 		handler: async (ctx) => {
 			latestCtx = ctx;
+			markBtwActivated();
 			if (threads.size === 0) {
 				ctx.ui.notify("No btw side tasks yet — /btw <task> to start one.", "info");
 				return;

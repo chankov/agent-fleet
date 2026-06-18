@@ -25,7 +25,7 @@ conventions. Runtime design specs for the imported harnesses live in `docs/pi-sp
 `.pi/extensions/` ships always-on **utility** extensions — `mcp-bridge`,
 `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check`, and `btw`. pi
 auto-discovers that directory, so they layer onto every session. `btw` adds a
-`/btw <task>` prompt command (plus an `Alt+Shift+B` shortcut) that forks the current session
+`/btw <task>` prompt command (plus an `Alt+'` shortcut) that forks the current session
 into an in-process sub-session and opens a live modal over it — full context, same
 cwd, follow-up composer, with a compact result card landing in the main transcript at
 idle. See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).

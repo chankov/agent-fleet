@@ -1,6 +1,6 @@
 # btw
 
-A pi extension that adds a single prompt command, `/btw`, plus an `Alt+Shift+B`
+A pi extension that adds a single prompt command, `/btw`, plus an `Alt+'`
 shortcut, for spinning off a **side task** that inherits the full context of the
 current session and streams into a live modal — modeled on Claude Code's `/btw`.
 
@@ -30,21 +30,26 @@ opens a modal over it:
 
 - **`/btw <task>`** — start a side task and open its modal.
 - **`/btw`** (no args) — reopen the modal on the last-viewed (or most recent) thread.
-- **`Alt+Shift+B`** — reopen the modal. (Plain `Alt+B` is reserved by pi for the
-  editor's cursor-word-left.)
+- **`Alt+'`** — reopen the modal. (Chosen because it doesn't collide with a pi
+  composer motion the way `Alt+B` does — that's the editor's cursor-word-left. Pick
+  another binding in `index.ts` if your terminal swallows `Alt+'`.)
+
+Once any `/btw` command or `Alt+'` has run in a session, the **agent-hub** harness
+footer surfaces an `Alt+' btw` hint next to its `Alt+A view:` hint (via a
+`globalThis.__btwActivated` flag).
 
 ### Modal keys
 
 - **Type + Enter** — send a follow-up. Mid-run it *steers* the active turn; when the
   task is idle it starts a fresh turn.
 - **Esc** — hide the modal. The task keeps running; you are returned to the main
-  session. Reopen with `Alt+Shift+B` or `/btw`.
+  session. Reopen with `Alt+'` or `/btw`.
 - **↑ / ↓** — scroll the transcript (the selected entry expands; tail-follows the
   newest until you scroll up).
 - **← / →** — switch between concurrent threads (when more than one is running).
 - **Ctrl+C** — copy the selected transcript entry.
 
-`/btw` and `Alt+Shift+B` are the entire surface — no model-callable tool, no subcommands.
+`/btw` and `Alt+'` are the entire surface — no model-callable tool, no subcommands.
 The agent cannot trigger it; only you can.
 
 ## Design constraints (intentional)
