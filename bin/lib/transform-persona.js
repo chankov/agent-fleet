@@ -21,7 +21,8 @@ import { join } from "node:path";
 export const TRANSFORM_AGENTS = ["claude-code", "opencode", "pi"];
 
 // Personas coupled to the pi runtime: `bowser` depends on the pi runtime
-// skill `playwright-bowser`; the `orchestrator` is the flavor-only agent-hub
+// skill `bowser` (which drives the external `playwright-cli` tool); the
+// `orchestrator` is the flavor-only agent-hub
 // dispatcher persona — agent-hub builds the orchestration prompt itself,
 // so standalone it is an empty shell.
 export const PI_ONLY_PERSONAS = ["bowser", "orchestrator"];

@@ -229,6 +229,8 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
 5. **pi extensions & runtime skills** *(pi only; `Group` column = `extension` / `runtime-skill`)* — always-on once installed:
    - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check` ★, `btw`
    - *runtime-skill* — `bowser`
+
+   **`bowser` external CLI dependency.** The `bowser` runtime-skill drives the external **Playwright Agent CLI** (`playwright-cli`), which is **not** an agent-skills artifact and is not copied from this repo (same idea as the `pi-ask-user` external package). Whenever `bowser` is ticked (installed or kept), check whether `playwright-cli` is on `PATH` (`playwright-cli --help`, or `npx playwright-cli --help`). If it is missing, tell the user and offer the install — `npm install -g @playwright/cli@latest` (global) or note the `npx playwright-cli` ad-hoc fallback — then surface it in the Step 9 plan as an external dependency, not a file write. Record it under the same `external-pi-packages` / `project-packages` convention in `.ai/agent-skills-setup.md` so re-runs re-verify it. Do not silently install a global package without the user's confirmation, and never block the `bowser` install on it — a missing CLI is a warning, not a hard stop. Install reference: <https://playwright.dev/agent-cli/installation>.
 6. **pi harnesses** *(pi only; `Group` column = harness category — install many, load through the explicit recipes; `just hub` stacks `damage-control` before `agent-hub`)* — one screen for all harnesses:
    - *orchestration* — `agent-hub`
    - *safety* — `damage-control`
@@ -418,6 +420,7 @@ Close the report with one line explaining the installer-cleanup outcome:
 - A re-run that ignores the existing `## install-status` and reinstalls everything.
 - A `pi` workspace using `agent-hub` reached Step 7 without being offered the legacy `## agent-team` / `language: <value>` override, or an existing language value was overwritten instead of preserved.
 - `agent-hub` installed or kept without `damage-control` — the mandatory pairing was skipped, or an untick of `damage-control` was accepted while `agent-hub` stayed selected.
+- The `bowser` runtime-skill installed without checking for the external `playwright-cli` CLI — or a global `@playwright/cli` install run without the user's confirmation.
 - The overrides file padded with install status, summaries, or prose instead of terse `key: value` sections.
 - A re-run that detects a non-empty version delta but skips the "Changes since v<recorded> → v<current>" block in Step 9.
 - A `conflicting upgrade` row pre-checked, or the three-way diff omitted for it.
@@ -456,6 +459,7 @@ After completing the workflow, confirm:
 - [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.
 - [ ] For `pi` workspaces using `agent-hub`, the legacy `## agent-team` language override was offered, existing values were preserved, and omitting the section was treated as default English.
 - [ ] If `agent-hub` was installed or kept, `damage-control` was installed/kept alongside it (mandatory pairing) and could not be deselected while `agent-hub` remained.
+- [ ] If the `bowser` runtime-skill was installed or kept, the external `playwright-cli` dependency was checked, and a missing CLI was surfaced with the install offer (`npm install -g @playwright/cli@latest`) rather than silently installed or treated as a hard failure.
 - [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session, and a `version:` line in `## workspace-summary` that matches the package version from Step 2.
 - [ ] Step 9 was rendered as compact action-grouped lines (Add / Refresh / Remove / Keep-count / Records / Method), not a wide `Target paths` + `Notes` table that overflows the widget.
 - [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" heading followed by short per-change bullets sourced from `CHANGELOG.md` — never one long overflowing line.

@@ -145,7 +145,10 @@ These ported files are runtime dependencies of the extensions above:
   for `damage-control`.
 - **`.pi/skills/bowser/`** — a pi-runtime skill for headless Playwright browser
   automation, used by the `bowser` agent persona. Kept separate from the core
-  engineering `skills/`.
+  engineering `skills/`. It drives the external **Playwright Agent CLI**
+  (`playwright-cli`), which is **not** bundled — install it once with
+  `npm install -g @playwright/cli@latest` (the guided setup checks for it when
+  `bowser` is selected). Docs: <https://playwright.dev/agent-cli/installation>.
 - **`scripts/coms-net-server.ts`** — the HTTP/SSE hub server for `coms-net`. Pure Node
   built-ins; run it with `node --experimental-strip-types scripts/coms-net-server.ts`
   (Node >= 22.6, or `just coms-net-server`).
