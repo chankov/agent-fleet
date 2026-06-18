@@ -14,6 +14,21 @@ This unlocks the workflow described in `skills/browser-testing-with-devtools/` f
 
 These tools are the **interactive** browser stack — a live headful Chrome with `chrome_devtools__*` DOM/console/network/performance tools, driven by the `web-debugger` persona (run it as a coms peer so the extension loads into its process — see `.pi/agents/peers.yaml`). For **automated, headless, parallel** browser work that can run as a dispatched `--no-extensions` subagent, use the `bowser` persona / `.pi/skills/bowser/` instead (it drives `playwright-cli` over Bash). They are complementary; the full decision lives in [docs/pi-extensions.md](../../../docs/pi-extensions.md#two-browser-stacks--when-to-use-which).
 
+## Configuration
+
+The bridge launches headed (interactive) by default. Override via env vars before starting pi (the MCP server starts once at extension load, so a change needs a pi restart / `/reload` to take effect):
+
+| Variable | Effect |
+|----------|--------|
+| `PI_CHROME_DEVTOOLS_MODE` | `headless` runs Chrome with no UI (background / CI); anything else (default) is headed. |
+| `PI_CHROME_DEVTOOLS_BROWSER_URL` | Attach to an already-running Chrome (e.g. `http://127.0.0.1:9222`) instead of launching one. When set, mode/profile flags are governed by that instance. |
+| `PI_CHROME_DEVTOOLS_USER_DATA_DIR` | Use a persistent Chrome profile at this path (cookies/storage survive restarts). Mutually exclusive with the default ephemeral `--isolated` profile. |
+
+```bash
+PI_CHROME_DEVTOOLS_MODE=headless pi      # background/headless
+PI_CHROME_DEVTOOLS_MODE=headed pi        # interactive (default)
+```
+
 ## Install
 
 Symlink both extensions from this repo into your project's `.pi/extensions/`:

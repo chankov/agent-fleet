@@ -148,8 +148,13 @@ The `justfile` sets `dotenv-load`, so a `.env` file at the repo root is auto-loa
 | `PI_COMS_NET_AUTH_TOKEN` | `coms-net` | Shared secret — required to bind a LAN/remote hub |
 | `PI_COMS_NET_PORT` | `coms-net` | Pin the hub port so the URL is stable across restarts |
 | `PI_COMS_NET_SERVER_URL` | `coms-net` | Hub URL for clients (blank = auto-discover the local `server.json`) |
+| `PI_CHROME_DEVTOOLS_MODE` | `chrome-devtools-mcp` | `headless` runs Chrome with no UI; anything else (default) is headed |
+| `PI_CHROME_DEVTOOLS_BROWSER_URL` | `chrome-devtools-mcp` | Attach to a running Chrome (e.g. `http://127.0.0.1:9222`) instead of launching one |
+| `PI_CHROME_DEVTOOLS_USER_DATA_DIR` | `chrome-devtools-mcp` | Persistent Chrome profile path (else the default ephemeral `--isolated` profile) |
 
-For `127.0.0.1`-only `coms-net` use, the hub auto-generates a token — no env needed.
+For `127.0.0.1`-only `coms-net` use, the hub auto-generates a token — no env needed. The
+`chrome-devtools-mcp` server starts once at extension load, so changing its vars needs a pi
+restart / `/reload` to take effect.
 
 ---
 

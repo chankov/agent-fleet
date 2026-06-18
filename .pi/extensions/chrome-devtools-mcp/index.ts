@@ -24,6 +24,43 @@ function supportsNoExperimentalWebStorage(): boolean {
 	return major >= 25;
 }
 
+// Build the chrome-devtools-mcp CLI args from env, so the same always-on extension
+// can run headed (default, for interactive debugging) or headless (for background /
+// CI runs), and can attach to or persist a profile:
+//
+//   PI_CHROME_DEVTOOLS_MODE=headless|headed   (default: headed) → adds --headless
+//   PI_CHROME_DEVTOOLS_BROWSER_URL=http://127.0.0.1:9222        → attaches via --browserUrl
+//   PI_CHROME_DEVTOOLS_USER_DATA_DIR=/path/to/profile           → persistent --userDataDir
+//
+// The MCP server is launched once at extension load, so changing these requires a
+// pi reload (restart / `/reload`) to take effect.
+function buildChromeDevToolsArgs(): string[] {
+	const args = ["-y", "chrome-devtools-mcp@latest", "--no-usage-statistics", "--no-performance-crux"];
+
+	const browserUrl = process.env.PI_CHROME_DEVTOOLS_BROWSER_URL?.trim();
+	if (browserUrl) {
+		// Attaching to an already-running Chrome — launch-time flags (headless, profile)
+		// are governed by that instance, so don't pass them.
+		args.push("--browserUrl", browserUrl);
+		return args;
+	}
+
+	if (process.env.PI_CHROME_DEVTOOLS_MODE?.trim().toLowerCase() === "headless") {
+		args.push("--headless");
+	}
+
+	const userDataDir = process.env.PI_CHROME_DEVTOOLS_USER_DATA_DIR?.trim();
+	if (userDataDir) {
+		// A persistent profile is mutually exclusive with --isolated (which forces an
+		// ephemeral temp dir cleaned up on close).
+		args.push("--userDataDir", userDataDir);
+	} else {
+		args.push("--isolated");
+	}
+
+	return args;
+}
+
 function buildChromeDevToolsEnv(): Record<string, string> {
 	const env: Record<string, string> = {};
 
@@ -48,13 +85,7 @@ function buildChromeDevToolsEnv(): Record<string, string> {
 export default createMcpBridgeExtension({
 	prefix: "chrome_devtools__",
 	command: "npx",
-	args: [
-		"-y",
-		"chrome-devtools-mcp@latest",
-		"--isolated",
-		"--no-usage-statistics",
-		"--no-performance-crux",
-	],
+	args: buildChromeDevToolsArgs(),
 	env: buildChromeDevToolsEnv(),
 	stderr: "pipe",
 	labelPrefix: "Chrome DevTools",
