@@ -5337,18 +5337,22 @@ ${researchCatalog}`;
 			void pickDispatcherPersona(_ctx);
 		}
 
-		// Footer: model | team | context bar
+		// Footer: model (thinking) | team | context bar
 		_ctx.ui.setFooter((_tui, theme, _footerData) => ({
 			dispose: () => {},
 			invalidate() {},
 			render(width: number): string[] {
 				const model = _ctx.model?.id || "no-model";
+				// Dispatcher's live thinking level as the same " (code)" badge subagents
+				// show after their model (off → no badge). Optional-chained so an older
+				// pi without getThinkingLevel just renders the model alone.
+				const think = thinkingSuffix(pi.getThinkingLevel?.());
 				const usage = _ctx.getContextUsage();
 				const pct = usage ? usage.percent : 0;
 				const filled = Math.round(pct / 10);
 				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 
-				const left = theme.fg("dim", ` ${model}`) +
+				const left = theme.fg("dim", ` ${model}${think}`) +
 					theme.fg("muted", " · ") +
 					theme.fg("accent", activeTeamName);
 				const hint = theme.fg("muted", "Alt+A ") + theme.fg("dim", `view:${viewMode}`);
