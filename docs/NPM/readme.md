@@ -29,8 +29,10 @@ Run the changeset flow (when you use it) with `npm run version:changeset`.
 ## 1. Auth
 
 ```sh
-npm whoami        # already logged in?
-npm login         # if not
+# already logged in?
+npm whoami        
+  # if not
+npm login 
 ```
 
 ## 2. Sync & install
