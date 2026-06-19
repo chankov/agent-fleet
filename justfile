@@ -87,10 +87,6 @@ team-up-dry team="full":
 
 # ---------------------------------------------------------------- coms (Pi-to-Pi messaging)
 
-# Coms: peer-to-peer messaging between pi agents on the same machine
-local-coms *args:
-    pi -e .pi/harnesses/coms/index.ts {{args}}
-
 # Safe coms: a FULL pi (all auto-discovered local .pi/extensions/ + global extensions and
 # commands) plus damage-control guardrails and the coms peer layer, under a chosen name.
 # Unlike `just hub`, this does NOT pass --no-extensions, so every local-only extension (MCP
@@ -102,18 +98,4 @@ local-coms *args:
 # e.g. just safe-coms orchestrator
 safe-coms name *args:
     pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/coms/index.ts --name {{name}} {{args}}
-
-# Start a local coms-net hub (binds 127.0.0.1, OS-assigned port)
-coms-net-server:
-    -lsof -ti :${PI_COMS_NET_PORT:-52965} | xargs -r kill -TERM 2>/dev/null
-    node --experimental-strip-types scripts/coms-net-server.ts
-
-# Start a LAN-visible coms-net hub (binds 0.0.0.0, requires PI_COMS_NET_AUTH_TOKEN)
-coms-net-server-lan:
-    -lsof -ti :${PI_COMS_NET_PORT:-52965} | xargs -r kill -TERM 2>/dev/null
-    PI_COMS_NET_HOST=0.0.0.0 node --experimental-strip-types scripts/coms-net-server.ts
-
-# Pi with the networked coms-net client (auto-discovers the local server.json)
-coms *args:
-    pi -e .pi/harnesses/coms-net/index.ts {{args}}
 # <<< agent-skills:harnesses <<<

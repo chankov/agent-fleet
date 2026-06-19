@@ -1,6 +1,0 @@
-{
-  "name": "agent-skills-pi-coms-net",
-  "private": true,
-  "type": "module",
-  "main": "index.ts"
-}

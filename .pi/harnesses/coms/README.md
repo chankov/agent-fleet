@@ -31,7 +31,6 @@ agent from messaging a cross-project peer that the widget never showed.
 ## Requires
 
 Nothing in-repo — the peer registry lives at `~/.pi/coms/` and is created at runtime.
-For an HTTP/SSE transport that works across hosts, use [`coms-net`](../coms-net/README.md) instead.
 
 ## Usage
 

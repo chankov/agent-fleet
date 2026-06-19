@@ -73,7 +73,7 @@ Target map, relative to the workspace root:
 
 **Personas are generated, not copied.** The canonical persona format in `agents/*.md` is pi-flavored (agent-hub frontmatter: `models`, `thinking`, `delegate_depth`, `subagents`, …). For `pi` the file is installed as-is (copy or symlink). For `claude-code` and `opencode` the install runs the deterministic transformer instead — `node <source-root>/bin/cli.js transform-persona --agent <agent> --workspace <workspace> <name…>` — which translates `tools`/`model` to the target's vocabulary, adds `mode: subagent` for opencode, and drops the agent-hub-only keys. Never transform persona frontmatter by hand in this skill; the mapping lives in `bin/lib/transform-persona.js`, under test. Its `--list` flag prints the per-agent availability matrix (pi-only personas — `bowser`, `web-debugger`, `orchestrator` — are excluded for other agents and must not appear in their menu).
 
-The **pi harness support** row is not a menu group of its own — it is the set of shared files the harnesses need in order to launch (the `justfile` recipes, the `team-up`/`coms-net` scripts, the peer/team YAML, the damage-control rules, and the harness `package.json` of runtime deps). These travel **with** the pi harnesses group (Step 6, group 6): whenever any harness is installed, refreshed, or removed, this support set is refreshed from source in the same pass. The `justfile` specifically is refreshed from the **current** source, so retired-harness recipes are pruned and new-harness recipes added automatically — see Step 6 and Step 10 for the merge and removal rules.
+The **pi harness support** row is not a menu group of its own — it is the set of shared files the harnesses need in order to launch (the `justfile` recipes, the `team-up` script, the peer/team YAML, the damage-control rules, and the harness `package.json` of runtime deps). These travel **with** the pi harnesses group (Step 6, group 6): whenever any harness is installed, refreshed, or removed, this support set is refreshed from source in the same pass. The `justfile` specifically is refreshed from the **current** source, so retired-harness recipes are pruned and new-harness recipes added automatically — see Step 6 and Step 10 for the merge and removal rules.
 
 When neither the built-in map nor the agent's `*-setup.md` defines a path for a selected artifact, ask the user instead of guessing.
 
@@ -236,13 +236,13 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
 6. **pi harnesses** *(pi only; `Group` column = harness category — install many, load through the explicit recipes; `just hub` stacks `damage-control-continue` before `agent-hub`)* — one screen for all harnesses:
    - *orchestration* — `agent-hub`
    - *safety* — `damage-control`, `damage-control-continue`
-   - *messaging* — `coms`, `coms-net`
+   - *messaging* — `coms`
 
    **Mandatory pairing: `agent-hub` ⇒ `damage-control` + `damage-control-continue`.** When `agent-hub` is ticked (installed or kept), auto-tick **both** damage-control variants in the same pass and refuse to untick either while `agent-hub` stays selected — explain that the hub's `just hub` main session loads `damage-control-continue` (so a `pi -e …/damage-control-continue/index.ts` recipe that points at a missing harness would fail to launch), and the hub re-loads a guardrail into every spawned subagent as their only protection: `damage-control` (hard-stop) into specialists, `damage-control-continue` into research helpers. Removing either leaves part of the session unguarded or unlaunchable. Either variant without `agent-hub` remains freely selectable.
 
    **Harness companions (refreshed with the group, not separate rows).** A harness directory does not run on its own — the launch recipes live in the `justfile`, and several harnesses shell out to support files. So whenever **any** harness in this group is ticked (installed/kept) or unticked (removed), refresh its companions from source in the same pass — they are not shown as their own menu rows:
-   - `justfile` — the `just hub` / `just team-up` / `just coms` launch recipes plus private helpers.
-   - `scripts/team-up.ts`, `scripts/coms-net-server.ts` — used by the `team-up` and `coms-net-server` recipes.
+   - `justfile` — the `just hub` / `just team-up` / `just safe-coms` launch recipes plus private helpers.
+   - `scripts/team-up.ts` — used by the `team-up` recipe.
    - `.pi/agents/peers.yaml`, `.pi/agents/teams.yaml`, and the peer personas they name (e.g. `architect`, `releaser`) — read by `team-up`.
    - `.pi/damage-control-rules.yaml` — the rule set the damage-control harness loads.
    - `.pi/harnesses/package.json` (+ `npm install --prefix .pi/harnesses`) — the harness runtime deps (`yaml`, `@sinclair/typebox`).
@@ -323,7 +323,7 @@ For settings files (`.claude/settings.json` and equivalents), edit only the agen
 
 **pi harness companions.** When this pass installs, refreshes, or removes any pi harness (Step 6 group 6), apply the companion set in the same pass per the Step 6 rules:
 
-- Refresh `scripts/team-up.ts`, `scripts/coms-net-server.ts`, `.pi/agents/peers.yaml`, `.pi/agents/teams.yaml`, the peer personas they name, `.pi/damage-control-rules.yaml`, and `.pi/harnesses/package.json` from source (then `npm install --prefix .pi/harnesses` for the runtime deps).
+- Refresh `scripts/team-up.ts`, `.pi/agents/peers.yaml`, `.pi/agents/teams.yaml`, the peer personas they name, `.pi/damage-control-rules.yaml`, and `.pi/harnesses/package.json` from source (then `npm install --prefix .pi/harnesses` for the runtime deps).
 - Refresh the `justfile` from the **current** source into its managed region (between the `# >>> agent-skills:harnesses … >>>` / `# <<< agent-skills:harnesses <<<` sentinels), preserving any user recipes outside it — this is what prunes retired-harness recipes and adds new ones. In symlink mode, link the whole `justfile` to source **only** when the target has no `justfile` or its existing one is wholly agent-skills'; if the target carries user recipes, fall back to a copy-mode managed-region rewrite so those recipes survive.
 - **Removal:** when the **last** pi harness is removed, strip the agent-skills managed region from the `justfile` (and drop the now-orphaned `scripts/`/`.pi/agents/` companions that no remaining harness needs), bound by the same removal-scope rule — never delete user recipes outside the sentinels, and never delete a companion the user authored.
 

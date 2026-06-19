@@ -34,8 +34,8 @@ const ARTIFACT_PATHS = [
   ".pi/skills",
   ".pi/agents",
   ".pi/damage-control-rules.yaml",
-  // scripts/ ships runtime helpers like coms-net-server.ts that the pi
-  // coms-net harness shells out to. Tests under scripts/*.test.mjs stay out
+  // scripts/ ships runtime helpers like team-up.ts that the pi harness
+  // recipes shell out to. Tests under scripts/*.test.mjs stay out
   // (filtered below) — they're dev-only.
   "scripts",
   // justfile carries the pi harness launch recipes. It is a companion of the

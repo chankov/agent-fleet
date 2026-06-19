@@ -14,7 +14,7 @@ is their catalog. A harness can:
 - register a new tool or `/command` — `agent-hub`, `coms`
 - inject text into the system prompt — `agent-hub`
 - orchestrate sub-agents — `agent-hub`
-- add cross-agent messaging — `agent-hub`, `coms`, `coms-net`
+- add cross-agent messaging — `agent-hub`, `coms`
 
 ### Harness vs. utility extension — where it lives
 
@@ -152,7 +152,6 @@ Do not write from scratch. Pick the nearest pattern and adapt it:
 | Sets widgets/status or registers orchestration commands/tools | `agent-hub` | large |
 | Orchestrates sub-agents | `agent-hub` | large |
 | Adds local cross-agent messaging | `coms`, `agent-hub` | large |
-| Adds networked cross-agent messaging | `coms-net` | large |
 
 Start from the smallest one that has the surface you need.
 

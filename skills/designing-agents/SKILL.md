@@ -75,7 +75,7 @@ Two personas covering similar ground produce inconsistent reviews. Two skills pr
 Follow the existing pattern:
 - **Persona**: `<role>` or `<role>-<specialty>` (`code-reviewer`, `security-auditor`, `accessibility-reviewer`)
 - **Skill**: verb-phrase or noun-phrase describing the process (`spec-driven-development`, `context-engineering`, `planning-and-task-breakdown`)
-- **Harness**: short noun describing the session surface (`agent-hub`, `damage-control`, `coms-net`)
+- **Harness**: short noun describing the session surface (`agent-hub`, `damage-control`, `coms`)
 - Bad for any: `helper`, `assistant`, `smart-agent`, `codeReviewer`
 
 The name must match across: the directory/file name, the frontmatter or `package.json` `name`, and the H1 title (persona/skill) or README H1 (harness).

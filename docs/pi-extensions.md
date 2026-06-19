@@ -8,7 +8,7 @@ supporting data it needs, and how the ported set differs from upstream.
 ## Attribution
 
 The session harnesses documented here — together with their supporting agent
-definitions, design specs, the `coms-net` hub server, and the `justfile` — are ported
+definitions, design specs, and the `justfile` — are ported
 from the **`pi-vs-claude-code`** project:
 
 - **Author:** [disler](https://github.com/disler) (IndyDevDan)
@@ -41,11 +41,11 @@ does *not* auto-discover — so a plain `pi` run never loads them.
 
 pi auto-discovers every extension directory under a project's `.pi/extensions/` and loads
 all of them. If the harnesses lived there, a plain `pi` run would load them all at once
-— UI surfaces would fight, orchestrators would collide, and `coms` / `coms-net` would
-abort startup with duplicate CLI-flag registrations. So the harnesses live in
+— UI surfaces would fight, orchestrators would collide, and harnesses that register the
+same CLI flags would abort startup with duplicate registrations. So the harnesses live in
 `.pi/harnesses/` instead, and you load the desired recipe explicitly:
 
-- through the `justfile` — `just hub`, `just ext-damage-control`, `just local-coms`, …
+- through the `justfile` — `just hub`, `just ext-damage-control`, `just safe-coms`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts`
 
 When you consume this repo from another project, point `pi -e` at the harness file you
@@ -78,8 +78,7 @@ runtime itself.
 | [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, and peer-as-subagent | `just hub` |
 | [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub` | `just ext-damage-control` |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers | `just ext-damage-control-continue` |
-| [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine | `just local-coms` |
-| [coms-net](../.pi/harnesses/coms-net/README.md) | Messaging | HTTP/SSE communication network across hosts (needs the hub) | `just coms` |
+| [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine; launches damage-control-guarded under a chosen name | `just safe-coms <name>` |
 
 Each extension directory has its own `README.md` with the full description, command/tool
 surface, requirements, and per-extension upstream changes.
@@ -149,15 +148,11 @@ The `justfile` sets `dotenv-load`, so a `.env` file at the repo root is auto-loa
 
 | Variable | Needed by | Purpose |
 |----------|-----------|---------|
-| `PI_COMS_NET_AUTH_TOKEN` | `coms-net` | Shared secret — required to bind a LAN/remote hub |
-| `PI_COMS_NET_PORT` | `coms-net` | Pin the hub port so the URL is stable across restarts |
-| `PI_COMS_NET_SERVER_URL` | `coms-net` | Hub URL for clients (blank = auto-discover the local `server.json`) |
 | `PI_CHROME_DEVTOOLS_MODE` | `chrome-devtools-mcp` | `headless` runs Chrome with no UI; anything else (default) is headed |
 | `PI_CHROME_DEVTOOLS_BROWSER_URL` | `chrome-devtools-mcp` | Attach to a running Chrome (e.g. `http://127.0.0.1:9222`) instead of launching one |
 | `PI_CHROME_DEVTOOLS_USER_DATA_DIR` | `chrome-devtools-mcp` | Persistent Chrome profile path (else the default ephemeral `--isolated` profile) |
 
-For `127.0.0.1`-only `coms-net` use, the hub auto-generates a token — no env needed. The
-`chrome-devtools-mcp` server starts once at extension load, so changing its vars needs a pi
+The `chrome-devtools-mcp` server starts once at extension load, so changing its vars needs a pi
 restart / `/reload` to take effect.
 
 ---
@@ -183,9 +178,6 @@ These ported files are runtime dependencies of the extensions above:
   (`playwright-cli`), which is **not** bundled — install it once with
   `npm install -g @playwright/cli@latest` (the guided setup checks for it when
   `bowser` is selected). Docs: <https://playwright.dev/agent-cli/installation>.
-- **`scripts/coms-net-server.ts`** — the HTTP/SSE hub server for `coms-net`. Pure Node
-  built-ins; run it with `node --experimental-strip-types scripts/coms-net-server.ts`
-  (Node >= 22.6, or `just coms-net-server`).
 - **`docs/pi-specs/`** — the original design specifications: `agent-forge` (now consolidated
   into `agent-hub`), `agent-workflow` (retired `agent-chain`), and `damage-control`.
 
@@ -205,8 +197,7 @@ What changed relative to `disler/pi-vs-claude-code`:
   auto-discovers and loads everything in `.pi/extensions/`, while harnesses must be loaded
   explicitly through recipes (with `damage-control` before `agent-hub` as the supported stack).
 - **Tooling switched to npm.** `bun` / `bun.lock` are not used; the `justfile` recipes
-  point at the new paths and use npm. The `coms-net` hub launches via
-  `node --experimental-strip-types` instead of `bun`.
+  point at the new paths and use npm.
 
 ### Not ported
 

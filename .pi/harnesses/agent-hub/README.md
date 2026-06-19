@@ -306,8 +306,7 @@ this tool set, so coms and dispatch stay available regardless of the chosen pers
   (strongly recommended) [`pi-ask-user`](https://github.com/edlsh/pi-ask-user).
 - `.pi/damage-control-rules.yaml` for the default guarded `just hub` / `just hub-solo` recipes.
 - Nothing extra in-repo for coms — the peer registry lives at `~/.pi/coms/` and is created at
-  runtime. For an HTTP/SSE transport that works across hosts, use
-  [`coms-net`](../coms-net/README.md) instead.
+  runtime.
 
 ## Usage
 

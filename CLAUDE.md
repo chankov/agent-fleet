@@ -9,7 +9,7 @@ bin/          → npm CLI: cli.js (agent-skills entrypoint), lib/{doctor,detect-
 skills/       → Core skills (SKILL.md per directory)
 agents/       → 13 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code/opencode get generated copies; bowser + orchestrator are pi-only)
 hooks/        → Session lifecycle hooks
-scripts/      → Standalone scripts (coms-net hub server for the coms-net pi extension)
+scripts/      → Standalone scripts (team-up tmux launcher for reusable coms peers)
 justfile      → Recipes to launch pi with each harness
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
