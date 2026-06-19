@@ -777,7 +777,12 @@ export default function (pi: ExtensionAPI) {
 		const session_id = ulid();
 
 		const defaultName = `agent-${session_id.slice(-6)}`;
-		const desiredName = flags.name || fm.name || defaultName;
+		// pi's built-in `--name` (session display name) shadows the `--name` flag this
+		// extension registers, so `flags.name` (getFlag) stays empty when a user passes
+		// `--name`. Recover it via getSessionName() — it ranks like the CLI flag (above
+		// frontmatter), so `--name foo` is honored as the coms identity.
+		const sessionName = typeof pi.getSessionName === "function" ? (pi.getSessionName() || undefined) : undefined;
+		const desiredName = flags.name || sessionName || fm.name || defaultName;
 		const name = resolveUniqueName(project, desiredName);
 		if (name !== desiredName) {
 			try {
