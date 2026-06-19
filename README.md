@@ -1,8 +1,8 @@
 # Agent Skills
 
-**Production-grade engineering skills for AI coding agents.**
+**Production-grade engineering skills for AI coding agents — plus a thin-context multi-agent harness for pi.**
 
-Skills encode the workflows, quality gates, and best practices that senior engineers use when building software. These ones are packaged so AI agents follow them consistently across every phase of development.
+Skills encode the workflows, quality gates, and best practices that senior engineers use when building software, packaged so AI agents follow them consistently across every phase of development. On **pi**, the [`agent-hub`](#agent-hub-a-multi-agent-harness-for-pi) harness runs those skills and personas as a live team of specialist subagents — while keeping the dispatcher's context thin.
 
 ```
   DEFINE          PLAN           BUILD          VERIFY         REVIEW          SHIP
@@ -33,6 +33,47 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 `/orchestrate` turns the main session into an **orchestrator** that drives a config-defined team of subagents (default `planner` + `builder`, no reviewer), routing them as a runtime roster and handling the `NEEDS_RESEARCH` / `PLAN_FILE` handoffs. The named teams live in `.claude/orchestrate-teams.yaml` (mirroring pi's `.pi/agents/teams.yaml`) and are switchable at runtime: `/orchestrate <team> "<task>"`. It ships for **claude-code** and **opencode** (`/as-orchestrate`); pi orchestrates via the `agent-hub` harness instead.
 
 Skills also activate automatically based on what you're doing — designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`, and so on.
+
+---
+
+## agent-hub: a multi-agent harness for pi
+
+`agent-hub` turns a single **pi** session into a **dispatcher that drives a live team of specialist subagents** — planner, builder, reviewer, test-engineer, documenter — with read-only research helpers fanning out beneath them, peer-to-peer `coms` messaging embedded, and a `damage-control` guardrail on every tool call.
+
+![agent-hub dashboard — the dispatcher grid of specialists and research helpers](docs/assets/agent-hub-dashboard.png)
+
+What makes it different is what it **doesn't** put in front of the dispatcher LLM.
+
+### Thin dispatcher context
+
+Multi-agent setups usually drown the orchestrator: every subagent's output, every research dump, every verification note flows back into one context window until it compacts and forgets. `agent-hub` is built the other way around:
+
+- **Research never enters the dispatcher context.** A specialist that lacks information ends its turn with `NEEDS_RESEARCH:` lines; the hub fans out read-only helpers, writes their findings to disk (`.pi/agent-sessions/findings/`), and resumes the specialist with the file paths. The dispatcher sees a one-line notice — never the raw findings.
+- **The Verification Contract lives on disk.** The dispatcher owns a ledger of checkable acceptance assertions, built from the request *before* any builder runs and persisted to disk, rendered as a single status line (`Assertions: 2✓ 1○ 1✗ · open: A4`). A stated requirement is never silently dropped, and the contract survives compaction without re-flooding the context.
+- **Specialists run `--no-extensions`.** Tools and credentials stay scoped to the subagent that needs them instead of leaking up into the dispatcher.
+
+Every borrowed idea from another harness passes one test before it lands: *does this persistently enter the dispatcher context?* If yes, it goes to disk or a one-line status instead.
+
+### What's in the box
+
+- **Dispatcher grid** — a live dashboard of the fixed specialist team from `.pi/agents/teams.yaml`; `Alt+A` toggles the full dashboard and the compact view.
+- **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists; `/zoom` inspects a live timeline, and kill/restart manage running children.
+- **Research helpers** — `spawn_research` / `/research` launch read-only recon: `researcher` on a fast spark model for simple reads, `deep-researcher` on a heavier model for hard, cross-cutting questions.
+- **Verification Contract** — `set_assertions` / `update_assertion` / `get_assertions`, driven by the [`orchestrator`](agents/orchestrator.md) persona per the [orchestration-verification](skills/orchestration-verification/SKILL.md) skill.
+- **Multi-model, multi-provider** — per-agent `model:` plus a `models:` switch list (`/agent-model <persona>`). Mix subscription and local models per role: cheap recon on a spark model, agentic work on a premium one.
+- **Peer-to-peer coms** — the dispatcher is itself a `coms` node: hand a session off to another main agent, or use a peer as a subagent.
+
+![agent-hub compact view with the btw side-session](docs/assets/agent-hub-compact.png)
+
+### Run it
+
+```bash
+just hub            # guarded dispatcher + research + coms + orchestrator persona
+just hub-solo       # same, without the coms layer
+just team-up full   # spawn addressable peers into tmux panes
+```
+
+`just hub` stacks the `damage-control-continue` guardrail (blocked calls feed back so the dispatcher adapts and keeps going) before `agent-hub`, and re-loads the hard-stop `damage-control` variant into spawned specialists. See the [pi extension catalog](docs/pi-extensions.md) for every harness, its setup, and the selective-load model.
 
 ---
 
@@ -128,15 +169,15 @@ This includes the bundled `pi-ask-user` package, so the interactive `ask_user` t
 
 pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and pi extensions from `.pi/extensions/` (currently: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`; one-time `npm ci` required — see setup doc). For clone/symlink setup, install `pi-ask-user` separately with `pi install -l npm:pi-ask-user` unless it is already listed by `pi list`. See [docs/pi-setup.md](docs/pi-setup.md).
 
-The repo also ships 6 selectable pi extension *harnesses* — agent orchestration, safety auditing, and Pi-to-Pi messaging — ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT). `just hub` loads the `damage-control-continue` guard (blocks but keeps going) before `agent-hub` by default, and re-loads the hard-stop `damage-control` guard into spawned specialists. See the [pi extension catalog](docs/pi-extensions.md) for the full list, setup, and how to run each one.
+The repo also ships selectable pi session *harnesses* — agent orchestration, safety auditing, and Pi-to-Pi messaging — ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT). The flagship is [`agent-hub`](#agent-hub-a-multi-agent-harness-for-pi), the multi-agent dispatcher described above (`just hub`). See the [pi extension catalog](docs/pi-extensions.md) for the full list, setup, and how to run each one.
 
 </details>
 
 ---
 
-## All 21 Skills
+## All 24 Skills
 
-The commands above are the entry points. Under the hood, they activate these 21 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+The commands above are the entry points. Under the hood, they activate these 24 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
 
 ### Define - Clarify what to build
 
@@ -200,7 +241,7 @@ This skill is the single canonical source for the four Verification-Contract art
 
 ## Agent Personas
 
-13 pre-configured specialist personas live in [agents/](agents/) — reusable subagent definitions your coding agent can delegate work to. Each persona is one Markdown file with YAML frontmatter; the canonical format is pi-flavored, and the setup commands transform it per target agent on install (see [Installing personas](#installing-personas)).
+14 pre-configured specialist personas live in [agents/](agents/) — reusable subagent definitions your coding agent can delegate work to. Each persona is one Markdown file with YAML frontmatter; the canonical format is pi-flavored, and the setup commands transform it per target agent on install (see [Installing personas](#installing-personas)).
 
 | Persona | Role | Access | Primary skill | Agents |
 |---|---|---|---|---|
@@ -309,7 +350,7 @@ See [docs/agent-skills-setup.md](docs/agent-skills-setup.md) for the file format
 
 ```
 agent-skills/
-├── skills/                            # 20 core skills (SKILL.md per directory)
+├── skills/                            # 24 core skills (SKILL.md per directory)
 │   ├── idea-refine/                   #   Define
 │   ├── spec-driven-development/       #   Define
 │   ├── planning-and-task-breakdown/   #   Plan
@@ -330,12 +371,16 @@ agent-skills/
 │   ├── deprecation-and-migration/     #   Ship
 │   ├── documentation-and-adrs/        #   Ship
 │   ├── shipping-and-launch/           #   Ship
+│   ├── orchestration-verification/    #   Orchestrate
+│   ├── designing-agents/              #   Meta: author skills/personas/harnesses
+│   ├── guided-workspace-setup/        #   Onboard
 │   └── using-agent-skills/            #   Meta: how to use this pack
-├── agents/                            # 13 reusable agent personas
+├── agents/                            # 14 reusable agent personas
 ├── references/                        # 4 supplementary checklists
 ├── hooks/                             # Session lifecycle hooks
 ├── .claude/commands/                  # 8 Claude slash commands
 ├── .pi/prompts/                       # 7 pi prompt-template commands
+├── .pi/harnesses/                     # Selectable pi session harnesses (agent-hub, coms, damage-control)
 └── docs/                              # Setup guides per tool
 ```
 
