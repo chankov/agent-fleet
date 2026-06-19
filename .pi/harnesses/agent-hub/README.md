@@ -1,8 +1,9 @@
 # agent-hub
 
 A multi-agent dispatcher with [`coms`](../coms/README.md) **embedded** — so the dispatcher is
-*also* a peer-to-peer node. The bundled `just hub` recipes load [`damage-control`](../damage-control/README.md)
-first, giving the dispatcher hard-stop guardrails by default. It combines local specialist
+*also* a peer-to-peer node. The bundled `just hub` recipes load
+[`damage-control-continue`](../damage-control-continue/README.md) first, giving the dispatcher
+guardrails that block but feed back (the turn keeps going) by default. It combines local specialist
 orchestration (fixed specialist grid, read-only research helpers, `/zoom`, kill/restart, per-agent
 model, dispatcher persona gate) with peer-to-peer collaboration: it can **hand a session off to
 another main agent** and **use a coms peer as a subagent**.
@@ -125,10 +126,11 @@ another main agent** and **use a coms peer as a subagent**.
     test writing is never delegated.
 - **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
   session start; by default the dispatcher starts without the gate.
-- **Default damage-control guardrails** — `just hub` and `just hub-solo` load the hard-stop
-  `damage-control` harness before `agent-hub`, so dispatcher tool calls are checked against
-  `.pi/damage-control-rules.yaml`. The guardrail is also re-loaded into every spawned specialist
-  and research helper (see [Safety scope](#safety-scope)), so subagent tool calls are checked too.
+- **Default damage-control guardrails** — `just hub` and `just hub-solo` load the
+  `damage-control-continue` harness before `agent-hub`, so dispatcher tool calls are checked against
+  `.pi/damage-control-rules.yaml` and a blocked call feeds back instead of aborting the turn. A
+  guardrail is also re-loaded into every spawned subagent (see [Safety scope](#safety-scope)):
+  research helpers get the same continue variant, other specialists get the hard-stop `damage-control`.
 - **Embedded coms** — the dispatcher is a discoverable peer on the local machine. Multiple
   `agent-hub` (or plain `coms`) sessions on the same box find each other through per-project registry
   files and exchange messages over a unix socket (named pipe on Windows).
@@ -310,13 +312,13 @@ this tool set, so coms and dispatch stay available regardless of the chosen pers
 ## Usage
 
 ```bash
-# via the justfile (loads damage-control first; accepts coms identity flags)
+# via the justfile (loads damage-control-continue first; accepts coms identity flags)
 just hub
 just hub --name architect --purpose "owns the migration design" --project myrepo
 
 # equivalent direct guarded launch
-pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts
-pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts --name releaser --explicit
+pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts
+pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts --name releaser --explicit
 
 # direct unguarded launch, only when you intentionally want to skip damage-control
 pi -e .pi/harnesses/agent-hub/index.ts
@@ -326,17 +328,22 @@ Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
 
 ### Safety scope
 
-`just hub` and `just hub-solo` load `damage-control` before `agent-hub`, so guardrails apply to
-hub/dispatcher tool calls in that parent pi process. Specialist and research agents are spawned as
-separate pi subprocesses with `--no-extensions` — but `agent-hub` resolves the `damage-control`
-harness (from this session's `-e` flags, else the repo-local `.pi/harnesses/damage-control/index.ts`)
-and re-loads *only* that one into each child via `-e`. `--no-extensions` keeps discovery off, so
+`just hub` and `just hub-solo` load `damage-control-continue` before `agent-hub`, so guardrails apply
+to hub/dispatcher tool calls in that parent pi process — and because it is the *continue* variant, a
+blocked dispatcher call feeds back and the turn keeps going rather than aborting. Specialist and
+research agents are spawned as separate pi subprocesses with `--no-extensions` — but `agent-hub`
+resolves a damage-control harness (from this session's `-e` flags, else the repo-local
+`.pi/harnesses/<variant>/index.ts`) and re-loads *only* that one into each child via `-e`. The variant
+is chosen per child: research helpers (`researcher` / `deep-researcher`) get `damage-control-continue`
+so a blocked read lets them adapt and keep going; every other specialist gets the hard-stop
+`damage-control` that aborts on a violation. (Continue falls back to the hard-stop variant when it
+isn't installed, so researchers stay guarded either way.) `--no-extensions` keeps discovery off, so
 children never auto-load the `.pi/extensions/` utilities or recursively re-load `agent-hub`; the
 explicit `-e` still applies, so every child's tool calls are checked against the same
 `.pi/damage-control-rules.yaml`. If damage-control can't be resolved, a session-start warning is
 shown and children spawn unguarded. Research helpers are additionally read-only by construction.
 The guided setup (`guided-workspace-setup`) enforces the pairing: installing or keeping `agent-hub`
-always installs/keeps `damage-control` with it.
+always installs/keeps `damage-control` (and `damage-control-continue`) with it.
 
 ### Related recipes
 

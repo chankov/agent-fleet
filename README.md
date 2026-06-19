@@ -128,7 +128,7 @@ This includes the bundled `pi-ask-user` package, so the interactive `ask_user` t
 
 pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and pi extensions from `.pi/extensions/` (currently: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`; one-time `npm ci` required — see setup doc). For clone/symlink setup, install `pi-ask-user` separately with `pi install -l npm:pi-ask-user` unless it is already listed by `pi list`. See [docs/pi-setup.md](docs/pi-setup.md).
 
-The repo also ships 5 selectable pi extension *harnesses* — agent orchestration, safety auditing, and Pi-to-Pi messaging — ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT). `just hub` loads the hard-stop `damage-control` guard before `agent-hub` by default. See the [pi extension catalog](docs/pi-extensions.md) for the full list, setup, and how to run each one.
+The repo also ships 6 selectable pi extension *harnesses* — agent orchestration, safety auditing, and Pi-to-Pi messaging — ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT). `just hub` loads the `damage-control-continue` guard (blocks but keeps going) before `agent-hub` by default, and re-loads the hard-stop `damage-control` guard into spawned specialists. See the [pi extension catalog](docs/pi-extensions.md) for the full list, setup, and how to run each one.
 
 </details>
 

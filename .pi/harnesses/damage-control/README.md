@@ -15,7 +15,9 @@ Intercepts every tool call and checks it against rules in `.pi/damage-control-ru
 - `noDeletePaths` — paths that may be edited but not deleted (`README`, `.git/`, …)
 
 On a match the tool result is replaced with a block message and the agent's turn is
-aborted (`ctx.abort()`). This hard-stop behavior is the only shipped damage-control mode.
+aborted (`ctx.abort()`). For the softer variant that blocks but feeds back so the agent
+adapts and keeps working, see [`damage-control-continue`](../damage-control-continue/README.md)
+— the default guardrail for the `just hub` main session and spawned research helpers.
 
 ## Commands & tools
 

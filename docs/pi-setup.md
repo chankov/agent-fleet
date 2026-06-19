@@ -168,10 +168,10 @@ Verify by starting `pi` and running `/chrome_devtools-status` — expect `Chrome
 This repo ships **4 supported session harnesses** ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT):
 
 - **Orchestration** — `agent-hub` (dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms)
-- **Safety** — `damage-control`
+- **Safety** — `damage-control` (hard-stop), `damage-control-continue` (blocks but feeds back so the agent keeps going)
 - **Pi-to-Pi messaging** — `coms`, `coms-net`
 
-Unlike the utilities above, each harness reshapes the entire pi session, and most are loaded one per session rather than all at once. The supported stack is `damage-control` before `agent-hub`, which the `just hub` recipes use by default. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all harnesses aborts startup (`coms` and `coms-net` register clashing CLI flags). Load a harness recipe explicitly instead — there is nothing to symlink:
+Unlike the utilities above, each harness reshapes the entire pi session, and most are loaded one per session rather than all at once. The supported stack is a damage-control variant before `agent-hub`, which the `just hub` recipes use by default — `damage-control-continue` for the main session, with the hub re-loading hard-stop `damage-control` into spawned specialists and `damage-control-continue` into research helpers. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all harnesses aborts startup (`coms` and `coms-net` register clashing CLI flags). Load a harness recipe explicitly instead — there is nothing to symlink:
 
 ```bash
 # from the agent-skills clone, via the bundled justfile
@@ -179,7 +179,7 @@ just --list                       # list every harness recipe
 just hub                          # launch the guarded consolidated multi-agent hub
 
 # or directly, from anywhere — point pi -e at the guarded harness stack
-pi -e /path/to/agent-skills/.pi/harnesses/damage-control/index.ts -e /path/to/agent-skills/.pi/harnesses/agent-hub/index.ts
+pi -e /path/to/agent-skills/.pi/harnesses/damage-control-continue/index.ts -e /path/to/agent-skills/.pi/harnesses/agent-hub/index.ts
 ```
 
 The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. Install both at once with `just install` from the clone, or run `npm ci` in `.pi/harnesses/` as well. The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `coms-net`), and what changed from upstream.

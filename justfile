@@ -8,7 +8,8 @@
 # under .pi/extensions/, so anything placed there loads on every plain `pi` run.
 # Most harnesses are mutually exclusive — they live in .pi/harnesses/ (which pi
 # does NOT auto-discover) and are loaded via `pi -e` below. The supported stack
-# is damage-control before agent-hub, so the hub recipes run with guardrails by default.
+# is a damage-control variant before agent-hub (damage-control-continue for the main
+# session), so the hub recipes run with guardrails by default.
 #
 # Everything between the two `agent-skills:harnesses` sentinels below is a
 # MANAGED REGION: guided-workspace-setup regenerates it from the installed
@@ -40,6 +41,11 @@ pi:
 ext-damage-control:
     pi -e .pi/harnesses/damage-control/index.ts
 
+# Damage-control (continue): same rules, but blocks deliver feedback so the agent adapts
+# and keeps working instead of aborting the turn. Default guardrail for the hub main agent.
+ext-damage-control-continue:
+    pi -e .pi/harnesses/damage-control-continue/index.ts
+
 # ---------------------------------------------------------------- orchestration
 
 # Accepts coms identity flags: --name --purpose --project --color --explicit.
@@ -47,14 +53,16 @@ ext-damage-control:
 # the acceptance assertions — see skills/orchestration-verification); it is appended only if
 # agents/orchestrator.md is installed, so the hub still launches when it is absent. Override
 # with your own --system-prompt <persona>.md passed after `just hub`.
-# Guarded agent hub: damage-control + dispatcher grid + research helpers + embedded coms + orchestrator
+# Guarded agent hub: damage-control-continue + dispatcher grid + research helpers + embedded coms + orchestrator.
+# The main session loads the CONTINUE guardrail (blocks feed back so the dispatcher adapts and keeps going);
+# spawned specialists still inherit the hard-stop damage-control variant (research helpers inherit continue).
 hub *args:
-    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts $persona {{args}}
+    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts $persona {{args}}
 
 # Agent hub (solo): guarded hub without the coms layer — fixed specialists + research only.
-# Same orchestrator-persona default as `just hub` (appended only when agents/orchestrator.md exists).
+# Same orchestrator-persona default and continue-guardrail main session as `just hub`.
 hub-solo *args:
-    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts --solo $persona {{args}}
+    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts --solo $persona {{args}}
 
 # Internal helper for team-up: launch a reusable coms peer (coms + compact-and-continue + a persona).
 # Hidden from `just --list` because recipes prefixed with `_` are private.

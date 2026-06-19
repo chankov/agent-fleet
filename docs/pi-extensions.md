@@ -33,8 +33,8 @@ idle. See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some remove every codebase tool and leave only an
 orchestration tool, some set UI surfaces, some gate every tool call. Most are loaded
-one per session; the supported stack is `damage-control` before `agent-hub`, which the
-`just hub` recipes use by default. They live in **`.pi/harnesses/`** — a directory pi
+one per session; the supported stack is a damage-control variant before `agent-hub`, which the
+`just hub` recipes use by default (`damage-control-continue` for the main session). They live in **`.pi/harnesses/`** — a directory pi
 does *not* auto-discover — so a plain `pi` run never loads them.
 
 ### Selective loading — read this first
@@ -51,7 +51,7 @@ abort startup with duplicate CLI-flag registrations. So the harnesses live in
 When you consume this repo from another project, point `pi -e` at the harness file you
 want, or symlink that one directory into *its* `.pi/harnesses/` — never drop the harnesses
 into `.pi/extensions/`, and never load all of them at once. The supported multi-harness
-exception is loading `damage-control` before `agent-hub` for a guarded hub session (see
+exception is loading a damage-control variant before `agent-hub` for a guarded hub session (see
 [pi-setup.md](pi-setup.md#optional-pi-extensions)).
 
 ---
@@ -76,7 +76,8 @@ runtime itself.
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
 | [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, and peer-as-subagent | `just hub` |
-| [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; also loaded before `agent-hub` by the hub recipes | `just ext-damage-control` |
+| [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub` | `just ext-damage-control` |
+| [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers | `just ext-damage-control-continue` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine | `just local-coms` |
 | [coms-net](../.pi/harnesses/coms-net/README.md) | Messaging | HTTP/SSE communication network across hosts (needs the hub) | `just coms` |
 
@@ -106,10 +107,13 @@ harnesses:
 - **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
 - **Operator controls** — `/zoom` timeline inspection plus child-agent kill/restart controls.
-- **Damage-control by default** — `just hub` / `just hub-solo` load the hard-stop safety harness
-  before `agent-hub`, so dispatcher tool calls are checked against the rules file. `agent-hub` also
-  re-loads that same harness into every spawned specialist and research helper (via an explicit `-e`
-  that survives their `--no-extensions`), so subagent tool calls are guarded too.
+- **Damage-control by default** — `just hub` / `just hub-solo` load the `damage-control-continue`
+  safety harness before `agent-hub`, so the dispatcher's tool calls are checked against the rules
+  file but a blocked call feeds back and the turn keeps going rather than aborting. `agent-hub` also
+  re-loads a guardrail into every spawned subagent (via an explicit `-e` that survives their
+  `--no-extensions`): research helpers (`researcher` / `deep-researcher`) get the same continue
+  variant, while other specialists (builder, test-engineer, …) get the hard-stop `damage-control`
+  that aborts on a violation.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
   `/handoff`, and peer-as-subagent flows.
 - **Solo mode** — `just hub-solo` keeps the dispatcher grid, delegation, research helpers, persona

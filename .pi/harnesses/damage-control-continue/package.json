@@ -1,0 +1,6 @@
+{
+  "name": "agent-skills-pi-damage-control-continue",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

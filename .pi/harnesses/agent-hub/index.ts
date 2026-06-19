@@ -49,7 +49,7 @@
  * Identity flags (coms): --name --purpose --project --color --explicit
  *
  * Usage: just hub
- * Direct guarded launch: pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts
+ * Direct guarded launch: pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts
  */
 
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -793,21 +793,43 @@ function scanAgentDirs(cwd: string): AgentDef[] {
 	return agents;
 }
 
-// Resolve the damage-control harness so spawned subagents inherit the same guardrail.
+// Resolve a damage-control harness so spawned subagents inherit a guardrail.
 // Order: (1) the exact `-e` path this session was launched with (mirrors `just hub`,
 // robust to symlinks / consuming projects), (2) the repo-local harness under cwd.
-// Returns an absolute path, or null if damage-control isn't present — in which case
-// subagents spawn unguarded, exactly as before.
-function resolveDamageControlExtension(cwd: string): string | null {
+// `dirName` selects the variant: "damage-control" (hard-stop, aborts the turn) or
+// "damage-control-continue" (delivers feedback and keeps going). The dir-name regex
+// is anchored on the trailing slash so "damage-control" never matches the longer
+// "damage-control-continue/index.ts" path (and vice-versa). Returns an absolute
+// path, or null if that variant isn't present.
+function resolveDamageControlVariant(cwd: string, dirName: string): string | null {
 	const argv = process.argv;
+	const re = new RegExp(`${dirName}[/\\\\]index\\.ts$`);
 	for (let i = 0; i < argv.length - 1; i++) {
 		if (argv[i] === "-e" || argv[i] === "--extension") {
 			const abs = resolve(argv[i + 1]);
-			if (/damage-control[/\\]index\.ts$/.test(abs) && existsSync(abs)) return abs;
+			if (re.test(abs) && existsSync(abs)) return abs;
 		}
 	}
-	const local = join(cwd, ".pi", "harnesses", "damage-control", "index.ts");
+	const local = join(cwd, ".pi", "harnesses", dirName, "index.ts");
 	return existsSync(local) ? local : null;
+}
+
+// Persona names (lowercased) that read-only-research, so they get the continue
+// damage-control variant instead of the hard-stop one when dispatched directly.
+const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
+
+// The hard-stop guardrail (aborts the turn) loaded into specialists that aren't
+// research helpers. Null → those subagents spawn unguarded, exactly as before.
+function resolveDamageControlExtension(cwd: string): string | null {
+	return resolveDamageControlVariant(cwd, "damage-control");
+}
+
+// The continue guardrail (blocks but feeds back, no abort) used for the
+// orchestrator/dispatcher main session and spawned research helpers. Falls back
+// to the hard-stop variant when continue isn't installed, so researchers stay
+// guarded either way.
+function resolveDamageControlContinueExtension(cwd: string): string | null {
+	return resolveDamageControlVariant(cwd, "damage-control-continue") ?? resolveDamageControlExtension(cwd);
 }
 
 // The delegate extension injected into specialists that declare `subagents:`.
@@ -1405,9 +1427,14 @@ export default function (pi: ExtensionAPI) {
 	// validated at session_start). Non-empty → every dispatched specialist gets a
 	// "Project rules" prompt block; personas do the recursive discovery themselves.
 	let projectRulesDirs: string[] = [];
-	// Resolved once at session_start: the damage-control harness to load into every
-	// spawned subagent (specialist + research helper) so guardrails follow them.
+	// Resolved once at session_start: the hard-stop damage-control harness loaded
+	// into spawned specialists (builder, test-engineer, …) so guardrails follow them.
 	let damageControlExtPath: string | null = null;
+	// The continue variant (blocks but feeds back instead of aborting), loaded into
+	// spawned research helpers (researcher / deep-researcher) so a blocked read lets
+	// them adapt and keep going rather than dead-end the turn. The orchestrator/
+	// dispatcher main session loads it via the `just hub` recipe.
+	let damageControlContinueExtPath: string | null = null;
 	// Resolved once at session_start: the delegate extension injected into
 	// specialists that declare `subagents:` (null → delegation disabled).
 	let delegateExtPath: string | null = null;
@@ -2221,7 +2248,14 @@ rule file paths and the specific points to check on to the child.`
 			}))
 			: null;
 		const delegationActive = !!subagentRoles && !!delegateExtPath;
-		const extensions = damageControlExtPath ? [damageControlExtPath] : [];
+		// Researcher personas get the continue variant (block-but-keep-going) like the
+		// dedicated research helpers; every other specialist gets the hard-stop variant.
+		// Research helpers normally spawn via spawnResearch, but a custom team could list
+		// a researcher persona — honor it here too.
+		const dispatchDamageControl = RESEARCHER_PERSONAS.has(personaKey)
+			? damageControlContinueExtPath
+			: damageControlExtPath;
+		const extensions = dispatchDamageControl ? [dispatchDamageControl] : [];
 		let effectiveTools = state.def.tools;
 		let delegateEnv: Record<string, string> | undefined;
 		let delegationProtocol = "";
@@ -2502,7 +2536,10 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			sessionFile: sessionPath,
 			resume: !!state.sessionFile,
 			prompt,
-			extensions: damageControlExtPath ? [damageControlExtPath] : [],
+			// Research helpers get the continue variant: a blocked read (e.g. peeking
+			// at .env to verify a key) feeds back and lets them adapt rather than
+			// aborting the whole research turn.
+			extensions: damageControlContinueExtPath ? [damageControlContinueExtPath] : [],
 		}, {
 			onProcess: (p) => { state.proc = p; },
 			onTextDelta: (delta) => {
@@ -5077,6 +5114,7 @@ ${researchCatalog}`;
 		widgetCtx = _ctx;
 		contextWindow = _ctx.model?.contextWindow || 0;
 		damageControlExtPath = resolveDamageControlExtension(_ctx.cwd);
+		damageControlContinueExtPath = resolveDamageControlContinueExtension(_ctx.cwd);
 		if (!damageControlExtPath) {
 			_ctx.ui.notify(
 				"damage-control harness not found — specialists and research helpers will spawn UNGUARDED. Install .pi/harnesses/damage-control/ (guided setup pairs it with agent-hub).",
