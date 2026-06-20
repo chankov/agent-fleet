@@ -8,7 +8,7 @@ Thanks for your interest in contributing! This project is a collection of produc
 
 This pack already covers most of the development lifecycle, and many proposals overlap with an existing skill or another open PR. Before opening one, do these checks so reviewers aren't triaging duplicates:
 
-1. **Search the catalog.** Browse [the skill list in the README](README.md#all-24-skills) and skim `skills/` for an existing skill that covers your idea, whole or in part.
+1. **Search the catalog.** Browse [the skill list in the README](README.md) and skim `skills/` for an existing skill that covers your idea, whole or in part.
 2. **Check open PRs.** Run `gh pr list --state open` (or browse the PRs tab) and look for proposals on the same topic. Clusters of near-duplicate skills already exist; don't add to them.
 3. **Read the anatomy.** Confirm your idea fits the format in [docs/skill-anatomy.md](docs/skill-anatomy.md), an actionable workflow with verification, not vague advice.
 4. **Justify the gap in your PR description.** State explicitly why this isn't covered by an existing skill or open PR. If it overlaps, propose extending the existing skill instead of adding a new one.
