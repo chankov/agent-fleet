@@ -67,7 +67,9 @@ It's one developer's single-task experiment, not a benchmark - but it's a useful
 - **Reach for Superpowers** when you want to **hand off long, autonomous stretches** and come back to a reviewed result, or when the work is exploratory/architectural and benefits from heavier upfront reasoning and subagent isolation.
 - **Reach for Matt Pocock's skills** when you want a **sharp, low-ceremony daily toolkit** - especially the requirement-grilling and strict TDD loop - for a TypeScript-flavored Claude Code workflow.
 
-And you don't have to choose exclusively. These are all Markdown skills, not runtimes: borrow the `grill-me` energy, the subagent isolation, and the lifecycle phases into whatever setup fits your team.
+And you don't have to choose exclusively, but combine them with care. These are Markdown skills, not runtimes, so cherry-picking *individual* skills works well: pull in Matt's `grill-me`, Superpowers' subagent isolation, or a specific checklist alongside your main setup.
+
+What doesn't work is running two of them as your **active router at the same time**. Stacked meta-skills fight over command names (`/tdd` defined in two places), compete on routing logic, and pull in different TDD philosophies, so you get unpredictable behavior rather than the best of both. Pick one framework as your primary router, and borrow from the others à la carte.
 
 ---
 
