@@ -341,7 +341,7 @@ Part of code review is dependency review:
 After review is complete:
 
 - [ ] All Critical issues are resolved
-- [ ] All required (non-Nit) issues are resolved or explicitly deferred with justification
+- [ ] All Required (no-prefix) changes are resolved or explicitly deferred with justification
 - [ ] Tests pass
 - [ ] Build succeeds
 - [ ] The verification story is documented (what changed, how it was verified)
