@@ -4,6 +4,8 @@
 
 Skills encode the workflows, quality gates, and best practices that senior engineers use when building software. These ones are packaged so AI agents follow them consistently across every phase of development.
 
+<a href="https://trendshift.io/repositories/25200" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25200" alt="addyosmani%2Fagent-skills | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
 ![Addy's Agent Skills](https://addyosmani.com/assets/images/addys-agent-skills.jpg)
 
 ```
