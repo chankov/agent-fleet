@@ -145,6 +145,10 @@ The `references/` directory contains supplementary checklists:
 | `performance-checklist.md` | performance-optimization |
 | `security-checklist.md` | security-and-hardening |
 | `accessibility-checklist.md` | frontend-ui-engineering |
+| `definition-of-done.md` | incremental-implementation, planning-and-task-breakdown |
+| `observability-checklist.md` | observability-and-instrumentation |
+| `orchestration-patterns.md` | orchestration-verification, designing-agents |
+| `prompting-patterns.md` | context-engineering |
 
 Load a reference when you need detailed patterns beyond what the skill covers.
 

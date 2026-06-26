@@ -319,6 +319,7 @@ Quick-reference material that skills pull in when needed:
 | [accessibility-checklist.md](references/accessibility-checklist.md) | Keyboard nav, screen readers, visual design, ARIA, testing tools |
 | [observability-checklist.md](references/observability-checklist.md) | On-call questions, structured logging, RED/USE metrics, tracing, symptom-based alerting, pre-launch gate |
 | [orchestration-patterns.md](references/orchestration-patterns.md) | Endorsed multi-persona orchestration patterns, anti-patterns, and the "personas don't invoke personas" rule |
+| [prompting-patterns.md](references/prompting-patterns.md) | Prompt-engineering best practices for authoring personas, commands, skills, pi harnesses, and rule files (Anthropic/OpenAI sourced) |
 
 ---
 

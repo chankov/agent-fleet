@@ -4,6 +4,8 @@ This guide explains how to use Agent Skills with [pi](https://github.com/badlogi
 
 This repo also ships pi-native **prompt templates** for the lifecycle slash commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`). These commands add workflow orchestration on top of the underlying skills.
 
+The specialist **personas** in `agents/` — including `web-performance-auditor` — are available to pi as well and are invoked directly as subagents. Note that `/webperf` is a Claude Code / OpenCode slash command, not a `.pi/prompts` command; on pi you run the same audit by invoking the `web-performance-auditor` persona.
+
 ## Overview
 
 pi natively supports:

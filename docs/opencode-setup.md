@@ -95,7 +95,12 @@ This repo ships OpenCode-native commands with an `as-` prefix so they are easy t
 - `/as-review`
 - `/as-code-simplify`
 - `/as-ship`
+- `/as-webperf`
 - `/as-design-agent`
+- `/as-orchestrate`
+- `/as-prime`
+- `/as-setup-agent-skills`
+- `/as-doctor-agent-skills`
 
 These commands are optional shortcuts. The agent can still invoke the correct skills automatically from plain natural-language requests.
 
@@ -144,7 +149,9 @@ The development lifecycle is encoded implicitly via `AGENTS.md` and is also expo
 | REVIEW          | `/review`           | `/as-review`       | `code-review-and-quality`                                     |
 | SIMPLIFY        | `/code-simplify`    | `/as-code-simplify`| `code-simplification`                                         |
 | SHIP            | `/ship`             | `/as-ship`         | `shipping-and-launch`                                         |
-| AUTHOR          | `/design-agent`     | `/as-design-agent`     | `designing-agents`                                        |
+| WEBPERF         | `/webperf`          | `/as-webperf`      | `web-performance-auditor` persona (`performance-optimization`) |
+| AUTHOR          | `/design-agent`     | `/as-design-agent` | `designing-agents`                                            |
+| ORCHESTRATE     | `/orchestrate`      | `/as-orchestrate`  | `orchestration-verification`                                  |
 
 ---
 
