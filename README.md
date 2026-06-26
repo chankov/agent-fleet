@@ -4,6 +4,8 @@
 
 Skills encode the workflows, quality gates, and best practices that senior engineers use when building software, packaged so AI agents follow them consistently across every phase of development. On **pi**, the [`agent-hub`](#agent-hub-a-multi-agent-harness-for-pi) harness runs those skills and personas as a live team of specialist subagents — while keeping the dispatcher's context thin.
 
+> **This is a fork** of [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills), focused on **Claude Code, OpenCode, and pi** and adding a pi runtime layer plus npm packaging. See [FORK.md](FORK.md) for what's added, what's dropped, and how it compares.
+
 <a href="https://trendshift.io/repositories/25200" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25200" alt="addyosmani%2Fagent-skills | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
 ![Addy's Agent Skills](https://addyosmani.com/assets/images/addys-agent-skills.jpg)

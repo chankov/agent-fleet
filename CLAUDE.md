@@ -25,6 +25,7 @@ justfile      → Recipes to launch pi with each harness
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
 references/   → Supplementary checklists (testing, performance, security, accessibility, observability)
 docs/         → Setup guides, agent-skills-setup.md (per-project overrides + install-record convention), npm-install.md (CLI + versioning), plus pi-extensions.md and pi-specs/ for the pi extensions
+FORK.md       → Canonical record of how this fork differs from upstream addyosmani/agent-skills: fork-vs-upstream pitch, the added/dropped/adapted tables, the upstream-merge reconciliation playbook, and the decision log. UPDATE IT in any change that alters fork direction — especially after every upstream merge.
 ```
 
 ## Skills by Phase
