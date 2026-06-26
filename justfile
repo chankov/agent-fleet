@@ -77,18 +77,18 @@ _peer-plus extensions persona name="" model="":
 
 # Team up: spawn every peer of a team from .pi/agents/peers.yaml into tmux panes.
 # Positional arg: team (defaults to "full"). e.g. just team-up full
-team-up team="full":
+team-up full:
     node --experimental-strip-types scripts/team-up.ts --team {{team}}
 
 # Team up (dry run): print the resolved per-peer commands without launching tmux.
 # e.g. just team-up-dry full
-team-up-dry team="full":
+team-up-dry full:
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run
 
 # ---------------------------------------------------------------- coms (Pi-to-Pi messaging)
 
 # Safe coms: a FULL pi (all auto-discovered local .pi/extensions/ + global extensions and
-# commands) plus damage-control guardrails and the coms peer layer, under a chosen name.
+# commands) plus damage-control-continue guardrails and the coms peer layer, under a chosen name.
 # Unlike `just hub`, this does NOT pass --no-extensions, so every local-only extension (MCP
 # bridges like chrome-devtools-mcp, project-specific extensions, …) loads into THIS process.
 # Use it as the agent-hub dispatcher/orchestrator peer that needs those local tools: spawned
@@ -97,5 +97,5 @@ team-up-dry team="full":
 # under exactly that name to other coms peers in the project pool.
 # e.g. just safe-coms orchestrator
 safe-coms name *args:
-    pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/coms/index.ts --name {{name}} {{args}}
+    pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/coms/index.ts --name {{name}} {{args}}
 # <<< agent-skills:harnesses <<<

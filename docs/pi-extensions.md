@@ -78,7 +78,7 @@ runtime itself.
 | [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, and peer-as-subagent | `just hub` |
 | [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub` | `just ext-damage-control` |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers | `just ext-damage-control-continue` |
-| [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine; launches damage-control-guarded under a chosen name | `just safe-coms <name>` |
+| [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine; launches damage-control-continue-guarded under a chosen name | `just safe-coms <name>` |
 
 Each extension directory has its own `README.md` with the full description, command/tool
 surface, requirements, and per-extension upstream changes.
