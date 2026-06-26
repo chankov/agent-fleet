@@ -4,10 +4,23 @@ Thanks for your interest in contributing! This project is a collection of produc
 
 ## Adding a New Skill
 
+### Before proposing a new skill
+
+This pack already covers most of the development lifecycle, and many proposals overlap with an existing skill or another open PR. Before opening one, do these checks so reviewers aren't triaging duplicates:
+
+1. **Search the catalog.** Browse [the skill list in the README](README.md) and skim `skills/` for an existing skill that covers your idea, whole or in part.
+2. **Check open PRs.** Run `gh pr list --state open` (or browse the PRs tab) and look for proposals on the same topic. Clusters of near-duplicate skills already exist; don't add to them.
+3. **Read the anatomy.** Confirm your idea fits the format in [docs/skill-anatomy.md](docs/skill-anatomy.md), an actionable workflow with verification, not vague advice.
+4. **Justify the gap in your PR description.** State explicitly why this isn't covered by an existing skill or open PR. If it overlaps, propose extending the existing skill instead of adding a new one.
+
+If your idea is a refinement of an existing skill, prefer a focused edit to that skill over a new directory.
+
+### Creating the skill
+
 1. Create a directory under `skills/` with a kebab-case name
 2. Add a `SKILL.md` following the format in [docs/skill-anatomy.md](docs/skill-anatomy.md)
 3. Include YAML frontmatter with `name` and `description` fields
-4. Ensure the `description` starts with "Use when" and describes triggering conditions
+4. Ensure the `description` starts with what the skill does (third person), then includes one or more `Use when` trigger conditions
 
 ### Skill Quality Bar
 
@@ -20,7 +33,12 @@ Skills should be:
 
 ### Structure
 
-Every skill should include these sections:
+Every new skill must have:
+
+- `SKILL.md` in the skill directory
+- YAML frontmatter with valid `name` and `description`
+
+New skills should generally follow the standard anatomy:
 
 - **Overview** — What this skill does and why it matters
 - **When to Use** — Triggering conditions
@@ -29,11 +47,14 @@ Every skill should include these sections:
 - **Red Flags** — Warning signs that the skill is being applied incorrectly
 - **Verification** — How to confirm the skill was applied correctly
 
+The frontmatter fields above are required. The section anatomy is a recommended pattern: equivalent headings such as `How It Works`, `Workflow`, or `Core Process` are fine when they preserve the same intent and keep the skill easy to follow.
+
 ### What Not to Do
 
 - Don't duplicate content between skills — reference other skills instead
 - Don't add skills that are vague advice instead of actionable processes
 - Don't create supporting files unless content exceeds 100 lines
+- Don't create an empty `scripts/` directory just to match another skill — add `scripts/` only when the skill includes runnable helpers
 - Don't put reference material inside skill directories — use `references/` instead
 
 ## Modifying Existing Skills

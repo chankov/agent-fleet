@@ -79,6 +79,22 @@ Correct behavior:
 
 This ensures OpenCode behaves similarly to Claude Code with full workflow enforcement.
 
+## Orchestration: Personas, Skills, and Commands
+
+This repo has three composable layers. They have different jobs and should not be confused:
+
+- **Skills** (`skills/<name>/SKILL.md`) — workflows with steps and exit criteria. The *how*. Mandatory hops when an intent matches.
+- **Personas** (`agents/<role>.md`) — roles with a perspective and an output format. The *who*.
+- **Slash commands** (`.claude/commands/*.md`) — user-facing entry points. The *when*. The orchestration layer.
+
+Composition rule: **the user (or a slash command) is the orchestrator. Personas do not invoke other personas.** A persona may invoke skills.
+
+On Claude Code and OpenCode, the only multi-persona orchestration pattern this repo endorses is **parallel fan-out with a merge step** — used by `/ship` to run `code-reviewer`, `security-auditor`, and `test-engineer` concurrently and synthesize their reports. Do not build a "router" persona that decides which other persona to call; that's the job of slash commands and intent mapping. On **pi**, the `agent-hub` harness is the sanctioned exception: the dedicated `orchestrator` persona dispatches specialists under a Verification Contract, with that orchestration living in the harness rather than a peer persona calling another. The `/orchestrate` command mirrors a constrained version for Claude Code and OpenCode.
+
+See [docs/agents.md](docs/agents.md) for the decision matrix and [references/orchestration-patterns.md](references/orchestration-patterns.md) for the full pattern catalog.
+
+**Claude Code interop:** the personas in `agents/` work as Claude Code subagents (auto-discovered from this plugin's `agents/` directory) and as Agent Teams teammates (referenced by name when spawning). Two platform constraints align with our rules: subagents cannot spawn other subagents, and teams cannot nest. Plugin agents silently ignore the `hooks`, `mcpServers`, and `permissionMode` frontmatter fields.
+
 ## Creating a New Skill
 
 ### Directory Structure
@@ -104,18 +120,22 @@ skills/
 ```markdown
 ---
 name: {skill-name}
-description: {One sentence describing when to use this skill. Include trigger phrases like "Deploy my app", "Check logs", etc.}
+description: {One sentence describing what the skill does, followed by one or more "Use when" trigger conditions. Include trigger phrases like "Deploy my app" or "Check logs" when helpful.}
 ---
 
 # {Skill Title}
 
-{Brief description of what the skill does.}
+{Brief overview of what the skill does and why it matters.}
 
 ## How It Works
 
 {Numbered list explaining the skill's workflow}
 
-## Usage
+Equivalent headings like `Workflow`, `Core Process`, or `When to Use` are fine when they communicate the same structure clearly.
+
+## Usage (Optional)
+
+Include this section only if the skill ships runnable helpers under `scripts/`. Markdown-only skills can omit both the section and the directory entirely.
 
 ```bash
 bash /mnt/skills/user/{skill-name}/scripts/{script}.sh [args]

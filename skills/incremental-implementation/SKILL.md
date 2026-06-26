@@ -242,6 +242,8 @@ After each increment, verify:
 - [ ] Explicit user approval was received before starting the next slice
 - [ ] The agent did not run `git add`, `git commit`, `git reset`, or `git restore` during this slice (whatever the user staged or committed between slices is preserved as-is)
 
+**Note:** Run each verification command after a change that could affect it. After a successful run, don't repeat the same command unless the code has changed since — re-running on unchanged code adds no information.
+
 ## Common Rationalizations
 
 | Rationalization | Reality |
@@ -253,6 +255,7 @@ After each increment, verify:
 | "This refactor is small enough to include" | Refactors mixed with features make both harder to review and debug. Separate them. |
 | "I'll just stage it to make their life easier" | Don't. The user explicitly controls staging and commits. Do not run any git state-changing command — and do not "tidy up" by unstaging or resetting what the user staged between slices. |
 | "They didn't answer but it's obviously fine, I'll continue" | No. Silence is not approval. Wait for an explicit response before starting the next slice. |
+| "Let me run the build command again just to be sure" | After a successful run, repeating the same command adds nothing unless the code has changed since. Run it again after subsequent edits, not as reassurance. |
 
 ## Red Flags
 
@@ -267,6 +270,7 @@ After each increment, verify:
 - Building abstractions before the third use case demands it
 - Touching files outside the task scope "while I'm here"
 - Creating new utility files for one-time operations
+- Running the same build/test command twice in a row without any intervening code change
 
 ## Verification
 
@@ -277,3 +281,7 @@ After completing all increments for a task:
 - [ ] The build is clean
 - [ ] The feature works end-to-end as specified
 - [ ] The agent performed no git state changes during the task (no `git add`, `git commit`, `git reset`, `git restore`, `git stash`, etc.) — whatever the user staged or committed between slices is preserved
+
+## See Also
+
+Per-increment verification is the local check. Before declaring a task done, apply the project-wide Definition of Done as the final gate, the standing bar every increment clears regardless of the task. See `references/definition-of-done.md`.

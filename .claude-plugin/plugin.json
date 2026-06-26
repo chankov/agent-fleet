@@ -1,12 +1,18 @@
 {
   "name": "agent-skills",
   "description": "Production-grade engineering skills for AI coding agents — covering the full software development lifecycle from spec to ship.",
-  "version": "1.0.0",
   "author": {
     "name": "Nikolay Chankov"
   },
   "homepage": "https://github.com/chankov/agent-skills",
   "repository": "https://github.com/chankov/agent-skills",
   "license": "MIT",
-  "commands": "./.claude/commands"
+  "commands": ["./.claude/commands", "./commands"],
+  "skills": "./skills",
+  "agents": [
+    "./agents/code-reviewer.md",
+    "./agents/security-auditor.md",
+    "./agents/test-engineer.md",
+    "./agents/web-performance-auditor.md"
+  ]
 }

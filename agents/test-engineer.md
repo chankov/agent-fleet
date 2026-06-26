@@ -136,3 +136,9 @@ When analyzing test coverage:
 6. Every test name should read like a specification
 7. A test that never fails is as useless as a test that always fails
 8. Parity coverage — a behavior asserted for one member of a set (one type, role, state, or variant) is asserted for every member; cover the siblings, not just the exemplar
+
+## Composition
+
+- **Invoke directly when:** the user asks for test design, coverage analysis, or a Prove-It test for a specific bug.
+- **Invoke via:** `/test` (TDD workflow) or `/ship` (parallel fan-out for coverage gap analysis alongside `code-reviewer` and `security-auditor`).
+- **Do not invoke from another persona.** Recommendations to add tests belong in your report; the user or a slash command decides when to act on them. See [docs/agents.md](../docs/agents.md).

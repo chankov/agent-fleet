@@ -226,3 +226,7 @@ Before starting implementation, confirm:
 - [ ] Checkpoints exist between major phases
 - [ ] The human has reviewed and approved the plan
 - [ ] No open questions left (All are resolved/answered/commented)
+
+## See Also
+
+Acceptance criteria are per-task and answer "did we build the right thing?". They sit on top of the project-wide Definition of Done, the standing bar every task clears before it counts as done. See `references/definition-of-done.md`.

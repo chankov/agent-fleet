@@ -4,6 +4,10 @@
 
 Skills encode the workflows, quality gates, and best practices that senior engineers use when building software, packaged so AI agents follow them consistently across every phase of development. On **pi**, the [`agent-hub`](#agent-hub-a-multi-agent-harness-for-pi) harness runs those skills and personas as a live team of specialist subagents — while keeping the dispatcher's context thin.
 
+<a href="https://trendshift.io/repositories/25200" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25200" alt="addyosmani%2Fagent-skills | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
+![Addy's Agent Skills](https://addyosmani.com/assets/images/addys-agent-skills.jpg)
+
 ```
   DEFINE          PLAN           BUILD          VERIFY         REVIEW          SHIP
  ┌──────┐      ┌──────┐      ┌──────┐      ┌──────┐      ┌──────┐      ┌──────┐
@@ -26,11 +30,14 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 | Build incrementally | `/build` | One slice at a time |
 | Prove it works | `/test` | Tests are proof |
 | Review before merge | `/review` | Improve code health |
+| Audit web performance | `/webperf` | Measure before you optimize |
 | Simplify the code | `/code-simplify` | Clarity over cleverness |
 | Ship to production | `/ship` | Faster is safer |
 | Orchestrate a team | `/orchestrate` | Main session drives subagents |
 
 `/orchestrate` turns the main session into an **orchestrator** that drives a config-defined team of subagents (default `planner` + `builder`, no reviewer), routing them as a runtime roster and handling the `NEEDS_RESEARCH` / `PLAN_FILE` handoffs. The named teams live in `.claude/orchestrate-teams.yaml` (mirroring pi's `.pi/agents/teams.yaml`) and are switchable at runtime: `/orchestrate <team> "<task>"`. It ships for **claude-code** and **opencode** (`/as-orchestrate`); pi orchestrates via the `agent-hub` harness instead.
+
+Want fewer manual steps once the spec exists? **`/build auto`** generates the plan and implements every task in a single approved pass — you approve the plan once, then it runs autonomously. It removes the human stepping *between* tasks, not the verification: every task is still test-driven and committed individually, and it pauses on failures or risky steps.
 
 Skills also activate automatically based on what you're doing — designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`, and so on.
 
@@ -113,9 +120,10 @@ Versioned with [semver](https://semver.org); changelog in
 /plugin install agent-skills@nc-agent-skills
 ```
 
-> **SSH errors?** The marketplace clones repos via SSH. If you don't have SSH keys set up on GitHub, either [add your SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account) or switch to HTTPS for fetches only:
+> **SSH errors?** The marketplace clones repos via SSH. If you don't have SSH keys set up on GitHub, either [add your SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account) or use the full HTTPS URL to force the HTTPS cloning:
 > ```bash
-> git config --global url."https://github.com/".insteadOf "git@github.com:"
+> /plugin marketplace add https://github.com/addyosmani/agent-skills.git
+> /plugin install agent-skills@addy-agent-skills
 > ```
 
 </details>
@@ -173,16 +181,25 @@ The repo also ships selectable pi session *harnesses* — agent orchestration, s
 
 </details>
 
+
+
 ---
 
-## All 24 Skills
+## All 27 Skills
 
-The commands above are the entry points. Under the hood, they activate these 24 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+The commands above are the entry points. Under the hood, they activate these 27 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+
+### Meta - Discover which skill applies
+
+| Skill | What It Does | Use When |
+|-------|-------------|----------|
+| [using-agent-skills](skills/using-agent-skills/SKILL.md) | Maps incoming work to the right skill workflow and defines shared operating rules | Starting a session or deciding which skill applies |
 
 ### Define - Clarify what to build
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
+| [interview-me](skills/interview-me/SKILL.md) | One-question-at-a-time interview that extracts what the user actually wants instead of what they think they should want, until ~95% confidence | The ask is underspecified, or the user invokes "interview me" / "grill me" |
 | [idea-refine](skills/idea-refine/SKILL.md) | Structured divergent/convergent thinking to turn vague ideas into concrete proposals | You have a rough concept that needs exploration |
 | [spec-driven-development](skills/spec-driven-development/SKILL.md) | Write a PRD covering objectives, commands, structure, code style, testing, and boundaries before any code | Starting a new project, feature, or significant change |
 
@@ -200,6 +217,7 @@ The commands above are the entry points. Under the hood, they activate these 24 
 | [test-driven-development](skills/test-driven-development/SKILL.md) | Red-Green-Refactor, test pyramid (80/15/5), test sizes, DAMP over DRY, Beyonce Rule, browser testing | Implementing logic, fixing bugs, or changing behavior |
 | [context-engineering](skills/context-engineering/SKILL.md) | Feed agents the right information at the right time - rules files, context packing, MCP integrations | Starting a session, switching tasks, or when output quality drops |
 | [source-driven-development](skills/source-driven-development/SKILL.md) | Ground every framework decision in official documentation - verify, cite sources, flag what's unverified | You want authoritative, source-cited code for any framework or library |
+| [doubt-driven-development](skills/doubt-driven-development/SKILL.md) | Adversarial fresh-context review of every non-trivial decision in-flight - CLAIM → EXTRACT → DOUBT → RECONCILE → STOP, with optional user-authorized cross-model escalation | Stakes are high (production, security, irreversible), working in unfamiliar code, or a confident output is cheaper to verify now than to debug later |
 | [frontend-ui-engineering](skills/frontend-ui-engineering/SKILL.md) | Component architecture, design systems, state management, responsive design, WCAG 2.1 AA accessibility | Building or modifying user-facing interfaces |
 | [api-and-interface-design](skills/api-and-interface-design/SKILL.md) | Contract-first design, Hyrum's Law, One-Version Rule, error semantics, boundary validation | Designing APIs, module boundaries, or public interfaces |
 
@@ -227,6 +245,7 @@ The commands above are the entry points. Under the hood, they activate these 24 
 | [ci-cd-and-automation](skills/ci-cd-and-automation/SKILL.md) | Shift Left, Faster is Safer, feature flags, quality gate pipelines, failure feedback loops | Setting up or modifying build and deploy pipelines |
 | [deprecation-and-migration](skills/deprecation-and-migration/SKILL.md) | Code-as-liability mindset, compulsory vs advisory deprecation, migration patterns, zombie code removal | Removing old systems, migrating users, or sunsetting features |
 | [documentation-and-adrs](skills/documentation-and-adrs/SKILL.md) | Architecture Decision Records, API docs, inline documentation standards - document the *why* | Making architectural decisions, changing APIs, or shipping features |
+| [observability-and-instrumentation](skills/observability-and-instrumentation/SKILL.md) | Structured logging, RED metrics, OpenTelemetry tracing, symptom-based alerting - instrument as you build | Adding telemetry, or shipping anything that runs in production |
 | [shipping-and-launch](skills/shipping-and-launch/SKILL.md) | Pre-launch checklists, feature flag lifecycle, staged rollouts, rollback procedures, monitoring setup | Preparing to deploy to production |
 
 ### Orchestrate - Keep multi-agent runs honest
@@ -241,7 +260,7 @@ This skill is the single canonical source for the four Verification-Contract art
 
 ## Agent Personas
 
-14 pre-configured specialist personas live in [agents/](agents/) — reusable subagent definitions your coding agent can delegate work to. Each persona is one Markdown file with YAML frontmatter; the canonical format is pi-flavored, and the setup commands transform it per target agent on install (see [Installing personas](#installing-personas)).
+15 pre-configured specialist personas live in [agents/](agents/) — reusable subagent definitions your coding agent can delegate work to. Each persona is one Markdown file with YAML frontmatter; the canonical format is pi-flavored, and the setup commands transform it per target agent on install (see [Installing personas](#installing-personas)).
 
 | Persona | Role | Access | Primary skill | Agents |
 |---|---|---|---|---|
@@ -251,6 +270,7 @@ This skill is the single canonical source for the four Verification-Contract art
 | [code-reviewer](agents/code-reviewer.md) | Senior staff engineer — five-axis review before merge | read-only | [code-review-and-quality](skills/code-review-and-quality/SKILL.md) | all |
 | [test-engineer](agents/test-engineer.md) | QA — test strategy, coverage analysis, the Prove-It pattern | rw | [test-driven-development](skills/test-driven-development/SKILL.md) | all |
 | [security-auditor](agents/security-auditor.md) | Security engineer — vulnerability detection, threat modeling, OWASP | read-only | [security-and-hardening](skills/security-and-hardening/SKILL.md) | all |
+| [web-performance-auditor](agents/web-performance-auditor.md) | Web performance engineer — Core Web Vitals, loading, rendering, network audits (via `/webperf`) | read-only | [performance-optimization](skills/performance-optimization/SKILL.md) | all |
 | [documenter](agents/documenter.md) | Tech writer — READMEs, inline docs, usage examples | rw | [documentation-and-adrs](skills/documentation-and-adrs/SKILL.md) | all |
 | [architect](agents/architect.md) | System architect — design decisions and migration strategy | rw | [api-and-interface-design](skills/api-and-interface-design/SKILL.md) | all |
 | [releaser](agents/releaser.md) | Release owner — changeset → version-bump → tag flow | rw | [git-workflow-and-versioning](skills/git-workflow-and-versioning/SKILL.md), [shipping-and-launch](skills/shipping-and-launch/SKILL.md) | all |
@@ -292,10 +312,13 @@ Quick-reference material that skills pull in when needed:
 
 | Reference | Covers |
 |-----------|--------|
+| [definition-of-done.md](references/definition-of-done.md) | Project-wide standing bar every change clears, contrasted with per-task acceptance criteria |
 | [testing-patterns.md](references/testing-patterns.md) | Test structure, naming, mocking, React/API/E2E examples, anti-patterns |
 | [security-checklist.md](references/security-checklist.md) | Pre-commit checks, auth, input validation, headers, CORS, OWASP Top 10 |
 | [performance-checklist.md](references/performance-checklist.md) | Core Web Vitals targets, frontend/backend checklists, measurement commands |
 | [accessibility-checklist.md](references/accessibility-checklist.md) | Keyboard nav, screen readers, visual design, ARIA, testing tools |
+| [observability-checklist.md](references/observability-checklist.md) | On-call questions, structured logging, RED/USE metrics, tracing, symptom-based alerting, pre-launch gate |
+| [orchestration-patterns.md](references/orchestration-patterns.md) | Endorsed multi-persona orchestration patterns, anti-patterns, and the "personas don't invoke personas" rule |
 
 ---
 
@@ -304,21 +327,21 @@ Quick-reference material that skills pull in when needed:
 Every skill follows a consistent anatomy:
 
 ```
-┌─────────────────────────────────────────────┐
-│  SKILL.md                                   │
-│                                             │
-│  ┌─ Frontmatter ─────────────────────────┐  │
-│  │ name: lowercase-hyphen-name           │  │
-│  │ description: Use when [trigger]       │  │
-│  └───────────────────────────────────────┘  │
-│                                             │
-│  Overview         → What this skill does    │
-│  When to Use      → Triggering conditions   │
-│  Process          → Step-by-step workflow   │
-│  Rationalizations → Excuses + rebuttals     │
-│  Red Flags        → Signs something's wrong │
-│  Verification     → Evidence requirements   │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  SKILL.md                                       │
+│                                                 │
+│  ┌─ Frontmatter ─────────────────────────────┐  │
+│  │ name: lowercase-hyphen-name               │  │
+│  │ description: Guides agents through [task].│  │
+│  │              Use when…                    │  │
+│  └───────────────────────────────────────────┘  │                                                                                                
+│  Overview         → What this skill does        │
+│  When to Use      → Triggering conditions       │
+│  Process          → Step-by-step workflow       │
+│  Rationalizations → Excuses + rebuttals         │
+│  Red Flags        → Signs something's wrong     │
+│  Verification     → Evidence requirements       │
+└─────────────────────────────────────────────────┘
 ```
 
 **Key design choices:**
@@ -350,13 +373,15 @@ See [docs/agent-skills-setup.md](docs/agent-skills-setup.md) for the file format
 
 ```
 agent-skills/
-├── skills/                            # 24 core skills (SKILL.md per directory)
+├── skills/                            # 27 core skills (SKILL.md per directory)
+│   ├── interview-me/                  #   Define
 │   ├── idea-refine/                   #   Define
 │   ├── spec-driven-development/       #   Define
 │   ├── planning-and-task-breakdown/   #   Plan
 │   ├── incremental-implementation/    #   Build
 │   ├── context-engineering/           #   Build
 │   ├── source-driven-development/     #   Build
+│   ├── doubt-driven-development/      #   Build
 │   ├── frontend-ui-engineering/       #   Build
 │   ├── test-driven-development/       #   Build
 │   ├── api-and-interface-design/      #   Build
@@ -370,15 +395,16 @@ agent-skills/
 │   ├── ci-cd-and-automation/          #   Ship
 │   ├── deprecation-and-migration/     #   Ship
 │   ├── documentation-and-adrs/        #   Ship
+│   ├── observability-and-instrumentation/ # Ship
 │   ├── shipping-and-launch/           #   Ship
 │   ├── orchestration-verification/    #   Orchestrate
 │   ├── designing-agents/              #   Meta: author skills/personas/harnesses
 │   ├── guided-workspace-setup/        #   Onboard
 │   └── using-agent-skills/            #   Meta: how to use this pack
-├── agents/                            # 14 reusable agent personas
-├── references/                        # 4 supplementary checklists
+├── agents/                            # 15 reusable agent personas
+├── references/                        # 8 supplementary checklists
 ├── hooks/                             # Session lifecycle hooks
-├── .claude/commands/                  # 8 Claude slash commands
+├── .claude/commands/                  # 12 Claude slash commands
 ├── .pi/prompts/                       # 7 pi prompt-template commands
 ├── .pi/harnesses/                     # Selectable pi session harnesses (agent-hub, coms, damage-control)
 └── docs/                              # Setup guides per tool
@@ -393,6 +419,12 @@ AI coding agents default to the shortest path - which often means skipping specs
 Each skill encodes hard-won engineering judgment: *when* to write a spec, *what* to test, *how* to review, and *when* to ship. These aren't generic prompts - they're the kind of opinionated, process-driven workflows that separate production-quality work from prototype-quality work.
 
 Skills bake in best practices from Google's engineering culture — including concepts from [Software Engineering at Google](https://abseil.io/resources/swe-book) and Google's [engineering practices guide](https://google.github.io/eng-practices/). You'll find Hyrum's Law in API design, the Beyonce Rule and test pyramid in testing, change sizing and review speed norms in code review, Chesterton's Fence in simplification, trunk-based development in git workflow, Shift Left and feature flags in CI/CD, and a dedicated deprecation skill treating code as a liability. These aren't abstract principles — they're embedded directly into the step-by-step workflows agents follow.
+
+---
+
+## How it compares
+
+Wondering how this stacks up against [Superpowers](https://github.com/obra/superpowers) or [Matt Pocock's skills](https://github.com/mattpocock/skills)? See **[docs/comparison.md](docs/comparison.md)** for an honest, side-by-side look at how the three are shaped differently and when to reach for each — including a link to a controlled [head-to-head experiment](https://www.linkedin.com/pulse/superpowers-vs-agent-skills-faster-shipping-safer-reasoning-om-mishra-dzakf/).
 
 ---
 

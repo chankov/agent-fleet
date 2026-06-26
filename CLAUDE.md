@@ -23,18 +23,18 @@ justfile      → Recipes to launch pi with each harness
 .pi/agents/   → pi YAML configs (teams, chains, peers) used by the orchestration harnesses
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
-references/   → Supplementary checklists (testing, performance, security, accessibility)
+references/   → Supplementary checklists (testing, performance, security, accessibility, observability)
 docs/         → Setup guides, agent-skills-setup.md (per-project overrides + install-record convention), npm-install.md (CLI + versioning), plus pi-extensions.md and pi-specs/ for the pi extensions
 ```
 
 ## Skills by Phase
 
-**Define:** spec-driven-development
+**Define:** interview-me, idea-refine, spec-driven-development
 **Plan:** planning-and-task-breakdown
-**Build:** incremental-implementation, test-driven-development, context-engineering, source-driven-development, frontend-ui-engineering, api-and-interface-design
+**Build:** incremental-implementation, test-driven-development, context-engineering, source-driven-development, doubt-driven-development, frontend-ui-engineering, api-and-interface-design
 **Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
-**Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, shipping-and-launch
+**Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
 **Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness)
 **Onboard:** guided-workspace-setup
 

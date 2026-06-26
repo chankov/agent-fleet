@@ -110,6 +110,7 @@ The `agents/` directory contains pre-configured agent personas:
 | `code-reviewer.md` | Five-axis code review (read-only) |
 | `test-engineer.md` | Test strategy and writing |
 | `security-auditor.md` | Vulnerability detection (read-only) |
+| `web-performance-auditor.md` | Core Web Vitals & performance audit (read-only, via `/webperf`) |
 | `planner.md` | Numbered implementation plans (read-only) |
 | `plan-reviewer.md` | Critiques and validates plans (read-only) |
 | `builder.md` | Implements an approved plan |
@@ -127,9 +128,12 @@ The `.claude/commands/` directory contains slash commands for Claude Code:
 | `/spec` | spec-driven-development |
 | `/plan` | planning-and-task-breakdown |
 | `/build` | incremental-implementation + test-driven-development |
+| `/build auto` | planning-and-task-breakdown → incremental-implementation + test-driven-development (whole plan, one approval) |
 | `/test` | test-driven-development |
 | `/review` | code-review-and-quality |
+| `/code-simplify` | code-simplification |
 | `/ship` | shipping-and-launch |
+| `/webperf` | web-performance-auditor (specialist agent, web apps only) |
 
 ## Using References
 
