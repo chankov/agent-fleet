@@ -49,8 +49,10 @@ another main agent** and **use a coms peer as a subagent**.
   design** (PRD open question 2): status is surfaced and "proven" requires named evidence, but a
   dispatch is never hard-refused on an unproven assertion — code-enforcement is the Checkpoint A
   decision.
-- **Agent controls** — `/zoom` inspects a live agent timeline; kill/restart controls manage running
-  child agents; per-agent `model:` fields select models from team config.
+- **Agent controls** — `/zoom` inspects a live agent timeline; `/agents-history` replays the run as a
+  timeline (orchestrator turns, dispatches, research helpers) with per-agent durations, parallel-run
+  markers, and a grand total; kill/restart controls manage running child agents; per-agent `model:`
+  fields select models from team config.
 - **Model switching** — a persona's frontmatter `models:` list declares the models it may switch to
   (the default `model:` is implicitly a candidate). `/agent-model <persona>` picks from that list;
   the choice lasts for the session and takes effect on the persona's next dispatch
@@ -139,6 +141,34 @@ Inherited `/zoom` behavior in this harness expands the latest event by default. 
 `Ctrl+C` to copy the selected row content, and `Q` or `Esc` to close the overlay. The overlay sizes
 to the terminal and keeps the selected (and last) entry fully visible while you navigate with
 `↑/↓`.
+
+### `/agents-history`
+
+`/agents-history` opens a read-only overlay (same chrome as `/zoom`) that replays the session as an
+execution **tree**:
+
+- **Orchestrator turns** — each dispatcher turn that actually dispatched something is a depth-0 row
+  labelled `(dispatcher)`. Chat-only turns add no rows.
+- **Dispatched specialists and research helpers** nest one level beneath the turn that launched them;
+  **delegate sub-sub-agents** nest one level deeper still under the specialist that spawned them — in
+  start order at every level.
+- **Parallel runs** — siblings whose run times overlap are marked with a `│→` connector, so a
+  concurrent fan-out reads as a visually grouped block.
+- **Real-work durations** — each row shows that node's *own* work: its span **minus the time it spent
+  awaiting children**. A dispatcher blocked on six concurrent agents is credited only for the time it
+  actually worked between/around the awaits, never for the await itself — so the same wall-clock isn't
+  counted twice up the tree. The same subtraction applies to a specialist awaiting its own delegate
+  children. Format: plain seconds under a minute (`42sec`), `m:ss` above it (`10:20min` for 620s).
+  Running rows tick live (the overlay re-renders once a second) and a new dispatch appears the instant
+  it starts.
+- **Footer** shows `Σ real work <total> · <n> runs (agents <a> + dispatchers <d>)` — the real work of
+  *everyone*: the dispatched specialists' and research helpers' full runtime (`agents`) plus each
+  dispatcher turn's own work (`dispatchers` — its span minus the time it awaited agents **and** the
+  human via `ask_user`). Wall-clock is deliberately **not** shown: it would fold in the idle gaps
+  while you're away between turns, and `ask_user` waits are subtracted for the same reason.
+
+Navigate with `↑/↓`, press `G` to jump back to the live tail, and `Q`/`Esc` to close. The log resets
+on each session start.
 
 Press **`Alt+A`** to toggle the agent view between the full **dashboard** (bordered card grid drawn
 *above* the input box) and a **compact** view that shows one line per *running* agent —

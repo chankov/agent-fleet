@@ -16,7 +16,7 @@
  * Commands:
  *   /agents-team          — switch active team
  *   /agents-list          — list loaded agents
- *   /agents-grid N        — set column count (default 2)
+ *   /agents-history       — timeline of agent execution (durations + grand total)
  *   /agent-model <persona>[.<role>] — switch a team or research persona's (or
  *                           delegate sub-role's) model from its declared candidates
  *   /agent-model-thinking <persona> — switch a team or research persona's thinking
@@ -130,6 +130,10 @@ interface DelegationChild {
 	elapsed: number;
 	timeline: TimelineEntry[];
 	zoomRender?: (force?: boolean) => void;
+	// The /agents-history node for this delegate child, set on its spawn event so
+	// the exit event can close it. Lets a delegating specialist's row subtract the
+	// time it spent awaiting its own sub-sub-agents.
+	histEntry?: HistoryEntry;
 }
 
 interface AgentState {
@@ -165,6 +169,9 @@ interface AgentState {
 	// (throttled; pass force=true for the final frame).
 	timeline: TimelineEntry[];
 	zoomRender?: (force?: boolean) => void;
+	// The /agents-history node for the current dispatch, so delegate children parsed
+	// from the event file can attach to it as the root parent of their subtree.
+	histEntry?: HistoryEntry;
 }
 
 // A read-only research helper (Phase 4). Spawned on demand to assist the standing
@@ -200,6 +207,61 @@ interface Zoomable {
 	status: string;
 	timeline: TimelineEntry[];
 	zoomRender?: (force?: boolean) => void;
+}
+
+// One node in the /agents-history tree: an orchestrator (dispatcher) turn, a
+// dispatched specialist, a research helper, or a delegate sub-sub-agent. `parent`
+// links a node to the one that launched it (null = top level — an orchestrator
+// turn, or a turn-less manual /research). `endedAt` is null while the node is still
+// running, so the overlay can tick its duration live. Parallelism is derived at
+// render time from overlapping [startedAt, endedAt] ranges among siblings.
+type HistoryKind = "orchestrator" | "agent" | "research" | "delegate";
+interface HistoryEntry {
+	kind: HistoryKind;
+	name: string;
+	startedAt: number;
+	endedAt: number | null;
+	status: "running" | "done" | "error" | "idle";
+	parent: HistoryEntry | null;
+	// Extra "awaiting, not working" intervals to subtract from this node's real work
+	// on top of its children — currently the time a dispatcher turn spent blocked on
+	// `ask_user` (the human is away, the model isn't working). Orchestrator-only.
+	awaitIntervals?: Array<[number, number]>;
+}
+
+// Format a millisecond duration the way /agents-history shows it: plain seconds
+// under a minute ("42sec"), m:ss above it ("10:20min" for 620s). Used for every
+// per-agent row and the footer total.
+function fmtDuration(ms: number): string {
+	const totalSec = Math.max(0, Math.round(ms / 1000));
+	if (totalSec < 60) return `${totalSec}sec`;
+	const m = Math.floor(totalSec / 60);
+	const s = totalSec % 60;
+	return `${m}:${String(s).padStart(2, "0")}min`;
+}
+
+// Total covered length of a set of (possibly overlapping) time intervals — the
+// wall-clock during which AT LEAST ONE interval was active. Used to subtract the
+// time a node spent awaiting children: a parent's "real work" is its own span
+// minus the union of its children's runs (so parallel awaits aren't counted twice,
+// and a dispatcher blocked on six concurrent agents is credited once, not six times).
+function unionMs(intervals: Array<[number, number]>): number {
+	if (intervals.length === 0) return 0;
+	const sorted = intervals.slice().sort((a, b) => a[0] - b[0]);
+	let total = 0;
+	let curStart = sorted[0][0];
+	let curEnd = sorted[0][1];
+	for (let i = 1; i < sorted.length; i++) {
+		const [s, e] = sorted[i];
+		if (s > curEnd) {
+			total += curEnd - curStart;
+			curStart = s;
+			curEnd = e;
+		} else if (e > curEnd) {
+			curEnd = e;
+		}
+	}
+	return total + (curEnd - curStart);
 }
 
 // ── Display Name Helper ──────────────────────────
@@ -759,6 +821,205 @@ class ZoomUI {
 				if (bodyLines.length > 0 && bodyLines.length + heights[i] > contentHeight) break;
 				bodyLines.push(...blocks[i]);
 			}
+		}
+
+		return [...topLines, ...bodyLines, ...bottomLines];
+	}
+}
+
+// Read-only scrollable overlay for /agents-history. Renders the execution log as a
+// timeline: orchestrator (dispatcher) turns at depth 0, the specialists they
+// dispatched indented beneath, and parallel siblings deeper still with a "│→"
+// connector. Every row shows a live duration; the footer carries the grand total.
+// Shares the zoom overlay's chrome (bordered header/footer, windowed body) and is
+// re-rendered on a 1s tick so running durations advance while it is open.
+class HistoryUI {
+	private scrollOffset = 0;
+	private followTail = true;
+
+	constructor(
+		private getEntries: () => HistoryEntry[],
+		private getLabel: () => string,
+		private onDone: () => void,
+	) {}
+
+	handleInput(data: string, tui: any): void {
+		if (matchesKey(data, Key.up)) {
+			this.followTail = false;
+			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+		} else if (matchesKey(data, Key.down)) {
+			this.followTail = false;
+			this.scrollOffset++;
+		} else if (matchesKey(data, "g") || matchesKey(data, Key.shift("g"))) {
+			this.followTail = true; // jump back to the live tail
+		} else if (matchesKey(data, Key.escape) || matchesKey(data, "q") || matchesKey(data, Key.shift("q"))) {
+			this.onDone();
+			return;
+		}
+		tui.requestRender();
+	}
+
+	private statusGlyph(e: HistoryEntry, theme: any): string {
+		if (e.status === "running") return theme.fg("warning", "●");
+		if (e.status === "done") return theme.fg("success", "✓");
+		if (e.status === "error") return theme.fg("error", "✗");
+		return theme.fg("dim", "⊘");
+	}
+
+	// Pad a styled left segment to the full width with a right-aligned duration.
+	// Width math uses visibleWidth (ANSI-aware); the styled string is only truncated
+	// when it would actually overflow, so colors stay intact in the common case.
+	private rowLine(styledLeft: string, dur: string, width: number, theme: any): string {
+		const budget = Math.max(0, width - dur.length - 2);
+		let left = styledLeft;
+		let w = visibleWidth(styledLeft);
+		if (w > budget) {
+			left = truncateToWidth(styledLeft, budget);
+			w = visibleWidth(left);
+		}
+		const gap = Math.max(1, width - w - dur.length - 1);
+		return ` ${left}${" ".repeat(gap)}${dur ? theme.fg("dim", dur) : ""}`;
+	}
+
+	// A node's *real work*: its own span minus the time it spent awaiting — both its
+	// children (the union of their runs) and, for a dispatcher, any `ask_user` waits
+	// (`awaitIntervals`). All clipped to the node's own window and unioned together,
+	// so overlapping awaits are never subtracted twice. A leaf with no awaits returns
+	// its full span; a dispatcher blocked on six concurrent agents (or on the human)
+	// is credited only for the time it was actually working between/around the awaits.
+	private realWorkMs(entry: HistoryEntry, kids: HistoryEntry[], now: number): number {
+		const start = entry.startedAt;
+		const end = entry.endedAt ?? now;
+		const span = end - start;
+		const intervals: Array<[number, number]> = [];
+		for (const k of kids) {
+			const s = Math.max(k.startedAt, start);
+			const e = Math.min(k.endedAt ?? now, end);
+			if (e > s) intervals.push([s, e]);
+		}
+		for (const [s0, e0] of entry.awaitIntervals ?? []) {
+			const s = Math.max(s0, start);
+			const e = Math.min(e0, end);
+			if (e > s) intervals.push([s, e]);
+		}
+		if (intervals.length === 0) return Math.max(0, span);
+		return Math.max(0, span - unionMs(intervals));
+	}
+
+	// Group entries by parent (children sorted by start time). Shared by buildRows
+	// (tree walk) and render (footer total), so the tree is built once per frame.
+	private groupByParent(entries: HistoryEntry[]): Map<HistoryEntry | null, HistoryEntry[]> {
+		const childrenOf = new Map<HistoryEntry | null, HistoryEntry[]>();
+		for (const e of entries) {
+			const arr = childrenOf.get(e.parent) ?? [];
+			arr.push(e);
+			childrenOf.set(e.parent, arr);
+		}
+		for (const arr of childrenOf.values()) arr.sort((a, b) => a.startedAt - b.startedAt);
+		return childrenOf;
+	}
+
+	// Build the display rows by walking the parent→child tree. Siblings are sorted by
+	// start time; those whose runs overlap form a "wave" and are marked parallel
+	// (a "│→" connector). Indentation tracks tree depth, so delegate sub-sub-agents
+	// nest under the specialist that spawned them.
+	private buildRows(childrenOf: Map<HistoryEntry | null, HistoryEntry[]>, width: number, theme: any, now: number): string[] {
+		// Mark parallel waves within each sibling group.
+		const parallel = new Set<HistoryEntry>();
+		for (const arr of childrenOf.values()) {
+			let waveStart = 0;
+			let waveMaxEnd = -Infinity;
+			const flush = (endIdx: number) => {
+				if (endIdx - waveStart >= 2) {
+					for (let i = waveStart; i < endIdx; i++) parallel.add(arr[i]);
+				}
+			};
+			for (let i = 0; i < arr.length; i++) {
+				const end = arr[i].endedAt ?? now;
+				if (i === waveStart) {
+					waveMaxEnd = end;
+				} else if (arr[i].startedAt < waveMaxEnd) {
+					waveMaxEnd = Math.max(waveMaxEnd, end);
+				} else {
+					flush(i);
+					waveStart = i;
+					waveMaxEnd = end;
+				}
+			}
+			flush(arr.length);
+		}
+
+		const rows: string[] = [];
+		const walk = (entry: HistoryEntry, depth: number) => {
+			const kids = childrenOf.get(entry) ?? [];
+			const dur = fmtDuration(this.realWorkMs(entry, kids, now));
+			const glyph = this.statusGlyph(entry, theme);
+			const isPar = parallel.has(entry);
+			const pad = "  ".repeat(depth);
+			const connector = isPar ? theme.fg("accent", "│→ ") : "";
+			let label: string;
+			if (entry.kind === "orchestrator") {
+				label = `${theme.bold(theme.fg("accent", entry.name))} ${theme.fg("dim", "(dispatcher)")}`;
+			} else if (entry.kind === "delegate") {
+				label = `${theme.fg("dim", entry.name)} ${theme.fg("dim", "(delegate)")}`;
+			} else {
+				label = isPar ? theme.fg("muted", entry.name) : entry.name;
+			}
+			rows.push(this.rowLine(`${pad}${connector}${glyph} ${label}`, dur, width, theme));
+			for (const child of kids) walk(child, depth + 1);
+		};
+		for (const top of childrenOf.get(null) ?? []) walk(top, 0);
+		return rows;
+	}
+
+	render(width: number, height: number, theme: any): string[] {
+		const entries = this.getEntries();
+		const now = Date.now();
+		const runningCount = entries.filter(e => e.status === "running" && e.kind !== "orchestrator").length;
+
+		const top = new Container();
+		top.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+		top.addChild(new Text(
+			`${theme.fg("accent", theme.bold(" AGENTS HISTORY"))} ${theme.fg("dim", "|")} ${theme.bold(this.getLabel())} ${theme.fg("dim", "|")} ${theme.fg("warning", String(runningCount))} running`,
+			1, 0,
+		));
+		top.addChild(new Spacer(1));
+		const topLines = top.render(width);
+
+		const childrenOf = this.groupByParent(entries);
+
+		// Footer total = the real work of everyone: the dispatched specialists' and
+		// research helpers' full runtime PLUS each dispatcher turn's own work (its span
+		// minus the time it awaited agents and the human via ask_user). Wall-clock is
+		// intentionally NOT shown — it would fold in the idle gaps between turns.
+		const runEntries = entries.filter(e => e.kind === "agent" || e.kind === "research");
+		const dispatchers = entries.filter(e => e.kind === "orchestrator");
+		let summaryLine = theme.fg("dim", " No agent activity yet.");
+		if (runEntries.length > 0 || dispatchers.length > 0) {
+			const agentMs = runEntries.reduce((n, e) => n + ((e.endedAt ?? now) - e.startedAt), 0);
+			const dispatcherMs = dispatchers.reduce((n, e) => n + this.realWorkMs(e, childrenOf.get(e) ?? [], now), 0);
+			summaryLine =
+				theme.fg("success", theme.bold(` Σ real work ${fmtDuration(agentMs + dispatcherMs)}`)) +
+				theme.fg("dim", ` · ${runEntries.length} runs  (agents ${fmtDuration(agentMs)} + dispatchers ${fmtDuration(dispatcherMs)})`);
+		}
+
+		const bottom = new Container();
+		bottom.addChild(new Text(summaryLine, 1, 0));
+		bottom.addChild(new Text(theme.fg("dim", " ↑/↓ Scroll • G Live tail • Q/Esc Close"), 1, 0));
+		bottom.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+		const bottomLines = bottom.render(width);
+
+		const contentHeight = Math.max(3, height - topLines.length - bottomLines.length);
+		const rows = this.buildRows(childrenOf, width, theme, now);
+
+		let bodyLines: string[];
+		if (rows.length === 0) {
+			bodyLines = [theme.fg("dim", "  No dispatches yet — history fills as agents run.")];
+		} else {
+			const maxOffset = Math.max(0, rows.length - contentHeight);
+			if (this.followTail) this.scrollOffset = maxOffset;
+			this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxOffset));
+			bodyLines = rows.slice(this.scrollOffset, this.scrollOffset + contentHeight);
 		}
 
 		return [...topLines, ...bodyLines, ...bottomLines];
@@ -1387,6 +1648,85 @@ export default function (pi: ExtensionAPI) {
 	// alongside the standing team but renders in its own widget row.
 	const researchStates: Map<number, ResearchState> = new Map();
 	let nextResearchId = 1;
+
+	// ── Execution history (/agents-history) ──────────
+	// A tree of every dispatch: orchestrator (dispatcher) turns, the specialists they
+	// dispatch, research helpers, and delegate sub-sub-agents. Orchestrator entries
+	// are created lazily — only when a turn actually dispatches something — so
+	// chat-only turns leave no noise. Each node's displayed duration is its *real
+	// work* (its span minus the time it spent awaiting children), so a dispatcher
+	// blocked on its agents isn't double-counted. Running nodes (endedAt=null) tick
+	// live while the overlay is open via `historyRender`. Reset on session_start.
+	const executionHistory: HistoryEntry[] = [];
+	let currentOrchestratorEntry: HistoryEntry | null = null;
+	let turnActive = false;
+	let currentTurnStartedAt = 0;
+	let historyRender: (() => void) | null = null;
+	// ask_user wait tracking (so the dispatcher's real work excludes time the human
+	// was away): each ask_user call's [start, end] from the tool_execution events,
+	// keyed by tool-call id while open. Intervals that close before the turn's
+	// orchestrator entry exists are buffered here, then seeded onto it.
+	const askUserStarts = new Map<string, number>();
+	const turnAskUserIntervals: Array<[number, number]> = [];
+
+	function pushHistory(kind: HistoryKind, name: string, parent: HistoryEntry | null, startedAt: number): HistoryEntry {
+		const entry: HistoryEntry = { kind, name, startedAt, endedAt: null, status: "running", parent };
+		executionHistory.push(entry);
+		historyRender?.();
+		return entry;
+	}
+
+	// Lazily open (and return) the orchestrator entry for the active turn. Returns
+	// null outside a turn (e.g. a manual /research), so that helper renders as a
+	// top-level, turn-less row instead of attaching to a stale dispatcher entry.
+	function ensureOrchestratorEntry(): HistoryEntry | null {
+		if (!turnActive) return null;
+		if (!currentOrchestratorEntry) {
+			currentOrchestratorEntry = pushHistory(
+				"orchestrator",
+				dispatcherPersona ? displayName(dispatcherPersona.name) : "Dispatcher",
+				null,
+				currentTurnStartedAt,
+			);
+			// Carry over any ask_user waits that closed before this entry existed.
+			if (turnAskUserIntervals.length) {
+				currentOrchestratorEntry.awaitIntervals = [...turnAskUserIntervals];
+				turnAskUserIntervals.length = 0;
+			}
+		}
+		return currentOrchestratorEntry;
+	}
+
+	function historyStart(kind: "agent" | "research", name: string): HistoryEntry {
+		return pushHistory(kind, name, ensureOrchestratorEntry(), Date.now());
+	}
+
+	function historyDescendantOf(node: HistoryEntry, ancestor: HistoryEntry): boolean {
+		let p = node.parent;
+		while (p) {
+			if (p === ancestor) return true;
+			p = p.parent;
+		}
+		return false;
+	}
+
+	function historyEnd(entry: HistoryEntry, status: HistoryEntry["status"], endedAt?: number): void {
+		entry.endedAt = endedAt ?? Date.now();
+		entry.status = status;
+		// When a specialist/orchestrator ends, close any still-running descendant
+		// (e.g. a delegate child whose exit event never landed) so it stops extending
+		// and skewing the parent's real-work subtraction. Delegate ends never sweep.
+		if (entry.kind !== "delegate") {
+			for (const e of executionHistory) {
+				if (e.endedAt === null && historyDescendantOf(e, entry)) {
+					e.endedAt = entry.endedAt;
+					if (e.status === "running") e.status = status === "error" ? "error" : "done";
+				}
+			}
+		}
+		historyRender?.();
+	}
+
 	let researchPersonas: AgentDef[] = [];
 	let allAgentDefs: AgentDef[] = [];
 	let teams: Record<string, string[]> = {};
@@ -2033,9 +2373,18 @@ export default function (pi: ExtensionAPI) {
 	function handleDelegationEvent(state: AgentState, e: any) {
 		if (!state.delegations || typeof e?.id !== "string") return;
 		if (e.t === "spawn") {
+			const startedAt = e.ts || Date.now();
+			const parentId = typeof e.parent === "string" ? e.parent : "root";
+			// Attach to the /agents-history tree: a "root" child hangs off the
+			// specialist's own dispatch node; a deeper grandchild hangs off the
+			// already-recorded parent child. Falls back to the specialist node.
+			const parentEntry = parentId !== "root"
+				? state.delegations.get(parentId)?.histEntry ?? state.histEntry ?? null
+				: state.histEntry ?? null;
+			const histEntry = pushHistory("delegate", displayName(e.role || e.id), parentEntry, startedAt);
 			state.delegations.set(e.id, {
 				id: e.id,
-				parent: typeof e.parent === "string" ? e.parent : "root",
+				parent: parentId,
 				role: e.role || e.id,
 				model: e.model || "",
 				tools: e.tools || "",
@@ -2044,9 +2393,10 @@ export default function (pi: ExtensionAPI) {
 				toolCount: 0,
 				tokens: 0,
 				lastWork: "",
-				startedAt: e.ts || Date.now(),
+				startedAt,
 				elapsed: 0,
 				timeline: [],
+				histEntry,
 			});
 			return;
 		}
@@ -2078,6 +2428,7 @@ export default function (pi: ExtensionAPI) {
 		} else if (e.t === "exit") {
 			child.status = e.code === 0 ? "done" : "error";
 			child.elapsed = e.elapsed || (Date.now() - child.startedAt);
+			if (child.histEntry) historyEnd(child.histEntry, child.status, child.startedAt + child.elapsed);
 			child.zoomRender?.(true);
 		}
 	}
@@ -2169,6 +2520,9 @@ export default function (pi: ExtensionAPI) {
 		state.delegationsWatcher = undefined;
 		state.delegations = undefined;
 		updateWidget();
+
+		const histEntry = historyStart("agent", displayName(state.def.name));
+		state.histEntry = histEntry;
 
 		const startTime = Date.now();
 		state.timer = setInterval(() => {
@@ -2367,6 +2721,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			state.restarting = false;
 			updateWidget();
 			state.zoomRender?.(true);
+			historyEnd(histEntry, "error");
 			const onTerminate = state.onTerminate;
 			state.onTerminate = undefined;
 			onTerminate?.();
@@ -2395,6 +2750,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			state.lastWork = wasRestart ? "(killed for restart)" : "(killed by operator)";
 			updateWidget();
 			state.zoomRender?.(true);
+			historyEnd(histEntry, "idle");
 			ctx.ui.notify(`${displayName(state.def.name)} killed by operator`, "info");
 			const onTerminate = state.onTerminate;
 			state.onTerminate = undefined;
@@ -2418,6 +2774,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 		updateWidget();
 		state.zoomRender?.(true);
+		historyEnd(histEntry, state.status);
 
 		ctx.ui.notify(
 			`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
@@ -2516,6 +2873,8 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		state.timeline = [];
 		updateResearchWidget();
 
+		const histEntry = historyStart("research", `Research r${state.id}`);
+
 		const startTime = Date.now();
 		state.timer = setInterval(() => {
 			state.elapsed = Date.now() - startTime;
@@ -2584,6 +2943,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			state.killedByOperator = false;
 			updateResearchWidget();
 			state.zoomRender?.(true);
+			historyEnd(histEntry, "error");
 			return {
 				output: `Error spawning research helper: ${res.spawnError}`,
 				exitCode: 1,
@@ -2602,6 +2962,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			state.lastWork = "(killed by operator)";
 			updateResearchWidget();
 			state.zoomRender?.(true);
+			historyEnd(histEntry, "idle");
 			return {
 				output: `Research helper r${state.id} was killed by the operator before it finished.`,
 				exitCode: code ?? 143,
@@ -2614,6 +2975,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 		updateResearchWidget();
 		state.zoomRender?.(true);
+		historyEnd(histEntry, state.status);
 
 		ctx.ui.notify(
 			`Research r${state.id} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
@@ -3976,26 +4338,37 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		},
 	});
 
-	pi.registerCommand("agents-grid", {
-		description: "Set grid columns: /agents-grid <1-6>",
-		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
-			const items = ["1", "2", "3", "4", "5", "6"].map(n => ({
-				value: n,
-				label: `${n} columns`,
-			}));
-			const filtered = items.filter(i => i.value.startsWith(prefix));
-			return filtered.length > 0 ? filtered : items;
-		},
-		handler: async (args, _ctx) => {
-			widgetCtx = _ctx;
-			const n = parseInt(args?.trim() || "", 10);
-			if (n >= 1 && n <= 6) {
-				gridCols = n;
-				_ctx.ui.notify(`Grid set to ${gridCols} columns`, "info");
-				updateWidget();
-			} else {
-				_ctx.ui.notify("Usage: /agents-grid <1-6>", "error");
-			}
+	// Open the read-only /agents-history overlay. Mirrors openZoom's chrome and adds
+	// a 1s tick so running durations advance live; `historyRender` lets a new
+	// dispatch refresh the panel the instant it starts/ends.
+	async function openHistory(ctx: any): Promise<void> {
+		let tick: ReturnType<typeof setInterval> | null = null;
+		await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
+			const ui = new HistoryUI(
+				() => executionHistory,
+				() => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub"),
+				() => done(undefined),
+			);
+			historyRender = () => tui.requestRender();
+			tick = setInterval(() => tui.requestRender(), 1000);
+			return {
+				render: (w: number) => ui.render(w, Math.max(10, Math.floor((tui.terminal?.rows ?? 36) * 0.85)), theme),
+				handleInput: (data: string) => ui.handleInput(data, tui),
+				invalidate: () => {},
+			};
+		}, {
+			overlay: true,
+			overlayOptions: { width: "80%", anchor: "center", maxHeight: "90%" },
+		});
+		if (tick) clearInterval(tick);
+		historyRender = null;
+	}
+
+	pi.registerCommand("agents-history", {
+		description: "Timeline of agent execution — orchestrator turns, dispatches, research helpers, durations, and a grand total",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			await openHistory(ctx);
 		},
 	});
 
@@ -4882,9 +5255,42 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		},
 	});
 
+	// ── ask_user wait tracking (for /agents-history real-work) ──
+	// pi-ask-user blocks the dispatcher turn while the human answers. Bracket each
+	// ask_user call with its tool_execution start/end so /agents-history can subtract
+	// that "away from keyboard" time from the dispatcher's real work.
+	pi.on("tool_execution_start", async (event) => {
+		if (event.toolName === "ask_user") askUserStarts.set(event.toolCallId, Date.now());
+	});
+	pi.on("tool_execution_end", async (event) => {
+		if (event.toolName !== "ask_user") return;
+		const startedAt = askUserStarts.get(event.toolCallId);
+		askUserStarts.delete(event.toolCallId);
+		if (startedAt == null) return;
+		const interval: [number, number] = [startedAt, Date.now()];
+		// Attach to the live dispatcher entry, or buffer until one is created this turn.
+		if (currentOrchestratorEntry) (currentOrchestratorEntry.awaitIntervals ??= []).push(interval);
+		else turnAskUserIntervals.push(interval);
+		historyRender?.();
+	});
+
 	// ── System Prompt Override ───────────────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
+		// Open a fresh dispatcher turn for /agents-history. The orchestrator entry is
+		// created lazily (only if this turn actually dispatches), so chat-only turns
+		// add no history rows. Defensively close any entry a prior turn left open
+		// (e.g. an aborted turn where agent_end never fired).
+		if (currentOrchestratorEntry && currentOrchestratorEntry.endedAt === null) {
+			currentOrchestratorEntry.endedAt = Date.now();
+			if (currentOrchestratorEntry.status === "running") currentOrchestratorEntry.status = "done";
+		}
+		turnActive = true;
+		currentTurnStartedAt = Date.now();
+		currentOrchestratorEntry = null;
+		askUserStarts.clear();
+		turnAskUserIntervals.length = 0;
+
 		// Build dynamic agent catalog from active team only
 		const agentCatalog = Array.from(agentStates.values())
 			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}`)
@@ -5101,6 +5507,12 @@ ${researchCatalog}`;
 		}
 		researchStates.clear();
 		nextResearchId = 1;
+		// Wipe the /agents-history log from any previous session.
+		executionHistory.length = 0;
+		currentOrchestratorEntry = null;
+		turnActive = false;
+		askUserStarts.clear();
+		turnAskUserIntervals.length = 0;
 		if (widgetCtx) {
 			widgetCtx.ui.setWidget("agent-team", undefined);
 			widgetCtx.ui.setWidget("agent-research", undefined);
@@ -5355,7 +5767,7 @@ ${researchCatalog}`;
 			`Coms: ${comsLabel}\n\n` +
 			`/agents-team          Select a team\n` +
 			`/agents-list          List active agents and status\n` +
-			`/agents-grid <1-6>    Set grid column count\n` +
+			`/agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
 			`/agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
 			`/agent-model-thinking <persona> Switch a persona's thinking level\n` +
 			`/models [profile]     Apply a named model profile to the team\n` +
@@ -5418,6 +5830,16 @@ ${researchCatalog}`;
 	// When this agent was addressed by a peer (an inbound prompt in the queue), the
 	// turn's final assistant text becomes the response we ship back to the sender.
 	pi.on("agent_end", async (_event, ctx) => {
+		// Close the /agents-history dispatcher turn (if this turn opened one). The
+		// orchestrator entry's span covers all of its dispatches plus the wrap-up.
+		turnActive = false;
+		if (currentOrchestratorEntry) {
+			currentOrchestratorEntry.endedAt = Date.now();
+			if (currentOrchestratorEntry.status === "running") currentOrchestratorEntry.status = "done";
+			currentOrchestratorEntry = null;
+			historyRender?.();
+		}
+
 		const inbound = [...inboundQueue.values()].reverse().find((i) => !i.fulfilled);
 		if (!inbound || !identity) return;
 

@@ -77,12 +77,12 @@ _peer-plus extensions persona name="" model="":
 
 # Team up: spawn every peer of a team from .pi/agents/peers.yaml into tmux panes.
 # Positional arg: team (defaults to "full"). e.g. just team-up full
-team-up full:
+team-up team="full":
     node --experimental-strip-types scripts/team-up.ts --team {{team}}
 
 # Team up (dry run): print the resolved per-peer commands without launching tmux.
-# e.g. just team-up-dry full
-team-up-dry full:
+# e.g. just team-up-dry team="full"
+team-up-dry team="full":
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run
 
 # ---------------------------------------------------------------- coms (Pi-to-Pi messaging)
