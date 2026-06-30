@@ -1,0 +1,6 @@
+{
+  "name": "agent-skills-pi-voice-stt",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

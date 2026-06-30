@@ -48,7 +48,7 @@ See [`docs/comparison.md`](docs/comparison.md) for how the *project as a whole* 
 | Area | What | Where |
 |---|---|---|
 | **pi runtime — harnesses** | `agent-hub` (dispatcher + specialists + research helpers + Verification Contract), `coms` (P2P messaging), `damage-control` / `damage-control-continue` (tool guardrails) | `.pi/harnesses/` |
-| **pi runtime — extensions** | Always-on utilities: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `btw`, `agent-skills-update-check` | `.pi/extensions/` |
+| **pi runtime — extensions** | Always-on utilities: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `btw`, `agent-skills-update-check`; plus gated/optional `pi-voice-stt` (Alt+S voice dictation, OpenAI-compatible + Azure Speech backends — simplified port of `cgarrot/pi-voice-stt`) | `.pi/extensions/` |
 | **pi orchestration config** | Teams, peers, chains, model profiles, damage-control rules | `.pi/agents/`, `.pi/damage-control-rules.yaml` |
 | **Agent personas** | 15 canonical pi-flavored personas (incl. `web-performance-auditor`, `bowser`, `web-debugger`, `orchestrator`) generated per-harness via `transform-persona` | `agents/`, `.pi/skills/bowser/` |
 | **npm CLI + packaging** | `agent-skills` CLI, `transform-persona`, `doctor`, update-notifier, version snapshots, changeset releases | `bin/`, `.changeset/`, `.versions/`, `.github/workflows/release.yml`, `package.json`, `.npmignore` |

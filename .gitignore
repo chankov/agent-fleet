@@ -20,6 +20,7 @@ tmp/
 .ai/agent-skills-overrides.md
 .versions/
 .ai/commands/
+.ai/stt.json
 .pi/agents/*.txt
 .claude/
 ONBOARDING.md

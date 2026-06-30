@@ -7,6 +7,12 @@ have different readers and different lifetimes, so they are kept separate.
 |------|---------|------|
 | `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `agent-hub` pi harness | Every run of those skills / every session start of the harness |
 | `.ai/agent-skills-setup.md` | `guided-workspace-setup` | Only when setup is run or re-run |
+| `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
+
+The `.ai/stt.json` file is present only when the optional `pi-voice-stt` voice-dictation
+extension has been configured (by guided setup or by hand). Like the overrides file it holds
+**no secrets** — it names the env vars (`apiKeyEnv`, plus the Azure endpoint var) whose values
+live in a gitignored root `.env`. See [pi-voice-stt config](#ai-sttjson) below.
 
 Keep them split: the overrides file is loaded into context constantly, so it
 must stay minimal; the install record is consulted rarely, so it can be large.
@@ -265,3 +271,31 @@ updated:    2026-05-22
 - Every recorded artifact exists at its target path.
 - No secrets are stored in this file.
 ```
+
+### `.ai/stt.json`
+
+Optional. Present only when the `pi-voice-stt` extension is installed and configured. Read by
+the extension on every pi session start, ahead of the global `~/.pi/agent/stt.json`. Holds the
+non-secret provider config; the API key (and Azure endpoint) live in a gitignored root `.env`
+as named env vars, which the `justfile`'s `dotenv-load` exposes to the session.
+
+```json
+{
+  "language": "bg-BG",
+  "provider": {
+    "type": "azure",
+    "apiKeyEnv": "AZURE_SPEECH_KEY",
+    "locales": ["bg-BG", "en-US"]
+  }
+}
+```
+
+Corresponding gitignored `.env` at the repo root:
+
+```sh
+AZURE_SPEECH_ENDPOINT=https://<resource>.cognitiveservices.azure.com
+AZURE_SPEECH_KEY=<your-resource-key>
+```
+
+For the OpenAI-compatible backend, `provider.type` is `openai` with `baseUrl` / `model` and an
+`OPENAI_API_KEY` env var instead. Full schema: [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).

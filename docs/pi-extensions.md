@@ -23,12 +23,23 @@ conventions. Runtime design specs for the imported harnesses live in `docs/pi-sp
 ## What these extensions are
 
 `.pi/extensions/` ships always-on **utility** extensions — `mcp-bridge`,
-`chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check`, and `btw`. pi
+`chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check`, `btw`, and
+`pi-voice-stt`. pi
 auto-discovers that directory, so they layer onto every session. `btw` adds a
 `/btw <task>` prompt command (plus an `Alt+'` shortcut) that forks the current session
 into an in-process sub-session and opens a live modal over it — full context, same
 cwd, follow-up composer, with a compact result card landing in the main transcript at
 idle. See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
+
+`pi-voice-stt` adds **Alt+S** push-to-talk dictation: it records the mic to a temp WAV via
+`ffmpeg` and transcribes through one of three backends — a generic OpenAI-compatible endpoint,
+Azure Speech (REST short-audio, with optional per-phrase language identification), or Azure
+OpenAI Whisper (Azure AI Foundry). Alt+S toggles record→insert; Enter-while-recording
+transcribes and sends; Esc cancels. It is **gated**: the hotkey binds only once a provider is
+configured (project-local `.ai/stt.json`, the global `~/.pi/agent/stt.json`, or `PI_STT_CONFIG`),
+so an unconfigured session is a no-op. `/stt doctor`
+checks the setup. A simplified port of [`cgarrot/pi-voice-stt`](https://github.com/cgarrot/pi-voice-stt);
+see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).
 
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some remove every codebase tool and leave only an
@@ -151,6 +162,10 @@ The `justfile` sets `dotenv-load`, so a `.env` file at the repo root is auto-loa
 | `PI_CHROME_DEVTOOLS_MODE` | `chrome-devtools-mcp` | `headless` runs Chrome with no UI; anything else (default) is headed |
 | `PI_CHROME_DEVTOOLS_BROWSER_URL` | `chrome-devtools-mcp` | Attach to a running Chrome (e.g. `http://127.0.0.1:9222`) instead of launching one |
 | `PI_CHROME_DEVTOOLS_USER_DATA_DIR` | `chrome-devtools-mcp` | Persistent Chrome profile path (else the default ephemeral `--isolated` profile) |
+| `OPENAI_API_KEY` | `pi-voice-stt` (openai backend) | API key for the OpenAI-compatible transcription endpoint (var name overridable via `provider.apiKeyEnv`) |
+| `AZURE_SPEECH_KEY` | `pi-voice-stt` (azure backend) | Azure Speech resource key |
+| `AZURE_SPEECH_ENDPOINT` | `pi-voice-stt` (azure backend) | Azure resource endpoint, used when `provider.endpoint` is unset |
+| `PI_STT_CONFIG` / `PI_STT_KEYBIND` | `pi-voice-stt` | Override config (inline JSON or path) / the record hotkey (default `alt+s`) |
 
 The `chrome-devtools-mcp` server starts once at extension load, so changing its vars needs a pi
 restart / `/reload` to take effect.

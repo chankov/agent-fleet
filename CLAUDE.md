@@ -18,7 +18,7 @@ justfile      → Recipes to launch pi with each harness
 .claude/orchestrate-teams.yaml → named-team roster read by /orchestrate (mirrors .pi/agents/teams.yaml); companion installed with the command; opencode copy at .opencode/orchestrate-teams.yaml
 .opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ (includes as-orchestrate) — keep in sync. /orchestrate ships for claude-code + opencode only; pi orchestrates via the agent-hub harness
 .pi/prompts/  → pi-native lifecycle prompt templates
-.pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue)
+.pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, agent-skills-update-check, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just hub` stacks damage-control-continue before agent-hub for the main agent; spawned specialists get hard-stop damage-control, research helpers get damage-control-continue)
 .pi/agents/   → pi YAML configs (teams, chains, peers) used by the orchestration harnesses
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
@@ -50,6 +50,7 @@ FORK.md       → Canonical record of how this fork differs from upstream addyos
 - Override readers ship built-in defaults but read per-project overrides from `.ai/agent-skills-overrides.md` in the *target* project — see `docs/agent-skills-setup.md`:
   - Skills: `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`
   - pi harness: `agent-hub` via the legacy `## agent-team` section
+  - pi extension: `pi-voice-stt` reads project-local `.ai/stt.json` (its own JSON config, not the overrides markdown) ahead of global `~/.pi/agent/stt.json`; guided setup writes it + the gitignored `.env` secrets
 - Always-on pi utility extensions live in `.pi/extensions/<name>/` (auto-discovered by pi); the selectable orchestration/UI/safety/messaging harnesses live in `.pi/harnesses/<name>/` (NOT auto-discovered — loaded explicitly via the `justfile` or `pi -e`; `just hub` stacks `damage-control-continue` before `agent-hub` for the main agent, and `agent-hub` re-loads hard-stop `damage-control` into spawned specialists / `damage-control-continue` into research helpers). Each is a directory with `index.ts` + `package.json` + `README.md`. Never put a harness under `.pi/extensions/` — pi loads everything there at once. The harnesses are ported from disler/pi-vs-claude-code (MIT) — see `docs/pi-extensions.md`
 
 ## Commands

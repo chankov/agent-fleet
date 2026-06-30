@@ -1,6 +1,6 @@
 {
   "name": "@chankov/agent-skills",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Production-grade engineering skills for AI coding agents. Ships skills, agent personas, slash commands, and pi extensions, with a thin CLI that hands off to the LLM-driven guided setup.",
   "keywords": [
     "ai",
@@ -39,11 +39,12 @@
     ".opencode/orchestrate-teams.yaml",
     ".pi/prompts/",
     ".pi/extensions/*.json",
-    ".pi/extensions/*/index.ts",
+    ".pi/extensions/*/*.ts",
     ".pi/extensions/*/state.js",
     ".pi/extensions/*/state.test.js",
     ".pi/extensions/*/package.json",
     ".pi/extensions/*/README.md",
+    ".pi/extensions/*/examples/*.json",
     ".pi/harnesses/*.json",
     ".pi/harnesses/*/*.ts",
     ".pi/harnesses/*/package.json",
