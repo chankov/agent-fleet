@@ -177,6 +177,16 @@ done agents are hidden in compact mode, and the coms pool widget collapses too, 
 collapses to just the prompt and footer. The current mode and binding are shown in the footer
 (`Alt+A view:dashboard` / `Alt+A view:compact`).
 
+### Voice dictation indicator
+
+The custom footer renders the optional [`pi-voice-stt`](../../extensions/pi-voice-stt/README.md)
+extension's recording indicator on a line **below the model line** — e.g.
+`● REC 0:01 ⏎ send · esc cancel` while recording, or a `transcribing…` dot. Because agent-hub
+replaces pi's built-in footer (where that indicator normally lives), it reads the extension's
+`setStatus("voice-stt", …)` value via the footer data provider and surfaces it itself. The
+indicator only appears once `pi-voice-stt` is installed and configured; otherwise the footer is
+the single model line. Press **`Alt+S`** to start/stop dictation as in a normal pi session.
+
 ### Compact-view agent switcher
 
 In **compact view**, the running-subagents list below the input doubles as a switcher. **`Alt+]`**

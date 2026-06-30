@@ -5792,8 +5792,9 @@ ${researchCatalog}`;
 			void pickDispatcherPersona(_ctx);
 		}
 
-		// Footer: model (thinking) | team | context bar
-		_ctx.ui.setFooter((_tui, theme, _footerData) => ({
+		// Footer: model (thinking) | team | context bar, with the pi-voice-stt
+		// recording indicator on a second line below it (when recording).
+		_ctx.ui.setFooter((_tui, theme, footerData) => ({
 			dispose: () => {},
 			invalidate() {},
 			render(width: number): string[] {
@@ -5821,7 +5822,20 @@ ${researchCatalog}`;
 					theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
 				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));
 
-				return [truncateToWidth(left + pad + right, width)];
+				const lines = [truncateToWidth(left + pad + right, width)];
+
+				// The pi-voice-stt extension publishes its animated indicator via
+				// setStatus("voice-stt", …). The custom footer above replaces the
+				// built-in one (which would render it), so surface it here as a second
+				// line below the model line. Optional-chained for older pi runtimes.
+				const stt = footerData?.getExtensionStatuses?.().get("voice-stt");
+				if (stt && stt.trim()) {
+					// Recording → accent (live), transcribing → muted (working).
+					const color = /REC/.test(stt) ? "accent" : "muted";
+					lines.push(truncateToWidth(theme.fg(color, ` ${stt}`), width));
+				}
+
+				return lines;
 			},
 		}));
 	});
