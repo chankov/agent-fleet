@@ -95,7 +95,7 @@ team-up-dry team="full":
 # specialists run --no-extensions, so the tools stay scoped here and never leak into subagents.
 # The required `name` becomes this peer's coms identity (--name), so it is discoverable
 # under exactly that name to other coms peers in the project pool.
-# e.g. just safe-coms orchestrator
+# e.g. just safe-coms orchestrator --project proj
 safe-coms name *args:
     pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/coms/index.ts --name {{name}} {{args}}
 # <<< agent-skills:harnesses <<<
