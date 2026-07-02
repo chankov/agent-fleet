@@ -1,6 +1,6 @@
 ---
 name: spec-driven-development
-description: Creates specs before coding. Use when starting a new project, feature, or significant change and no specification exists yet. Use when requirements are unclear, ambiguous, or only exist as a vague idea.
+description: Creates specs before coding. Use when starting a new project, feature, or significant change and no specification exists yet. Use when requirements are unclear, ambiguous, only exist as a vague idea, or need to be grilled before planning.
 ---
 
 # Spec-Driven Development
@@ -15,6 +15,7 @@ Write a structured specification before writing any code. The spec is the shared
 - Requirements are ambiguous or incomplete
 - The change touches multiple files or modules
 - You're about to make an architectural decision
+- The user asks to grill or stress-test a concept/spec before planning
 - The task would take more than 30 minutes to implement
 
 **When NOT to use:** Single-line fixes, typo corrections, or changes where requirements are unambiguous and self-contained.
@@ -55,6 +56,8 @@ SPECIFY ──→ PLAN ──→ TASKS ──→ IMPLEMENT
 Writing a spec without reading what already exists leads to duplication, contradiction, and invented detail. If a source is missing or inaccessible, record it as an open question rather than guessing.
 
 Then start with a high-level vision. Ask the human clarifying questions until requirements are concrete.
+
+**Grilling mode:** If the user asks to grill a concept/spec, or a requirement depends on unconfirmed design choices, read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md) before locking the spec. Resolve decisions one at a time; fold each answer into Success Criteria, Boundaries, Proposed decisions, or Open Questions.
 
 **Surface assumptions immediately.** Before writing any spec content, list what you're assuming:
 
@@ -236,6 +239,7 @@ Before proceeding to implementation, confirm:
 
 - [ ] The spec covers all six core areas
 - [ ] The human has reviewed and approved the spec
+- [ ] If grilling was invoked, each load-bearing decision is recorded as accepted, rejected, or deferred
 - [ ] Success criteria are specific and testable
 - [ ] Boundaries (Always/Ask First/Never) are defined
 - [ ] The spec is saved to its output location (see Output Location)

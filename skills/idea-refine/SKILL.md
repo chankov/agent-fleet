@@ -1,6 +1,6 @@
 ---
 name: idea-refine
-description: Refines raw ideas into sharp, actionable concepts through structured divergent and convergent thinking. Use when an idea is still vague, when you need to stress-test assumptions before committing to a plan, or when you want to expand options before converging on one. Triggers on "ideate", "refine this idea", or "stress-test my plan".
+description: Refines raw ideas into sharp, actionable concepts through structured divergent and convergent thinking. Use when an idea is still vague, when you need to stress-test assumptions before committing to a plan, or when you want to expand options before converging on one. Triggers on "ideate", "refine this idea", "stress-test my plan", or "grill this".
 ---
 
 # Idea Refine
@@ -26,6 +26,7 @@ bash /mnt/skills/user/idea-refine/scripts/idea-refine.sh
 - "Help me refine this idea"
 - "Ideate on [concept]"
 - "Stress-test my plan"
+- "Grill this plan"
 
 ## Output
 
@@ -55,7 +56,7 @@ When the user invokes this skill with an idea (`$ARGUMENTS`), guide them through
 
 #### Phase 1: Understand & Expand (Divergent)
 
-**Goal:** Take the raw idea and open it up.
+**Goal:** Take the raw idea and open it up. If the invocation is specifically a grill/stress-test request for an existing plan, read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md) after any needed codebase scan and ask one decision question at a time instead of batching sharpening questions.
 
 1. **Restate the idea** as a crisp "How Might We" problem statement. This forces clarity on what's actually being solved.
 
@@ -85,7 +86,9 @@ Read `frameworks.md` in this skill directory for additional ideation frameworks 
 
 #### Phase 2: Evaluate & Converge
 
-After the user reacts to Phase 1 (indicates which ideas resonate, pushes back, adds context), shift to convergent mode:
+After the user reacts to Phase 1 (indicates which ideas resonate, pushes back, adds context), shift to convergent mode.
+
+**Grilling mode:** If the user asks to "grill" or stress-test a specific plan/design, read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md) and use that one-question-at-a-time decision interview before producing the one-pager. Treat the answers as inputs to Key Assumptions, MVP Scope, Not Doing, and Open Questions.
 
 1. **Cluster** the ideas that resonated into 2-3 distinct directions. Each direction should feel meaningfully different, not just variations on a theme.
 
@@ -173,6 +176,7 @@ After completing an ideation session:
 - [ ] The target user and success criteria are defined
 - [ ] Multiple directions were explored, not just the first idea
 - [ ] Hidden assumptions are explicitly listed with validation strategies
+- [ ] If grilling was invoked, decisions were resolved one at a time and reflected in the one-pager
 - [ ] A "Not Doing" list makes trade-offs explicit
 - [ ] The output is a concrete artifact (markdown one-pager), not just conversation
 - [ ] The user confirmed the final direction before any implementation work

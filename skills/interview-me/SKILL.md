@@ -1,6 +1,6 @@
 ---
 name: interview-me
-description: Extracts what the user actually wants instead of what they think they should want. Achieves this through one-question-at-a-time interview until ~95% confidence about the underlying intent. Use when an ask is underspecified ("build me X" without "for whom" or "why now"), when the user explicitly invokes ("interview me", "grill me", "are we sure?", "stress-test my thinking"), or when you catch yourself silently filling in ambiguous requirements before any plan, spec, or code exists.
+description: Extracts what the user actually wants instead of what they think they should want. Achieves this through one-question-at-a-time interview until ~95% confidence about the underlying intent. Use before any plan/spec exists when an ask is underspecified ("build me X" without "for whom" or "why now"), when the user explicitly invokes ("interview me", "grill me", "are we sure?", "stress-test my thinking"), or when you catch yourself silently filling in ambiguous requirements.
 ---
 
 # Interview Me
@@ -21,12 +21,13 @@ Apply this skill when:
 - The request is conventional rather than specific ("build me X", "make it faster") and you can't unpack the convention without guessing
 - You're tempted to start with assumptions you haven't surfaced
 - The user hasn't said which value they're optimizing for when two reasonable ones are in tension (simplicity vs. flexibility, cost vs. speed)
-- The user explicitly invokes: "interview me", "grill me", "before we start, are we sure?", "stress-test my thinking"
+- Before any plan/spec exists, the user explicitly invokes: "interview me", "grill me", "before we start, are we sure?", "stress-test my thinking"
 
 **When NOT to use:**
 
 - The ask is unambiguous and self-contained ("rename this variable", "fix this typo")
 - The user has explicitly asked for speed over verification
+- Existing plans/specs/designs that need grilling; use the parent skill's internal grilling helper instead
 - Pure information requests ("how does X work?", "what does this code do?")
 - Mechanical operations (renames, formats, file moves)
 - You already have ≥95% confidence; re-read the stop condition below before assuming you don't

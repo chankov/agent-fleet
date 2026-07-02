@@ -1,6 +1,6 @@
 ---
 name: planning-and-task-breakdown
-description: Breaks work into ordered tasks. Use when you have a spec or clear requirements and need to break work into implementable tasks. Use when a task feels too large to start, when you need to estimate scope, or when parallel work is possible.
+description: Breaks work into ordered tasks. Use when you have a spec or clear requirements and need to break work into implementable tasks. Use when a task feels too large to start, when you need to estimate scope, when parallel work is possible, or when the user wants to grill a plan before implementation.
 ---
 
 # Planning and Task Breakdown
@@ -16,6 +16,7 @@ Decompose work into small, verifiable tasks with explicit acceptance criteria. G
 - Work needs to be parallelized across multiple agents or sessions
 - You need to communicate scope to a human
 - The implementation order isn't obvious
+- The user asks to grill or stress-test a draft plan before implementation
 
 **When NOT to use:** Single-file changes with obvious scope, or when the spec already contains well-defined tasks.
 
@@ -45,6 +46,8 @@ Before writing any code, operate in read-only mode:
 - Note risks and unknowns
 
 **Do NOT write code during planning.** The output is a plan document, not implementation.
+
+**Grilling mode:** If the user asks to grill/stress-test the plan, or Step 1 reveals a load-bearing assumption, read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md) before writing tasks. Resolve decisions one at a time; update Architecture Decisions, Risks, and Open Questions with accepted, rejected, or deferred choices.
 
 ### Step 2: Identify the Dependency Graph
 
@@ -225,6 +228,7 @@ Before starting implementation, confirm:
 - [ ] No task touches more than ~5 files
 - [ ] Checkpoints exist between major phases
 - [ ] The human has reviewed and approved the plan
+- [ ] If grilling was invoked, each load-bearing decision has an accepted/rejected/deferred status in the plan
 - [ ] No open questions left (All are resolved/answered/commented)
 
 ## See Also
