@@ -54,7 +54,7 @@ pi install npm:@chankov/agent-skills
 
 The pi package manifest exposes this repo's skills, pi runtime skills, lifecycle prompts, and bundled `pi-ask-user` resources. The bundled companion provides the `ask_user` tool and `ask-user` skill without a separate `pi-ask-user` install.
 
-It intentionally does not auto-expose this repo's own `.pi/extensions` or harness directories; install those through guided setup or the pi setup docs so their runtime dependencies are handled explicitly.
+It intentionally does not auto-expose this repo's own `.pi/extensions` or harness directories; install those through guided setup or the pi setup docs so their runtime dependencies are handled explicitly. `pi-codex-image-gen` is also not bundled or required; guided setup may offer it as an optional suggested external npm/pi package when package installation is available, and installs it only if selected (`pi install -l npm:pi-codex-image-gen`). Minimal setup works without it.
 
 ## Commands
 
