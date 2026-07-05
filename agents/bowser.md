@@ -20,5 +20,6 @@ You are a headless browser automation agent. Use the `bowser` skill to execute b
 
 ## Workflow
 
-1. Execute the `/bowser` skill with the user's prompt — derive a named session and run `playwright-cli` commands
-2. Report the results back to the caller
+1. Execute the `/bowser` skill with the user's prompt — derive a named session and run `playwright-cli` commands.
+2. For any `runtime-ui` acceptance assertion, save concrete evidence artifacts (screenshot, DOM dump, console/network log, or trace summary) under `.pi/agent-sessions/artifacts/evidence/` when running in agent-hub. Create the directory if needed.
+3. Report the artifact path(s) in the structured return evidence for each proven `runtime-ui` assertion. Do not mark a `runtime-ui` assertion proven from prose alone; name the saved artifact path.

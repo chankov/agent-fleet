@@ -30,7 +30,7 @@ This persona only works in a session that has loaded the `chrome-devtools-mcp` e
 ## Skill hook
 
 - If `skills/browser-testing-with-devtools/SKILL.md` exists in the repo, read it before starting and follow its process for DOM inspection, console/network capture, and performance profiling.
-- If `skills/orchestration-verification/SKILL.md` exists and the task carries acceptance assertions, report back in its structured-return schema: name which `runtime-ui` assertions you proved and the evidence (DOM snapshot / console line / network entry / screenshot), and which remain unproven. Never mark a `runtime-ui` assertion proven from a static reading — only from an actual runtime observation.
+- If `skills/orchestration-verification/SKILL.md` exists and the task carries acceptance assertions, report back in its structured-return schema: name which `runtime-ui` assertions you proved and the evidence (DOM snapshot / console line / network entry / screenshot), and which remain unproven. In agent-hub, save runtime evidence artifacts under `.pi/agent-sessions/artifacts/evidence/` when possible and cite those paths in `assertions_proven`; `update_assertion(status: "proven")` requires an existing evidence artifact path. Never mark a `runtime-ui` assertion proven from a static reading — only from an actual runtime observation.
 
 ## Workflow
 
@@ -39,4 +39,4 @@ This persona only works in a session that has loaded the `chrome-devtools-mcp` e
 3. Perform the interaction (click / fill / navigate) using refs from the snapshot.
 4. Re-capture console + network **after** the interaction; take a screenshot only when visual/layout confirmation is needed.
 5. For performance questions, run a performance trace around the interaction.
-6. Report findings as evidence (snapshot/console/network/screenshot), not a prose verdict — and map each to the assertion it proves when assertions are in play.
+6. Save evidence artifacts under `.pi/agent-sessions/artifacts/evidence/` (screenshot, DOM dump, console/network excerpt, or trace summary) and report those paths as evidence, not a prose verdict — map each path to the assertion it proves when assertions are in play.

@@ -62,6 +62,10 @@ import {
 import { spawn, type ChildProcess } from "child_process";
 import { spawnPiAgent, killPiTree } from "./spawn.ts";
 import { clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, MAX_DELEGATE_DEPTH, parseTeamsYaml, safeAgentKey, safePathWithin } from "./helpers.ts";
+import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "./artifacts.js";
+import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return-contract.js";
+import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
+import { validateEvidence } from "./evidence-rules.js";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import * as net from "node:net";
@@ -134,6 +138,13 @@ interface DelegationChild {
 	// the exit event can close it. Lets a delegating specialist's row subtract the
 	// time it spent awaiting its own sub-sub-agents.
 	histEntry?: HistoryEntry;
+}
+
+interface InputArtifactPreview {
+	input: string;
+	path: string;
+	displayPath: string;
+	preview: string;
 }
 
 interface AgentState {
@@ -645,6 +656,7 @@ const RESEARCH_TOOLS = "read,grep,find,ls";
 // dispatch_agent call may trigger, and how many questions are honored per round.
 const MAX_AUTO_RESEARCH_ROUNDS = 2;
 const MAX_AUTO_RESEARCH_QUESTIONS = 4;
+const CONTEXT_WARN_THRESHOLD = 70;
 
 // Conservative delegation budgets: one delegate layer only, with four total
 // child spawns reserved tree-wide for a dispatch.
@@ -1762,6 +1774,9 @@ export default function (pi: ExtensionAPI) {
 	let widgetCtx: any;
 	let sessionDir = "";
 	let contextWindow = 0;
+	let activeWritableDispatches = 0;
+	let writableOverlapCounter = 0;
+	let pendingHandoff: { target: string; token: string } | null = null;
 	let userLanguage: string = DEFAULT_OVERRIDES.language;
 	// Project rule folders from the overrides file's `rules:` key (repo-relative,
 	// validated at session_start). Non-empty → every dispatched specialist gets a
@@ -1820,6 +1835,18 @@ export default function (pi: ExtensionAPI) {
 		return `${head} · all proven`;
 	}
 
+	function renderAssertionLedgerLines(): string[] {
+		return assertions.map(a => {
+			const ev = a.evidence ? ` — evidence: ${a.evidence}` : "";
+			return `${a.id} [${a.tag}] ${a.status.toUpperCase()}: ${a.text}${ev}`;
+		});
+	}
+
+	function renderAssertionLedgerText(): string {
+		if (assertions.length === 0) return "";
+		return `${assertionStatusLine()}\n${renderAssertionLedgerLines().join("\n")}`;
+	}
+
 	// One-line status only — the full ledger lives on disk and in this closure,
 	// never re-injected into the dispatcher LLM context.
 	function updateAssertionStatus() {
@@ -1872,6 +1899,157 @@ export default function (pi: ExtensionAPI) {
 			?? researchPersonas.find(d => d.name.toLowerCase() === name);
 	}
 
+	function artifactsRoot(): string {
+		return safePathWithin(sessionDir, "artifacts");
+	}
+
+	function ensureArtifactsLayout(): string {
+		const root = artifactsRoot();
+		mkdirSync(root, { recursive: true });
+		for (const kind of ARTIFACT_KINDS) {
+			mkdirSync(safePathWithin(root, kind), { recursive: true });
+		}
+		return root;
+	}
+
+	function loadInputArtifacts(paths: string[] | undefined, ctx: any): InputArtifactPreview[] {
+		if (!paths || paths.length === 0) return [];
+		const root = ensureArtifactsLayout();
+		return resolveArtifactPaths(paths, {
+			repoDir: ctx.cwd || process.cwd(),
+			sessionDir,
+			artifactRoot: root,
+			exists: existsSync,
+		}).map((item: any) => {
+			if (!existsSync(item.path)) {
+				throw new Error(`Artifact not found: ${item.input} (resolved to ${item.path})`);
+			}
+			const preview = artifactPreviewFromText(readFileSync(item.path, "utf-8"));
+			return { ...item, preview };
+		});
+	}
+
+	function appendInputArtifacts(task: string, artifacts: InputArtifactPreview[]): string {
+		return artifacts.length > 0 ? task + formatInputArtifactsSection(artifacts) : task;
+	}
+
+	function appendDeclaredScope(task: string, scopeGlobs: string[]): string {
+		if (!scopeGlobs || scopeGlobs.length === 0) return task;
+		return task + `\n\n## Declared scope — advisory guardrail\nStay within these paths/globs when changing files; changes outside them will be flagged to the dispatcher for a human decision, not auto-reverted.\n${scopeGlobs.map(s => `- ${s}`).join("\n")}`;
+	}
+
+	function hasWriteCapability(tools: string): boolean {
+		const toolSet = new Set(String(tools || "").split(",").map(t => t.trim()).filter(Boolean));
+		return ["write", "edit", "bash"].some(t => toolSet.has(t));
+	}
+
+	function scopeNoticeText(scopeViolations: any): string {
+		if (!scopeViolations) return "";
+		if (scopeViolations.skipped) {
+			return `\n\n⚠ Scope gate skipped: ${scopeViolations.reason || "not a git worktree"}.`;
+		}
+		if (!scopeViolations.outOfScope || scopeViolations.outOfScope.length === 0) return "";
+		const overlap = scopeViolations.concurrentWritableOverlap
+			? " Concurrent writable dispatches overlapped this run, so attribution is approximate."
+			: "";
+		return `\n\n⚠ Scope advisory: changed outside declared scope: ${scopeViolations.outOfScope.join(", ")}. Review these paths and decide whether to accept them or explicitly order cleanup; the hub did not revert anything.${overlap}`;
+	}
+
+	function writeReturnArtifact(agentKey: string, runCount: number, output: string): string {
+		const root = ensureArtifactsLayout();
+		const returnsDir = safePathWithin(root, "returns");
+		mkdirSync(returnsDir, { recursive: true });
+		const file = safePathWithin(returnsDir, `${agentKey}-run${runCount}.md`);
+		writeFileSync(file, output, "utf-8");
+		return file;
+	}
+
+	function evidencePathExists(evidencePath: string): boolean {
+		const raw = String(evidencePath || "").trim().replace(/\\/g, "/");
+		const evidenceRoot = safePathWithin(artifactsRoot(), "evidence");
+		let candidate: string | null = null;
+		try {
+			if (raw.startsWith("artifacts/evidence/")) {
+				candidate = safePathWithin(evidenceRoot, raw.slice("artifacts/evidence/".length));
+			} else if (raw.startsWith(".pi/agent-sessions/artifacts/evidence/")) {
+				candidate = safePathWithin(evidenceRoot, raw.slice(".pi/agent-sessions/artifacts/evidence/".length));
+			} else if (path.isAbsolute(raw)) {
+				const resolved = path.resolve(raw);
+				const rel = path.relative(evidenceRoot, resolved);
+				if (!rel.startsWith("..") && !path.isAbsolute(rel)) candidate = resolved;
+			}
+		} catch {
+			candidate = null;
+		}
+		return !!candidate && existsSync(candidate);
+	}
+
+	function listArtifactFiles(): string[] {
+		const root = artifactsRoot();
+		if (!existsSync(root)) return [];
+		const out: string[] = [];
+		const walk = (dir: string) => {
+			for (const entry of readdirSync(dir, { withFileTypes: true } as any)) {
+				const full = path.join(dir, entry.name);
+				if (entry.isDirectory()) walk(full);
+				else if (entry.isFile()) out.push(full);
+			}
+		};
+		try { walk(root); } catch { return []; }
+		return out.sort();
+	}
+
+	function renderArtifactIndexText(): string {
+		const root = artifactsRoot();
+		const lines = listArtifactFiles().map(file => {
+			const rel = path.relative(root, file).split(path.sep).join("/");
+			let preview = "(unreadable)";
+			try { preview = artifactPreviewFromText(readFileSync(file, "utf-8")); } catch {}
+			return `artifacts/${rel} — ${preview}`;
+		});
+		return lines.join("\n");
+	}
+
+	function appendMachineHandoffSections(brief: string): string {
+		const sections: string[] = [];
+		const ledger = renderAssertionLedgerText();
+		if (ledger) sections.push(`## Verification ledger (verbatim, machine-appended)\n${ledger}`);
+		const artifacts = renderArtifactIndexText();
+		if (artifacts) sections.push(`## Artifact index\n${artifacts}`);
+		return sections.length > 0 ? `${brief}\n\n${sections.join("\n\n")}` : brief;
+	}
+
+	function structuredReturnDigest(parsed: any): string {
+		if (!parsed) return "";
+		const lines: string[] = ["Structured return (parsed):"];
+		for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) {
+			const entries = parsed[key] || [];
+			if (entries.length === 0) continue;
+			lines.push(`${key}:`);
+			for (const entry of entries) {
+				const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : "";
+				lines.push(`- ${entry.id}: ${entry.note || "(no note)"}${evidence}`);
+			}
+		}
+		for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) {
+			const entries = parsed[key] || [];
+			if (entries.length > 0) lines.push(`${key}: ${entries.slice(0, 5).join("; ")}${entries.length > 5 ? " …" : ""}`);
+		}
+		return lines.join("\n");
+	}
+
+	function contractNoticeText(notices: any[]): string {
+		if (!notices || notices.length === 0) return "";
+		const lines = ["⚠ Structured return contract notices:"];
+		const missing = notices.filter(n => n.type === "missing").map(n => n.id);
+		const noStructured = notices.find(n => n.type === "no_structured_return");
+		const noEvidence = notices.filter(n => n.type === "proven_without_evidence");
+		if (noStructured) lines.push(`- no_structured_return: no parseable structured return for dispatched assertions ${(noStructured.ids || []).join(", ")} — treat all as unproven; full output is on disk.`);
+		if (missing.length > 0) lines.push(`- missing: return does not cover ${missing.join(", ")} — treat as unproven.`);
+		for (const notice of noEvidence) lines.push(`- proven_without_evidence: ${notice.id} claimed proven without named evidence — demoted to unproven.`);
+		return lines.join("\n");
+	}
+
 	function loadAgents(cwd: string) {
 		// Create session storage dir
 		sessionDir = safePathWithin(cwd, ".pi", "agent-sessions");
@@ -1884,6 +2062,8 @@ export default function (pi: ExtensionAPI) {
 		// dirs (delegate children's events + sessions).
 		try { rmSync(safePathWithin(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
 		try { rmSync(safePathWithin(sessionDir, "delegations"), { recursive: true, force: true }); } catch {}
+		try { rmSync(safePathWithin(sessionDir, "artifacts"), { recursive: true, force: true }); } catch {}
+		ensureArtifactsLayout();
 		// The assertion ledger is per-task and as ephemeral as the session that owns
 		// it — wipe on session start like findings/, then start with an empty ledger.
 		try { rmSync(safePathWithin(sessionDir, "assertions.json"), { force: true }); } catch {}
@@ -1980,8 +2160,12 @@ export default function (pi: ExtensionAPI) {
 		return shortModel(resolvedModel(def)) + thinkingSuffix(resolvedThinking(def));
 	}
 
-	function contextLabel(contextPct: number): string {
-		return `${Math.ceil(contextPct)}%`;
+	function contextPressure(contextPct: number): boolean {
+		return contextPct >= CONTEXT_WARN_THRESHOLD;
+	}
+
+	function contextLabel(contextPct: number, warn = false): string {
+		return `${warn ? "⚠" : ""}${Math.ceil(contextPct)}%`;
 	}
 
 	function cardStatus(status: "idle" | "running" | "done" | "error", elapsed: number): { color: string; text: string } {
@@ -2003,6 +2187,7 @@ export default function (pi: ExtensionAPI) {
 		statusColor: string,
 		w: number,
 		theme: any,
+		warnContext = false,
 	): string {
 		const indent = w > 0 ? " " : "";
 		const contentWidth = Math.max(0, w - visibleWidth(indent));
@@ -2016,7 +2201,7 @@ export default function (pi: ExtensionAPI) {
 		if (rightWidth > contentWidth) return indent + theme.fg("dim", truncateCardText(rightRaw, contentWidth));
 
 		const leftBudget = Math.max(0, contentWidth - rightWidth - 1);
-		const ctxRaw = contextLabel(contextPct);
+		const ctxRaw = contextLabel(contextPct, warnContext);
 		const ctxWidth = visibleWidth(ctxRaw);
 		let leftVisible = 0;
 		let leftStyled = "";
@@ -2024,16 +2209,17 @@ export default function (pi: ExtensionAPI) {
 		if (leftBudget >= ctxWidth) {
 			const nameBudget = Math.max(0, leftBudget - ctxWidth - 1);
 			const nameText = truncateCardText(nameRaw, nameBudget);
+			const ctxStyle = warnContext ? "warning" : "dim";
 			if (nameText) {
-				leftStyled = theme.fg("accent", theme.bold(nameText)) + theme.fg("dim", ` ${ctxRaw}`);
+				leftStyled = theme.fg("accent", theme.bold(nameText)) + theme.fg(ctxStyle, ` ${ctxRaw}`);
 				leftVisible = visibleWidth(`${nameText} ${ctxRaw}`);
 			} else {
-				leftStyled = theme.fg("dim", ctxRaw);
+				leftStyled = theme.fg(ctxStyle, ctxRaw);
 				leftVisible = ctxWidth;
 			}
 		} else {
 			const ctxText = truncateCardText(ctxRaw, leftBudget);
-			leftStyled = theme.fg("dim", ctxText);
+			leftStyled = theme.fg(warnContext ? "warning" : "dim", ctxText);
 			leftVisible = visibleWidth(ctxText);
 		}
 
@@ -2067,16 +2253,17 @@ export default function (pi: ExtensionAPI) {
 		width: number,
 		theme: any,
 		marked = false,
+		warnContext = false,
 	): string {
 		const vis = visibleWidth(nameRaw);
 		const name = vis >= nameWidth ? nameRaw : nameRaw + " ".repeat(nameWidth - vis);
-		const ctx = contextLabel(contextPct).padStart(4);
+		const ctx = contextLabel(contextPct, warnContext).padStart(4);
 		// The marked row (compact-view switcher) gets a `›` lead + a full-width
 		// selectedBg highlight, mirroring ZoomUI's selected-row treatment.
 		const lead = marked ? theme.fg("accent", "›") : " ";
 		const line = lead
 			+ theme.fg("accent", theme.bold(name))
-			+ "  " + theme.fg("dim", ctx)
+			+ "  " + theme.fg(warnContext ? "warning" : "dim", ctx)
 			+ (model ? "  " + theme.fg("dim", model) : "")
 			+ "  " + theme.fg(status.color, status.text);
 		const truncated = truncateToWidth(line, width);
@@ -2121,6 +2308,7 @@ export default function (pi: ExtensionAPI) {
 			status.color,
 			w,
 			theme,
+			contextPressure(state.contextPct),
 		);
 		const workRaw = state.task
 			? (state.lastWork || state.task)
@@ -2305,7 +2493,7 @@ export default function (pi: ExtensionAPI) {
 	// specialists then running research helpers. main is the session under the input
 	// box, so it is never listed. Each entry's `key` matches /zoom resolution
 	// (lowercase persona name for team, `rN` for research), so Alt+\ can resolve it.
-	function switchableAgents(): { key: string; name: string; ctx: number; model: string; status: { color: string; text: string } }[] {
+	function switchableAgents(): { key: string; name: string; ctx: number; ctxWarn: boolean; model: string; status: { color: string; text: string } }[] {
 		return [
 			...Array.from(agentStates.values())
 				.filter(a => a.status === "running")
@@ -2313,6 +2501,7 @@ export default function (pi: ExtensionAPI) {
 					key: a.def.name.toLowerCase(),
 					name: displayName(a.def.name),
 					ctx: a.contextPct,
+					ctxWarn: contextPressure(a.contextPct),
 					model: modelWithThinking(a.def),
 					status: cardStatus(a.status, a.elapsed),
 				})),
@@ -2322,6 +2511,7 @@ export default function (pi: ExtensionAPI) {
 					key: `r${s.id}`,
 					name: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"}`,
 					ctx: s.contextPct,
+					ctxWarn: false,
 					model: shortModel(s.model) + thinkingSuffix(resolvedThinking(s.def)),
 					status: cardStatus(s.status, s.elapsed),
 				})),
@@ -2348,7 +2538,7 @@ export default function (pi: ExtensionAPI) {
 				const running = switchableAgents();
 				if (running.length === 0) return [];
 				const nameWidth = Math.min(24, Math.max(...running.map(r => visibleWidth(r.name))));
-				return running.map(r => renderCompactLine(r.name, r.ctx, r.model, r.status, nameWidth, width, theme, r.key === markedAgent));
+				return running.map(r => renderCompactLine(r.name, r.ctx, r.model, r.status, nameWidth, width, theme, r.key === markedAgent, r.ctxWarn));
 			},
 		}), { placement: "belowEditor" });
 	}
@@ -2488,6 +2678,8 @@ export default function (pi: ExtensionAPI) {
 		agentName: string,
 		task: string,
 		ctx: any,
+		inputArtifacts: InputArtifactPreview[] = [],
+		scopeGlobs: string[] = [],
 	): Promise<{ output: string; exitCode: number; elapsed: number }> {
 		const key = agentName.toLowerCase();
 		const state = agentStates.get(key);
@@ -2540,6 +2732,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Session file for this agent
 		const agentKey = safeAgentKey(state.def.name);
+		const runNumber = state.runCount;
 		const agentSessionFile = safePathWithin(sessionDir, `${agentKey}.json`);
 
 		// Clarification protocol — every specialist learns to bubble up questions
@@ -2647,7 +2840,13 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			startDelegationWatch(state, delegationDir);
 		}
 
-		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + delegationProtocol;
+		const deliverableProtocol = `
+
+## Deliverable-to-file protocol
+When your deliverable is a document (plan, review, critique, inventory, report), write the full document to the real session artifact path when your tools allow it: .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence). Do NOT write repo-root ./artifacts/... files. In your final response, report and pass the artifact-relative handoff path: artifacts/<kind>/${agentKey}-run${runNumber}.md. If your persona already has an explicit output path contract such as planner PLAN_FILE, keep that existing behavior and also summarize/return the session artifact path the hub gives you.
+Finish with the artifact-relative path plus a digest of no more than 10 lines. If the dispatch includes acceptance assertions (A1, A2, ...), also include the structured return from skills/orchestration-verification/SKILL.md. If your tools are read-only and you cannot write a document artifact yourself, finish with the digest + structured return; the hub will still persist your full final return under artifacts/returns/ for dispatcher recovery.`;
+
+		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + delegationProtocol + deliverableProtocol;
 
 		// Per-agent thinking: the persona's `thinking:` frontmatter (or a
 		// /agent-model-thinking session override) sets the pi --thinking reasoning
@@ -2668,7 +2867,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			appendSystemPrompt: appendedSystemPrompt,
 			sessionFile: agentSessionFile,
 			resume: !!state.sessionFile,
-			prompt: task,
+			prompt: appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs),
 			extensions,
 			env: delegateEnv,
 			detached: true,
@@ -2863,6 +3062,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		state: ResearchState,
 		prompt: string,
 		ctx: any,
+		inputArtifacts: InputArtifactPreview[] = [],
 	): Promise<{ output: string; exitCode: number; elapsed: number }> {
 		state.status = "running";
 		state.task = prompt;
@@ -2894,7 +3094,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			appendSystemPrompt: state.def.systemPrompt + RESEARCH_PROTOCOL,
 			sessionFile: sessionPath,
 			resume: !!state.sessionFile,
-			prompt,
+			prompt: appendInputArtifacts(prompt, inputArtifacts),
 			// Research helpers get the continue variant: a blocked read (e.g. peeking
 			// at .env to verify a key) feeds back and lets them adapt rather than
 			// aborting the whole research turn.
@@ -3501,10 +3701,16 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		parameters: Type.Object({
 			agent: Type.String({ description: "Agent name (case-insensitive)" }),
 			task: Type.String({ description: "Task description for the agent to execute" }),
+			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the specialist must read the file itself." }))),
+			scope: Type.Optional(Type.Array(Type.String({ description: "Optional advisory file scope globs for writable agents. Changes outside are reported in details.scopeViolations; nothing is auto-reverted." }))),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
-			const { agent, task } = params as { agent: string; task: string };
+			const { agent, task, artifacts, scope } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[] };
+			let writableTracked = false;
+			let scopeSnapshot: any = null;
+			let scopeOverlapBaseline = writableOverlapCounter;
+			let concurrentWritableAtStart = false;
 
 			try {
 				if (onUpdate) {
@@ -3514,7 +3720,23 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					});
 				}
 
-				let result = await dispatchAgent(agent, task, ctx);
+				const dispatchedAssertionIds = extractAssertionIds(task);
+				const inputArtifacts = loadInputArtifacts(artifacts, ctx);
+				const scopeGlobs = (scope || []).map(s => String(s).trim()).filter(Boolean);
+				const stateForScope = agentStates.get(agent.toLowerCase());
+				const agentCanWrite = !!stateForScope && hasWriteCapability(stateForScope.def.tools);
+				if (agentCanWrite) {
+					concurrentWritableAtStart = activeWritableDispatches > 0;
+					scopeOverlapBaseline = writableOverlapCounter;
+					if (concurrentWritableAtStart) writableOverlapCounter++;
+					activeWritableDispatches++;
+					writableTracked = true;
+				}
+				if (scopeGlobs.length > 0 && agentCanWrite) {
+					scopeSnapshot = snapshotWorktree(ctx.cwd || process.cwd());
+				}
+
+				let result = await dispatchAgent(agent, task, ctx, inputArtifacts, scopeGlobs);
 
 				// Auto-research pipe: when the specialist pauses with NEEDS_RESEARCH
 				// lines, the hub (in code, not the dispatcher LLM) fans out read-only
@@ -3554,8 +3776,29 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					const resumePrompt = "Research findings for your NEEDS_RESEARCH questions are ready. " +
 						"Read each file with your read tool, then continue from where you paused:\n" +
 						answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
-					result = await dispatchAgent(agent, resumePrompt, ctx);
+					result = await dispatchAgent(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs);
 				}
+
+				let scopeViolations: any = null;
+				if (scopeSnapshot) {
+					const diff = diffAgainst(scopeSnapshot, ctx.cwd || process.cwd());
+					const concurrentWritableOverlap = concurrentWritableAtStart || writableOverlapCounter !== scopeOverlapBaseline;
+					if (diff.skipped) {
+						scopeViolations = { skipped: true, reason: diff.reason, declaredScope: scopeGlobs, concurrentWritableOverlap };
+					} else {
+						const checked = checkScope(diff.paths, scopeGlobs);
+						scopeViolations = { ...checked, changedPaths: diff.paths, declaredScope: scopeGlobs, concurrentWritableOverlap };
+					}
+				}
+
+				const parsedReturn = parseStructuredReturn(result.output);
+				const contractNotices = crossCheck(parsedReturn, dispatchedAssertionIds);
+				const shouldUseDigest = dispatchedAssertionIds.length > 0 || !!parsedReturn;
+				const state = agentStates.get(agent.toLowerCase());
+				const agentKey = safeAgentKey(state?.def.name ?? agent);
+				const returnPath = shouldUseDigest
+					? writeReturnArtifact(agentKey, state?.runCount ?? 0, result.output)
+					: null;
 
 				const truncated = result.output.length > 8000
 					? result.output.slice(0, 8000) + "\n\n... [truncated]"
@@ -3583,8 +3826,18 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					  `Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`
 					: "";
 
+				const returnPathNotice = returnPath ? `\n\nFull specialist output: ${returnPath}` : "";
+				const contextNotice = state && contextPressure(state.contextPct)
+					? `\n\n⚠ ${displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`
+					: "";
+				const scopeNotice = scopeNoticeText(scopeViolations);
+				const contractNotice = contractNoticeText(contractNotices);
+				const digest = shouldUseDigest
+					? [structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contractNotice].filter(Boolean).join("\n\n")
+					: truncated;
+
 				return {
-					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}\n\n${truncated}` }],
+					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}${returnPathNotice}${contextNotice}${scopeNotice}\n\n${digest}` }],
 					details: {
 						agent,
 						task,
@@ -3592,8 +3845,13 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 						elapsed: result.elapsed,
 						exitCode: result.exitCode,
 						fullOutput: result.output,
+						structuredReturn: parsedReturn,
+						returnPath,
+						contractNotices,
 						questions,
 						researchRounds,
+						scopeViolations,
+						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview })),
 					},
 				};
 			} catch (err: any) {
@@ -3601,6 +3859,8 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					content: [{ type: "text", text: `Error dispatching to ${agent}: ${err?.message || err}` }],
 					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" },
 				};
+			} finally {
+				if (writableTracked) activeWritableDispatches = Math.max(0, activeWritableDispatches - 1);
 			}
 		},
 
@@ -3669,10 +3929,11 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			task: Type.String({ description: "What to investigate. Be specific about what to find and report." }),
 			persona: Type.Optional(Type.String({ description: "Optional research-persona name (see the Research personas list). It brings its own role/model/thinking. Omit for an anonymous helper." })),
 			model: Type.Optional(Type.String({ description: "Optional pi model spec for an anonymous helper (ignored when `persona` is set — the persona carries its own model)." })),
+			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the helper must read the file itself." }))),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
-			const { task, persona, model } = params as { task: string; persona?: string; model?: string };
+			const { task, persona, model, artifacts } = params as { task: string; persona?: string; model?: string; artifacts?: string[] };
 
 			let def: AgentDef;
 			let isPersona = false;
@@ -3692,6 +3953,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			}
 
 			const resolvedModel = resolveResearchModel(def, isPersona ? undefined : model, ctx);
+			const inputArtifacts = loadInputArtifacts(artifacts, ctx);
 			const state = createResearchState(def, isPersona, resolvedModel);
 			updateResearchWidget();
 
@@ -3703,7 +3965,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			}
 
 			try {
-				const result = await spawnResearch(state, task, ctx);
+				const result = await spawnResearch(state, task, ctx, inputArtifacts);
 				const truncated = result.output.length > 8000
 					? result.output.slice(0, 8000) + "\n\n... [truncated]"
 					: result.output;
@@ -3720,6 +3982,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 						elapsed: result.elapsed,
 						exitCode: result.exitCode,
 						fullOutput: result.output,
+						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview })),
 					},
 				};
 			} catch (err: any) {
@@ -3844,11 +4107,14 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					details: { status: "error" },
 				};
 			}
-			if (wanted === "proven" && !(evidence && evidence.trim())) {
-				return {
-					content: [{ type: "text" as const, text: `${a.id} stays ${a.status}: mark it proven only with named evidence (test, command output, file:line, or a runtime observation).` }],
-					details: { status: "rejected" },
-				};
+			if (wanted === "proven") {
+				const validation = validateEvidence(a.tag, evidence || "", { fileExists: evidencePathExists, evidenceRoot: safePathWithin(artifactsRoot(), "evidence") });
+				if (!validation.ok) {
+					return {
+						content: [{ type: "text" as const, text: `${a.id} stays ${a.status}: ${validation.reason}` }],
+						details: { status: "rejected", reason: validation.reason },
+					};
+				}
 			}
 			a.status = wanted as AssertionStatus;
 			a.evidence = wanted === "unproven" ? undefined : (evidence?.trim() || undefined);
@@ -3892,12 +4158,8 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					details: { count: 0 },
 				};
 			}
-			const lines = assertions.map(a => {
-				const ev = a.evidence ? ` — evidence: ${a.evidence}` : "";
-				return `${a.id} [${a.tag}] ${a.status.toUpperCase()}: ${a.text}${ev}`;
-			});
 			return {
-				content: [{ type: "text" as const, text: `${assertionStatusLine()}\n${lines.join("\n")}` }],
+				content: [{ type: "text" as const, text: renderAssertionLedgerText() }],
 				details: { count: assertions.length },
 			};
 		},
@@ -4030,6 +4292,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 		parameters: Type.Object({
 			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /coms --project or /coms --all." }),
 			prompt: Type.String({ description: "The prompt to send." }),
+			handoff_token: Type.Optional(Type.String({ description: "Internal /handoff token. Only include when the /handoff follow-up explicitly gives you one; it authorizes the machine-appended ledger/artifact appendix." })),
 			conversation_id: Type.Optional(Type.String()),
 			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
 		}),
@@ -4053,6 +4316,16 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 			if (hops >= MAX_HOPS) {
 				throw new Error(`coms: hop limit reached (${hops} >= ${MAX_HOPS})`);
 			}
+			let outboundPrompt = String(params.prompt || "");
+			const handoffAppendAuthorized = !!(
+				pendingHandoff &&
+				pendingHandoff.target === target.name &&
+				params.handoff_token === pendingHandoff.token
+			);
+			if (handoffAppendAuthorized) {
+				outboundPrompt = appendMachineHandoffSections(outboundPrompt);
+			}
+
 			const msg_id = ulid();
 			const env: PromptEnvelope = {
 				type: "prompt",
@@ -4063,13 +4336,14 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 				sender_cwd: identity.cwd,
 				hops,
 				timestamp: nowIso(),
-				prompt: params.prompt,
+				prompt: outboundPrompt,
 				conversation_id: params.conversation_id ?? null,
 				response_schema: (params.response_schema as object | undefined) ?? null,
 			};
 
 			// Send the envelope synchronously and wait for the receiver's ack.
 			await sendEnvelope(target.endpoint, env);
+			if (handoffAppendAuthorized) pendingHandoff = null;
 
 			// Register a pending entry whose promise the receiver-side handleResponse
 			// (or the timeout below) will settle.
@@ -5240,6 +5514,8 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 				ctx.ui.notify(`coms: no live peer "${target}". Use /coms to refresh the pool.`, "error");
 				return;
 			}
+			const handoffToken = crypto.randomBytes(8).toString("hex");
+			pendingHandoff = { target: peer.name, token: handoffToken };
 			pi.sendMessage({
 				customType: "coms-handoff",
 				content:
@@ -5247,7 +5523,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 					`Compose a SELF-CONTAINED handoff brief (the peer does NOT share your context): state the ` +
 					`overall goal, what's been done so far, key decisions and constraints, the current status, ` +
 					`and the concrete next steps you want the peer to take. Then call ` +
-					`coms_send(target: "${peer.name}", prompt: <the brief>), coms_await its msg_id, and relay ` +
+					`coms_send(target: "${peer.name}", handoff_token: "${handoffToken}", prompt: <the brief only; the hub appends the verification ledger and artifact index in code only when this token matches>), coms_await its msg_id, and relay ` +
 					`the peer's reply to me in ${userLanguage}.`,
 				display: true,
 			}, { deliverAs: "followUp", triggerTurn: true });
@@ -5347,7 +5623,8 @@ ask the human. You MUST instead:
   ways, call \`ask_user\` first. Never invent constraints or "reasonable defaults"
   the user did not state.
 - Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
-  augmented with a clarification protocol so the specialist can bubble up questions.
+  augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
+- For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
 - After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
   the result \`details.questions\`). For each one: call \`ask_user\` in ${userLanguage},
   then re-dispatch the specialist with the answer.`
@@ -5355,7 +5632,8 @@ ask the human. You MUST instead:
   ways, STATE your assumption explicitly in ${userLanguage} and wait for the user
   to correct it. Never invent constraints or "reasonable defaults" silently.
 - Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
-  augmented with a clarification protocol so the specialist can bubble up questions.
+  augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
+- For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
 - After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
   the result \`details.questions\`). For each one: relay it verbatim to the user
   in ${userLanguage} and wait for the reply before re-dispatching.`;

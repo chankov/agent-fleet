@@ -111,6 +111,7 @@ requires_user_decision:[questions only a human can resolve, …]
 
 Rules:
 - An assertion may be listed under `assertions_proven` **only if its evidence is named** (test name, command output, file:line, or runtime observation). No evidence → it belongs in `assertions_unproven`.
+- In the pi `agent-hub` harness, assertion-carrying dispatches are machine-parsed before the dispatcher sees them: the compact parsed object is surfaced as `details.structuredReturn`, the full raw output is written to `.pi/agent-sessions/artifacts/returns/<agentKey>-run<N>.md` and surfaced as `details.returnPath`, and evidence-less `assertions_proven` entries are flagged/demoted by `details.contractNotices` rather than accepted as proven. `update_assertion(status: "proven")` also validates evidence by assertion tag; for `runtime-ui`, evidence producers must save a runtime artifact under `.pi/agent-sessions/artifacts/evidence/` and name that existing path.
 - `assertions_unproven` and `assertions_failed` are reported **honestly** — never re-labelled as success to look finished. Half-done is more useful stated than hidden.
 - The dispatcher advances only on `assertions_proven`. `unproven` and `failed` both mean *not done* and feed the next dispatch.
 

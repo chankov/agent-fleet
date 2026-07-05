@@ -33,7 +33,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { appendFileSync, mkdirSync } from "fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
 import { spawnPiAgent } from "./spawn.ts";
 import {
@@ -47,7 +47,8 @@ import {
 } from "./helpers.ts";
 
 const DEFAULT_CALL_BUDGET = DELEGATE_TREE_SPAWN_BUDGET;
-const RESULT_CAP = 8000;
+const RESULT_CAP = 2000;
+const DIGEST_MAX_LINES = 30;
 // How often buffered text/thinking deltas are flushed into the event file.
 const TIMELINE_FLUSH_MS = 700;
 
@@ -78,13 +79,35 @@ function subagentProtocol(persona: string, role: string, canDelegate: boolean): 
 
 ## You are the "${role}" sub-agent of a ${persona} specialist
 Your parent delegated ONE specific task to you. Do exactly that task — do not
-widen scope, do not start unrelated work. Report your findings/result concisely
-and concretely (cite locations as path:line where relevant); your final message
-is returned to your parent verbatim, so make it self-contained.${canDelegate ? `
+widen scope, do not start unrelated work. Your full output is written to a result
+file, but your parent receives only a compact digest. End your final message with
+a \`DIGEST:\` section of no more than 30 lines, self-contained, with path:line
+citations where relevant. Put the most important findings and next actions there.${canDelegate ? `
 You may delegate narrow sub-tasks further via your own delegate tool, within
 its declared roles and remaining tree budget.` : `
 You CANNOT delegate further — your remaining depth is 0, so this child has no
 delegate tooling. Do the work yourself with the tools you have.`}`;
+}
+
+function childResultDigest(output: string, resultPath: string): { text: string; hasDigest: boolean } {
+	const lines = String(output || "").split(/\r?\n/);
+	const marker = lines.map(l => l.trim()).findIndex(l => /^DIGEST:\s*$/i.test(l));
+	if (marker >= 0) {
+		const digestLines = lines.slice(marker, marker + DIGEST_MAX_LINES);
+		return {
+			text: capInline(`${digestLines.join("\n")}\n\nFull output: ${resultPath}\nRead the result file only if this digest is insufficient.`),
+			hasDigest: true,
+		};
+	}
+	const fallback = lines.slice(0, DIGEST_MAX_LINES).join("\n");
+	return {
+		text: capInline(`${fallback}\n\n[no DIGEST section — full output at ${resultPath}]`),
+		hasDigest: false,
+	};
+}
+
+function capInline(text: string): string {
+	return text.length > RESULT_CAP ? text.slice(0, RESULT_CAP) + "\n... [digest truncated]" : text;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -227,8 +250,11 @@ export default function (pi: ExtensionAPI) {
 			} : null;
 
 			const sessionsDir = safePathWithin(config.eventDir, "sessions");
+			const resultsDir = safePathWithin(config.eventDir, "results");
 			const childSessionFile = safePathWithin(sessionsDir, `${childId}.jsonl`);
+			const childResultFile = safePathWithin(resultsDir, `${childId}.md`);
 			try { mkdirSync(sessionsDir, { recursive: true }); } catch {}
+			try { mkdirSync(resultsDir, { recursive: true }); } catch {}
 
 			emit({
 				t: "spawn", id: childId, parent: config.tag, role: roleKey,
@@ -303,9 +329,11 @@ export default function (pi: ExtensionAPI) {
 			emit({ t: "exit", id: childId, code, elapsed, ts: Date.now() });
 
 			if (res.spawnError) {
+				const spawnFailure = `Delegate ${childId} failed to spawn: ${res.spawnError}`;
+				try { writeFileSync(childResultFile, spawnFailure + "\n", "utf-8"); } catch {}
 				return {
-					content: [{ type: "text" as const, text: `Delegate ${childId} failed to spawn: ${res.spawnError}` }],
-					details: { id: childId, role: roleKey, status: "error" },
+					content: [{ type: "text" as const, text: `${spawnFailure}\n\nFull output: ${childResultFile}` }],
+					details: { id: childId, role: roleKey, status: "error", resultPath: childResultFile },
 				};
 			}
 
@@ -316,9 +344,8 @@ export default function (pi: ExtensionAPI) {
 					? `${output}\n\n[stderr]\n${errTail}`
 					: `Delegate ${childId} exited with code ${code} and produced no output.\n\n[stderr]\n${errTail}`;
 			}
-			if (output.length > RESULT_CAP) {
-				output = output.slice(0, RESULT_CAP) + "\n\n... [truncated]";
-			}
+			try { writeFileSync(childResultFile, output, "utf-8"); } catch {}
+			const digest = childResultDigest(output, childResultFile);
 
 			const notes: string[] = [];
 			if (writeDowngraded) notes.push("allow_write ignored — other children were live, so it ran read-only");
@@ -328,8 +355,8 @@ export default function (pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text" as const, text:
 					`[delegate ${childId} · ${roleDef.model} · ${effectiveTools}] ${code === 0 ? "done" : "error"} ` +
-					`in ${Math.round(elapsed / 1000)}s${noteBlock}\n\n${output}` }],
-				details: { id: childId, role: roleKey, model: roleDef.model, status: code === 0 ? "done" : "error", elapsed },
+					`in ${Math.round(elapsed / 1000)}s${noteBlock}\n\n${digest.text}` }],
+				details: { id: childId, role: roleKey, model: roleDef.model, status: code === 0 ? "done" : "error", elapsed, resultPath: childResultFile, digestFound: digest.hasDigest },
 			};
 		},
 	});

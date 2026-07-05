@@ -9,7 +9,7 @@ description: Tests in real browsers via Chrome DevTools MCP. Use when building o
 
 Use Chrome DevTools MCP to give your agent eyes into the browser. This bridges the gap between static code analysis and live browser execution — the agent can see what the user sees, inspect the DOM, read console logs, analyze network requests, and capture performance data. Instead of guessing what's happening at runtime, verify it.
 
-**In pi**, this skill is driven by the `web-debugger` persona, which loads the `chrome-devtools-mcp` extension (interactive, headful) as a coms peer. For automated/headless/parallel runtime-UI evidence that can run as a dispatched subagent, use the `bowser` persona instead (it drives `playwright-cli` over Bash). The two are complementary — pick by mode: interactive debugging vs scriptable automation. See `.pi/skills/bowser/SKILL.md` and `docs/pi-extensions.md` for the full division.
+**In pi**, this skill is driven by the `web-debugger` persona, which loads the `chrome-devtools-mcp` extension (interactive, headful) as a coms peer. For automated/headless/parallel runtime-UI evidence that can run as a dispatched subagent, use the `bowser` persona instead (it drives `playwright-cli` over Bash). The two are complementary — pick by mode: interactive debugging vs scriptable automation. See `.pi/skills/bowser/SKILL.md` and `docs/pi-extensions.md` for the full division. When closing `runtime-ui` assertions in agent-hub, save screenshots, DOM dumps, console/network excerpts, or trace summaries under `.pi/agent-sessions/artifacts/evidence/` and cite those artifact paths in structured returns; prose observations alone are not accepted as proven evidence.
 
 ## When to Use
 

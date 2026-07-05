@@ -45,14 +45,45 @@ another main agent** and **use a coms peer as a subagent**.
   to recover the full text the status line omits. The `orchestrator` persona drives it — a deep-researcher
   parity inventory for "behave like" requests, runtime proof for UI/visibility assertions, the
   regression reset on a re-ask — per
-  [`orchestration-verification`](../../../skills/orchestration-verification/SKILL.md). **Advisory by
-  design** (PRD open question 2): status is surfaced and "proven" requires named evidence, but a
-  dispatch is never hard-refused on an unproven assertion — code-enforcement is the Checkpoint A
-  decision.
+  [`orchestration-verification`](../../../skills/orchestration-verification/SKILL.md). The hub also
+  machine-parses each assertion-carrying specialist's structured return, writes the full raw output
+  to `.pi/agent-sessions/artifacts/returns/<agentKey>-run<N>.md`, surfaces only a compact
+  `details.structuredReturn` digest plus `details.returnPath`, and marks contract notices such as
+  missing assertion ids or evidence-less `assertions_proven` entries (demoted to unproven in the
+  tool text). `details.fullOutput` remains for `/zoom`/compatibility, but dispatcher-visible text is
+  digest + path oriented. `update_assertion(status: "proven")` validates evidence by assertion tag:
+  test evidence needs a command/test and outcome, `code-grep` needs pattern plus result sample,
+  manual needs user/`ask_user` confirmation, and `runtime-ui` needs an existing artifact path under
+  `.pi/agent-sessions/artifacts/evidence/`. **Advisory by design** (PRD open question 2): status is
+  surfaced and "proven" requires named evidence, but a dispatch is never hard-refused on an unproven
+  assertion — code-enforcement is the Checkpoint A decision.
+- **Artifact bus** — session handoffs live under `.pi/agent-sessions/artifacts/` with conventional
+  `returns/`, `plans/`, `reviews/`, `inventories/`, and `evidence/` subdirectories, all wiped and
+  recreated at session start like `findings/`. `dispatch_agent` and `spawn_research` accept optional
+  `artifacts: string[]` paths (repo-relative or session-artifact-relative); the hub validates that
+  they stay inside the repo/session roots and injects only the path plus first heading/one-line
+  preview, never file bodies. Document-producing specialists are instructed to write plans, reviews,
+  inventories, and reports to the real session path
+  `.pi/agent-sessions/artifacts/<kind>/<agentKey>-run<N>.md` when their tools allow it, then report/pass
+  the artifact-relative handoff path `artifacts/<kind>/<agentKey>-run<N>.md`, finish with that path plus
+  a ≤10-line digest, and still include structured returns when assertions are carried. Repo-root
+  `./artifacts/...` files are not session artifacts. Planner's existing PLAN_FILE behavior is preserved;
+  the artifact path is an additional handoff channel.
+- **Dispatch scope advisory** — `dispatch_agent` accepts optional `scope: string[]` for writable
+  builder-style runs. The orchestrator should derive these globs from the plan task's file list,
+  and skip scope for exploratory/reconnaissance work where the right files are not known yet. The
+  hub snapshots git status before the writable dispatch, diffs after the whole tool call (including
+  auto-research resumes), and reports out-of-scope paths in `details.scopeViolations` plus a ⚠ text
+  notice. This is advisory only: the hub never blocks completion, reverts files, or escalates
+  automatically. Known limitation: concurrent writable dispatches can only be attributed
+  approximately, so overlapping runs are flagged in the notice.
 - **Agent controls** — `/zoom` inspects a live agent timeline; `/agents-history` replays the run as a
   timeline (orchestrator turns, dispatches, research helpers) with per-agent durations, parallel-run
   markers, and a grand total; kill/restart controls manage running child agents; per-agent `model:`
-  fields select models from team config.
+  fields select models from team config. Restartable team specialists at or above 70% context render
+  their context percentage with a warning marker/color in dashboard and compact views, and their next
+  `dispatch_agent` result adds a `/agents-restart <persona>` hint. Research helpers are not warned,
+  and the hub never restarts specialists automatically.
 - **Model switching** — a persona's frontmatter `models:` list declares the models it may switch to
   (the default `model:` is implicitly a candidate). `/agent-model <persona>` picks from that list;
   the choice lasts for the session and takes effect on the persona's next dispatch
@@ -96,10 +127,14 @@ another main agent** and **use a coms peer as a subagent**.
   `delegate` extension/tool. Write safety: children run read-only (`read,grep,find,ls`) unless a
   SINGLE live child gets `allow_write: true`, which inherits the parent's tools intersected with the
   role's `tools:` cap; if a declared role cap leaves no available tools, delegation is refused.
-  Concurrent children are always forced read-only. Children report through
+  Concurrent children are always forced read-only. Children stream timeline events through
   `.pi/agent-sessions/delegations/<persona>/events.jsonl`; the hub tails it and renders nested rows
   under the parent's card (child id, model, tokens, status),
-  each openable with `/zoom <child-id>`. Spend rolls up: every child row and the parent's subtree
+  each openable with `/zoom <child-id>`. Each child also writes its full final output to
+  `.pi/agent-sessions/delegations/<persona>/results/<childId>.md`; the parent receives only status,
+  a required final `DIGEST:` section (≤30 lines with path:line citations), and the result-file path.
+  If a child omits `DIGEST:`, the parent gets the first ~30 lines plus a no-DIGEST warning and the
+  result path. Spend rolls up: every child row and the parent's subtree
   total show tokens, and a session-wide `Δ delegated` counter sits in the status line.
   `/agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
   it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
@@ -297,10 +332,14 @@ onward, hops accumulating up to `MAX_HOPS` (5).
 **decision G1**, it does *not* try to extract a compaction summary; instead it asks the dispatcher
 LLM to compose a **self-contained brief** ("everything the target needs, assume no shared history"),
 then `coms_send`s that brief to the peer, `coms_await`s the reply, and relays it back — in the
-configured user-facing language. The target peer takes over; the source relays the result. There is
-no raw session copy (pi sessions aren't portable between live agents). The target must be a peer in
-your pool — `/handoff` resolves through the same [scope boundary](#pool-scope-is-the-reach-boundary)
-as `coms_send`, so you cannot hand a session to a peer you cannot see.
+configured user-facing language. When the handoff `coms_send` fires, the hub appends machine-generated
+sections after the LLM brief: `## Verification ledger (verbatim, machine-appended)` with every current
+assertion in canonical ledger form, and `## Artifact index` with artifact paths plus first headings.
+The target peer must treat the machine-appended ledger as the contract, not the paraphrased brief.
+The target peer takes over; the source relays the result. There is no raw session copy (pi sessions
+aren't portable between live agents). The target must be a peer in your pool — `/handoff` resolves
+through the same [scope boundary](#pool-scope-is-the-reach-boundary) as `coms_send`, so you cannot
+hand a session to a peer you cannot see.
 
 ### Pool widget
 
