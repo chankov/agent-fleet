@@ -116,6 +116,8 @@ For each broken link discovered:
 
 Also flag any YAML configs (`teams.yaml`, `peers.yaml`) that still reference removed persona names, and offer to rename the references to the canonical name.
 
+Also validate `.ai/agent-skills-overrides.md` when it exists, against the schema in `docs/agent-skills-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys (`thinking.*` levels, `delegate-depth.*`, `persona-gate`), `rules:` folders that don't exist, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are **advisory only** — report them in the table with fix "edit by hand", never edit the overrides file yourself. (`agent-skills doctor` runs this same validation.)
+
 Present findings in a single table (keep it narrow — same widget constraint as Step 6/9: short `Issue`/`Fix` phrases, paths relative to the workspace, no overflowing cells):
 
 | # | Path | Issue | Fix |
@@ -296,12 +298,12 @@ From the Step 4 analysis, propose draft override sections for `.ai/agent-skills-
 
 For `pi` workspaces where `agent-hub` is selected, installed, or kept, also offer its user-facing language override:
 
-- Section: legacy `## agent-team`
+- Section: `## agent-hub` (an existing legacy `## agent-team` section is equivalent — preserve its name, don't duplicate it)
 - Key: `language: English` as the offered default
 - Existing section: preserve the current `language` value in the draft and let the user edit it
 - Omitted section: keep `agent-hub`'s default English
 
-Write each section as terse `key: value` lines, never prose: the lifecycle skills and `agent-hub` load this file on every run/session start and parse it by key, so it stays minimal. Show the draft and let the user edit, accept, or skip each section. Reference env-var names for any credentials; keep secrets out of the file.
+Write each section as terse `key: value` lines, never prose: the lifecycle skills and `agent-hub` load this file on every run/session start and parse it by key, so it stays minimal. Show the draft and let the user edit, accept, or skip each section. Reference env-var names for any credentials; keep secrets out of the file. When any drafted section references env-var names (browser-testing roles, STT keys), also offer an `## env` section with `required: <NAME>[, <NAME>]` listing those names — only `agent-skills doctor` reads it, to warn on unset vars.
 
 ### 8. Choose the install method
 
@@ -436,7 +438,7 @@ Close the report with one line explaining the installer-cleanup outcome:
 - Every skill installed when the workspace needs a handful.
 - An existing, differing target file overwritten without asking the user.
 - A re-run that ignores the existing `## install-status` and reinstalls everything.
-- A `pi` workspace using `agent-hub` reached Step 7 without being offered the legacy `## agent-team` / `language: <value>` override, or an existing language value was overwritten instead of preserved.
+- A `pi` workspace using `agent-hub` reached Step 7 without being offered the `## agent-hub` / `language: <value>` override, or an existing language value was overwritten instead of preserved.
 - `agent-hub` installed or kept without `damage-control` **and** `damage-control-continue` — the mandatory pairing was skipped, or an untick of either damage-control variant was accepted while `agent-hub` stayed selected.
 - The `bowser` runtime-skill installed without checking for the external `playwright-cli` CLI — or a global `@playwright/cli` install run without the user's confirmation.
 - The overrides file padded with install status, summaries, or prose instead of terse `key: value` sections.
@@ -475,7 +477,7 @@ After completing the workflow, confirm:
 - [ ] Out-of-inventory and unrecorded items found in the install-target directories were left untouched and logged under "Skipped — not owned by agent-skills".
 - [ ] Settings-file edits were limited to agent-skills' own hook entries; no user keys, env vars, or third-party MCP entries were modified.
 - [ ] `.ai/agent-skills-overrides.md` holds the agreed override sections as terse `key: value` lines, and nothing else.
-- [ ] For `pi` workspaces using `agent-hub`, the legacy `## agent-team` language override was offered, existing values were preserved, and omitting the section was treated as default English.
+- [ ] For `pi` workspaces using `agent-hub`, the `## agent-hub` language override was offered (an existing legacy `## agent-team` section kept its name), existing values were preserved, and omitting the section was treated as default English.
 - [ ] If `agent-hub` was installed or kept, `damage-control` was installed/kept alongside it (mandatory pairing) and could not be deselected while `agent-hub` remained.
 - [ ] If the `bowser` runtime-skill was installed or kept, the external `playwright-cli` dependency was checked, and a missing CLI was surfaced with the install offer (`npm install -g @playwright/cli@latest`) rather than silently installed or treated as a hard failure.
 - [ ] `.ai/agent-skills-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session, and a `version:` line in `## workspace-summary` that matches the package version from Step 2.

@@ -320,7 +320,9 @@ function extractNeedsResearch(output: string): string[] {
 }
 
 // ── Overrides Parser (.ai/agent-skills-overrides.md) ──
-// Reads the `## agent-team` section. Supported keys:
+// Reads the `## agent-hub` section (`## agent-team` is accepted as a legacy
+// alias; when both are present their keys merge, later lines winning).
+// Supported keys:
 //   language: <name>           — user-facing language. Default: English.
 //   persona-gate: on|off       — block input until a dispatcher persona is picked.
 //   model.<persona>: <spec>    — replace the persona's default model for this project.
@@ -387,7 +389,8 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		const line = rawLine.replace(/\r$/, "");
 		const heading = line.match(/^##\s+(.+?)\s*$/);
 		if (heading) {
-			inSection = heading[1].trim().toLowerCase() === "agent-team";
+			const name = heading[1].trim().toLowerCase();
+			inSection = name === "agent-hub" || name === "agent-team";
 			continue;
 		}
 		if (!inSection) continue;
@@ -4539,7 +4542,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const choice = await ctx.ui.select("Select dispatcher persona", options);
 			if (choice === undefined) {
 				ctx.ui.notify(
-					"A dispatcher persona is required. Set `persona-gate: off` under `## agent-team` in .ai/agent-skills-overrides.md to skip.",
+					"A dispatcher persona is required. Set `persona-gate: off` under `## agent-hub` in .ai/agent-skills-overrides.md to skip.",
 					"warning",
 				);
 				continue;

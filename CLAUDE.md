@@ -49,7 +49,7 @@ FORK.md       → Canonical record of how this fork differs from upstream addyos
 - Supporting files only created when content exceeds 100 lines
 - Override readers ship built-in defaults but read per-project overrides from `.ai/agent-skills-overrides.md` in the *target* project — see `docs/agent-skills-setup.md`:
   - Skills: `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`
-  - pi harness: `agent-hub` via the legacy `## agent-team` section
+  - pi harness: `agent-hub` via the `## agent-hub` section (legacy `## agent-team` still accepted)
   - pi extension: `pi-voice-stt` reads project-local `.ai/stt.json` (its own JSON config, not the overrides markdown) ahead of global `~/.pi/agent/stt.json`; guided setup writes it + the gitignored `.env` secrets
 - Always-on pi utility extensions live in `.pi/extensions/<name>/` (auto-discovered by pi); the selectable orchestration/UI/safety/messaging harnesses live in `.pi/harnesses/<name>/` (NOT auto-discovered — loaded explicitly via the `justfile` or `pi -e`; `just hub` stacks `damage-control-continue` before `agent-hub` for the main agent, and `agent-hub` re-loads hard-stop `damage-control` into spawned specialists / `damage-control-continue` into research helpers). Each is a directory with `index.ts` + `package.json` + `README.md`. Never put a harness under `.pi/extensions/` — pi loads everything there at once. The harnesses are ported from disler/pi-vs-claude-code (MIT) — see `docs/pi-extensions.md`
 

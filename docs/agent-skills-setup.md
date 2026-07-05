@@ -36,6 +36,12 @@ it here, and the reader picks it up.
   `.env`.
 - If the file is absent, or a reader has no section in it, that reader uses its
   built-in default.
+- **Validation.** Because an unknown section or key silently falls back to the
+  default, typos are invisible at runtime. `agent-skills doctor` (and the
+  `/doctor-agent-skills` command) validates the file — unknown sections,
+  unknown keys in known sections, invalid values for the mechanically parsed
+  `agent-hub` keys, missing `rules:` folders, and unset `## env` vars — as
+  **advisory, warn-only findings**; it never edits the file.
 
 ### `spec-driven-development`
 
@@ -76,11 +82,13 @@ because dev-server commands and login flows cannot be guessed.
 |-----|---------|---------|
 | `branching` | `never` | `never` = agent works in the current branch and never creates or switches branches; `allow` = agent may create feature branches |
 
-### `agent-hub` (legacy `## agent-team` override section)
+### `agent-hub`
 
-Read by the `.pi/harnesses/agent-hub/` pi harness on every session start. The override section name remains
-`## agent-team` for compatibility with existing project override files while the standalone
-`agent-team` harness is retired.
+Read by the `.pi/harnesses/agent-hub/` pi harness on every session start. The canonical
+section name is `## agent-hub`; the harness also accepts the legacy `## agent-team` name
+(from before the standalone `agent-team` harness was retired), so existing project
+override files keep working unchanged. When both sections are present their keys merge,
+with later lines winning.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -98,7 +106,7 @@ code-reviewer's thinking level, move the code-reviewer's docs sub-reviewer to a
 different model, and point the team at the project's rule folders:
 
 ```markdown
-## agent-team
+## agent-hub
 language: Bulgarian
 model.builder: github-copilot/claude-sonnet-4.6
 models.builder: github-copilot/claude-sonnet-4.6, github-copilot/claude-haiku-4.5
@@ -107,6 +115,27 @@ subagents.code-reviewer.docs: github-copilot/claude-sonnet-4.6, tools=read,grep
 delegate-depth.code-reviewer: 1
 rules: docs/rules, .ai/rules
 ```
+
+### `env` (optional, read by the doctor)
+
+The overrides file references environment variables by **name** — test-account
+credentials for `browser-testing-with-devtools`, the `pi-voice-stt` API key —
+while the values live in a gitignored root `.env`. The optional `## env`
+section declares which names the project's readers expect, so a fresh clone
+can find out what's missing *before* a skill fails mid-run:
+
+| Key | Meaning |
+|-----|---------|
+| `required` | Comma-separated env-var **names** (never values) the project's sections reference |
+
+```markdown
+## env
+required: APP_TEST_ADMIN_USER, APP_TEST_ADMIN_PASS, AZURE_SPEECH_KEY
+```
+
+No skill or harness loads this section. Its only reader is `agent-skills doctor`
+(and `/doctor-agent-skills`), which warns when a declared name is neither set in
+the environment nor declared in the workspace root `.env`.
 
 ## The setup file — `.ai/agent-skills-setup.md`
 
@@ -238,9 +267,15 @@ notes: |
 branching: never
 
 # Optional for pi agent-hub; omit this section to keep default English.
-## agent-team
+# (`## agent-team` is still accepted as a legacy alias for this section.)
+## agent-hub
 language: <language name>
 rules: <repo-relative rule folder>[, <another folder>]
+
+# Optional; names (never values) of env vars the sections above reference.
+# Only `agent-skills doctor` reads this — it warns when one is unset.
+## env
+required: <ENV_VAR_NAME>[, <ANOTHER_NAME>]
 ```
 
 ### `.ai/agent-skills-setup.md`

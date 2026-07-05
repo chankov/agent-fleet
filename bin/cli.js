@@ -160,13 +160,24 @@ async function cmdDoctor() {
   const findings = await runDoctor({ workspace, sourceRoot: pkgRoot });
 
   if (findings.length === 0) {
-    console.log("✓ No broken symlinks or stale persona references found.");
+    console.log("✓ No broken symlinks, stale persona references, or overrides-file problems found.");
     exit(0);
   }
 
   console.log(`Found ${findings.length} issue(s):\n`);
   console.log(formatFindingsTable(findings));
   console.log();
+
+  // Overrides findings are advisory: reported above, but the fix is always a
+  // hand edit of .ai/agent-skills-overrides.md — never applied by the doctor.
+  const fixable = findings.filter((f) => f.type !== "overrides");
+  const advisory = findings.length - fixable.length;
+  if (advisory > 0) {
+    console.log(`(${advisory} overrides finding(s) are advisory — edit .ai/agent-skills-overrides.md by hand)`);
+  }
+  if (fixable.length === 0) {
+    exit(0);
+  }
 
   if (opts["dry-run"]) {
     console.log("(--dry-run set: no fixes applied)");
@@ -175,7 +186,7 @@ async function cmdDoctor() {
 
   const apply = opts.yes
     ? true
-    : await confirm("Apply the suggested fixes now? [y/N] ");
+    : await confirm(`Apply the ${fixable.length} suggested fix(es) now? [y/N] `);
 
   if (!apply) {
     console.log("No changes made. Re-run without --dry-run to apply.");

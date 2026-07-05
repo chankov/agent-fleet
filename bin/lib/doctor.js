@@ -2,10 +2,13 @@
 // guided-workspace-setup Step 5. Both `agent-skills doctor` (CLI) and the
 // `/doctor-agent-skills` slash command call into this so behaviour cannot drift.
 //
-// Two classes of findings:
+// Three classes of findings:
 //   1. Broken symlinks — links whose source has been moved, renamed, or deleted
 //   2. Stale persona refs — YAML configs (teams.yaml, peers.yaml) that
 //      still name a persona which no longer exists in the source tree
+//   3. Overrides-file problems — unknown sections/keys, invalid values, and
+//      unset declared env vars in .ai/agent-skills-overrides.md. Advisory
+//      only: reported, never auto-fixed (the fix is always a hand edit).
 //
 // For each broken link we look up a canonical replacement in the source
 // `agents/` or `skills/` tree (many breakages are stale names from the
@@ -14,6 +17,7 @@
 import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname, basename, relative, isAbsolute } from "node:path";
 import { transformPersona } from "./transform-persona.js";
+import { validateOverrides } from "./validate-overrides.js";
 
 // Known canonical replacements for personas renamed during the merge.
 const PERSONA_RENAMES = {
@@ -142,6 +146,9 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
       }
     }
   }
+
+  // 3. Advisory validation of the overrides file (never auto-fixed).
+  findings.push(...validateOverrides({ workspace }));
 
   if (!apply) return findings;
 

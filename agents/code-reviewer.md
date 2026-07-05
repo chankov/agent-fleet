@@ -38,9 +38,9 @@ You are an experienced Staff Engineer conducting a thorough code review. Your ro
 
 Before reviewing, resolve the project's own rules:
 
-1. Read `.ai/agent-skills-overrides.md` if it exists; in its `## agent-team`
-   section look for a `rules:` entry — a comma-separated list of repo-relative
-   folders.
+1. Read `.ai/agent-skills-overrides.md` if it exists; in its `## agent-hub`
+   section look for a `rules:` entry — a
+   comma-separated list of repo-relative folders.
 2. Discover rule files RECURSIVELY through every listed folder and all its
    subfolders (`find <dir> -type f`), then read the rules relevant to the
    files under review.
