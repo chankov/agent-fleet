@@ -332,8 +332,15 @@ function extractNeedsResearch(output: string): string[] {
 //   subagents.<persona>.<role>: <model>[, tools=<caps>]
 //                              — replace/add one delegate sub-role for this project.
 //   delegate-depth.<persona>: <n> — replace the persona's delegation depth budget.
-//   rules: <dir>[, <dir>...]   — repo-relative folders of project rule files,
-//                              each searched recursively by the personas.
+//   rules: <dir>[, <dir>...]   — repo-relative folders of project rule files (HOW —
+//                              compliance). Personas resolve them index-first: a
+//                              folder's top-level README.md/index.md is a loading
+//                              manifest when present; otherwise the folder is
+//                              searched recursively.
+//   docs: <path>[, <path>...]  — repo-relative documentation entry points (WHAT/WHY —
+//                              orientation): canonical files (e.g. Docs/AGENTS.md) or
+//                              doc folders. Specialists and research helpers read the
+//                              ones relevant to their task; context, not compliance.
 
 interface AgentTeamOverrides {
 	language: string;
@@ -344,6 +351,7 @@ interface AgentTeamOverrides {
 	personaSubagents: Record<string, Record<string, SubagentRole>>;
 	personaDelegateDepth: Record<string, number>;
 	rulesDirs: string[];
+	docsPaths: string[];
 	warnings: string[];
 }
 
@@ -356,6 +364,7 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	personaSubagents: {},
 	personaDelegateDepth: {},
 	rulesDirs: [],
+	docsPaths: [],
 	warnings: [],
 };
 
@@ -368,6 +377,7 @@ function freshOverrides(): AgentTeamOverrides {
 		personaSubagents: {},
 		personaDelegateDepth: {},
 		rulesDirs: [],
+		docsPaths: [],
 		warnings: [],
 	};
 }
@@ -402,6 +412,9 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		if (key === "persona-gate") result.personaGate = /^(on|true|yes|1)$/i.test(value);
 		if (key === "rules" && value) {
 			result.rulesDirs = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
+		if (key === "docs" && value) {
+			result.docsPaths = value.split(",").map(s => s.trim()).filter(Boolean);
 		}
 		const slug = "[a-z0-9]+(?:-[a-z0-9]+)*";
 		const modelKey = key.match(new RegExp(`^model\\.(${slug})$`));
@@ -1783,8 +1796,49 @@ export default function (pi: ExtensionAPI) {
 	let userLanguage: string = DEFAULT_OVERRIDES.language;
 	// Project rule folders from the overrides file's `rules:` key (repo-relative,
 	// validated at session_start). Non-empty → every dispatched specialist gets a
-	// "Project rules" prompt block; personas do the recursive discovery themselves.
+	// "Project rules" prompt block; personas resolve the folders index-first (a
+	// top-level README.md/index.md is a loading manifest) with recursive discovery
+	// as the no-index fallback.
 	let projectRulesDirs: string[] = [];
+	// Project documentation entry points from the overrides file's `docs:` key
+	// (repo-relative files or folders, validated at session_start). Non-empty →
+	// dispatched specialists and research helpers get a "Project docs" prompt block.
+	let projectDocsPaths: string[] = [];
+
+	// Prompt blocks for the project's own rules (HOW — compliance) and docs
+	// (WHAT/WHY — orientation). Rules discovery is index-first so a curated rule
+	// tree (README manifest + session bundles) is honored instead of bulk-read;
+	// the blind recursive find is only the no-index fallback. The validation duty
+	// itself is written into the planner/code-reviewer personas.
+	function buildRulesProtocol(): string {
+		if (projectRulesDirs.length === 0) return "";
+		return `
+
+## Project rules
+This project keeps its own rules in: ${projectRulesDirs.join(", ")} (repo-relative).
+Rules are HOW constraints — read the ones relevant to your task and comply with them.
+Resolve them index-first: when a listed folder has a top-level README.md or index.md,
+read that first and follow its loading manifest (session bundles, "load X when Y"
+lists) to select the rule files that apply to your task; do not bulk-read the tree.
+Only when a folder has no such index, discover rule files recursively
+(\`find <dir> -type f\`) and read the relevant ones. If you plan or review work,
+validate your subject against the rules; when delegating, pass the relevant rule
+file paths and the specific points to check on to the child.`;
+	}
+
+	function buildDocsProtocol(): string {
+		if (projectDocsPaths.length === 0) return "";
+		return `
+
+## Project docs
+This project's canonical documentation entry points are: ${projectDocsPaths.join(", ")}
+(repo-relative). Docs carry WHAT/WHY context — architecture, standards, decisions.
+They orient you; they are not compliance rules. Before working in an unfamiliar area,
+read the entry points relevant to your task and follow the links they contain rather
+than bulk-reading doc trees; when an entry point is a folder, start from its README.md
+or index file. If your work changes something the docs describe (architecture, public
+APIs, commands, structure), say so in your final response so the docs can be updated.`;
+	}
 	// Resolved once at session_start: the hard-stop damage-control harness loaded
 	// into spawned specialists (builder, test-engineer, …) so guardrails follow them.
 	let damageControlExtPath: string | null = null;
@@ -2767,19 +2821,11 @@ this same session with the file paths — read them and continue from where you 
 off. Ask at most ${MAX_AUTO_RESEARCH_QUESTIONS} questions per pause. Use ASK_USER only
 for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked up.`;
 
-		// Project rules — when the overrides file lists rule folders, every
-		// specialist learns where they are and that discovery is recursive. The
-		// validation duty itself is written into the planner/code-reviewer personas.
-		const rulesProtocol = projectRulesDirs.length > 0
-			? `
-
-## Project rules
-This project keeps its own rules in: ${projectRulesDirs.join(", ")} (repo-relative).
-Discover rule files recursively through all subfolders (\`find <dir> -type f\`),
-read the rules relevant to your task, and comply with them. If you plan or review
-work, validate your subject against the rules; when delegating, pass the relevant
-rule file paths and the specific points to check on to the child.`
-			: "";
+		// Project rules and docs — when the overrides file lists rule folders or
+		// doc entry points, every specialist learns where they are and how to
+		// resolve them (rules index-first, docs as orientation entry points).
+		const rulesProtocol = buildRulesProtocol();
+		const docsProtocol = buildDocsProtocol();
 
 		// Mid-turn delegation: a persona that declares `subagents:` gets the
 		// delegate extension injected (`-e delegate.ts`), the `delegate` tool
@@ -2849,7 +2895,7 @@ Children are terminal workers: they do not receive delegate tooling at remaining
 When your deliverable is a document (plan, review, critique, inventory, report), write the full document to the real session artifact path when your tools allow it: .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence). Do NOT write repo-root ./artifacts/... files. In your final response, report and pass the artifact-relative handoff path: artifacts/<kind>/${agentKey}-run${runNumber}.md. If your persona already has an explicit output path contract such as planner PLAN_FILE, keep that existing behavior and also summarize/return the session artifact path the hub gives you.
 Finish with the artifact-relative path plus a digest of no more than 10 lines. If the dispatch includes acceptance assertions (A1, A2, ...), also include the structured return from skills/orchestration-verification/SKILL.md. If your tools are read-only and you cannot write a document artifact yourself, finish with the digest + structured return; the hub will still persist your full final return under artifacts/returns/ for dispatcher recovery.`;
 
-		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + delegationProtocol + deliverableProtocol;
+		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + docsProtocol + delegationProtocol + deliverableProtocol;
 
 		// Per-agent thinking: the persona's `thinking:` frontmatter (or a
 		// /agent-model-thinking session override) sets the pi --thinking reasoning
@@ -3094,7 +3140,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			model: state.model,
 			tools: RESEARCH_TOOLS,
 			thinking: thinkingLevel,
-			appendSystemPrompt: state.def.systemPrompt + RESEARCH_PROTOCOL,
+			// Research helpers get the docs orientation block (WHAT/WHY entry
+			// points) but not the rules block — rules govern producing/validating
+			// changes, which read-only research does not do.
+			appendSystemPrompt: state.def.systemPrompt + RESEARCH_PROTOCOL + buildDocsProtocol(),
 			sessionFile: sessionPath,
 			resume: !!state.sessionFile,
 			prompt: appendInputArtifacts(prompt, inputArtifacts),
@@ -5935,13 +5984,19 @@ ${researchCatalog}`;
 			_ctx.ui.notify(`agent-skills-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
 		}
 
-		// Project rule folders: keep the configured list as-is (personas resolve it
-		// against the repo root), but warn once per missing folder — a typo'd path
-		// would otherwise silently yield zero rules.
+		// Project rule folders and doc entry points: keep the configured lists
+		// as-is (personas resolve them against the repo root), but warn once per
+		// missing path — a typo'd path would otherwise silently yield nothing.
 		projectRulesDirs = overrides.rulesDirs;
 		for (const dir of projectRulesDirs) {
 			if (!existsSync(join(_ctx.cwd, dir))) {
 				_ctx.ui.notify(`agent-skills-overrides: rules folder "${dir}" not found in ${_ctx.cwd}`, "warning");
+			}
+		}
+		projectDocsPaths = overrides.docsPaths;
+		for (const p of projectDocsPaths) {
+			if (!existsSync(join(_ctx.cwd, p))) {
+				_ctx.ui.notify(`agent-skills-overrides: docs entry point "${p}" not found in ${_ctx.cwd}`, "warning");
 			}
 		}
 

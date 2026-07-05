@@ -47,6 +47,7 @@ const KNOWN_SECTIONS = {
       "language": null,
       "persona-gate": oneOf(["on", "off", "true", "false", "yes", "no", "1", "0"]),
       "rules": checkFolders("rules"),
+      "docs": checkPaths("docs entry point"),
     },
     patterns: [
       { re: new RegExp(`^model\\.${SLUG}$`), example: "model.<persona>" },
@@ -86,6 +87,18 @@ function checkFolders(label) {
       .filter((dir) => !existsSync(join(ctx.workspace, dir)));
     return missing.length
       ? `${label} folder${missing.length > 1 ? "s" : ""} not found in the workspace: ${missing.join(", ")}`
+      : null;
+  };
+}
+
+// The docs key holds comma-separated repo-relative documentation entry
+// points — files or folders both work; existence is the only mechanical check.
+function checkPaths(label) {
+  return (value, ctx) => {
+    const missing = value.split(",").map((s) => s.trim()).filter(Boolean)
+      .filter((p) => !existsSync(join(ctx.workspace, p)));
+    return missing.length
+      ? `${label}${missing.length > 1 ? "s" : ""} not found in the workspace: ${missing.join(", ")}`
       : null;
   };
 }

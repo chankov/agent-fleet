@@ -8,7 +8,7 @@ Walk every install-target directory the chosen coding agent uses (`agents/`, `.c
 
 Also flag and offer to rewrite any remaining YAML configs (`teams.yaml`, `peers.yaml`, etc.) that still reference removed persona names.
 
-Also validate `.ai/agent-skills-overrides.md` when it exists, against the schema in `docs/agent-skills-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys, missing `rules:` folders, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are advisory only — report them with fix "edit by hand", never edit the overrides file.
+Also validate `.ai/agent-skills-overrides.md` when it exists, against the schema in `docs/agent-skills-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys, missing `rules:` folders and `docs:` entry points, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are advisory only — report them with fix "edit by hand", never edit the overrides file.
 
 Present findings as a `# | Path | Issue | Suggested fix` table and ask the user to pick which fixes to apply.
 

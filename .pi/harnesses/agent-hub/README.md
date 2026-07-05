@@ -251,18 +251,34 @@ Omit the section to keep the default `English`. `language` applies to dispatcher
 `ask_user` questions and `context` fields, handoff summaries, and user-facing status text;
 specialist task strings stay in English.
 
-The same section can point the team at the project's own rule files:
+The same section can point the team at the project's own rule files and documentation
+entry points:
 
 ```markdown
 ## agent-hub
 rules: docs/rules, .ai/rules
+docs: Docs/AGENTS.md, Docs/architecture/ARCHITECTURE_OVERVIEW.md
 ```
 
-`rules:` lists repo-relative folders, each searched **recursively** through all subfolders. When
-set, every dispatched specialist's system prompt gains a "Project rules" block naming the folders;
-the planner and code-reviewer personas additionally validate their subject against the relevant
-rules and pass them on (cited in plan acceptance criteria / handed to delegate sub-reviewers).
-Folders that don't exist produce a session-start warning, never an error. The full key list for
+`rules:` lists repo-relative folders of HOW rules — implementation patterns the work must
+comply with. Resolution is **index-first**: a folder with a top-level `README.md`/`index.md`
+is treated as curated — personas read the index first and follow its loading manifest
+(session bundles, conditional-load lists) instead of bulk-reading the tree; a folder without
+an index is searched **recursively** through all subfolders. When set, every dispatched
+specialist's system prompt gains a "Project rules" block naming the folders and the
+resolution order; the planner and code-reviewer personas additionally validate their subject
+against the relevant rules and pass them on (cited in plan acceptance criteria / handed to
+delegate sub-reviewers).
+
+`docs:` lists repo-relative WHAT/WHY documentation entry points — canonical files (e.g. an
+`AGENTS.md`, an architecture overview) or doc folders (personas start from the folder's
+README/index). Docs orient rather than bind: every dispatched specialist **and every research
+helper** gains a "Project docs" block telling it to read the entry points relevant to its
+task and follow their links instead of bulk-reading doc trees. The code-reviewer flags
+changes that alter documented behavior without a doc update; the documenter treats the entry
+points and the trees they link as the documentation it maintains.
+
+Paths that don't exist produce a session-start warning, never an error. The full key list for
 `## agent-hub` (models, sub-roles, depth budgets, persona gate) is documented in
 `docs/agent-skills-setup.md`.
 

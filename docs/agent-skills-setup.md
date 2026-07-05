@@ -99,11 +99,13 @@ with later lines winning.
 | `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |
 | `subagents.<persona>.<role>` | persona frontmatter `subagents:` | Replaces or adds one delegate sub-role for this project: `<model>[, tools=<caps>]`. Other declared roles keep their frontmatter values. |
 | `delegate-depth.<persona>` | persona frontmatter `delegate_depth:` (default/max 1) | Replaces the persona's delegation depth budget: `0` makes its delegate tool refuse (delegation off for this project), `1` lets it spawn terminal children. Values above 1 are clamped to 1; children at remaining depth 0 do not receive delegate tooling. |
-| `rules` | none | Comma-separated repo-relative folders holding the project's own rule files. Each folder is searched **recursively** through all subfolders. The harness tells every dispatched specialist where the rules live; the planner and code-reviewer personas read the relevant rules, validate their subject against them, and pass them on (cited in plan acceptance criteria / handed to delegate sub-reviewers). Missing folders produce a session-start warning. |
+| `rules` | none | Comma-separated repo-relative folders holding the project's own rule files (HOW — implementation patterns the work must comply with). Resolution is **index-first**: when a folder has a top-level `README.md`/`index.md`, personas read it first and follow its loading manifest (session bundles, conditional-load lists) instead of bulk-reading the tree; a folder without an index is searched **recursively** through all subfolders. The harness tells every dispatched specialist where the rules live and how to resolve them; the planner and code-reviewer personas read the relevant rules, validate their subject against them, and pass them on (cited in plan acceptance criteria / handed to delegate sub-reviewers). Missing folders produce a session-start warning. |
+| `docs` | none | Comma-separated repo-relative documentation **entry points** (WHAT/WHY — architecture, standards, decisions): canonical files (e.g. `Docs/AGENTS.md`) or doc folders (personas start from a folder's `README.md`/index). Unlike `rules`, docs orient rather than bind: every dispatched specialist and research helper is told to read the entry points relevant to its task and follow their links instead of bulk-reading doc trees; the code-reviewer flags changes that alter documented behavior without a doc update; the documenter treats the entry points and the trees they link as the docs it maintains. Missing paths produce a session-start warning. |
 
 Example — switch the dispatcher to Bulgarian, pin the builder to sonnet, raise the
 code-reviewer's thinking level, move the code-reviewer's docs sub-reviewer to a
-different model, and point the team at the project's rule folders:
+different model, and point the team at the project's rule folders and doc entry
+points:
 
 ```markdown
 ## agent-hub
@@ -114,6 +116,7 @@ thinking.code-reviewer: xhigh
 subagents.code-reviewer.docs: github-copilot/claude-sonnet-4.6, tools=read,grep
 delegate-depth.code-reviewer: 1
 rules: docs/rules, .ai/rules
+docs: Docs/AGENTS.md, Docs/architecture/ARCHITECTURE_OVERVIEW.md
 ```
 
 ### `env` (optional, read by the doctor)
@@ -271,6 +274,7 @@ branching: never
 ## agent-hub
 language: <language name>
 rules: <repo-relative rule folder>[, <another folder>]
+docs: <repo-relative doc entry point>[, <another file or folder>]
 
 # Optional; names (never values) of env vars the sections above reference.
 # Only `agent-skills doctor` reads this — it warns when one is unset.

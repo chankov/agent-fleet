@@ -368,10 +368,10 @@ A few skills and the pi `agent-hub` harness need project-specific facts — wher
 | `planning-and-task-breakdown` | Plan output directory, naming, embedded vs separate todo |
 | `browser-testing-with-devtools` | Dev-server command, base URL, auth flow and roles (required — no default) |
 | `git-workflow-and-versioning` | Whether the agent may create branches (default: never) |
-| `agent-hub` (legacy alias: `## agent-team`) | Dispatcher user-facing language (default: English) |
+| `agent-hub` (legacy alias: `## agent-team`) | Dispatcher user-facing language (default: English), per-persona models/thinking/delegation, project `rules:` folders (HOW — resolved index-first) and `docs:` entry points (WHAT/WHY orientation) |
 | `agent-skills doctor` (`## env`) | Env-var **names** the project expects; the doctor warns when one is unset |
 
-See [docs/agent-skills-setup.md](docs/agent-skills-setup.md) for the file format and a copy-paste template. `agent-skills doctor` also validates the whole file (unknown sections/keys, invalid values, missing `rules:` folders) as advisory warnings — typos otherwise fall back to defaults silently.
+See [docs/agent-skills-setup.md](docs/agent-skills-setup.md) for the file format and a copy-paste template. `agent-skills doctor` also validates the whole file (unknown sections/keys, invalid values, missing `rules:` folders and `docs:` entry points) as advisory warnings — typos otherwise fall back to defaults silently.
 
 ---
 

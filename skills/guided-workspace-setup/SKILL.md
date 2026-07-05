@@ -116,7 +116,7 @@ For each broken link discovered:
 
 Also flag any YAML configs (`teams.yaml`, `peers.yaml`) that still reference removed persona names, and offer to rename the references to the canonical name.
 
-Also validate `.ai/agent-skills-overrides.md` when it exists, against the schema in `docs/agent-skills-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys (`thinking.*` levels, `delegate-depth.*`, `persona-gate`), `rules:` folders that don't exist, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are **advisory only** — report them in the table with fix "edit by hand", never edit the overrides file yourself. (`agent-skills doctor` runs this same validation.)
+Also validate `.ai/agent-skills-overrides.md` when it exists, against the schema in `docs/agent-skills-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys (`thinking.*` levels, `delegate-depth.*`, `persona-gate`), `rules:` folders and `docs:` entry points that don't exist, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are **advisory only** — report them in the table with fix "edit by hand", never edit the overrides file yourself. (`agent-skills doctor` runs this same validation.)
 
 Present findings in a single table (keep it narrow — same widget constraint as Step 6/9: short `Issue`/`Fix` phrases, paths relative to the workspace, no overflowing cells):
 
@@ -302,6 +302,13 @@ For `pi` workspaces where `agent-hub` is selected, installed, or kept, also offe
 - Key: `language: English` as the offered default
 - Existing section: preserve the current `language` value in the draft and let the user edit it
 - Omitted section: keep `agent-hub`'s default English
+
+In the same `## agent-hub` draft, offer the project-knowledge keys when the Step 4 analysis finds matching material — propose, never invent:
+
+- `rules:` — offer when the workspace has a dedicated rule-file tree (common homes: `.ai/rules/`, `docs/rules/`, `.cursor/rules/`); list the folder(s) found. Rule folders with a top-level `README.md`/`index.md` are resolved index-first by the personas, so point the key at the tree root, not at individual bundle files.
+- `docs:` — offer when the workspace has canonical WHAT/WHY documentation entry points (an `AGENTS.md`, an architecture overview, a docs index); list the specific entry-point files (or a doc folder with an index), not the whole doc tree.
+
+Both keys accept comma-separated repo-relative paths; semantics and persona behavior are documented in `docs/agent-skills-setup.md`. Skip a key when nothing matching exists — an empty guess sends every specialist hunting for files that aren't there.
 
 Write each section as terse `key: value` lines, never prose: the lifecycle skills and `agent-hub` load this file on every run/session start and parse it by key, so it stays minimal. Show the draft and let the user edit, accept, or skip each section. Reference env-var names for any credentials; keep secrets out of the file. When any drafted section references env-var names (browser-testing roles, STT keys), also offer an `## env` section with `required: <NAME>[, <NAME>]` listing those names — only `agent-skills doctor` reads it, to warn on unset vars.
 

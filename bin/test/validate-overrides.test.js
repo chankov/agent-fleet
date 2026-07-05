@@ -88,8 +88,11 @@ thinking.code-reviewer: xhigh
 subagents.code-reviewer.docs: github-copilot/claude-sonnet-4.6, tools=read,grep
 delegate-depth.code-reviewer: 1
 rules: docs/rules
+docs: Docs/AGENTS.md
 `;
-  const findings = findingsFor(text, { extraFiles: { "docs/rules": true } });
+  const findings = findingsFor(text, {
+    extraFiles: { "docs/rules": true, "Docs/AGENTS.md": "# guide\n" },
+  });
   assert.deepEqual(findings, []);
 });
 
@@ -165,6 +168,17 @@ rules: docs/rules, .ai/rules
   const findings = findingsFor(text, { extraFiles: { "docs/rules": true } });
   assert.equal(findings.length, 1);
   assert.match(findings[0].issue, /rules folder not found .*\.ai\/rules/);
+});
+
+test("missing docs entry points are flagged, existing files and folders are not", () => {
+  const text = `## agent-hub
+docs: Docs/AGENTS.md, Docs/architecture, Docs/MISSING.md
+`;
+  const findings = findingsFor(text, {
+    extraFiles: { "Docs/AGENTS.md": "# guide\n", "Docs/architecture": true },
+  });
+  assert.equal(findings.length, 1);
+  assert.match(findings[0].issue, /docs entry point not found .*Docs\/MISSING\.md/);
 });
 
 // ── ## env ───────────────────────────────────────────────────────────────────
