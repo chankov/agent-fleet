@@ -40,6 +40,7 @@ Task arrives
     ├── Adding logs/metrics/alerts? ───→ observability-and-instrumentation
     ├── Orchestrating a multi-agent team? → orchestration-verification
     │   └── "Make X behave like Y"? ──→ orchestration-verification (parity inventory)
+    ├── Session ending with lessons worth keeping? → compound-learning
     ├── Authoring a new skill/persona? ─→ designing-agents
     └── Deploying/launching? ─────────→ shipping-and-launch
 ```
@@ -161,6 +162,7 @@ For a complete feature, the typical skill sequence is:
 14. documentation-and-adrs      → Document decisions
 15. deprecation-and-migration   → Retire old systems and move users safely when needed
 16. shipping-and-launch         → Deploy safely
+17. compound-learning           → Capture the session's lessons into the project's rules/docs
 ```
 
 Not every task needs every skill. A bug fix might only need: `debugging-and-error-recovery` → `test-driven-development` → `code-review-and-quality`.
@@ -193,4 +195,5 @@ Not every task needs every skill. A bug fix might only need: `debugging-and-erro
 | Ship | observability-and-instrumentation | Structured logs, RED metrics, traces, symptom-based alerts |
 | Ship | shipping-and-launch | Pre-launch checklist, monitoring, rollback plan |
 | Orchestrate | orchestration-verification | Acceptance assertions, parity inventory, structured returns |
+| Learn | compound-learning | Session lessons → deduped, capped diffs on the project's rules/docs |
 | Author | designing-agents | Author a persona, workflow skill, or pi harness |

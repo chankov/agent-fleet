@@ -52,8 +52,8 @@ See [`docs/comparison.md`](docs/comparison.md) for how the *project as a whole* 
 | **pi orchestration config** | Teams, peers, chains, model profiles, damage-control rules | `.pi/agents/`, `.pi/damage-control-rules.yaml` |
 | **Agent personas** | 15 canonical pi-flavored personas (incl. `web-performance-auditor`, `bowser`, `web-debugger`, `orchestrator`) generated per-harness via `transform-persona` | `agents/`, `.pi/skills/bowser/` |
 | **npm CLI + packaging** | `agent-skills` CLI, `transform-persona`, `doctor`, update-notifier, version snapshots, changeset releases | `bin/`, `.changeset/`, `.versions/`, `.github/workflows/release.yml`, `package.json`, `.npmignore` |
-| **Fork-only skills** | `designing-agents`, `guided-workspace-setup`, `orchestration-verification` | `skills/` |
-| **Fork commands** | `/design-agent`, `/doctor-agent-skills`, `/prime`, `/setup-agent-skills` (+ OpenCode `as-` mirrors, pi prompts) | `.claude/commands/`, `.opencode/commands/`, `.pi/prompts/` |
+| **Fork-only skills** | `designing-agents`, `guided-workspace-setup`, `orchestration-verification`, `compound-learning` | `skills/` |
+| **Fork commands** | `/design-agent`, `/doctor-agent-skills`, `/prime`, `/setup-agent-skills`, `/compound` (+ OpenCode `as-` mirrors, pi prompts; on pi, `/compound` is an agent-hub harness command) | `.claude/commands/`, `.opencode/commands/`, `.pi/prompts/` |
 | **pi & npm docs** | `pi-setup.md`, `pi-extensions.md`, `pi-specs/`, `npm-install.md`, `publishing.md`, `agent-skills-setup.md`, `NPM/` | `docs/` |
 | **Dev tooling** | `justfile` (launch pi per harness), `scripts/team-up.ts`, harness/CLI tests | `justfile`, `scripts/`, `bin/test/` |
 

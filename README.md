@@ -23,7 +23,7 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 
 ## Commands
 
-8 slash commands that map to the development lifecycle. Each one activates the right skills automatically.
+10 slash commands that map to the development lifecycle. Each one activates the right skills automatically.
 
 | What you're doing | Command | Key principle |
 |-------------------|---------|---------------|
@@ -36,8 +36,11 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 | Simplify the code | `/code-simplify` | Clarity over cleverness |
 | Ship to production | `/ship` | Faster is safer |
 | Orchestrate a team | `/orchestrate` | Main session drives subagents |
+| Capture session lessons | `/compound` | Every session improves the next |
 
 `/orchestrate` turns the main session into an **orchestrator** that drives a config-defined team of subagents (default `planner` + `builder`, no reviewer), routing them as a runtime roster and handling the `NEEDS_RESEARCH` / `PLAN_FILE` handoffs. The named teams live in `.claude/orchestrate-teams.yaml` (mirroring pi's `.pi/agents/teams.yaml`) and are switchable at runtime: `/orchestrate <team> "<task>"`. It ships for **claude-code** and **opencode** (`/as-orchestrate`); pi orchestrates via the `agent-hub` harness instead.
+
+`/compound` is the **compound-engineering step**: at the end of a session it extracts the lessons worth keeping (corrections, recurring review findings, root causes), dedupes them against the project's own rule tree, and lands them as minimal diffs on the `rules:`/`docs:` targets declared in `.ai/agent-skills-overrides.md` — so each session makes the next one better. It ships for **claude-code** and **opencode** (`/as-compound`); on pi the `agent-hub` harness provides its own `/compound` command, which gates the lesson list on the user and dispatches the `documenter` persona to apply it. The process is defined by [compound-learning](skills/compound-learning/SKILL.md).
 
 Want fewer manual steps once the spec exists? **`/build auto`** generates the plan and implements every task in a single approved pass — you approve the plan once, then it runs autonomously. It removes the human stepping *between* tasks, not the verification: every task is still test-driven and committed individually, and it pauses on failures or risky steps.
 
@@ -189,9 +192,9 @@ The repo also ships selectable pi session *harnesses* — agent orchestration, s
 
 ---
 
-## All 27 Skills
+## All 28 Skills
 
-The commands above are the entry points. Under the hood, they activate these 27 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+The commands above are the entry points. Under the hood, they activate these 28 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
 
 ### Meta - Discover which skill applies
 
@@ -259,6 +262,14 @@ The commands above are the entry points. Under the hood, they activate these 27 
 | [orchestration-verification](skills/orchestration-verification/SKILL.md) | The Verification Contract — dispatcher-owned acceptance assertions, a parity/touchpoint inventory for "behave like X" requests, structured upward returns with named evidence, and a requirement-regression reset | Orchestrating specialists through a dispatcher (the `agent-hub` harness / `orchestrator` persona), a "make X behave like existing Y" change, or a requirement that keeps coming back wrong |
 
 This skill is the single canonical source for the four Verification-Contract artifacts. It is referenced — never restated — by the [`orchestrator`](agents/orchestrator.md) persona (which drives the [agent-hub harness](.pi/harnesses/agent-hub/), loaded by default via `just hub`), and conditionally by the [`builder`](agents/builder.md), [`test-engineer`](agents/test-engineer.md), and [`code-reviewer`](agents/code-reviewer.md) personas, whose structured returns report assertion status with evidence when the skill is installed.
+
+### Learn - Compound the session's lessons
+
+| Skill | What It Does | Use When |
+|-------|-------------|----------|
+| [compound-learning](skills/compound-learning/SKILL.md) | End-of-session compound pass — extracts lessons from session evidence (corrections, recurring findings, root causes), dedupes them index-first against the project's rule tree, and lands them as minimal, capped diffs on existing rules/docs files | A session ends with something worth keeping, the user says "compound", or the `documenter` persona receives a `/compound` dispatch |
+
+This is the compound-engineering loop: the `/compound` command (claude-code, opencode, and the agent-hub harness on pi) runs this skill against the `rules:`/`docs:` targets from `.ai/agent-skills-overrides.md`, with an approval gate and hard caps so the rule tree gets sharper instead of longer.
 
 ---
 

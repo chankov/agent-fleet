@@ -14,9 +14,9 @@ justfile      → Recipes to launch pi with each harness
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
 .github/workflows/release.yml → On merge to main: opens "Version Packages" PR or runs `changeset publish`
-.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /orchestrate, /code-simplify, /ship, /design-agent, /prime, /setup-agent-skills)
+.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /orchestrate, /compound, /code-simplify, /ship, /design-agent, /prime, /setup-agent-skills)
 .claude/orchestrate-teams.yaml → named-team roster read by /orchestrate (mirrors .pi/agents/teams.yaml); companion installed with the command; opencode copy at .opencode/orchestrate-teams.yaml
-.opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ (includes as-orchestrate) — keep in sync. /orchestrate ships for claude-code + opencode only; pi orchestrates via the agent-hub harness
+.opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ (includes as-orchestrate, as-compound) — keep in sync. /orchestrate and /compound ship for claude-code + opencode only; pi orchestrates via the agent-hub harness, which provides its own /compound command
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, agent-skills-update-check, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just hub` stacks damage-control-continue before agent-hub for the main agent; spawned specialists get hard-stop damage-control, research helpers get damage-control-continue)
@@ -37,6 +37,7 @@ FORK.md       → Canonical record of how this fork differs from upstream addyos
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
 **Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness)
+**Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets, via `/compound` on claude-code/opencode or the agent-hub `/compound` command dispatching `documenter`)
 **Onboard:** guided-workspace-setup
 
 ## Conventions

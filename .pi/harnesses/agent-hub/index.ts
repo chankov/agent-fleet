@@ -34,6 +34,9 @@
  *   /persona              — select/reset the dispatcher persona
  *   /handoff <peer>       — hand the session off to a coms peer (summarized brief)
  *   /coms                 — refresh the coms peer pool (--all / --project <name>)
+ *   /compound [focus]     — end-of-session compound-learning pass: confirm this
+ *                           session's lessons with the user, then dispatch the
+ *                           documenter to land them in the project's rules/docs
  *
  * Shortcuts:
  *   Alt+A                 — toggle agent view: dashboard grid (above editor) ↔
@@ -5583,6 +5586,52 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
+	// /compound [focus] — end-of-session compound-learning pass. Mirrors /handoff's
+	// shape: the dispatcher LLM (which saw the whole session) composes the
+	// candidate-lessons brief itself, gates it on the user, then dispatches the
+	// documenter to land the approved lessons per skills/compound-learning/SKILL.md.
+	// The rules/docs targets come from the overrides file; artifacts travel as
+	// paths through the dispatch's `artifacts` array, never as pasted bodies.
+	pi.registerCommand("compound", {
+		description: "Capture this session's lessons into the project's rules/docs via the documenter: /compound [focus]",
+		handler: async (args, ctx) => {
+			if (!agentStates.has("documenter")) {
+				ctx.ui.notify(
+					"compound: the documenter persona is not in the active team — switch with /agents-team (e.g. default or release), then re-run /compound.",
+					"warning",
+				);
+				return;
+			}
+			const focus = (args ?? "").trim();
+			const rulesLine = projectRulesDirs.length > 0
+				? projectRulesDirs.join(", ")
+				: "(none declared in .ai/agent-skills-overrides.md — the documenter must locate an existing rules tree or, failing that, propose lessons without writing)";
+			const docsLine = projectDocsPaths.length > 0
+				? projectDocsPaths.join(", ")
+				: "(none declared)";
+			pi.sendMessage({
+				customType: "compound-learning",
+				content:
+					`COMPOUND REQUEST — capture this session's lessons into the project's rules and docs (compound-learning pass).\n\n` +
+					`1. From THIS session's context, compose a candidate-lessons brief: user corrections, review findings that recurred, ` +
+					`wrong assumptions that cost rework, debugging root causes, and changes that invalidated existing docs. At most 5 lessons; ` +
+					`each is one imperative sentence plus a one-line Why (the failure it prevents) and a one-line Evidence (what happened this session). ` +
+					`${focus ? `Focus especially on: ${focus}. ` : ""}` +
+					`If nothing rises to a lesson, tell the user there is nothing worth compounding and stop.\n` +
+					`2. Confirm the list with the user in ${userLanguage} (ask_user when available) — they approve, trim, or reword. Do not dispatch before this confirmation.\n` +
+					`3. Dispatch the documenter with a SELF-CONTAINED task (it shares none of your context) containing: the approved lessons verbatim ` +
+					`(with Why + Evidence); the project rule folders: ${rulesLine}; the docs entry points: ${docsLine}; the assertion ledger path ` +
+					`.pi/agent-sessions/assertions.json (when it exists); and the instruction to read skills/compound-learning/SKILL.md and follow it exactly — ` +
+					`dedupe index-first against the existing rule tree, minimal diffs on existing files, caps of 5 lessons / 1 new file. State that the user ` +
+					`already approved this lesson list, so it may apply without a second gate. Pass the relevant review/return/evidence artifact paths via the ` +
+					`dispatch's artifacts array — paths only, never pasted bodies.\n` +
+					`4. Relay the documenter's file-by-file result to me in ${userLanguage}.`,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+			ctx.ui.notify("Compound: asking the dispatcher to compose the candidate-lessons brief…", "info");
+		},
+	});
+
 	// ── ask_user wait tracking (for /agents-history real-work) ──
 	// pi-ask-user blocks the dispatcher turn while the human answers. Bracket each
 	// ask_user call with its tool_execution start/end so /agents-history can subtract
@@ -6117,7 +6166,8 @@ ${researchCatalog}`;
 			`/research-clear       Remove all research helpers\n` +
 			`/persona              Select/reset the dispatcher persona\n` +
 			`/coms [--all|--project N] Refresh the coms peer pool\n` +
-			`/handoff <peer>       Hand the session off to a coms peer`,
+			`/handoff <peer>       Hand the session off to a coms peer\n` +
+			`/compound [focus]     Capture session lessons into the project rules/docs`,
 			"info",
 		);
 		_ctx.ui.setStatus("dispatcher-persona", personaGateEnabled ? "Persona: (pick one)" : "Persona: Default");

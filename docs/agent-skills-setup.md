@@ -5,7 +5,7 @@ have different readers and different lifetimes, so they are kept separate.
 
 | File | Read by | When |
 |------|---------|------|
-| `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `agent-hub` pi harness | Every run of those skills / every session start of the harness |
+| `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `compound-learning` (the `rules:`/`docs:` keys of `## agent-hub`), `agent-hub` pi harness | Every run of those skills / every session start of the harness |
 | `.ai/agent-skills-setup.md` | `guided-workspace-setup` | Only when setup is run or re-run |
 | `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
 
@@ -89,6 +89,10 @@ section name is `## agent-hub`; the harness also accepts the legacy `## agent-te
 (from before the standalone `agent-team` harness was retired), so existing project
 override files keep working unchanged. When both sections are present their keys merge,
 with later lines winning.
+
+The `rules:` and `docs:` keys are also read outside the harness: the `compound-learning`
+skill (and the `/compound` claude-code/opencode commands built on it) resolves them as the
+targets an end-of-session compound pass writes lessons to.
 
 | Key | Default | Meaning |
 |-----|---------|---------|

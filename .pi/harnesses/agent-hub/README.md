@@ -304,6 +304,11 @@ under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runti
 
 - `/coms` — coms control surface (peer list / status)
 - `/handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
+- `/compound [focus]` — end-of-session **compound-learning pass**: the dispatcher composes a
+  candidate-lessons brief from the session (corrections, recurring findings, root causes),
+  confirms it with the user, then dispatches the `documenter` to land the approved lessons as
+  minimal diffs on the project's `rules:`/`docs:` targets per `skills/compound-learning/SKILL.md`.
+  Requires the `documenter` persona in the active team; run it before `/handoff` or session end.
 - `coms_list` — discover the peers in your pool: names, models, live context usage, purpose. Scoped
   to your project and excluding private peers; the LLM cannot widen it (see
   [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)).
