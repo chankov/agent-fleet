@@ -7,6 +7,8 @@
 // under node --test; the wiring (requireHerdr, workspace.create,
 // layout.apply) lives in scripts/team-up.ts.
 
+import { resolve as resolvePath } from "node:path";
+
 import type { LayoutNode } from "../../.pi/harnesses/lib/herdr-client.ts";
 
 export type { LayoutNode };
@@ -112,6 +114,23 @@ export function parseEnvFile(raw: string, sourceName = "env file"): Record<strin
 		env[m[1]] = stripQuotes(m[2].trim());
 	}
 	return env;
+}
+
+// Resolve a peer's env_file to an absolute path inside the repo. The SAFE
+// charset (enforced on every peer field) already excludes shell metacharacters;
+// this adds the traversal guard: repo-relative, no escaping the repo root.
+export function resolveEnvFilePath(envFile: string, repoRoot: string): string {
+	if (!SAFE.test(envFile)) {
+		throw new Error(`Unsafe env_file path: ${JSON.stringify(envFile)} (allowed: ${SAFE})`);
+	}
+	if (envFile.startsWith("/")) {
+		throw new Error(`env_file must be repo-relative, got absolute path: ${envFile}`);
+	}
+	const abs = resolvePath(repoRoot, envFile);
+	if (abs !== repoRoot && !abs.startsWith(repoRoot + "/")) {
+		throw new Error(`env_file escapes the repo root: ${envFile}`);
+	}
+	return abs;
 }
 
 export interface TeamLayoutOptions {

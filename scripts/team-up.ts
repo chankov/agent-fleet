@@ -2,9 +2,10 @@
 //
 // Spawn a team of reusable coms peers (from .pi/agents/peers.yaml) into a
 // herdr workspace — one pane per peer in a tiled BSP layout, each running the
-// hidden `just _peer …` helper. Backs the `just team-up <name>` recipe (see
-// the justfile). herdr is a hard dependency for fleet spawning: without a
-// running server the recipe refuses with an actionable message.
+// hidden `just _peer …` helper. Backs the `just team-up <name>` and
+// `just hub-team <name>` recipes (see the justfile). herdr is a hard
+// dependency for fleet spawning: without a running server the recipes refuse
+// with an actionable message.
 //
 // Hard rules:
 // - Entrypoint guard: launching lives inside main(); importing the module must
@@ -16,7 +17,8 @@
 //   parsing/validation/layout logic lives in scripts/lib/herdr-layout.ts.
 // - --dry-run prints the resolved layout JSON and exits WITHOUT touching herdr
 //   (must work with no herdr installed), so command construction is testable
-//   without launching pi.
+//   without launching pi. env_file VALUES never appear in dry-run output —
+//   only the path (secrets stay out of terminals and logs).
 // - Never clobber an existing workspace of the same label; refuse and explain.
 
 import * as fs from "node:fs";
@@ -25,45 +27,91 @@ import { fileURLToPath } from "node:url";
 
 import {
 	buildTeamLayout,
+	parseEnvFile,
 	parsePeersYaml,
+	resolveEnvFilePath,
 	type LayoutNode,
 	type Peer,
 } from "./lib/herdr-layout.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
-const PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
+const DEFAULT_PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
+
+// The guarded hub occupies this share of the workspace in --hub mode; the
+// team tiles in the rest.
+const HUB_RATIO = 0.4;
 
 function flagValue(argv: string[], flag: string): string | null {
 	const i = argv.indexOf(flag);
 	return i >= 0 && i + 1 < argv.length ? argv[i + 1] : null;
 }
 
-function loadTeam(team: string): Peer[] {
-	if (!fs.existsSync(PEERS_YAML)) {
-		console.error(`peers.yaml not found at ${PEERS_YAML}`);
-		process.exit(1);
-	}
-	const teams = parsePeersYaml(fs.readFileSync(PEERS_YAML, "utf-8"));
+function die(msg: string): never {
+	console.error(msg);
+	process.exit(1);
+}
+
+function loadTeam(team: string, peersYaml: string): Peer[] {
+	if (!fs.existsSync(peersYaml)) die(`peers.yaml not found at ${peersYaml}`);
+	const teams = parsePeersYaml(fs.readFileSync(peersYaml, "utf-8"));
 	const peers = teams[team];
 	if (!peers) {
 		const names = Object.keys(teams).join(", ") || "(none)";
-		console.error(`Unknown team "${team}". Available teams: ${names}`);
-		process.exit(1);
+		die(`Unknown team "${team}". Available teams: ${names}`);
 	}
-	if (peers.length === 0) {
-		console.error(`Team "${team}" has no peers.`);
-		process.exit(1);
-	}
+	if (peers.length === 0) die(`Team "${team}" has no peers.`);
 	return peers;
 }
 
-function buildLayoutOrDie(team: string, peers: Peer[]): LayoutNode {
+// B3: resolve + validate every peer's env_file BEFORE any spawning, so a bad
+// manifest refuses up front, never mid-boot. Returns a loader for the layout
+// builder; when `redact` is set (dry-run) values are never read at all.
+function makeEnvLoader(
+	peers: Peer[],
+	redact: boolean,
+): (peer: Peer) => Record<string, string> | undefined {
+	const resolved = new Map<Peer, string>();
+	for (const p of peers) {
+		if (!p.env_file) continue;
+		let abs: string;
+		try {
+			abs = resolveEnvFilePath(p.env_file, REPO_ROOT);
+		} catch (err) {
+			die(err instanceof Error ? err.message : String(err));
+		}
+		if (!redact && !fs.existsSync(abs)) {
+			die(`Peer "${p.name}": env_file not found: ${p.env_file} (resolved: ${abs})`);
+		}
+		resolved.set(p, abs);
+	}
+	return (peer) => {
+		const abs = resolved.get(peer);
+		if (!abs || redact) return undefined;
+		try {
+			return parseEnvFile(fs.readFileSync(abs, "utf-8"), peer.env_file);
+		} catch (err) {
+			die(err instanceof Error ? err.message : String(err));
+		}
+	};
+}
+
+function buildLayoutOrDie(
+	team: string,
+	peers: Peer[],
+	envForPeer: (p: Peer) => Record<string, string> | undefined,
+	hub: boolean,
+): LayoutNode {
 	try {
-		return buildTeamLayout({ team, peers, repoRoot: REPO_ROOT });
+		return buildTeamLayout({
+			team,
+			peers,
+			repoRoot: REPO_ROOT,
+			envForPeer,
+			...(hub ? { hub: { command: ["just", "hub"], label: "hub", ratio: HUB_RATIO } } : {}),
+		});
 	} catch (err) {
-		console.error(err instanceof Error ? err.message : String(err));
-		process.exit(1);
+		die(err instanceof Error ? err.message : String(err));
 	}
 }
 
@@ -71,23 +119,35 @@ async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	const team = flagValue(argv, "--team");
 	const dryRun = argv.includes("--dry-run");
+	const hub = argv.includes("--hub");
+	// --peers: alternate manifest path (tests use it; defaults to the repo's).
+	const peersYaml = flagValue(argv, "--peers") ?? DEFAULT_PEERS_YAML;
 
 	if (!team) {
-		console.error("usage: team-up.ts --team <name> [--dry-run]");
+		console.error("usage: team-up.ts --team <name> [--hub] [--dry-run] [--peers <peers.yaml>]");
 		process.exit(2);
 	}
 
-	const peers = loadTeam(team);
-	const layout = buildLayoutOrDie(team, peers);
-	const label = `pi-peers-${team}`;
+	const peers = loadTeam(team, peersYaml);
+	const label = hub ? `pi-hub-${team}` : `pi-peers-${team}`;
 
 	if (dryRun) {
-		// No herdr calls on this path — must work with no herdr installed.
-		console.log(`# team-up (dry run) — team "${team}", ${peers.length} peer(s), herdr workspace "${label}"`);
-		for (const p of peers) console.log(`${p.name}\t${(layoutCommands(layout, p.name as string) ?? []).join(" ")}`);
+		// No herdr calls and no env_file reads on this path — must work with no
+		// herdr installed, and secrets never reach the output.
+		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), hub);
+		console.log(
+			`# team-up (dry run) — team "${team}", ${peers.length} peer(s)${hub ? " + hub" : ""}, herdr workspace "${label}"`,
+		);
+		for (const p of peers) {
+			const cmd = layoutCommands(layout, p.name as string) ?? [];
+			const envNote = p.env_file ? `  [env_file: ${p.env_file} — values redacted]` : "";
+			console.log(`${p.name}\t${cmd.join(" ")}${envNote}`);
+		}
 		console.log(JSON.stringify({ label, layout }, null, 2));
 		return;
 	}
+
+	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), hub);
 
 	// Import lazily so --dry-run never touches the client (or the socket).
 	const { herdr, requireHerdr, HerdrUnavailableError } = await import(
@@ -99,7 +159,7 @@ async function main(): Promise<void> {
 	} catch (err) {
 		if (err instanceof HerdrUnavailableError) {
 			console.error(err.message);
-			console.error("(dry run still works: just team-up-dry " + team + ")");
+			console.error(`(dry run still works: just team-up-dry ${team})`);
 			process.exit(1);
 		}
 		throw err;
@@ -128,18 +188,13 @@ async function main(): Promise<void> {
 		}
 	}
 
-	console.log(`Launched ${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`);
+	console.log(
+		`Launched ${hub ? "hub + " : ""}${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`,
+	);
+	if (hub) console.log("  • hub (just hub — guarded dispatcher)");
 	for (const p of peers) console.log(`  • ${p.name}`);
 	console.log(`Focus: herdr workspace focus ${wsId}`);
 	console.log(`Close: herdr workspace close ${wsId}`);
-}
-
-async function request_ignoring_errors<T>(f: () => Promise<T>): Promise<T | null> {
-	try {
-		return await f();
-	} catch {
-		return null;
-	}
 }
 
 // Dry-run helper: find the command argv for the pane labeled `name`.

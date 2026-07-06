@@ -144,6 +144,17 @@ No skill or harness loads this section. Its only reader is `agent-skills doctor`
 (and `/doctor-agent-skills`), which warns when a declared name is neither set in
 the environment nor declared in the workspace root `.env`.
 
+### Per-peer env files (`env_file:` in peers.yaml)
+
+Fleet peers spawned by `just team-up` / `just hub-team` can carry their own
+environment: an `env_file:` entry in `.pi/agents/peers.yaml` names a
+**repo-relative** KEY=VALUE file (same format as `.env`, no shell evaluation)
+that herdr injects into the peer's pane before the command runs — no `source`,
+no leaking into sibling panes. The file must exist at spawn (team-up refuses
+otherwise, never mid-run), and its **values never appear in `--dry-run`
+output** — only the path. Keep these files gitignored exactly like the root
+`.env` this section describes.
+
 ## The setup file — `.ai/agent-skills-setup.md`
 
 The `guided-workspace-setup` skill writes this file to record what it installed
