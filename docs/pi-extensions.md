@@ -87,8 +87,8 @@ runtime itself.
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
 | [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, and peer-as-subagent | `just hub` |
-| [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub` | `just ext-damage-control` |
-| [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers | `just ext-damage-control-continue` |
+| [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub`; honors pre-granted exemptions from the hub's shared exemptions file | `just ext-damage-control` |
+| [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers. Supports path exemptions: `/allow`/`/allowed`/`/revoke`, a block-time approval dialog, and escalation from headless children to the hub dispatcher | `just ext-damage-control-continue` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine; launches damage-control-continue-guarded under a chosen name | `just safe-coms <name>` |
 
 Each extension directory has its own `README.md` with the full description, command/tool
@@ -123,7 +123,11 @@ harnesses:
   re-loads a guardrail into every spawned subagent (via an explicit `-e` that survives their
   `--no-extensions`): research helpers (`researcher` / `deep-researcher`) get the same continue
   variant, while other specialists (builder, test-engineer, …) get the hard-stop `damage-control`
-  that aborts on a violation.
+  that aborts on a violation. Protected-path access can be granted at runtime: `/allow <pattern>
+  [turn|session]` in the hub pre-authorizes (session grants reach every spawned child via a shared
+  session-scoped exemptions file), a block in the hub's own session opens an approval dialog, and a
+  block inside a headless child escalates an `access_request` to the hub's coms socket so the user
+  decides — deny / once / this agent / all agents. Destructive bash patterns are never exemptible.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
   `/handoff`, and peer-as-subagent flows.
 - **Solo mode** — `just hub-solo` keeps the dispatcher grid, delegation, research helpers, persona

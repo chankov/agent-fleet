@@ -4,6 +4,7 @@ import { parse as yamlParse } from "yaml";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { AGENT_ID_ENV, EXEMPTIONS_FILE_ENV, fileExemptionsFor, type Exemption } from "./shared.ts";
 
 interface Rule {
 	pattern: string;
@@ -86,6 +87,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		let violationReason: string | null = null;
 		let shouldAsk = false;
+		// The protected pattern that matched, set only for the path categories.
+		// Those can be pre-granted via the shared exemptions file agent-hub
+		// passes down (AGENT_HUB_EXEMPTIONS_FILE); destructive bashToolPatterns
+		// leave this null and are never exemptible.
+		let matchedPattern: string | null = null;
 
 		// 1. Check Zero Access Paths for all tools that use path or glob
 		const checkPaths = (pathsToCheck: string[]) => {
@@ -93,6 +99,7 @@ export default function (pi: ExtensionAPI) {
 				const resolved = resolvePath(p, ctx.cwd);
 				for (const zap of rules.zeroAccessPaths) {
 					if (isPathMatch(resolved, zap, ctx.cwd)) {
+						matchedPattern = zap;
 						return `Access to zero-access path restricted: ${zap}`;
 					}
 				}
@@ -113,6 +120,7 @@ export default function (pi: ExtensionAPI) {
 			for (const zap of rules.zeroAccessPaths) {
 				if (event.input.glob.includes(zap) || isPathMatch(event.input.glob, zap, ctx.cwd)) {
 					violationReason = `Glob matches zero-access path: ${zap}`;
+					matchedPattern = zap;
 					break;
 				}
 			}
@@ -124,6 +132,7 @@ export default function (pi: ExtensionAPI) {
 			for (const zap of rules.zeroAccessPaths) {
 				if (event.input.pattern.includes(zap) || isPathMatch(event.input.pattern, zap, ctx.cwd)) {
 					violationReason = `Find pattern matches zero-access path: ${zap}`;
+					matchedPattern = zap;
 					break;
 				}
 			}
@@ -153,6 +162,7 @@ export default function (pi: ExtensionAPI) {
 					for (const zap of rules.zeroAccessPaths) {
 						if (command.includes(zap)) {
 							violationReason = `Bash command references zero-access path: ${zap}`;
+							matchedPattern = zap;
 							break;
 						}
 					}
@@ -164,6 +174,7 @@ export default function (pi: ExtensionAPI) {
 						// Redirects, sed -i, rm, mv to, etc.
 						if (command.includes(rop) && (/[\s>|]/.test(command) || command.includes("rm") || command.includes("mv") || command.includes("sed"))) {
 							violationReason = `Bash command may modify read-only path: ${rop}`;
+							matchedPattern = rop;
 							break;
 						}
 					}
@@ -173,6 +184,7 @@ export default function (pi: ExtensionAPI) {
 					for (const ndp of rules.noDeletePaths) {
 						if (command.includes(ndp) && (command.includes("rm") || command.includes("mv"))) {
 							violationReason = `Bash command attempts to delete/move protected path: ${ndp}`;
+							matchedPattern = ndp;
 							break;
 						}
 					}
@@ -184,6 +196,7 @@ export default function (pi: ExtensionAPI) {
 					for (const rop of rules.readOnlyPaths) {
 						if (isPathMatch(resolved, rop, ctx.cwd)) {
 							violationReason = `Modification of read-only path restricted: ${rop}`;
+							matchedPattern = rop;
 							break;
 						}
 					}
@@ -192,6 +205,25 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		if (violationReason) {
+			// Pre-granted exemptions from the hub session's shared file
+			// (AGENT_HUB_EXEMPTIONS_FILE, written by /allow or an approved
+			// escalation in the dispatcher). This is the ONLY unlock the
+			// hard-stop variant honors — no prompting, no escalation — and it
+			// applies to path categories only, never to bashToolPatterns.
+			if (matchedPattern) {
+				const command = isToolCallEventType("bash", event) ? event.input.command : null;
+				const applies = (ex: Exemption) =>
+					ex.pattern === matchedPattern ||
+					(command !== null && command.includes(ex.pattern)) ||
+					inputPaths.some((p) => isPathMatch(resolvePath(p, ctx.cwd), ex.pattern, ctx.cwd));
+				const exempted = fileExemptionsFor(process.env[EXEMPTIONS_FILE_ENV], process.env[AGENT_ID_ENV]).find(applies);
+				if (exempted) {
+					pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "exempted", pattern: exempted.pattern, scope: exempted.scope });
+					ctx.ui.notify(`🛡️ Damage-Control: ${event.toolName} allowed by exemption ${exempted.pattern} (${exempted.scope})`);
+					return { block: false };
+				}
+			}
+
 			if (shouldAsk) {
 				const confirmed = await ctx.ui.confirm("🛡️ Damage-Control Confirmation", `Dangerous command detected: ${violationReason}\n\nCommand: ${isToolCallEventType("bash", event) ? event.input.command : JSON.stringify(event.input)}\n\nDo you want to proceed?`, { timeout: 30000 });
 

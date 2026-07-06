@@ -20,8 +20,49 @@ The difference is what happens on a match:
   agent can recover (e.g. assume a `.env` key exists instead of reading it to
   verify) instead of dead-ending.
 
-Both variants still hard-block; neither lets the restricted call through. The
-choice is only whether the agent's turn dies or keeps going.
+By default both variants hard-block. The choice is whether the agent's turn dies
+or keeps going — plus, in this variant, whether **you** let the call through via
+exemptions (below).
+
+## Exemptions — allow access per turn or per session
+
+Runtime allowances layered on top of the rules file (which is never modified).
+They apply to the **path categories only** — `zeroAccessPaths`, `readOnlyPaths`,
+`noDeletePaths`. Destructive `bashToolPatterns` (`rm -rf`, `git push --force`,
+`DROP TABLE`, …) can never be exempted.
+
+**Pre-authorize** (when you know the agent will need it):
+
+```
+/allow .env            # exempt for the rest of the session (default)
+/allow .env turn       # exempt until the end of the current/next turn
+/allowed               # list active exemptions
+/revoke .env           # remove an exemption
+```
+
+**Block-time dialog** (when you forgot): in an interactive session a path block
+opens a selector — *Keep blocked / Allow once / Allow for this turn / Allow for
+this session*. An approved call proceeds immediately (the agent never sees the
+block); *Keep blocked* is remembered for the rest of the turn so the agent can't
+re-prompt you; no answer within 60s fails closed.
+
+**Escalation from headless children**: when this harness runs inside a subagent
+spawned by agent-hub (no UI, `AGENT_HUB_ASK_ENDPOINT` set), a path block sends an
+`access_request` to the hub's coms socket instead. The dispatcher session shows
+who is asking, for what, and why it was blocked — *Deny / Allow once / Allow for
+this agent / Allow for all agents (session)*. The child waits up to 60s and fails
+closed on timeout; a late answer still lands in the shared exemptions file, so
+the next attempt (from any child) passes. At most 3 escalations per child run;
+denials are cached.
+
+**Shared exemptions file**: agent-hub keeps one session-scoped file
+(`~/.pi/coms/exemptions/<session>.json`, deleted on shutdown) and passes it to
+every spawned child via `AGENT_HUB_EXEMPTIONS_FILE`. `/allow <pattern> session`
+in the hub lands there, so it covers the whole team — including hard-stop
+[`damage-control`](../damage-control/README.md) specialists, which honor the
+file but never prompt or escalate. It is re-read on every block, so mid-session
+grants reach already-running children. Everything (grants, revokes, escalation
+outcomes) is logged to the `damage-control-log` session entries.
 
 ## When it's used (this repo)
 
@@ -33,11 +74,19 @@ test-engineer, …) keeps the hard-stop `damage-control` harness.
 
 ## Commands & tools
 
-None — it runs passively on the `tool_call` event.
+- `/allow <pattern> [turn|session]` — exempt a protected path pattern
+- `/allowed` — list active exemptions
+- `/revoke <pattern>` — remove an exemption
+
+Blocking itself runs passively on the `tool_call` event.
 
 ## Requires
 
 - `.pi/damage-control-rules.yaml` — the rule set (shipped in this repo)
+- Optional, injected by agent-hub into spawned children: `AGENT_HUB_ASK_ENDPOINT`
+  (escalation socket), `AGENT_HUB_EXEMPTIONS_FILE` (shared grants),
+  `AGENT_HUB_AGENT_ID` (requester identity). Without them the harness behaves
+  standalone: dialog when a UI is present, plain block+feedback otherwise.
 
 ## Usage
 
@@ -61,3 +110,7 @@ pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/
 - The `find` tool's `pattern` is matched against `zeroAccessPaths` (mirrors the
   hardening in this repo's `damage-control`), closing a gap where `find` could
   still locate secret files.
+- Exemption layer added (not in upstream): `/allow`/`/allowed`/`/revoke`,
+  block-time approval dialog, and escalation from headless agent-hub children to
+  the dispatcher — see the Exemptions section above. Shared plumbing lives in
+  [`../damage-control/shared.ts`](../damage-control/shared.ts).

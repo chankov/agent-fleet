@@ -64,6 +64,11 @@ import {
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
 import { spawnPiAgent, killPiTree } from "./spawn.ts";
+import {
+	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
+	appendExemptionToFile, exemptionsFilePath, fileExemptionsFor,
+	type AccessDecision, type AccessDecisionChoice, type AccessRequest,
+} from "../damage-control/shared.ts";
 import { clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, MAX_DELEGATE_DEPTH, parseTeamsYaml, safeAgentKey, safePathWithin } from "./helpers.ts";
 import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "./artifacts.js";
 import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return-contract.js";
@@ -1674,6 +1679,19 @@ export default function (pi: ExtensionAPI) {
 	let comsBasePurpose = "agent-hub dispatcher";
 	let comsPurposeExplicit = false;
 
+	// ── Damage-control exemptions + access escalation state ──
+	// exemptionsFile is the session-scoped shared exemptions file: /allow
+	// session grants (via the co-loaded damage-control-continue) and approved
+	// escalations land here, and spawned children read it through the
+	// AGENT_HUB_EXEMPTIONS_FILE env plumbing.
+	let exemptionsFile: string | null = null;
+	// access_request dialogs are serialized (concurrent children don't fight
+	// for the screen), in-flight asks are deduped per agent+pattern, and
+	// explicit denials are cached so a confused child can't re-prompt.
+	let accessAskQueue: Promise<unknown> = Promise.resolve();
+	const accessDenyCache = new Set<string>();
+	const pendingAccessAsks = new Map<string, Promise<AccessDecisionChoice>>();
+
 	const agentStates: Map<string, AgentState> = new Map();
 	// Read-only research helpers (Phase 4), keyed by numeric id (handle `rN`). Lives
 	// alongside the standing team but renders in its own widget row.
@@ -2921,7 +2939,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			resume: !!state.sessionFile,
 			prompt: appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs),
 			extensions,
-			env: delegateEnv,
+			env: { ...guardrailEnv(agentKey), ...(delegateEnv || {}) },
 			detached: true,
 		}, {
 			onProcess: (p) => { state.proc = p; },
@@ -3106,6 +3124,18 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return state;
 	}
 
+	// Env plumbing for spawned children: the shared exemptions file (both
+	// damage-control variants honor pre-granted exemptions from it) and, when
+	// coms is up, the endpoint damage-control-continue escalates blocked path
+	// access to (access_request → user dialog in this hub). spawnPiAgent
+	// spreads process.env, so delegate grandchildren inherit these for free.
+	function guardrailEnv(agentId: string): Record<string, string> {
+		const env: Record<string, string> = { [AGENT_ID_ENV]: agentId };
+		if (exemptionsFile) env[EXEMPTIONS_FILE_ENV] = exemptionsFile;
+		if (comsReady && identity) env[ASK_ENDPOINT_ENV] = identity.endpoint;
+		return env;
+	}
+
 	// Spawn (or resume) a read-only research helper. Mirrors dispatchAgent's stream
 	// handling but is forced read-only (RESEARCH_TOOLS), drives the research widget, and
 	// resolves with the findings — the CALLER decides what to do with them (the
@@ -3154,6 +3184,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// at .env to verify a key) feeds back and lets them adapt rather than
 			// aborting the whole research turn.
 			extensions: damageControlContinueExtPath ? [damageControlContinueExtPath] : [],
+			env: guardrailEnv(`research-r${state.id}`),
 		}, {
 			onProcess: (p) => { state.proc = p; },
 			onTextDelta: (delta) => {
@@ -3400,6 +3431,97 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		);
 	}
 
+	// A headless child's damage-control-continue hit a protected-path block and
+	// escalates for approval. Synchronous over this one socket: the child has no
+	// server of its own, so we hold the connection open and write the decision
+	// line when the user answers. The child fails closed after its own timeout;
+	// a late "allow" still lands in the exemptions file, so the next attempt
+	// (from any child) passes.
+	function handleAccessRequest(socket: net.Socket, req: AccessRequest): void {
+		const respond = (decision: AccessDecisionChoice) => {
+			const reply: AccessDecision = { type: "access_decision", msg_id: req.msg_id, decision };
+			try { socket.write(JSON.stringify(reply) + "\n"); } catch { /* child may have timed out */ }
+			try { socket.end(); } catch { /* ignore */ }
+		};
+		const agent = (typeof req.agent === "string" && req.agent) || req.sender_session || "unknown-agent";
+		const pattern = typeof req.pattern === "string" ? req.pattern : "";
+		if (!pattern) {
+			respond("deny");
+			return;
+		}
+		const cacheKey = `${agent}::${pattern}`;
+
+		// Already granted session-wide (an earlier ask or /allow) — no dialog.
+		if (fileExemptionsFor(exemptionsFile ?? undefined, agent).some((e) => e.pattern === pattern)) {
+			respond("allow_all");
+			return;
+		}
+		if (accessDenyCache.has(cacheKey)) {
+			respond("deny");
+			return;
+		}
+		// The same ask is already on screen (e.g. delegate children racing) — share the outcome.
+		const pending = pendingAccessAsks.get(cacheKey);
+		if (pending) {
+			pending.then(respond).catch(() => respond("deny"));
+			return;
+		}
+
+		const ask: Promise<AccessDecisionChoice> = accessAskQueue.then(async (): Promise<AccessDecisionChoice> => {
+			const ctx = currentCtx;
+			if (!ctx || !ctx.hasUI) return "deny";
+			const DENY = "Deny (keep blocked)";
+			const ONCE = "Allow once";
+			const AGENT = `Allow for ${agent} (this session)`;
+			const ALL = "Allow for all agents (this session)";
+			try {
+				ctx.ui.notify(
+					`🛡️ Access request from ${agent}: ${req.rule}\n   tool: ${req.tool}\n   attempted: ${String(req.invocation || "").slice(0, 200)}`,
+					"warning",
+				);
+				// Generous timeout — the child gives up (fail closed) long before
+				// this; keeping the dialog up lets a late answer persist below.
+				const choice = await ctx.ui.select(
+					`🛡️ ${agent} requests access: ${pattern}`,
+					[DENY, ONCE, AGENT, ALL],
+					{ timeout: 600_000 },
+				);
+				if (choice === ONCE) return "allow_once";
+				if (choice === AGENT) return "allow_agent";
+				if (choice === ALL) return "allow_all";
+				// Only an explicit Deny is cached; a dismissed/timed-out dialog may be re-asked.
+				if (choice === DENY) accessDenyCache.add(cacheKey);
+				return "deny";
+			} catch {
+				return "deny";
+			}
+		});
+		accessAskQueue = ask.catch(() => {});
+		pendingAccessAsks.set(cacheKey, ask);
+		ask.then((decision) => {
+			pendingAccessAsks.delete(cacheKey);
+			if ((decision === "allow_agent" || decision === "allow_all") && exemptionsFile) {
+				try {
+					appendExemptionToFile(exemptionsFile, {
+						pattern,
+						scope: "session",
+						agent: decision === "allow_agent" ? agent : undefined,
+						grantedVia: "escalation",
+						grantedAt: nowIso(),
+					});
+				} catch { /* best-effort — allow_once semantics still hold via the reply */ }
+			}
+			try { pi.appendEntry("damage-control-log", { action: `escalation_${decision}`, agent, pattern, tool: req.tool, rule: req.rule }); } catch { /* best-effort */ }
+			try {
+				currentCtx?.ui.notify(
+					`🛡️ Access ${decision === "deny" ? "denied" : `granted (${decision.replace(/_/g, " ")})`}: ${pattern} — ${agent}`,
+					decision === "deny" ? "warning" : "info",
+				);
+			} catch { /* ignore */ }
+			respond(decision);
+		}).catch(() => respond("deny"));
+	}
+
 	function connHandler(socket: net.Socket): void {
 		let buf = "";
 		let handled = false;
@@ -3436,6 +3558,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					handleResponse(socket, parsed as ResponseEnvelope);
 				} else if (parsed.type === "ping") {
 					handlePing(socket, parsed as PingEnvelope);
+				} else if (parsed.type === "access_request") {
+					handleAccessRequest(socket, parsed as AccessRequest);
 				} else {
 					nack(socket, parsed.msg_id, "unknown type");
 				}
@@ -6001,6 +6125,15 @@ ${researchCatalog}`;
 			}
 		}
 
+		// ── Damage-control shared exemptions file ──
+		// One per hub session (solo mode included). Exporting the path on our own
+		// process.env lets the co-loaded damage-control-continue mirror /allow
+		// session grants into the same file the spawned children read.
+		if (!exemptionsFile) {
+			exemptionsFile = exemptionsFilePath(identity?.session_id ?? `hub-solo-${process.pid}`);
+			process.env[EXEMPTIONS_FILE_ENV] = exemptionsFile;
+		}
+
 		// Wipe old agent session files so subagents start fresh
 		const sessDir = safePathWithin(_ctx.cwd, ".pi", "agent-sessions");
 		if (existsSync(sessDir)) {
@@ -6332,6 +6465,11 @@ ${researchCatalog}`;
 			try {
 				pi.appendEntry("coms-log", { event: "shutdown", session_id: identity.session_id });
 			} catch { /* best-effort */ }
+		}
+		if (exemptionsFile) {
+			// Session-scoped by definition — remove so grants never leak into the next session.
+			try { fs.unlinkSync(exemptionsFile); } catch { /* ignore */ }
+			exemptionsFile = null;
 		}
 		for (const st of agentStates.values()) {
 			if (st.proc && st.status === "running") { try { st.killedByOperator = true; st.proc.kill("SIGTERM"); } catch { /* ignore */ } }

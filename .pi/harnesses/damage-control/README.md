@@ -19,6 +19,21 @@ aborted (`ctx.abort()`). For the softer variant that blocks but feeds back so th
 adapts and keeps working, see [`damage-control-continue`](../damage-control-continue/README.md)
 — the default guardrail for the `just hub` main session and spawned research helpers.
 
+## Exemptions (pre-granted only)
+
+The hard-stop variant honors **pre-granted exemptions** from the shared exemptions
+file agent-hub passes down via `AGENT_HUB_EXEMPTIONS_FILE` (written by `/allow
+<pattern> session` or an approved escalation in the dispatcher session). Exemptions
+apply to the path categories only — `zeroAccessPaths`, `readOnlyPaths`,
+`noDeletePaths` — never to the destructive `bashToolPatterns`. There is no
+prompting and no escalation here by design: a specialist run never negotiates
+access mid-flight; grants happen in the hub before or between dispatches.
+Agent-scoped grants (`Allow for <agent>`) only reach the child whose
+`AGENT_HUB_AGENT_ID` matches.
+
+The exemption plumbing (file I/O + escalation protocol types) lives in
+[`shared.ts`](./shared.ts), used by both variants and agent-hub.
+
 ## Commands & tools
 
 None — it runs passively on the `tool_call` event.
@@ -46,3 +61,5 @@ pi -e .pi/harnesses/damage-control/index.ts -e .pi/harnesses/agent-hub/index.ts
 
 - Theme integration removed — the `themeMap.ts` import and the `applyExtensionDefaults()`
   call were stripped (this repo does not ship pi themes).
+- Pre-granted exemptions from the hub session's shared file are honored (not in
+  upstream) — see the Exemptions section above.
