@@ -55,7 +55,8 @@ See [`docs/comparison.md`](docs/comparison.md) for how the *project as a whole* 
 | **Fork-only skills** | `designing-agents`, `guided-workspace-setup`, `orchestration-verification`, `compound-learning` | `skills/` |
 | **Fork commands** | `/design-agent`, `/doctor-agent-skills`, `/prime`, `/setup-agent-skills`, `/compound` (+ OpenCode `as-` mirrors, pi prompts; on pi, `/compound` is an agent-hub harness command) | `.claude/commands/`, `.opencode/commands/`, `.pi/prompts/` |
 | **pi & npm docs** | `pi-setup.md`, `pi-extensions.md`, `pi-specs/`, `npm-install.md`, `publishing.md`, `agent-skills-setup.md`, `NPM/` | `docs/` |
-| **Dev tooling** | `justfile` (launch pi per harness), `scripts/team-up.ts`, harness/CLI tests | `justfile`, `scripts/`, `bin/test/` |
+| **Dev tooling** | `justfile` (launch pi per harness), `scripts/team-up.ts` fleet launcher, harness/CLI tests | `justfile`, `scripts/`, `bin/test/` |
+| **herdr fleet layer** | [herdr](https://herdr.dev) is the fleet control plane: `team-up` spawns peer teams as herdr workspaces via the shared socket client (`.pi/harnesses/lib/herdr-client.ts`) + pure layout module (`scripts/lib/herdr-layout.ts`). tmux is fully dropped — herdr is a hard dependency for fleet recipes (non-fleet recipes are unaffected). | `.pi/harnesses/lib/`, `scripts/lib/`, `scripts/team-up.ts` |
 
 ### Dropped by the fork (present upstream, removed on every merge)
 
@@ -115,6 +116,7 @@ git merge upstream/main        # resolve, then apply the decision table below
 
 Newest first. One entry per notable fork decision — especially anything that changes the drop/keep/adapt tables above.
 
+- **2026-07-06** — **Fleet layer moved from tmux to herdr** (validated live against herdr 0.7.1 / protocol 14). `scripts/team-up.ts` spawns teams as herdr workspaces (`workspace.create` + `layout.apply`); all tmux spawn code and doc references removed (CHANGELOG mentions stay, historical). herdr is a hard dependency for fleet recipes (`team-up`, later `hub-team`/`team-resume`) — they refuse with a "start herdr first" message when no server answers; `just hub` / `safe-coms` / `_peer` never used tmux and are unaffected. coms envelopes remain the pi↔pi data plane; herdr owns panes/presence/lifecycle.
 - **2026-06-26** — Created `FORK.md` as the canonical record of fork direction, the drop/keep/adapt playbook, and this log. Supersedes the ad-hoc sync notes that previously lived only in maintainer memory.
 - **(ongoing)** — Standing drop policy: Gemini, Antigravity, Copilot, Cursor, Windsurf support; upstream CommonJS validate scripts; jq-based session-start + sdd-cache hooks. Re-applied on every upstream merge.
 - **2026-06-19** — Decided **not** to split `agent-hub` into its own repo. It stays inside agent-skills as a two-layer product: content (`skills/`, `agents/`, `references/`) + runtime (`agent-hub`, `coms`, `damage-control`). Splitting would sever the persona↔skill coupling (e.g. `orchestrator` → `orchestration-verification`). Defer even an npm-workspace split until an external consumer wants the harness without the skills.

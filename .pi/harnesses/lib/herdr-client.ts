@@ -410,6 +410,9 @@ export const herdr = {
 		opts?: HerdrClientOptions,
 	) => request("pane.release_agent", params, opts),
 
+	tabClose: (tab_id: string, opts?: HerdrClientOptions) =>
+		request("tab.close", { tab_id }, opts),
+
 	agentList: (opts?: HerdrClientOptions) =>
 		request<{ agents: Array<Record<string, unknown>> }>("agent.list", {}, opts),
 	agentRead: (

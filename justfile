@@ -75,12 +75,13 @@ _peer persona name="" model="":
 _peer-plus extensions persona name="" model="":
     persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts $extra --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }}
 
-# Team up: spawn every peer of a team from .pi/agents/peers.yaml into tmux panes.
+# Team up: spawn every peer of a team from .pi/agents/peers.yaml into a herdr
+# workspace (one tiled pane per peer). Requires a running herdr server.
 # Positional arg: team (defaults to "full"). e.g. just team-up full
 team-up team="full":
     node --experimental-strip-types scripts/team-up.ts --team {{team}}
 
-# Team up (dry run): print the resolved per-peer commands without launching tmux.
+# Team up (dry run): print the resolved layout + per-peer commands without touching herdr.
 # e.g. just team-up-dry team="full"
 team-up-dry team="full":
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run

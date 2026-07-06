@@ -82,7 +82,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 ```bash
 just hub            # guarded dispatcher + research + coms + orchestrator persona
 just hub-solo       # same, without the coms layer
-just team-up full   # spawn addressable peers into tmux panes
+just team-up full   # spawn addressable peers into a herdr workspace
 ```
 
 `just hub` stacks the `damage-control-continue` guardrail (blocked calls feed back so the dispatcher adapts and keeps going) before `agent-hub`, and re-loads the hard-stop `damage-control` variant into spawned specialists. See the [pi extension catalog](docs/pi-extensions.md) for every harness, its setup, and the selective-load model.
@@ -315,7 +315,7 @@ When this repo is installed as a Claude Code plugin, the `agents/` directory is 
 
 The personas are designed to be composed, not used one at a time:
 
-- **pi (agent-hub harness)** — the dispatcher spawns personas as specialist subagents. Named teams in [.pi/agents/teams.yaml](.pi/agents/teams.yaml) scope which personas it may use: `default` (plan → build → review → document), `debug`, `info`, and `frontend`. `just team-up <name>` instead spawns the [peers.yaml](.pi/agents/peers.yaml) personas (`architect`, `releaser`) as standalone, addressable peers in tmux panes. Personas with a `subagents:` block (e.g. `code-reviewer`'s `preflight`/`quality`/`perf`/`docs`) additionally delegate slices of their own job to pre-configured children.
+- **pi (agent-hub harness)** — the dispatcher spawns personas as specialist subagents. Named teams in [.pi/agents/teams.yaml](.pi/agents/teams.yaml) scope which personas it may use: `default` (plan → build → review → document), `debug`, `info`, and `frontend`. `just team-up <name>` instead spawns the [peers.yaml](.pi/agents/peers.yaml) personas (`architect`, `releaser`) as standalone, addressable peers in a tiled [herdr](https://herdr.dev) workspace (requires a running herdr server). Personas with a `subagents:` block (e.g. `code-reviewer`'s `preflight`/`quality`/`perf`/`docs`) additionally delegate slices of their own job to pre-configured children.
 - **Claude Code** — installed personas are native subagents: the main agent delegates to them automatically based on their `description`, or you invoke one explicitly ("use the code-reviewer subagent on this diff"). Chain them along the lifecycle: `/plan` work goes to `planner`, then `plan-reviewer` critiques, `builder` implements, and `code-reviewer` + `security-auditor` gate the merge.
 - **OpenCode** — installed personas are subagents (`mode: subagent`): mention one with `@<name>` to invoke it directly, or let the primary agent delegate to it by description.
 

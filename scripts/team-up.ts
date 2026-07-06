@@ -1,119 +1,49 @@
 // scripts/team-up.ts
 //
-// Spawn a team of reusable coms peers (from .pi/agents/peers.yaml) into a tmux
-// session — one tiled pane per peer, each running the hidden `just _peer …` helper.
-// Backs the `just team-up <name>` recipe (see the justfile).
+// Spawn a team of reusable coms peers (from .pi/agents/peers.yaml) into a
+// herdr workspace — one pane per peer in a tiled BSP layout, each running the
+// hidden `just _peer …` helper. Backs the `just team-up <name>` recipe (see
+// the justfile). herdr is a hard dependency for fleet spawning: without a
+// running server the recipe refuses with an actionable message.
 //
 // Hard rules:
 // - Entrypoint guard: launching lives inside main(); importing the module must
 //   NOT spawn anything.
 // - peers.yaml + the repo root are resolved relative to THIS file, so the script
 //   works regardless of the caller's cwd.
-// - Manifest values are validated against a safe charset before being placed on
-//   a shell command line (the file is user-edited) — reject anything else.
-// - --dry-run prints the resolved per-peer commands and exits without tmux, so
-//   the parser + command construction are testable without launching pi.
-// - Never clobber an existing tmux session of the same name; refuse and explain.
+// - Manifest values are validated against a safe charset before being placed in
+//   a pane command (the file is user-edited) — reject anything else. The pure
+//   parsing/validation/layout logic lives in scripts/lib/herdr-layout.ts.
+// - --dry-run prints the resolved layout JSON and exits WITHOUT touching herdr
+//   (must work with no herdr installed), so command construction is testable
+//   without launching pi.
+// - Never clobber an existing workspace of the same label; refuse and explain.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import {
+	buildTeamLayout,
+	parsePeersYaml,
+	type LayoutNode,
+	type Peer,
+} from "./lib/herdr-layout.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
-
-// Safe charset for any value spliced into a shell command line.
-const SAFE = /^[A-Za-z0-9._/,-]+$/;
-
-interface Peer {
-	name?: string;
-	persona?: string;
-	model?: string;
-	// Optional comma-separated extension names under .pi/extensions/ to load into
-	// this peer (routes it through `just _peer-plus` instead of `just _peer`).
-	extensions?: string;
-}
-
-function stripQuotes(v: string): string {
-	if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-		return v.slice(1, -1);
-	}
-	return v;
-}
-
-// Minimal parser for the specific peers.yaml shape (team → list of {name,persona,model}).
-// Not a general YAML parser; tolerant of comments and blank lines only.
-function parsePeersYaml(raw: string): Record<string, Peer[]> {
-	const teams: Record<string, Peer[]> = {};
-	let currentTeam: string | null = null;
-	let currentPeer: Peer | null = null;
-
-	for (const rawLine of raw.split("\n")) {
-		const line = rawLine.replace(/\s+$/, "");
-		if (line.trim() === "" || /^\s*#/.test(line)) continue;
-		const indent = line.length - line.trimStart().length;
-		const content = line.trim();
-
-		if (indent === 0) {
-			const m = content.match(/^([A-Za-z0-9_-]+):\s*$/);
-			if (m) {
-				currentTeam = m[1];
-				teams[currentTeam] = [];
-				currentPeer = null;
-			}
-			continue;
-		}
-		if (!currentTeam) continue;
-
-		const itemM = content.match(/^-\s*([A-Za-z0-9_]+):\s*(.+)$/);
-		if (itemM) {
-			currentPeer = {};
-			teams[currentTeam].push(currentPeer);
-			(currentPeer as Record<string, string>)[itemM[1]] = stripQuotes(itemM[2]);
-			continue;
-		}
-		const fieldM = content.match(/^([A-Za-z0-9_]+):\s*(.+)$/);
-		if (fieldM && currentPeer) {
-			(currentPeer as Record<string, string>)[fieldM[1]] = stripQuotes(fieldM[2]);
-		}
-	}
-	return teams;
-}
 
 function flagValue(argv: string[], flag: string): string | null {
 	const i = argv.indexOf(flag);
 	return i >= 0 && i + 1 < argv.length ? argv[i + 1] : null;
 }
 
-function tmuxOk(args: string[]): boolean {
-	const r = spawnSync("tmux", args, { stdio: "ignore" });
-	return !r.error && r.status === 0;
-}
-
-function runTmux(args: string[]): void {
-	const r = spawnSync("tmux", args, { stdio: "inherit" });
-	if (r.error || r.status !== 0) {
-		console.error(`tmux ${args.join(" ")} failed (status ${r.status ?? "n/a"})`);
-		process.exit(1);
-	}
-}
-
-function main(): void {
-	const argv = process.argv.slice(2);
-	const team = flagValue(argv, "--team");
-	const dryRun = argv.includes("--dry-run");
-
-	if (!team) {
-		console.error("usage: team-up.ts --team <name> [--dry-run]");
-		process.exit(2);
-	}
+function loadTeam(team: string): Peer[] {
 	if (!fs.existsSync(PEERS_YAML)) {
 		console.error(`peers.yaml not found at ${PEERS_YAML}`);
 		process.exit(1);
 	}
-
 	const teams = parsePeersYaml(fs.readFileSync(PEERS_YAML, "utf-8"));
 	const peers = teams[team];
 	if (!peers) {
@@ -125,65 +55,98 @@ function main(): void {
 		console.error(`Team "${team}" has no peers.`);
 		process.exit(1);
 	}
+	return peers;
+}
 
-	// Build + validate one `just _peer …` command per peer. `just` recipe params are
-	// POSITIONAL (persona name model) — emit them as bare positional args, never
-	// key=value (which just would treat as a literal positional value).
-	const cmds: { label: string; cmd: string }[] = [];
-	for (const p of peers) {
-		if (!p.persona) {
-			console.error(`Peer "${p.name ?? "(unnamed)"}" in team "${team}" is missing a persona.`);
-			process.exit(1);
-		}
-		if (!p.name) {
-			console.error(`Peer with persona "${p.persona}" in team "${team}" is missing a name.`);
-			process.exit(1);
-		}
-		for (const [k, v] of Object.entries(p)) {
-			if (v !== undefined && !SAFE.test(v)) {
-				console.error(`Unsafe value for ${k} in team "${team}": ${JSON.stringify(v)} (allowed: ${SAFE})`);
-				process.exit(1);
-			}
-		}
-		// A peer that needs extra extensions (e.g. chrome-devtools-mcp) routes through
-		// `_peer-plus <extensions> <persona> <name> [<model>]`; otherwise plain `_peer`.
-		const parts = p.extensions
-			? ["just", "_peer-plus", p.extensions, p.persona, p.name]
-			: ["just", "_peer", p.persona, p.name];
-		if (p.model) parts.push(p.model);
-		cmds.push({ label: p.name, cmd: parts.join(" ") });
+function buildLayoutOrDie(team: string, peers: Peer[]): LayoutNode {
+	try {
+		return buildTeamLayout({ team, peers, repoRoot: REPO_ROOT });
+	} catch (err) {
+		console.error(err instanceof Error ? err.message : String(err));
+		process.exit(1);
+	}
+}
+
+async function main(): Promise<void> {
+	const argv = process.argv.slice(2);
+	const team = flagValue(argv, "--team");
+	const dryRun = argv.includes("--dry-run");
+
+	if (!team) {
+		console.error("usage: team-up.ts --team <name> [--dry-run]");
+		process.exit(2);
 	}
 
-	const session = `pi-peers-${team}`;
+	const peers = loadTeam(team);
+	const layout = buildLayoutOrDie(team, peers);
+	const label = `pi-peers-${team}`;
 
 	if (dryRun) {
-		console.log(`# team-up (dry run) — team "${team}", ${cmds.length} peer(s), tmux session "${session}"`);
-		for (const c of cmds) console.log(`${c.label}\t${c.cmd}`);
+		// No herdr calls on this path — must work with no herdr installed.
+		console.log(`# team-up (dry run) — team "${team}", ${peers.length} peer(s), herdr workspace "${label}"`);
+		for (const p of peers) console.log(`${p.name}\t${(layoutCommands(layout, p.name as string) ?? []).join(" ")}`);
+		console.log(JSON.stringify({ label, layout }, null, 2));
 		return;
 	}
 
-	if (!tmuxOk(["-V"])) {
-		console.error("tmux not found on PATH — install tmux, or run with dry=1 to print the commands.");
-		process.exit(1);
+	// Import lazily so --dry-run never touches the client (or the socket).
+	const { herdr, requireHerdr, HerdrUnavailableError } = await import(
+		"../.pi/harnesses/lib/herdr-client.ts"
+	);
+
+	try {
+		await requireHerdr();
+	} catch (err) {
+		if (err instanceof HerdrUnavailableError) {
+			console.error(err.message);
+			console.error("(dry run still works: just team-up-dry " + team + ")");
+			process.exit(1);
+		}
+		throw err;
 	}
-	if (tmuxOk(["has-session", "-t", session])) {
-		console.error(`tmux session "${session}" already exists.`);
-		console.error(`  attach: tmux attach -t ${session}`);
-		console.error(`  kill:   tmux kill-session -t ${session}`);
+
+	const { workspaces } = await herdr.workspaceList();
+	const existing = workspaces.find((w) => w.label === label);
+	if (existing) {
+		console.error(`herdr workspace "${label}" already exists (${existing.workspace_id}).`);
+		console.error(`  focus: herdr workspace focus ${existing.workspace_id}`);
+		console.error(`  close: herdr workspace close ${existing.workspace_id}`);
 		process.exit(1);
 	}
 
-	runTmux(["new-session", "-d", "-s", session, "-n", team, "-c", REPO_ROOT, cmds[0].cmd]);
-	for (let i = 1; i < cmds.length; i++) {
-		runTmux(["split-window", "-t", session, "-c", REPO_ROOT, cmds[i].cmd]);
-		runTmux(["select-layout", "-t", session, "tiled"]);
+	const created = await herdr.workspaceCreate({ label, cwd: REPO_ROOT, focus: false });
+	const wsId = created.workspace.workspace_id;
+	const initialTab = created.workspace.active_tab_id ?? created.tab?.tab_id;
+	await herdr.layoutApply({ workspace_id: wsId, root: layout });
+	// layout.apply lands in a fresh tab; drop the empty shell tab
+	// workspace.create made so the team tab is the only one.
+	if (initialTab) {
+		try {
+			await herdr.tabClose(initialTab);
+		} catch {
+			// non-fatal: an extra empty tab is cosmetic
+		}
 	}
 
-	console.log(`Launched ${cmds.length} peer(s) for team "${team}" in tmux session "${session}":`);
-	for (const c of cmds) console.log(`  • ${c.label}`);
-	console.log(`Attach: tmux attach -t ${session}`);
-	console.log(`Kill:   tmux kill-session -t ${session}`);
+	console.log(`Launched ${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`);
+	for (const p of peers) console.log(`  • ${p.name}`);
+	console.log(`Focus: herdr workspace focus ${wsId}`);
+	console.log(`Close: herdr workspace close ${wsId}`);
+}
+
+async function request_ignoring_errors<T>(f: () => Promise<T>): Promise<T | null> {
+	try {
+		return await f();
+	} catch {
+		return null;
+	}
+}
+
+// Dry-run helper: find the command argv for the pane labeled `name`.
+function layoutCommands(node: LayoutNode, name: string): string[] | undefined {
+	if (node.type === "pane") return node.label === name ? node.command : undefined;
+	return layoutCommands(node.first, name) ?? layoutCommands(node.second, name);
 }
 
 const isEntry = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isEntry) main();
+if (isEntry) void main();

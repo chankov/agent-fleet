@@ -1,6 +1,7 @@
 # Reusable coms peers, grouped into named teams (parallels teams.yaml).
 #
-# `just team-up <name>` spawns each peer of a team in its own tmux pane,
+# `just team-up <name>` spawns each peer of a team in its own herdr pane
+# (requires a running herdr server — https://herdr.dev),
 # using the hidden `_peer` helper (coms + compact-and-continue + the persona).
 #
 # Each peer entry:

@@ -243,7 +243,7 @@ The lead spawns three teammates referencing the existing persona names. The pers
 
 1. Each teammate runs in its own context window, exploring the codebase from its own lens.
 2. Teammates use `message` to send findings to each other directly. The lead doesn't have to relay.
-3. The shared task list shows who's investigating what — visible at any time with `Ctrl+T` (in-process mode) or in a tmux pane (split mode).
+3. The shared task list shows who's investigating what — visible at any time with `Ctrl+T` (in-process mode) or in a tmux pane (split mode; tmux here is Claude Code Agent Teams' own split-mode mechanism, not this repo's fleet tooling — our fleet layer runs on herdr).
 4. When `code-reviewer` finds a `Promise.all` that should be sequential, it messages `security-auditor` to confirm the auth call isn't part of the race. `security-auditor` checks and replies — either confirming the race is the real issue or producing counter-evidence.
 5. `test-engineer` proposes a focused integration test for whichever theory is winning, which the team uses to verify before declaring consensus.
 6. The lead synthesizes the converged finding and presents it to you.

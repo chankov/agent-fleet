@@ -450,9 +450,10 @@ always installs/keeps `damage-control` (and `damage-control-continue`) with it.
 # the hub without the coms layer (fixed specialists + research only — lighter)
 just hub-solo
 
-# spawn every peer of a team from .pi/agents/peers.yaml into tiled tmux panes
+# spawn every peer of a team from .pi/agents/peers.yaml into a tiled herdr workspace
+# (requires a running herdr server — https://herdr.dev)
 just team-up full        # launch
-just team-up-dry full    # print the resolved hidden peer-launch commands without launching
+just team-up-dry full    # print the resolved layout + peer-launch commands without herdr
 ```
 
 `peers.yaml` groups reusable peers into named teams; each entry is `name` / `persona`
