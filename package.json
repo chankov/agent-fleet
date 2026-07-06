@@ -77,7 +77,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node bin/cli.js --version && node bin/cli.js --help && node bin/cli.js transform-persona --list --agent claude-code && node --test \"bin/test/*.test.js\" \".pi/extensions/btw/state.test.js\" \".pi/harnesses/agent-hub/return-contract.test.js\" \".pi/harnesses/agent-hub/artifacts.test.js\" \".pi/harnesses/agent-hub/scope-gate.test.js\" \".pi/harnesses/agent-hub/evidence-rules.test.js\" \".pi/harnesses/damage-control/shared.test.js\" \".pi/harnesses/damage-control-continue/exemptions.test.js\"",
+    "test": "node bin/cli.js --version && node bin/cli.js --help && node bin/cli.js transform-persona --list --agent claude-code && node --test \"bin/test/*.test.js\" \".pi/harnesses/lib/herdr-client.test.ts\" \".pi/extensions/btw/state.test.js\" \".pi/harnesses/agent-hub/return-contract.test.js\" \".pi/harnesses/agent-hub/artifacts.test.js\" \".pi/harnesses/agent-hub/scope-gate.test.js\" \".pi/harnesses/agent-hub/evidence-rules.test.js\" \".pi/harnesses/damage-control/shared.test.js\" \".pi/harnesses/damage-control-continue/exemptions.test.js\"",
     "pack:dry": "npm pack --dry-run",
     "changeset": "changeset",
     "version:changeset": "node bin/force-patch-changesets.js && changeset version",
