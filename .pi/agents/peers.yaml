@@ -15,6 +15,7 @@
 #             tools a --no-extensions subagent could not get.
 
 full:
+  - name: web-debugger
     persona: web-debugger
     model: openai-codex/gpt-5.5
     extensions: chrome-devtools-mcp

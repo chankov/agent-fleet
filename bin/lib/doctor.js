@@ -6,7 +6,11 @@
 //   1. Broken symlinks — links whose source has been moved, renamed, or deleted
 //   2. Stale persona refs — YAML configs (teams.yaml, peers.yaml) that
 //      still name a persona which no longer exists in the source tree
-//   3. Overrides-file problems — unknown sections/keys, invalid values, and
+//   3. Malformed peer entries — field lines in peers.yaml that sit under a
+//      team before any `- name: ...` list item. The team-up launcher's
+//      minimal parser silently drops such lines, so the peer vanishes with
+//      no error. Advisory only: the fix is a hand edit.
+//   4. Overrides-file problems — unknown sections/keys, invalid values, and
 //      unset declared env vars in .ai/agent-skills-overrides.md. Advisory
 //      only: reported, never auto-fixed (the fix is always a hand edit).
 //
@@ -147,7 +151,10 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
     }
   }
 
-  // 3. Advisory validation of the overrides file (never auto-fixed).
+  // 3. Malformed peer entries in peers.yaml (advisory, never auto-fixed).
+  findings.push(...scanPeersYamlShape(workspace));
+
+  // 4. Advisory validation of the overrides file (never auto-fixed).
   findings.push(...validateOverrides({ workspace }));
 
   if (!apply) return findings;
@@ -193,6 +200,59 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
 
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Scan peers.yaml for field lines that sit under a team heading before any
+// `- name: ...` list item. scripts/team-up.ts parses this file with a minimal
+// hand-rolled parser that only attaches `key: value` lines to the CURRENT list
+// item — an orphan field block (typically a peer whose leading `- name:` line
+// was lost in an edit) is dropped without an error and the peer silently
+// never spawns. One finding per team, pointing at the first orphan line.
+const PEERS_YAML_REL = ".pi/agents/peers.yaml";
+
+function scanPeersYamlShape(workspace) {
+  const file = join(workspace, PEERS_YAML_REL);
+  if (!existsSync(file)) return [];
+  let text;
+  try { text = readFileSync(file, "utf8"); } catch { return []; }
+
+  const findings = [];
+  let currentTeam = null;
+  let inItem = false;
+  let reportedTeam = null;
+
+  text.split("\n").forEach((rawLine, i) => {
+    const line = rawLine.replace(/\s+$/, "");
+    if (line.trim() === "" || /^\s*#/.test(line)) return;
+    const content = line.trim();
+
+    if (!/^\s/.test(line)) {
+      const m = content.match(/^([A-Za-z0-9_-]+):\s*$/);
+      if (m) {
+        currentTeam = m[1];
+        inItem = false;
+        reportedTeam = null;
+      }
+      return;
+    }
+    if (!currentTeam) return;
+
+    if (/^-\s/.test(content)) {
+      inItem = true;
+      return;
+    }
+    if (!inItem && /^[A-Za-z0-9_]+:\s*\S/.test(content) && reportedTeam !== currentTeam) {
+      reportedTeam = currentTeam;
+      findings.push({
+        type: "yaml-shape",
+        path: PEERS_YAML_REL,
+        issue: `team "${currentTeam}": line ${i + 1} ("${content}") appears before any "- name: ..." item — the team-up launcher silently drops it`,
+        fix: `add the missing "- name: <peer>" line above it in ${PEERS_YAML_REL}`,
+      });
+    }
+  });
+
+  return findings;
 }
 
 function inferKind(targetDir) {

@@ -8,6 +8,8 @@ Walk every install-target directory the chosen coding agent uses (`agents/`, `.c
 
 Also flag and offer to rewrite any remaining YAML configs (`teams.yaml`, `peers.yaml`, etc.) that still reference removed persona names.
 
+Also flag malformed peer entries in `.pi/agents/peers.yaml`: field lines (`persona:`, `model:`, ...) that sit under a team heading before any `- name: ...` list item. The team-up launcher's minimal parser silently drops such lines, so the peer never spawns and nothing errors — the usual cause is a `- name:` line lost in an edit. These findings are advisory only: report them with the missing `- name: <peer>` suggestion, never rewrite the file.
+
 Also validate `.ai/agent-skills-overrides.md` when it exists, against the schema in `docs/agent-skills-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys, missing `rules:` folders and `docs:` entry points, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are advisory only — report them with fix "edit by hand", never edit the overrides file.
 
 Never overwrite a regular file — only act on symlinks whose target is missing. Report `repaired`, `deleted`, and `skipped` counts, and append a `## doctor-runs` line to `.ai/agent-skills-setup.md` with the date and counts.

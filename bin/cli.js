@@ -160,7 +160,7 @@ async function cmdDoctor() {
   const findings = await runDoctor({ workspace, sourceRoot: pkgRoot });
 
   if (findings.length === 0) {
-    console.log("✓ No broken symlinks, stale persona references, or overrides-file problems found.");
+    console.log("✓ No broken symlinks, stale persona references, malformed peer entries, or overrides-file problems found.");
     exit(0);
   }
 
@@ -168,12 +168,13 @@ async function cmdDoctor() {
   console.log(formatFindingsTable(findings));
   console.log();
 
-  // Overrides findings are advisory: reported above, but the fix is always a
-  // hand edit of .ai/agent-skills-overrides.md — never applied by the doctor.
-  const fixable = findings.filter((f) => f.type !== "overrides");
+  // Overrides and yaml-shape findings are advisory: reported above, but the
+  // fix is always a hand edit of the flagged file — never applied by the doctor.
+  const ADVISORY_TYPES = new Set(["overrides", "yaml-shape"]);
+  const fixable = findings.filter((f) => !ADVISORY_TYPES.has(f.type));
   const advisory = findings.length - fixable.length;
   if (advisory > 0) {
-    console.log(`(${advisory} overrides finding(s) are advisory — edit .ai/agent-skills-overrides.md by hand)`);
+    console.log(`(${advisory} advisory finding(s) — fix by hand per the suggestions above)`);
   }
   if (fixable.length === 0) {
     exit(0);
