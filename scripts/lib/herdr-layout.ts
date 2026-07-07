@@ -10,6 +10,7 @@
 import { resolve as resolvePath } from "node:path";
 
 import type { LayoutNode } from "../../.pi/harnesses/lib/herdr-client.ts";
+import { DEFAULT_PROJECT, validateProject } from "./team-project.ts";
 
 export type { LayoutNode };
 
@@ -86,7 +87,8 @@ export function parsePeersYaml(raw: string): Record<string, Peer[]> {
 // `_peer <persona> <name> [<model>] [<session>]`. `resumeRef` (a pi session
 // path for `pi --session`) fills the trailing session positional — when the
 // peer has no model, an empty-string placeholder keeps the positions aligned.
-export function peerCommand(p: Peer, team: string, resumeRef?: string): string[] {
+export function peerCommand(p: Peer, team: string, resumeRef?: string, project = DEFAULT_PROJECT): string[] {
+	validateProject(project);
 	if (p.runner !== undefined && p.runner !== "claude-code") {
 		throw new Error(`Unknown runner "${p.runner}" for peer "${p.name}" in team "${team}" (supported: claude-code).`);
 	}
@@ -119,6 +121,11 @@ export function peerCommand(p: Peer, team: string, resumeRef?: string): string[]
 	if (resumeRef !== undefined) {
 		if (!p.model) parts.push(""); // keep the model positional aligned
 		parts.push(resumeRef);
+	}
+	if (project !== DEFAULT_PROJECT) {
+		if (!p.model && resumeRef === undefined) parts.push("");
+		if (resumeRef === undefined) parts.push("");
+		parts.push(project);
 	}
 	return parts;
 }
@@ -170,6 +177,10 @@ export interface TeamLayoutOptions {
 	resumeForPeer?: (peer: Peer) => string | undefined;
 	// B2 hook: when set, the hub occupies a larger root pane (ratio of the
 	// horizontal split) and the team tiles in the remaining space.
+	// Coms project scope shared by all panes in this layout. The default keeps
+	// existing argv shapes; non-default projects are appended to hidden recipe
+	// positional args after model/session.
+	project?: string;
 	hub?: { command: string[]; label: string; ratio?: number };
 }
 
@@ -179,11 +190,13 @@ function paneNode(
 	repoRoot: string,
 	envForPeer?: TeamLayoutOptions["envForPeer"],
 	resumeForPeer?: TeamLayoutOptions["resumeForPeer"],
+	project = DEFAULT_PROJECT,
 ): LayoutNode {
+	validateProject(project);
 	const env = envForPeer?.(peer);
 	return {
 		type: "pane",
-		command: peerCommand(peer, team, resumeForPeer?.(peer)),
+		command: peerCommand(peer, team, resumeForPeer?.(peer), project),
 		cwd: repoRoot,
 		label: peer.name as string,
 		...(env && Object.keys(env).length > 0 ? { env } : {}),
@@ -206,9 +219,10 @@ function bsp(nodes: LayoutNode[], depth: number): LayoutNode {
 
 // peers.yaml team → herdr layout tree for layout.apply.
 export function buildTeamLayout(opts: TeamLayoutOptions): LayoutNode {
-	const { team, peers, repoRoot, envForPeer, resumeForPeer, hub } = opts;
+	const { team, peers, repoRoot, envForPeer, resumeForPeer, hub, project = DEFAULT_PROJECT } = opts;
+	validateProject(project);
 	if (peers.length === 0) throw new Error(`Team "${team}" has no peers.`);
-	const panes = peers.map((p) => paneNode(p, team, repoRoot, envForPeer, resumeForPeer));
+	const panes = peers.map((p) => paneNode(p, team, repoRoot, envForPeer, resumeForPeer, project));
 	const grid = bsp(panes, hub ? 1 : 0);
 	if (!hub) return grid;
 	return {

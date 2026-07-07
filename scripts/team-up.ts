@@ -33,6 +33,7 @@ import {
 	type LayoutNode,
 	type Peer,
 } from "./lib/herdr-layout.ts";
+import { DEFAULT_PROJECT, hubCommand, parseProjectFlag, teamWorkspaceLabel, validateTeamName } from "./lib/team-project.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -44,7 +45,10 @@ const HUB_RATIO = 0.4;
 
 function flagValue(argv: string[], flag: string): string | null {
 	const i = argv.indexOf(flag);
-	return i >= 0 && i + 1 < argv.length ? argv[i + 1] : null;
+	if (i < 0) return null;
+	const value = argv[i + 1];
+	if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+	return value;
 }
 
 function die(msg: string): never {
@@ -101,6 +105,7 @@ function buildLayoutOrDie(
 	peers: Peer[],
 	envForPeer: (p: Peer) => Record<string, string> | undefined,
 	hub: boolean,
+	project: string,
 ): LayoutNode {
 	try {
 		return buildTeamLayout({
@@ -108,7 +113,8 @@ function buildLayoutOrDie(
 			peers,
 			repoRoot: REPO_ROOT,
 			envForPeer,
-			...(hub ? { hub: { command: ["just", "hub"], label: "hub", ratio: HUB_RATIO } } : {}),
+			project,
+			...(hub ? { hub: { command: hubCommand(project), label: "hub", ratio: HUB_RATIO } } : {}),
 		});
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
@@ -117,26 +123,45 @@ function buildLayoutOrDie(
 
 async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
-	const team = flagValue(argv, "--team");
+	let team: string | null = null;
+	let peersYaml = DEFAULT_PEERS_YAML;
+	let project = DEFAULT_PROJECT;
+	try {
+		team = flagValue(argv, "--team");
+		project = parseProjectFlag(argv);
+		// --peers: alternate manifest path (tests use it; defaults to the repo's).
+		peersYaml = flagValue(argv, "--peers") ?? DEFAULT_PEERS_YAML;
+	} catch (err) {
+		die(err instanceof Error ? err.message : String(err));
+	}
 	const dryRun = argv.includes("--dry-run");
 	const hub = argv.includes("--hub");
-	// --peers: alternate manifest path (tests use it; defaults to the repo's).
-	const peersYaml = flagValue(argv, "--peers") ?? DEFAULT_PEERS_YAML;
 
 	if (!team) {
-		console.error("usage: team-up.ts --team <name> [--hub] [--dry-run] [--peers <peers.yaml>]");
+		console.error("usage: team-up.ts --team <name> [--hub] [--dry-run] [--peers <peers.yaml>] [--project <name>]");
 		process.exit(2);
 	}
 
+	try {
+		validateTeamName(team);
+	} catch (err) {
+		die(err instanceof Error ? err.message : String(err));
+	}
 	const peers = loadTeam(team, peersYaml);
-	const label = hub ? `pi-hub-${team}` : `pi-peers-${team}`;
+	let label: string;
+	try {
+		label = teamWorkspaceLabel(hub ? "hub" : "peers", team, project);
+	} catch (err) {
+		die(err instanceof Error ? err.message : String(err));
+	}
 
 	if (dryRun) {
 		// No herdr calls and no env_file reads on this path — must work with no
 		// herdr installed, and secrets never reach the output.
-		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), hub);
+		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), hub, project);
+		const projectNote = project === DEFAULT_PROJECT ? "" : `, project "${project}"`;
 		console.log(
-			`# team-up (dry run) — team "${team}", ${peers.length} peer(s)${hub ? " + hub" : ""}, herdr workspace "${label}"`,
+			`# team-up (dry run) — team "${team}"${projectNote}, ${peers.length} peer(s)${hub ? " + hub" : ""}, herdr workspace "${label}"`,
 		);
 		for (const p of peers) {
 			const cmd = layoutCommands(layout, p.name as string) ?? [];
@@ -147,7 +172,7 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), hub);
+	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), hub, project);
 
 	// Import lazily so --dry-run never touches the client (or the socket).
 	const { herdr, requireHerdr, HerdrUnavailableError } = await import(
@@ -159,7 +184,8 @@ async function main(): Promise<void> {
 	} catch (err) {
 		if (err instanceof HerdrUnavailableError) {
 			console.error(err.message);
-			console.error(`(dry run still works: just team-up-dry ${team})`);
+			const dryRecipe = hub ? "hub-team-dry" : "team-up-dry";
+			console.error(`(dry run still works: just ${dryRecipe} ${team}${project === DEFAULT_PROJECT ? "" : ` --project ${project}`})`);
 			process.exit(1);
 		}
 		throw err;
@@ -191,7 +217,7 @@ async function main(): Promise<void> {
 	console.log(
 		`Launched ${hub ? "hub + " : ""}${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`,
 	);
-	if (hub) console.log("  • hub (just hub — guarded dispatcher)");
+	if (hub) console.log(`  • hub (${hubCommand(project).join(" ")} — guarded dispatcher)`);
 	for (const p of peers) console.log(`  • ${p.name}`);
 	console.log(`Focus: herdr workspace focus ${wsId}`);
 	console.log(`Close: herdr workspace close ${wsId}`);

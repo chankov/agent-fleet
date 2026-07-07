@@ -70,6 +70,37 @@ test("dry run: hub mode labels the workspace pi-hub-* and includes the hub pane"
 	assert.deepEqual(parsed.layout.first.command, ["just", "hub"]);
 });
 
+test("dry run: hub project labels workspace and sends the project to hub plus every peer", () => {
+	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const peersYaml = join(dir, "peers.yaml");
+	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n  - name: b\n    persona: documenter\n    model: m/x\n");
+
+	const r = dryRun(["--team", "t", "--hub", "--project", "acme"], peersYaml);
+	assert.equal(r.status, 0, r.stderr);
+	assert.match(r.stdout, /project "acme"/);
+	const parsed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{")));
+	assert.equal(parsed.label, "pi-hub-t--project.acme");
+	assert.deepEqual(parsed.layout.first.command, ["just", "hub", "--project", "acme"]);
+	const paneJson = JSON.stringify(parsed.layout.second);
+	assert.match(paneJson, /"acme"/);
+	assert.deepEqual(parsed.layout.second.first.command, ["just", "_peer", "researcher", "a", "", "", "acme"]);
+	assert.deepEqual(parsed.layout.second.second.command, ["just", "_peer", "documenter", "b", "m/x", "", "acme"]);
+});
+
+test("dry run: non-hub project sends the project to every peer without a hub pane", () => {
+	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const peersYaml = join(dir, "peers.yaml");
+	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n  - name: c\n    runner: claude-code\n");
+
+	const r = dryRun(["--team", "t", "--project", "acme"], peersYaml);
+	assert.equal(r.status, 0, r.stderr);
+	const parsed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{")));
+	assert.equal(parsed.label, "pi-peers-t--project.acme");
+	assert.equal(parsed.layout.type, "split");
+	assert.deepEqual(parsed.layout.first.command, ["just", "_peer", "researcher", "a", "", "", "acme"]);
+	assert.deepEqual(parsed.layout.second.command, ["just", "_claude-peer", "c", "", "", "acme"]);
+});
+
 test("dry run: env_file values are redacted (path only), and layout carries no env", () => {
 	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
 	const peersYaml = join(dir, "peers.yaml");
@@ -94,4 +125,20 @@ test("dry run: unsafe env_file refuses before printing anything", () => {
 	const r = dryRun(["--team", "t"], peersYaml);
 	assert.equal(r.status, 1);
 	assert.match(r.stderr, /escapes the repo root/);
+});
+
+test("dry run: invalid or missing project/team values are rejected before JSON output", () => {
+	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const peersYaml = join(dir, "peers.yaml");
+	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n");
+
+	const badProject = dryRun(["--team", "t", "--project", "bad value"], peersYaml);
+	assert.equal(badProject.status, 1);
+	assert.match(badProject.stderr, /Invalid project name/);
+	assert.equal(badProject.stdout, "");
+
+	const missingTeam = dryRun(["--team", "--project", "acme"], peersYaml);
+	assert.equal(missingTeam.status, 1);
+	assert.match(missingTeam.stderr, /--team requires a value/);
+	assert.equal(missingTeam.stdout, "");
 });

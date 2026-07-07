@@ -11,6 +11,7 @@
 // scripts/team-snapshot.ts.
 
 import type { Peer } from "./herdr-layout.ts";
+import { DEFAULT_PROJECT, teamWorkspaceLabel, validateProject, validateTeamName } from "./team-project.ts";
 
 // Shape of herdr's agent_session (agent.list): pi panes carry
 // {kind:"path", value:<session .jsonl>}, claude panes {kind:"id", value:<uuid>}.
@@ -26,6 +27,7 @@ export interface PeerSnapshot extends Peer {
 export interface TeamSnapshot {
 	version: 1;
 	team: string;
+	project: string;
 	hub: boolean;
 	workspace_label: string;
 	taken_at: string;
@@ -55,8 +57,11 @@ export function buildSnapshot(opts: {
 	panes: PaneLite[];
 	agents: AgentLite[];
 	now?: Date;
+	project?: string;
 }): TeamSnapshot {
-	const { team, hub, peers, panes, agents } = opts;
+	const { team, hub, peers, panes, agents, project = DEFAULT_PROJECT } = opts;
+	validateTeamName(team);
+	validateProject(project);
 	const paneByLabel = new Map<string, string>();
 	for (const p of panes) {
 		if (p.label) paneByLabel.set(p.label, p.pane_id);
@@ -71,8 +76,9 @@ export function buildSnapshot(opts: {
 	return {
 		version: 1,
 		team,
+		project,
 		hub,
-		workspace_label: hub ? `pi-hub-${team}` : `pi-peers-${team}`,
+		workspace_label: teamWorkspaceLabel(hub ? "hub" : "peers", team, project),
 		taken_at: (opts.now ?? new Date()).toISOString(),
 		peers: peers.map((peer) => {
 			const paneId = peer.name ? paneByLabel.get(peer.name) : undefined;
@@ -120,5 +126,21 @@ export function parseSnapshot(raw: string): TeamSnapshot {
 	if (!s || s.version !== 1 || typeof s.team !== "string" || !Array.isArray(s.peers)) {
 		throw new Error("Snapshot has an unexpected shape (want {version:1, team, peers[]}).");
 	}
+	validateTeamName(s.team);
+	if (!("project" in (s as Record<string, unknown>))) {
+		(s as { project: string }).project = DEFAULT_PROJECT;
+	} else if (typeof (s as { project?: unknown }).project !== "string") {
+		throw new Error("Snapshot has an unexpected shape (project must be a string when present).");
+	}
+	validateProject(s.project);
 	return s;
+}
+
+export function assertSnapshotProject(snap: TeamSnapshot, requestedProject: string): void {
+	validateProject(requestedProject);
+	if (snap.project !== requestedProject) {
+		throw new Error(
+			`Snapshot project mismatch: snapshot is ${JSON.stringify(snap.project)}, requested ${JSON.stringify(requestedProject)}.`,
+		);
+	}
 }

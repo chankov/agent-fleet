@@ -24,6 +24,9 @@ interface MockState {
 	agents: Array<Record<string, unknown>>;
 	reports: Array<Record<string, unknown>>;
 	streams: net.Socket[];
+	// Total events.subscribe requests ever received — churn detector: a
+	// healthy watcher opens ONE stream and keeps it.
+	subscribes: number;
 	emit(event: string, data: Record<string, unknown>): void;
 }
 
@@ -33,6 +36,7 @@ function mockServer(): MockState & { socketPath: string; close: () => Promise<vo
 		agents: [],
 		reports: [],
 		streams: [],
+		subscribes: 0,
 		emit(event, data) {
 			for (const s of state.streams) {
 				try {
@@ -85,6 +89,7 @@ function mockServer(): MockState & { socketPath: string; close: () => Promise<vo
 						sock.end(JSON.stringify({ id: msg.id, result: { type: "ok" } }) + "\n");
 						break;
 					case "events.subscribe":
+						state.subscribes++;
 						state.streams.push(sock);
 						sock.write(JSON.stringify({ id: msg.id, result: { type: "subscription_started" } }) + "\n");
 						break;
@@ -203,6 +208,56 @@ test("HerdrAgentWatch: snapshot, status push, exit prune, created resync", async
 	await wait(400);
 	const afterCreate = changes[changes.length - 1];
 	assert.deepEqual(afterCreate.map((a) => a.pane_id).sort(), ["w1:p1", "w2:p1"]);
+
+	watch.stop();
+	await mock.close();
+});
+
+// Regression: the watch used to resync on EVERY subscription ack, and every
+// resync tore the stream down unconditionally — an infinite subscribe/close
+// loop (~130+ "stream_closed" per minute per watcher) that pegged the herdr
+// server's CPU. A healthy watcher holds ONE stream while nothing changes.
+test("HerdrAgentWatch keeps one stream: no churn while idle, resubscribe only on set change, recover after drop", async () => {
+	const mock = mockServer();
+	mock.agents = [{ pane_id: "w1:p1", agent: "pi", agent_status: "idle" }];
+	const changes: HerdrAgentInfo[][] = [];
+	const watch = new HerdrAgentWatch({
+		socketPath: mock.socketPath,
+		reconnectDelayMs: 50,
+		onChange: (agents) => changes.push(agents.map((a) => ({ ...a }))),
+	});
+	await watch.start();
+	// Idle for several debounce windows: exactly one subscribe, still open.
+	await wait(900);
+	assert.equal(mock.subscribes, 1);
+	assert.equal(mock.streams.length, 1);
+
+	// Status push for a tracked pane and a pane.created that changes nothing
+	// in the agent set: resync runs, but the stream must survive.
+	mock.emit("pane.agent_status_changed", { pane_id: "w1:p1", agent_status: "working" });
+	mock.emit("pane.created", { pane_id: "w1:p7" });
+	await wait(600);
+	assert.equal(mock.subscribes, 1);
+	assert.equal(mock.streams.length, 1);
+
+	// A REAL set change (new agent pane) rebuilds the subscription once.
+	mock.agents.push({ pane_id: "w2:p1", agent: "pi", agent_status: "idle" });
+	mock.emit("pane.created", { pane_id: "w2:p1" });
+	await wait(600);
+	assert.equal(mock.subscribes, 2);
+	assert.equal(mock.streams.length, 1);
+	assert.deepEqual(changes[changes.length - 1].map((a) => a.pane_id).sort(), ["w1:p1", "w2:p1"]);
+
+	// Server-side drop: the stream reconnects and resyncs the snapshot it may
+	// have missed — then settles again (no loop).
+	mock.agents = mock.agents.filter((a) => a.pane_id !== "w2:p1");
+	mock.streams[0].destroy();
+	await wait(900);
+	assert.deepEqual(changes[changes.length - 1].map((a) => a.pane_id), ["w1:p1"]);
+	assert.equal(mock.streams.length, 1);
+	const settled = mock.subscribes;
+	await wait(600);
+	assert.equal(mock.subscribes, settled);
 
 	watch.stop();
 	await mock.close();

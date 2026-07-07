@@ -118,6 +118,57 @@ test("review peers in mirrored teams route through Claude Code", () => {
 	}
 });
 
+test("non-default project appends the hidden recipe project positional with placeholders", () => {
+	assert.deepEqual(peerCommand({ name: "a", persona: "researcher" }, "t", undefined, "acme"), [
+		"just",
+		"_peer",
+		"researcher",
+		"a",
+		"",
+		"",
+		"acme",
+	]);
+	assert.deepEqual(peerCommand({ name: "a", persona: "researcher", model: "m/x" }, "t", undefined, "acme"), [
+		"just",
+		"_peer",
+		"researcher",
+		"a",
+		"m/x",
+		"",
+		"acme",
+	]);
+	assert.deepEqual(peerCommand({ name: "a", persona: "researcher" }, "t", "/tmp/s.jsonl", "acme"), [
+		"just",
+		"_peer",
+		"researcher",
+		"a",
+		"",
+		"/tmp/s.jsonl",
+		"acme",
+	]);
+	assert.deepEqual(
+		peerCommand({ name: "a", persona: "web-debugger", extensions: "chrome-devtools-mcp" }, "t", undefined, "acme"),
+		["just", "_peer-plus", "chrome-devtools-mcp", "web-debugger", "a", "", "", "acme"],
+	);
+	assert.deepEqual(peerCommand({ name: "c", runner: "claude-code" }, "t", undefined, "acme"), [
+		"just",
+		"_claude-peer",
+		"c",
+		"",
+		"",
+		"acme",
+	]);
+});
+
+test("buildTeamLayout threads a non-default project to every peer pane", () => {
+	const teams = parsePeersYaml(realPeersYaml);
+	const docs = buildTeamLayout({ team: "docs", peers: teams.docs, repoRoot: REPO_ROOT, project: "acme" });
+	const panes = panesOf(docs);
+	assert.equal(panes.length, 2);
+	for (const pane of panes) assert.deepEqual(pane.command?.slice(-2), ["", "acme"]);
+	assert.throws(() => buildTeamLayout({ team: "docs", peers: teams.docs, repoRoot: REPO_ROOT, project: "bad value" }), /Invalid project name/);
+});
+
 test("unsafe manifest values are rejected", () => {
 	for (const bad of [
 		{ name: "x; rm -rf /", persona: "researcher" },

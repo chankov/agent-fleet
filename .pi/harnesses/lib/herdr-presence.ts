@@ -161,6 +161,11 @@ export class HerdrAgentWatch {
 	private stream: SubscribeHandle | null = null;
 	private stopped = false;
 	private resyncTimer: ReturnType<typeof setTimeout> | null = null;
+	// Pane-id set the live stream was opened with. resync() only tears the
+	// stream down when the set actually changed — an unconditional resubscribe
+	// would loop forever through onConnect → resync → resubscribe → onConnect,
+	// hammering the server with stream churn (seen live: herdr pegged a core).
+	private subscribedKey: string | null = null;
 
 	constructor(opts: AgentWatchOptions) {
 		this.opts = opts;
@@ -178,11 +183,12 @@ export class HerdrAgentWatch {
 		this.stopped = true;
 		this.stream?.close();
 		this.stream = null;
+		this.subscribedKey = null;
 		if (this.resyncTimer) clearTimeout(this.resyncTimer);
 		this.resyncTimer = null;
 	}
 
-	// Re-list agents, rebuild the subscription set, notify.
+	// Re-list agents, rebuild the subscription set if it changed, notify.
 	private async resync(): Promise<void> {
 		if (this.stopped) return;
 		try {
@@ -196,7 +202,8 @@ export class HerdrAgentWatch {
 		} catch (err) {
 			this.opts.onError?.(err as Error);
 		}
-		this.resubscribe();
+		const key = [...this.agents.keys()].sort().join("\n");
+		if (this.stream === null || key !== this.subscribedKey) this.resubscribe(key);
 		this.opts.onChange(this.current());
 	}
 
@@ -210,8 +217,9 @@ export class HerdrAgentWatch {
 		}, 250);
 	}
 
-	private resubscribe(): void {
+	private resubscribe(key: string): void {
 		this.stream?.close();
+		this.subscribedKey = null;
 		if (this.stopped) return;
 		const subs: Subscription[] = [
 			{ type: "pane.created" },
@@ -222,14 +230,24 @@ export class HerdrAgentWatch {
 		for (const paneId of this.agents.keys()) {
 			subs.push({ type: "pane.agent_status_changed", pane_id: paneId });
 		}
+		// The ack of THIS deliberately opened stream must not resync: the
+		// snapshot is milliseconds old, and resyncing here restarts the
+		// subscribe/close loop. Only a genuine drop + reconnect (events
+		// possibly missed while disconnected) warrants a fresh snapshot.
+		let initialAck = true;
 		this.stream = subscribe(subs, (ev) => this.handleEvent(ev.event, ev.data), {
 			socketPath: this.opts.socketPath,
 			reconnectDelayMs: this.opts.reconnectDelayMs,
 			onError: this.opts.onError,
-			// After a stream drop + reconnect we may have missed events;
-			// resync the snapshot.
-			onConnect: () => this.scheduleResync(),
+			onConnect: () => {
+				if (initialAck) {
+					initialAck = false;
+					return;
+				}
+				this.scheduleResync();
+			},
 		});
+		this.subscribedKey = key;
 	}
 
 	private handleEvent(event: string, data: Record<string, unknown>): void {

@@ -73,10 +73,18 @@ test("runner: claude-code peers build a _claude-peer command; misuse rejected", 
 		peerCommand({ name: "claude-main", runner: "claude-code", model: "opus" }, "t"),
 		["just", "_claude-peer", "claude-main", "opus"],
 	);
+	assert.deepEqual(
+		peerCommand({ name: "claude-main", runner: "claude-code", model: "opus" }, "t", undefined, "acme"),
+		["just", "_claude-peer", "claude-main", "opus", "", "acme"],
+	);
 	// no persona required; resume ref (claude session id) fills the session slot
 	assert.deepEqual(
 		peerCommand({ name: "c", runner: "claude-code" }, "t", "b7cd33df-412f"),
 		["just", "_claude-peer", "c", "", "b7cd33df-412f"],
+	);
+	assert.deepEqual(
+		peerCommand({ name: "c", runner: "claude-code" }, "t", "b7cd33df-412f", "acme"),
+		["just", "_claude-peer", "c", "", "b7cd33df-412f", "acme"],
 	);
 	assert.throws(() => peerCommand({ name: "x", runner: "cursor" }, "t"), /Unknown runner/);
 	assert.throws(
