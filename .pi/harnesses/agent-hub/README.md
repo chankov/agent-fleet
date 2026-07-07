@@ -373,10 +373,55 @@ context to a peer the human has not approved.
 The dispatcher uses a peer as a subagent by pairing the tools: `coms_send(target, prompt)` to
 issue the task, then `coms_await(msg_id)` to block for the reply (or `coms_get` to poll). This sits
 alongside `dispatch_agent` — local persona specialists are dispatched as subprocesses; remote peers
-are reached over coms. The two paths stay explicit. (The specialist-level `delegate` tool is a third,
+are reached over coms. The two paths stay explicit for the LLM, but
+[coms-backed dispatch](#coms-backed-dispatch-dispatch-policyyaml) can route a `dispatch_agent` call
+to a same-name peer under the hood. (The specialist-level `delegate` tool is a third,
 nested path: a dispatched specialist spawning its own declared sub-agents — it does not auto-route
 between local and remote either.) Multi-hop is inherited from coms: a peer handling a dispatched task can `coms_send`
 onward, hops accumulating up to `MAX_HOPS` (5).
+
+### Coms-backed dispatch (dispatch-policy.yaml)
+
+`just hub-team <team>` boots the hub next to standing peers from `.pi/agents/peers.yaml` — and some
+of them (e.g. `code-reviewer`, `plan-reviewer` with `runner: claude-code`) intentionally share a name
+with a team member. `.pi/agents/dispatch-policy.yaml` tells the dispatcher to serve such members
+**through the peer** instead of spawning a native subagent:
+
+```yaml
+default: native            # coms = substitute ANY member with a live same-name pool peer
+grace_s: 30                # poll window for coms-required members
+substitutions:
+  code-reviewer:
+    prefer: coms
+    fallback: native       # none = coms-required: refuse with guidance instead of spawning
+    # timeout_s: 3600      # per-member reply timeout (default PI_COMS_TIMEOUT_MS, 30 min)
+```
+
+Semantics:
+
+- **One API.** The dispatcher LLM always calls `dispatch_agent("code-reviewer", …)`; the backend is
+  resolved inside `dispatchAgent()`. The whole downstream pipeline — structured return contract,
+  `ASK_USER:` extraction, the NEEDS_RESEARCH auto-research pipe, assertions, history, the grid —
+  consumes a coms reply exactly like a subagent's final output (the dispatch protocols ride in the
+  message body, since a standing peer only receives a user prompt).
+- **Decided per dispatch, against the live pool.** Hub and peers boot in parallel, so the first
+  dispatch may land before the peer registers: with `fallback: native` it runs natively (one notice
+  per member per team activation), and later dispatches pick up the peer once it is live. With
+  `fallback: none` the dispatch polls the pool for `grace_s` seconds, then refuses with remediation
+  steps. The name match is scoped to the coms pool — the same security boundary as `coms_send`.
+- **Standing context is the point.** Re-dispatches (ASK_USER answers, research resumes) go back to
+  the same peer session, so a Claude Code reviewer keeps its review context across rounds.
+- **Visibility.** The member's grid card shows a `⇄coms <peer-model>` badge, history entries are
+  annotated `(coms)`, and `/dispatch-policy` prints the resolved routing per member with live-peer
+  status.
+- **Limitations.** `/agents-kill` on a coms-backed run only abandons the wait — the peer keeps
+  running in its own pane and cannot be killed from the hub (`/agents-restart` abandons, then
+  re-dispatches). `/zoom` shows only the final reply (there is no stream), tool counts stay 0, and
+  context% is a registry snapshot. `/agent-model` overrides apply only to native(-fallback) runs —
+  the peer's model is set in `peers.yaml`.
+
+Missing file = everything native. HOW a peer runs (persona, model, `runner: claude-code`, env) stays
+in `peers.yaml`; this file only decides WHEN the hub prefers a peer over a native spawn.
 
 ### Handoff
 

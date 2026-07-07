@@ -68,6 +68,16 @@ node --experimental-strip-types scripts/coms-cli.ts send researcher \
   "Where is the retry logic for webhooks? file:line" --await --timeout 300000
 ```
 
+## Serving team dispatches (coms-backed dispatch)
+
+A bridge peer that shares a name with an agent-hub team member (e.g. `code-reviewer`,
+`plan-reviewer` in the shipped `peers.yaml`) can serve that member's `dispatch_agent`
+calls transparently: `.pi/agents/dispatch-policy.yaml` marks the member `prefer: coms`,
+and the hub routes the dispatch to the live peer instead of spawning a native subagent —
+same return contract, ASK_USER handling, and history. The standing Claude session keeps
+its context across review rounds, which is the point for code/plan review. See
+"Coms-backed dispatch" in `.pi/harnesses/agent-hub/README.md`.
+
 ## Behavior notes
 
 - **Serialization:** one prompt at a time per pane; queue depth shows in the peer's

@@ -20,7 +20,7 @@ justfile      → Recipes to launch pi with each harness
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, agent-skills-update-check, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just hub` stacks damage-control-continue before agent-hub for the main agent; spawned specialists get hard-stop damage-control, research helpers get damage-control-continue)
-.pi/agents/   → pi YAML configs (teams, chains, peers) used by the orchestration harnesses
+.pi/agents/   → pi YAML configs (teams, chains, peers, dispatch-policy) used by the orchestration harnesses; dispatch-policy.yaml routes dispatch_agent calls to same-name coms peers (e.g. the claude-code reviewers) with native fallback
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
 references/   → Supplementary checklists (testing, performance, security, accessibility, observability)

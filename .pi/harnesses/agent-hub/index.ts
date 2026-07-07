@@ -23,6 +23,7 @@
  *                           level (off|minimal|low|medium|high|xhigh)
  *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
  *   /agent-models-substitute <source> <target> — swap one model across all personas
+ *   /dispatch-policy      — show which members route to coms peers (.pi/agents/dispatch-policy.yaml)
  *   /agents-kill <name>   — SIGTERM a frozen specialist (and its delegation tree)
  *   /agents-restart <name>— kill + re-run its last task fresh
  *   /zoom <name|rN|child> — scrollable read-only view of an agent's stream
@@ -74,6 +75,7 @@ import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPa
 import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return-contract.js";
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
+import { comsRequiredRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import {
 	formatPeerStatus,
@@ -202,6 +204,13 @@ interface AgentState {
 	// The /agents-history node for the current dispatch, so delegate children parsed
 	// from the event file can attach to it as the root parent of their subtree.
 	histEntry?: HistoryEntry;
+	// Coms-backed dispatch (dispatch-policy.yaml): which backend served the last
+	// run, the peer's model for the card badge, and the abandon hook /agents-kill
+	// and /agents-restart use instead of a SIGTERM — the standing peer itself
+	// cannot be killed from the hub, only the wait can be released.
+	lastBackend?: "native" | "coms";
+	comsPeerModel?: string;
+	comsAbort?: () => void;
 }
 
 // A read-only research helper (Phase 4). Spawned on demand to assist the standing
@@ -1801,6 +1810,17 @@ export default function (pi: ExtensionAPI) {
 	// /agent-model and /models (lowercase persona name → pi model spec). Overrides
 	// reset on session_start; profiles make re-applying cheap.
 	let modelProfiles: Record<string, Record<string, string>> = {};
+	// Backend routing policy (.pi/agents/dispatch-policy.yaml): per dispatch, a
+	// member preferring coms is served by a live same-name pool peer instead of a
+	// native subagent spawn. Missing file → everything native (status quo).
+	let dispatchPolicy: {
+		default: string;
+		grace_s: number;
+		substitutions: Record<string, { prefer: string; fallback: string; timeout_s?: number }>;
+	} = { default: "native", grace_s: 30, substitutions: {} };
+	let dispatchPolicyWarnings: string[] = [];
+	// One "coms peer missing → native" notice per member per team activation.
+	const comsMissNotified = new Set<string>();
 	const modelOverrides = new Map<string, string>();
 	// Session-lifetime per-persona thinking-level overrides set by
 	// /agent-model-thinking (lowercase persona name → pi --thinking level). Wins
@@ -2196,6 +2216,22 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		} else {
 			modelProfiles = {};
 		}
+
+		// Load the dispatch backend policy from .pi/agents/dispatch-policy.yaml.
+		// parseDispatchPolicy never throws; a malformed file degrades to defaults
+		// with warnings surfaced once at session_start.
+		const policyPath = join(cwd, ".pi", "agents", "dispatch-policy.yaml");
+		dispatchPolicy = { default: "native", grace_s: 30, substitutions: {} };
+		dispatchPolicyWarnings = [];
+		if (existsSync(policyPath)) {
+			try {
+				const parsed = parseDispatchPolicy(readFileSync(policyPath, "utf-8"));
+				dispatchPolicy = parsed.policy;
+				dispatchPolicyWarnings = parsed.warnings;
+			} catch (err) {
+				dispatchPolicyWarnings = [`dispatch-policy.yaml unreadable: ${err instanceof Error ? err.message : String(err)}`];
+			}
+		}
 	}
 
 	function activateTeam(teamName: string) {
@@ -2204,6 +2240,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		const defsByName = new Map(allAgentDefs.map(d => [d.name.toLowerCase(), d]));
 
 		agentStates.clear();
+		comsMissNotified.clear();
 		for (const member of members) {
 			const def = defsByName.get(member.toLowerCase());
 			if (!def) continue;
@@ -2398,7 +2435,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		const headerLine = renderCardHeaderLine(
 			displayName(state.def.name),
 			state.contextPct,
-			modelWithThinking(state.def),
+			// A coms-routed run shows the serving peer's model behind a ⇄coms badge
+			// instead of the native persona model it did NOT dispatch with.
+			state.lastBackend === "coms" ? `⇄coms ${shortModel(state.comsPeerModel)}` : modelWithThinking(state.def),
 			status.text,
 			status.color,
 			w,
@@ -2597,7 +2636,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 					name: displayName(a.def.name),
 					ctx: a.contextPct,
 					ctxWarn: contextPressure(a.contextPct),
-					model: modelWithThinking(a.def),
+					model: a.lastBackend === "coms" ? `⇄coms ${shortModel(a.comsPeerModel)}` : modelWithThinking(a.def),
 					status: cardStatus(a.status, a.elapsed),
 				})),
 			...Array.from(researchStates.values())
@@ -2769,6 +2808,142 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 
 	// ── Dispatch Agent (returns Promise) ─────────
 
+	// ── Coms-backed dispatch (dispatch-policy.yaml) ──
+	// Serve a dispatch through a live same-name coms peer instead of spawning a
+	// native subagent. The dispatch protocols ride in the message BODY — a
+	// standing peer only ever receives a user prompt, never a system-prompt
+	// append. Returns the mapped result, or null when the envelope could not be
+	// delivered and the policy allows falling back to the native spawn path.
+	async function dispatchViaComs(
+		state: AgentState,
+		task: string,
+		peerName: string,
+		timeoutMs: number,
+		allowNativeFallback: boolean,
+		ctx: any,
+		inputArtifacts: InputArtifactPreview[],
+		scopeGlobs: string[],
+	): Promise<{ output: string; exitCode: number; elapsed: number; abandoned?: boolean } | null> {
+		const peer = resolveTarget(peerName);
+		if (!peer || !identity) {
+			if (allowNativeFallback) return null;
+			return { output: `coms dispatch failed: peer "${peerName}" left the pool (fallback: none).`, exitCode: 1, elapsed: 0 };
+		}
+		state.lastBackend = "coms";
+		state.comsPeerModel = peer.model;
+		state.contextPct = peer.context_used_pct ?? 0;
+		state.lastWork = `→ coms peer ${peer.name}...`;
+		updateWidget();
+
+		const agentKey = safeAgentKey(state.def.name);
+		const runNumber = state.runCount;
+		// Body-level equivalents of the native path's system-prompt protocols, so
+		// the downstream pipeline (ASK_USER extraction, structured return, artifact
+		// handoff) consumes a coms reply exactly like a subagent's final output.
+		const dispatchProtocol = `
+
+---
+## Dispatch protocol (agent-hub)
+You are serving a dispatched task as a standing peer; the dispatcher only receives this reply, so make it your complete final answer.
+- Clarification: if you need a HUMAN decision (ambiguity, missing input, contradiction, or a destructive/irreversible next step), do NOT guess — include line(s) of the form \`ASK_USER: <one clear English question>\`; you will be re-dispatched with the answers.
+- Deliverable-to-file: when your deliverable is a document (plan, review, critique, inventory, report) and your tools allow writing, write the full document to .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence) — never repo-root ./artifacts/... — and finish with the artifact-relative path (artifacts/<kind>/${agentKey}-run${runNumber}.md) plus a digest of at most 10 lines.
+- If the task includes acceptance assertions (A1, A2, ...), include the structured return from skills/orchestration-verification/SKILL.md.` +
+			buildRulesProtocol() + buildDocsProtocol();
+
+		const prompt = appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs) + dispatchProtocol;
+		const msg_id = ulid();
+		const env: PromptEnvelope = {
+			type: "prompt",
+			msg_id,
+			sender_session: identity.session_id,
+			sender_endpoint: identity.endpoint,
+			sender_name: identity.name,
+			sender_cwd: identity.cwd,
+			hops: currentInbound ? currentInbound.hops + 1 : 0,
+			timestamp: nowIso(),
+			prompt,
+			conversation_id: null,
+			response_schema: null,
+		};
+		try {
+			await sendEnvelope(peer.endpoint, env);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (allowNativeFallback) {
+				ctx.ui.notify(`${displayName(state.def.name)}: coms peer unreachable (${msg}) — falling back to a native subagent.`, "warning");
+				return null;
+			}
+			return { output: `coms dispatch to "${peer.name}" failed: ${msg} (fallback: none).`, exitCode: 1, elapsed: 0 };
+		}
+
+		// Same pending-reply mechanics as coms_send, with the member's timeout.
+		let resolveFn!: (v: { response?: any; error?: string | null }) => void;
+		let rejectFn!: (e: Error) => void;
+		const promise = new Promise<{ response?: any; error?: string | null }>((res, rej) => {
+			resolveFn = res;
+			rejectFn = rej;
+		});
+		const entry: PendingReply = { resolve: resolveFn, reject: rejectFn, timer: null, promise, target_name: peer.name, created_at: nowIso() };
+		entry.timer = setTimeout(() => {
+			if (entry.result) return;
+			entry.result = { error: "timeout" };
+			try { entry.resolve(entry.result); } catch { /* ignore */ }
+		}, timeoutMs);
+		try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
+		pendingReplies.set(msg_id, entry);
+		try {
+			pi.appendEntry("coms-log", { event: "outbound_prompt", msg_id, target: peer.name, hops: env.hops, dispatched_as: state.def.name });
+		} catch {
+			// best-effort
+		}
+
+		// /agents-kill and /agents-restart on a coms-backed run only abandon the
+		// wait — the standing peer keeps running its turn in its own pane.
+		let abandoned = false;
+		const abortPromise = new Promise<{ error: string }>(res => {
+			state.comsAbort = () => {
+				abandoned = true;
+				res({ error: "abandoned" });
+			};
+		});
+		const outcome = await Promise.race([entry.promise, abortPromise]);
+		state.comsAbort = undefined;
+		if (entry.timer) {
+			try { clearTimeout(entry.timer); } catch { /* ignore */ }
+			entry.timer = null;
+		}
+		pendingReplies.delete(msg_id);
+
+		// Refresh the context badge from the peer's registry heartbeat.
+		const after = resolveTarget(peer.name);
+		if (after?.context_used_pct !== undefined) state.contextPct = after.context_used_pct;
+
+		if (abandoned) {
+			return {
+				output: `Dispatch to coms peer "${peer.name}" was abandoned by the operator. The peer may still be working in its own pane — do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
+				exitCode: 1,
+				elapsed: 0,
+				abandoned: true,
+			};
+		}
+		const err = outcome.error;
+		if (err) {
+			return {
+				output: err === "timeout"
+					? `coms peer "${peer.name}" did not reply within ${Math.round(timeoutMs / 1000)}s. The peer may still be working in its pane — check it before re-dispatching.`
+					: `coms peer "${peer.name}" returned an error: ${err}`,
+				exitCode: 1,
+				elapsed: 0,
+			};
+		}
+		const response = (outcome as { response?: any }).response;
+		return {
+			output: typeof response === "string" ? response : JSON.stringify(response, null, 2),
+			exitCode: 0,
+			elapsed: 0,
+		};
+	}
+
 	async function dispatchAgent(
 		agentName: string,
 		task: string,
@@ -2816,6 +2991,70 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			state.elapsed = Date.now() - startTime;
 			updateWidget();
 		}, 1000);
+
+		// ── Backend routing (dispatch-policy.yaml) ──
+		// Decided per dispatch, never at team activation: the hub and its peers
+		// boot in parallel (`just hub-team`), so a member's coms peer may register
+		// at any point. A coms-preferring member with a live same-name pool peer
+		// is served by that peer; everything downstream (return contract, ASK_USER,
+		// research pipe, history) consumes the same result shape either way.
+		const finishRun = (output: string, exitCode: number, opts?: { idle?: boolean; notice?: string }) => {
+			clearInterval(state.timer);
+			state.elapsed = Date.now() - startTime;
+			state.status = opts?.idle ? "idle" : exitCode === 0 ? "done" : "error";
+			state.lastWork = output.split("\n").filter((l: string) => l.trim()).pop() || "";
+			if (output.trim()) appendTimelineText(state.timeline, "text", output);
+			updateWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, state.status);
+			if (opts?.notice) {
+				ctx.ui.notify(opts.notice, state.status === "done" ? "success" : state.status === "idle" ? "info" : "error");
+			}
+			const onTerminate = state.onTerminate;
+			state.onTerminate = undefined;
+			onTerminate?.();
+			return { output, exitCode, elapsed: state.elapsed };
+		};
+
+		const personaKey = state.def.name.toLowerCase();
+		const livePeerNames = () => (comsReady && identity ? peersInScope().map(e => e.name) : []);
+		let route: any = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames() });
+		if (route.backend === "await-coms") {
+			// coms-required member (fallback: none) whose peer is not live yet:
+			// poll the pool through the grace window, then refuse with guidance.
+			const graceS = route.grace_s;
+			const deadline = Date.now() + graceS * 1000;
+			state.lastWork = `waiting for coms peer (≤${graceS}s)...`;
+			updateWidget();
+			while (Date.now() < deadline && route.backend !== "coms") {
+				await new Promise(res => setTimeout(res, 1000));
+				route = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames() });
+			}
+			if (route.backend !== "coms") {
+				return finishRun(comsRequiredRefusal(displayName(state.def.name), graceS), 1);
+			}
+		}
+		if (route.backend === "native" && route.comsMissedNotice && !comsMissNotified.has(personaKey)) {
+			comsMissNotified.add(personaKey);
+			ctx.ui.notify(route.comsMissedNotice, "warning");
+		}
+		if (route.backend === "coms") {
+			const allowNativeFallback = (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
+			const comsRes = await dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
+			if (comsRes) {
+				histEntry.name = `${displayName(state.def.name)} (coms)`;
+				return finishRun(comsRes.output, comsRes.exitCode, {
+					idle: comsRes.abandoned,
+					notice: comsRes.abandoned
+						? `${displayName(state.def.name)} coms dispatch abandoned (the peer pane keeps running)`
+						: `${displayName(state.def.name)} ${comsRes.exitCode === 0 ? "done" : "error"} in ${Math.round((Date.now() - startTime) / 1000)}s (coms peer)`,
+				});
+			}
+			// Envelope undeliverable + fallback allowed — continue as a plain native dispatch.
+		}
+		state.lastBackend = "native";
+		state.comsPeerModel = undefined;
 
 		// Per-agent model: a session override (/agent-model, /models) wins;
 		// otherwise the persona's frontmatter `model:` (a full pi spec, e.g.
@@ -2874,7 +3113,6 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 		// Effective roles: each role's model replaced by its /agent-model
 		// "<persona>.<role>" session override when one exists. Serialized into the
 		// delegate config, so nested children inherit the switch for free.
-		const personaKey = state.def.name.toLowerCase();
 		const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
 			? Object.fromEntries(Object.entries(state.def.subagents).map(([role, r]) => {
 				const override = subagentModelOverrides.get(`${personaKey}.${role.toLowerCase()}`);
@@ -5382,6 +5620,12 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				? "applies on next /research or spawn_research"
 				: `applies on next dispatch; /agents-restart ${def.name} to apply now`;
 			ctx.ui.notify(`${displayName(def.name)} → ${picked} (${applyHint})`, "success");
+			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
+				ctx.ui.notify(
+					`Note: ${displayName(def.name)} prefers a coms peer (dispatch-policy.yaml) — this model override only applies to native(-fallback) runs; the peer keeps its own model.`,
+					"info",
+				);
+			}
 		},
 	});
 
@@ -5782,6 +6026,29 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
+	pi.registerCommand("dispatch-policy", {
+		description: "Show dispatch backend routing (dispatch-policy.yaml) for the active team",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			const live = new Set(comsReady && identity ? peersInScope().map(e => e.name.toLowerCase()) : []);
+			const lines = Array.from(agentStates.values()).map(s => {
+				const key = s.def.name.toLowerCase();
+				const sub = dispatchPolicy.substitutions[key];
+				const prefer = sub ? sub.prefer : dispatchPolicy.default === "coms" ? "coms" : "native";
+				if (prefer !== "coms") return `${displayName(s.def.name)}: native`;
+				const fb = sub?.fallback === "none" ? "coms-required" : "coms, fallback native";
+				return `${displayName(s.def.name)}: ${fb} — peer ${live.has(key) ? "LIVE" : "not in pool"}`;
+			});
+			const policyPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "dispatch-policy.yaml");
+			const src = existsSync(policyPath) ? ".pi/agents/dispatch-policy.yaml" : "(no dispatch-policy.yaml — all native)";
+			ctx.ui.notify(
+				`Dispatch backends — ${src}, default: ${dispatchPolicy.default}\n${lines.join("\n") || "(no active team)"}\n` +
+				`Routing is decided per dispatch against the live coms pool (/coms to refresh).`,
+				"info",
+			);
+		},
+	});
+
 	pi.registerCommand("agents-kill", {
 		description: "Kill a running specialist: /agents-kill <name>",
 		getArgumentCompletions: agentNameCompletions,
@@ -5794,8 +6061,15 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				ctx.ui.notify(`Usage: /agents-kill <name>. Known: ${known || "none"}`, "error");
 				return;
 			}
-			if (state.status !== "running" || !state.proc) {
+			if (state.status !== "running" || (!state.proc && !state.comsAbort)) {
 				ctx.ui.notify(`${displayName(state.def.name)} is not running — nothing to kill.`, "warning");
+				return;
+			}
+			// Coms-backed run: no local process to SIGTERM — only the wait can be
+			// released; the standing peer keeps running its turn in its own pane.
+			if (!state.proc) {
+				state.comsAbort?.();
+				ctx.ui.notify(`Abandoning ${displayName(state.def.name)}'s coms dispatch (the peer pane keeps running)...`, "info");
 				return;
 			}
 			// Branch A: SIGTERM the child's process group (killPiTree) so any live
@@ -5826,12 +6100,17 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			}
 			// If it's mid-run, kill it and wait for the child to actually exit before
 			// re-dispatching (dispatchAgent rejects a re-entry while status is running).
-			if (state.status === "running" && state.proc) {
+			// A coms-backed run has no process — abandoning the wait is the "kill".
+			if (state.status === "running" && (state.proc || state.comsAbort)) {
 				await new Promise<void>(res => {
 					state.onTerminate = res;
-					state.killedByOperator = true;
-					state.restarting = true;
-					killPiTree(state.proc!);
+					if (state.proc) {
+						state.killedByOperator = true;
+						state.restarting = true;
+						killPiTree(state.proc);
+					} else {
+						state.comsAbort?.();
+					}
 				});
 			}
 			// Re-run fresh: a frozen session file may be inconsistent, so drop it (no -c).
@@ -6166,6 +6445,9 @@ your own team you can talk to the peers in your coms POOL — the agents shown i
 - Prefer \`dispatch_agent\`/\`spawn_research\` for in-team work; reach for coms when a task needs another
   STANDING agent already in your pool (a human-driven peer, a specialist outside this team).
 - A peer can also address YOU as a subagent — answer an inbound coms prompt as a normal turn.
+- Some team members may be transparently served by a same-name pool peer (dispatch-policy.yaml).
+  This changes NOTHING for you: keep dispatching them via \`dispatch_agent\`; never coms_send the
+  same task to their peer as well.
 `
 			: "";
 
@@ -6527,6 +6809,13 @@ ${researchCatalog}`;
 			);
 		}
 
+		if (dispatchPolicyWarnings.length > 0) {
+			_ctx.ui.notify(
+				`dispatch-policy.yaml: ${dispatchPolicyWarnings.length} construct(s) dropped:\n${dispatchPolicyWarnings.join("\n")}`,
+				"warning",
+			);
+		}
+
 		// Dispatcher persona gate (Phase 6 / requirement 1). Orchestrator personas are
 		// persona files tagged `kind: orchestrator` (decision G5 — keeps builder
 		// out of the dispatcher picker). The gate is enabled only when turned on AND at
@@ -6584,9 +6873,18 @@ ${researchCatalog}`;
 		const fleetLabel = herdrFleetReady
 			? "herdr — spawn/read/close panes + notify (herdr_* tools active)"
 			: "off (not inside a herdr pane, or no herdr server)";
+		const comsPreferred = Object.entries(dispatchPolicy.substitutions)
+			.filter(([, s]) => s.prefer === "coms")
+			.map(([n]) => n);
+		const dispatchLabel = dispatchPolicy.default === "coms"
+			? "coms default — any member with a live same-name pool peer is served by it (/dispatch-policy)"
+			: comsPreferred.length > 0
+				? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /dispatch-policy for status)`
+				: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)";
 		_ctx.ui.notify(
 			`Team: ${activeTeamName} (${members})\n` +
 			`Team sets loaded from: .pi/agents/teams.yaml\n` +
+			`Dispatch backends: ${dispatchLabel}\n` +
 			`User-facing language: ${userLanguage} (override in .ai/agent-skills-overrides.md)\n` +
 			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n` +
 			`Persona gate: ${personaGateLabel}\n` +
@@ -6599,6 +6897,7 @@ ${researchCatalog}`;
 			`/agent-model-thinking <persona> Switch a persona's thinking level\n` +
 			`/models [profile]     Apply a named model profile to the team\n` +
 			`/agent-models-substitute <src> <tgt> Swap one model across all personas\n` +
+			`/dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)\n` +
 			`/agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
 			`/agents-restart <name> Kill + re-run its last task fresh\n` +
 			`/zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream\n` +
