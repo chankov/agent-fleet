@@ -144,6 +144,25 @@ bashToolPatterns:
     reason: wrangler d1 delete (deletes database)
   - pattern: '\bwrangler\s+queues\s+delete\b'
     reason: wrangler queues delete
+  # herdr fleet verbs — destructive toward running agent panes/workspaces.
+  # CLI forms (herdr pane close …) and raw socket calls piped to the socket
+  # both match on the method/subcommand names.
+  - pattern: '\bherdr\s+pane\s+close\b'
+    reason: herdr pane close (kills a running agent pane)
+  - pattern: '\bherdr\s+tab\s+close\b'
+    reason: herdr tab close (kills every pane in the tab)
+  - pattern: '\bherdr\s+workspace\s+close\b'
+    reason: herdr workspace close (kills a whole team workspace)
+  - pattern: '\bherdr\s+server\s+stop\b'
+    reason: herdr server stop (kills the entire fleet server)
+  - pattern: '\bherdr\s+server\s+reload-config\b'
+    reason: herdr server reload-config (can break every live pane)
+  - pattern: '\bherdr\s+worktree\s+remove\b'
+    reason: herdr worktree remove (deletes a git worktree)
+  - pattern: '\bherdr\s+session\s+(stop|delete)\b'
+    reason: herdr session stop/delete (kills a persistent session)
+  - pattern: '"method"\s*:\s*"(pane\.close|tab\.close|workspace\.close|server\.stop|server\.reload_config|worktree\.remove)"'
+    reason: raw herdr socket call to a destructive method
   - pattern: 'DELETE\s+FROM\s+\w+\s*;'
     reason: DELETE without WHERE clause (will delete ALL rows)
   - pattern: 'DELETE\s+\*\s+FROM'

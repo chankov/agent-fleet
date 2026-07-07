@@ -288,6 +288,24 @@ Paths that don't exist produce a session-start warning, never an error. The full
 > polling, barriers, fan-out digests, racing) are catalogued in
 > [references/fleet-coordination-patterns.md](../../../references/fleet-coordination-patterns.md).
 
+### Fleet tools (herdr)
+
+Inside a [herdr](https://herdr.dev) pane with a live server, the dispatcher's tool
+surface additionally gets (absent otherwise, like coms):
+
+- `herdr_spawn_peer` — stand up a persona peer (joins the coms pool via `just _peer`) or a
+  raw command pane in the current workspace
+- `herdr_read_pane` — bounded `pane.read` (≤200 lines), read-to-decide on workers/tools;
+  messaging still goes through coms
+- `herdr_close_pane` — kills a pane; **asks the human to confirm every call**; the
+  bash-level `herdr pane close`/`workspace close`/`server stop` verbs are hard-blocked
+  for spawned specialists by `.pi/damage-control-rules.yaml`
+- `herdr_notify` — desktop notification to reach the human when they are away
+
+This closes the fleet loop: spawn a worker, watch it, notify the human, tear it down —
+without leaving the session. Claude Code panes join the same pool via the
+[coms bridge](../../../docs/claude-code-coms-bridge.md).
+
 ### Presence backend (herdr or files)
 
 Presence is pluggable, exactly as in the standalone [coms harness](../coms/README.md#presence-backends-herdr-vs-files):
