@@ -467,6 +467,14 @@ just hub-solo
 # (requires a running herdr server — https://herdr.dev)
 just team-up full        # launch
 just team-up-dry full    # print the resolved layout + peer-launch commands without herdr
+
+# hub + team in ONE workspace: guarded hub in a larger main pane, peers tiled beside it
+just hub-team docs
+
+# fleet resume: snapshot session refs / close cleanly / rebuild with conversations restored
+just team-snapshot docs  # proactive snapshot while the team runs (crash insurance)
+just team-down docs      # snapshot + close the workspace (peers get SIGTERM)
+just team-resume docs    # rebuild the grid; pi peers continue via `pi --session <ref>`
 ```
 
 `peers.yaml` groups reusable peers into named teams; each entry is `name` / `persona`

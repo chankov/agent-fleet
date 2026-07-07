@@ -76,10 +76,13 @@ export function parsePeersYaml(raw: string): Record<string, Peer[]> {
 }
 
 // Validate a peer's fields and build its launch argv. `just` recipe params are
-// POSITIONAL (persona name model) — bare positional args, never key=value.
-// A peer with `extensions:` routes through `_peer-plus <extensions> <persona>
-// <name> [<model>]`; otherwise plain `_peer <persona> <name> [<model>]`.
-export function peerCommand(p: Peer, team: string): string[] {
+// POSITIONAL (persona name model session) — bare positional args, never
+// key=value. A peer with `extensions:` routes through `_peer-plus
+// <extensions> <persona> <name> [<model>] [<session>]`; otherwise plain
+// `_peer <persona> <name> [<model>] [<session>]`. `resumeRef` (a pi session
+// path for `pi --session`) fills the trailing session positional — when the
+// peer has no model, an empty-string placeholder keeps the positions aligned.
+export function peerCommand(p: Peer, team: string, resumeRef?: string): string[] {
 	if (!p.persona) {
 		throw new Error(`Peer "${p.name ?? "(unnamed)"}" in team "${team}" is missing a persona.`);
 	}
@@ -87,14 +90,23 @@ export function peerCommand(p: Peer, team: string): string[] {
 		throw new Error(`Peer with persona "${p.persona}" in team "${team}" is missing a name.`);
 	}
 	for (const [k, v] of Object.entries(p)) {
-		if (v !== undefined && !SAFE.test(v)) {
+		// Only string fields can reach a command line; extra non-string fields
+		// (e.g. a snapshot's `resume` object) are never spliced into argv.
+		if (typeof v === "string" && !SAFE.test(v)) {
 			throw new Error(`Unsafe value for ${k} in team "${team}": ${JSON.stringify(v)} (allowed: ${SAFE})`);
 		}
+	}
+	if (resumeRef !== undefined && !SAFE.test(resumeRef)) {
+		throw new Error(`Unsafe resume ref for ${p.name}: ${JSON.stringify(resumeRef)} (allowed: ${SAFE})`);
 	}
 	const parts = p.extensions
 		? ["just", "_peer-plus", p.extensions, p.persona, p.name]
 		: ["just", "_peer", p.persona, p.name];
 	if (p.model) parts.push(p.model);
+	if (resumeRef !== undefined) {
+		if (!p.model) parts.push(""); // keep the model positional aligned
+		parts.push(resumeRef);
+	}
 	return parts;
 }
 
@@ -140,6 +152,9 @@ export interface TeamLayoutOptions {
 	// B3 hook: resolve a peer's extra env (e.g. from its env_file). Returning
 	// undefined means no extra env for that peer.
 	envForPeer?: (peer: Peer) => Record<string, string> | undefined;
+	// B5 hook: resume ref (pi session path) for a peer being restored from a
+	// team snapshot. Returning undefined starts the peer fresh.
+	resumeForPeer?: (peer: Peer) => string | undefined;
 	// B2 hook: when set, the hub occupies a larger root pane (ratio of the
 	// horizontal split) and the team tiles in the remaining space.
 	hub?: { command: string[]; label: string; ratio?: number };
@@ -150,11 +165,12 @@ function paneNode(
 	team: string,
 	repoRoot: string,
 	envForPeer?: TeamLayoutOptions["envForPeer"],
+	resumeForPeer?: TeamLayoutOptions["resumeForPeer"],
 ): LayoutNode {
 	const env = envForPeer?.(peer);
 	return {
 		type: "pane",
-		command: peerCommand(peer, team),
+		command: peerCommand(peer, team, resumeForPeer?.(peer)),
 		cwd: repoRoot,
 		label: peer.name as string,
 		...(env && Object.keys(env).length > 0 ? { env } : {}),
@@ -177,9 +193,9 @@ function bsp(nodes: LayoutNode[], depth: number): LayoutNode {
 
 // peers.yaml team → herdr layout tree for layout.apply.
 export function buildTeamLayout(opts: TeamLayoutOptions): LayoutNode {
-	const { team, peers, repoRoot, envForPeer, hub } = opts;
+	const { team, peers, repoRoot, envForPeer, resumeForPeer, hub } = opts;
 	if (peers.length === 0) throw new Error(`Team "${team}" has no peers.`);
-	const panes = peers.map((p) => paneNode(p, team, repoRoot, envForPeer));
+	const panes = peers.map((p) => paneNode(p, team, repoRoot, envForPeer, resumeForPeer));
 	const grid = bsp(panes, hub ? 1 : 0);
 	if (!hub) return grid;
 	return {
