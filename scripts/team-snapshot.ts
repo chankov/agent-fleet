@@ -137,7 +137,9 @@ async function cmdResume(team: string): Promise<void> {
 	const resumeFor = (peer: Peer): string | undefined => {
 		const ref = resumeRefForPeer(
 			peer as PeerSnapshot,
-			(r) => fs.existsSync(r.value),
+			// path refs must still exist on disk; id refs (claude-code) cannot
+			// be pre-checked and are handed to `claude --resume` as-is
+			(r) => (r.kind === "id" ? true : fs.existsSync(r.value)),
 			(p, reason) => console.warn(`  ⚠ ${p.name}: ${reason}`),
 		);
 		if (ref && peer.name) resumedNames.add(peer.name);

@@ -19,6 +19,12 @@
 #             at spawn or team-up refuses. Values are redacted in --dry-run output.
 #             Pair with the gitignored `.env` convention from guided setup
 #             (docs/agent-skills-setup.md).
+#   runner  — optional; "claude-code" spawns interactive Claude Code + its coms
+#             bridge in the pane instead of a pi peer (persona not required;
+#             model maps to `claude --model`). Example:
+#               - name: claude-main
+#                 runner: claude-code
+#                 model: opus
 
 full:
   - name: web-debugger

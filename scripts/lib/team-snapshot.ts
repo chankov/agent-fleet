@@ -95,7 +95,10 @@ export function resumeRefForPeer(
 		onSkip?.(peer, "no session ref in snapshot — starting fresh");
 		return undefined;
 	}
-	if (peer.resume.kind !== "path") {
+	// pi peers resume by session file path; claude-code peers by session id
+	// (herdr reports {kind:"id"} for claude — `claude --resume <id>`).
+	const wantKind = peer.runner === "claude-code" ? "id" : "path";
+	if (peer.resume.kind !== wantKind) {
 		onSkip?.(peer, `unsupported resume kind "${peer.resume.kind}" — starting fresh`);
 		return undefined;
 	}

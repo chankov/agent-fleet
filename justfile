@@ -77,6 +77,13 @@ _peer persona name="" model="" session="":
 _peer-plus extensions persona name="" model="" session="":
     node --experimental-strip-types scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts $extra --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
 
+# Internal helper for team-up: a `runner: claude-code` peer — interactive
+# Claude Code plus its coms bridge (scripts/coms-claude-bridge.ts) in ONE pane.
+# The bridge registers the pane as coms peer <name>; the trailing session
+# positional maps to `claude --resume <id>` for team-resume.
+_claude-peer name model="" session="":
+    node --experimental-strip-types scripts/coms-claude-bridge.ts --name {{name}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
+
 # Team up: spawn every peer of a team from .pi/agents/peers.yaml into a herdr
 # workspace (one tiled pane per peer). Requires a running herdr server.
 # Positional arg: team (defaults to "full"). e.g. just team-up full

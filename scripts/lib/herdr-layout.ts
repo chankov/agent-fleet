@@ -27,6 +27,10 @@ export interface Peer {
 	// Optional repo-relative KEY=VALUE file injected as the pane's env at spawn
 	// (herdr injects it before the command runs — no shell `source`).
 	env_file?: string;
+	// Optional runner. Default (absent) is a pi peer via `_peer`/`_peer-plus`;
+	// "claude-code" spawns an interactive Claude Code plus its coms bridge in
+	// the pane via `_claude-peer` (model → `claude --model`).
+	runner?: string;
 }
 
 function stripQuotes(v: string): string {
@@ -83,7 +87,10 @@ export function parsePeersYaml(raw: string): Record<string, Peer[]> {
 // path for `pi --session`) fills the trailing session positional — when the
 // peer has no model, an empty-string placeholder keeps the positions aligned.
 export function peerCommand(p: Peer, team: string, resumeRef?: string): string[] {
-	if (!p.persona) {
+	if (p.runner !== undefined && p.runner !== "claude-code") {
+		throw new Error(`Unknown runner "${p.runner}" for peer "${p.name}" in team "${team}" (supported: claude-code).`);
+	}
+	if (!p.persona && p.runner !== "claude-code") {
 		throw new Error(`Peer "${p.name ?? "(unnamed)"}" in team "${team}" is missing a persona.`);
 	}
 	if (!p.name) {
@@ -99,9 +106,15 @@ export function peerCommand(p: Peer, team: string, resumeRef?: string): string[]
 	if (resumeRef !== undefined && !SAFE.test(resumeRef)) {
 		throw new Error(`Unsafe resume ref for ${p.name}: ${JSON.stringify(resumeRef)} (allowed: ${SAFE})`);
 	}
-	const parts = p.extensions
-		? ["just", "_peer-plus", p.extensions, p.persona, p.name]
-		: ["just", "_peer", p.persona, p.name];
+	if (p.runner === "claude-code" && p.extensions) {
+		throw new Error(`Peer "${p.name}": extensions: are pi-only and cannot combine with runner: claude-code.`);
+	}
+	const parts =
+		p.runner === "claude-code"
+			? ["just", "_claude-peer", p.name]
+			: p.extensions
+				? ["just", "_peer-plus", p.extensions, p.persona, p.name]
+				: ["just", "_peer", p.persona, p.name];
 	if (p.model) parts.push(p.model);
 	if (resumeRef !== undefined) {
 		if (!p.model) parts.push(""); // keep the model positional aligned
