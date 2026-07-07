@@ -1,6 +1,7 @@
 # Reusable coms peers, grouped into named teams (parallels teams.yaml).
 #
-# `just team-up <name>` spawns each peer of a team in its own tmux pane,
+# `just team-up <name>` spawns each peer of a team in its own herdr pane
+# (requires a running herdr server — https://herdr.dev),
 # using the hidden `_peer` helper (coms + compact-and-continue + the persona).
 #
 # Each peer entry:
@@ -13,6 +14,17 @@
 #             load into this peer (routes it through `_peer-plus`). Use for a
 #             chrome-devtools-mcp browser-debug peer whose `chrome_devtools__*`
 #             tools a --no-extensions subagent could not get.
+#   env_file — optional repo-relative KEY=VALUE file (no shell evaluation) injected
+#             into the peer's pane env by herdr before the command runs. Must exist
+#             at spawn or team-up refuses. Values are redacted in --dry-run output.
+#             Pair with the gitignored `.env` convention from guided setup
+#             (docs/agent-skills-setup.md).
+#   runner  — optional; "claude-code" spawns interactive Claude Code + its coms
+#             bridge in the pane instead of a pi peer (persona not required;
+#             model maps to `claude --model`). Example:
+#               - name: claude-main
+#                 runner: claude-code
+#                 model: opus
 
 full:
   - name: web-debugger

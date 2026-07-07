@@ -9,7 +9,7 @@ bin/          → npm CLI: cli.js (agent-skills entrypoint), lib/{doctor,detect-
 skills/       → Core skills (SKILL.md per directory)
 agents/       → 13 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code/opencode get generated copies; bowser + orchestrator are pi-only)
 hooks/        → Session lifecycle hooks
-scripts/      → Standalone scripts (team-up tmux launcher for reusable coms peers)
+scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; scripts/lib/ pure fleet modules under node --test)
 justfile      → Recipes to launch pi with each harness
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
@@ -24,7 +24,7 @@ justfile      → Recipes to launch pi with each harness
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
 references/   → Supplementary checklists (testing, performance, security, accessibility, observability)
-docs/         → Setup guides, agent-skills-setup.md (per-project overrides + install-record convention), npm-install.md (CLI + versioning), plus pi-extensions.md and pi-specs/ for the pi extensions
+docs/         → Setup guides, agent-skills-setup.md (per-project overrides + install-record convention), npm-install.md (CLI + versioning), claude-code-coms-bridge.md (Claude Code as a coms peer), plus pi-extensions.md and pi-specs/ for the pi extensions
 FORK.md       → Canonical record of how this fork differs from upstream addyosmani/agent-skills: fork-vs-upstream pitch, the added/dropped/adapted tables, the upstream-merge reconciliation playbook, and the decision log. UPDATE IT in any change that alters fork direction — especially after every upstream merge.
 ```
 
@@ -36,7 +36,7 @@ FORK.md       → Canonical record of how this fork differs from upstream addyos
 **Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
-**Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness)
+**Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness), peer-coms (Claude Code as a coms peer via the bridge — see docs/claude-code-coms-bridge.md)
 **Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets, via `/compound` on claude-code/opencode or the agent-hub `/compound` command dispatching `documenter`)
 **Onboard:** guided-workspace-setup
 

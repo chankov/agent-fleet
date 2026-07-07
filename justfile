@@ -65,25 +65,58 @@ hub-solo *args:
     persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts --solo $persona {{args}}
 
 # Internal helper for team-up: launch a reusable coms peer (coms + compact-and-continue + a persona).
+# Prints a colored identity banner (peer name + persona purpose) before pi starts,
+# so every pane announces who lives in it — works in any terminal, herdr or not.
 # Hidden from `just --list` because recipes prefixed with `_` are private.
-_peer persona name="" model="":
-    persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }}
+_peer persona name="" model="" session="":
+    node --experimental-strip-types scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
 
 # Like _peer, but also loads extra always-on extensions (comma-separated names under
 # .pi/extensions/) into the peer process — e.g. a chrome-devtools-mcp browser-debug peer
 # whose `chrome_devtools__*` tools a normal --no-extensions subagent could not get.
-_peer-plus extensions persona name="" model="":
-    persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts $extra --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }}
+_peer-plus extensions persona name="" model="" session="":
+    node --experimental-strip-types scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts $extra --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
 
-# Team up: spawn every peer of a team from .pi/agents/peers.yaml into tmux panes.
+# Internal helper for team-up: a `runner: claude-code` peer — interactive
+# Claude Code plus its coms bridge (scripts/coms-claude-bridge.ts) in ONE pane.
+# The bridge registers the pane as coms peer <name>; the trailing session
+# positional maps to `claude --resume <id>` for team-resume.
+_claude-peer name model="" session="":
+    node --experimental-strip-types scripts/coms-claude-bridge.ts --name {{name}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
+
+# Team up: spawn every peer of a team from .pi/agents/peers.yaml into a herdr
+# workspace (one tiled pane per peer). Requires a running herdr server.
 # Positional arg: team (defaults to "full"). e.g. just team-up full
 team-up team="full":
     node --experimental-strip-types scripts/team-up.ts --team {{team}}
 
-# Team up (dry run): print the resolved per-peer commands without launching tmux.
+# Team up (dry run): print the resolved layout + per-peer commands without touching herdr.
 # e.g. just team-up-dry team="full"
 team-up-dry team="full":
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run
+
+# Hub + team in ONE herdr workspace: the guarded hub (`just hub`) in a larger
+# main pane, the team's peers tiled beside it. e.g. just hub-team docs
+hub-team team="full":
+    node --experimental-strip-types scripts/team-up.ts --team {{team}} --hub
+
+# Hub + team (dry run): print the combined layout without touching herdr.
+hub-team-dry team="full":
+    node --experimental-strip-types scripts/team-up.ts --team {{team}} --hub --dry-run
+
+# Snapshot a RUNNING team's session refs to ~/.pi/team-snapshots/<team>.json
+# (team keeps running — take one proactively so a crash is resumable).
+team-snapshot team="full":
+    node --experimental-strip-types scripts/team-snapshot.ts snapshot {{team}}
+
+# Snapshot, then close the team workspace cleanly (peers get SIGTERM).
+team-down team="full":
+    node --experimental-strip-types scripts/team-snapshot.ts down {{team}}
+
+# Rebuild a team from its snapshot — each pi peer resumes its previous
+# conversation (`pi --session <ref>`); peers whose ref is gone start fresh.
+team-resume team="full":
+    node --experimental-strip-types scripts/team-snapshot.ts resume {{team}}
 
 # ---------------------------------------------------------------- coms (Pi-to-Pi messaging)
 

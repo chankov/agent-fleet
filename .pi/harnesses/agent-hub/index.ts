@@ -75,6 +75,17 @@ import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
+import {
+	formatPeerStatus,
+	HerdrAgentWatch,
+	HerdrPresence,
+	herdrPaneId,
+	herdrPresenceAvailable,
+	parsePeerName,
+	type HerdrAgentInfo,
+} from "../lib/herdr-presence.ts";
+import { herdr as herdrApi, herdrAvailable } from "../lib/herdr-client.ts";
+import { peerCommand } from "../../../scripts/lib/herdr-layout.ts";
 import { join, resolve } from "path";
 import * as net from "node:net";
 import * as fs from "node:fs";
@@ -1665,6 +1676,12 @@ export default function (pi: ExtensionAPI) {
 	let server: net.Server | null = null;
 	let pingTimer: NodeJS.Timeout | null = null;
 	let keepaliveTimer: NodeJS.Timeout | null = null;
+	// herdr presence backend (active when this session runs inside a herdr
+	// pane and the server answers ping). The envelope transport and the file
+	// registry are untouched — herdr only replaces the presence/ping layer.
+	let herdrPresence: HerdrPresence | null = null;
+	let herdrWatch: HerdrAgentWatch | null = null;
+	let turnState: "idle" | "working" = "idle";
 	let includeExplicit = false;
 	let displayProject: string | null = null;
 	let currentCtx: ExtensionContext | null = null;
@@ -3859,6 +3876,51 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		);
 	}
 
+	// Join herdr's live pane states back to the coms registry: a herdr agent
+	// whose custom_status leads with a peer name maps to that peer's registry
+	// entry (which carries the full card the 32-char custom_status cannot).
+	// Pool-scope semantics are preserved — only entries from peersInScope()
+	// become cards; peers outside herdr panes stay visible as registry-only
+	// "pending" rows exactly like an unpinged peer in the files backend.
+	function herdrSyncPeerCards(agents: HerdrAgentInfo[]): void {
+		if (!identity) return;
+		const liveNames = new Set<string>();
+		for (const a of agents) {
+			const peerName = parsePeerName(a.custom_status as string | undefined);
+			if (peerName) liveNames.add(peerName);
+		}
+		let changed = false;
+		const liveSessions = new Set<string>();
+		for (const entry of peersInScope()) {
+			if (!liveNames.has(entry.name)) continue;
+			liveSessions.add(entry.session_id);
+			const next = {
+				name: entry.name,
+				purpose: entry.purpose,
+				model: entry.model,
+				color: entry.color,
+				context_used_pct: entry.context_used_pct ?? 0,
+				queue_depth: entry.queue_depth ?? 0,
+				staleCount: 0,
+			};
+			const prev = peerCards.get(entry.session_id);
+			if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
+				peerCards.set(entry.session_id, next);
+				changed = true;
+			}
+		}
+		for (const sid of [...peerCards.keys()]) {
+			if (sid === identity.session_id) continue;
+			if (!liveSessions.has(sid)) {
+				peerCards.delete(sid);
+				changed = true;
+			}
+		}
+		if (changed && currentCtx?.hasUI) {
+			installPoolWidget(currentCtx);
+		}
+	}
+
 	function resolveTarget(target: string): RegistryEntry | null {
 		// Scoped to the connected pool only (peersInScope): you can reach exactly the
 		// peers the widget shows. Match by name first (preferred, human-facing), then by
@@ -4689,6 +4751,185 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const d = result.details as any;
 			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
 			return new Text(theme.fg("success", "✓ response received"), 0, 0);
+		},
+	});
+
+	// ── Fleet (herdr) tools ─────────────────────
+	//
+	// Registered unconditionally (registerTool must run at load), but gated
+	// into setActiveTools only when the session runs inside a herdr pane AND
+	// the server answers ping (herdrFleetReady, probed at session_start) —
+	// outside herdr the tools are absent, like coms. Destructive verbs:
+	// herdr_close_pane confirms with the HUMAN before closing (the continue-
+	// flow equivalent for a dispatcher-owned tool); the bash-level
+	// `herdr pane close` etc. are hard-blocked by .pi/damage-control-rules.yaml
+	// for spawned specialists.
+
+	let herdrFleetReady = false;
+
+	pi.registerTool({
+		name: "herdr_spawn_peer",
+		label: "Herdr Spawn Peer",
+		description:
+			"Spawn a pane in the CURRENT herdr workspace: either a peers.yaml-style coms peer (persona [+ name/model], launched via `just _peer`) or a raw command pane. Returns the new pane_id. Use for standing up an extra worker/watcher next to this session; peers become addressable via coms_send once booted.",
+		parameters: Type.Object({
+			persona: Type.Optional(Type.String({ description: "Persona under agents/ (e.g. researcher). Omit for a raw command pane." })),
+			name: Type.String({ description: "Pane label; for persona peers also the coms peer name." }),
+			model: Type.Optional(Type.String({ description: "Optional model spec for the peer (pi --model)." })),
+			command: Type.Optional(Type.String({ description: "Raw shell command for a non-peer pane (mutually exclusive with persona)." })),
+			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction (default right)." })),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			const ownPane = herdrPaneId();
+			if (!ownPane) {
+				return { content: [{ type: "text" as const, text: "not inside a herdr pane." }], details: { error: "no pane" } };
+			}
+			try {
+				let argv: string[];
+				if (params.persona) {
+					argv = peerCommand({ persona: params.persona, name: params.name, model: params.model }, "hub-spawned");
+				} else if (params.command) {
+					argv = ["bash", "-lc", params.command];
+				} else {
+					return { content: [{ type: "text" as const, text: "pass persona (peer) or command (raw pane)." }], details: { error: "bad args" } };
+				}
+				const { pane } = await herdrApi.paneSplit({
+					target_pane_id: ownPane,
+					direction: params.direction ?? "right",
+					command: argv,
+					cwd: currentCtx?.cwd ?? process.cwd(),
+					focus: false,
+				});
+				try { await herdrApi.paneRename(pane.pane_id, params.name); } catch { /* cosmetic */ }
+				return {
+					content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}` }],
+					details: { pane_id: pane.pane_id, name: params.name },
+				};
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_spawn_peer failed: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			const a = args as any;
+			return new Text(
+				theme.fg("toolTitle", theme.bold("herdr_spawn_peer ")) + theme.fg("accent", a.name ?? "?") + theme.fg("dim", a.persona ? ` (${a.persona})` : " (raw)"),
+				0, 0,
+			);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			return new Text(theme.fg("success", `✓ ${d?.pane_id ?? "spawned"}`), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_read_pane",
+		label: "Herdr Read Pane",
+		description:
+			"Read the recent output of a herdr pane (bounded; max 200 lines). Read-to-decide: check on a spawned worker or an unbridged tool before acting. Prefer coms_send/coms_await for talking to pi or bridged peers.",
+		parameters: Type.Object({
+			pane_id: Type.String({ description: "Pane id, e.g. w3:p2 (see herdr_spawn_peer result or the sidebar)." }),
+			lines: Type.Optional(Type.Number({ description: "Line cap, default 60, max 200." })),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			const lines = Math.min(Math.max(1, params.lines ?? 60), 200);
+			try {
+				const { read } = await herdrApi.paneRead({ pane_id: params.pane_id, lines });
+				return { content: [{ type: "text" as const, text: read.text || "(pane is empty)" }], details: { pane_id: params.pane_id, lines } };
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_read_pane failed: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			return new Text(theme.fg("toolTitle", theme.bold("herdr_read_pane ")) + theme.fg("warning", (args as any).pane_id ?? "?"), 0, 0);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			return new Text(theme.fg("success", `✓ read ${d?.pane_id}`), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_close_pane",
+		label: "Herdr Close Pane",
+		description:
+			"Close a herdr pane (kills whatever runs in it). DESTRUCTIVE — the human is asked to confirm every call. Only close panes you spawned; never close the human's own panes.",
+		parameters: Type.Object({
+			pane_id: Type.String({ description: "Pane id to close." }),
+			reason: Type.String({ description: "One line shown to the human: why this pane can die." }),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			const ctx = currentCtx;
+			if (!ctx?.hasUI) {
+				return { content: [{ type: "text" as const, text: "no UI to confirm the close — refused." }], details: { error: "no ui" } };
+			}
+			const ok = await ctx.ui.confirm(
+				"herdr_close_pane",
+				`Close pane ${params.pane_id}? Reason: ${params.reason}\nThis kills the process running in it.`,
+			);
+			if (!ok) {
+				return { content: [{ type: "text" as const, text: `human declined closing ${params.pane_id} — adapt and continue.` }], details: { declined: true } };
+			}
+			try {
+				await herdrApi.paneClose(params.pane_id);
+				return { content: [{ type: "text" as const, text: `closed ${params.pane_id}` }], details: { closed: params.pane_id } };
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_close_pane failed: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			return new Text(theme.fg("toolTitle", theme.bold("herdr_close_pane ")) + theme.fg("error", (args as any).pane_id ?? "?"), 0, 0);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			if (d?.declined) return new Text(theme.fg("warning", "✗ declined by human"), 0, 0);
+			return new Text(theme.fg("success", `✓ closed`), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_notify",
+		label: "Herdr Notify",
+		description:
+			"Show a desktop notification via herdr — reach the human when they are not watching this pane (long task finished, fleet needs attention). Not a substitute for ask_user.",
+		parameters: Type.Object({
+			title: Type.String({ description: "Notification title." }),
+			body: Type.Optional(Type.String({ description: "Notification body." })),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			try {
+				await herdrApi.notificationShow({ title: params.title, body: params.body ?? "" });
+				return { content: [{ type: "text" as const, text: `notified: ${params.title}` }], details: { title: params.title } };
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_notify failed: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			return new Text(theme.fg("toolTitle", theme.bold("herdr_notify ")) + theme.fg("accent", (args as any).title ?? ""), 0, 0);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			return new Text(theme.fg("success", "✓ notified"), 0, 0);
 		},
 	});
 
@@ -5671,8 +5912,30 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				displayProject = projectMatch[1];
 				try { ctx.ui.notify(`coms: displaying project ${displayProject}`, "info"); } catch { /* ignore */ }
 			}
-			await refreshPool();
+			if (herdrWatch) {
+				await herdrWatch.start(); // re-list + resubscribe + sync cards
+			} else {
+				await refreshPool();
+			}
 		},
+	});
+
+	// ━━ herdr presence: turn-state reporting ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// The herdr sidebar mirrors turn state (idle ↔ working) push-style;
+	// context % rides the keepalive refresh.
+	pi.on("before_agent_start", async () => {
+		turnState = "working";
+		if (herdrPresence && identity) {
+			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+			void herdrPresence.report("working", formatPeerStatus(identity.name, pct, inboundQueue.size));
+		}
+	});
+	pi.on("agent_end", async () => {
+		turnState = "idle";
+		if (herdrPresence && identity) {
+			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+			void herdrPresence.report("idle", formatPeerStatus(identity.name, pct, inboundQueue.size));
+		}
 	});
 
 	// /handoff <peer> — hand the session off to a coms peer. Per decision G1 we do NOT
@@ -5965,7 +6228,20 @@ gating, it does not auto-block a dispatch.
   specialist needs research help, YOU run \`spawn_research\`, collect the findings, and
   fold them into the specialist's task — do not ask the specialist to do it itself.
 - Research helpers are ephemeral and read-only, so they are always safe to run.
-${comsSection}
+${comsSection}${herdrFleetReady ? `
+## Fleet (herdr)
+This session runs inside a herdr workspace and can drive panes:
+- \`herdr_spawn_peer\` stands up an extra worker next to you — a persona peer (joins the coms
+  pool, then talk to it via \`coms_send\`) or a raw command pane (a build watcher, a server).
+  Spawn deliberately; every pane is a process the human sees. Tear down what you spawned.
+- \`herdr_read_pane\` is read-to-decide: peek at a worker/tool pane's recent output before
+  acting on it. It is NOT a messaging channel — prefer \`coms_send\`/\`coms_await\` for pi and
+  bridged peers; reading screens is the last resort for unbridged tools.
+- \`herdr_close_pane\` kills a pane and asks the HUMAN to confirm first. Close only panes you
+  spawned, when their job is done or they are stuck.
+- \`herdr_notify\` reaches the human via desktop notification when they are away — use it when
+  a long fleet task finishes or needs attention; it does not replace \`ask_user\`.
+` : ""}
 ## Hard Rules
 - NEVER try to read, write, or execute code directly — you have no such tools.
 - ALWAYS use \`dispatch_agent\` to get work done; use \`spawn_research\` for read-only recon.
@@ -6102,9 +6378,27 @@ ${researchCatalog}`;
 					installPoolWidget(_ctx);
 				} catch { /* hasUI may be false — non-fatal */ }
 
-				// Ping + keepalive cycles (unref'd so they never hold the process open).
-				pingTimer = setInterval(() => { refreshPool().catch(() => {}); }, PING_INTERVAL_MS);
-				try { (pingTimer as any).unref?.(); } catch { /* ignore */ }
+				// Presence backend: herdr (push events, no polling) when this
+				// session runs inside a herdr pane with a live server; the files
+				// ping loop otherwise. The registry keepalive runs in BOTH — it
+				// carries the full agent card (context %, queue depth) that
+				// herdr's 32-char custom_status cannot, and keeps us
+				// discoverable to peers running outside herdr panes.
+				const useHerdr = await herdrPresenceAvailable();
+				if (useHerdr) {
+					const paneId = herdrPaneId()!;
+					herdrPresence = new HerdrPresence({ paneId, source: `coms:${session_id}` });
+					void herdrPresence.report("idle", formatPeerStatus(name, 0, 0));
+					herdrWatch = new HerdrAgentWatch({
+						ownPaneId: paneId,
+						onChange: (agents) => herdrSyncPeerCards(agents),
+					});
+					void herdrWatch.start();
+					try { pi.appendEntry("coms-log", { event: "presence_backend", backend: "herdr", pane: paneId }); } catch { /* best-effort */ }
+				} else {
+					pingTimer = setInterval(() => { refreshPool().catch(() => {}); }, PING_INTERVAL_MS);
+					try { (pingTimer as any).unref?.(); } catch { /* ignore */ }
+				}
 				keepaliveTimer = setInterval(() => {
 					if (!identity) return;
 					try {
@@ -6115,10 +6409,17 @@ ${researchCatalog}`;
 							if (!fs.existsSync(identity.registryFile)) writeLiveRegistry();
 						}
 					} catch { /* best-effort */ }
+					// herdr backend: refresh our sidebar entry and re-join peer
+					// cards against the registry heartbeats just written.
+					if (herdrPresence && identity) {
+						const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+						void herdrPresence.report(turnState, formatPeerStatus(identity.name, pct, inboundQueue.size));
+					}
+					if (herdrWatch) herdrSyncPeerCards(herdrWatch.current());
 				}, KEEPALIVE_INTERVAL_MS);
 				try { (keepaliveTimer as any).unref?.(); } catch { /* ignore */ }
 
-				refreshPool().catch(() => {});
+				if (!useHerdr) refreshPool().catch(() => {});
 			} catch (err) {
 				comsReady = false;
 				try { _ctx.ui?.notify?.(`📡 coms: init failed — ${err instanceof Error ? err.message : String(err)} (coms tools disabled)`, "error"); } catch { /* ignore */ }
@@ -6259,6 +6560,10 @@ ${researchCatalog}`;
 		const dispatcherTools = ["dispatch_agent", "spawn_research", "set_assertions", "update_assertion", "get_assertions"];
 		if (comsReady) dispatcherTools.push("coms_list", "coms_send", "coms_get", "coms_await");
 		if (askUserAvailable) dispatcherTools.push("ask_user");
+		// Fleet tools only inside a herdr pane with a live server (graceful
+		// degradation like coms — outside herdr the tools are absent).
+		herdrFleetReady = herdrPaneId() !== null && (await herdrAvailable()) !== null;
+		if (herdrFleetReady) dispatcherTools.push("herdr_spawn_peer", "herdr_read_pane", "herdr_close_pane", "herdr_notify");
 		pi.setActiveTools(dispatcherTools);
 
 		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
@@ -6276,13 +6581,17 @@ ${researchCatalog}`;
 			: soloMode
 				? "off (--solo: fixed specialists + research only)"
 				: "off (endpoint bind failed — coms tools disabled)";
+		const fleetLabel = herdrFleetReady
+			? "herdr — spawn/read/close panes + notify (herdr_* tools active)"
+			: "off (not inside a herdr pane, or no herdr server)";
 		_ctx.ui.notify(
 			`Team: ${activeTeamName} (${members})\n` +
 			`Team sets loaded from: .pi/agents/teams.yaml\n` +
 			`User-facing language: ${userLanguage} (override in .ai/agent-skills-overrides.md)\n` +
 			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n` +
 			`Persona gate: ${personaGateLabel}\n` +
-			`Coms: ${comsLabel}\n\n` +
+			`Coms: ${comsLabel}\n` +
+			`Fleet: ${fleetLabel}\n\n` +
 			`/agents-team          Select a team\n` +
 			`/agents-list          List active agents and status\n` +
 			`/agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
@@ -6453,6 +6762,8 @@ ${researchCatalog}`;
 		shuttingDown = true;
 		if (pingTimer) { try { clearInterval(pingTimer); } catch { /* ignore */ } pingTimer = null; }
 		if (keepaliveTimer) { try { clearInterval(keepaliveTimer); } catch { /* ignore */ } keepaliveTimer = null; }
+		if (herdrWatch) { try { herdrWatch.stop(); } catch { /* ignore */ } herdrWatch = null; }
+		if (herdrPresence) { try { void herdrPresence.release(); } catch { /* ignore */ } herdrPresence = null; }
 		if (server) {
 			try { server.close(); } catch { /* ignore */ }
 			server = null;

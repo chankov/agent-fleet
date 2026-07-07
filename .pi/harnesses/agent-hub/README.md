@@ -284,6 +284,37 @@ Paths that don't exist produce a session-start warning, never an error. The full
 
 ## The coms layer
 
+> The runtime coordination protocols this layer implements (sentinels, push over
+> polling, barriers, fan-out digests, racing) are catalogued in
+> [references/fleet-coordination-patterns.md](../../../references/fleet-coordination-patterns.md).
+
+### Fleet tools (herdr)
+
+Inside a [herdr](https://herdr.dev) pane with a live server, the dispatcher's tool
+surface additionally gets (absent otherwise, like coms):
+
+- `herdr_spawn_peer` — stand up a persona peer (joins the coms pool via `just _peer`) or a
+  raw command pane in the current workspace
+- `herdr_read_pane` — bounded `pane.read` (≤200 lines), read-to-decide on workers/tools;
+  messaging still goes through coms
+- `herdr_close_pane` — kills a pane; **asks the human to confirm every call**; the
+  bash-level `herdr pane close`/`workspace close`/`server stop` verbs are hard-blocked
+  for spawned specialists by `.pi/damage-control-rules.yaml`
+- `herdr_notify` — desktop notification to reach the human when they are away
+
+This closes the fleet loop: spawn a worker, watch it, notify the human, tear it down —
+without leaving the session. Claude Code panes join the same pool via the
+[coms bridge](../../../docs/claude-code-coms-bridge.md).
+
+### Presence backend (herdr or files)
+
+Presence is pluggable, exactly as in the standalone [coms harness](../coms/README.md#presence-backends-herdr-vs-files):
+inside a [herdr](https://herdr.dev) pane with a live server, the ping cycle is replaced by
+push events (`agent.list` + `events.subscribe`) and the hub reports itself into the herdr
+sidebar (`custom_status` = `<name> <pct>% q<depth>`); everywhere else the original 10s
+ping loop runs unchanged. The file registry is written in both backends, and the
+pool-scope boundary is enforced identically.
+
 ### Identity
 
 Each session registers a coms identity at start-up, resolved in this precedence order:
@@ -450,9 +481,18 @@ always installs/keeps `damage-control` (and `damage-control-continue`) with it.
 # the hub without the coms layer (fixed specialists + research only — lighter)
 just hub-solo
 
-# spawn every peer of a team from .pi/agents/peers.yaml into tiled tmux panes
+# spawn every peer of a team from .pi/agents/peers.yaml into a tiled herdr workspace
+# (requires a running herdr server — https://herdr.dev)
 just team-up full        # launch
-just team-up-dry full    # print the resolved hidden peer-launch commands without launching
+just team-up-dry full    # print the resolved layout + peer-launch commands without herdr
+
+# hub + team in ONE workspace: guarded hub in a larger main pane, peers tiled beside it
+just hub-team docs
+
+# fleet resume: snapshot session refs / close cleanly / rebuild with conversations restored
+just team-snapshot docs  # proactive snapshot while the team runs (crash insurance)
+just team-down docs      # snapshot + close the workspace (peers get SIGTERM)
+just team-resume docs    # rebuild the grid; pi peers continue via `pi --session <ref>`
 ```
 
 `peers.yaml` groups reusable peers into named teams; each entry is `name` / `persona`
