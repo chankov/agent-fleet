@@ -1,6 +1,6 @@
 # Orchestration Patterns
 
-Reference catalog of agent orchestration patterns this repo endorses, plus anti-patterns to avoid. Read this before adding a new slash command that coordinates multiple personas, or before introducing a new persona that "wraps" existing ones.
+Reference catalog of agent orchestration patterns this repo endorses, plus anti-patterns to avoid. Read this before adding a new slash command that coordinates multiple personas, or before introducing a new persona that "wraps" existing ones. This is the **composition layer** (which personas run and how they're wired); the runtime coordination protocols between already-running agents — sentinels, push events, barriers, fan-in digests, racing — are catalogued in [fleet-coordination-patterns.md](fleet-coordination-patterns.md).
 
 The governing rule: **the user (or a slash command) is the orchestrator. Personas do not invoke other personas.** Skills are mandatory hops inside a persona's workflow.
 

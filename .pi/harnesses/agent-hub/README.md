@@ -284,6 +284,10 @@ Paths that don't exist produce a session-start warning, never an error. The full
 
 ## The coms layer
 
+> The runtime coordination protocols this layer implements (sentinels, push over
+> polling, barriers, fan-out digests, racing) are catalogued in
+> [references/fleet-coordination-patterns.md](../../../references/fleet-coordination-patterns.md).
+
 ### Presence backend (herdr or files)
 
 Presence is pluggable, exactly as in the standalone [coms harness](../coms/README.md#presence-backends-herdr-vs-files):

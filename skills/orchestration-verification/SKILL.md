@@ -142,6 +142,10 @@ gate per slice ─┴── no ──→ re-dispatch unproven/failed
    "wrong again" from user ──→ [A4] regression reset ──→ rebuild assertions ──→ re-dispatch
 ```
 
+The message-level protocols the dispatcher uses while enforcing this contract (sentinels,
+push events over polling, barriers, fan-in digests) are catalogued in
+[references/fleet-coordination-patterns.md](../../references/fleet-coordination-patterns.md).
+
 ## Common Rationalizations
 
 | Rationalization | Reality |
