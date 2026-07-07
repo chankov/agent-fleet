@@ -284,6 +284,15 @@ Paths that don't exist produce a session-start warning, never an error. The full
 
 ## The coms layer
 
+### Presence backend (herdr or files)
+
+Presence is pluggable, exactly as in the standalone [coms harness](../coms/README.md#presence-backends-herdr-vs-files):
+inside a [herdr](https://herdr.dev) pane with a live server, the ping cycle is replaced by
+push events (`agent.list` + `events.subscribe`) and the hub reports itself into the herdr
+sidebar (`custom_status` = `<name> <pct>% q<depth>`); everywhere else the original 10s
+ping loop runs unchanged. The file registry is written in both backends, and the
+pool-scope boundary is enforced identically.
+
 ### Identity
 
 Each session registers a coms identity at start-up, resolved in this precedence order:

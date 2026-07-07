@@ -75,6 +75,15 @@ import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
+import {
+	formatPeerStatus,
+	HerdrAgentWatch,
+	HerdrPresence,
+	herdrPaneId,
+	herdrPresenceAvailable,
+	parsePeerName,
+	type HerdrAgentInfo,
+} from "../lib/herdr-presence.ts";
 import { join, resolve } from "path";
 import * as net from "node:net";
 import * as fs from "node:fs";
@@ -1665,6 +1674,12 @@ export default function (pi: ExtensionAPI) {
 	let server: net.Server | null = null;
 	let pingTimer: NodeJS.Timeout | null = null;
 	let keepaliveTimer: NodeJS.Timeout | null = null;
+	// herdr presence backend (active when this session runs inside a herdr
+	// pane and the server answers ping). The envelope transport and the file
+	// registry are untouched — herdr only replaces the presence/ping layer.
+	let herdrPresence: HerdrPresence | null = null;
+	let herdrWatch: HerdrAgentWatch | null = null;
+	let turnState: "idle" | "working" = "idle";
 	let includeExplicit = false;
 	let displayProject: string | null = null;
 	let currentCtx: ExtensionContext | null = null;
@@ -3859,6 +3874,51 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		);
 	}
 
+	// Join herdr's live pane states back to the coms registry: a herdr agent
+	// whose custom_status leads with a peer name maps to that peer's registry
+	// entry (which carries the full card the 32-char custom_status cannot).
+	// Pool-scope semantics are preserved — only entries from peersInScope()
+	// become cards; peers outside herdr panes stay visible as registry-only
+	// "pending" rows exactly like an unpinged peer in the files backend.
+	function herdrSyncPeerCards(agents: HerdrAgentInfo[]): void {
+		if (!identity) return;
+		const liveNames = new Set<string>();
+		for (const a of agents) {
+			const peerName = parsePeerName(a.custom_status as string | undefined);
+			if (peerName) liveNames.add(peerName);
+		}
+		let changed = false;
+		const liveSessions = new Set<string>();
+		for (const entry of peersInScope()) {
+			if (!liveNames.has(entry.name)) continue;
+			liveSessions.add(entry.session_id);
+			const next = {
+				name: entry.name,
+				purpose: entry.purpose,
+				model: entry.model,
+				color: entry.color,
+				context_used_pct: entry.context_used_pct ?? 0,
+				queue_depth: entry.queue_depth ?? 0,
+				staleCount: 0,
+			};
+			const prev = peerCards.get(entry.session_id);
+			if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
+				peerCards.set(entry.session_id, next);
+				changed = true;
+			}
+		}
+		for (const sid of [...peerCards.keys()]) {
+			if (sid === identity.session_id) continue;
+			if (!liveSessions.has(sid)) {
+				peerCards.delete(sid);
+				changed = true;
+			}
+		}
+		if (changed && currentCtx?.hasUI) {
+			installPoolWidget(currentCtx);
+		}
+	}
+
 	function resolveTarget(target: string): RegistryEntry | null {
 		// Scoped to the connected pool only (peersInScope): you can reach exactly the
 		// peers the widget shows. Match by name first (preferred, human-facing), then by
@@ -5671,8 +5731,30 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				displayProject = projectMatch[1];
 				try { ctx.ui.notify(`coms: displaying project ${displayProject}`, "info"); } catch { /* ignore */ }
 			}
-			await refreshPool();
+			if (herdrWatch) {
+				await herdrWatch.start(); // re-list + resubscribe + sync cards
+			} else {
+				await refreshPool();
+			}
 		},
+	});
+
+	// ━━ herdr presence: turn-state reporting ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// The herdr sidebar mirrors turn state (idle ↔ working) push-style;
+	// context % rides the keepalive refresh.
+	pi.on("before_agent_start", async () => {
+		turnState = "working";
+		if (herdrPresence && identity) {
+			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+			void herdrPresence.report("working", formatPeerStatus(identity.name, pct, inboundQueue.size));
+		}
+	});
+	pi.on("agent_end", async () => {
+		turnState = "idle";
+		if (herdrPresence && identity) {
+			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+			void herdrPresence.report("idle", formatPeerStatus(identity.name, pct, inboundQueue.size));
+		}
 	});
 
 	// /handoff <peer> — hand the session off to a coms peer. Per decision G1 we do NOT
@@ -6102,9 +6184,27 @@ ${researchCatalog}`;
 					installPoolWidget(_ctx);
 				} catch { /* hasUI may be false — non-fatal */ }
 
-				// Ping + keepalive cycles (unref'd so they never hold the process open).
-				pingTimer = setInterval(() => { refreshPool().catch(() => {}); }, PING_INTERVAL_MS);
-				try { (pingTimer as any).unref?.(); } catch { /* ignore */ }
+				// Presence backend: herdr (push events, no polling) when this
+				// session runs inside a herdr pane with a live server; the files
+				// ping loop otherwise. The registry keepalive runs in BOTH — it
+				// carries the full agent card (context %, queue depth) that
+				// herdr's 32-char custom_status cannot, and keeps us
+				// discoverable to peers running outside herdr panes.
+				const useHerdr = await herdrPresenceAvailable();
+				if (useHerdr) {
+					const paneId = herdrPaneId()!;
+					herdrPresence = new HerdrPresence({ paneId, source: `coms:${session_id}` });
+					void herdrPresence.report("idle", formatPeerStatus(name, 0, 0));
+					herdrWatch = new HerdrAgentWatch({
+						ownPaneId: paneId,
+						onChange: (agents) => herdrSyncPeerCards(agents),
+					});
+					void herdrWatch.start();
+					try { pi.appendEntry("coms-log", { event: "presence_backend", backend: "herdr", pane: paneId }); } catch { /* best-effort */ }
+				} else {
+					pingTimer = setInterval(() => { refreshPool().catch(() => {}); }, PING_INTERVAL_MS);
+					try { (pingTimer as any).unref?.(); } catch { /* ignore */ }
+				}
 				keepaliveTimer = setInterval(() => {
 					if (!identity) return;
 					try {
@@ -6115,10 +6215,17 @@ ${researchCatalog}`;
 							if (!fs.existsSync(identity.registryFile)) writeLiveRegistry();
 						}
 					} catch { /* best-effort */ }
+					// herdr backend: refresh our sidebar entry and re-join peer
+					// cards against the registry heartbeats just written.
+					if (herdrPresence && identity) {
+						const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+						void herdrPresence.report(turnState, formatPeerStatus(identity.name, pct, inboundQueue.size));
+					}
+					if (herdrWatch) herdrSyncPeerCards(herdrWatch.current());
 				}, KEEPALIVE_INTERVAL_MS);
 				try { (keepaliveTimer as any).unref?.(); } catch { /* ignore */ }
 
-				refreshPool().catch(() => {});
+				if (!useHerdr) refreshPool().catch(() => {});
 			} catch (err) {
 				comsReady = false;
 				try { _ctx.ui?.notify?.(`📡 coms: init failed — ${err instanceof Error ? err.message : String(err)} (coms tools disabled)`, "error"); } catch { /* ignore */ }
@@ -6453,6 +6560,8 @@ ${researchCatalog}`;
 		shuttingDown = true;
 		if (pingTimer) { try { clearInterval(pingTimer); } catch { /* ignore */ } pingTimer = null; }
 		if (keepaliveTimer) { try { clearInterval(keepaliveTimer); } catch { /* ignore */ } keepaliveTimer = null; }
+		if (herdrWatch) { try { herdrWatch.stop(); } catch { /* ignore */ } herdrWatch = null; }
+		if (herdrPresence) { try { void herdrPresence.release(); } catch { /* ignore */ } herdrPresence = null; }
 		if (server) {
 			try { server.close(); } catch { /* ignore */ }
 			server = null;

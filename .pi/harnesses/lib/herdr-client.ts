@@ -409,6 +409,23 @@ export const herdr = {
 		params: { pane_id: string; source: string; agent: string; seq?: number },
 		opts?: HerdrClientOptions,
 	) => request("pane.release_agent", params, opts),
+	// Metadata annotations for a pane whose agent authority is held by herdr's
+	// built-in detection (report_agent is silently ignored there — spike
+	// finding). custom_status set here shows in the sidebar; ttl_ms lets stale
+	// annotations expire if the reporter dies.
+	paneReportMetadata: (
+		params: {
+			pane_id: string;
+			source: string;
+			agent?: string;
+			custom_status?: string;
+			title?: string;
+			display_agent?: string;
+			ttl_ms?: number;
+			seq?: number;
+		},
+		opts?: HerdrClientOptions,
+	) => request("pane.report_metadata", params, opts),
 
 	tabClose: (tab_id: string, opts?: HerdrClientOptions) =>
 		request("tab.close", { tab_id }, opts),
