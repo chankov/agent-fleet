@@ -128,3 +128,15 @@ info:
     model: openai-codex/gpt-5.5
   - name: code-reviewer
     runner: claude-code
+
+review:
+  - name: plan-reviewer
+    runner: claude-code
+  - name: code-reviewer
+    runner: claude-code
+
+plan:
+  - name: planner
+    runner: claude-code
+  - name: code-reviewer
+    runner: claude-code    
