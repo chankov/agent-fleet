@@ -74,6 +74,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 - **Verification Contract** — `set_assertions` / `update_assertion` / `get_assertions`, driven by the [`orchestrator`](agents/orchestrator.md) persona per the [orchestration-verification](skills/orchestration-verification/SKILL.md) skill.
 - **Multi-model, multi-provider** — per-agent `model:` plus a `models:` switch list (`/agent-model <persona>`). Mix subscription and local models per role: cheap recon on a spark model, agentic work on a premium one.
 - **Peer-to-peer coms** — the dispatcher is itself a `coms` node: hand a session off to another main agent, or use a peer as a subagent.
+- **herdr fleet layer** — [herdr](https://herdr.dev) is the fleet control plane: `just team-up` / `just hub-team` boot whole peer teams as tiled herdr workspaces, coms presence rides herdr's push events (no ping loops), `just team-down` / `team-resume` snapshot and restore teams **with their conversations**, and inside a herdr pane the dispatcher gets fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) — all destructive fleet verbs are damage-control-blocked for specialists.
+- **Claude Code as a peer** — the [coms bridge](docs/claude-code-coms-bridge.md) makes an interactive Claude Code pane a first-class bidirectional coms peer: pi agents reach it via `coms_send`, and Claude Code asks pi peers questions mid-task via `coms-cli` (`runner: claude-code` in peers.yaml spawns Claude + bridge with one command).
 
 ![agent-hub compact view with the btw side-session](docs/assets/agent-hub-compact.png)
 
@@ -82,10 +84,16 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 ```bash
 just hub            # guarded dispatcher + research + coms + orchestrator persona
 just hub-solo       # same, without the coms layer
-just team-up full   # spawn addressable peers into a herdr workspace
+
+# fleet recipes (need a running herdr server — https://herdr.dev)
+just team-up full     # spawn addressable peers into a tiled herdr workspace
+just hub-team docs    # hub + a whole team in ONE workspace (hub in the main pane)
+just team-snapshot docs  # capture session refs while the team runs (crash insurance)
+just team-down docs      # snapshot + close the workspace cleanly
+just team-resume docs    # rebuild the grid; pi peers continue their conversations
 ```
 
-`just hub` stacks the `damage-control-continue` guardrail (blocked calls feed back so the dispatcher adapts and keeps going) before `agent-hub`, and re-loads the hard-stop `damage-control` variant into spawned specialists. See the [pi extension catalog](docs/pi-extensions.md) for every harness, its setup, and the selective-load model.
+`just hub` stacks the `damage-control-continue` guardrail (blocked calls feed back so the dispatcher adapts and keeps going) before `agent-hub`, and re-loads the hard-stop `damage-control` variant into spawned specialists. Fleet recipes refuse with an actionable message when no herdr server answers (`--dry-run` variants work without one). See the [pi extension catalog](docs/pi-extensions.md) for every harness, its setup, and the selective-load model.
 
 ---
 
@@ -192,9 +200,9 @@ The repo also ships selectable pi session *harnesses* — agent orchestration, s
 
 ---
 
-## All 28 Skills
+## All 29 Skills
 
-The commands above are the entry points. Under the hood, they activate these 28 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+The commands above are the entry points. Under the hood, they activate these 29 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
 
 ### Meta - Discover which skill applies
 
@@ -260,6 +268,7 @@ The commands above are the entry points. Under the hood, they activate these 28 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
 | [orchestration-verification](skills/orchestration-verification/SKILL.md) | The Verification Contract — dispatcher-owned acceptance assertions, a parity/touchpoint inventory for "behave like X" requests, structured upward returns with named evidence, and a requirement-regression reset | Orchestrating specialists through a dispatcher (the `agent-hub` harness / `orchestrator` persona), a "make X behave like existing Y" change, or a requirement that keeps coming back wrong |
+| [peer-coms](skills/peer-coms/SKILL.md) | Makes Claude Code a first-class peer in the local coms pool — discover pi colleagues with `coms-cli list`, ask/delegate with `send --await`, answer inbound peer questions, never drive panes itself | Claude Code runs in a bridged herdr pane (see the [coms bridge](docs/claude-code-coms-bridge.md)), or an inbound `[coms message from …]` arrives |
 
 This skill is the single canonical source for the four Verification-Contract artifacts. It is referenced — never restated — by the [`orchestrator`](agents/orchestrator.md) persona (which drives the [agent-hub harness](.pi/harnesses/agent-hub/), loaded by default via `just hub`), and conditionally by the [`builder`](agents/builder.md), [`test-engineer`](agents/test-engineer.md), and [`code-reviewer`](agents/code-reviewer.md) personas, whose structured returns report assertion status with evidence when the skill is installed.
 
@@ -334,6 +343,7 @@ Quick-reference material that skills pull in when needed:
 | [accessibility-checklist.md](references/accessibility-checklist.md) | Keyboard nav, screen readers, visual design, ARIA, testing tools |
 | [observability-checklist.md](references/observability-checklist.md) | On-call questions, structured logging, RED/USE metrics, tracing, symptom-based alerting, pre-launch gate |
 | [orchestration-patterns.md](references/orchestration-patterns.md) | Endorsed multi-persona orchestration patterns, anti-patterns, and the "personas don't invoke personas" rule |
+| [fleet-coordination-patterns.md](references/fleet-coordination-patterns.md) | Runtime coordination protocols between running agents: sentinels, push over polling, barriers, fan-out/fan-in digests, racing with cancellation |
 | [prompting-patterns.md](references/prompting-patterns.md) | Prompt-engineering best practices for authoring personas, commands, skills, pi harnesses, and rule files (Anthropic/OpenAI sourced) |
 
 ---
@@ -415,16 +425,20 @@ agent-skills/
 │   ├── observability-and-instrumentation/ # Ship
 │   ├── shipping-and-launch/           #   Ship
 │   ├── orchestration-verification/    #   Orchestrate
+│   ├── peer-coms/                     #   Orchestrate: Claude Code as a coms peer
 │   ├── designing-agents/              #   Meta: author skills/personas/harnesses
 │   ├── guided-workspace-setup/        #   Onboard
 │   └── using-agent-skills/            #   Meta: how to use this pack
 ├── agents/                            # 15 reusable agent personas
-├── references/                        # 8 supplementary checklists
-├── hooks/                             # Session lifecycle hooks
+├── references/                        # 9 supplementary checklists
+├── hooks/                             # Session lifecycle hooks + the coms Stop hook
+├── scripts/                           # Fleet tooling: team-up, hub-team, team-snapshot/resume,
+│                                      #   coms-cli, coms-claude-bridge (+ pure modules in scripts/lib/)
 ├── .claude/commands/                  # 12 Claude slash commands
 ├── .pi/prompts/                       # 7 pi prompt-template commands
 ├── .pi/harnesses/                     # Selectable pi session harnesses (agent-hub, coms, damage-control)
-└── docs/                              # Setup guides per tool
+│                                      #   + the shared herdr client/presence lib (.pi/harnesses/lib/)
+└── docs/                              # Setup guides per tool + the Claude Code coms bridge
 ```
 
 ---
