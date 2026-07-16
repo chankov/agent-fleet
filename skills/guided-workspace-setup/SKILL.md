@@ -196,7 +196,7 @@ For an already-configured workspace, an **unchecked installed item means *remove
 
 | Artifact | claude-code source | opencode source | pi source |
 |---|---|---|---|
-| Skills | `skills/<name>/SKILL.md` | `skills/<name>/SKILL.md` | `skills/<name>/SKILL.md` |
+| Skills | `skills/<name>/SKILL.md`, else `vendor/agent-skills-upstream/skills/<name>/SKILL.md` | `skills/<name>/SKILL.md`, else `vendor/agent-skills-upstream/skills/<name>/SKILL.md` | `skills/<name>/SKILL.md`, else `vendor/agent-skills-upstream/skills/<name>/SKILL.md` |
 | Personas | `agents/<name>.md` | `agents/<name>.md` | `agents/<name>.md` |
 | Commands / prompts | `.claude/commands/<name>.md` | `.opencode/commands/as-<name>.md` | `.pi/prompts/<name>.md` |
 | `/orchestrate` team config | `.claude/orchestrate-teams.yaml` | `.opencode/orchestrate-teams.yaml` | — |
@@ -208,7 +208,7 @@ If the per-agent source is missing, the row is **not shown** — never silently 
 
 Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **only when the agent is `pi`**.
 
-1. **Skills** *(`Group` column = lifecycle phase)* — one screen for all skills, ordered by phase:
+1. **Skills** *(`Group` column = lifecycle phase)* — one screen for all skills, ordered by phase. The catalogue spans **two skill roots**: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (see `docs/UPSTREAM-SKILLS.md`). When the same name exists in both, **the native `skills/` copy wins** and the vendored one is never offered as a separate row; names that exist only in the vendor root are offered from there. Record the resolved source root per skill in the install record so `doctor` and `update` know which copy (and which upstream commit) a workspace got:
    - *Define / Plan* — `spec-driven-development` ★, `planning-and-task-breakdown` ★, `idea-refine`
    - *Build* — `incremental-implementation` ★, `test-driven-development` ★, `context-engineering`, `source-driven-development`, `frontend-ui-engineering`, `api-and-interface-design`
    - *Verify* — `browser-testing-with-devtools`, `debugging-and-error-recovery` ★
@@ -290,7 +290,7 @@ When an external pi package is selected during clone/symlink or manual pi setup 
 
 **Removal scope — what "unchecked = remove" actually touches.** A target item is eligible for removal only when **both** are true:
 
-1. **It is part of the agent-skills inventory.** Its name matches an artifact shipped in the source repo's canonical trees (`skills/`, `agents/`, `.claude/commands/`, `.pi/prompts/`, `.pi/extensions/`, `.pi/harnesses/`, `.pi/skills/`, `references/`, `hooks/`). External pi packages are governed by the Group 7 ownership rule above. Other out-of-inventory items — user-authored skills, project-specific commands, custom personas, third-party plugins, external pi packages not managed by Group 7 (not setup-owned entries), unrelated dotfiles — are never proposed for removal even if they sit in the same directory.
+1. **It is part of the agent-skills inventory.** Its name matches an artifact shipped in the source repo's canonical trees (`skills/`, `vendor/agent-skills-upstream/skills/`, `agents/`, `.claude/commands/`, `.pi/prompts/`, `.pi/extensions/`, `.pi/harnesses/`, `.pi/skills/`, `references/`, `hooks/`). External pi packages are governed by the Group 7 ownership rule above. Other out-of-inventory items — user-authored skills, project-specific commands, custom personas, third-party plugins, external pi packages not managed by Group 7 (not setup-owned entries), unrelated dotfiles — are never proposed for removal even if they sit in the same directory.
 2. **It is recorded in this workspace's install record.** The `## install-status` section of `.ai/agent-skills-setup.md` lists it as previously installed by this skill, *or* it is a symlink whose target resolves into the agent-skills source root (which is unambiguously ours).
 
 If a candidate fails either test, list it once under a "Skipped — not owned by agent-skills" line in the Step 9 plan and leave it alone. Settings files (`.claude/settings.json`, `.opencode/config*`, env vars, MCP config) are touched **only** to remove agent-skills' own hook registrations — never other keys, never user env vars, never third-party MCP entries.

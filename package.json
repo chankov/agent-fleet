@@ -67,6 +67,7 @@
     "docs/opencode-setup.md",
     "docs/pi-setup.md",
     ".versions/",
+    "vendor/agent-skills-upstream/",
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
@@ -98,6 +99,7 @@
   "pi": {
     "skills": [
       "./skills",
+      "./vendor/agent-skills-upstream/skills",
       "./.pi/skills",
       "./node_modules/pi-ask-user/skills"
     ],

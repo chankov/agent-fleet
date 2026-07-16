@@ -268,13 +268,22 @@ function findReplacement({ brokenName, kind, sourceRoot }) {
   // Strip .md if present so we can compare bare names.
   const bare = brokenName.replace(/\.md$/, "");
 
+  // Skills resolve against both roots; the fleet-native tree shadows the
+  // vendored upstream import (see docs/UPSTREAM-SKILLS.md).
+  const skillRoots = ["skills", join("vendor", "agent-skills-upstream", "skills")];
+
   // First check the known-renames map.
   const renamed = PERSONA_RENAMES[bare];
   if (renamed) {
-    const candidate = kind === "skills"
-      ? join("skills", renamed, "SKILL.md")
-      : join("agents", `${renamed}.md`);
-    if (existsSync(join(sourceRoot, candidate))) return candidate;
+    if (kind === "skills") {
+      for (const root of skillRoots) {
+        const candidate = join(root, renamed, "SKILL.md");
+        if (existsSync(join(sourceRoot, candidate))) return candidate;
+      }
+    } else {
+      const candidate = join("agents", `${renamed}.md`);
+      if (existsSync(join(sourceRoot, candidate))) return candidate;
+    }
   }
 
   // Fall back: same name in the canonical source tree.
@@ -283,8 +292,10 @@ function findReplacement({ brokenName, kind, sourceRoot }) {
     if (existsSync(join(sourceRoot, candidate))) return candidate;
   }
   if (kind === "skills") {
-    const candidate = join("skills", bare, "SKILL.md");
-    if (existsSync(join(sourceRoot, candidate))) return candidate;
+    for (const root of skillRoots) {
+      const candidate = join(root, bare, "SKILL.md");
+      if (existsSync(join(sourceRoot, candidate))) return candidate;
+    }
   }
 
   return null;
