@@ -4,17 +4,19 @@
   stays out of the agent's working set.
 -->
 
-# How agent-skills compares
+# How agent-fleet compares
 
-People often ask how **agent-skills** relates to two other popular "skills for coding agents" collections: **Superpowers** (by Jesse Vincent / obra) and **Matt Pocock's skills**. All three are good, share a lot of DNA, and are worth learning from. This page is an honest map of how they're *shaped* differently so you can pick the one that fits how you work - or borrow from more than one.
+> This page compares the **skill-library layer** of Agent Fleet, which shares its lineage with [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (vendored here — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md)). The referenced head-to-head experiment was run against that shared skill library. Agent Fleet's orchestration layer (agent-hub, herdr, coms, Hermes) has no counterpart in the compared collections.
 
-> **TL;DR** - They optimize for different moments. **agent-skills** organizes the *whole product lifecycle* (Define → Plan → Build → Verify → Review → Ship) with review personas and anti-rationalization guards. **Superpowers** leans into *autonomous, reasoning-heavy* runs with subagents and worktree isolation. **Matt Pocock's skills** are a *sharp, personal Claude Code toolkit* distilled from one expert's daily workflow. None of them is "best" in the abstract - it depends on the work in front of you.
+People often ask how **agent-fleet** relates to two other popular "skills for coding agents" collections: **Superpowers** (by Jesse Vincent / obra) and **Matt Pocock's skills**. All three are good, share a lot of DNA, and are worth learning from. This page is an honest map of how they're *shaped* differently so you can pick the one that fits how you work - or borrow from more than one.
+
+> **TL;DR** - They optimize for different moments. **agent-fleet** organizes the *whole product lifecycle* (Define → Plan → Build → Verify → Review → Ship) with review personas and anti-rationalization guards. **Superpowers** leans into *autonomous, reasoning-heavy* runs with subagents and worktree isolation. **Matt Pocock's skills** are a *sharp, personal Claude Code toolkit* distilled from one expert's daily workflow. None of them is "best" in the abstract - it depends on the work in front of you.
 
 ---
 
 ## At a glance
 
-| | **agent-skills** | **Superpowers** | **Matt Pocock's skills** |
+| | **agent-fleet** | **Superpowers** | **Matt Pocock's skills** |
 |---|---|---|---|
 | **Core idea** | Encode the full senior-engineering lifecycle as skills | A complete development *methodology* built on composable skills | One expert's `.claude` workflow, open-sourced |
 | **Organizing principle** | SDLC **phases** (Define→Plan→Build→Verify→Review→Ship) with a meta-skill router | Disciplined execution loop (brainstorm → plan → execute) | A curated toolbox of focused commands |
@@ -40,12 +42,12 @@ Matt open-sourced the actual `.claude` directory he uses day to day - a tight se
 
 **Repo:** <https://github.com/mattpocock/skills> · related: <https://github.com/mattpocock/agent-rules-books>
 
-### agent-skills - this project
-agent-skills organizes the **entire product lifecycle** as skills, with a meta-skill (`using-agent-skills`) that routes a task to the right one. Every skill carries a **Common Rationalizations** table (the excuses an agent makes to skip a step, each rebutted) and **Red Flags**. Slash commands map one-to-one to lifecycle phases, and `/ship` fans out review **personas** - `code-reviewer`, `security-auditor`, `test-engineer`, `web-performance-auditor` - in parallel, then merges them into a go/no-go. It deliberately keeps a human checkpoint at each phase and runs across Claude Code, OpenCode, and pi. On pi it goes further: the `agent-hub` harness dispatches the full 15-persona roster as a coordinated multi-agent team under a Verification Contract, with companion harnesses for Pi-to-Pi messaging (`coms`) and safety auditing (`damage-control`).
+### agent-fleet - this project
+agent-fleet organizes the **entire product lifecycle** as skills, with a meta-skill (`using-agent-skills`) that routes a task to the right one. Every skill carries a **Common Rationalizations** table (the excuses an agent makes to skip a step, each rebutted) and **Red Flags**. Slash commands map one-to-one to lifecycle phases, and `/ship` fans out review **personas** - `code-reviewer`, `security-auditor`, `test-engineer`, `web-performance-auditor` - in parallel, then merges them into a go/no-go. It deliberately keeps a human checkpoint at each phase and runs across Claude Code, OpenCode, and pi. On pi it goes further: the `agent-hub` harness dispatches the full 15-persona roster as a coordinated multi-agent team under a Verification Contract, with companion harnesses for Pi-to-Pi messaging (`coms`) and safety auditing (`damage-control`).
 
 ---
 
-## A real head-to-head: Superpowers vs. agent-skills
+## A real head-to-head: Superpowers vs. agent-fleet
 
 Om Mishra ran a controlled experiment - same model (Sonnet 4.6), same repo, same prompt in Claude Code, only the skill framework changed - and wrote it up here:
 
@@ -53,7 +55,7 @@ Om Mishra ran a controlled experiment - same model (Sonnet 4.6), same repo, same
 
 His findings, summarized fairly:
 
-- **agent-skills** moved to code faster (~8 min vs ~12) and ran **more validation passes** (7 vs 5, including the full test suite). That broader validation caught a compatibility issue *outside* the immediate feature that the feature-specific tests missed. For that task, he gave the edge to agent-skills on **validation depth**.
+- **agent-fleet** moved to code faster (~8 min vs ~12) and ran **more validation passes** (7 vs 5, including the full test suite). That broader validation caught a compatibility issue *outside* the immediate feature that the feature-specific tests missed. For that task, he gave the edge to agent-fleet on **validation depth**.
 - **Superpowers** invested more **upfront architectural reasoning**, which he still prefers as his daily driver for evolving production systems and exploratory work where there's no established pattern to follow.
 - Token efficiency was effectively identical; both replanned once.
 
@@ -63,7 +65,7 @@ It's one developer's single-task experiment, not a benchmark - but it's a useful
 
 ## When to pick which
 
-- **Reach for agent-skills** when you want a **guided lifecycle** with a human checkpoint at each phase, parallel review/security/perf passes before merge, and coverage that extends past the build loop into security, performance, CI/CD, and launch. It runs on Claude Code, OpenCode, and pi — and on pi adds multi-agent orchestration via the `agent-hub` harness.
+- **Reach for agent-fleet** when you want a **guided lifecycle** with a human checkpoint at each phase, parallel review/security/perf passes before merge, and coverage that extends past the build loop into security, performance, CI/CD, and launch. It runs on Claude Code, OpenCode, and pi — and on pi adds multi-agent orchestration via the `agent-hub` harness.
 - **Reach for Superpowers** when you want to **hand off long, autonomous stretches** and come back to a reviewed result, or when the work is exploratory/architectural and benefits from heavier upfront reasoning and subagent isolation.
 - **Reach for Matt Pocock's skills** when you want a **sharp, low-ceremony daily toolkit** - especially the requirement-grilling and strict TDD loop - for a TypeScript-flavored Claude Code workflow.
 

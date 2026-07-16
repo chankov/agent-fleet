@@ -1,5 +1,5 @@
 ---
-"@chankov/agent-skills": patch
+"@chankov/agent-fleet": patch
 ---
 
 Polish the browser-persona division:

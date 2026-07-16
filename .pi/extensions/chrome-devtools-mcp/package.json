@@ -1,5 +1,5 @@
 {
-  "name": "agent-skills-pi-chrome-devtools-mcp",
+  "name": "agent-fleet-pi-chrome-devtools-mcp",
   "private": true,
   "type": "module",
   "main": "index.ts"

@@ -1,12 +1,12 @@
-# Agent Skills — Project Files
+# Agent Fleet — Project Files
 
-agent-skills keeps up to two small files in a project's `.ai/` directory. They
+agent-fleet keeps up to two small files in a project's `.ai/` directory. They
 have different readers and different lifetimes, so they are kept separate.
 
 | File | Read by | When |
 |------|---------|------|
-| `.ai/agent-skills-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `compound-learning` (the `rules:`/`docs:` keys of `## agent-hub`), `agent-hub` pi harness | Every run of those skills / every session start of the harness |
-| `.ai/agent-skills-setup.md` | `guided-workspace-setup` | Only when setup is run or re-run |
+| `.ai/agent-fleet-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `compound-learning` (the `rules:`/`docs:` keys of `## agent-hub`), `agent-hub` pi harness | Every run of those skills / every session start of the harness |
+| `.ai/agent-fleet-setup.md` | `guided-workspace-setup` | Only when setup is run or re-run |
 | `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
 
 The `.ai/stt.json` file is present only when the optional `pi-voice-stt` voice-dictation
@@ -17,7 +17,7 @@ live in a gitignored root `.env`. See [pi-voice-stt config](#ai-sttjson) below.
 Keep them split: the overrides file is loaded into context constantly, so it
 must stay minimal; the install record is consulted rarely, so it can be large.
 
-## The overrides file — `.ai/agent-skills-overrides.md`
+## The overrides file — `.ai/agent-fleet-overrides.md`
 
 Some skills and pi harnesses need facts specific to each project — where specs
 and plans are saved, how to start a dev server, whether the agent may create
@@ -25,7 +25,7 @@ branches, or which user-facing language a dispatcher should use. Each reader
 ships a sensible **default**; a project that needs something different declares
 it here, and the reader picks it up.
 
-- **Location:** `.ai/agent-skills-overrides.md` at the project root.
+- **Location:** `.ai/agent-fleet-overrides.md` at the project root.
 - **Format:** Markdown. One `## <section-name>` section per skill or harness reader, with terse
   `key: value` lines. Block values use the `key: |` multi-line form. No prose
   and no install detail — readers parse it by key and load it on every run/session start.
@@ -37,8 +37,8 @@ it here, and the reader picks it up.
 - If the file is absent, or a reader has no section in it, that reader uses its
   built-in default.
 - **Validation.** Because an unknown section or key silently falls back to the
-  default, typos are invisible at runtime. `agent-skills doctor` (and the
-  `/doctor-agent-skills` command) validates the file — unknown sections,
+  default, typos are invisible at runtime. `agent-fleet doctor` (and the
+  `/doctor-agent-fleet` command) validates the file — unknown sections,
   unknown keys in known sections, invalid values for the mechanically parsed
   `agent-hub` keys, missing `rules:` folders, and unset `## env` vars — as
   **advisory, warn-only findings**; it never edits the file.
@@ -140,8 +140,8 @@ can find out what's missing *before* a skill fails mid-run:
 required: APP_TEST_ADMIN_USER, APP_TEST_ADMIN_PASS, AZURE_SPEECH_KEY
 ```
 
-No skill or harness loads this section. Its only reader is `agent-skills doctor`
-(and `/doctor-agent-skills`), which warns when a declared name is neither set in
+No skill or harness loads this section. Its only reader is `agent-fleet doctor`
+(and `/doctor-agent-fleet`), which warns when a declared name is neither set in
 the environment nor declared in the workspace root `.env`.
 
 ### Per-peer env files (`env_file:` in peers.yaml)
@@ -155,7 +155,7 @@ otherwise, never mid-run), and its **values never appear in `--dry-run`
 output** — only the path. Keep these files gitignored exactly like the root
 `.env` this section describes.
 
-## The setup file — `.ai/agent-skills-setup.md`
+## The setup file — `.ai/agent-fleet-setup.md`
 
 The `guided-workspace-setup` skill writes this file to record what it installed
 into the project — which skills, commands, personas, and extensions, by what
@@ -164,7 +164,7 @@ artifacts without reinstalling everything. No other skill loads it.
 
 | Section | Meaning |
 |---------|---------|
-| `workspace-summary` | Workspace path, coding agent, **agent-skills version**, project shape, checks discovered |
+| `workspace-summary` | Workspace path, coding agent, **agent-fleet version**, project shape, checks discovered |
 | `install-status` | Installed artifacts, their targets, and the method (`copy` or `symlink`) |
 | `doctor-runs` | One line per doctor pass (preflight / postflight, repaired / deleted / skipped counts) |
 | `verification` | Checks confirming the install |
@@ -196,13 +196,13 @@ prompts for an explicit baseline.
 
 ### Pre-versioning workspaces
 
-A workspace whose `agent-skills-setup.md` predates the `version:` line is
+A workspace whose `agent-fleet-setup.md` predates the `version:` line is
 treated as "pre-versioning". On first re-run, `guided-workspace-setup` prompts
 for a clean baseline: either accept the installed artifacts as matching the
 current source (stamp the current version), or re-run the install from scratch.
 
 Commit this file if the team should share install state — keep paths relative
-so it stays portable. A self-referencing checkout (agent-skills itself) may
+so it stays portable. A self-referencing checkout (agent-fleet itself) may
 instead `.gitignore` it, since its recorded paths are local to one machine.
 
 ## The `/orchestrate` command and its team config
@@ -228,7 +228,7 @@ available). The reader differs by runtime: pi's harness parses its YAML, while
 | | Config file | Command |
 |---|---|---|
 | claude-code | `.claude/orchestrate-teams.yaml` | `/orchestrate` |
-| opencode | `.opencode/orchestrate-teams.yaml` | `/as-orchestrate` |
+| opencode | `.opencode/orchestrate-teams.yaml` | `/af-orchestrate` |
 | pi | `.pi/agents/teams.yaml` | via the `agent-hub` harness (no `/orchestrate`) |
 
 Switch teams at runtime with `/orchestrate <team> "<task>"` (parallel of pi's
@@ -248,13 +248,13 @@ they ship for opencode too.
 
 ## Templates
 
-### `.ai/agent-skills-overrides.md`
+### `.ai/agent-fleet-overrides.md`
 
 Copy this in and delete the sections you don't need — anything absent falls
 back to that reader's default.
 
 ```markdown
-# Agent Skills — Project Overrides
+# Agent Fleet — Project Overrides
 #
 # Each section is applied ON TOP of the skill's built-in defaults.
 # Keys not listed keep the default. Absent file/section → pure defaults.
@@ -292,17 +292,17 @@ rules: <repo-relative rule folder>[, <another folder>]
 docs: <repo-relative doc entry point>[, <another file or folder>]
 
 # Optional; names (never values) of env vars the sections above reference.
-# Only `agent-skills doctor` reads this — it warns when one is unset.
+# Only `agent-fleet doctor` reads this — it warns when one is unset.
 ## env
 required: <ENV_VAR_NAME>[, <ANOTHER_NAME>]
 ```
 
-### `.ai/agent-skills-setup.md`
+### `.ai/agent-fleet-setup.md`
 
 Written and maintained by `guided-workspace-setup`; shown here for reference.
 
 ```markdown
-# Agent Skills — Workspace Setup
+# Agent Fleet — Workspace Setup
 #
 # Maintained by the guided-workspace-setup skill.
 

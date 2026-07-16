@@ -1,12 +1,14 @@
-# agent-skills
+# agent-fleet
 
-This is the agent-skills project — a collection of production-grade engineering skills for AI coding agents.
+This is the Agent Fleet project — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of production-grade engineering skills for AI coding agents. Lifecycle skills are partly vendored from upstream addyosmani/agent-skills — see docs/UPSTREAM-SKILLS.md.
 
 ## Project Structure
 
 ```
-bin/          → npm CLI: cli.js (agent-skills entrypoint), lib/{doctor,detect-agent,transform-persona}.js, test/ (node --test), snapshot-version.js
-skills/       → Core skills (SKILL.md per directory)
+bin/          → npm CLI: cli.js (agent-fleet entrypoint), lib/{doctor,detect-agent,transform-persona}.js, test/ (node --test), snapshot-version.js
+skills/       → Agent Fleet-native + customized skills (SKILL.md per directory); shadows same-named vendored skills
+vendor/agent-skills-upstream/ → Pristine upstream skill import at a pinned SHA — NEVER edit in place; policy + update procedure in docs/UPSTREAM-SKILLS.md
+hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote conduction — see docs/coms-hermes-bridge.md
 agents/       → 13 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code/opencode get generated copies; bowser + orchestrator are pi-only)
 hooks/        → Session lifecycle hooks
 scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; scripts/lib/ pure fleet modules under node --test)
@@ -14,18 +16,17 @@ justfile      → Recipes to launch pi with each harness
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
 .github/workflows/release.yml → On merge to main: opens "Version Packages" PR or runs `changeset publish`
-.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /orchestrate, /compound, /code-simplify, /ship, /design-agent, /prime, /setup-agent-skills)
+.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /orchestrate, /compound, /code-simplify, /ship, /design-agent, /prime, /setup-agent-fleet)
 .claude/orchestrate-teams.yaml → named-team roster read by /orchestrate (mirrors .pi/agents/teams.yaml); companion installed with the command; opencode copy at .opencode/orchestrate-teams.yaml
-.opencode/commands/ → OpenCode slash commands, `as-` prefixed mirror of .claude/commands/ (includes as-orchestrate, as-compound) — keep in sync. /orchestrate and /compound ship for claude-code + opencode only; pi orchestrates via the agent-hub harness, which provides its own /compound command
+.opencode/commands/ → OpenCode slash commands, `af-` prefixed mirror of .claude/commands/ (includes af-orchestrate, af-compound) — keep in sync. /orchestrate and /compound ship for claude-code + opencode only; pi orchestrates via the agent-hub harness, which provides its own /compound command
 .pi/prompts/  → pi-native lifecycle prompt templates
-.pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, agent-skills-update-check, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op
+.pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, agent-fleet-update-check, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just hub` stacks damage-control-continue before agent-hub for the main agent; spawned specialists get hard-stop damage-control, research helpers get damage-control-continue)
 .pi/agents/   → pi YAML configs (teams, chains, peers, dispatch-policy) used by the orchestration harnesses; dispatch-policy.yaml routes dispatch_agent calls to same-name coms peers (e.g. the claude-code reviewers) with native fallback
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
 references/   → Supplementary checklists (testing, performance, security, accessibility, observability)
-docs/         → Setup guides, agent-skills-setup.md (per-project overrides + install-record convention), npm-install.md (CLI + versioning), claude-code-coms-bridge.md (Claude Code as a coms peer), plus pi-extensions.md and pi-specs/ for the pi extensions
-FORK.md       → Canonical record of how this fork differs from upstream addyosmani/agent-skills: fork-vs-upstream pitch, the added/dropped/adapted tables, the upstream-merge reconciliation playbook, and the decision log. UPDATE IT in any change that alters fork direction — especially after every upstream merge.
+docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS.md (vendoring policy — update it when touching vendor/ or shadowed skills), MIGRATION-agent-fleet.md (one-time split record), setup guides, agent-fleet-setup.md (per-project overrides + install-record convention), npm-install.md (CLI + versioning), claude-code-coms-bridge.md and coms-hermes-bridge.md (bridge references), plus pi-extensions.md and pi-specs/ for the pi extensions
 ```
 
 ## Skills by Phase
@@ -48,7 +49,7 @@ FORK.md       → Canonical record of how this fork differs from upstream addyos
 - Every skill has: Overview, When to Use, Process, Common Rationalizations, Red Flags, Verification
 - References are in `references/`, not inside skill directories
 - Supporting files only created when content exceeds 100 lines
-- Override readers ship built-in defaults but read per-project overrides from `.ai/agent-skills-overrides.md` in the *target* project — see `docs/agent-skills-setup.md`:
+- Override readers ship built-in defaults but read per-project overrides from `.ai/agent-fleet-overrides.md` in the *target* project — see `docs/agent-fleet-setup.md`:
   - Skills: `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`
   - pi harness: `agent-hub` via the `## agent-hub` section (legacy `## agent-team` still accepted)
   - pi extension: `pi-voice-stt` reads project-local `.ai/stt.json` (its own JSON config, not the overrides markdown) ahead of global `~/.pi/agent/stt.json`; guided setup writes it + the gitignored `.env` secrets

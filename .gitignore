@@ -3,7 +3,7 @@ node_modules/
 .env
 .env.*
 *.log
-agent-skills-*.tgz
+agent-fleet-*.tgz
 .changeset/.last-known-version
 .claude/.simplify-ignore-cache/
 docs/ideas/
@@ -16,8 +16,8 @@ docs/plans/
 .playwright-cli/
 tmp/
 .agents/skills
-.ai/agent-skills-setup.md
-.ai/agent-skills-overrides.md
+.ai/agent-fleet-setup.md
+.ai/agent-fleet-overrides.md
 .versions/
 .ai/commands/
 .ai/stt.json

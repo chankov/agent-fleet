@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents (Claude Code, OpenCode, pi) when
 
 ## Repository Overview
 
-A collection of skills for Claude.ai and Claude Code for senior software engineers. Skills are packaged instructions and scripts that extend Claude and your coding agents capabilities.
+Agent Fleet — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of lifecycle skills and agent personas for Claude Code, OpenCode, and pi. Skills live in two roots: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (native wins on name collisions — see `docs/UPSTREAM-SKILLS.md`).
 
 ## OpenCode Integration
 
@@ -42,17 +42,17 @@ The agent should internally follow this lifecycle and invoke the matching skill 
 
 This lifecycle is normally implicit — the agent maps user intent to the right skill without being asked.
 
-The repo also ships optional OpenCode slash commands in `.opencode/commands/` with an `as-` prefix as explicit lifecycle entry points:
+The repo also ships optional OpenCode slash commands in `.opencode/commands/` with an `af-` prefix as explicit lifecycle entry points:
 
-- `/as-spec` → `spec-driven-development`
-- `/as-plan` → `planning-and-task-breakdown`
-- `/as-build` → `incremental-implementation` + `test-driven-development`
-- `/as-test` → `test-driven-development`
-- `/as-review` → `code-review-and-quality`
-- `/as-code-simplify` → `code-simplification`
-- `/as-ship` → `shipping-and-launch`
-- `/as-design-agent` → `designing-agents`
-- `/as-setup-agent-skills` → `guided-workspace-setup`
+- `/af-spec` → `spec-driven-development`
+- `/af-plan` → `planning-and-task-breakdown`
+- `/af-build` → `incremental-implementation` + `test-driven-development`
+- `/af-test` → `test-driven-development`
+- `/af-review` → `code-review-and-quality`
+- `/af-code-simplify` → `code-simplification`
+- `/af-ship` → `shipping-and-launch`
+- `/af-design-agent` → `designing-agents`
+- `/af-setup-agent-fleet` → `guided-workspace-setup`
 
 Whether triggered implicitly or via an `as-*` command, the agent MUST invoke the underlying skill via the `skill` tool — never inline the steps.
 

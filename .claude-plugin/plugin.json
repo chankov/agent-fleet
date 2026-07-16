@@ -1,14 +1,14 @@
 {
-  "name": "agent-skills",
-  "description": "Production-grade engineering skills for AI coding agents — covering the full software development lifecycle from spec to ship.",
+  "name": "agent-fleet",
+  "description": "Agent Fleet — multi-agent orchestration for coding agents, plus production-grade lifecycle skills (native and vendored from addyosmani/agent-skills) covering spec to ship.",
   "author": {
     "name": "Nikolay Chankov"
   },
-  "homepage": "https://github.com/chankov/agent-skills",
-  "repository": "https://github.com/chankov/agent-skills",
+  "homepage": "https://github.com/chankov/agent-fleet",
+  "repository": "https://github.com/chankov/agent-fleet",
   "license": "MIT",
   "commands": ["./.claude/commands", "./commands"],
-  "skills": "./skills",
+  "skills": ["./skills", "./vendor/agent-skills-upstream/skills"],
   "agents": [
     "./agents/code-reviewer.md",
     "./agents/security-auditor.md",

@@ -1,5 +1,5 @@
 ---
-"@chankov/agent-skills": patch
+"@chankov/agent-fleet": patch
 ---
 
 Fix the `bowser` browser-automation persona/skill so it actually resolves and document its external CLI dependency.

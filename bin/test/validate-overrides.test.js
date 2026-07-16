@@ -14,7 +14,7 @@ import { runDoctor } from "../lib/doctor.js";
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function workspaceWith(overridesText, { extraFiles = {} } = {}) {
-  const ws = mkdtempSync(join(tmpdir(), "agent-skills-overrides-"));
+  const ws = mkdtempSync(join(tmpdir(), "agent-fleet-overrides-"));
   if (overridesText !== null) {
     mkdirSync(join(ws, ".ai"), { recursive: true });
     writeFileSync(join(ws, OVERRIDES_REL_PATH), overridesText);
@@ -51,7 +51,7 @@ test("absent file yields no findings", () => {
 });
 
 test("a canonical file matching the documented template is clean", () => {
-  const text = `# Agent Skills — Project Overrides
+  const text = `# Agent Fleet — Project Overrides
 #
 # Comment lines are ignored.
 

@@ -1,6 +1,6 @@
 # pi Setup
 
-This guide explains how to use Agent Skills with [pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) — the terminal coding agent from `pi-mono`. Unlike some harnesses, pi has a **native Agent Skills implementation**, so no prompt hacks are needed for skills: this repo drops in directly. Optional `pi-codex-image-gen` support is credited to <https://github.com/jvm/pi-mono>.
+This guide explains how to use Agent Fleet with [pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) — the terminal coding agent from `pi-mono`. Unlike some harnesses, pi has a **native Agent Fleet implementation**, so no prompt hacks are needed for skills: this repo drops in directly. Optional `pi-codex-image-gen` support is credited to <https://github.com/jvm/pi-mono>.
 
 This repo also ships pi-native **prompt templates** for the lifecycle slash commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`). These commands add workflow orchestration on top of the underlying skills.
 
@@ -25,7 +25,7 @@ This means you get near-parity with Claude Code:
 
 No plugin, wrapper, or custom system prompt is required for the core workflow.
 
-**Recommended companion packages:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-skills` as a pi package; clone/symlink setups should install it separately. `pi-codex-image-gen` is an optional suggested npm/pi extension for image generation; guided setup can offer it when package installation is available, but it is not bundled or required.
+**Recommended companion packages:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-fleet` as a pi package; clone/symlink setups should install it separately. `pi-codex-image-gen` is an optional suggested npm/pi extension for image generation; guided setup can offer it when package installation is available, but it is not bundled or required.
 
 ---
 
@@ -39,10 +39,10 @@ Install this package directly with pi:
 
 ```bash
 # Project-scoped (recommended for repositories)
-pi install -l npm:@chankov/agent-skills
+pi install -l npm:@chankov/agent-fleet
 
 # Or global, if you want it in every pi session
-pi install npm:@chankov/agent-skills
+pi install npm:@chankov/agent-fleet
 ```
 
 The npm pi package includes this repo's core skills, pi runtime skills, lifecycle prompts, and the bundled `pi-ask-user` package. That means `ask_user` and the `ask-user` skill are available from the same install; do not install `pi-ask-user` a second time unless you intentionally want a separate user/project package entry.
@@ -61,7 +61,7 @@ pi walks upward from the current working directory looking for project configura
 1. Clone the repository somewhere stable:
 
 ```bash
-git clone https://github.com/chankov/agent-skills.git /path/to/agent-skills
+git clone https://github.com/chankov/agent-fleet.git /path/to/agent-fleet
 ```
 
 2. From the project where you want to use the skills, symlink `skills/` into a pi-discoverable path:
@@ -69,14 +69,14 @@ git clone https://github.com/chankov/agent-skills.git /path/to/agent-skills
 ```bash
 cd /path/to/your-project
 mkdir -p .agents
-ln -s /path/to/agent-skills/skills .agents/skills
+ln -s /path/to/agent-fleet/skills .agents/skills
 ```
 
 3. From the same project, symlink the pi-native lifecycle commands into pi's prompt-template directory:
 
 ```bash
 mkdir -p .pi
-ln -s /path/to/agent-skills/.pi/prompts .pi/prompts
+ln -s /path/to/agent-fleet/.pi/prompts .pi/prompts
 ```
 
 This exposes:
@@ -94,13 +94,13 @@ This exposes:
 If `.pi/prompts` already exists as a real directory, keep it and symlink the individual command files instead:
 
 ```bash
-ln -s /path/to/agent-skills/.pi/prompts/spec.md .pi/prompts/spec.md
-ln -s /path/to/agent-skills/.pi/prompts/plan.md .pi/prompts/plan.md
-ln -s /path/to/agent-skills/.pi/prompts/build.md .pi/prompts/build.md
-ln -s /path/to/agent-skills/.pi/prompts/test.md .pi/prompts/test.md
-ln -s /path/to/agent-skills/.pi/prompts/review.md .pi/prompts/review.md
-ln -s /path/to/agent-skills/.pi/prompts/code-simplify.md .pi/prompts/code-simplify.md
-ln -s /path/to/agent-skills/.pi/prompts/ship.md .pi/prompts/ship.md
+ln -s /path/to/agent-fleet/.pi/prompts/spec.md .pi/prompts/spec.md
+ln -s /path/to/agent-fleet/.pi/prompts/plan.md .pi/prompts/plan.md
+ln -s /path/to/agent-fleet/.pi/prompts/build.md .pi/prompts/build.md
+ln -s /path/to/agent-fleet/.pi/prompts/test.md .pi/prompts/test.md
+ln -s /path/to/agent-fleet/.pi/prompts/review.md .pi/prompts/review.md
+ln -s /path/to/agent-fleet/.pi/prompts/code-simplify.md .pi/prompts/code-simplify.md
+ln -s /path/to/agent-fleet/.pi/prompts/ship.md .pi/prompts/ship.md
 ```
 
 4. Install the recommended `pi-ask-user` pi package separately (clone/symlink setup only):
@@ -113,7 +113,7 @@ pi install -l npm:pi-ask-user
 pi install npm:pi-ask-user
 ```
 
-Skip this step if `pi list` already shows `pi-ask-user`, or if you installed `@chankov/agent-skills` via `pi install npm:@chankov/agent-skills` (it bundles `pi-ask-user`). This companion is a pi package, not a file copied from this repo.
+Skip this step if `pi list` already shows `pi-ask-user`, or if you installed `@chankov/agent-fleet` via `pi install npm:@chankov/agent-fleet` (it bundles `pi-ask-user`). This companion is a pi package, not a file copied from this repo.
 
 Optional image generation: guided setup can offer `pi-codex-image-gen` as a suggested external pi package when package installation is available, or you can install it manually:
 
@@ -121,7 +121,7 @@ Optional image generation: guided setup can offer `pi-codex-image-gen` as a sugg
 pi install -l npm:pi-codex-image-gen
 ```
 
-This package is not bundled by `@chankov/agent-skills` and is not needed for minimal setup.
+This package is not bundled by `@chankov/agent-fleet` and is not needed for minimal setup.
 
 5. Verify pi can see everything:
 
@@ -129,7 +129,7 @@ This package is not bundled by `@chankov/agent-skills` and is not needed for min
 pi
 # then type:
 /skill:
-# pi should autocomplete the full list of agent-skills, plus ask-user if pi packages are enabled
+# pi should autocomplete the full list of agent-fleet, plus ask-user if pi packages are enabled
 
 # then type:
 /
@@ -147,24 +147,24 @@ The always-on utilities:
 - `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library consumed by wrapper extensions. Symlink it alongside wrappers so relative imports resolve; when pi discovers it directly, it intentionally registers no tools or commands by itself.
 - `chrome-devtools-mcp/` — bridges the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) server into pi as native tools, unlocking the `browser-testing-with-devtools` skill on pi.
 - `compact-and-continue/` — registers the `request_compaction` tool that queues pi context compaction to run after the current agent turn ends, optionally resuming work from a self-contained continuation prompt. Used by `/build` to offer a "Compact & continue" option at slice-approval time.
-- `agent-skills-update-check/` — surfaces an "update available" banner once per session when `@chankov/agent-skills` has a newer published version than the one recorded in `.ai/agent-skills-setup.md`. Never blocks startup (soft 3s check); honors `AGENT_SKILLS_NO_UPDATE_CHECK` / `NO_UPDATE_NOTIFIER` / `CI` opt-outs.
+- `agent-fleet-update-check/` — surfaces an "update available" banner once per session when `@chankov/agent-fleet` has a newer published version than the one recorded in `.ai/agent-fleet-setup.md`. Never blocks startup (soft 3s check); honors `AGENT_SKILLS_NO_UPDATE_CHECK` / `NO_UPDATE_NOTIFIER` / `CI` opt-outs.
 - `btw/` — adds the `/btw <task>` prompt command (and `Alt+'` shortcut): forks the current session into an in-process sub-session that inherits the full conversation as context, runs in the same cwd, and streams into a live modal with a follow-up composer. A compact result card lands in the main transcript at idle (kept out of the main agent's LLM context). See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
 
 To install, symlink the directories into your project's `.pi/extensions/`:
 
 ```bash
 mkdir -p .pi/extensions
-ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge                .pi/extensions/mcp-bridge
-ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp       .pi/extensions/chrome-devtools-mcp
-ln -s /path/to/agent-skills/.pi/extensions/compact-and-continue      .pi/extensions/compact-and-continue
-ln -s /path/to/agent-skills/.pi/extensions/agent-skills-update-check .pi/extensions/agent-skills-update-check
-ln -s /path/to/agent-skills/.pi/extensions/btw                       .pi/extensions/btw
+ln -s /path/to/agent-fleet/.pi/extensions/mcp-bridge                .pi/extensions/mcp-bridge
+ln -s /path/to/agent-fleet/.pi/extensions/chrome-devtools-mcp       .pi/extensions/chrome-devtools-mcp
+ln -s /path/to/agent-fleet/.pi/extensions/compact-and-continue      .pi/extensions/compact-and-continue
+ln -s /path/to/agent-fleet/.pi/extensions/agent-fleet-update-check .pi/extensions/agent-fleet-update-check
+ln -s /path/to/agent-fleet/.pi/extensions/btw                       .pi/extensions/btw
 ```
 
-Install the shared runtime dependencies used by the symlinked extensions once in the `agent-skills` clone:
+Install the shared runtime dependencies used by the symlinked extensions once in the `agent-fleet` clone:
 
 ```bash
-cd /path/to/agent-skills/.pi/extensions
+cd /path/to/agent-fleet/.pi/extensions
 npm ci
 # If this clone does not have package-lock.json yet, run: npm install
 ```
@@ -184,12 +184,12 @@ This repo ships **4 supported session harnesses** ported or consolidated from [d
 Unlike the utilities above, each harness reshapes the entire pi session, and most are loaded one per session rather than all at once. The supported stack is a damage-control variant before `agent-hub`, which the `just hub` recipes use by default — `damage-control-continue` for the main session, with the hub re-loading hard-stop `damage-control` into spawned specialists and `damage-control-continue` into research helpers. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all harnesses aborts startup (harnesses that register the same CLI flags clash). Load a harness recipe explicitly instead — there is nothing to symlink:
 
 ```bash
-# from the agent-skills clone, via the bundled justfile
+# from the agent-fleet clone, via the bundled justfile
 just --list                       # list every harness recipe
 just hub                          # launch the guarded consolidated multi-agent hub
 
 # or directly, from anywhere — point pi -e at the guarded harness stack
-pi -e /path/to/agent-skills/.pi/harnesses/damage-control-continue/index.ts -e /path/to/agent-skills/.pi/harnesses/agent-hub/index.ts
+pi -e /path/to/agent-fleet/.pi/harnesses/damage-control-continue/index.ts -e /path/to/agent-fleet/.pi/harnesses/agent-hub/index.ts
 ```
 
 The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. Install both at once with `just install` from the clone, or run `npm ci` in `.pi/harnesses/` as well. The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `chrome-devtools-mcp`), and what changed from upstream.
@@ -200,16 +200,16 @@ Each extension — utility or harness — has its own `README.md` describing wha
 
 ### Keeping skills up to date
 
-Because `.agents/skills`, `.pi/prompts`, and `.pi/extensions` are symlinks into the cloned `agent-skills` repo, running `git pull` in that clone updates every skill, lifecycle command, and extension in place — no re-copy required.
+Because `.agents/skills`, `.pi/prompts`, and `.pi/extensions` are symlinks into the cloned `agent-fleet` repo, running `git pull` in that clone updates every skill, lifecycle command, and extension in place — no re-copy required.
 
 ### Alternative scopes
 
 - **Global install** — symlink skills into `~/.pi/agent/skills/` and prompts into `~/.pi/agent/prompts/` to make them available in every pi session on the machine, regardless of cwd. You may also symlink `AGENTS.md` into `~/.pi/agent/AGENTS.md` for global workflow context.
-- **Copy instead of symlink** — use `cp -R /path/to/agent-skills/skills .agents/skills` and `cp -R /path/to/agent-skills/.pi/prompts .pi/prompts` if you're on a platform where symlinks are awkward (e.g. plain Windows without developer mode). You'll need to re-copy after updates.
+- **Copy instead of symlink** — use `cp -R /path/to/agent-fleet/skills .agents/skills` and `cp -R /path/to/agent-fleet/.pi/prompts .pi/prompts` if you're on a platform where symlinks are awkward (e.g. plain Windows without developer mode). You'll need to re-copy after updates.
 
 ### Recommended companion packages
 
-If you use clone/symlink setup, install `pi-ask-user` with `pi install -l npm:pi-ask-user` unless `pi list` already shows it. If you installed `@chankov/agent-skills` as a pi package, `pi-ask-user` is already bundled and exposed by this package. In both cases, pi discovers its bundled `ask-user` skill from a pi package, not from vendored files in this repo. This is a strong complement to `agent-skills` because it gives the agent a structured way to stop and ask for an explicit decision before:
+If you use clone/symlink setup, install `pi-ask-user` with `pi install -l npm:pi-ask-user` unless `pi list` already shows it. If you installed `@chankov/agent-fleet` as a pi package, `pi-ask-user` is already bundled and exposed by this package. In both cases, pi discovers its bundled `ask-user` skill from a pi package, not from vendored files in this repo. This is a strong complement to `agent-fleet` because it gives the agent a structured way to stop and ask for an explicit decision before:
 
 - architectural or API trade-offs
 - destructive or costly-to-reverse changes
@@ -218,7 +218,7 @@ If you use clone/symlink setup, install `pi-ask-user` with `pi install -l npm:pi
 
 That matches the repo's current pi setup, where `ask-user` is available as a recommended decision-gating skill.
 
-`pi-codex-image-gen` is a separate optional suggested npm/pi extension for image-generation tasks. It is not shipped, bundled, or required by `@chankov/agent-skills`; choose it during guided setup's External pi packages group (when package installation is available), or install it manually:
+`pi-codex-image-gen` is a separate optional suggested npm/pi extension for image-generation tasks. It is not shipped, bundled, or required by `@chankov/agent-fleet`; choose it during guided setup's External pi packages group (when package installation is available), or install it manually:
 
 ```bash
 pi install -l npm:pi-codex-image-gen
@@ -391,7 +391,7 @@ If lifecycle command autocomplete is empty, check that `.pi/prompts` points to a
 If extension loading reports `Cannot find module '@modelcontextprotocol/sdk/client/index.js'`, the extension runtime dependencies are not installed. Run:
 
 ```bash
-cd /path/to/agent-skills/.pi/extensions
+cd /path/to/agent-fleet/.pi/extensions
 npm ci
 ```
 
@@ -442,11 +442,11 @@ Or invoke individual skills directly when you want precise control:
 
 ## Summary
 
-pi integration works by leveraging pi's **native** Agent Skills and prompt-template support:
+pi integration works by leveraging pi's **native** Agent Fleet and prompt-template support:
 
 - Symlink `skills/` into `.agents/skills/`
 - Symlink `.pi/prompts/` into the target project's `.pi/prompts/`
-- Install `@chankov/agent-skills` as a pi package for bundled `ask_user`, or install `pi-ask-user` separately for clone/symlink setup
+- Install `@chankov/agent-fleet` as a pi package for bundled `ask_user`, or install `pi-ask-user` separately for clone/symlink setup
 - Let pi auto-load `AGENTS.md` from the repo root
 - Use `/skill:<name>`, lifecycle commands like `/spec`, or natural language to trigger workflows
 

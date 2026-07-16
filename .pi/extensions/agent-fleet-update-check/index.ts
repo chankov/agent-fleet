@@ -1,11 +1,11 @@
-// agent-skills-update-check — pi extension that surfaces an "update available"
-// banner once per session when @chankov/agent-skills has a newer published
-// version than the one recorded in .ai/agent-skills-setup.md.
+// agent-fleet-update-check — pi extension that surfaces an "update available"
+// banner once per session when @chankov/agent-fleet has a newer published
+// version than the one recorded in .ai/agent-fleet-setup.md.
 //
 // Design constraints:
 //   - Never blocks pi startup. The check runs once on the first agent_start
 //     event with a soft 3s timeout.
-//   - Shares the same XDG cache file as the CLI (~/.cache/agent-skills/
+//   - Shares the same XDG cache file as the CLI (~/.cache/agent-fleet/
 //     latest-version.json) so the CLI and pi don't double-fetch.
 //   - Honors AGENT_SKILLS_NO_UPDATE_CHECK / NO_UPDATE_NOTIFIER / CI opt-outs.
 //   - Network errors, missing record files, and missing node-fetch all fall
@@ -17,14 +17,14 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { request } from 'node:https';
 
-const PACKAGE_NAME = '@chankov/agent-skills';
+const PACKAGE_NAME = '@chankov/agent-fleet';
 const REGISTRY = 'https://registry.npmjs.org';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 3000;
 
 const CACHE_DIR = join(
 	process.env.XDG_CACHE_HOME || join(homedir(), '.cache'),
-	'agent-skills',
+	'agent-fleet',
 );
 const CACHE_FILE = join(CACHE_DIR, 'latest-version.json');
 
@@ -64,7 +64,7 @@ async function runCheck(ctx: ExtensionContext): Promise<void> {
 	if (!isGreater(latest, recorded)) return;
 
 	ctx.ui.notify(
-		`agent-skills update available: ${recorded} → ${latest}. ` +
+		`agent-fleet update available: ${recorded} → ${latest}. ` +
 		`Run "npx ${PACKAGE_NAME}@latest update" then /setup to apply.`,
 		'info',
 	);
@@ -80,7 +80,7 @@ function isDisabled(): boolean {
 
 function readRecordedVersion(): string | null {
 	// pi runs from the workspace root; the install record lives at .ai/...
-	const recordPath = join(process.cwd(), '.ai', 'agent-skills-setup.md');
+	const recordPath = join(process.cwd(), '.ai', 'agent-fleet-setup.md');
 	if (!existsSync(recordPath)) return null;
 	try {
 		const text = readFileSync(recordPath, 'utf8');

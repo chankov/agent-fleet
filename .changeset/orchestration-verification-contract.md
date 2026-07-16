@@ -1,5 +1,5 @@
 ---
-"@chankov/agent-skills": major
+"@chankov/agent-fleet": major
 ---
 
 Add the **Verification Contract** to the agent-hub orchestration flow, so a clearly stated requirement (e.g. "Retired/Disqualified behave like Walkover") cannot be silently dropped across a multi-agent run. The dispatcher now owns checkable acceptance assertions and refuses "done" until each is proven with evidence.

@@ -2,7 +2,7 @@
 description: Design and write a new agent persona (agents/), workflow skill (skills/), or pi harness (.pi/harnesses/)
 ---
 
-Invoke the agent-skills:designing-agents skill.
+Invoke the agent-fleet:designing-agents skill.
 
 Begin by understanding what the user wants to author:
 1. Is this a **persona** (a role/lens the agent adopts, e.g. a reviewer or auditor), a **skill** (a repeatable workflow with gated steps and verification), or a **pi harness** (a TypeScript pi extension that reshapes the session — footer, tool-call gate, new command, or orchestrator)?

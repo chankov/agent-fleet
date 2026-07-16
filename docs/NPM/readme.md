@@ -1,6 +1,6 @@
 # Manual npm publish — patch-only releases
 
-Manual runbook for publishing `@chankov/agent-skills` to npm with a **revision
+Manual runbook for publishing `@chankov/agent-fleet` to npm with a **revision
 (patch) bump only** (e.g. `1.0.1 → 1.0.2`). Run from the repo root on a clean
 `main`.
 
@@ -99,9 +99,9 @@ npm publish --access public --tag latest
 ## 10. Verify the registry & push
 
 ```sh
-npm view @chankov/agent-skills version      # should equal $VER
+npm view @chankov/agent-fleet version      # should equal $VER
 git push && git push --tags
 ```
 
 ------------
-  npx @chankov/agent-skills@latest update --agent pi
+  npx @chankov/agent-fleet@latest update --agent pi

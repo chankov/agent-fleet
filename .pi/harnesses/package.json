@@ -1,5 +1,5 @@
 {
-  "name": "agent-skills-pi-harnesses-runtime-deps",
+  "name": "agent-fleet-pi-harnesses-runtime-deps",
   "private": true,
   "type": "module",
   "dependencies": {

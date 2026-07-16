@@ -1,6 +1,6 @@
 # OpenCode Setup
 
-This guide explains how to use Agent Skills with OpenCode in a way that closely mirrors the Claude Code experience (automatic skill selection, lifecycle-driven workflows, and strict process enforcement).
+This guide explains how to use Agent Fleet with OpenCode in a way that closely mirrors the Claude Code experience (automatic skill selection, lifecycle-driven workflows, and strict process enforcement).
 
 ## Overview
 
@@ -30,7 +30,7 @@ This more closely matches how Claude Code behaves in practice, while still allow
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/chankov/agent-skills.git
+git clone https://github.com/chankov/agent-fleet.git
 ```
 
 2. Install the global OpenCode configuration.
@@ -38,15 +38,15 @@ git clone https://github.com/chankov/agent-skills.git
 Set `AGENT_SKILLS_DIR` to wherever you cloned the repo (used in the snippets below):
 
 ```bash
-export AGENT_SKILLS_DIR="/path/to/agent-skills"
+export AGENT_SKILLS_DIR="/path/to/agent-fleet"
 ```
 
-Add the repo's `AGENTS.md` to your global `~/.config/opencode/opencode.json` instructions list (replace `/path/to/agent-skills` with the absolute path on your machine — `~` is not expanded inside JSON):
+Add the repo's `AGENTS.md` to your global `~/.config/opencode/opencode.json` instructions list (replace `/path/to/agent-fleet` with the absolute path on your machine — `~` is not expanded inside JSON):
 
 ```json
 {
   "instructions": [
-    "/path/to/agent-skills/AGENTS.md"
+    "/path/to/agent-fleet/AGENTS.md"
   ],
   "permission": {
     "skill": {
@@ -78,7 +78,7 @@ done
 
 4. Open any project in OpenCode.
 
-5. The following Agent Skills assets are now available globally:
+5. The following Agent Fleet assets are now available globally:
 
 - `AGENTS.md` instructions from the repo root
 - All skills from `skills/`
@@ -86,21 +86,21 @@ done
 
 ### Optional Slash Commands
 
-This repo ships OpenCode-native commands with an `as-` prefix so they are easy to distinguish from other commands:
+This repo ships OpenCode-native commands with an `af-` prefix so they are easy to distinguish from other commands:
 
-- `/as-spec`
-- `/as-plan`
-- `/as-build`
-- `/as-test`
-- `/as-review`
-- `/as-code-simplify`
-- `/as-ship`
-- `/as-webperf`
-- `/as-design-agent`
-- `/as-orchestrate`
-- `/as-prime`
-- `/as-setup-agent-skills`
-- `/as-doctor-agent-skills`
+- `/af-spec`
+- `/af-plan`
+- `/af-build`
+- `/af-test`
+- `/af-review`
+- `/af-code-simplify`
+- `/af-ship`
+- `/af-webperf`
+- `/af-design-agent`
+- `/af-orchestrate`
+- `/af-prime`
+- `/af-setup-agent-fleet`
+- `/af-doctor-agent-fleet`
 
 These commands are optional shortcuts. The agent can still invoke the correct skills automatically from plain natural-language requests.
 
@@ -141,17 +141,17 @@ The development lifecycle is encoded implicitly via `AGENTS.md` and is also expo
 
 | Lifecycle phase | Claude Code command | OpenCode command   | Underlying skill(s)                                           |
 | --------------- | ------------------- | ------------------ | ------------------------------------------------------------- |
-| DEFINE          | `/spec`             | `/as-spec`         | `spec-driven-development`                                     |
-| PLAN            | `/plan`             | `/as-plan`         | `planning-and-task-breakdown`                                 |
-| BUILD           | `/build`            | `/as-build`        | `incremental-implementation` + `test-driven-development`      |
-| TEST            | `/test`             | `/as-test`         | `test-driven-development`                                     |
+| DEFINE          | `/spec`             | `/af-spec`         | `spec-driven-development`                                     |
+| PLAN            | `/plan`             | `/af-plan`         | `planning-and-task-breakdown`                                 |
+| BUILD           | `/build`            | `/af-build`        | `incremental-implementation` + `test-driven-development`      |
+| TEST            | `/test`             | `/af-test`         | `test-driven-development`                                     |
 | VERIFY          | —                   | —                  | `debugging-and-error-recovery` (implicit on failure)          |
-| REVIEW          | `/review`           | `/as-review`       | `code-review-and-quality`                                     |
-| SIMPLIFY        | `/code-simplify`    | `/as-code-simplify`| `code-simplification`                                         |
-| SHIP            | `/ship`             | `/as-ship`         | `shipping-and-launch`                                         |
-| WEBPERF         | `/webperf`          | `/as-webperf`      | `web-performance-auditor` persona (`performance-optimization`) |
-| AUTHOR          | `/design-agent`     | `/as-design-agent` | `designing-agents`                                            |
-| ORCHESTRATE     | `/orchestrate`      | `/as-orchestrate`  | `orchestration-verification`                                  |
+| REVIEW          | `/review`           | `/af-review`       | `code-review-and-quality`                                     |
+| SIMPLIFY        | `/code-simplify`    | `/af-code-simplify`| `code-simplification`                                         |
+| SHIP            | `/ship`             | `/af-ship`         | `shipping-and-launch`                                         |
+| WEBPERF         | `/webperf`          | `/af-webperf`      | `web-performance-auditor` persona (`performance-optimization`) |
+| AUTHOR          | `/design-agent`     | `/af-design-agent` | `designing-agents`                                            |
+| ORCHESTRATE     | `/orchestrate`      | `/af-orchestrate`  | `orchestration-verification`                                  |
 
 ---
 
@@ -232,7 +232,7 @@ Just use natural language:
 
 The agent will automatically select and execute the correct skills.
 
-If you prefer explicit entry points, use the shipped slash commands such as `/as-spec`, `/as-plan`, or `/as-review`.
+If you prefer explicit entry points, use the shipped slash commands such as `/af-spec`, `/af-plan`, or `/af-review`.
 
 ---
 
@@ -243,6 +243,6 @@ OpenCode integration works by combining:
 - Structured skills (this repo)
 - Strong agent rules (`AGENTS.md`)
 - Automatic skill invocation via reasoning
-- Optional `as-` prefixed slash commands for explicit lifecycle entry points
+- Optional `af-` prefixed slash commands for explicit lifecycle entry points
 
 This results in a **production-grade engineering workflow** that works both as an agent-driven system and as an explicit command-driven workflow.

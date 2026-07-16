@@ -18,7 +18,7 @@
 #             into the peer's pane env by herdr before the command runs. Must exist
 #             at spawn or team-up refuses. Values are redacted in --dry-run output.
 #             Pair with the gitignored `.env` convention from guided setup
-#             (docs/agent-skills-setup.md).
+#             (docs/agent-fleet-setup.md).
 #   runner  — optional; "claude-code" spawns interactive Claude Code + its coms
 #             bridge in the pane instead of a pi peer (persona not required;
 #             model maps to `claude --model`). Example:

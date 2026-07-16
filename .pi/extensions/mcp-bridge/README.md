@@ -43,4 +43,4 @@ pi does not yet have first-class MCP support. This bridge is a **stopgap**: it l
 
 ## Dependencies
 
-Runtime dependencies (`@modelcontextprotocol/sdk`, `typebox`) are declared once at `.pi/extensions/package.json` and installed via `npm ci` in the cloned `agent-skills` repo. Wrapper extensions resolve them from the hoisted `node_modules/` — no per-wrapper install required. `@mariozechner/pi-coding-agent` is supplied by the pi runtime that loads the extension.
+Runtime dependencies (`@modelcontextprotocol/sdk`, `typebox`) are declared once at `.pi/extensions/package.json` and installed via `npm ci` in the cloned `agent-fleet` repo. Wrapper extensions resolve them from the hoisted `node_modules/` — no per-wrapper install required. `@mariozechner/pi-coding-agent` is supplied by the pi runtime that loads the extension.

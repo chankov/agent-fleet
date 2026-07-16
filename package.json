@@ -1,33 +1,37 @@
 {
-  "name": "@chankov/agent-skills",
+  "name": "@chankov/agent-fleet",
   "version": "1.0.8",
-  "description": "Production-grade engineering skills for AI coding agents. Ships skills, agent personas, slash commands, and pi extensions, with a thin CLI that hands off to the LLM-driven guided setup.",
+  "description": "Multi-agent fleet orchestration for coding agents. Pi as the primary runtime, Herdr as the workspace control plane, coms as the peer data plane, and Hermes for remote control — plus skills, personas, harnesses, and a guided setup CLI.",
   "keywords": [
     "ai",
     "agent",
+    "multi-agent",
+    "orchestration",
+    "fleet",
     "claude",
     "claude-code",
     "opencode",
     "pi",
     "pi-package",
     "skills",
-    "agent-skills",
+    "agent-fleet",
+    "herdr",
     "llm",
     "coding-agent"
   ],
-  "homepage": "https://github.com/chankov/agent-skills",
+  "homepage": "https://github.com/chankov/agent-fleet",
   "bugs": {
-    "url": "https://github.com/chankov/agent-skills/issues"
+    "url": "https://github.com/chankov/agent-fleet/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/chankov/agent-skills.git"
+    "url": "git+https://github.com/chankov/agent-fleet.git"
   },
   "license": "MIT",
   "author": "Nikolay Chankov",
   "type": "module",
   "bin": {
-    "agent-skills": "./bin/cli.js"
+    "agent-fleet": "./bin/cli.js"
   },
   "files": [
     "bin/",
@@ -58,7 +62,7 @@
     "justfile",
     "references/",
     "hooks/",
-    "docs/agent-skills-setup.md",
+    "docs/agent-fleet-setup.md",
     "docs/claude-code-coms-bridge.md",
     "docs/pi-extensions.md",
     "docs/npm-install.md",

@@ -1,5 +1,5 @@
 #!/bin/bash
-# agent-skills session start hook (Claude Code).
+# agent-fleet session start hook (Claude Code).
 #
 # Two responsibilities:
 #   1. Inject the using-agent-skills meta-skill into the session context so
@@ -21,11 +21,11 @@ CHECK_SCRIPT="$PACKAGE_ROOT/bin/cli.js"
 if [ -f "$META_SKILL" ]; then
   META_CONTENT=$(cat "$META_SKILL")
   PRIORITY="IMPORTANT"
-  BASE_MESSAGE="agent-skills loaded. Use the skill discovery flowchart to find the right skill for your task."
+  BASE_MESSAGE="agent-fleet loaded. Use the skill discovery flowchart to find the right skill for your task."
 else
   META_CONTENT=""
   PRIORITY="INFO"
-  BASE_MESSAGE="agent-skills: using-agent-skills meta-skill not found. Skills may still be available individually."
+  BASE_MESSAGE="agent-fleet: using-agent-skills meta-skill not found. Skills may still be available individually."
 fi
 
 # ── 2. Update banner (silent on any error) ───────────────────────────────

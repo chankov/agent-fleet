@@ -1,4 +1,4 @@
-// Agent detection — used by `agent-skills init` to pick a sensible default
+// Agent detection — used by `agent-fleet init` to pick a sensible default
 // for the coding agent. The user can always override with --agent.
 
 import { existsSync } from "node:fs";

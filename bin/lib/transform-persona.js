@@ -11,7 +11,7 @@
 //   opencode    → .opencode/agent/<name>.md  (mode: subagent + tool denials)
 //   pi          → agents/<name>.md           (byte-identical passthrough)
 //
-// Used by the `agent-skills transform-persona` CLI subcommand, which the
+// Used by the `agent-fleet transform-persona` CLI subcommand, which the
 // guided-workspace-setup skill calls during apply. Deterministic on purpose:
 // the mapping lives here, in one place, under test — never in skill prose.
 
@@ -56,7 +56,7 @@ export function targetRelPath(agent, name) {
 /**
  * List the personas available for a target agent (availability matrix).
  *
- * @param {string} sourceRoot agent-skills source root (absolute path)
+ * @param {string} sourceRoot agent-fleet source root (absolute path)
  * @param {object} opts
  * @param {string} opts.agent  one of TRANSFORM_AGENTS
  * @returns {Array<{name: string, sourcePath: string, targetRelPath: string}>}

@@ -38,7 +38,7 @@ You are an experienced Staff Engineer conducting a thorough code review. Your ro
 
 Before reviewing, resolve the project's own rules and docs:
 
-1. Read `.ai/agent-skills-overrides.md` if it exists; in its `## agent-hub`
+1. Read `.ai/agent-fleet-overrides.md` if it exists; in its `## agent-hub`
    (legacy `## agent-team`) section look for a `rules:` entry — a
    comma-separated list of repo-relative folders — and a `docs:` entry — a
    comma-separated list of repo-relative documentation entry points (files or

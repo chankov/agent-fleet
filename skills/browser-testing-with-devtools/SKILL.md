@@ -27,7 +27,7 @@ Use Chrome DevTools MCP to give your agent eyes into the browser. This bridges t
 
 Browser testing needs project-specific facts that have no universal default: how to start the local dev server, the base URL, and how to authenticate — including which account reaches the screen under test.
 
-Before navigating, read the `## browser-testing-with-devtools` section of the project's `.ai/agent-skills-overrides.md`:
+Before navigating, read the `## browser-testing-with-devtools` section of the project's `.ai/agent-fleet-overrides.md`:
 
 | Key | Purpose |
 |-----|---------|
@@ -42,7 +42,7 @@ If the file or section is missing, **ask the user** for the dev-server command, 
 
 **Credentials stay in the environment.** The overrides file names environment variables (e.g. `APP_TEST_ADMIN_USER`); the real values live in a gitignored `.env`. Never write passwords into the overrides file or any committed file. This is consistent with the JavaScript Execution Constraints below — credential material is never read from the browser or copied elsewhere.
 
-See [docs/agent-skills-setup.md](../../docs/agent-skills-setup.md) for the file format.
+See [docs/agent-fleet-setup.md](../../docs/agent-fleet-setup.md) for the file format.
 
 ## Setting Up Chrome DevTools MCP
 
@@ -71,8 +71,8 @@ pi does not natively consume MCP servers. This repo ships a pi extension that br
 
 ```bash
 mkdir -p .pi/extensions
-ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
-ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
+ln -s /path/to/agent-fleet/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
+ln -s /path/to/agent-fleet/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
 ```
 
 After install, run `/chrome_devtools-status` inside pi to confirm the bridge connected.

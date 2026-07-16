@@ -29,7 +29,7 @@ The canonical usage point in this repo is `/build`: at slice-approval time, the 
 Symlink alongside the other extensions (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)):
 
 ```bash
-ln -s /path/to/agent-skills/.pi/extensions/compact-and-continue .pi/extensions/compact-and-continue
+ln -s /path/to/agent-fleet/.pi/extensions/compact-and-continue .pi/extensions/compact-and-continue
 ```
 
 The only runtime dep (`typebox`) is already hoisted at `.pi/extensions/package.json` for the other extensions, so no extra `npm ci` is needed if you've already installed.

@@ -79,7 +79,7 @@ Auto-discovered like the other always-on utilities — drop or symlink it under
 `.pi/extensions/` (see [docs/pi-setup.md](../../../docs/pi-setup.md)):
 
 ```bash
-ln -s /path/to/agent-skills/.pi/extensions/btw .pi/extensions/btw
+ln -s /path/to/agent-fleet/.pi/extensions/btw .pi/extensions/btw
 ```
 
 No extra dependencies — the extension uses only Node built-ins and the pi runtime

@@ -48,8 +48,8 @@ key is read from the process environment — a gitignored `.env` at the repo roo
 the `justfile`'s `dotenv-load`. See [`examples/stt.json`](examples/stt.json).
 
 > **Guided setup** can write the `.ai/stt.json` + `.env` for you — pick `pi-voice-stt` in
-> `/setup-agent-skills` and answer the provider prompts. See
-> [docs/agent-skills-setup.md](../../../docs/agent-skills-setup.md).
+> `/setup-agent-fleet` and answer the provider prompts. See
+> [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md).
 
 ### Option 1 — Generic OpenAI-compatible endpoint
 

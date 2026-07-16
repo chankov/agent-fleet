@@ -27,7 +27,7 @@ Do not use it for single-step work Hermes can safely complete alone without peer
 1. Identify the repository root and set a shell variable for it when useful:
 
 ```bash
-REPO=/home/nchankov/repos/agent-skills
+REPO=/home/nchankov/repos/agent-fleet
 ```
 
 2. Discover live peers in the current coms project:

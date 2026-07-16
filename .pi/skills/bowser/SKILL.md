@@ -12,7 +12,7 @@ Automate browsers using `playwright-cli` — a token-efficient CLI for Playwrigh
 
 ## Requirements
 
-This skill drives the external **Playwright Agent CLI** (`playwright-cli`). It is **not** bundled with agent-skills — install it once before using this skill (the guided setup checks for it when `bowser` is selected).
+This skill drives the external **Playwright Agent CLI** (`playwright-cli`). It is **not** bundled with agent-fleet — install it once before using this skill (the guided setup checks for it when `bowser` is selected).
 
 - **Node.js 20+**
 - **`playwright-cli`** — install globally:

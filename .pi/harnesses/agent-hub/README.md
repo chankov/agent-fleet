@@ -99,7 +99,7 @@ another main agent** and **use a coms peer as a subagent**.
   error); profiles never touch sub-role models — only `/agent-model` reaches those. Nothing
   outside the declared lists is ever selectable. Per project,
   `model.<persona>:` / `models.<persona>:` keys under `## agent-hub` in
-  `.ai/agent-skills-overrides.md` replace a persona's default model / candidate list.
+  `.ai/agent-fleet-overrides.md` replace a persona's default model / candidate list.
   Research personas (`researcher` / `deep-researcher`, `kind: research`) are switchable the same
   way — `/agent-model <persona>` and `/agent-model-thinking <persona>` accept them alongside team
   members. Since research helpers are spawned fresh on each `/research` / `spawn_research`, the
@@ -117,7 +117,7 @@ another main agent** and **use a coms peer as a subagent**.
   frontmatter default clears the override. The level shows as a short badge after the model
   everywhere a model is rendered — `gpt-5.5 (xh)` in the dashboard cards and the compact below-editor
   view (`min`/`low`/`med`/`hi`/`xh`; `off` shows no badge). Per project, a `thinking.<persona>:` key
-  under `## agent-hub` in `.ai/agent-skills-overrides.md` replaces a persona's default level.
+  under `## agent-hub` in `.ai/agent-fleet-overrides.md` replaces a persona's default level.
 - **Mid-turn delegation (`delegate` tool)** — a persona that declares a `subagents:` map in its
   frontmatter (`role: { model, tools? }` entries, or an indented `model:`/`tools:` block per role)
   gets a real mid-turn `delegate(role, instruction, context?, allow_write?)` tool, injected as an
@@ -141,7 +141,7 @@ another main agent** and **use a coms peer as a subagent**.
   `/agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
   it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
   `subagents.<persona>.<role>:` and `delegate-depth.<persona>:` keys under `## agent-hub` in
-  `.ai/agent-skills-overrides.md` replace individual sub-roles / the depth budget. Six personas
+  `.ai/agent-fleet-overrides.md` replace individual sub-roles / the depth budget. Six personas
   ship with declared sub-roles, on a three-tier OpenAI model ladder — `gpt-5.3-codex-spark` for
   recon/grep sweeps, `gpt-5.4` for analysis sweeps, the `gpt-5.5` (or opus) parent reserved for
   synthesis and verdicts:
@@ -240,7 +240,7 @@ are inert in dashboard mode (use `/zoom <name>` there).
 
 ## Configuration
 
-At session start, `agent-hub` reads `.ai/agent-skills-overrides.md` in the workspace. The
+At session start, `agent-hub` reads `.ai/agent-fleet-overrides.md` in the workspace. The
 canonical section name is `## agent-hub` (the legacy `## agent-team` name is still accepted):
 
 ```markdown
@@ -282,7 +282,7 @@ points and the trees they link as the documentation it maintains.
 
 Paths that don't exist produce a session-start warning, never an error. The full key list for
 `## agent-hub` (models, sub-roles, depth budgets, persona gate) is documented in
-`docs/agent-skills-setup.md`.
+`docs/agent-fleet-setup.md`.
 
 ## The coms layer
 

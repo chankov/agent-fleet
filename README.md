@@ -1,14 +1,12 @@
-# Agent Skills
+# Agent Fleet
 
-**Production-grade engineering skills for AI coding agents — plus a thin-context multi-agent harness for pi.**
+**Multi-agent fleet orchestration for coding agents — a Pi-centered runtime with a live control plane, peer messaging, and a production-grade skill library.**
 
-Skills encode the workflows, quality gates, and best practices that senior engineers use when building software, packaged so AI agents follow them consistently across every phase of development. On **pi**, the [`agent-hub`](#agent-hub-a-multi-agent-harness-for-pi) harness runs those skills and personas as a live team of specialist subagents — while keeping the dispatcher's context thin.
+Agent Fleet turns a single coding-agent session into an operated *fleet*: the [`agent-hub`](#agent-hub-a-multi-agent-harness-for-pi) harness drives a live team of specialist subagents on **pi**, [herdr](https://herdr.dev) spawns and restores whole peer teams as tiled workspaces, `coms` gives every peer — including interactive **Claude Code** panes — a bidirectional messaging channel, and the Hermes bridge relays questions to your phone. Underneath it all sits a library of lifecycle skills and agent personas that encode how senior engineers spec, plan, build, verify, review, and ship.
 
-> **This is a fork** of [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills), focused on **Claude Code, OpenCode, and pi** and adding a pi runtime layer plus npm packaging. See [FORK.md](FORK.md) for what's added, what's dropped, and how it compares.
+Supported harnesses: **pi** (primary runtime), **Claude Code**, and **OpenCode**.
 
-<a href="https://trendshift.io/repositories/25200" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25200" alt="addyosmani%2Fagent-skills | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
-![Addy's Agent Skills](https://addyosmani.com/assets/images/addys-agent-skills.jpg)
+> Lifecycle skills are sourced from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) as **manually vendored content** (`vendor/agent-skills-upstream/`), with Agent Fleet-native and customized skills layered on top. See [docs/UPSTREAM-SKILLS.md](docs/UPSTREAM-SKILLS.md) for the import policy.
 
 ```
   DEFINE          PLAN           BUILD          VERIFY         REVIEW          SHIP
@@ -38,9 +36,9 @@ Skills encode the workflows, quality gates, and best practices that senior engin
 | Orchestrate a team | `/orchestrate` | Main session drives subagents |
 | Capture session lessons | `/compound` | Every session improves the next |
 
-`/orchestrate` turns the main session into an **orchestrator** that drives a config-defined team of subagents (default `planner` + `builder`, no reviewer), routing them as a runtime roster and handling the `NEEDS_RESEARCH` / `PLAN_FILE` handoffs. The named teams live in `.claude/orchestrate-teams.yaml` (mirroring pi's `.pi/agents/teams.yaml`) and are switchable at runtime: `/orchestrate <team> "<task>"`. It ships for **claude-code** and **opencode** (`/as-orchestrate`); pi orchestrates via the `agent-hub` harness instead.
+`/orchestrate` turns the main session into an **orchestrator** that drives a config-defined team of subagents (default `planner` + `builder`, no reviewer), routing them as a runtime roster and handling the `NEEDS_RESEARCH` / `PLAN_FILE` handoffs. The named teams live in `.claude/orchestrate-teams.yaml` (mirroring pi's `.pi/agents/teams.yaml`) and are switchable at runtime: `/orchestrate <team> "<task>"`. It ships for **claude-code** and **opencode** (`/af-orchestrate`); pi orchestrates via the `agent-hub` harness instead.
 
-`/compound` is the **compound-engineering step**: at the end of a session it extracts the lessons worth keeping (corrections, recurring review findings, root causes), dedupes them against the project's own rule tree, and lands them as minimal diffs on the `rules:`/`docs:` targets declared in `.ai/agent-skills-overrides.md` — so each session makes the next one better. It ships for **claude-code** and **opencode** (`/as-compound`); on pi the `agent-hub` harness provides its own `/compound` command, which gates the lesson list on the user and dispatches the `documenter` persona to apply it. The process is defined by [compound-learning](skills/compound-learning/SKILL.md).
+`/compound` is the **compound-engineering step**: at the end of a session it extracts the lessons worth keeping (corrections, recurring review findings, root causes), dedupes them against the project's own rule tree, and lands them as minimal diffs on the `rules:`/`docs:` targets declared in `.ai/agent-fleet-overrides.md` — so each session makes the next one better. It ships for **claude-code** and **opencode** (`/af-compound`); on pi the `agent-hub` harness provides its own `/compound` command, which gates the lesson list on the user and dispatches the `documenter` persona to apply it. The process is defined by [compound-learning](skills/compound-learning/SKILL.md).
 
 Want fewer manual steps once the spec exists? **`/build auto`** generates the plan and implements every task in a single approved pass — you approve the plan once, then it runs autonomously. It removes the human stepping *between* tasks, not the verification: every task is still test-driven and committed individually, and it pauses on failures or risky steps.
 
@@ -101,13 +99,13 @@ just team-resume docs    # rebuild the grid; pi peers continue their conversatio
 
 ```bash
 # In the workspace you want to configure:
-npx @chankov/agent-skills init
+npx @chankov/agent-fleet init
 # Then open your coding agent in this directory and run:
-#   /setup-agent-skills
+#   /setup-agent-fleet
 ```
 
 That's it for guided setup. `npx` fetches the package, the CLI detects your coding agent
-(Claude Code, OpenCode, or pi), and `/setup-agent-skills` runs the full guided install —
+(Claude Code, OpenCode, or pi), and `/setup-agent-fleet` runs the full guided install —
 analysing the workspace, showing grouped menus, and confirming everything
 before writing a single file.
 
@@ -115,10 +113,10 @@ Main CLI commands:
 
 | Command | What it does |
 |---|---|
-| `npx @chankov/agent-skills init` | Materialize the package + hand off to `/setup-agent-skills` |
-| `npx @chankov/agent-skills doctor` | Scan for broken symlinks and stale persona refs |
-| `npx @chankov/agent-skills update` | Surface the version delta + hand off to `/setup-agent-skills` for the per-artifact diff |
-| `npx @chankov/agent-skills transform-persona` | Generate per-agent subagent files from the canonical personas (used by setup during apply) |
+| `npx @chankov/agent-fleet init` | Materialize the package + hand off to `/setup-agent-fleet` |
+| `npx @chankov/agent-fleet doctor` | Scan for broken symlinks and stale persona refs |
+| `npx @chankov/agent-fleet update` | Surface the version delta + hand off to `/setup-agent-fleet` for the per-artifact diff |
+| `npx @chankov/agent-fleet transform-persona` | Generate per-agent subagent files from the canonical personas (used by setup during apply) |
 
 Versioned with [semver](https://semver.org); changelog in
 [CHANGELOG.md](CHANGELOG.md); full docs in [docs/npm-install.md](docs/npm-install.md).
@@ -129,14 +127,14 @@ Versioned with [semver](https://semver.org); changelog in
 <summary><b>Claude Code plugin marketplace</b> — best UX inside Claude Code</summary>
 
 ```
-/plugin marketplace add chankov/agent-skills
-/plugin install agent-skills@nc-agent-skills
+/plugin marketplace add chankov/agent-fleet
+/plugin install agent-fleet@nc-agent-fleet
 ```
 
 > **SSH errors?** The marketplace clones repos via SSH. If you don't have SSH keys set up on GitHub, either [add your SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account) or use the full HTTPS URL to force the HTTPS cloning:
 > ```bash
-> /plugin marketplace add https://github.com/addyosmani/agent-skills.git
-> /plugin install agent-skills@addy-agent-skills
+> /plugin marketplace add https://github.com/chankov/agent-fleet.git
+> /plugin install agent-fleet@nc-agent-fleet
 > ```
 
 </details>
@@ -145,11 +143,11 @@ Versioned with [semver](https://semver.org); changelog in
 <summary><b>Git clone + symlinks</b> — best for skill authors and contributors</summary>
 
 ```bash
-git clone https://github.com/chankov/agent-skills.git
-cd agent-skills
+git clone https://github.com/chankov/agent-fleet.git
+cd agent-fleet
 # In Claude Code:
 claude --plugin-dir .
-# Then run /setup-agent-skills in your target workspace and pick "symlink" in Step 8.
+# Then run /setup-agent-fleet in your target workspace and pick "symlink" in Step 8.
 ```
 
 Updates flow through `git pull`. Symlinks need Developer Mode on Windows.
@@ -161,17 +159,17 @@ Updates flow through `git pull`. Symlinks need Developer Mode on Windows.
 
 Uses agent-driven skill execution via `AGENTS.md` and the `skill` tool.
 
-The repo also ships **optional** OpenCode slash commands in `.opencode/commands/` using an `as-` prefix as explicit lifecycle entry points (the agent will still invoke the same skills automatically from natural-language requests):
+The repo also ships **optional** OpenCode slash commands in `.opencode/commands/` using an `af-` prefix as explicit lifecycle entry points (the agent will still invoke the same skills automatically from natural-language requests):
 
-- `/as-spec`
-- `/as-plan`
-- `/as-build`
-- `/as-test`
-- `/as-review`
-- `/as-orchestrate`
-- `/as-code-simplify`
-- `/as-ship`
-- `/as-design-agent`
+- `/af-spec`
+- `/af-plan`
+- `/af-build`
+- `/af-test`
+- `/af-review`
+- `/af-orchestrate`
+- `/af-code-simplify`
+- `/af-ship`
+- `/af-design-agent`
 
 See [docs/opencode-setup.md](docs/opencode-setup.md).
 
@@ -183,14 +181,14 @@ See [docs/opencode-setup.md](docs/opencode-setup.md).
 First-class pi package install:
 
 ```bash
-pi install -l npm:@chankov/agent-skills
+pi install -l npm:@chankov/agent-fleet
 ```
 
 This includes the bundled `pi-ask-user` package, so the interactive `ask_user` tool and `ask-user` skill are available without a separate install.
 
 Optional suggested npm/pi extension package: `pi-codex-image-gen` adds image-generation support and can be selected during guided setup when pi package installation is available, or installed manually with `pi install -l npm:pi-codex-image-gen`. It is not bundled or required; minimal setup works without it. Upstream: <https://github.com/jvm/pi-mono>.
 
-pi has native Agent Skills support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and repo-provided pi extensions from `.pi/extensions/` (currently: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, and `pi-voice-stt` for push-to-talk STT/dictation; one-time `npm ci` required — see setup doc). For clone/symlink setup, install `pi-ask-user` separately with `pi install -l npm:pi-ask-user` unless it is already listed by `pi list`; guided setup may also offer the optional `pi-codex-image-gen` package. See [docs/pi-setup.md](docs/pi-setup.md).
+pi has native Agent Fleet support via `AGENTS.md` and discoverable skill directories like `.agents/skills/`. It can also expose the lifecycle commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`) from `.pi/prompts/`, and repo-provided pi extensions from `.pi/extensions/` (currently: `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, and `pi-voice-stt` for push-to-talk STT/dictation; one-time `npm ci` required — see setup doc). For clone/symlink setup, install `pi-ask-user` separately with `pi install -l npm:pi-ask-user` unless it is already listed by `pi list`; guided setup may also offer the optional `pi-codex-image-gen` package. See [docs/pi-setup.md](docs/pi-setup.md).
 
 The repo also ships selectable pi session *harnesses* — agent orchestration, safety auditing, and Pi-to-Pi messaging — ported or consolidated from [disler](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) project (MIT). The flagship is [`agent-hub`](#agent-hub-a-multi-agent-harness-for-pi), the multi-agent dispatcher described above (`just hub`). See the [pi extension catalog](docs/pi-extensions.md) for the full list, setup, and how to run each one.
 
@@ -203,6 +201,8 @@ The repo also ships selectable pi session *harnesses* — agent orchestration, s
 ## All 29 Skills
 
 The commands above are the entry points. Under the hood, they activate these 29 skills — each one a structured workflow with steps, verification gates, and anti-rationalization tables. You can also reference any skill directly.
+
+Skills live in **two roots**: fleet-native and customized skills in [`skills/`](skills/), and the pristine upstream import in [`vendor/agent-skills-upstream/skills/`](vendor/agent-skills-upstream/). When a name exists in both, the native copy wins — see [docs/UPSTREAM-SKILLS.md](docs/UPSTREAM-SKILLS.md).
 
 ### Meta - Discover which skill applies
 
@@ -278,7 +278,7 @@ This skill is the single canonical source for the four Verification-Contract art
 |-------|-------------|----------|
 | [compound-learning](skills/compound-learning/SKILL.md) | End-of-session compound pass — extracts lessons from session evidence (corrections, recurring findings, root causes), dedupes them index-first against the project's rule tree, and lands them as minimal, capped diffs on existing rules/docs files | A session ends with something worth keeping, the user says "compound", or the `documenter` persona receives a `/compound` dispatch |
 
-This is the compound-engineering loop: the `/compound` command (claude-code, opencode, and the agent-hub harness on pi) runs this skill against the `rules:`/`docs:` targets from `.ai/agent-skills-overrides.md`, with an approval gate and hard caps so the rule tree gets sharper instead of longer.
+This is the compound-engineering loop: the `/compound` command (claude-code, opencode, and the agent-hub harness on pi) runs this skill against the `rules:`/`docs:` targets from `.ai/agent-fleet-overrides.md`, with an approval gate and hard caps so the rule tree gets sharper instead of longer.
 
 ---
 
@@ -306,11 +306,11 @@ This is the compound-engineering loop: the `/compound` command (claude-code, ope
 
 ### How personas connect to skills
 
-Personas are the *who*, skills are the *how*. Each working persona carries a conditional hook to its primary skill: if `skills/<skill-name>/SKILL.md` exists in the repo it is working on, the persona reads it before starting and follows its process and output format. Install the matching skill alongside the persona to get the full structured workflow — without it, the persona still works on its built-in rules. The research personas and `bowser` deliberately carry no skill hook (recon must stay lean; the orchestration prompt is built by agent-hub). The single `orchestrator` is the exception: it references [`orchestration-verification`](skills/orchestration-verification/SKILL.md) for the acceptance-assertion, parity-inventory, and structured-return formats of the Verification Contract it enforces. Several personas also honour the per-project overrides in `.ai/agent-skills-overrides.md` — e.g. `planner` writes its plan where `## planning-and-task-breakdown` says, and reviewers validate against the project's `rules:` folders.
+Personas are the *who*, skills are the *how*. Each working persona carries a conditional hook to its primary skill: if `skills/<skill-name>/SKILL.md` exists in the repo it is working on, the persona reads it before starting and follows its process and output format. Install the matching skill alongside the persona to get the full structured workflow — without it, the persona still works on its built-in rules. The research personas and `bowser` deliberately carry no skill hook (recon must stay lean; the orchestration prompt is built by agent-hub). The single `orchestrator` is the exception: it references [`orchestration-verification`](skills/orchestration-verification/SKILL.md) for the acceptance-assertion, parity-inventory, and structured-return formats of the Verification Contract it enforces. Several personas also honour the per-project overrides in `.ai/agent-fleet-overrides.md` — e.g. `planner` writes its plan where `## planning-and-task-breakdown` says, and reviewers validate against the project's `rules:` folders.
 
 ### Installing personas
 
-`/setup-agent-skills` offers every persona available for the chosen agent and installs it to the right place, transforming the frontmatter deterministically (via `npx @chankov/agent-skills transform-persona`):
+`/setup-agent-fleet` offers every persona available for the chosen agent and installs it to the right place, transforming the frontmatter deterministically (via `npx @chankov/agent-fleet transform-persona`):
 
 | Agent | Installed to | Transformation |
 |---|---|---|
@@ -381,7 +381,7 @@ Every skill follows a consistent anatomy:
 
 ## Per-Project Overrides
 
-A few skills and the pi `agent-hub` harness need project-specific facts — where specs and plans are saved, how to start a dev server, whether the agent may create branches, or which user-facing language the dispatcher should use. Sensible defaults are built in, but any project can override them with a single file at `.ai/agent-skills-overrides.md`:
+A few skills and the pi `agent-hub` harness need project-specific facts — where specs and plans are saved, how to start a dev server, whether the agent may create branches, or which user-facing language the dispatcher should use. Sensible defaults are built in, but any project can override them with a single file at `.ai/agent-fleet-overrides.md`:
 
 | Reader | What you can override |
 |--------|----------------------|
@@ -390,64 +390,50 @@ A few skills and the pi `agent-hub` harness need project-specific facts — wher
 | `browser-testing-with-devtools` | Dev-server command, base URL, auth flow and roles (required — no default) |
 | `git-workflow-and-versioning` | Whether the agent may create branches (default: never) |
 | `agent-hub` (legacy alias: `## agent-team`) | Dispatcher user-facing language (default: English), per-persona models/thinking/delegation, project `rules:` folders (HOW — resolved index-first) and `docs:` entry points (WHAT/WHY orientation) |
-| `agent-skills doctor` (`## env`) | Env-var **names** the project expects; the doctor warns when one is unset |
+| `agent-fleet doctor` (`## env`) | Env-var **names** the project expects; the doctor warns when one is unset |
 
-See [docs/agent-skills-setup.md](docs/agent-skills-setup.md) for the file format and a copy-paste template. `agent-skills doctor` also validates the whole file (unknown sections/keys, invalid values, missing `rules:` folders and `docs:` entry points) as advisory warnings — typos otherwise fall back to defaults silently.
+See [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) for the file format and a copy-paste template. `agent-fleet doctor` also validates the whole file (unknown sections/keys, invalid values, missing `rules:` folders and `docs:` entry points) as advisory warnings — typos otherwise fall back to defaults silently.
 
 ---
 
 ## Project Structure
 
 ```
-agent-skills/
-├── skills/                            # 27 core skills (SKILL.md per directory)
-│   ├── interview-me/                  #   Define
-│   ├── idea-refine/                   #   Define
-│   ├── spec-driven-development/       #   Define
-│   ├── planning-and-task-breakdown/   #   Plan
-│   ├── incremental-implementation/    #   Build
-│   ├── context-engineering/           #   Build
-│   ├── source-driven-development/     #   Build
-│   ├── doubt-driven-development/      #   Build
-│   ├── frontend-ui-engineering/       #   Build
-│   ├── test-driven-development/       #   Build
-│   ├── api-and-interface-design/      #   Build
-│   ├── browser-testing-with-devtools/ #   Verify
-│   ├── debugging-and-error-recovery/  #   Verify
-│   ├── code-review-and-quality/       #   Review
-│   ├── code-simplification/          #   Review
-│   ├── security-and-hardening/        #   Review
-│   ├── performance-optimization/      #   Review
-│   ├── git-workflow-and-versioning/   #   Ship
-│   ├── ci-cd-and-automation/          #   Ship
-│   ├── deprecation-and-migration/     #   Ship
-│   ├── documentation-and-adrs/        #   Ship
-│   ├── observability-and-instrumentation/ # Ship
-│   ├── shipping-and-launch/           #   Ship
-│   ├── orchestration-verification/    #   Orchestrate
+agent-fleet/
+├── skills/                            # 19 Agent Fleet-native + customized skills (SKILL.md per directory)
+│   ├── orchestration-verification/    #   Orchestrate: the Verification Contract
 │   ├── peer-coms/                     #   Orchestrate: Claude Code as a coms peer
+│   ├── compound-learning/             #   Learn: land session lessons on the rule tree
+│   ├── guided-workspace-setup/        #   Onboard: the LLM-driven installer
 │   ├── designing-agents/              #   Meta: author skills/personas/harnesses
-│   ├── guided-workspace-setup/        #   Onboard
-│   └── using-agent-skills/            #   Meta: how to use this pack
+│   ├── spec-driven-development/       #   … + 14 upstream-derived skills customized for
+│   ├── git-workflow-and-versioning/   #     Agent Fleet (agent operating rules, review
+│   └── …                              #     gates); these shadow their vendored originals
+├── vendor/agent-skills-upstream/      # Pristine upstream import (24 skills + LICENSE)
+│                                      #   at a pinned SHA — see docs/UPSTREAM-SKILLS.md
 ├── agents/                            # 15 reusable agent personas
 ├── references/                        # 9 supplementary checklists
 ├── hooks/                             # Session lifecycle hooks + the coms Stop hook
 ├── scripts/                           # Fleet tooling: team-up, hub-team, team-snapshot/resume,
-│                                      #   coms-cli, coms-claude-bridge (+ pure modules in scripts/lib/)
+│                                      #   coms-cli, coms-claude-bridge, coms-hermes-bridge
+│                                      #   (+ pure modules in scripts/lib/)
+├── hermes/                            # Hermes-facing skills (hub-conductor, hub-liaison)
 ├── .claude/commands/                  # 12 Claude slash commands
 ├── .pi/prompts/                       # 7 pi prompt-template commands
-├── .pi/harnesses/                     # Selectable pi session harnesses (agent-hub, coms, damage-control)
+├── .pi/harnesses/                     # Selectable pi session harnesses (agent-hub, coms,
+│                                      #   damage-control, ask-user-remote)
 │                                      #   + the shared herdr client/presence lib (.pi/harnesses/lib/)
-└── docs/                              # Setup guides per tool + the Claude Code coms bridge
+└── docs/                              # Architecture, setup guides, coms/Hermes bridges,
+                                       #   upstream vendoring policy
 ```
 
 ---
 
-## Why Agent Skills?
+## Why Agent Fleet?
 
-AI coding agents default to the shortest path - which often means skipping specs, tests, security reviews, and the practices that make software reliable. Agent Skills gives agents structured workflows that enforce the same discipline senior engineers bring to production code.
+One coding agent is an assistant; a *fleet* is a team you operate. Agent Fleet exists for the moment a single session stops being enough — when you want a dispatcher driving specialists under a Verification Contract, whole peer teams you can snapshot and resume, Claude Code panes that answer pi agents mid-task, and a phone-reachable human in the loop. Pi is the primary runtime, herdr the control plane, coms the data plane, and Hermes the remote-control layer — with room reserved for Kanban/dashboard modules on top.
 
-Each skill encodes hard-won engineering judgment: *when* to write a spec, *what* to test, *how* to review, and *when* to ship. These aren't generic prompts - they're the kind of opinionated, process-driven workflows that separate production-quality work from prototype-quality work.
+Discipline is the other half. AI coding agents default to the shortest path — which often means skipping specs, tests, security reviews, and the practices that make software reliable. The skill library (fleet-native plus vendored upstream) gives every agent in the fleet structured workflows that enforce the same discipline senior engineers bring to production code: *when* to write a spec, *what* to test, *how* to review, and *when* to ship.
 
 Skills bake in best practices from Google's engineering culture — including concepts from [Software Engineering at Google](https://abseil.io/resources/swe-book) and Google's [engineering practices guide](https://google.github.io/eng-practices/). You'll find Hyrum's Law in API design, the Beyonce Rule and test pyramid in testing, change sizing and review speed norms in code review, Chesterton's Fence in simplification, trunk-based development in git workflow, Shift Left and feature flags in CI/CD, and a dedicated deprecation skill treating code as a liability. These aren't abstract principles — they're embedded directly into the step-by-step workflows agents follow.
 

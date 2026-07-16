@@ -3,8 +3,8 @@
 // extension.
 //
 // Behaviour:
-//   - Cache lives at $XDG_CACHE_HOME/agent-skills/latest-version.json
-//     (falls back to ~/.cache/agent-skills/) with a 24h TTL.
+//   - Cache lives at $XDG_CACHE_HOME/agent-fleet/latest-version.json
+//     (falls back to ~/.cache/agent-fleet/) with a 24h TTL.
 //   - The CLI invokes checkAndNotify() at the top of every command. If the
 //     cache is fresh and shows an upgrade, we print a banner immediately.
 //     If the cache is stale or absent, we start a background fetch (detached,
@@ -22,13 +22,13 @@ import { request } from "node:https";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const PACKAGE_NAME = "@chankov/agent-skills";
+const PACKAGE_NAME = "@chankov/agent-fleet";
 const REGISTRY = "https://registry.npmjs.org";
 const TTL_MS = 24 * 60 * 60 * 1000;
 
 const CACHE_DIR = join(
   process.env.XDG_CACHE_HOME || join(homedir(), ".cache"),
-  "agent-skills",
+  "agent-fleet",
 );
 const CACHE_FILE = join(CACHE_DIR, "latest-version.json");
 
@@ -91,9 +91,9 @@ export function readCacheStatus() {
 
 export function formatBanner(current, latest) {
   const lines = [
-    `agent-skills update available: ${current} → ${latest}`,
+    `agent-fleet update available: ${current} → ${latest}`,
     `  Run: npx ${PACKAGE_NAME}@latest update`,
-    `  Releases: https://github.com/chankov/agent-skills/releases`,
+    `  Releases: https://github.com/chankov/agent-fleet/releases`,
   ];
   const w = Math.max(...lines.map((l) => l.length)) + 2;
   const bar = "─".repeat(w);

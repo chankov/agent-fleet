@@ -39,8 +39,8 @@ just conductor-dry docs  # dry-run layout, no herdr calls
 Inside Hermes, discover and delegate only through coms:
 
 ```bash
-node --experimental-strip-types /home/nchankov/repos/agent-skills/scripts/coms-cli.ts list
-node --experimental-strip-types /home/nchankov/repos/agent-skills/scripts/coms-cli.ts send <peer> "<task>" --await --timeout 300000
+node --experimental-strip-types /home/nchankov/repos/agent-fleet/scripts/coms-cli.ts list
+node --experimental-strip-types /home/nchankov/repos/agent-fleet/scripts/coms-cli.ts send <peer> "<task>" --await --timeout 300000
 ```
 
 Hermes must not drive herdr panes or workspaces; the `just conductor` recipe creates the pane before Hermes starts. The no-herdr boundary is documented in `docs/coms-hermes-bridge.md` and governed by `.pi/damage-control-rules.yaml`.

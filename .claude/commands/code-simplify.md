@@ -2,7 +2,7 @@
 description: Simplify code for clarity and maintainability — reduce complexity without changing behavior
 ---
 
-Invoke the agent-skills:code-simplification skill.
+Invoke the agent-fleet:code-simplification skill.
 
 Simplify recently changed code (or the specified scope) while preserving exact behavior:
 

@@ -1,9 +1,9 @@
 // bootstrap.js — drop the minimum installer artifacts a coding agent needs
-// to recognize `/setup-agent-skills` and `/doctor-agent-skills`.
+// to recognize `/setup-agent-fleet` and `/doctor-agent-fleet`.
 //
 // The CLI's `init` calls this before the handoff message. Without it, a
-// fresh workspace has no `.claude/commands/setup-agent-skills.md`, `.pi/prompts/setup-agent-skills.md`,
-// etc., so the agent has no idea what `/setup-agent-skills` is and the whole hand-off
+// fresh workspace has no `.claude/commands/setup-agent-fleet.md`, `.pi/prompts/setup-agent-fleet.md`,
+// etc., so the agent has no idea what `/setup-agent-fleet` is and the whole hand-off
 // breaks silently.
 //
 // What we bootstrap (per agent):
@@ -16,7 +16,7 @@
 // What we do NOT bootstrap:
 //   - Any of the user-facing skills (spec-driven-development,
 //     test-driven-development, …). Those are picked by the user inside
-//     /setup-agent-skills, by design. The CLI never decides the workspace's catalogue
+//     /setup-agent-fleet, by design. The CLI never decides the workspace's catalogue
 //     for the user.
 //
 // Method:
@@ -32,7 +32,7 @@ import { dirname, join, relative } from "node:path";
 // by bootstrap, deleted by cleanupInstaller. Without this, the skill would
 // have to guess the source root from its own SKILL.md location — but bootstrap
 // copies SKILL.md into the workspace, so that heuristic always lies.
-const BOOTSTRAP_MARKER = join(".ai", ".agent-skills-bootstrap.json");
+const BOOTSTRAP_MARKER = join(".ai", ".agent-fleet-bootstrap.json");
 
 function writeMarker({ workspace, sourceRoot, agent, method }) {
   const path = join(workspace, BOOTSTRAP_MARKER);
@@ -43,7 +43,7 @@ function writeMarker({ workspace, sourceRoot, agent, method }) {
     agent,
     method,
     bootstrappedAt: new Date().toISOString(),
-    _comment: "Written by `npx @chankov/agent-skills init`. Read by the guided-workspace-setup skill to locate the source package. Safe to delete; will be regenerated on next init.",
+    _comment: "Written by `npx @chankov/agent-fleet init`. Read by the guided-workspace-setup skill to locate the source package. Safe to delete; will be regenerated on next init.",
   };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(payload, null, 2) + "\n", "utf8");
@@ -73,7 +73,7 @@ export function readBootstrapMarker(workspace) {
 
 // (agent → list of {kind, src, dest}) — kind is just for the report.
 //
-// All installer slash commands are namespaced with `-agent-skills` so they
+// All installer slash commands are namespaced with `-agent-fleet` so they
 // don't collide with workspace-defined or other-tool slash commands. The
 // short names (setup, doctor, as-setup, as-doctor) were used in 0.2.0 and
 // earlier — cleanupLegacyNames() removes those if found.
@@ -83,20 +83,20 @@ function plan({ agent, sourceRoot, workspace }) {
   switch (agent) {
     case "claude-code":
       return [
-        { kind: "command", src: join(sourceRoot, ".claude/commands/setup-agent-skills.md"),
-          dest: join(workspace, ".claude/commands/setup-agent-skills.md") },
-        { kind: "command", src: join(sourceRoot, ".claude/commands/doctor-agent-skills.md"),
-          dest: join(workspace, ".claude/commands/doctor-agent-skills.md") },
+        { kind: "command", src: join(sourceRoot, ".claude/commands/setup-agent-fleet.md"),
+          dest: join(workspace, ".claude/commands/setup-agent-fleet.md") },
+        { kind: "command", src: join(sourceRoot, ".claude/commands/doctor-agent-fleet.md"),
+          dest: join(workspace, ".claude/commands/doctor-agent-fleet.md") },
         { kind: "skill",   src: skillSrc,
           dest: join(workspace, ".claude/skills/guided-workspace-setup/SKILL.md") },
       ];
 
     case "pi":
       return [
-        { kind: "prompt", src: join(sourceRoot, ".pi/prompts/setup-agent-skills.md"),
-          dest: join(workspace, ".pi/prompts/setup-agent-skills.md") },
-        { kind: "prompt", src: join(sourceRoot, ".pi/prompts/doctor-agent-skills.md"),
-          dest: join(workspace, ".pi/prompts/doctor-agent-skills.md") },
+        { kind: "prompt", src: join(sourceRoot, ".pi/prompts/setup-agent-fleet.md"),
+          dest: join(workspace, ".pi/prompts/setup-agent-fleet.md") },
+        { kind: "prompt", src: join(sourceRoot, ".pi/prompts/doctor-agent-fleet.md"),
+          dest: join(workspace, ".pi/prompts/doctor-agent-fleet.md") },
         // pi auto-discovers skills from .pi/skills/ and .agents/skills/ —
         // we use .pi/skills/ to avoid polluting a shared .agents/ dir if
         // the user has other tools there.
@@ -111,10 +111,10 @@ function plan({ agent, sourceRoot, workspace }) {
       // load from the project) and the skill alongside it, then flag the
       // AGENTS.md gap for the user.
       return [
-        { kind: "command", src: join(sourceRoot, ".opencode/commands/as-setup-agent-skills.md"),
-          dest: join(workspace, ".opencode/commands/as-setup-agent-skills.md") },
-        { kind: "command", src: join(sourceRoot, ".opencode/commands/as-doctor-agent-skills.md"),
-          dest: join(workspace, ".opencode/commands/as-doctor-agent-skills.md") },
+        { kind: "command", src: join(sourceRoot, ".opencode/commands/af-setup-agent-fleet.md"),
+          dest: join(workspace, ".opencode/commands/af-setup-agent-fleet.md") },
+        { kind: "command", src: join(sourceRoot, ".opencode/commands/af-doctor-agent-fleet.md"),
+          dest: join(workspace, ".opencode/commands/af-doctor-agent-fleet.md") },
         { kind: "skill",   src: skillSrc,
           dest: join(workspace, ".opencode/skills/guided-workspace-setup/SKILL.md") },
       ];
@@ -169,12 +169,12 @@ export function bootstrap({ agent, sourceRoot, workspace, method, dryRun = false
     warnings.push(
       "--method symlink against an npx cache path: links will break when " +
       "the cache is cleaned. Consider --method copy or install globally " +
-      "with `npm install -g @chankov/agent-skills`.",
+      "with `npm install -g @chankov/agent-fleet`.",
     );
   }
 
   // Clean up pre-0.3.0 file names if present — they were renamed to
-  // *-agent-skills so they don't collide with other slash commands.
+  // *-agent-fleet so they don't collide with other slash commands.
   for (const oldPath of legacyPaths({ agent, workspace })) {
     if (!existsSync(oldPath) && !isSymlink(oldPath)) continue;
     if (dryRun) {
@@ -205,7 +205,7 @@ export function bootstrap({ agent, sourceRoot, workspace, method, dryRun = false
 
       // Always replace — the bootstrap is installer scaffolding, not user
       // data. If we left it stale, an upgraded package would still hand off
-      // to the old /setup-agent-skills command. Step 6 of guided-workspace-setup explicitly
+      // to the old /setup-agent-fleet command. Step 6 of guided-workspace-setup explicitly
       // never offers these files in the install menu, so we are the only
       // mechanism that refreshes them.
       if (existsSync(item.dest) || isSymlink(item.dest)) {
@@ -248,7 +248,7 @@ export function bootstrap({ agent, sourceRoot, workspace, method, dryRun = false
  * Remove every bootstrap artifact this module knows how to write. Called
  * by guided-workspace-setup at the end of Step 10 unless the user chose
  * to keep the installer commands. After cleanup, the only way back to
- * /setup-agent-skills is to re-run `npx @chankov/agent-skills init`.
+ * /setup-agent-fleet is to re-run `npx @chankov/agent-fleet init`.
  *
  * The same `agent` value must be supplied that was used at bootstrap time —
  * we don't have a tracking file, so we delete based on the plan map.

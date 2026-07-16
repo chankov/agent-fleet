@@ -35,11 +35,11 @@ Symlink both extensions from this repo into your project's `.pi/extensions/`:
 
 ```bash
 mkdir -p .pi/extensions
-ln -s /path/to/agent-skills/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
-ln -s /path/to/agent-skills/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
+ln -s /path/to/agent-fleet/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
+ln -s /path/to/agent-fleet/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
 ```
 
-`mcp-bridge` is a sibling library; `chrome-devtools-mcp` imports it via the relative path. Runtime dependencies are hoisted to `.pi/extensions/package.json` — run `npm ci` there once after cloning `agent-skills` (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)).
+`mcp-bridge` is a sibling library; `chrome-devtools-mcp` imports it via the relative path. Runtime dependencies are hoisted to `.pi/extensions/package.json` — run `npm ci` there once after cloning `agent-fleet` (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)).
 
 ## Verify
 

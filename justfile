@@ -11,13 +11,13 @@
 # is a damage-control variant before agent-hub (damage-control-continue for the main
 # session), so the hub recipes run with guardrails by default.
 #
-# Everything between the two `agent-skills:harnesses` sentinels below is a
+# Everything between the two `agent-fleet:harnesses` sentinels below is a
 # MANAGED REGION: guided-workspace-setup regenerates it from the installed
 # package whenever pi harnesses are installed, refreshed, or retired — so edits
 # inside it are overwritten on upgrade. Put your own recipes OUTSIDE the
 # sentinels (above the opening marker or below the closing one) to keep them.
 
-# >>> agent-skills:harnesses — managed region (regenerated on upgrade; edits inside are overwritten) >>>
+# >>> agent-fleet:harnesses — managed region (regenerated on upgrade; edits inside are overwritten) >>>
 set dotenv-load := true
 
 # List all recipes
@@ -140,4 +140,4 @@ team-resume team="full" *args:
 # e.g. just safe-coms orchestrator --project proj
 safe-coms name *args:
     pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/coms/index.ts --name {{name}} {{args}}
-# <<< agent-skills:harnesses <<<
+# <<< agent-fleet:harnesses <<<

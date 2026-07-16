@@ -23,7 +23,7 @@ Always. Every code change flows through git.
 
 The branching material below — trunk-based development, feature branches, naming — is **reference guidance for humans** deciding how to organize work. It is not a license for the agent to create branches.
 
-**Project overrides:** if `.ai/agent-skills-overrides.md` has a `## git-workflow-and-versioning` section with `branching: allow`, the agent may create feature branches following the naming guidance below. The default is `branching: never`. See [docs/agent-skills-setup.md](../../docs/agent-skills-setup.md).
+**Project overrides:** if `.ai/agent-fleet-overrides.md` has a `## git-workflow-and-versioning` section with `branching: allow`, the agent may create feature branches following the naming guidance below. The default is `branching: never`. See [docs/agent-fleet-setup.md](../../docs/agent-fleet-setup.md).
 
 ## Core Principles
 

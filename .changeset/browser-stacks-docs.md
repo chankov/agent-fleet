@@ -1,5 +1,5 @@
 ---
-"@chankov/agent-skills": patch
+"@chankov/agent-fleet": patch
 ---
 
 Document the division between the two pi browser stacks and align the orchestrator's runtime-UI guidance.

@@ -1,6 +1,8 @@
-# Contributing to Agent Skills
+# Contributing to Agent Fleet
 
-Thanks for your interest in contributing! This project is a collection of production-grade engineering skills for AI coding agents.
+Thanks for your interest in contributing! Agent Fleet is a Pi-centered multi-agent orchestration system plus a library of production-grade engineering skills for AI coding agents.
+
+> **Two skill roots.** Fleet-native and customized skills live in `skills/`; `vendor/agent-skills-upstream/` is a pristine import from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) and must **never be edited directly** — to improve a vendored skill, either contribute upstream or copy it into `skills/<name>/` as a customized shadow (see [docs/UPSTREAM-SKILLS.md](docs/UPSTREAM-SKILLS.md)).
 
 ## Adding a New Skill
 

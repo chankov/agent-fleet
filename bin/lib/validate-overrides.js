@@ -1,4 +1,4 @@
-// Advisory validation of `.ai/agent-skills-overrides.md`.
+// Advisory validation of `.ai/agent-fleet-overrides.md`.
 //
 // The overrides contract is "absent section/key → reader falls back to its
 // built-in default", which makes every typo silent: a misspelled section
@@ -6,7 +6,7 @@
 // those as WARN-ONLY findings (type "overrides") — reported next to the
 // symlink/YAML findings but never auto-fixed; the fix is always a hand edit.
 //
-// The schema below mirrors docs/agent-skills-setup.md. The skill sections are
+// The schema below mirrors docs/agent-fleet-setup.md. The skill sections are
 // read leniently by LLM readers, so an unknown key there is a nudge, not an
 // error; the agent-hub section is parsed mechanically by the pi harness, so a
 // typo'd key really does nothing.
@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const OVERRIDES_REL_PATH = ".ai/agent-skills-overrides.md";
+export const OVERRIDES_REL_PATH = ".ai/agent-fleet-overrides.md";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const SLUG = "[a-z0-9]+(?:-[a-z0-9]+)*";
@@ -135,7 +135,7 @@ function readDotEnvNames(workspace) {
 }
 
 /**
- * Validate a workspace's `.ai/agent-skills-overrides.md`.
+ * Validate a workspace's `.ai/agent-fleet-overrides.md`.
  *
  * @param {object} opts
  * @param {string} opts.workspace Workspace root (absolute path)

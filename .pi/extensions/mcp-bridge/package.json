@@ -1,5 +1,5 @@
 {
-  "name": "agent-skills-pi-mcp-bridge",
+  "name": "agent-fleet-pi-mcp-bridge",
   "private": true,
   "type": "module",
   "main": "index.ts"

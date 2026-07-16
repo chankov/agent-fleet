@@ -30,7 +30,7 @@ Claude Code ── Bash: coms-cli send/await ──▶ any pi peer            (o
    {
      "hooks": {
        "Stop": [{ "hooks": [{ "type": "command",
-         "command": "node /path/to/agent-skills/hooks/coms-stop-hook.mjs" }] }]
+         "command": "node /path/to/agent-fleet/hooks/coms-stop-hook.mjs" }] }]
      }
    }
    ```

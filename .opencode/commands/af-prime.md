@@ -1,10 +1,10 @@
 ---
-description: Load foundational context for the agent-skills repository
+description: Load foundational context for the agent-fleet repository
 ---
 
 # Purpose
 
-Orient yourself in **agent-skills** — a collection of production-grade engineering skills
+Orient yourself in **agent-fleet** — a collection of production-grade engineering skills
 for AI coding agents, plus pi extensions, specialist agent personas, and lifecycle
 commands that map to the software development lifecycle.
 

@@ -1,5 +1,5 @@
 {
-  "name": "agent-skills-pi-voice-stt",
+  "name": "agent-fleet-pi-voice-stt",
   "private": true,
   "type": "module",
   "main": "index.ts"

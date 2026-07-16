@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
-  "name": "nc-agent-skills",
+  "name": "nc-agent-fleet",
   "description": "Production-grade engineering skills for AI coding agents — covering the full software development lifecycle from spec to ship.",
   "owner": {
     "name": "chankov",
@@ -8,13 +8,13 @@
   },
   "plugins": [
     {
-      "name": "agent-skills",
+      "name": "agent-fleet",
       "source": {
         "source": "github",
-        "repo": "chankov/agent-skills"
+        "repo": "chankov/agent-fleet"
       },
       "description": "Production-grade engineering skills covering every phase of software development: spec, plan, build, verify, review, and ship.",
-      "homepage": "https://github.com/chankov/agent-skills",
+      "homepage": "https://github.com/chankov/agent-fleet",
       "license": "MIT",
       "keywords": ["skills", "agents", "engineering", "spec", "tdd", "review", "ship"]
     }

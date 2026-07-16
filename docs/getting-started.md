@@ -1,6 +1,6 @@
-# Getting Started with agent-skills
+# Getting Started with agent-fleet
 
-agent-skills works with any AI coding agent that accepts Markdown instructions. This guide covers the universal approach. For tool-specific setup, see the dedicated guides.
+agent-fleet works with any AI coding agent that accepts Markdown instructions. This guide covers the universal approach. For tool-specific setup, see the dedicated guides.
 
 ## How Skills Work
 
@@ -12,9 +12,9 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 
 | Audience | Path | Why |
 |---|---|---|
-| **Most users** — you want to use the skills in your projects | `npx @chankov/agent-skills init` | One command; semver updates; cross-platform; no source dir to babysit. See [docs/npm-install.md](npm-install.md). |
-| **Claude Code users** — you live in Claude Code and want plugin-managed updates | `/plugin marketplace add chankov/agent-skills` | Best UX inside Claude Code; marketplace handles the lifecycle. |
-| **Skill authors / contributors** — you want to edit the skills and have changes flow into every connected workspace | `git clone` + `symlink` mode in `/setup-agent-skills` | Edit-in-place; every connected workspace sees the change instantly. |
+| **Most users** — you want to use the skills in your projects | `npx @chankov/agent-fleet init` | One command; semver updates; cross-platform; no source dir to babysit. See [docs/npm-install.md](npm-install.md). |
+| **Claude Code users** — you live in Claude Code and want plugin-managed updates | `/plugin marketplace add chankov/agent-fleet` | Best UX inside Claude Code; marketplace handles the lifecycle. |
+| **Skill authors / contributors** — you want to edit the skills and have changes flow into every connected workspace | `git clone` + `symlink` mode in `/setup-agent-fleet` | Edit-in-place; every connected workspace sees the change instantly. |
 
 All three converge on the same `guided-workspace-setup` skill — they only differ in how the source files reach your workspace. None is being deprecated.
 
@@ -23,12 +23,12 @@ All three converge on the same `guided-workspace-setup` skill — they only diff
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/chankov/agent-skills.git
+git clone https://github.com/chankov/agent-fleet.git
 ```
 
 > Skip this step if you installed via npm — the package contents are already
-> in `node_modules/agent-skills/`. Use that path wherever this guide refers to
-> "the agent-skills repo."
+> in `node_modules/agent-fleet/`. Use that path wherever this guide refers to
+> "the agent-fleet repo."
 
 ### 2. Choose a skill
 
@@ -124,7 +124,7 @@ The `.claude/commands/` directory contains slash commands for Claude Code:
 
 | Command | Skill Invoked |
 |---------|---------------|
-| `/setup-agent-skills` | guided-workspace-setup |
+| `/setup-agent-fleet` | guided-workspace-setup |
 | `/spec` | spec-driven-development |
 | `/plan` | planning-and-task-breakdown |
 | `/build` | incremental-implementation + test-driven-development |

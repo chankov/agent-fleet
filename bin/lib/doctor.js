@@ -1,6 +1,6 @@
 // Doctor scan — deterministic preflight extracted from
-// guided-workspace-setup Step 5. Both `agent-skills doctor` (CLI) and the
-// `/doctor-agent-skills` slash command call into this so behaviour cannot drift.
+// guided-workspace-setup Step 5. Both `agent-fleet doctor` (CLI) and the
+// `/doctor-agent-fleet` slash command call into this so behaviour cannot drift.
 //
 // Three classes of findings:
 //   1. Broken symlinks — links whose source has been moved, renamed, or deleted
@@ -11,7 +11,7 @@
 //      minimal parser silently drops such lines, so the peer vanishes with
 //      no error. Advisory only: the fix is a hand edit.
 //   4. Overrides-file problems — unknown sections/keys, invalid values, and
-//      unset declared env vars in .ai/agent-skills-overrides.md. Advisory
+//      unset declared env vars in .ai/agent-fleet-overrides.md. Advisory
 //      only: reported, never auto-fixed (the fix is always a hand edit).
 //
 // For each broken link we look up a canonical replacement in the source
@@ -64,7 +64,7 @@ const YAML_REFS = [
  *
  * @param {object} opts
  * @param {string} opts.workspace  Workspace root (absolute path)
- * @param {string} opts.sourceRoot agent-skills source root (absolute path)
+ * @param {string} opts.sourceRoot agent-fleet source root (absolute path)
  * @param {boolean} [opts.apply]   If true, apply suggested fixes; otherwise just report
  * @returns {Array|object}         Findings array (apply=false) or {repaired,deleted,skipped} (apply=true)
  */

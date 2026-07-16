@@ -15,7 +15,7 @@ const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PEERS_REL = ".pi/agents/peers.yaml";
 
 function workspaceWithPeers(yamlText) {
-  const ws = mkdtempSync(join(tmpdir(), "agent-skills-peers-"));
+  const ws = mkdtempSync(join(tmpdir(), "agent-fleet-peers-"));
   if (yamlText !== null) {
     mkdirSync(join(ws, ".pi", "agents"), { recursive: true });
     writeFileSync(join(ws, PEERS_REL), yamlText);

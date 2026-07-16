@@ -1,5 +1,5 @@
 {
-  "name": "agent-skills-pi-damage-control",
+  "name": "agent-fleet-pi-damage-control",
   "private": true,
   "type": "module",
   "main": "index.ts"

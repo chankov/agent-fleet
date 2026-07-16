@@ -23,7 +23,7 @@ conventions. Runtime design specs for the imported harnesses live in `docs/pi-sp
 ## What these extensions are
 
 `.pi/extensions/` ships always-on **utility** extensions — `mcp-bridge`,
-`chrome-devtools-mcp`, `compact-and-continue`, `agent-skills-update-check`, `btw`, and
+`chrome-devtools-mcp`, `compact-and-continue`, `agent-fleet-update-check`, `btw`, and
 `pi-voice-stt`. pi
 auto-discovers that directory, so they layer onto every session. `btw` adds a
 `/btw <task>` prompt command (plus an `Alt+'` shortcut) that forks the current session

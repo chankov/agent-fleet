@@ -1,5 +1,5 @@
 ---
-"@chankov/agent-skills": minor
+"@chankov/agent-fleet": minor
 ---
 
 Add a `web-debugger` agent persona for interactive headful Chrome debugging via the `chrome-devtools-mcp` extension, plus the coms-peer plumbing to run it.

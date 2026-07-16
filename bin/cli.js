@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// agent-skills — thin dispatcher into the LLM-driven guided setup.
+// agent-fleet — thin dispatcher into the LLM-driven guided setup.
 //
 // Main commands:
-//   init               materialize the package, detect the coding agent, hand off to /setup-agent-skills
+//   init               materialize the package, detect the coding agent, hand off to /setup-agent-fleet
 //   doctor             deterministic preflight scan (broken symlinks, stale persona refs)
-//   update             refresh the package, then hand off to /setup-agent-skills for the version-diff
+//   update             refresh the package, then hand off to /setup-agent-fleet for the version-diff
 //   transform-persona  generate per-agent subagent files from the canonical agents/*.md
 //
 // The CLI itself never decides which skills to install or what to overwrite —
@@ -91,7 +91,7 @@ switch (sub) {
   case "check-update":      await cmdCheckUpdate();      break;
   case "cleanup-installer":  await cmdCleanupInstaller();  break;
   case "transform-persona":  await cmdTransformPersona();  break;
-  default:                  fail(`unknown command: ${sub}\n\nRun "agent-skills --help" for usage.`);
+  default:                  fail(`unknown command: ${sub}\n\nRun "agent-fleet --help" for usage.`);
 }
 
 // ── commands ──────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ switch (sub) {
 async function cmdInit() {
   await mustBeDirectory(workspace, "workspace");
 
-  printBanner(`agent-skills v${pkg.version} — guided init`);
+  printBanner(`agent-fleet v${pkg.version} — guided init`);
   console.log(`Workspace: ${workspace}`);
   console.log(`Source:    ${pkgRoot}`);
   console.log();
@@ -113,9 +113,9 @@ async function cmdInit() {
   }
 
   // Bootstrap the installer artifacts (setup + doctor + the skill they invoke).
-  // Without this, the agent has no /setup-agent-skills command to hand off to — the
-  // /setup-agent-skills command is itself one of the files this writes. The rest of the
-  // catalogue (skills, personas, etc.) is the job of /setup-agent-skills running inside
+  // Without this, the agent has no /setup-agent-fleet command to hand off to — the
+  // /setup-agent-fleet command is itself one of the files this writes. The rest of the
+  // catalogue (skills, personas, etc.) is the job of /setup-agent-fleet running inside
   // the agent; we only drop the plumbing it needs to exist.
   printSection("Bootstrap installer");
   const { written, skipped, removed, warnings } = bootstrap({
@@ -153,7 +153,7 @@ async function cmdInit() {
 async function cmdDoctor() {
   await mustBeDirectory(workspace, "workspace");
 
-  printBanner(`agent-skills v${pkg.version} — doctor scan`);
+  printBanner(`agent-fleet v${pkg.version} — doctor scan`);
   console.log(`Workspace: ${workspace}`);
   console.log();
 
@@ -204,25 +204,25 @@ async function cmdDoctor() {
     `\n✓ Doctor finished — repaired ${repaired}, deleted ${deleted}, skipped ${skipped}.`,
   );
   console.log(
-    "Re-run /setup-agent-skills inside your coding agent if you also want to add or remove artifacts.",
+    "Re-run /setup-agent-fleet inside your coding agent if you also want to add or remove artifacts.",
   );
 }
 
 async function cmdUpdate() {
   await mustBeDirectory(workspace, "workspace");
 
-  printBanner(`agent-skills v${pkg.version} — update`);
+  printBanner(`agent-fleet v${pkg.version} — update`);
   console.log(`Workspace: ${workspace}`);
   console.log();
 
   // npm itself does the package upgrade. The CLI's job here is to read the
   // workspace's install record, surface the version delta, re-install the
-  // /setup-agent-skills command, and hand off to the skill for the diff-aware
+  // /setup-agent-fleet command, and hand off to the skill for the diff-aware
   // refresh.
-  const recordPath = join(workspace, ".ai", "agent-skills-setup.md");
+  const recordPath = join(workspace, ".ai", "agent-fleet-setup.md");
   if (!existsSync(recordPath)) {
-    console.log("This workspace has no .ai/agent-skills-setup.md install record.");
-    console.log("Run `npx agent-skills init` first, then re-run `update` later.");
+    console.log("This workspace has no .ai/agent-fleet-setup.md install record.");
+    console.log("Run `npx agent-fleet init` first, then re-run `update` later.");
     exit(1);
   }
 
@@ -233,11 +233,11 @@ async function cmdUpdate() {
   console.log(`Installed package:     v${current}`);
   console.log();
 
-  // Re-bootstrap the installer artifacts so /setup-agent-skills is present
+  // Re-bootstrap the installer artifacts so /setup-agent-fleet is present
   // after the update. guided-workspace-setup removes these at the end of a
   // run by default (Step 10b / cleanupInstaller), so a workspace that has
   // completed setup once no longer has the command — and `update` used to
-  // only print "run /setup-agent-skills" while pointing at a command that no
+  // only print "run /setup-agent-fleet" while pointing at a command that no
   // longer existed. The marker recovers the agent/method from init time; if
   // it was cleaned up too, fall back to detection (and prompt if ambiguous).
   const marker = readBootstrapMarker(workspace);
@@ -272,15 +272,15 @@ async function cmdUpdate() {
     console.log(`  ✗ skipped: ${relative(workspace, f.dest)} — ${f.error}`);
   }
 
-  const setupCmd = agent === "opencode" ? "/as-setup-agent-skills" : "/setup-agent-skills";
+  const setupCmd = agent === "opencode" ? "/af-setup-agent-fleet" : "/setup-agent-fleet";
 
   printSection("Next step");
   if (recorded === current) {
     console.log(`Recorded version (${recorded}) matches the installed package — no version delta.`);
     console.log(`${setupCmd} is back in your workspace; run it inside ${agentLabel(agent)} if you`);
     console.log("want to re-review your artifacts. To upgrade the package itself, run:");
-    console.log("  npm install -g @chankov/agent-skills@latest    # global");
-    console.log("  npx @chankov/agent-skills@latest update         # one-shot");
+    console.log("  npm install -g @chankov/agent-fleet@latest    # global");
+    console.log("  npx @chankov/agent-fleet@latest update         # one-shot");
     return;
   }
   console.log(`Open ${agentLaunchHint(agent)} in this directory and run:`);
@@ -293,7 +293,7 @@ async function cmdUpdate() {
 }
 
 async function cmdCleanupInstaller() {
-  // Removes the bootstrap artifacts (setup-agent-skills, doctor-agent-skills,
+  // Removes the bootstrap artifacts (setup-agent-fleet, doctor-agent-fleet,
   // guided-workspace-setup skill body) from the workspace. Invoked by the
   // skill itself at the end of Step 10 — keeps the workspace's slash-command
   // list clean. Re-running `init` brings them back.
@@ -350,7 +350,7 @@ async function cmdTransformPersona() {
   for (const name of names) {
     const sourcePath = join(pkgRoot, "agents", `${name}.md`);
     if (!existsSync(sourcePath)) {
-      fail(`unknown persona "${name}" — run \`agent-skills transform-persona --list --agent ${agent}\``);
+      fail(`unknown persona "${name}" — run \`agent-fleet transform-persona --list --agent ${agent}\``);
     }
     let out;
     try {
@@ -418,9 +418,9 @@ async function chooseAgent(supplied) {
 function printHandoff({ agent, method, workspace, source, version }) {
   const rel = relative(process.cwd(), workspace) || ".";
   const setupCmd =
-    agent === "opencode" ? "/as-setup-agent-skills" : "/setup-agent-skills";
+    agent === "opencode" ? "/af-setup-agent-fleet" : "/setup-agent-fleet";
   const lines = [
-    `agent-skills v${version} is ready.`,
+    `agent-fleet v${version} is ready.`,
     "",
     `Workspace:       ${rel}`,
     `Coding agent:    ${agentLabel(agent)}`,
@@ -444,13 +444,13 @@ function printHandoff({ agent, method, workspace, source, version }) {
   if (agent === "opencode") {
     lines.push(
       "OpenCode note: project-local skill discovery is limited. If",
-      "/as-setup-agent-skills does not load the skill, follow",
+      "/af-setup-agent-fleet does not load the skill, follow",
       "docs/opencode-setup.md to link it into ~/.config/opencode/skills/",
       "and add a reference in AGENTS.md.",
       "",
     );
   }
-  lines.push("Re-run `npx @chankov/agent-skills init` later to re-bootstrap (commands are removed by default once setup completes).");
+  lines.push("Re-run `npx @chankov/agent-fleet init` later to re-bootstrap (commands are removed by default once setup completes).");
   for (const line of lines) console.log(line);
 }
 
@@ -465,7 +465,7 @@ function tryLaunch(agent, cwd) {
   const r = spawnSync(cmd, [], { cwd, stdio: "inherit" });
   if (r.error) {
     console.log(`(could not launch ${cmd}: ${r.error.message})`);
-    console.log(`Open ${cmd} manually and run /setup-agent-skills.`);
+    console.log(`Open ${cmd} manually and run /setup-agent-fleet.`);
   }
 }
 
@@ -522,15 +522,15 @@ function printSection(text) {
 }
 
 function fail(msg) {
-  console.error(`agent-skills: ${msg}`);
+  console.error(`agent-fleet: ${msg}`);
   exit(1);
 }
 
 function printHelp(sub) {
   if (sub === "init") {
-    console.log(`agent-skills init [options]
+    console.log(`agent-fleet init [options]
 
-  Materialize the package and hand off to the LLM-driven /setup-agent-skills skill.
+  Materialize the package and hand off to the LLM-driven /setup-agent-fleet skill.
 
 Options:
   --agent <claude-code|opencode|pi>   Skip the agent auto-detection
@@ -542,7 +542,7 @@ Options:
     return;
   }
   if (sub === "doctor") {
-    console.log(`agent-skills doctor [options]
+    console.log(`agent-fleet doctor [options]
 
   Scan the workspace for broken symlinks and stale persona references.
 
@@ -555,7 +555,7 @@ Options:
     return;
   }
   if (sub === "transform-persona") {
-    console.log(`agent-skills transform-persona --agent <agent> [options] [persona…]
+    console.log(`agent-fleet transform-persona --agent <agent> [options] [persona…]
 
   Generate per-agent subagent definitions from the canonical agents/*.md
   personas. pi gets the canonical file unchanged; claude-code and opencode get
@@ -571,19 +571,19 @@ Options:
   -h, --help                          Show this help
 
 Examples:
-  agent-skills transform-persona --list --agent claude-code
-  agent-skills transform-persona --agent claude-code code-reviewer
-  agent-skills transform-persona --agent opencode --all --workspace ~/projects/foo
+  agent-fleet transform-persona --list --agent claude-code
+  agent-fleet transform-persona --agent claude-code code-reviewer
+  agent-fleet transform-persona --agent opencode --all --workspace ~/projects/foo
 `);
     return;
   }
   if (sub === "update") {
-    console.log(`agent-skills update [options]
+    console.log(`agent-fleet update [options]
 
-  Surface the version delta and re-install the /setup-agent-skills command so
+  Surface the version delta and re-install the /setup-agent-fleet command so
   it is always present after an update (guided-workspace-setup removes it at
   the end of a run by default). The actual diff-aware refresh then runs inside
-  your coding agent via /setup-agent-skills.
+  your coding agent via /setup-agent-fleet.
 
 Options:
   --agent <claude-code|opencode|pi>   Override the agent (default: marker → auto-detect)
@@ -593,20 +593,20 @@ Options:
   -h, --help                          Show this help
 
 To upgrade the package itself first:
-  npm install -g @chankov/agent-skills@latest
-  npx @chankov/agent-skills@latest update
+  npm install -g @chankov/agent-fleet@latest
+  npx @chankov/agent-fleet@latest update
 `);
     return;
   }
-  console.log(`agent-skills v${pkg.version}
+  console.log(`agent-fleet v${pkg.version}
 
 Usage:
-  npx agent-skills <command> [options]
+  npx agent-fleet <command> [options]
 
 Commands:
-  init                Bootstrap installer files + hand off to /setup-agent-skills-agent-skills
+  init                Bootstrap installer files + hand off to /setup-agent-fleet
   doctor              Scan for broken symlinks and stale persona references
-  update              Surface the version delta + hand off to /setup-agent-skills-agent-skills
+  update              Surface the version delta + hand off to /setup-agent-fleet
   check-update        One-line registry check (used by session hooks; safe to script)
   cleanup-installer   Remove the installer slash commands from a workspace (used
                       by the skill at end of setup; safe to run by hand)
@@ -618,16 +618,16 @@ Options:
   -h, --help       Print this help (or per-command help)
 
 Examples:
-  npx agent-skills init
-  npx agent-skills init --agent claude-code --method copy
-  npx agent-skills doctor --workspace ~/projects/foo
-  npx agent-skills update
+  npx agent-fleet init
+  npx agent-fleet init --agent claude-code --method copy
+  npx agent-fleet doctor --workspace ~/projects/foo
+  npx agent-fleet update
 
 Environment:
   AGENT_SKILLS_NO_UPDATE_CHECK=1   Disable the background update check
   NO_UPDATE_NOTIFIER=1             Same (conventional opt-out, also honoured)
   CI=true                          Auto-disables the update check
 
-Docs: https://github.com/chankov/agent-skills#readme
+Docs: https://github.com/chankov/agent-fleet#readme
 `);
 }

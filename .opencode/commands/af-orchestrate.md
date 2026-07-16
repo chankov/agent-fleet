@@ -21,7 +21,7 @@ yours**.
 2. Resolve team + task from `$ARGUMENTS`:
    - Treat the **first token** as a team name **only** when it is a bare single word that
      exactly matches a config key **and** is followed by the rest of the task. To force a
-     team explicitly, the user writes `/as-orchestrate team=<name> <task>`. Otherwise the
+     team explicitly, the user writes `/af-orchestrate team=<name> <task>`. Otherwise the
      team is the first key (`default`) and all of `$ARGUMENTS` is the task.
    - **Fallbacks:** if the config is **absent / empty / fails to parse**, fall back to the
      built-in `planner` + `builder` default and **say which fallback fired** (don't proceed
@@ -102,7 +102,7 @@ Whenever any persona's result contains one or more `NEEDS_RESEARCH: <question>` 
 The `default` roster has **no reviewer**. After the final builder task's acceptance criteria
 pass, report completion and **state explicitly that review/verification was not run** and
 which acceptance assertions therefore remain unproven (the user can pick the `full` team or
-run `/as-review`). When the active team *does* include a reviewer, run it as a normal step and
+run `/af-review`). When the active team *does* include a reviewer, run it as a normal step and
 require it to report parity across sibling cases, not just the exemplar.
 
 ## Step 5 — Report

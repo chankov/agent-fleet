@@ -347,7 +347,7 @@ function extractNeedsResearch(output: string): string[] {
 	return questions;
 }
 
-// ── Overrides Parser (.ai/agent-skills-overrides.md) ──
+// ── Overrides Parser (.ai/agent-fleet-overrides.md) ──
 // Reads the `## agent-hub` section (`## agent-team` is accepted as a legacy
 // alias; when both are present their keys merge, later lines winning).
 // Supported keys:
@@ -411,7 +411,7 @@ function freshOverrides(): AgentTeamOverrides {
 }
 
 function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
-	const path = join(cwd, ".ai", "agent-skills-overrides.md");
+	const path = join(cwd, ".ai", "agent-fleet-overrides.md");
 	if (!existsSync(path)) return freshOverrides();
 
 	let raw: string;
@@ -5197,7 +5197,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const choice = await ctx.ui.select("Select dispatcher persona", options);
 			if (choice === undefined) {
 				ctx.ui.notify(
-					"A dispatcher persona is required. Set `persona-gate: off` under `## agent-hub` in .ai/agent-skills-overrides.md to skip.",
+					"A dispatcher persona is required. Set `persona-gate: off` under `## agent-hub` in .ai/agent-fleet-overrides.md to skip.",
 					"warning",
 				);
 				continue;
@@ -5583,7 +5583,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			}
 			if (!def.models || def.models.length === 0) {
 				ctx.ui.notify(
-					`${displayName(def.name)} declares no model candidates — add a \`models:\` list to ${def.file} or a \`models.${def.name}:\` override in .ai/agent-skills-overrides.md.`,
+					`${displayName(def.name)} declares no model candidates — add a \`models:\` list to ${def.file} or a \`models.${def.name}:\` override in .ai/agent-fleet-overrides.md.`,
 					"warning",
 				);
 				return;
@@ -6271,7 +6271,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const focus = (args ?? "").trim();
 			const rulesLine = projectRulesDirs.length > 0
 				? projectRulesDirs.join(", ")
-				: "(none declared in .ai/agent-skills-overrides.md — the documenter must locate an existing rules tree or, failing that, propose lessons without writing)";
+				: "(none declared in .ai/agent-fleet-overrides.md — the documenter must locate an existing rules tree or, failing that, propose lessons without writing)";
 			const docsLine = projectDocsPaths.length > 0
 				? projectDocsPaths.join(", ")
 				: "(none declared)";
@@ -6746,7 +6746,7 @@ ${researchCatalog}`;
 		const overrides = parseAgentTeamOverrides(_ctx.cwd);
 		userLanguage = overrides.language;
 		if (overrides.warnings.length > 0) {
-			_ctx.ui.notify(`agent-skills-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
+			_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
 		}
 
 		// Project rule folders and doc entry points: keep the configured lists
@@ -6755,13 +6755,13 @@ ${researchCatalog}`;
 		projectRulesDirs = overrides.rulesDirs;
 		for (const dir of projectRulesDirs) {
 			if (!existsSync(join(_ctx.cwd, dir))) {
-				_ctx.ui.notify(`agent-skills-overrides: rules folder "${dir}" not found in ${_ctx.cwd}`, "warning");
+				_ctx.ui.notify(`agent-fleet-overrides: rules folder "${dir}" not found in ${_ctx.cwd}`, "warning");
 			}
 		}
 		projectDocsPaths = overrides.docsPaths;
 		for (const p of projectDocsPaths) {
 			if (!existsSync(join(_ctx.cwd, p))) {
-				_ctx.ui.notify(`agent-skills-overrides: docs entry point "${p}" not found in ${_ctx.cwd}`, "warning");
+				_ctx.ui.notify(`agent-fleet-overrides: docs entry point "${p}" not found in ${_ctx.cwd}`, "warning");
 			}
 		}
 
@@ -6885,7 +6885,7 @@ ${researchCatalog}`;
 			`Team: ${activeTeamName} (${members})\n` +
 			`Team sets loaded from: .pi/agents/teams.yaml\n` +
 			`Dispatch backends: ${dispatchLabel}\n` +
-			`User-facing language: ${userLanguage} (override in .ai/agent-skills-overrides.md)\n` +
+			`User-facing language: ${userLanguage} (override in .ai/agent-fleet-overrides.md)\n` +
 			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n` +
 			`Persona gate: ${personaGateLabel}\n` +
 			`Coms: ${comsLabel}\n` +

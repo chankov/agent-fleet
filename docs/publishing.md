@@ -1,11 +1,11 @@
-# Publishing @chankov/agent-skills to npm
+# Publishing @chankov/agent-fleet to npm
 
 A reference for the maintainer. Day-to-day contributors only need
 `npx changeset` (see [CONTRIBUTING.md](../CONTRIBUTING.md#versioning--releases)).
 
 The package is published under the `@chankov` scope (tied to the
 [chankov](https://www.npmjs.com/~chankov) npm account). The CLI binary it
-ships is `agent-skills` — both names are intentional.
+ships is `agent-fleet` — both names are intentional.
 
 ## One-time setup
 
@@ -84,18 +84,18 @@ npm publish --access public
 
 ```bash
 # 1. The new version exists on the registry
-npm view @chankov/agent-skills versions --json | tail -5
+npm view @chankov/agent-fleet versions --json | tail -5
 
 # 2. A clean install runs the new CLI
 cd /tmp && mkdir smoke && cd smoke
-npx @chankov/agent-skills@latest -- --version
+npx @chankov/agent-fleet@latest -- --version
 
 # 3. doctor scan works against a real workspace
 cd ~/projects/some-other-repo
-npx @chankov/agent-skills@latest -- doctor --dry-run
+npx @chankov/agent-fleet@latest -- doctor --dry-run
 
 # 4. The snapshot was published (required for version-aware updates)
-npx --yes @chankov/agent-skills@<new-version> -- update --workspace .
+npx --yes @chankov/agent-fleet@<new-version> -- update --workspace .
 ```
 
 ## Unpublishing / yanking
@@ -104,9 +104,9 @@ npm allows `npm unpublish` only within 72 hours of publishing and only when
 no other package depends on it. If you need to retract:
 
 ```bash
-npm unpublish @chankov/agent-skills@<x.y.z>
+npm unpublish @chankov/agent-fleet@<x.y.z>
 ```
 
-Prefer `npm deprecate @chankov/agent-skills@<x.y.z> "Reason"` instead — it
+Prefer `npm deprecate @chankov/agent-fleet@<x.y.z> "Reason"` instead — it
 leaves the version installable but warns on install. Pair it with a follow-up
 patch release that fixes the problem.

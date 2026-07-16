@@ -1,5 +1,5 @@
 ---
-description: Guided setup — install agent-skills artifacts into a workspace for a chosen coding agent
+description: Guided setup — install agent-fleet artifacts into a workspace for a chosen coding agent
 ---
 
 Invoke the `guided-workspace-setup` skill via the `skill` tool.
@@ -12,4 +12,4 @@ Analyse the workspace, then present a checklist of installable artifacts as **7 
 
 **Personas are generated for opencode.** The personas group lists the full availability roster from `node <source-root>/bin/cli.js transform-persona --list --agent opencode` (pi-only personas — `bowser`, `orchestrator` — are excluded). The apply step installs them into `.opencode/agent/<name>.md` via `transform-persona --agent opencode --workspace <workspace> <name…>` — always a generated copy, even in symlink mode — and records the rows with `transformed: true`; status checks diff against the generated output, not the raw canonical source.
 
-Offer override sections for the workspace's `.ai/agent-skills-overrides.md` based on a brief analysis of the project, and record what was installed in `.ai/agent-skills-setup.md`. Summarise the full plan and wait for explicit confirmation before writing anything, then perform the setup and report what changed.
+Offer override sections for the workspace's `.ai/agent-fleet-overrides.md` based on a brief analysis of the project, and record what was installed in `.ai/agent-fleet-setup.md`. Summarise the full plan and wait for explicit confirmation before writing anything, then perform the setup and report what changed.

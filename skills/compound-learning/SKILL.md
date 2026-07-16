@@ -34,7 +34,7 @@ The enemy is not missing lessons — it is **bloat**. A rule tree that grows by 
 | agent-hub assertion ledger | `.pi/agent-sessions/assertions.json` — which assertions failed first and why |
 | Dispatch brief | A `/compound` dispatch carries a candidate-lessons brief composed by the dispatcher — treat it as *candidates*, not conclusions |
 
-**Targets** — from `.ai/agent-skills-overrides.md`, section `## agent-hub` (legacy `## agent-team`):
+**Targets** — from `.ai/agent-fleet-overrides.md`, section `## agent-hub` (legacy `## agent-team`):
 
 - `rules:` — repo-relative rule folders. Resolve index-first: a top-level `README.md`/`index.md` is the loading manifest and also the registry any new file must be added to.
 - `docs:` — repo-relative documentation entry points.
