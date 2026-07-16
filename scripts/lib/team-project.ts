@@ -50,16 +50,20 @@ export function parseProjectFlag(argv: string[]): string {
 	return validateProject(project);
 }
 
-export function teamWorkspaceLabel(kind: "peers" | "hub", team: string, project = DEFAULT_PROJECT): string {
+export function teamWorkspaceLabel(kind: "peers" | "hub" | "conductor", team: string, project = DEFAULT_PROJECT): string {
 	validateTeamName(team);
 	validateProject(project);
-	const prefix = kind === "hub" ? "pi-hub" : "pi-peers";
+	const prefix = kind === "hub" ? "pi-hub" : kind === "conductor" ? "pi-conductor" : "pi-peers";
 	return project === DEFAULT_PROJECT ? `${prefix}-${team}` : `${prefix}-${team}--project.${project}`;
 }
 
 export function hubCommand(project = DEFAULT_PROJECT): string[] {
 	validateProject(project);
 	return project === DEFAULT_PROJECT ? ["just", "hub"] : ["just", "hub", "--project", project];
+}
+
+export function conductorCommand(): string[] {
+	return ["hermes", "-p", "dev"];
 }
 
 export function teamSnapshotPath(snapshotDir: string, team: string, project = DEFAULT_PROJECT): string {

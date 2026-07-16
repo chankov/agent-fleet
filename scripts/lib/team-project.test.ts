@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
 	DEFAULT_PROJECT,
+	conductorCommand,
 	hubCommand,
 	parseProjectFlag,
 	teamSnapshotPath,
@@ -41,24 +42,30 @@ test("validateProject rejects path traversal, separators, whitespace, metacharac
 test("workspace labels, hub commands, and snapshot paths preserve default names and distinguish projects", () => {
 	assert.equal(teamWorkspaceLabel("peers", "docs"), "pi-peers-docs");
 	assert.equal(teamWorkspaceLabel("hub", "docs"), "pi-hub-docs");
+	assert.equal(teamWorkspaceLabel("conductor", "docs"), "pi-conductor-docs");
 	assert.equal(teamWorkspaceLabel("peers", "docs", "acme"), "pi-peers-docs--project.acme");
 	assert.equal(teamWorkspaceLabel("hub", "docs", "acme"), "pi-hub-docs--project.acme");
+	assert.equal(teamWorkspaceLabel("conductor", "docs", "acme"), "pi-conductor-docs--project.acme");
 	assert.notEqual(teamWorkspaceLabel("peers", "docs--project-acme"), teamWorkspaceLabel("peers", "docs", "acme"));
 	assert.notEqual(teamWorkspaceLabel("hub", "docs--project-acme"), teamWorkspaceLabel("hub", "docs", "acme"));
+	assert.notEqual(teamWorkspaceLabel("conductor", "docs--project-acme"), teamWorkspaceLabel("conductor", "docs", "acme"));
 	assert.deepEqual(hubCommand(), ["just", "hub"]);
 	assert.deepEqual(hubCommand("acme"), ["just", "hub", "--project", "acme"]);
+	assert.deepEqual(conductorCommand(), ["hermes", "-p", "dev"]);
 	assert.equal(teamSnapshotPath("/snap", "docs"), join("/snap", "docs.json"));
 	assert.equal(teamSnapshotPath("/snap", "docs", "acme"), join("/snap", "projects", "acme", "docs.json"));
 });
 
 test("justfile public team recipes forward trailing args and hidden peer recipes pass --project", () => {
 	const justfile = readFileSync(join(REPO_ROOT, "justfile"), "utf-8");
-	for (const recipe of ["team-up", "team-up-dry", "hub-team", "hub-team-dry", "team-snapshot", "team-down", "team-resume"]) {
+	for (const recipe of ["team-up", "team-up-dry", "hub-team", "hub-team-dry", "conductor", "conductor-dry", "team-snapshot", "team-down", "team-resume"]) {
 		assert.match(justfile, new RegExp(`\\n${recipe} team=\\"full\\" \\*args:`), recipe);
 	}
 	for (const command of [
 		"scripts/team-up.ts --team {{team}} {{args}}",
 		"scripts/team-up.ts --team {{team}} --hub {{args}}",
+		"scripts/team-up.ts --team {{team}} --conductor {{args}}",
+		"scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}",
 		"scripts/team-snapshot.ts snapshot {{team}} {{args}}",
 		"scripts/team-snapshot.ts down {{team}} {{args}}",
 		"scripts/team-snapshot.ts resume {{team}} {{args}}",

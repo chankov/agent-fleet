@@ -2,8 +2,9 @@
 
 A multi-agent dispatcher with [`coms`](../coms/README.md) **embedded** — so the dispatcher is
 *also* a peer-to-peer node. The bundled `just hub` recipes load
-[`damage-control-continue`](../damage-control-continue/README.md) first, giving the dispatcher
-guardrails that block but feed back (the turn keeps going) by default. It combines local specialist
+[`damage-control-continue`](../damage-control-continue/README.md) first, then
+[`ask-user-remote`](../ask-user-remote/README.md), so the dispatcher has guardrails and an
+`ask_user` handoff tool before `agent-hub` starts. It combines local specialist
 orchestration (fixed specialist grid, read-only research helpers, `/zoom`, kill/restart, per-agent
 model, dispatcher persona gate) with peer-to-peer collaboration: it can **hand a session off to
 another main agent** and **use a coms peer as a subagent**.
@@ -24,8 +25,9 @@ another main agent** and **use a coms peer as a subagent**.
   `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple
   reads and `deep-researcher` (`gpt-5.5` / xhigh) for hard, cross-cutting investigation. The
   orchestrator routes by persona; each persona's model + thinking level is shown in its catalog.
-- **Human handoff path** — `ask_user` is exposed when `pi-ask-user` is available, so specialists can
-  bubble decisions back through the dispatcher.
+- **Human handoff path** — `ask_user` is exposed by the `ask-user-remote` wrapper (capturing stock
+  `pi-ask-user` and optionally racing a `user-remote` bridge), so specialists can bubble decisions
+  back through the dispatcher.
 - **Auto-research pipe (`NEEDS_RESEARCH:`)** — a specialist that lacks information pauses by ending
   its turn with `NEEDS_RESEARCH: <question>` lines (mirror of the `ASK_USER:` protocol). The hub
   intercepts them **in code**: it fans out read-only research helpers (max 4 questions per pause,
@@ -492,8 +494,8 @@ just hub
 just hub --name architect --purpose "owns the migration design" --project myrepo
 
 # equivalent direct guarded launch
-pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts
-pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts --name releaser --explicit
+pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts
+pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts --name releaser --explicit
 
 # direct unguarded launch, only when you intentionally want to skip damage-control
 pi -e .pi/harnesses/agent-hub/index.ts
@@ -503,7 +505,7 @@ Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
 
 ### Safety scope
 
-`just hub` and `just hub-solo` load `damage-control-continue` before `agent-hub`, so guardrails apply
+`just hub` and `just hub-solo` load `damage-control-continue` and `ask-user-remote` before `agent-hub`, so guardrails and `ask_user` apply
 to hub/dispatcher tool calls in that parent pi process — and because it is the *continue* variant, a
 blocked dispatcher call feeds back and the turn keeps going rather than aborting. Specialist and
 research agents are spawned as separate pi subprocesses with `--no-extensions` — but `agent-hub`

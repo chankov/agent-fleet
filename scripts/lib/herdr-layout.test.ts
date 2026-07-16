@@ -35,7 +35,9 @@ test("real peers.yaml parses into the shipped teams", () => {
 		"full",
 		"hotfix",
 		"info",
+		"plan",
 		"release",
+		"review",
 		"security",
 		"web",
 	]);
@@ -49,6 +51,8 @@ test("real peers.yaml parses into the shipped teams", () => {
 	assert.equal(teams.hotfix.length, 2);
 	assert.equal(teams.release.length, 2);
 	assert.equal(teams.info.length, 2);
+	assert.equal(teams.plan.length, 2);
+	assert.equal(teams.review.length, 2);
 });
 
 test("full team produces a stable layout tree with one labeled pane per peer", () => {
@@ -204,6 +208,27 @@ test("hub option puts the hub in a larger root pane with the team tiled beside i
 			assert.deepEqual(tree.first.command, ["just", "hub"]);
 		}
 		assert.equal(panesOf(tree.second).length, 2);
+	}
+});
+
+test("conductor option puts Hermes in a root pane with the team tiled beside it", () => {
+	const teams = parsePeersYaml(realPeersYaml);
+	const tree = buildTeamLayout({
+		team: "docs",
+		peers: teams.docs,
+		repoRoot: REPO_ROOT,
+		hub: { command: ["hermes", "-p", "dev"], label: "conductor", ratio: 0.35 },
+	});
+	assert.equal(tree.type, "split");
+	if (tree.type === "split") {
+		assert.equal(tree.direction, "right");
+		assert.equal(tree.ratio, 0.35);
+		assert.equal(tree.first.type, "pane");
+		if (tree.first.type === "pane") {
+			assert.equal(tree.first.label, "conductor");
+			assert.deepEqual(tree.first.command, ["hermes", "-p", "dev"]);
+		}
+		assert.deepEqual(panesOf(tree.second).map((p) => p.label), ["documenter", "researcher"]);
 	}
 });
 

@@ -33,15 +33,16 @@ import {
 	type LayoutNode,
 	type Peer,
 } from "./lib/herdr-layout.ts";
-import { DEFAULT_PROJECT, hubCommand, parseProjectFlag, teamWorkspaceLabel, validateTeamName } from "./lib/team-project.ts";
+import { DEFAULT_PROJECT, conductorCommand, hubCommand, parseProjectFlag, teamWorkspaceLabel, validateTeamName } from "./lib/team-project.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const DEFAULT_PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
 
-// The guarded hub occupies this share of the workspace in --hub mode; the
-// team tiles in the rest.
+// The guarded hub or Hermes conductor occupies this share of the workspace in
+// --hub/--conductor mode; the team tiles in the rest.
 const HUB_RATIO = 0.4;
+const CONDUCTOR_RATIO = 0.35;
 
 function flagValue(argv: string[], flag: string): string | null {
 	const i = argv.indexOf(flag);
@@ -104,17 +105,22 @@ function buildLayoutOrDie(
 	team: string,
 	peers: Peer[],
 	envForPeer: (p: Peer) => Record<string, string> | undefined,
-	hub: boolean,
+	mode: "peers" | "hub" | "conductor",
 	project: string,
 ): LayoutNode {
 	try {
+		const rootPane = mode === "hub"
+			? { command: hubCommand(project), label: "hub", ratio: HUB_RATIO }
+			: mode === "conductor"
+				? { command: conductorCommand(), label: "conductor", ratio: CONDUCTOR_RATIO }
+				: undefined;
 		return buildTeamLayout({
 			team,
 			peers,
 			repoRoot: REPO_ROOT,
 			envForPeer,
 			project,
-			...(hub ? { hub: { command: hubCommand(project), label: "hub", ratio: HUB_RATIO } } : {}),
+			...(rootPane ? { hub: rootPane } : {}),
 		});
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
@@ -136,9 +142,12 @@ async function main(): Promise<void> {
 	}
 	const dryRun = argv.includes("--dry-run");
 	const hub = argv.includes("--hub");
+	const conductor = argv.includes("--conductor");
+	if (hub && conductor) die("--hub and --conductor are mutually exclusive");
+	const mode: "peers" | "hub" | "conductor" = hub ? "hub" : conductor ? "conductor" : "peers";
 
 	if (!team) {
-		console.error("usage: team-up.ts --team <name> [--hub] [--dry-run] [--peers <peers.yaml>] [--project <name>]");
+		console.error("usage: team-up.ts --team <name> [--hub|--conductor] [--dry-run] [--peers <peers.yaml>] [--project <name>]");
 		process.exit(2);
 	}
 
@@ -150,7 +159,7 @@ async function main(): Promise<void> {
 	const peers = loadTeam(team, peersYaml);
 	let label: string;
 	try {
-		label = teamWorkspaceLabel(hub ? "hub" : "peers", team, project);
+		label = teamWorkspaceLabel(mode, team, project);
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
@@ -158,10 +167,11 @@ async function main(): Promise<void> {
 	if (dryRun) {
 		// No herdr calls and no env_file reads on this path — must work with no
 		// herdr installed, and secrets never reach the output.
-		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), hub, project);
+		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), mode, project);
 		const projectNote = project === DEFAULT_PROJECT ? "" : `, project "${project}"`;
+		const extra = mode === "hub" ? " + hub" : mode === "conductor" ? " + conductor" : "";
 		console.log(
-			`# team-up (dry run) — team "${team}"${projectNote}, ${peers.length} peer(s)${hub ? " + hub" : ""}, herdr workspace "${label}"`,
+			`# team-up (dry run) — team "${team}"${projectNote}, ${peers.length} peer(s)${extra}, herdr workspace "${label}"`,
 		);
 		for (const p of peers) {
 			const cmd = layoutCommands(layout, p.name as string) ?? [];
@@ -172,7 +182,7 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), hub, project);
+	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), mode, project);
 
 	// Import lazily so --dry-run never touches the client (or the socket).
 	const { herdr, requireHerdr, HerdrUnavailableError } = await import(
@@ -184,7 +194,7 @@ async function main(): Promise<void> {
 	} catch (err) {
 		if (err instanceof HerdrUnavailableError) {
 			console.error(err.message);
-			const dryRecipe = hub ? "hub-team-dry" : "team-up-dry";
+			const dryRecipe = mode === "hub" ? "hub-team-dry" : mode === "conductor" ? "conductor-dry" : "team-up-dry";
 			console.error(`(dry run still works: just ${dryRecipe} ${team}${project === DEFAULT_PROJECT ? "" : ` --project ${project}`})`);
 			process.exit(1);
 		}
@@ -214,10 +224,12 @@ async function main(): Promise<void> {
 		}
 	}
 
+	const launchedPrefix = mode === "hub" ? "hub + " : mode === "conductor" ? "conductor + " : "";
 	console.log(
-		`Launched ${hub ? "hub + " : ""}${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`,
+		`Launched ${launchedPrefix}${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`,
 	);
-	if (hub) console.log(`  • hub (${hubCommand(project).join(" ")} — guarded dispatcher)`);
+	if (mode === "hub") console.log(`  • hub (${hubCommand(project).join(" ")} — guarded dispatcher)`);
+	if (mode === "conductor") console.log(`  • conductor (${conductorCommand().join(" ")} — Hermes conductor; no herdr control)`);
 	for (const p of peers) console.log(`  • ${p.name}`);
 	console.log(`Focus: herdr workspace focus ${wsId}`);
 	console.log(`Close: herdr workspace close ${wsId}`);
