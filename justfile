@@ -53,16 +53,16 @@ ext-damage-control-continue:
 # the acceptance assertions — see skills/orchestration-verification); it is appended only if
 # agents/orchestrator.md is installed, so the hub still launches when it is absent. Override
 # with your own --system-prompt <persona>.md passed after `just hub`.
-# Guarded agent hub: damage-control-continue + dispatcher grid + research helpers + embedded coms + orchestrator.
+# Guarded agent hub: damage-control-continue + remote-capable ask_user + dispatcher grid + research helpers + embedded coms + orchestrator.
 # The main session loads the CONTINUE guardrail (blocks feed back so the dispatcher adapts and keeps going);
 # spawned specialists still inherit the hard-stop damage-control variant (research helpers inherit continue).
 hub *args:
-    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts $persona {{args}}
+    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts $persona {{args}}
 
 # Agent hub (solo): guarded hub without the coms layer — fixed specialists + research only.
-# Same orchestrator-persona default and continue-guardrail main session as `just hub`.
+# Same orchestrator-persona default, remote-capable ask_user, and continue-guardrail main session as `just hub`.
 hub-solo *args:
-    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts --solo $persona {{args}}
+    persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts --solo $persona {{args}}
 
 # Internal helper for team-up: launch a reusable coms peer (coms + compact-and-continue + a persona).
 # Prints a colored identity banner (peer name + persona purpose) before pi starts,
@@ -103,6 +103,15 @@ hub-team team="full" *args:
 # Hub + team (dry run): print the combined layout without touching herdr.
 hub-team-dry team="full" *args:
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --hub --dry-run {{args}}
+
+# Hermes conductor + team in ONE herdr workspace: Hermes dev profile in a conductor pane,
+# the team's peers tiled beside it. Hermes delegates via coms-cli and never drives herdr.
+conductor team="full" *args:
+    node --experimental-strip-types scripts/team-up.ts --team {{team}} --conductor {{args}}
+
+# Hermes conductor + team (dry run): print the combined layout without touching herdr.
+conductor-dry team="full" *args:
+    node --experimental-strip-types scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
 
 # Snapshot a RUNNING team's session refs to ~/.pi/team-snapshots/<team>.json
 # (team keeps running — take one proactively so a crash is resumable).

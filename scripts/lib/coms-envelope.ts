@@ -47,6 +47,15 @@ export interface ResponseEnvelope {
 	error?: string | null;
 }
 
+export interface CancelEnvelope {
+	type: "cancel";
+	msg_id: string;
+	from: string;
+	to: string;
+	created_at: string;
+	ref_msg_id: string;
+}
+
 export interface AgentCard {
 	name: string;
 	purpose: string;
@@ -158,6 +167,27 @@ export function makeResponseEnvelope(
 	};
 }
 
+export function makeCancelEnvelope(options: {
+	from: string;
+	to: string;
+	ref_msg_id: string;
+	msg_id?: string;
+	created_at?: string;
+}): CancelEnvelope {
+	return {
+		type: "cancel",
+		msg_id: options.msg_id ?? ulid(),
+		from: options.from,
+		to: options.to,
+		created_at: options.created_at ?? nowIso(),
+		ref_msg_id: options.ref_msg_id,
+	};
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0;
+}
+
 export function isPromptEnvelope(obj: unknown): obj is PromptEnvelope {
 	const e = obj as PromptEnvelope;
 	return (
@@ -173,6 +203,19 @@ export function isPromptEnvelope(obj: unknown): obj is PromptEnvelope {
 export function isResponseEnvelope(obj: unknown): obj is ResponseEnvelope {
 	const e = obj as ResponseEnvelope;
 	return !!e && e.type === "response" && typeof e.msg_id === "string" && "response" in e;
+}
+
+export function isCancelEnvelope(obj: unknown): obj is CancelEnvelope {
+	const e = obj as CancelEnvelope;
+	return (
+		!!e &&
+		e.type === "cancel" &&
+		isNonEmptyString(e.msg_id) &&
+		isNonEmptyString(e.from) &&
+		isNonEmptyString(e.to) &&
+		isNonEmptyString(e.created_at) &&
+		isNonEmptyString(e.ref_msg_id)
+	);
 }
 
 // ━━ Registry I/O (mirrors coms/index.ts semantics) ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -300,7 +343,7 @@ export function readOneLine(socket: net.Socket): Promise<string> {
 // Send one envelope, await the ack/nack (or pong) line. Rejects on nack.
 export function sendEnvelope(
 	endpoint: string,
-	envelope: PromptEnvelope | ResponseEnvelope | { type: string; msg_id?: string; [k: string]: unknown },
+	envelope: PromptEnvelope | ResponseEnvelope | CancelEnvelope | { type: string; msg_id?: string; [k: string]: unknown },
 ): Promise<Record<string, unknown>> {
 	return new Promise((resolve, reject) => {
 		const sock = net.createConnection({ path: endpoint });

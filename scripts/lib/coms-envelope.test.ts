@@ -15,8 +15,10 @@ import * as path from "node:path";
 
 import {
 	bindEndpoint,
+	isCancelEnvelope,
 	isPromptEnvelope,
 	isResponseEnvelope,
+	makeCancelEnvelope,
 	makeConnHandler,
 	makePromptEnvelope,
 	makeResponseEnvelope,
@@ -61,6 +63,29 @@ test("response envelopes validate and carry errors", () => {
 	const err = makeResponseEnvelope(ID, "MSG2", null, "blocked on permission prompt");
 	assert.equal(err.error, "blocked on permission prompt");
 	assert.equal(isResponseEnvelope({ type: "response" }), false);
+});
+
+test("cancel envelopes validate and require ref_msg_id", () => {
+	const env = makeCancelEnvelope({
+		from: "orchestrator",
+		to: "user-remote",
+		ref_msg_id: "01ABCDEFGHJKMNPQRSTVWXYZ1",
+		msg_id: "01ABCDEFGHJKMNPQRSTVWXYZ2",
+		created_at: "2026-01-02T03:04:05.000Z",
+	});
+	assert.deepEqual(env, {
+		type: "cancel",
+		msg_id: "01ABCDEFGHJKMNPQRSTVWXYZ2",
+		from: "orchestrator",
+		to: "user-remote",
+		created_at: "2026-01-02T03:04:05.000Z",
+		ref_msg_id: "01ABCDEFGHJKMNPQRSTVWXYZ1",
+	});
+	assert.equal(isCancelEnvelope(env), true);
+	assert.equal(isCancelEnvelope({ ...env, ref_msg_id: undefined }), false);
+	assert.equal(isCancelEnvelope({ ...env, ref_msg_id: "" }), false);
+	assert.equal(isCancelEnvelope({ ...env, ref_msg_id: 123 }), false);
+	assert.equal(isCancelEnvelope({ type: "cancel", msg_id: env.msg_id }), false);
 });
 
 test("ulid is 26 chars, unique, monotonic-ish by time", () => {

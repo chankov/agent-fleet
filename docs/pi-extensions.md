@@ -44,9 +44,10 @@ see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/READM
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some remove every codebase tool and leave only an
 orchestration tool, some set UI surfaces, some gate every tool call. Most are loaded
-one per session; the supported stack is a damage-control variant before `agent-hub`, which the
-`just hub` recipes use by default (`damage-control-continue` for the main session). They live in **`.pi/harnesses/`** — a directory pi
-does *not* auto-discover — so a plain `pi` run never loads them.
+one per session; the supported stack is `damage-control-continue` + `ask-user-remote`
+before `agent-hub`, which the `just hub` recipes use by default. They live in
+**`.pi/harnesses/`** — a directory pi does *not* auto-discover — so a plain `pi`
+run never loads them.
 
 ### Selective loading — read this first
 
@@ -87,6 +88,7 @@ runtime itself.
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
 | [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, peer-as-subagent — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just hub` |
+| [ask-user-remote](../.pi/harnesses/ask-user-remote/README.md) | Orchestration | Captures stock `pi-ask-user` and registers the default `ask_user`; with `user-remote` live it races local UI against the Hermes bridge, otherwise it is stock local behavior | loaded by `just hub` / `hub-solo` |
 | [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub`; honors pre-granted exemptions from the hub's shared exemptions file | `just ext-damage-control` |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers. Supports path exemptions: `/allow`/`/allowed`/`/revoke`, a block-time approval dialog, and escalation from headless children to the hub dispatcher | `just ext-damage-control-continue` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine; launches damage-control-continue-guarded under a chosen name | `just safe-coms <name>` |
@@ -117,9 +119,10 @@ harnesses:
 - **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
 - **Operator controls** — `/zoom` timeline inspection plus child-agent kill/restart controls.
-- **Damage-control by default** — `just hub` / `just hub-solo` load the `damage-control-continue`
-  safety harness before `agent-hub`, so the dispatcher's tool calls are checked against the rules
-  file but a blocked call feeds back and the turn keeps going rather than aborting. `agent-hub` also
+- **Damage-control + ask_user by default** — `just hub` / `just hub-solo` load the
+  `damage-control-continue` safety harness and `ask-user-remote` before `agent-hub`, so the
+  dispatcher's tool calls are checked against the rules file and the `askUserAvailable` probe sees
+  `ask_user`. A blocked call feeds back and the turn keeps going rather than aborting. `agent-hub` also
   re-loads a guardrail into every spawned subagent (via an explicit `-e` that survives their
   `--no-extensions`): research helpers (`researcher` / `deep-researcher`) get the same continue
   variant, while other specialists (builder, test-engineer, …) get the hard-stop `damage-control`
@@ -214,7 +217,8 @@ What changed relative to `disler/pi-vs-claude-code`:
   `.pi/harnesses/<name>/index.ts` directories, each with its own `package.json` and
   `README.md`. They live under `.pi/harnesses/` — *not* `.pi/extensions/` — because pi
   auto-discovers and loads everything in `.pi/extensions/`, while harnesses must be loaded
-  explicitly through recipes (with `damage-control` before `agent-hub` as the supported stack).
+  explicitly through recipes (with `damage-control-continue` + `ask-user-remote` before
+  `agent-hub` as the supported stack).
 - **Tooling switched to npm.** `bun` / `bun.lock` are not used; the `justfile` recipes
   point at the new paths and use npm.
 
