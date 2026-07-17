@@ -12,9 +12,13 @@ import { fileURLToPath } from "node:url";
 
 import { resolveEnvFilePath } from "./herdr-layout.ts";
 import { parsePersonaFrontmatter, renderBanner } from "./persona-banner.ts";
+import { worktreeTag } from "./team-project.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEAM_UP = join(REPO_ROOT, "scripts", "team-up.ts");
+// team-up derives the workspace-label prefix from the checkout basename, so the
+// expected label depends on where this repo is cloned (agent-fleet, main.wt2, …).
+const TAG = worktreeTag(REPO_ROOT);
 
 test("resolveEnvFilePath accepts repo-relative paths and rejects escapes", () => {
 	assert.equal(resolveEnvFilePath(".env.peer", "/repo"), "/repo/.env.peer");
@@ -55,7 +59,7 @@ function dryRun(args: string[], peersYaml: string): { stdout: string; stderr: st
 	return { stdout: r.stdout, stderr: r.stderr, status: r.status };
 }
 
-test("dry run: hub mode labels the workspace pi-hub-* and includes the hub pane", () => {
+test("dry run: hub mode labels the workspace <tag>-hub-* and includes the hub pane", () => {
 	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n  - name: b\n    persona: documenter\n");
@@ -63,7 +67,7 @@ test("dry run: hub mode labels the workspace pi-hub-* and includes the hub pane"
 	const r = dryRun(["--team", "t", "--hub"], peersYaml);
 	assert.equal(r.status, 0, r.stderr);
 	const parsed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{")));
-	assert.equal(parsed.label, "pi-hub-t");
+	assert.equal(parsed.label, `${TAG}-hub-t`);
 	assert.equal(parsed.layout.type, "split");
 	assert.equal(parsed.layout.ratio, 0.4);
 	assert.equal(parsed.layout.first.label, "hub");
@@ -79,7 +83,7 @@ test("dry run: hub project labels workspace and sends the project to hub plus ev
 	assert.equal(r.status, 0, r.stderr);
 	assert.match(r.stdout, /project "acme"/);
 	const parsed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{")));
-	assert.equal(parsed.label, "pi-hub-t--project.acme");
+	assert.equal(parsed.label, `${TAG}-hub-t--project.acme`);
 	assert.deepEqual(parsed.layout.first.command, ["just", "hub", "--project", "acme"]);
 	const paneJson = JSON.stringify(parsed.layout.second);
 	assert.match(paneJson, /"acme"/);
@@ -95,7 +99,7 @@ test("dry run: non-hub project sends the project to every peer without a hub pan
 	const r = dryRun(["--team", "t", "--project", "acme"], peersYaml);
 	assert.equal(r.status, 0, r.stderr);
 	const parsed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{")));
-	assert.equal(parsed.label, "pi-peers-t--project.acme");
+	assert.equal(parsed.label, `${TAG}-peers-t--project.acme`);
 	assert.equal(parsed.layout.type, "split");
 	assert.deepEqual(parsed.layout.first.command, ["just", "_peer", "researcher", "a", "", "", "acme"]);
 	assert.deepEqual(parsed.layout.second.command, ["just", "_claude-peer", "c", "", "", "acme"]);

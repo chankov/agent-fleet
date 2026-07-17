@@ -58,8 +58,9 @@ export function buildSnapshot(opts: {
 	agents: AgentLite[];
 	now?: Date;
 	project?: string;
+	tag?: string;
 }): TeamSnapshot {
-	const { team, hub, peers, panes, agents, project = DEFAULT_PROJECT } = opts;
+	const { team, hub, peers, panes, agents, project = DEFAULT_PROJECT, tag } = opts;
 	validateTeamName(team);
 	validateProject(project);
 	const paneByLabel = new Map<string, string>();
@@ -78,7 +79,7 @@ export function buildSnapshot(opts: {
 		team,
 		project,
 		hub,
-		workspace_label: teamWorkspaceLabel(hub ? "hub" : "peers", team, project),
+		workspace_label: teamWorkspaceLabel(hub ? "hub" : "peers", team, project, tag),
 		taken_at: (opts.now ?? new Date()).toISOString(),
 		peers: peers.map((peer) => {
 			const paneId = peer.name ? paneByLabel.get(peer.name) : undefined;

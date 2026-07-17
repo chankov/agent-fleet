@@ -88,13 +88,20 @@ _claude-peer name model="" session="" project="default":
     node --experimental-strip-types scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
 
 # The team recipes below take the team as a positional arg (defaults to "full")
-# and pass everything after it straight to the script. Scope a team to its own
-# coms peer pool with `--project <name>` — without it everything lands in the
-# shared "default" pool, where teams launched from OTHER repos collide (name
-# suffixing like code-reviewer2, dispatches routed to the wrong repo's pane).
-# IMPORTANT: the flag form is `--project af`; `project=af` is NOT a flag — just
-# treats bare key=value args as variable overrides, so it is silently ignored
-# and the team still joins the "default" pool.
+# and pass everything after it straight to the script.
+#
+# Herdr workspace labels are auto-scoped to the CHECKOUT: <worktree-tag>-<mode>-<team>
+# where the tag is the last dot-segment of this directory's basename (main.wt2 →
+# wt2, ringithub.end2 → end2, plain agent-fleet → agent-fleet). So the same team
+# launched from different repos/worktrees gets its own workspace (wt2-hub-plan vs
+# end2-hub-plan) instead of colliding on a shared label.
+#
+# `--project <name>` is a SEPARATE axis: it scopes the coms peer POOL. Without it
+# every peer lands in the shared "default" pool, where teams launched from OTHER
+# repos collide (name suffixing like code-reviewer2, dispatches routed to the
+# wrong repo's pane). IMPORTANT: the flag form is `--project af`; `project=af` is
+# NOT a flag — just treats bare key=value args as variable overrides, so it is
+# silently ignored and the team still joins the "default" pool.
 
 # Team up: spawn every peer of a team from .pi/agents/peers.yaml into a herdr
 # workspace (one tiled pane per peer). Requires a running herdr server.

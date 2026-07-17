@@ -97,7 +97,7 @@ just conductor docs          # live herdr workspace: conductor pane + docs team 
 just conductor-dry docs      # no herdr calls; prints the planned layout JSON
 ```
 
-The live recipe reuses `scripts/team-up.ts --conductor`: it creates a normal herdr workspace labeled `pi-conductor-<team>`, places a `conductor` pane running `hermes -p dev`, and tiles the chosen team beside it. Team peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
+The live recipe reuses `scripts/team-up.ts --conductor`: it creates a normal herdr workspace labeled `<worktree-tag>-conductor-<team>` (the tag is the last dot-segment of the checkout's basename, so the same team from a different worktree gets its own workspace), places a `conductor` pane running `hermes -p dev`, and tiles the chosen team beside it. Team peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
 
 Hard boundary: the Hermes conductor must not run `herdr` commands, drive panes, create/kill workspaces, or manage fleet lifecycle. Herdr driving stays with the human/orchestrator so the damage-control model remains intact; see `.pi/damage-control-rules.yaml` for the authoritative no-herdr boundary. Hermes may only operate inside the project coms pool through the documented coms CLI commands.
 

@@ -29,10 +29,10 @@ const AGENTS = [
 ];
 
 test("buildSnapshot joins peers to session refs via pane labels", () => {
-	const snap = buildSnapshot({ team: "docs", hub: false, peers: PEERS, panes: PANES, agents: AGENTS });
+	const snap = buildSnapshot({ team: "docs", hub: false, peers: PEERS, panes: PANES, agents: AGENTS, tag: "wt2" });
 	assert.equal(snap.version, 1);
 	assert.equal(snap.project, "default");
-	assert.equal(snap.workspace_label, "pi-peers-docs");
+	assert.equal(snap.workspace_label, "wt2-peers-docs");
 	assert.deepEqual(snap.peers[0].resume, { kind: "path", value: "/home/u/.pi/sessions/doc.jsonl" });
 	assert.deepEqual(snap.peers[1].resume, { kind: "path", value: "/home/u/.pi/sessions/res.jsonl" });
 	// manifest fields survive
@@ -40,8 +40,8 @@ test("buildSnapshot joins peers to session refs via pane labels", () => {
 });
 
 test("buildSnapshot: missing pane or session snapshots as resume:null; hub label", () => {
-	const snap = buildSnapshot({ team: "docs", hub: true, peers: PEERS, panes: [PANES[0]], agents: [] });
-	assert.equal(snap.workspace_label, "pi-hub-docs");
+	const snap = buildSnapshot({ team: "docs", hub: true, peers: PEERS, panes: [PANES[0]], agents: [], tag: "wt2" });
+	assert.equal(snap.workspace_label, "wt2-hub-docs");
 	assert.equal(snap.peers[0].resume, null);
 	assert.equal(snap.peers[1].resume, null);
 });
@@ -56,9 +56,9 @@ test("snapshot JSON round-trips through parseSnapshot; garbage is rejected", () 
 });
 
 test("project-specific snapshots use distinct labels/paths and old snapshots default to default", () => {
-	const snap = buildSnapshot({ team: "docs", project: "acme", hub: true, peers: PEERS, panes: PANES, agents: AGENTS });
+	const snap = buildSnapshot({ team: "docs", project: "acme", hub: true, peers: PEERS, panes: PANES, agents: AGENTS, tag: "wt2" });
 	assert.equal(snap.project, "acme");
-	assert.equal(snap.workspace_label, "pi-hub-docs--project.acme");
+	assert.equal(snap.workspace_label, "wt2-hub-docs--project.acme");
 	assert.equal(teamSnapshotPath("/snap", "docs"), "/snap/docs.json");
 	assert.equal(teamSnapshotPath("/snap", "docs", "acme"), "/snap/projects/acme/docs.json");
 

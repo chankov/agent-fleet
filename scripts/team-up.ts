@@ -35,10 +35,13 @@ import {
 	type Peer,
 } from "./lib/herdr-layout.ts";
 import { planSpawnDelays } from "./lib/spawn-stagger.ts";
-import { DEFAULT_PROJECT, conductorCommand, hubCommand, parseProjectFlag, teamWorkspaceLabel, validateTeamName } from "./lib/team-project.ts";
+import { DEFAULT_PROJECT, conductorCommand, hubCommand, parseProjectFlag, teamWorkspaceLabel, validateTeamName, worktreeTag } from "./lib/team-project.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
+// Scopes the workspace label to this checkout so the same team from another
+// repo/worktree gets its own workspace instead of colliding (see worktreeTag).
+const WORKTREE_TAG = worktreeTag(REPO_ROOT);
 const DEFAULT_PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
 
 // The guarded hub or Hermes conductor occupies this share of the workspace in
@@ -185,7 +188,7 @@ async function main(): Promise<void> {
 	const peers = loadTeam(team, peersYaml);
 	let label: string;
 	try {
-		label = teamWorkspaceLabel(mode, team, project);
+		label = teamWorkspaceLabel(mode, team, project, WORKTREE_TAG);
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}

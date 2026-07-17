@@ -35,6 +35,20 @@ export function validateTeamName(team: string): string {
 	return team;
 }
 
+// The worktree/repo identity that scopes a workspace label so the same team
+// launched from different checkouts never collides. It is the LAST dot-segment
+// of the checkout directory's basename — the convention the fleet uses for
+// git worktrees: `main.wt2` → `wt2`, `ringithub.end2` → `end2`, a plain
+// `agent-fleet` checkout → `agent-fleet`. Sanitized to the label-safe charset;
+// falls back to "repo" when nothing usable remains.
+export function worktreeTag(repoRoot: string): string {
+	const base = path.basename(repoRoot);
+	const dot = base.lastIndexOf(".");
+	const seg = dot > 0 ? base.slice(dot + 1) : base;
+	const safe = seg.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+	return safe || "repo";
+}
+
 export function parseProjectFlag(argv: string[]): string {
 	let project = DEFAULT_PROJECT;
 	let seen = false;
@@ -50,11 +64,22 @@ export function parseProjectFlag(argv: string[]): string {
 	return validateProject(project);
 }
 
-export function teamWorkspaceLabel(kind: "peers" | "hub" | "conductor", team: string, project = DEFAULT_PROJECT): string {
+// Workspace label = <worktree-tag>-<mode>-<team>, with a `--project.<name>`
+// suffix when the coms project is non-default. The worktree tag keys the label
+// to the checkout, so `just hub-team <team>` from two repos/worktrees yields
+// distinct labels (e.g. `wt2-hub-plan` vs `end2-hub-plan`) instead of colliding
+// on a shared `pi-hub-<team>`. Pass `tag` from worktreeTag(REPO_ROOT); it
+// defaults to "repo" only for callers that have no checkout in hand.
+export function teamWorkspaceLabel(
+	kind: "peers" | "hub" | "conductor",
+	team: string,
+	project = DEFAULT_PROJECT,
+	tag = "repo",
+): string {
 	validateTeamName(team);
 	validateProject(project);
-	const prefix = kind === "hub" ? "pi-hub" : kind === "conductor" ? "pi-conductor" : "pi-peers";
-	return project === DEFAULT_PROJECT ? `${prefix}-${team}` : `${prefix}-${team}--project.${project}`;
+	const base = `${tag}-${kind}-${team}`;
+	return project === DEFAULT_PROJECT ? base : `${base}--project.${project}`;
 }
 
 export function hubCommand(project = DEFAULT_PROJECT): string[] {

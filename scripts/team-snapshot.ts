@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 
 import { buildTeamLayout, parsePeersYaml, type Peer } from "./lib/herdr-layout.ts";
 import { planSpawnDelays } from "./lib/spawn-stagger.ts";
-import { DEFAULT_PROJECT, hubCommand, parseProjectFlag, teamSnapshotPath, teamWorkspaceLabel, validateTeamName } from "./lib/team-project.ts";
+import { DEFAULT_PROJECT, hubCommand, parseProjectFlag, teamSnapshotPath, teamWorkspaceLabel, validateTeamName, worktreeTag } from "./lib/team-project.ts";
 import {
 	assertSnapshotProject,
 	buildSnapshot,
@@ -36,6 +36,8 @@ import {
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
+// Must match team-up's tag so down/resume target the workspace it created.
+const WORKTREE_TAG = worktreeTag(REPO_ROOT);
 const PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
 const SNAPSHOT_DIR = path.join(os.homedir(), ".pi", "team-snapshots");
 
@@ -69,8 +71,8 @@ async function findTeamWorkspace(client: Client, team: string, project = DEFAULT
 	let peersLabel: string;
 	let hubLabel: string;
 	try {
-		peersLabel = teamWorkspaceLabel("peers", team, project);
-		hubLabel = teamWorkspaceLabel("hub", team, project);
+		peersLabel = teamWorkspaceLabel("peers", team, project, WORKTREE_TAG);
+		hubLabel = teamWorkspaceLabel("hub", team, project, WORKTREE_TAG);
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
@@ -79,8 +81,8 @@ async function findTeamWorkspace(client: Client, team: string, project = DEFAULT
 }
 
 async function captureSnapshot(client: Client, team: string, project = DEFAULT_PROJECT): Promise<TeamSnapshot> {
-	const peersLabel = teamWorkspaceLabel("peers", team, project);
-	const hubLabel = teamWorkspaceLabel("hub", team, project);
+	const peersLabel = teamWorkspaceLabel("peers", team, project, WORKTREE_TAG);
+	const hubLabel = teamWorkspaceLabel("hub", team, project, WORKTREE_TAG);
 	const ws = await findTeamWorkspace(client, team, project);
 	if (!ws) {
 		const projectArgs = project === DEFAULT_PROJECT ? "" : ` --project ${project}`;
@@ -105,6 +107,7 @@ async function captureSnapshot(client: Client, team: string, project = DEFAULT_P
 		peers,
 		panes,
 		agents: inWorkspace as Parameters<typeof buildSnapshot>[0]["agents"],
+		tag: WORKTREE_TAG,
 	});
 	const file = snapshotPath(team, project);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -166,7 +169,7 @@ async function cmdResume(team: string, project = DEFAULT_PROJECT): Promise<void>
 		if (ref && peer.name) resumedNames.add(peer.name);
 		return ref;
 	};
-	const workspaceLabel = teamWorkspaceLabel(snap.hub ? "hub" : "peers", snap.team, project);
+	const workspaceLabel = teamWorkspaceLabel(snap.hub ? "hub" : "peers", snap.team, project, WORKTREE_TAG);
 	// Resume relaunches every pane simultaneously, so it needs the same
 	// pre-warm/stagger as team-up (see scripts/lib/spawn-stagger.ts).
 	let authRaw: string | undefined;
