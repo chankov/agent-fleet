@@ -3,10 +3,10 @@ name: deep-researcher
 description: Read-only deep reconnaissance for hard, ambiguous, or high-stakes questions — traces cross-cutting call paths, maps unfamiliar subsystems, and synthesizes findings across many files with file:line citations. Never edits or runs commands.
 tools: read,grep,find,ls
 kind: research
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6-sol
 models:
-  - openai-codex/gpt-5.4
-  - openai-codex/gpt-5.3-codex-spark
+  - openai-codex/gpt-5.6-terra
+  - openai-codex/gpt-5.6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
 thinking: high

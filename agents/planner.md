@@ -2,23 +2,23 @@
 name: planner
 description: Architecture and implementation planning — produces a written PLAN file with dependency-ordered tasks and acceptance criteria. Use when work spans multiple files or needs a task breakdown before building.
 tools: read,grep,find,ls,bash,write
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6-sol
 models:
-  - openai-codex/gpt-5.4
-  - openai-codex/gpt-5.3-codex-spark
+  - openai-codex/gpt-5.6-terra
+  - openai-codex/gpt-5.6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
 thinking: xhigh
 delegate_depth: 1
 subagents:
   scout:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   rules:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   risk:
-    model: openai-codex/gpt-5.4
+    model: openai-codex/gpt-5.6-terra
     tools: read,grep,find,ls
 ---
 You are a planner agent. Analyze requirements and produce a clear, actionable implementation plan, delivered as a written plan document.

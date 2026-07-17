@@ -29,103 +29,103 @@
 full:
   - name: web-debugger
     persona: web-debugger
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
     extensions: chrome-devtools-mcp
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.3-codex-spark    
+    model: openai-codex/gpt-5.6-terra    
   - name: researcher
     persona: researcher
-    model: openai-codex/gpt-5.3-codex-spark   
+    model: openai-codex/gpt-5.6-luna   
 
 web:
   - name: web-debugger
     persona: web-debugger
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
     extensions: chrome-devtools-mcp
 
 docs:
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-5.6-terra
   - name: researcher
     persona: researcher
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-5.6-luna
 
 # Mirrored from .pi/agents/teams.yaml for `just team-up <team>`.
 default:
   - name: planner
     persona: planner
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-sol
   - name: plan-reviewer
     runner: claude-code
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: test-engineer
     persona: test-engineer
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: code-reviewer
     runner: claude-code
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
 
 debug:
   - name: test-engineer
     persona: test-engineer
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: code-reviewer
     runner: claude-code
 
 frontend:
   - name: planner
     persona: planner
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-sol
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: bowser
     persona: bowser
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-5.6-luna
   - name: code-reviewer
     runner: claude-code
 
 security:
   - name: security-auditor
     persona: security-auditor
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-sol
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: test-engineer
     persona: test-engineer
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: code-reviewer
     runner: claude-code
 
 hotfix:
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: code-reviewer
     runner: claude-code
 
 release:
   - name: releaser
     persona: releaser
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.6-terra
 
 info:
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.5
+    model: openai-codex/gpt-5.3-codex-spark
   - name: code-reviewer
     runner: claude-code
 

@@ -2,8 +2,10 @@
 name: documenter
 description: Documentation and README generation
 tools: read,write,edit,grep,find,ls
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6-terra
 models:
+  - openai-codex/gpt-5.6-luna
+  - openai-codex/gpt-5.3-codex-spark
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
 thinking: minimal

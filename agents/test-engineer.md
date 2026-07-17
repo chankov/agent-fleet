@@ -2,10 +2,10 @@
 name: test-engineer
 description: QA engineer specialized in test strategy, test writing, and coverage analysis. Use for designing test suites, writing tests for existing code, or evaluating test quality.
 tools: read,write,edit,bash,grep,find,ls
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6-terra
 models:
-  - openai-codex/gpt-5.4
-  - openai-codex/gpt-5.3-codex-spark
+  - openai-codex/gpt-5.6-sol
+  - openai-codex/gpt-5.6-luna
   - ollama/kimi-k2.7-code:cloud
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
@@ -13,10 +13,10 @@ thinking: medium
 delegate_depth: 1
 subagents:
   coverage-scout:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   conventions:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
 ---
 

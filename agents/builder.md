@@ -2,9 +2,10 @@
 name: builder
 description: Implementation and code generation — lands changes in small verifiable increments. Use for implementing features, fixes, and refactors once the task is defined.
 tools: read,write,edit,bash,grep,find,ls
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6-terra
 models:
-  - openai-codex/gpt-5.4
+  - openai-codex/gpt-5.6-sol
+  - openai-codex/gpt-5.6-luna
   - openai-codex/gpt-5.3-codex-spark
   - ollama/minimax-m3:cloud
   - ollama/kimi-k2.7-code:cloud
