@@ -339,6 +339,11 @@ just hub-team docs    # hub + a whole team in ONE workspace (hub in the main pan
 just team-snapshot docs  # capture session refs while the team runs (crash insurance)
 just team-down docs      # snapshot + close the workspace cleanly
 just team-resume docs    # rebuild the grid; pi peers continue their conversations
+
+# scope a team to its own coms pool (isolates it from teams in other repos);
+# the flag form matters: `project=af` is a just variable override and is IGNORED
+just hub-team review --project af
+just team-down review --project af
 ```
 
 `just hub` stacks the `damage-control-continue` guardrail (blocked calls feed back so the dispatcher adapts and keeps going) before `agent-hub`, and re-loads the hard-stop `damage-control` variant into spawned specialists. Fleet recipes refuse with an actionable message when no herdr server answers (`--dry-run` variants work without one). See the [pi extension catalog](docs/pi-extensions.md) for every harness, its setup, and the selective-load model.

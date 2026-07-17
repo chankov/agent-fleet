@@ -87,46 +87,66 @@ _peer-plus extensions persona name="" model="" session="" project="default":
 _claude-peer name model="" session="" project="default":
     node --experimental-strip-types scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
 
+# The team recipes below take the team as a positional arg (defaults to "full")
+# and pass everything after it straight to the script. Scope a team to its own
+# coms peer pool with `--project <name>` — without it everything lands in the
+# shared "default" pool, where teams launched from OTHER repos collide (name
+# suffixing like code-reviewer2, dispatches routed to the wrong repo's pane).
+# IMPORTANT: the flag form is `--project af`; `project=af` is NOT a flag — just
+# treats bare key=value args as variable overrides, so it is silently ignored
+# and the team still joins the "default" pool.
+
 # Team up: spawn every peer of a team from .pi/agents/peers.yaml into a herdr
 # workspace (one tiled pane per peer). Requires a running herdr server.
-# Positional arg: team (defaults to "full"). e.g. just team-up full
+# e.g. just team-up full
+#      just team-up review --project af
 team-up team="full" *args:
     node --experimental-strip-types scripts/team-up.ts --team {{team}} {{args}}
 
 # Team up (dry run): print the resolved layout + per-peer commands without touching herdr.
-# e.g. just team-up-dry team="full"
+# e.g. just team-up-dry full
+#      just team-up-dry review --project af
 team-up-dry team="full" *args:
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run {{args}}
 
 # Hub + team in ONE herdr workspace: the guarded hub (`just hub`) in a larger
-# main pane, the team's peers tiled beside it. e.g. just hub-team docs
+# main pane, the team's peers tiled beside it.
+# e.g. just hub-team docs
+#      just hub-team review --project af
 hub-team team="full" *args:
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --hub {{args}}
 
 # Hub + team (dry run): print the combined layout without touching herdr.
+# e.g. just hub-team-dry review --project af
 hub-team-dry team="full" *args:
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --hub --dry-run {{args}}
 
 # Hermes conductor + team in ONE herdr workspace: Hermes dev profile in a conductor pane,
 # the team's peers tiled beside it. Hermes delegates via coms-cli and never drives herdr.
+# e.g. just conductor docs --project af
 conductor team="full" *args:
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --conductor {{args}}
 
 # Hermes conductor + team (dry run): print the combined layout without touching herdr.
+# e.g. just conductor-dry docs --project af
 conductor-dry team="full" *args:
     node --experimental-strip-types scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
 
 # Snapshot a RUNNING team's session refs to ~/.pi/team-snapshots/<team>.json
 # (team keeps running — take one proactively so a crash is resumable).
+# A team launched with --project must snapshot with the same --project.
+# e.g. just team-snapshot review --project af
 team-snapshot team="full" *args:
     node --experimental-strip-types scripts/team-snapshot.ts snapshot {{team}} {{args}}
 
 # Snapshot, then close the team workspace cleanly (peers get SIGTERM).
+# e.g. just team-down review --project af
 team-down team="full" *args:
     node --experimental-strip-types scripts/team-snapshot.ts down {{team}} {{args}}
 
 # Rebuild a team from its snapshot — each pi peer resumes its previous
 # conversation (`pi --session <ref>`); peers whose ref is gone start fresh.
+# e.g. just team-resume review --project af
 team-resume team="full" *args:
     node --experimental-strip-types scripts/team-snapshot.ts resume {{team}} {{args}}
 
