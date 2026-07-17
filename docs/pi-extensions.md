@@ -173,9 +173,25 @@ The `justfile` sets `dotenv-load`, so a `.env` file at the repo root is auto-loa
 | `AZURE_SPEECH_KEY` | `pi-voice-stt` (azure backend) | Azure Speech resource key |
 | `AZURE_SPEECH_ENDPOINT` | `pi-voice-stt` (azure backend) | Azure resource endpoint, used when `provider.endpoint` is unset |
 | `PI_STT_CONFIG` / `PI_STT_KEYBIND` | `pi-voice-stt` | Override config (inline JSON or path) / the record hotkey (default `alt+s`) |
+| `AGENT_FLEET_SPAWN_DELAY` | `_peer` / `_peer-plus` recipes | Seconds to sleep before launching pi in a fleet pane (set per pane by `team-up`/`team-resume`, see below) |
 
 The `chrome-devtools-mcp` server starts once at extension load, so changing its vars needs a pi
 restart / `/reload` to take effect.
+
+### Spawn pre-warm/stagger
+
+pi loads its credential store (`~/.pi/agent/auth.json`) once at boot under a short-retry
+file lock. When the stored OAuth token is stale, the first pi to boot refreshes it over
+the network *while holding that lock*; sibling panes spawned in the same instant (as
+`just team-up` / `just hub-team` / `just team-resume` do) lose the lock race and come up
+with every provider showing **unconfigured**. To dodge this, the team scripts check
+`auth.json` before spawning (only `type`/`expires` are read — values never leave the
+process): if any OAuth credential is expired or about to expire, one pi pane (the hub
+when present, else the first pi peer) starts immediately and refreshes the token, and
+every other pi pane gets `AGENT_FLEET_SPAWN_DELAY` in its pane env — the `_peer` /
+`_peer-plus` recipes sleep that many seconds before launching pi. Fresh tokens mean zero
+delay everywhere; `claude-code` runner panes never wait. Pure logic in
+`scripts/lib/spawn-stagger.ts` (under `node --test`).
 
 ---
 

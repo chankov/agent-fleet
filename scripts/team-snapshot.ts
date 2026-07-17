@@ -23,6 +23,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildTeamLayout, parsePeersYaml, type Peer } from "./lib/herdr-layout.ts";
+import { planSpawnDelays } from "./lib/spawn-stagger.ts";
 import { DEFAULT_PROJECT, hubCommand, parseProjectFlag, teamSnapshotPath, teamWorkspaceLabel, validateTeamName } from "./lib/team-project.ts";
 import {
 	assertSnapshotProject,
@@ -166,11 +167,24 @@ async function cmdResume(team: string, project = DEFAULT_PROJECT): Promise<void>
 		return ref;
 	};
 	const workspaceLabel = teamWorkspaceLabel(snap.hub ? "hub" : "peers", snap.team, project);
+	// Resume relaunches every pane simultaneously, so it needs the same
+	// pre-warm/stagger as team-up (see scripts/lib/spawn-stagger.ts).
+	let authRaw: string | undefined;
+	try {
+		authRaw = fs.readFileSync(path.join(os.homedir(), ".pi", "agent", "auth.json"), "utf-8");
+	} catch {
+		authRaw = undefined;
+	}
+	const { needed: staggerNeeded, delayForPeer } = planSpawnDelays(snap.peers, snap.hub, authRaw);
+	if (staggerNeeded) {
+		console.log("Stale pi OAuth token detected — staggering pane starts so one pane can refresh it first.");
+	}
 	const layout = buildTeamLayout({
 		team: snap.team,
 		peers: snap.peers,
 		repoRoot: REPO_ROOT,
 		resumeForPeer: resumeFor,
+		delayForPeer,
 		project,
 		...(snap.hub ? { hub: { command: hubCommand(project), label: "hub", ratio: 0.4 } } : {}),
 	});

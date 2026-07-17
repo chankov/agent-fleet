@@ -248,6 +248,31 @@ test("envForPeer hook injects per-pane env only when it returns entries", () => 
 	assert.equal("env" in b, false);
 });
 
+test("delayForPeer hook injects AGENT_FLEET_SPAWN_DELAY only for positive delays", () => {
+	const peers: Peer[] = [
+		{ name: "a", persona: "researcher", env_file: ".env.a" },
+		{ name: "b", persona: "researcher" },
+		{ name: "c", persona: "researcher" },
+	];
+	const delays = new Map([["a", 0], ["b", 4], ["c", 5]]);
+	const tree = buildTeamLayout({
+		team: "t",
+		peers,
+		repoRoot: "/r",
+		envForPeer: (p) => (p.env_file ? { FROM_FILE: p.env_file } : undefined),
+		delayForPeer: (p) => delays.get(p.name as string),
+	});
+	const [a, b, c] = panesOf(tree);
+	// zero delay → no stagger var; env_file entries survive alongside
+	assert.deepEqual(a.env, { FROM_FILE: ".env.a" });
+	assert.deepEqual(b.env, { AGENT_FLEET_SPAWN_DELAY: "4" });
+	assert.deepEqual(c.env, { AGENT_FLEET_SPAWN_DELAY: "5" });
+	assert.throws(
+		() => buildTeamLayout({ team: "t", peers, repoRoot: "/r", delayForPeer: () => -1 }),
+		/Invalid spawn delay/,
+	);
+});
+
 test("parseEnvFile handles comments, quotes, export prefix; rejects garbage", () => {
 	const env = parseEnvFile(
 		[

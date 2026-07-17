@@ -22,6 +22,7 @@
 // - Never clobber an existing workspace of the same label; refuse and explain.
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,6 +34,7 @@ import {
 	type LayoutNode,
 	type Peer,
 } from "./lib/herdr-layout.ts";
+import { planSpawnDelays } from "./lib/spawn-stagger.ts";
 import { DEFAULT_PROJECT, conductorCommand, hubCommand, parseProjectFlag, teamWorkspaceLabel, validateTeamName } from "./lib/team-project.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -101,12 +103,35 @@ function makeEnvLoader(
 	};
 }
 
+// Pre-warm/stagger (see scripts/lib/spawn-stagger.ts): when auth.json holds a
+// stale OAuth token, simultaneous pi boots race on its file lock and the
+// losers come up with every provider "unconfigured". One pi pane (the hub
+// when present, else the first pi peer) starts immediately and refreshes the
+// token; the others get a small AGENT_FLEET_SPAWN_DELAY via pane env. The
+// auth file is only read for `type`/`expires` — values never leave this
+// process. Dry-run never reaches this (no live-state reads on that path).
+function makeDelayLoader(peers: Peer[], mode: "peers" | "hub" | "conductor"): (peer: Peer) => number | undefined {
+	let raw: string | undefined;
+	try {
+		raw = fs.readFileSync(path.join(os.homedir(), ".pi", "agent", "auth.json"), "utf-8");
+	} catch {
+		raw = undefined;
+	}
+	// The conductor root is Hermes, not pi — the first pi peer warms instead.
+	const { needed, delayForPeer } = planSpawnDelays(peers, mode === "hub", raw);
+	if (needed) {
+		console.log("Stale pi OAuth token detected — staggering pane starts so one pane can refresh it first.");
+	}
+	return delayForPeer;
+}
+
 function buildLayoutOrDie(
 	team: string,
 	peers: Peer[],
 	envForPeer: (p: Peer) => Record<string, string> | undefined,
 	mode: "peers" | "hub" | "conductor",
 	project: string,
+	delayForPeer?: (p: Peer) => number | undefined,
 ): LayoutNode {
 	try {
 		const rootPane = mode === "hub"
@@ -120,6 +145,7 @@ function buildLayoutOrDie(
 			repoRoot: REPO_ROOT,
 			envForPeer,
 			project,
+			...(delayForPeer ? { delayForPeer } : {}),
 			...(rootPane ? { hub: rootPane } : {}),
 		});
 	} catch (err) {
@@ -182,7 +208,7 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), mode, project);
+	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), mode, project, makeDelayLoader(peers, mode));
 
 	// Import lazily so --dry-run never touches the client (or the socket).
 	const { herdr, requireHerdr, HerdrUnavailableError } = await import(

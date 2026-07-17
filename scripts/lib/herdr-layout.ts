@@ -10,6 +10,7 @@
 import { resolve as resolvePath } from "node:path";
 
 import type { LayoutNode } from "../../.pi/harnesses/lib/herdr-client.ts";
+import { STAGGER_ENV_VAR } from "./spawn-stagger.ts";
 import { DEFAULT_PROJECT, validateProject } from "./team-project.ts";
 
 export type { LayoutNode };
@@ -175,6 +176,10 @@ export interface TeamLayoutOptions {
 	// B5 hook: resume ref (pi session path) for a peer being restored from a
 	// team snapshot. Returning undefined starts the peer fresh.
 	resumeForPeer?: (peer: Peer) => string | undefined;
+	// Pre-warm/stagger hook (see spawn-stagger.ts): seconds this pane should
+	// sleep before launching pi, injected as AGENT_FLEET_SPAWN_DELAY in the
+	// pane env. undefined or 0 launches immediately.
+	delayForPeer?: (peer: Peer) => number | undefined;
 	// B2 hook: when set, the hub occupies a larger root pane (ratio of the
 	// horizontal split) and the team tiles in the remaining space.
 	// Coms project scope shared by all panes in this layout. The default keeps
@@ -191,15 +196,23 @@ function paneNode(
 	envForPeer?: TeamLayoutOptions["envForPeer"],
 	resumeForPeer?: TeamLayoutOptions["resumeForPeer"],
 	project = DEFAULT_PROJECT,
+	delayForPeer?: TeamLayoutOptions["delayForPeer"],
 ): LayoutNode {
 	validateProject(project);
-	const env = envForPeer?.(peer);
+	const env = { ...envForPeer?.(peer) };
+	const delay = delayForPeer?.(peer);
+	if (delay !== undefined) {
+		if (!Number.isFinite(delay) || delay < 0) {
+			throw new Error(`Invalid spawn delay for peer "${peer.name}": ${delay}`);
+		}
+		if (delay > 0) env[STAGGER_ENV_VAR] = String(Math.round(delay));
+	}
 	return {
 		type: "pane",
 		command: peerCommand(peer, team, resumeForPeer?.(peer), project),
 		cwd: repoRoot,
 		label: peer.name as string,
-		...(env && Object.keys(env).length > 0 ? { env } : {}),
+		...(Object.keys(env).length > 0 ? { env } : {}),
 	};
 }
 
@@ -219,10 +232,10 @@ function bsp(nodes: LayoutNode[], depth: number): LayoutNode {
 
 // peers.yaml team → herdr layout tree for layout.apply.
 export function buildTeamLayout(opts: TeamLayoutOptions): LayoutNode {
-	const { team, peers, repoRoot, envForPeer, resumeForPeer, hub, project = DEFAULT_PROJECT } = opts;
+	const { team, peers, repoRoot, envForPeer, resumeForPeer, delayForPeer, hub, project = DEFAULT_PROJECT } = opts;
 	validateProject(project);
 	if (peers.length === 0) throw new Error(`Team "${team}" has no peers.`);
-	const panes = peers.map((p) => paneNode(p, team, repoRoot, envForPeer, resumeForPeer, project));
+	const panes = peers.map((p) => paneNode(p, team, repoRoot, envForPeer, resumeForPeer, project, delayForPeer));
 	const grid = bsp(panes, hub ? 1 : 0);
 	if (!hub) return grid;
 	return {
