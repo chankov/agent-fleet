@@ -1,6 +1,6 @@
 {
   "name": "@chankov/agent-fleet",
-  "version": "1.0.8",
+  "version": "0.0.1",
   "description": "Multi-agent fleet orchestration for coding agents. Pi as the primary runtime, Herdr as the workspace control plane, coms as the peer data plane, and Hermes for remote control — plus skills, personas, harnesses, and a guided setup CLI.",
   "keywords": [
     "ai",
@@ -31,7 +31,7 @@
   "author": "Nikolay Chankov",
   "type": "module",
   "bin": {
-    "agent-fleet": "./bin/cli.js"
+    "agent-fleet": "bin/cli.js"
   },
   "files": [
     "bin/",
@@ -75,6 +75,10 @@
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
+    "!**/*.test.js",
+    "!**/*.test.mjs",
+    "!**/*.test.ts",
+    "!**/*-test.sh",
     "!**/.DS_Store"
   ],
   "engines": {
@@ -87,7 +91,7 @@
     "test": "node bin/cli.js --version && node bin/cli.js --help && node bin/cli.js transform-persona --list --agent claude-code && node --test \"bin/test/*.test.js\" \".pi/harnesses/lib/herdr-client.test.ts\" \".pi/harnesses/lib/herdr-presence.test.ts\" \"scripts/lib/team-project.test.ts\" \"scripts/lib/herdr-layout.test.ts\" \"scripts/lib/fleet-extras.test.ts\" \"scripts/lib/team-snapshot.test.ts\" \"scripts/lib/coms-envelope.test.ts\" \"scripts/lib/claude-bridge-core.test.ts\" \"scripts/lib/hermes-bridge-core.test.ts\" \"scripts/coms-hermes-bridge.test.ts\" \".pi/harnesses/ask-user-remote/race-core.test.js\" \".pi/harnesses/ask-user-remote/index.test.ts\" \".pi/extensions/btw/state.test.js\" \".pi/harnesses/agent-hub/return-contract.test.js\" \".pi/harnesses/agent-hub/backend-policy.test.js\" \".pi/harnesses/agent-hub/artifacts.test.js\" \".pi/harnesses/agent-hub/scope-gate.test.js\" \".pi/harnesses/agent-hub/evidence-rules.test.js\" \".pi/harnesses/damage-control/shared.test.js\" \".pi/harnesses/damage-control/herdr-rules.test.js\" \".pi/harnesses/damage-control-continue/exemptions.test.js\"",
     "pack:dry": "npm pack --dry-run",
     "changeset": "changeset",
-    "version:changeset": "node bin/force-patch-changesets.js && changeset version",
+    "version:changeset": "node bin/force-patch-changesets.js && changeset version && npm install --package-lock-only --ignore-scripts --no-audit --no-fund && node bin/snapshot-version.js",
     "release": "changeset publish"
   },
   "devDependencies": {

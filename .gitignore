@@ -4,6 +4,7 @@ node_modules/
 .env.*
 *.log
 agent-fleet-*.tgz
+chankov-agent-fleet-*.tgz
 .changeset/.last-known-version
 .claude/.simplify-ignore-cache/
 docs/ideas/
@@ -18,10 +19,11 @@ tmp/
 .agents/skills
 .ai/agent-fleet-setup.md
 .ai/agent-fleet-overrides.md
-.versions/
 .ai/commands/
 .ai/stt.json
 .pi/agents/*.txt
-.claude/
+.claude/agents/
+.claude/skills/
+.claude/settings.json
+.claude/settings.local.json
 ONBOARDING.md
-.changeset/

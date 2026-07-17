@@ -209,14 +209,14 @@ To pin a workspace to a specific version, install the package as a project
 dependency instead of using `npx`:
 
 ```bash
-npm install --save-dev @chankov/agent-fleet@0.4.5
-npx agent-fleet init   # resolves to the pinned 0.4.5
+npm install --save-dev @chankov/agent-fleet@0.0.1
+npx agent-fleet init   # resolves to the pinned 0.0.1
 ```
 
 Or pin globally:
 
 ```bash
-npm install -g @chankov/agent-fleet@0.4.5
+npm install -g @chankov/agent-fleet@0.0.1
 ```
 
 ### What "update" actually changes

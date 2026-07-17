@@ -70,9 +70,9 @@ If the workflow is broken or you need to publish from your laptop:
 ```bash
 git checkout main && git pull
 npm install
-npm run pack:dry           # last sanity check
-npx changeset version      # bumps + writes CHANGELOG.md
-node bin/snapshot-version.js
+npm run version:changeset  # bumps, updates lock + changelog, writes snapshot
+npm test
+npm run pack:dry           # validate the exact release tarball
 git add -A
 git commit -m "chore: release"
 git tag v$(node -p "require('./package.json').version")

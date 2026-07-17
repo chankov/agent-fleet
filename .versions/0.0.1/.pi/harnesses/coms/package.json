@@ -1,0 +1,6 @@
+{
+  "name": "agent-fleet-pi-coms",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

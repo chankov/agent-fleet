@@ -25,31 +25,26 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Snapshot current source for version-diff
-        # Mirrors the active package contents into .versions/<x.y.z>/ so a
-        # later install can run a three-way diff against this exact release.
-        # Skipped if .changeset/ is empty (no version bump pending).
-        run: |
-          if [ -z "$(ls -A .changeset 2>/dev/null | grep -v '^README.md$\|^config.json$')" ]; then
-            echo "No pending changesets — skipping snapshot."
-            exit 0
-          fi
-          node bin/snapshot-version.js
+      - name: Test
+        run: npm test
+
+      - name: Verify package contents
+        run: npm run pack:dry
 
       - name: Create release PR or publish
         id: changesets
         uses: changesets/action@v1
         with:
-          # Force every release to a patch bump (x.y.Z+1) regardless of the
-          # level authored in each changeset — mirrors the local `version`
-          # script so CI and local releases agree.
-          version: node bin/force-patch-changesets.js && npx changeset version
+          # Force a patch bump, sync the lockfile, then snapshot the bumped
+          # version so the release PR contains .versions/<new-version>/.
+          # Mirrors the local `version:changeset` script.
+          version: npm run version:changeset
           publish: npx changeset publish
           commit: "chore: release"
           title: "chore: release"

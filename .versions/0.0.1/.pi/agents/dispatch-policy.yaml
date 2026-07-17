@@ -1,0 +1,32 @@
+# Backend routing for the agent-hub dispatcher (dispatch_agent). Decided at
+# DISPATCH time, never at team activation — the hub and its peers boot in
+# parallel (`just hub-team <team>`), so a member's coms peer may register
+# after the session starts.
+#
+#   default: native | coms   — coms substitutes ANY active-team member that has
+#                              a live same-name peer in the coms pool
+#   grace_s: <seconds>       — how long a `fallback: none` member polls the pool
+#                              for its peer before the dispatch is refused
+#   substitutions:
+#     <member>:              — team-member/persona name (case-insensitive)
+#       prefer: native|coms  — bare member block defaults to coms
+#       fallback: native|none — none = coms-required (refuse when no live peer)
+#       timeout_s: <seconds> — per-member reply timeout (default PI_COMS_TIMEOUT_MS)
+#
+# Missing file = everything native (no behavior change). This file is an
+# orchestration decision; HOW each peer runs (model, runner: claude-code, env)
+# stays in peers.yaml.
+
+default: native
+grace_s: 30
+
+substitutions:
+  plan-reviewer:
+    prefer: coms
+    fallback: native
+  code-reviewer:
+    prefer: coms
+    fallback: native
+  documenter:
+    prefer: coms
+    fallback: native

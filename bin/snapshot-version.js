@@ -7,8 +7,8 @@
 //   - installed copy in target    ←─ what the user has on disk
 //   - source @ current version    ←─ the active tree in this package
 //
-// Run by the release workflow right before `changeset publish`. Also runnable
-// by hand if you need to rebuild a snapshot.
+// Run while preparing the release version so the snapshot is committed in the
+// Version Packages PR. Also runnable by hand if you need to rebuild a snapshot.
 
 import { readFileSync, mkdirSync, cpSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -25,9 +25,12 @@ const snapDir = join(root, ".versions", version);
 // CHANGELOG, package.json) — the diff only cares about the artifacts.
 const ARTIFACT_PATHS = [
   "skills",
+  "vendor/agent-skills-upstream",
   "agents",
   ".claude/commands",
+  ".claude/orchestrate-teams.yaml",
   ".opencode/commands",
+  ".opencode/orchestrate-teams.yaml",
   ".pi/prompts",
   ".pi/extensions",
   ".pi/harnesses",
@@ -35,8 +38,8 @@ const ARTIFACT_PATHS = [
   ".pi/agents",
   ".pi/damage-control-rules.yaml",
   // scripts/ ships runtime helpers like team-up.ts that the pi harness
-  // recipes shell out to. Tests under scripts/*.test.mjs stay out
-  // (filtered below) — they're dev-only.
+  // recipes shell out to. Test files stay out (filtered below) — they're
+  // dev-only.
   "scripts",
   // justfile carries the pi harness launch recipes. It is a companion of the
   // harness group in guided-workspace-setup, so the snapshot must hold a
@@ -69,7 +72,12 @@ for (const rel of ARTIFACT_PATHS) {
       const base = srcPath.split("/").pop();
       if (SKIP_NAMES.has(base)) return false;
       // Match what the npm `files` allowlist ships — dev-only tests stay out.
-      if (base.endsWith(".test.mjs") || base.endsWith(".test.js")) return false;
+      if (
+        base.endsWith(".test.mjs") ||
+        base.endsWith(".test.js") ||
+        base.endsWith(".test.ts") ||
+        base.endsWith("-test.sh")
+      ) return false;
       return true;
     },
   });
