@@ -80,13 +80,14 @@ test("_peer-plus routing is preserved for extensions: peers", () => {
 	const web = buildTeamLayout({ team: "web", peers: teams.web, repoRoot: REPO_ROOT });
 	const panes = panesOf(web);
 	assert.equal(panes.length, 1);
+	assert.ok(teams.web[0].model, "web-debugger peer should declare a model in peers.yaml");
 	assert.deepEqual(panes[0].command, [
 		"just",
 		"_peer-plus",
 		"chrome-devtools-mcp",
 		"web-debugger",
 		"web-debugger",
-		"openai-codex/gpt-5.5",
+		teams.web[0].model,
 	]);
 });
 
@@ -94,19 +95,21 @@ test("docs team peers route through plain _peer with their models", () => {
 	const teams = parsePeersYaml(realPeersYaml);
 	const docs = buildTeamLayout({ team: "docs", peers: teams.docs, repoRoot: REPO_ROOT });
 	const panes = panesOf(docs);
+	assert.ok(teams.docs[0].model, "documenter peer should declare a model in peers.yaml");
+	assert.ok(teams.docs[1].model, "researcher peer should declare a model in peers.yaml");
 	assert.deepEqual(panes[0].command, [
 		"just",
 		"_peer",
 		"documenter",
 		"documenter",
-		"openai-codex/gpt-5.3-codex-spark",
+		teams.docs[0].model,
 	]);
 	assert.deepEqual(panes[1].command, [
 		"just",
 		"_peer",
 		"researcher",
 		"researcher",
-		"openai-codex/gpt-5.3-codex-spark",
+		teams.docs[1].model,
 	]);
 });
 
