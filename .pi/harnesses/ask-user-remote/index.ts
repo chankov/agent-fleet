@@ -6,6 +6,8 @@
 // peer is live, it races the stock local UI against a remote coms round trip.
 
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 import { raceAskUser } from "./race-core.js";
 
@@ -26,6 +28,37 @@ interface InstallOptions {
 	cancelRemote?: (qid: string, reason: string) => Promise<void> | void;
 	warn?: (message: string) => void;
 	createAbortController?: () => AbortController;
+	settingsPaths?: string[];
+}
+
+// A stock `pi-ask-user` package listed in pi settings is loaded by pi core
+// itself, outside this harness's try/catch. If the harness registers `ask_user`
+// first, the package's later registration makes pi core hard-crash the session
+// with a tool-name conflict. The preflight below detects that configuration and
+// skips the wrapper entirely, so the stock package registers alone regardless
+// of load order.
+const STOCK_PACKAGE_PATTERN = /(^|[/:])pi-ask-user(@[^/]*)?$/;
+
+export function defaultSettingsPaths(): string[] {
+	return [
+		path.join(process.cwd(), ".pi", "settings.json"),
+		path.join(os.homedir(), ".pi", "agent", "settings.json"),
+	];
+}
+
+export function findStockAskUserPackageEntry(settingsPaths: string[]): { entry: string; settingsPath: string } | null {
+	for (const settingsPath of settingsPaths) {
+		let packages: unknown;
+		try {
+			packages = JSON.parse(fs.readFileSync(settingsPath, "utf8"))?.packages;
+		} catch {
+			continue;
+		}
+		if (!Array.isArray(packages)) continue;
+		const entry = packages.find((pkg) => typeof pkg === "string" && STOCK_PACKAGE_PATTERN.test(pkg));
+		if (entry) return { entry, settingsPath };
+	}
+	return null;
 }
 
 export function captureAskUserTool(stockFactory: (pi: ExtensionLike) => void, pi: ExtensionLike): ToolRegistration {
@@ -228,6 +261,13 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 }
 
 export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions = {}): { registered: boolean; tool?: ToolRegistration } {
+	if (options.settingsPaths) {
+		const listed = findStockAskUserPackageEntry(options.settingsPaths);
+		if (listed) {
+			warn(pi, options, `ask-user-remote: "${listed.entry}" is listed in ${listed.settingsPath} "packages"; skipping the ask_user wrapper so the stock package registers without a tool conflict (remote answer racing disabled). Remove the entry — this harness loads pi-ask-user itself.`);
+			return { registered: false };
+		}
+	}
 	if (!options.stockFactory) throw new Error("ask-user-remote: stockFactory is required for synchronous install");
 	const stockTool = captureAskUserTool(options.stockFactory, pi);
 	const wrapped = wrapAskUserTool(stockTool, options);
@@ -248,6 +288,6 @@ async function loadStockFactory(): Promise<(pi: ExtensionLike) => void> {
 
 export default function askUserRemote(pi: ExtensionLike): void {
 	void loadStockFactory()
-		.then((stockFactory) => installAskUserRemote(pi, { stockFactory }))
+		.then((stockFactory) => installAskUserRemote(pi, { stockFactory, settingsPaths: defaultSettingsPaths() }))
 		.catch((error) => warn(pi, {}, `ask-user-remote: failed to load pi-ask-user (${error instanceof Error ? error.message : String(error)})`));
 }

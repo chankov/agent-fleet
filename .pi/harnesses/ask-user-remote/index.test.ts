@@ -8,6 +8,8 @@ import * as path from "node:path";
 import {
 	activeRemoteCount,
 	captureAskUserTool,
+	defaultSettingsPaths,
+	findStockAskUserPackageEntry,
 	installAskUserRemote,
 	wrapAskUserTool,
 } from "./index.ts";
@@ -204,6 +206,89 @@ test("a locally-won race settles and closes the per-question remote endpoint (no
 	assert.equal(activeRemoteCount(), 0);
 	const sockets = fs.readdirSync(path.join(comsDir, "sockets"));
 	assert.deepEqual(sockets, [path.basename(peerEndpoint)], "per-question endpoint must be unlinked after cancel");
+});
+
+// Mimics pi core's tool registry: a duplicate name is a hard crash, not a
+// catchable failure for the extension that registered first.
+function piCoreLikeRegistry() {
+	const tools = new Map<string, any>();
+	return {
+		tools,
+		registerTool(tool: any) {
+			if (tools.has(tool.name)) throw new Error(`Tool "${tool.name}" conflicts`);
+			tools.set(tool.name, tool);
+		},
+	};
+}
+
+function writeSettings(t: any, contents: string): string {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-remote-settings-"));
+	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+	const settingsPath = path.join(dir, "settings.json");
+	fs.writeFileSync(settingsPath, contents);
+	return settingsPath;
+}
+
+test("preflight finds a stock pi-ask-user package entry across settings paths", (t) => {
+	const missing = path.join(os.tmpdir(), "ask-user-remote-no-such-dir", "settings.json");
+	const malformed = writeSettings(t, "{ not json");
+	const clean = writeSettings(t, JSON.stringify({ packages: ["npm:pi-codex-image-gen", "npm:pi-ask-user-extras"] }));
+	const listed = writeSettings(t, JSON.stringify({ packages: ["npm:pi-ask-user"] }));
+
+	assert.deepEqual(
+		findStockAskUserPackageEntry([missing, malformed, clean, listed]),
+		{ entry: "npm:pi-ask-user", settingsPath: listed },
+	);
+	assert.equal(findStockAskUserPackageEntry([missing, malformed, clean]), null);
+
+	const pinned = writeSettings(t, JSON.stringify({ packages: ["npm:pi-ask-user@1.2.0"] }));
+	assert.equal(findStockAskUserPackageEntry([pinned])?.entry, "npm:pi-ask-user@1.2.0");
+});
+
+test("harness-first order: settings preflight skips the wrapper so a later stock package load cannot conflict", (t) => {
+	const settingsPath = writeSettings(t, JSON.stringify({ packages: ["npm:pi-ask-user"] }));
+	const pi = piCoreLikeRegistry();
+	const warnings: string[] = [];
+
+	// Harness loads first. Without the preflight it would register ask_user here,
+	// and pi core would hard-crash below when loading the settings-listed package.
+	const result = installAskUserRemote(pi as any, {
+		stockFactory: (proxy) => proxy.registerTool(stockTool()),
+		settingsPaths: [settingsPath],
+		warn: (message) => warnings.push(message),
+	});
+	assert.deepEqual(result, { registered: false });
+	assert.equal(warnings.length, 1);
+	assert.match(warnings[0], /"npm:pi-ask-user" is listed in .* "packages"/);
+	assert.match(warnings[0], /Remove the entry/);
+
+	// pi core now loads the stock package — must register cleanly, no crash.
+	pi.registerTool(stockTool());
+	assert.equal(pi.tools.get("ask_user").label, "Ask User");
+});
+
+test("clean settings preflight still installs the wrapper", (t) => {
+	const settingsPath = writeSettings(t, JSON.stringify({ packages: ["npm:pi-codex-image-gen"] }));
+	const pi = piCoreLikeRegistry();
+	const result = installAskUserRemote(pi as any, {
+		stockFactory: (proxy) => proxy.registerTool(stockTool()),
+		settingsPaths: [settingsPath],
+		startRemote: () => null,
+	});
+	assert.equal(result.registered, true);
+	assert.equal(pi.tools.get("ask_user"), result.tool);
+});
+
+test("default settings paths cover the project and global pi settings files", () => {
+	assert.deepEqual(defaultSettingsPaths(), [
+		path.join(process.cwd(), ".pi", "settings.json"),
+		path.join(os.homedir(), ".pi", "agent", "settings.json"),
+	]);
+});
+
+test("repo .pi/settings.json no longer lists the stock pi-ask-user package", () => {
+	const settingsPath = new URL("../../settings.json", import.meta.url);
+	assert.equal(findStockAskUserPackageEntry([settingsPath.pathname]), null);
 });
 
 test("package manifest defaults to ask-user-remote instead of direct stock pi-ask-user", () => {
