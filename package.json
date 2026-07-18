@@ -116,6 +116,7 @@
     ],
     "extensions": [
       "./.pi/harnesses/ask-user-remote/index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/chankov/agent-fleet/main/docs/assets/agent-hub-dashboard.png"
   }
 }
