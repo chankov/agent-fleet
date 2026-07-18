@@ -25,6 +25,12 @@ another main agent** and **use a coms peer as a subagent**.
   `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple
   reads and `deep-researcher` (`gpt-5.5` / xhigh) for hard, cross-cutting investigation. The
   orchestrator routes by persona; each persona's model + thinking level is shown in its catalog.
+  Finished helpers are **auto-pruned** so the research row doesn't grow without bound: auto-research
+  pipe helpers disappear as soon as they finish (their findings persist as `findings/*.md` files and
+  their handles are never resumed), while manual/persona helpers keep only the `research-keep` most
+  recently finished (default 4 — resumable via `/agents-cont rN`; older cards, and their session
+  files, are dropped oldest-first). Set `research-keep: <n>|all` in the overrides file to change
+  the cap. Running helpers are never pruned and `rN` handles are never reused.
 - **Human handoff path** — `ask_user` is exposed by the `ask-user-remote` wrapper (capturing stock
   `pi-ask-user` and optionally racing a `user-remote` bridge), so specialists can bubble decisions
   back through the dispatcher.
@@ -82,7 +88,15 @@ another main agent** and **use a coms peer as a subagent**.
 - **Agent controls** — `/zoom` inspects a live agent timeline; `/agents-history` replays the run as a
   timeline (orchestrator turns, dispatches, research helpers) with per-agent durations, parallel-run
   markers, and a grand total; kill/restart controls manage running child agents; per-agent `model:`
-  fields select models from team config. Restartable team specialists at or above 70% context render
+  fields select models from team config. The `agents-*` commands address **both target kinds** —
+  team specialists by persona name, research helpers by `rN` handle (mirroring `/zoom`):
+  `/agents-kill <name|rN|all>` SIGTERMs a specialist (keeping its standing card), while on a
+  research helper it kills **and removes** the card + session — helpers are disposable by design
+  (`all` clears every helper); `/agents-restart <name|rN>` re-runs the last task fresh (a research
+  helper must be finished first); `/agents-cont rN <prompt>` resumes a finished helper's session.
+  The old `/research-rm` and `/research-clear` spellings remain as aliases of the kill semantics,
+  `/research-cont` of `/agents-cont`.
+  Restartable team specialists at or above 70% context render
   their context percentage with a warning marker/color in dashboard and compact views, and their next
   `dispatch_agent` result adds a `/agents-restart <persona>` hint. Research helpers are not warned,
   and the hub never restarts specialists automatically.
@@ -280,9 +294,20 @@ task and follow their links instead of bulk-reading doc trees. The code-reviewer
 changes that alter documented behavior without a doc update; the documenter treats the entry
 points and the trees they link as the documentation it maintains.
 
+The same section also tunes research-helper retention:
+
+```markdown
+## agent-hub
+research-keep: 8
+```
+
+`research-keep:` caps how many **finished** manual/persona research helpers stay resumable
+(LRU by finish time, default 4; `all` disables the cap). Auto-research pipe helpers are
+always pruned as soon as they finish, regardless of this key.
+
 Paths that don't exist produce a session-start warning, never an error. The full key list for
-`## agent-hub` (models, sub-roles, depth budgets, persona gate) is documented in
-`docs/agent-fleet-setup.md`.
+`## agent-hub` (models, sub-roles, depth budgets, persona gate, research retention) is
+documented in `docs/agent-fleet-setup.md`.
 
 ## The coms layer
 

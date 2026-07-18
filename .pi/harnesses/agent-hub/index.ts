@@ -24,14 +24,20 @@
  *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
  *   /agent-models-substitute <source> <target> — swap one model across all personas
  *   /dispatch-policy      — show which members route to coms peers (.pi/agents/dispatch-policy.yaml)
- *   /agents-kill <name>   — SIGTERM a frozen specialist (and its delegation tree)
- *   /agents-restart <name>— kill + re-run its last task fresh
+ *   /agents-kill <name|rN|all> — SIGTERM a frozen specialist (and its delegation
+ *                           tree); on a research helper it kills AND removes the
+ *                           card + session ("all" clears every research helper)
+ *                           (aliases: /research-rm rN, /research-clear)
+ *   /agents-restart <name|rN> — kill + re-run its last task fresh (research: must
+ *                           be finished; runs on a fresh session)
  *   /zoom <name|rN|child> — scrollable read-only view of an agent's stream
  *                           (team member, research helper rN, or delegate child id)
  *   /research <task>      — spawn a read-only research helper (@persona, --model)
- *   /research-cont rN ... — resume a finished research helper
- *   /research-rm rN       — remove a research helper (kill if running)
- *   /research-clear       — remove all research helpers
+ *   /agents-cont rN ...   — resume a finished research helper (alias: /research-cont)
+ *
+ * Finished research helpers are auto-pruned: auto-research pipe helpers as soon
+ * as they finish (findings persist as files under findings/), manual/persona
+ * helpers beyond the `research-keep` most recent (default 4, overrides file).
  *   /persona              — select/reset the dispatcher persona
  *   /handoff <peer>       — hand the session off to a coms peer (summarized brief)
  *   /coms                 — refresh the coms peer pool (--all / --project <name>)
@@ -76,6 +82,7 @@ import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
+import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from "./research-retention.js";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import {
 	formatPeerStatus,
@@ -217,12 +224,16 @@ interface AgentState {
 // team with reconnaissance/search/doc-reading — it never writes and never runs bash.
 // Keyed by a numeric id surfaced to the operator as the handle `rN`. Ephemeral by
 // construction: session files live under the same dir as team sessions and are wiped
-// on session_start; `/research-clear` removes them mid-session. Resumable via
-// `/research-cont` (subcont-style, bumping turnCount).
+// on session_start; finished helpers are auto-pruned per the retention policy
+// (research-retention.js — auto-pipe helpers immediately, older manual ones beyond
+// the `research-keep` cap); `/agents-kill rN` (alias `/research-rm`) kills AND
+// removes one by hand. Resumable via `/agents-cont` (alias `/research-cont`,
+// subcont-style, bumping turnCount) while retained.
 interface ResearchState {
 	id: number;
 	def: AgentDef;        // a `kind: research` persona, or a synthesized def for anon helpers
 	persona: boolean;     // true → spawned from a persona; false → ad-hoc anonymous
+	ephemeral: boolean;   // true → auto-research pipe spawn: pruned as soon as it finishes
 	model: string;        // resolved pi model spec (shown on the card)
 	status: "idle" | "running" | "done" | "error";
 	task: string;
@@ -232,6 +243,7 @@ interface ResearchState {
 	contextPct: number;
 	sessionFile: string | null;  // set after a successful run → enables `-c` resume
 	turnCount: number;
+	finishedAt?: number;  // last time a run ended (any status) — LRU key for retention
 	timer?: ReturnType<typeof setInterval>;
 	proc?: ChildProcess;
 	killedByOperator?: boolean;
@@ -369,6 +381,10 @@ function extractNeedsResearch(output: string): string[] {
 //                              orientation): canonical files (e.g. Docs/AGENTS.md) or
 //                              doc folders. Specialists and research helpers read the
 //                              ones relevant to their task; context, not compliance.
+//   research-keep: <n>|all     — how many finished manual/persona research helpers
+//                              to retain for /agents-cont resume (LRU, default 4);
+//                              "all" disables pruning. Auto-research pipe helpers
+//                              are always pruned as soon as they finish.
 
 interface AgentTeamOverrides {
 	language: string;
@@ -380,6 +396,7 @@ interface AgentTeamOverrides {
 	personaDelegateDepth: Record<string, number>;
 	rulesDirs: string[];
 	docsPaths: string[];
+	researchKeep: number;
 	warnings: string[];
 }
 
@@ -393,6 +410,7 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	personaDelegateDepth: {},
 	rulesDirs: [],
 	docsPaths: [],
+	researchKeep: DEFAULT_RESEARCH_KEEP,
 	warnings: [],
 };
 
@@ -443,6 +461,14 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		}
 		if (key === "docs" && value) {
 			result.docsPaths = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
+		if (key === "research-keep" && value) {
+			const keep = parseResearchKeep(value);
+			if (keep != null) {
+				result.researchKeep = keep;
+			} else {
+				result.warnings.push(`research-keep "${value}" is not a non-negative integer or "all" — using the default (${DEFAULT_RESEARCH_KEEP})`);
+			}
 		}
 		const slug = "[a-z0-9]+(?:-[a-z0-9]+)*";
 		const modelKey = key.match(new RegExp(`^model\\.(${slug})$`));
@@ -1723,6 +1749,10 @@ export default function (pi: ExtensionAPI) {
 	// alongside the standing team but renders in its own widget row.
 	const researchStates: Map<number, ResearchState> = new Map();
 	let nextResearchId = 1;
+	// Retention cap for finished durable (manual/persona) helpers — set from the
+	// overrides file's `research-keep:` key at session start (default 4, Infinity
+	// for "all"). Ephemeral auto-pipe helpers ignore the cap: pruned on finish.
+	let researchKeep = DEFAULT_RESEARCH_KEEP;
 
 	// ── Execution history (/agents-history) ──────────
 	// A tree of every dispatch: orchestrator (dispatcher) turns, the specialists they
@@ -3358,12 +3388,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview";
 	}
 
-	function createResearchState(def: AgentDef, persona: boolean, model: string): ResearchState {
+	function createResearchState(def: AgentDef, persona: boolean, model: string, ephemeral = false): ResearchState {
 		const id = nextResearchId++;
 		const state: ResearchState = {
 			id,
 			def,
 			persona,
+			ephemeral,
 			model,
 			status: "running",
 			task: "",
@@ -3377,6 +3408,22 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		};
 		researchStates.set(id, state);
 		return state;
+	}
+
+	// Retention pass, run whenever a helper finishes: drop finished auto-pipe
+	// helpers immediately (their findings persist as files under findings/, their
+	// handles are never resumed) and finished durable helpers beyond the
+	// `research-keep` most recent — so the research row doesn't grow without
+	// bound. Running helpers are untouched; ids stay monotonic (no handle reuse).
+	// /agents-history is unaffected: the timeline holds its own entries.
+	function pruneResearch() {
+		const ids = selectResearchPrunable(Array.from(researchStates.values()), researchKeep);
+		if (ids.length === 0) return;
+		for (const id of ids) {
+			try { unlinkSync(researchSessionPath(id)); } catch {}
+			researchStates.delete(id);
+		}
+		updateResearchWidget();
 	}
 
 	// Env plumbing for spawned children: the shared exemptions file (both
@@ -3480,11 +3527,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		// The process could not be spawned at all (proc `error` event).
 		if (res.spawnError) {
 			state.status = "error";
+			state.finishedAt = Date.now();
 			state.lastWork = `Error: ${res.spawnError}`;
 			state.killedByOperator = false;
 			updateResearchWidget();
 			state.zoomRender?.(true);
 			historyEnd(histEntry, "error");
+			pruneResearch();
 			return {
 				output: `Error spawning research helper: ${res.spawnError}`,
 				exitCode: 1,
@@ -3495,15 +3544,18 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		const full = res.output;
 		const code = res.exitCode;
 
-		// Operator kill (via /research-rm or /research-clear). Resolve gracefully so
-		// a spawn_research tool call awaiting this helper doesn't hang.
+		// Operator kill (via /agents-kill rN|all or its research-* aliases).
+		// Resolve gracefully so a spawn_research tool call awaiting this helper
+		// doesn't hang.
 		if (state.killedByOperator) {
 			state.killedByOperator = false;
 			state.status = "idle";
+			state.finishedAt = Date.now();
 			state.lastWork = "(killed by operator)";
 			updateResearchWidget();
 			state.zoomRender?.(true);
 			historyEnd(histEntry, "idle");
+			pruneResearch();
 			return {
 				output: `Research helper r${state.id} was killed by the operator before it finished.`,
 				exitCode: code ?? 143,
@@ -3512,11 +3564,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		}
 
 		state.status = code === 0 ? "done" : "error";
+		state.finishedAt = Date.now();
 		if (code === 0) state.sessionFile = sessionPath;
 		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 		updateResearchWidget();
 		state.zoomRender?.(true);
 		historyEnd(histEntry, state.status);
+		pruneResearch();
 
 		ctx.ui.notify(
 			`Research r${state.id} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
@@ -4240,7 +4294,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 					const answered = await Promise.all(researchQs.map(async (q) => {
 						const rDef = anonResearchDef();
-						const rState = createResearchState(rDef, false, resolveResearchModel(rDef, undefined, ctx));
+						// Ephemeral: auto-pipe helpers are pruned as soon as they finish —
+						// their findings persist as files, their rN handles are never resumed.
+						const rState = createResearchState(rDef, false, resolveResearchModel(rDef, undefined, ctx), true);
 						updateResearchWidget();
 						const rRes = await spawnResearch(rState, q, ctx);
 						const file = safePathWithin(findingsDir, `${agentKey}-r${rState.id}.md`);
@@ -5942,43 +5998,93 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// /research-cont rN <prompt> — resume a finished helper on its existing session.
-	pi.registerCommand("research-cont", {
-		description: "Continue a finished research helper: /research-cont rN <prompt>",
+	// ── Unified subagent commands ────────────────
+	// Team specialists are addressed by persona name, research helpers by their rN
+	// handle — one command family covers both (mirroring /zoom's target resolution).
+	// The research-* commands remain as aliases of their agents-* counterparts.
+
+	// Resume a finished helper on its existing session. Shared by /agents-cont and
+	// its /research-cont alias.
+	const researchContHandler = async (args: string | undefined, ctx: any) => {
+		widgetCtx = ctx;
+		const trimmed = (args ?? "").trim();
+		const sp = trimmed.indexOf(" ");
+		if (sp === -1) {
+			ctx.ui.notify("Usage: /agents-cont rN <prompt>", "error");
+			return;
+		}
+		const rid = parseResearchHandle(trimmed.slice(0, sp));
+		const prompt = trimmed.slice(sp + 1).trim();
+		const state = rid != null ? researchStates.get(rid) : undefined;
+		if (!state) {
+			ctx.ui.notify(`No research helper "${trimmed.slice(0, sp)}". Use /research to start one.`, "error");
+			return;
+		}
+		if (!prompt) {
+			ctx.ui.notify("Usage: /agents-cont rN <prompt>", "error");
+			return;
+		}
+		if (state.status === "running") {
+			ctx.ui.notify(`Research r${state.id} is still running — wait for it to finish.`, "warning");
+			return;
+		}
+		state.turnCount++;
+		updateResearchWidget();
+		ctx.ui.notify(`Continuing research r${state.id} (Turn ${state.turnCount})…`, "info");
+		spawnResearch(state, prompt, ctx).then(result => deliverResearchFollowUp(state, result));
+	};
+
+	pi.registerCommand("agents-cont", {
+		description: "Continue a finished research helper: /agents-cont rN <prompt>",
 		getArgumentCompletions: researchHandleCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const trimmed = (args ?? "").trim();
-			const sp = trimmed.indexOf(" ");
-			if (sp === -1) {
-				ctx.ui.notify("Usage: /research-cont rN <prompt>", "error");
-				return;
-			}
-			const rid = parseResearchHandle(trimmed.slice(0, sp));
-			const prompt = trimmed.slice(sp + 1).trim();
-			const state = rid != null ? researchStates.get(rid) : undefined;
-			if (!state) {
-				ctx.ui.notify(`No research helper "${trimmed.slice(0, sp)}". Use /research to start one.`, "error");
-				return;
-			}
-			if (!prompt) {
-				ctx.ui.notify("Usage: /research-cont rN <prompt>", "error");
-				return;
-			}
-			if (state.status === "running") {
-				ctx.ui.notify(`Research r${state.id} is still running — wait for it to finish.`, "warning");
-				return;
-			}
-			state.turnCount++;
-			updateResearchWidget();
-			ctx.ui.notify(`Continuing research r${state.id} (Turn ${state.turnCount})…`, "info");
-			spawnResearch(state, prompt, ctx).then(result => deliverResearchFollowUp(state, result));
-		},
+		handler: researchContHandler,
 	});
 
-	// /research-rm rN — remove one helper (SIGTERM if running).
+	pi.registerCommand("research-cont", {
+		description: "Continue a finished research helper (alias of /agents-cont): /research-cont rN <prompt>",
+		getArgumentCompletions: researchHandleCompletions,
+		handler: researchContHandler,
+	});
+
+	// Remove one research helper (SIGTERM if running) — the state, its card, and
+	// its session file. Team specialists are standing and cannot be removed.
+	function removeResearchHelper(state: ResearchState, ctx: any) {
+		if (state.proc && state.status === "running") {
+			state.killedByOperator = true;
+			state.proc.kill("SIGTERM");
+			ctx.ui.notify(`Research r${state.id} killed and removed.`, "warning");
+		} else {
+			ctx.ui.notify(`Research r${state.id} removed.`, "info");
+		}
+		try { unlinkSync(researchSessionPath(state.id)); } catch {}
+		researchStates.delete(state.id);
+		updateResearchWidget();
+	}
+
+	// Remove all helpers (SIGTERM any running). Shared by /agents-kill all and /research-clear.
+	function clearResearchHelpers(ctx: any) {
+		let killed = 0;
+		const total = researchStates.size;
+		for (const [, state] of Array.from(researchStates.entries())) {
+			if (state.proc && state.status === "running") {
+				state.killedByOperator = true;
+				state.proc.kill("SIGTERM");
+				killed++;
+			}
+			try { unlinkSync(researchSessionPath(state.id)); } catch {}
+		}
+		researchStates.clear();
+		nextResearchId = 1;
+		updateResearchWidget();
+		const msg = total === 0
+			? "No research helpers to clear."
+			: `Cleared ${total} research helper${total !== 1 ? "s" : ""}${killed > 0 ? ` (${killed} killed)` : ""}.`;
+		ctx.ui.notify(msg, total === 0 ? "info" : "success");
+	}
+
+	// /research-rm — alias of /agents-kill rN (kill on a research handle removes).
 	pi.registerCommand("research-rm", {
-		description: "Remove a research helper (kill if running): /research-rm rN",
+		description: "Remove a research helper (alias of /agents-kill rN): /research-rm rN",
 		getArgumentCompletions: researchHandleCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -5988,41 +6094,16 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				ctx.ui.notify(`Usage: /research-rm rN. Known: ${Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ") || "none"}`, "error");
 				return;
 			}
-			if (state.proc && state.status === "running") {
-				state.killedByOperator = true;
-				state.proc.kill("SIGTERM");
-				ctx.ui.notify(`Research r${state.id} killed and removed.`, "warning");
-			} else {
-				ctx.ui.notify(`Research r${state.id} removed.`, "info");
-			}
-			try { unlinkSync(researchSessionPath(state.id)); } catch {}
-			researchStates.delete(state.id);
-			updateResearchWidget();
+			removeResearchHelper(state, ctx);
 		},
 	});
 
-	// /research-clear — remove all helpers (SIGTERM any running).
+	// /research-clear — alias of /agents-kill all.
 	pi.registerCommand("research-clear", {
-		description: "Remove all research helpers",
+		description: "Remove all research helpers (alias of /agents-kill all)",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
-			let killed = 0;
-			const total = researchStates.size;
-			for (const [, state] of Array.from(researchStates.entries())) {
-				if (state.proc && state.status === "running") {
-					state.killedByOperator = true;
-					state.proc.kill("SIGTERM");
-					killed++;
-				}
-				try { unlinkSync(researchSessionPath(state.id)); } catch {}
-			}
-			researchStates.clear();
-			nextResearchId = 1;
-			updateResearchWidget();
-			const msg = total === 0
-				? "No research helpers to clear."
-				: `Cleared ${total} research helper${total !== 1 ? "s" : ""}${killed > 0 ? ` (${killed} killed)` : ""}.`;
-			ctx.ui.notify(msg, total === 0 ? "info" : "success");
+			clearResearchHelpers(ctx);
 		},
 	});
 
@@ -6049,16 +6130,60 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
+	// Completions over both target kinds: team persona names + research handles
+	// (rN), each annotated with status — for the unified /agents-kill and
+	// /agents-restart.
+	const subagentTargetCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = [...(agentNameCompletions("") ?? []), ...(researchHandleCompletions("") ?? [])];
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /agents-kill completions additionally offer "all" (research helpers only).
+	const agentsKillCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const targets = subagentTargetCompletions("") ?? [];
+		const items = researchStates.size > 0
+			? [...targets, { value: "all", label: "all — kill & remove every research helper" }]
+			: targets;
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
 	pi.registerCommand("agents-kill", {
-		description: "Kill a running specialist: /agents-kill <name>",
-		getArgumentCompletions: agentNameCompletions,
+		description: "Kill a running specialist, or kill & remove research helper(s): /agents-kill <name|rN|all>",
+		getArgumentCompletions: agentsKillCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const name = args?.trim();
+			// "all" clears every research helper (kill any running). Team specialists
+			// are standing — never touched by "all".
+			if (name?.toLowerCase() === "all") {
+				clearResearchHelpers(ctx);
+				return;
+			}
+			// An rN handle targets a research helper. Research helpers are disposable
+			// by design, so kill also REMOVES — the card, the state, and the session
+			// file go with the process (a finished helper is simply removed).
+			const rid = name ? parseResearchHandle(name) : null;
+			if (rid != null) {
+				const rState = researchStates.get(rid);
+				if (!rState) {
+					const known = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
+					ctx.ui.notify(`No research helper "${name}". Known: ${known || "none"}`, "error");
+					return;
+				}
+				removeResearchHelper(rState, ctx);
+				return;
+			}
 			const state = name ? agentStates.get(name.toLowerCase()) : undefined;
 			if (!state) {
-				const known = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
-				ctx.ui.notify(`Usage: /agents-kill <name>. Known: ${known || "none"}`, "error");
+				const known = [
+					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
+					...Array.from(researchStates.values()).map(s => `r${s.id}`),
+				].join(", ");
+				ctx.ui.notify(`Usage: /agents-kill <name|rN|all>. Known: ${known || "none"}`, "error");
 				return;
 			}
 			if (state.status !== "running" || (!state.proc && !state.comsAbort)) {
@@ -6082,15 +6207,45 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	});
 
 	pi.registerCommand("agents-restart", {
-		description: "Kill and re-run a specialist's last task fresh: /agents-restart <name>",
-		getArgumentCompletions: agentNameCompletions,
+		description: "Kill and re-run a specialist's (or re-run a finished research helper's) last task fresh: /agents-restart <name|rN>",
+		getArgumentCompletions: subagentTargetCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const name = args?.trim();
+			// An rN handle re-runs a finished helper's last task on a fresh session
+			// (unlike /agents-cont, which resumes the existing one). A running helper
+			// can't be restarted mid-flight — spawnResearch's promise is held by its
+			// original caller, and /agents-kill removes the helper outright.
+			const rid = name ? parseResearchHandle(name) : null;
+			if (rid != null) {
+				const rState = researchStates.get(rid);
+				if (!rState) {
+					const known = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
+					ctx.ui.notify(`No research helper "${name}". Known: ${known || "none"}`, "error");
+					return;
+				}
+				if (rState.status === "running") {
+					ctx.ui.notify(`Research r${rState.id} is still running — wait for it to finish (or /agents-kill r${rState.id} to discard it and /research the task again).`, "warning");
+					return;
+				}
+				if (!rState.task) {
+					ctx.ui.notify(`Research r${rState.id} has no previous task to restart.`, "warning");
+					return;
+				}
+				rState.sessionFile = null;
+				rState.turnCount = 1;
+				updateResearchWidget();
+				ctx.ui.notify(`Restarting research r${rState.id} (fresh)...`, "info");
+				spawnResearch(rState, rState.task, ctx).then(result => deliverResearchFollowUp(rState, result));
+				return;
+			}
 			const state = name ? agentStates.get(name.toLowerCase()) : undefined;
 			if (!state) {
-				const known = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
-				ctx.ui.notify(`Usage: /agents-restart <name>. Known: ${known || "none"}`, "error");
+				const known = [
+					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
+					...Array.from(researchStates.values()).map(s => `r${s.id}`),
+				].join(", ");
+				ctx.ui.notify(`Usage: /agents-restart <name|rN>. Known: ${known || "none"}`, "error");
 				return;
 			}
 			const task = state.task;
@@ -6745,6 +6900,7 @@ ${researchCatalog}`;
 		// Load per-project overrides (user-facing language, persona gate, models).
 		const overrides = parseAgentTeamOverrides(_ctx.cwd);
 		userLanguage = overrides.language;
+		researchKeep = overrides.researchKeep;
 		if (overrides.warnings.length > 0) {
 			_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
 		}
