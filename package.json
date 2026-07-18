@@ -1,6 +1,6 @@
 {
   "name": "@chankov/agent-fleet",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Multi-agent fleet orchestration for coding agents. Pi as the primary runtime, Herdr as the workspace control plane, coms as the peer data plane, and Hermes for remote control — plus skills, personas, harnesses, and a guided setup CLI.",
   "keywords": [
     "ai",

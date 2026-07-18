@@ -369,8 +369,6 @@ async function main(): Promise<void> {
 			}
 		}),
 	);
-	writeRegistryAtomic(registryEntry(), project);
-	console.error(`coms-hermes-bridge: ${uniqueName}@${project} listening (${to})`);
 
 	const keepalive = setInterval(() => {
 		try { writeRegistryAtomic(registryEntry(), project); } catch { /* best-effort */ }
@@ -393,6 +391,12 @@ async function main(): Promise<void> {
 	}
 	process.on("SIGTERM", shutdown);
 	process.on("SIGINT", shutdown);
+
+	// Publish readiness only after shutdown handlers are installed. A caller may
+	// terminate the bridge as soon as its registry entry appears; publishing
+	// earlier can bypass cleanup and leave both the entry and socket behind.
+	writeRegistryAtomic(registryEntry(), project);
+	console.error(`coms-hermes-bridge: ${uniqueName}@${project} listening (${to})`);
 }
 
 const isEntry = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
