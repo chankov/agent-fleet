@@ -8,7 +8,7 @@ models:
   - openai-codex/gpt-5.6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
-thinking: xhigh
+thinking: high
 delegate_depth: 1
 subagents:
   recon:
