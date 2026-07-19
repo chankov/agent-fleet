@@ -13,9 +13,35 @@ another main agent** and **use a coms peer as a subagent**.
 > P2P layer from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by
 > [disler](https://github.com/disler) (MIT). See the
 > [extension catalog](../../../docs/pi-extensions.md) and the
-> [design plan](../../../docs/plans/agent-hub-multi-agent-harness.md).
+> [design plan](../../../docs/plans/agent-hub/).
 
 ## What it does
+
+The whole dispatch loop, end to end:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as You
+    participant H as Hub (dispatcher)
+    participant S as Specialist (e.g. builder)
+    participant R as Research helper
+    participant D as Disk (.pi/agent-sessions/)
+
+    U->>H: task
+    H->>D: set_assertions — Verification Contract persisted
+    H->>S: dispatch_agent (task + advisory scope)
+    S-->>H: NEEDS_RESEARCH: how does X work?
+    H->>R: spawn_research (researcher / deep-researcher)
+    R->>D: write findings file
+    R-->>H: one-line notice + path
+    H->>S: resume with file paths — never raw findings
+    S-->>H: structured return + named evidence
+    H->>D: update_assertion
+    H-->>U: Assertions: 2✓ 1○ 1✗ · open: A4
+```
+
+Every borrowed idea from another harness passes one test before it lands: *does this persistently enter the dispatcher context?* If yes, it goes to disk or a one-line status instead.
 
 `agent-hub` is the supported home for the former standalone dispatcher features:
 

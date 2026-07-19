@@ -2,14 +2,49 @@
 
 Specialist personas that play a single role with a single perspective. Each persona is a Markdown file consumed as a system prompt by your harness (Claude Code, OpenCode, or pi). The canonical file is pi-flavored; `transform-persona` rewrites it per target harness on install.
 
-| Persona | Role | Best for |
-|---------|------|----------|
-| [code-reviewer](../agents/code-reviewer.md) | Senior Staff Engineer | Five-axis review before merge |
-| [security-auditor](../agents/security-auditor.md) | Security Engineer | Vulnerability detection, OWASP-style audit |
-| [test-engineer](../agents/test-engineer.md) | QA Engineer | Test strategy, coverage analysis, Prove-It pattern |
-| [web-performance-auditor](../agents/web-performance-auditor.md) | Web Performance Engineer | Core Web Vitals audit, loading/rendering/network analysis |
+## The full roster
 
-> This table covers the specialist review/audit personas exposed via slash commands. The full 15-persona roster — planners, builder, researchers, documenter, architect, releaser, and the pi-only browser/orchestration personas — lives in the [README](../README.md#agent-personas).
+| Persona | Role | Access | Primary skill | Agents |
+|---|---|---|---|---|
+| [planner](../agents/planner.md) | Architect — writes dependency-ordered PLAN files with acceptance criteria | rw (plan file only) | [planning-and-task-breakdown](../skills/planning-and-task-breakdown/SKILL.md) | all |
+| [plan-reviewer](../agents/plan-reviewer.md) | Plan critic — stress-tests plans for gaps, ordering, feasibility | read-only | [planning-and-task-breakdown](../skills/planning-and-task-breakdown/SKILL.md) | all |
+| [builder](../agents/builder.md) | Implementer — lands changes in small verifiable increments | rw | [incremental-implementation](../skills/incremental-implementation/SKILL.md) | all |
+| [code-reviewer](../agents/code-reviewer.md) | Senior staff engineer — five-axis review before merge | read-only | [code-review-and-quality](../skills/code-review-and-quality/SKILL.md) | all |
+| [test-engineer](../agents/test-engineer.md) | QA — test strategy, coverage analysis, the Prove-It pattern | rw | [test-driven-development](../vendor/agent-skills-upstream/skills/test-driven-development/SKILL.md) | all |
+| [security-auditor](../agents/security-auditor.md) | Security engineer — vulnerability detection, threat modeling, OWASP | read-only | [security-and-hardening](../skills/security-and-hardening/SKILL.md) | all |
+| [web-performance-auditor](../agents/web-performance-auditor.md) | Web performance engineer — Core Web Vitals, loading, rendering, network audits (via `/webperf`) | read-only | [performance-optimization](../skills/performance-optimization/SKILL.md) | all |
+| [documenter](../agents/documenter.md) | Tech writer — READMEs, inline docs, usage examples | rw | [documentation-and-adrs](../vendor/agent-skills-upstream/skills/documentation-and-adrs/SKILL.md) | all |
+| [architect](../agents/architect.md) | System architect — design decisions and migration strategy | rw | [api-and-interface-design](../vendor/agent-skills-upstream/skills/api-and-interface-design/SKILL.md) | all |
+| [releaser](../agents/releaser.md) | Release owner — changeset → version-bump → tag flow | rw | [git-workflow-and-versioning](../skills/git-workflow-and-versioning/SKILL.md), [shipping-and-launch](../vendor/agent-skills-upstream/skills/shipping-and-launch/SKILL.md) | all |
+| [researcher](../agents/researcher.md) | Fast read-only recon — reports findings with file:line citations | read-only | — | all |
+| [deep-researcher](../agents/deep-researcher.md) | Deep recon for hard, cross-cutting questions | read-only | — | all |
+| [bowser](../agents/bowser.md) | Headless browser automation via Playwright CLI | rw | — | pi only |
+| [web-debugger](../agents/web-debugger.md) | Interactive headful Chrome debugging via Chrome DevTools MCP (coms peer) | rw | [browser-testing-with-devtools](../skills/browser-testing-with-devtools/SKILL.md) | pi only |
+| [orchestrator](../agents/orchestrator.md) | Verification-Contract agent-hub dispatcher — owns acceptance assertions, parity inventory, runtime-proof gate | — | [orchestration-verification](../skills/orchestration-verification/SKILL.md) | pi only |
+
+## How personas connect to skills
+
+Personas are the *who*, skills are the *how*. Each working persona carries a conditional hook to its primary skill: if `skills/<skill-name>/SKILL.md` exists in the repo it is working on, the persona reads it before starting and follows its process and output format. Install the matching skill alongside the persona to get the full structured workflow — without it, the persona still works on its built-in rules. The research personas and `bowser` deliberately carry no skill hook (recon must stay lean; the orchestration prompt is built by agent-hub). The single `orchestrator` is the exception: it references [`orchestration-verification`](../skills/orchestration-verification/SKILL.md) for the acceptance-assertion, parity-inventory, and structured-return formats of the Verification Contract it enforces. Several personas also honour the per-project overrides in `.ai/agent-fleet-overrides.md` — e.g. `planner` writes its plan where `## planning-and-task-breakdown` says, and reviewers validate against the project's `rules:` folders.
+
+## Installing personas
+
+`/setup-agent-fleet` offers every persona available for the chosen agent and installs it to the right place, transforming the frontmatter deterministically (via `npx @chankov/agent-fleet transform-persona`):
+
+| Agent | Installed to | Transformation |
+|---|---|---|
+| Claude Code | `.claude/agents/<name>.md` | tools renamed (`read→Read`, `find/ls→Glob`, …), model mapped to `opus`/`sonnet`/`haiku`, agent-hub keys dropped |
+| OpenCode | `.opencode/agent/<name>.md` | `mode: subagent` added, write-capable tools denied per persona, agent-hub keys dropped |
+| pi | `agents/<name>.md` | none — the canonical format is the pi format |
+
+When the repo is installed as a Claude Code plugin, the `agents/` directory is auto-discovered — every non-pi-only persona is immediately available as a subagent without a separate install.
+
+## Teams of subagents
+
+The personas are designed to be composed, not used one at a time. For the full hub → team → agent → sub-agent picture, see [ARCHITECTURE.md](ARCHITECTURE.md#fleet-hierarchy).
+
+- **pi (agent-hub harness)** — the dispatcher spawns personas as specialist agents on a named team from [.pi/agents/teams.yaml](../.pi/agents/teams.yaml): `default` (plan → build → review → document), `debug`, `frontend`, `security`, `hotfix`, `release`, `info`. `just team-up <name>` instead spawns [peers.yaml](../.pi/agents/peers.yaml) personas (e.g. `architect`, `releaser`) as standalone, addressable peers in a tiled [herdr](https://herdr.dev) workspace (requires a running herdr server). Personas with a `subagents:` block (e.g. `code-reviewer`'s `preflight`/`quality`/`perf`/`docs`) additionally delegate slices of their own job to pre-configured children.
+- **Claude Code** — installed personas are native subagents: the main agent delegates to them automatically based on their `description`, or you invoke one explicitly ("use the code-reviewer subagent on this diff"). Chain them along the lifecycle: `/plan` work goes to `planner`, then `plan-reviewer` critiques, `builder` implements, and `code-reviewer` + `security-auditor` gate the merge. `/orchestrate` runs a config-defined roster (see `.claude/orchestrate-teams.yaml`).
+- **OpenCode** — installed personas are subagents (`mode: subagent`): mention one with `@<name>` to invoke it directly, or let the primary agent delegate to it by description. `/af-orchestrate` mirrors the Claude Code roster pattern.
 
 ## How personas relate to skills and commands
 
