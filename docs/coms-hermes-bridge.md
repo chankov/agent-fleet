@@ -32,16 +32,16 @@ Protocol contract for the Hermes ⇄ pi `coms` bridge. The first implemented dae
 ```text
 ❓ [HUB-Q:<qid>] <question>
 
-Контекст: <context, truncated if needed>
+Context: <context, truncated if needed>
 
-Опции:
+Options:
 1. <title> — <description>
 ...
 
-↩ Отговори с reply на това съобщение, или напиши: HUB-Q:<qid>: <отговор>
+↩ Reply to this message, or type: HUB-Q:<qid>: <answer>
 ```
 
-`Контекст:` is omitted when absent. `Опции:` is omitted when no options are supplied. Context receives the remaining budget after the header, options, and reply instruction.
+`Context:` is omitted when absent. `Options:` is omitted when no options are supplied. Context receives the remaining budget after the header, options, and reply instruction.
 
 ### Answer-file path, schema, and validation
 
@@ -72,11 +72,11 @@ If options exist and the trimmed answer is a 1-based number for an option, the r
 
 `cancel` is an additive coms envelope with shape `{ "type": "cancel", "msg_id", "from", "to", "created_at", "ref_msg_id" }`; `ref_msg_id` is the target `qid`. The bridge acks well-formed cancel envelopes before handling them.
 
-For a pending qid, cancel clears the timeout, removes the pending question, records terminal state `cancelled`, appends a `cancelled` log event, and sends a Telegram note: `✖ [HUB-Q:<qid>] Въпросът е отменен — отговорено е от конзолата.` Cancel for a non-pending or invalid qid is a no-op after the envelope ack. A later answer file for a closed qid is treated as `late_answer`: logged, removed, and answered in Telegram with a polite ignored note; no response envelope is sent.
+For a pending qid, cancel clears the timeout, removes the pending question, records terminal state `cancelled`, appends a `cancelled` log event, and sends a Telegram note: `✖ [HUB-Q:<qid>] The question was cancelled — it was answered from the console.` Cancel for a non-pending or invalid qid is a no-op after the envelope ack. A later answer file for a closed qid is treated as `late_answer`: logged, removed, and answered in Telegram with a polite ignored note; no response envelope is sent.
 
 ### Timeouts
 
-The per-question remote timeout defaults to `PI_COMS_TIMEOUT_MS`, or `1800000` ms when unset/invalid; `--timeout <ms>` overrides it. On timeout, the bridge removes the pending question, records terminal state `timeout`, logs `timeout`, sends the Telegram note `⌛ [HUB-Q:<qid>] Въпросът изтече след <ms>ms.`, and sends an error response envelope with error `no remote answer within <ms>ms` and `response: null`.
+The per-question remote timeout defaults to `PI_COMS_TIMEOUT_MS`, or `1800000` ms when unset/invalid; `--timeout <ms>` overrides it. On timeout, the bridge removes the pending question, records terminal state `timeout`, logs `timeout`, sends the Telegram note `⌛ [HUB-Q:<qid>] The question timed out after <ms>ms.`, and sends an error response envelope with error `no remote answer within <ms>ms` and `response: null`.
 
 ### States
 

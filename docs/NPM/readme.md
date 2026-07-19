@@ -46,14 +46,14 @@ npm install
 ## 3. Check the current version
 
 ```sh
-# провери текущата версия — трябва да е версията, която искаш да bump-неш
+# check the current version — it should be the version you want to bump
 node -p "require('./package.json').version"
 ```
 
 ## 4. Safety guard — no pending changesets
 
 ```sh
-# ако има pending changesets, npm version може да double-bump-не — изчисти ги първо
+# if there are pending changesets, npm version can double-bump — clear them first
 ls .changeset/*.md 2>/dev/null | grep -v README || echo "no pending changesets — ok"
 ```
 
