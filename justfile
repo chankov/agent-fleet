@@ -20,6 +20,14 @@
 # >>> agent-fleet:harnesses — managed region (regenerated on upgrade; edits inside are overwritten) >>>
 set dotenv-load := true
 
+# How recipes run the fleet TS scripts. The preserve-symlinks flags matter for
+# symlink installs (guided-workspace-setup's `symlink` method): there
+# scripts/*.ts are links whose realpath sits under .pi/npm/node_modules/, and
+# Node refuses --experimental-strip-types for anything under node_modules once
+# paths are realpath'd. Keeping symlink paths avoids that; copy installs are
+# unaffected (the fleet scripts import only relative paths + node builtins).
+node_ts := "node --experimental-strip-types --preserve-symlinks --preserve-symlinks-main"
+
 # List all recipes
 default:
     @just --list
@@ -72,20 +80,20 @@ hub-solo *args:
 # simultaneous boots race on the auth.json lock and lose their logins.
 # Hidden from `just --list` because recipes prefixed with `_` are private.
 _peer persona name="" model="" session="" project="default":
-    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; node --experimental-strip-types scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
+    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
 
 # Like _peer, but also loads extra always-on extensions (comma-separated names under
 # .pi/extensions/) into the peer process — e.g. a chrome-devtools-mcp browser-debug peer
 # whose `chrome_devtools__*` tools a normal --no-extensions subagent could not get.
 _peer-plus extensions persona name="" model="" session="" project="default":
-    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; node --experimental-strip-types scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts $extra --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
+    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi -e .pi/harnesses/coms/index.ts -e .pi/extensions/compact-and-continue/index.ts $extra --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
 
 # Internal helper for team-up: a `runner: claude-code` peer — interactive
 # Claude Code plus its coms bridge (scripts/coms-claude-bridge.ts) in ONE pane.
 # The bridge registers the pane as coms peer <name>; the trailing session
 # positional maps to `claude --resume <id>` for team-resume.
 _claude-peer name model="" session="" project="default":
-    node --experimental-strip-types scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
+    {{node_ts}} scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
 
 # The team recipes below take the team as a positional arg (defaults to "full")
 # and pass everything after it straight to the script.
@@ -108,54 +116,54 @@ _claude-peer name model="" session="" project="default":
 # e.g. just team-up full
 #      just team-up review --project af
 team-up team="full" *args:
-    node --experimental-strip-types scripts/team-up.ts --team {{team}} {{args}}
+    {{node_ts}} scripts/team-up.ts --team {{team}} {{args}}
 
 # Team up (dry run): print the resolved layout + per-peer commands without touching herdr.
 # e.g. just team-up-dry full
 #      just team-up-dry review --project af
 team-up-dry team="full" *args:
-    node --experimental-strip-types scripts/team-up.ts --team {{team}} --dry-run {{args}}
+    {{node_ts}} scripts/team-up.ts --team {{team}} --dry-run {{args}}
 
 # Hub + team in ONE herdr workspace: the guarded hub (`just hub`) in a larger
 # main pane, the team's peers tiled beside it.
 # e.g. just hub-team docs
 #      just hub-team review --project af
 hub-team team="full" *args:
-    node --experimental-strip-types scripts/team-up.ts --team {{team}} --hub {{args}}
+    {{node_ts}} scripts/team-up.ts --team {{team}} --hub {{args}}
 
 # Hub + team (dry run): print the combined layout without touching herdr.
 # e.g. just hub-team-dry review --project af
 hub-team-dry team="full" *args:
-    node --experimental-strip-types scripts/team-up.ts --team {{team}} --hub --dry-run {{args}}
+    {{node_ts}} scripts/team-up.ts --team {{team}} --hub --dry-run {{args}}
 
 # Hermes conductor + team in ONE herdr workspace: Hermes dev profile in a conductor pane,
 # the team's peers tiled beside it. Hermes delegates via coms-cli and never drives herdr.
 # e.g. just conductor docs --project af
 conductor team="full" *args:
-    node --experimental-strip-types scripts/team-up.ts --team {{team}} --conductor {{args}}
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor {{args}}
 
 # Hermes conductor + team (dry run): print the combined layout without touching herdr.
 # e.g. just conductor-dry docs --project af
 conductor-dry team="full" *args:
-    node --experimental-strip-types scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
 
 # Snapshot a RUNNING team's session refs to ~/.pi/team-snapshots/<team>.json
 # (team keeps running — take one proactively so a crash is resumable).
 # A team launched with --project must snapshot with the same --project.
 # e.g. just team-snapshot review --project af
 team-snapshot team="full" *args:
-    node --experimental-strip-types scripts/team-snapshot.ts snapshot {{team}} {{args}}
+    {{node_ts}} scripts/team-snapshot.ts snapshot {{team}} {{args}}
 
 # Snapshot, then close the team workspace cleanly (peers get SIGTERM).
 # e.g. just team-down review --project af
 team-down team="full" *args:
-    node --experimental-strip-types scripts/team-snapshot.ts down {{team}} {{args}}
+    {{node_ts}} scripts/team-snapshot.ts down {{team}} {{args}}
 
 # Rebuild a team from its snapshot — each pi peer resumes its previous
 # conversation (`pi --session <ref>`); peers whose ref is gone start fresh.
 # e.g. just team-resume review --project af
 team-resume team="full" *args:
-    node --experimental-strip-types scripts/team-snapshot.ts resume {{team}} {{args}}
+    {{node_ts}} scripts/team-snapshot.ts resume {{team}} {{args}}
 
 # ---------------------------------------------------------------- coms (Pi-to-Pi messaging)
 

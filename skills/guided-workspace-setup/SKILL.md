@@ -317,7 +317,7 @@ Write each section as terse `key: value` lines, never prose: the lifecycle skill
 
 ### 8. Choose the install method
 
-Ask `copy` or `symlink` for this run.
+If the install record's `## workspace-summary` already carries a `method:` line, **reuse it without asking** — the choice is per-workspace, not per-run. State the reused method in the Step 9 summary (`Method: symlink (from install record)`); the user can override by saying so there. Ask `copy` or `symlink` only on a first install (no record, or a record without a `method:` line).
 
 - `copy` — copy each artifact into its target path.
 - `symlink` — link each target path to the source artifact in the agent-fleet repo.
@@ -337,7 +337,7 @@ Present the plan compactly — the **"Keep it narrow"** rule from Step 6 applies
 
 Target paths are deterministic from the per-agent source map, so omit them from the confirmation — show a path only when the user asks. When the version delta from Step 4 is non-empty, lead with a short **"Changes since `v<recorded>` → `v<current>`"** heading followed by one short bullet per change (sourced from `CHANGELOG.md`, only the entries between the two versions) — bullets on their own lines, never crammed into one long line that overflows. Ask the user to confirm, and write nothing until they do.
 
-**Installer cleanup line.** The summary always ends with one line stating that the installer slash commands (`/setup-agent-fleet`, `/doctor-agent-fleet` — or `/af-*-agent-fleet` for OpenCode — plus the `guided-workspace-setup` skill body) will be removed after apply, so they do not pollute the user's slash-command list. Add the verbatim suffix: *"Reply `keep` to leave them in place; re-run `npx @chankov/agent-fleet init` later if removed."* If the user replies `keep`, record `keep-installer: true` in `## workspace-summary` and skip Step 10b. Otherwise the default is to remove them.
+**Installer cleanup line.** When the install record already carries `keep-installer: true`, the summary instead ends with one line confirming the installer commands stay in place (`Installer: kept (from install record)`) — do not re-offer the removal. Otherwise the summary always ends with one line stating that the installer slash commands (`/setup-agent-fleet`, `/doctor-agent-fleet` — or `/af-*-agent-fleet` for OpenCode — plus the `guided-workspace-setup` skill body) will be removed after apply, so they do not pollute the user's slash-command list. Add the verbatim suffix: *"Reply `keep` to leave them in place; re-run `npx @chankov/agent-fleet init` later if removed."* If the user replies `keep`, record `keep-installer: true` in `## workspace-summary` and skip Step 10b. Otherwise the default is to remove them.
 
 ### 10. Apply the setup
 
