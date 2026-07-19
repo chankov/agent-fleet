@@ -12,4 +12,6 @@ Also flag malformed peer entries in `.pi/agents/peers.yaml`: field lines (`perso
 
 Also validate `.ai/agent-fleet-overrides.md` when it exists, against the schema in `docs/agent-fleet-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys, missing `rules:` folders and `docs:` entry points, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are advisory only — report them with fix "edit by hand", never edit the overrides file.
 
+Present the findings per the skill's Step 1 interaction contract: print a short text summary (counts per kind, advisory findings as report-only text), then ask one native multi-select — *"Which fixes should I apply now?"* — each option titled `<path> — <issue>` with the proposed fix as its description; an empty selection applies nothing. Without a widget, print a `# | Path | Issue | Suggested fix` table instead and take the picks as text.
+
 Never overwrite a regular file — only act on symlinks whose target is missing. Report `repaired`, `deleted`, and `skipped` counts, and append a `## doctor-runs` line to `.ai/agent-fleet-setup.md` with the date and counts.

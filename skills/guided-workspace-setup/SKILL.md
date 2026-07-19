@@ -26,16 +26,20 @@ It maintains two files in the target's `.ai/` directory: `agent-fleet-overrides.
 
 ### 1. Detect interaction capability
 
-Determine which interaction mode this runtime supports. The mode is chosen by agent:
+Determine which interaction mode this runtime supports, then drive **every** decision in this flow — doctor fixes, the Express question, the group menus, overrides, method, confirmation — through the shared interaction contract below:
 
-- **`claude-code` → `AskUserQuestion` questionnaires (primary).** Drive every Step 6 group through `AskUserQuestion` rather than printing a table and waiting for a free-text reply. Because the tool caps at 4 options per question and supports `multiSelect: true`, use this two-tier strategy:
-  - **Quick path first.** For each group, ask one `AskUserQuestion` (multiSelect off) offering `Recommended set` / `Everything` / `Customise` / `Skip group`. Only when the user picks `Customise` do you drill in. This avoids questionnaire fatigue on the ~20-item Skills group.
-  - **Customise drill-in.** Present the group's items as `AskUserQuestion` multiSelect prompts chunked by sub-category (the existing `Group` column), ≤ 4 options per question; a sub-category with > 4 items splits into sequential questions. Pre-selection still follows the Step 6 state rules (installed → pre-checked).
+- **`pi` → the `ask_user` widget**, provided by the external `pi-ask-user` package; when it is absent, Step 5b bootstraps it first (install → reload → re-run) so this mode becomes available on the second pass. Because the Step 6 groups are large, prefer bootstrapping `pi-ask-user` over falling straight to the tabular fallback.
+- **`claude-code` → `AskUserQuestion`.** Same contract; the tool caps at 4 options per question, so drill-in chunks are ≤ 4 options instead of ≤ 9.
+- **`opencode` / any other runtime → its native select widget if supplied**, else the **tabular fallback** (defined at the end of Step 6): print the group table and take the picks as a text reply — always accepting the shortcuts `all`, `recommended`, `none`, `keep`, or a comma-separated list of item names/numbers.
 
-  The selection semantics are **identical** to the tabular menu (unchecked installed item = remove, `recommended` adds `★` on top, etc.) — only the rendering differs.
-- **`pi` → native multi-select widget.** Provided by the external `pi-ask-user` package; when it is absent, Step 5b bootstraps it first (install → reload → re-run) so this mode becomes available on the second pass. Because the Step 6 groups are large, prefer bootstrapping `pi-ask-user` over falling straight to the tabular fallback.
-- **`opencode` / any other runtime → native multi-select widget if supplied**, else the tabular fallback below.
-- **Tabular fallback** (any runtime lacking the above) — print the group table (Step 6 format) and ask the user to reply with the picks. Always accept the shortcuts `all`, `recommended`, `none`, or a comma-separated list of item names/numbers.
+**The interaction contract (widget modes).** One question = one `ask_user` / `AskUserQuestion` call whose **options carry the data** — never a markdown table pasted into the question or `context`:
+
+- **Options are data.** Each option is `{title, description}`. The title is the pick itself — `<name>`, plus ` ★` when recommended and a short `[st]` state token (Step 6) when relevant, ≤ ~40 chars. The description says in plain words what the item is and what picking it does ("update available — refresh from source", "modified locally — refreshing overwrites your edits"). No status legend on widget screens — the words live in the descriptions; the token legend survives only in the tabular fallback.
+- **Screen budget.** ≤ 8 short `context` lines and ≤ 9 options per call (≤ 4 on `AskUserQuestion`). A larger set splits into sequential chunks by sub-category, with `part i/n` in the question text. Anything longer — diffs, changelog deltas, the Step 9 plan — is printed as normal agent text *before* the call, and that call passes `displayMode: "inline"` so the printed material stays visible (the default overlay would cover it).
+- **No pre-selection exists.** The `ask_user` multi-select starts with nothing checked and has no preselect parameter. Installed state is therefore conveyed by **counts in quick-screen option titles** and by per-item state words in drill-in descriptions — and **removal is never expressed by leaving an item unselected**. Removing is its own explicit "select items to remove" screen (Step 6).
+- **Two-tier quick path.** Every Step 6 group opens with a single-select quick screen; multi-select drill-ins appear only behind `Customise` / `Remove some…`. This keeps a ~20-item group to one screen in the common case.
+- **Freeform stays on.** Pass `allowFreeform: true` so the shortcuts (`all`, `recommended`, `none`, `keep`, comma-lists) keep working as typed replies with unchanged semantics.
+- **Cancel is a no-op.** `esc`/cancel on a group, doctor, or override screen means "keep as-is / skip this screen" — never consent to install, refresh, or remove. Only the Step 9 confirm treats cancel as "do not apply".
 
 ### 2. Resolve inputs
 
@@ -118,9 +122,9 @@ Also flag any YAML configs (`teams.yaml`, `peers.yaml`) that still reference rem
 
 Also flag malformed peer entries in `.pi/agents/peers.yaml`: field lines (`persona:`, `model:`, ...) sitting under a team heading before any `- name: ...` list item — the team-up launcher's minimal parser silently drops them, so the peer never spawns. **Advisory only**: report with the missing `- name: <peer>` suggestion, never rewrite the file yourself. (`agent-fleet doctor` runs this same check.)
 
-Also validate `.ai/agent-fleet-overrides.md` when it exists, against the schema in `docs/agent-fleet-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys (`thinking.*` levels, `delegate-depth.*`, `persona-gate`), `rules:` folders and `docs:` entry points that don't exist, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are **advisory only** — report them in the table with fix "edit by hand", never edit the overrides file yourself. (`agent-fleet doctor` runs this same validation.)
+Also validate `.ai/agent-fleet-overrides.md` when it exists, against the schema in `docs/agent-fleet-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys (`thinking.*` levels, `delegate-depth.*`, `persona-gate`), `rules:` folders and `docs:` entry points that don't exist, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are **advisory only** — report them in the findings summary with fix "edit by hand", never edit the overrides file yourself. (`agent-fleet doctor` runs this same validation.)
 
-Present findings in a single table (keep it narrow — same widget constraint as Step 6/9: short `Issue`/`Fix` phrases, paths relative to the workspace, no overflowing cells):
+Present the findings per the Step 1 interaction contract. **Widget mode:** print a 1–3 line text summary (counts per kind, plus the advisory findings — which are report-only and never offered as applyable options), then ask one multi-select — *"Which fixes should I apply now?"* — where each option's title is `<path> — <issue>` and its description is the proposed fix (`repoint → code-reviewer.md`, `delete broken link`), chunked per the Step 1 budget. An empty selection or cancel applies nothing. **Tabular fallback:** print the findings table instead (short `Issue`/`Fix` phrases, workspace-relative paths) and ask for the picks in text:
 
 | # | Path | Issue | Fix |
 |---|---|---|---|
@@ -128,7 +132,7 @@ Present findings in a single table (keep it narrow — same widget constraint as
 | 2 | `.pi/agents/red-team.md` | broken link, no replacement | delete |
 | 3 | `.pi/agents/teams.yaml` | refs `red-team` | rename → `security-auditor` |
 
-Then ask, multi-select: which fixes to apply now. Apply only the picked ones; record skipped items so the install menu can surface them again. Append a `## doctor-runs` line to `.ai/agent-fleet-setup.md` with the date, agent, phase (`preflight`), and `repaired` / `deleted` / `skipped` counts.
+Either way, apply only the picked fixes; record skipped items so the install menu can surface them again. Append a `## doctor-runs` line to `.ai/agent-fleet-setup.md` with the date, agent, phase (`preflight`), and `repaired` / `deleted` / `skipped` counts.
 
 The doctor scan is also exposed standalone as `/doctor-agent-fleet` — running it outside a setup pass is this same scan-and-repair flow without the rest of the install menu.
 
@@ -148,49 +152,48 @@ From the Step 4 analysis, determine whether `pi-ask-user` is already available:
   4. Record the package under the `external-pi-packages` / `project-packages` line in `.ai/agent-fleet-setup.md` (same convention as Step 6's external-package handling) — do not copy files from `node_modules`.
   5. **Stop the pass here.** Print: *"`pi-ask-user` installed. Reload pi (restart the session or `/reload`), then re-run `/setup-agent-fleet` — the menu will then use native multi-select. Nothing else has been written to your workspace."* Do not continue to Step 6 on this pass: the tool only becomes callable after the reload.
 
-On the **re-run**, Step 4 finds `pi-ask-user` installed, this step is a no-op, and Step 6 renders every group as a true checkbox widget. In Step 6's External-pi-packages group, the already-installed `pi-ask-user` simply shows `installed · project package` and is pre-checked to keep — the bootstrap is not repeated. Do **not** bootstrap other external pi packages here; optional suggestions such as `pi-codex-image-gen` are offered only in Group 7 and installed only when the user selects them.
+On the **re-run**, Step 4 finds `pi-ask-user` installed, this step is a no-op, and Step 6 runs on native `ask_user` screens. In Step 6's External-pi-packages group, the already-installed `pi-ask-user` simply counts toward `Keep as-is` (`installed · project package`) — the bootstrap is not repeated. Do **not** bootstrap other external pi packages here; optional suggestions such as `pi-codex-image-gen` are offered only in Group 7 and installed only when the user selects them.
 
 ### 6. Present the install menu
 
-Offer every installable artifact, split into the groups below. **Each group is its own multi-select prompt** so the user picks one screen at a time. On `claude-code` (per Step 1) each group is rendered as `AskUserQuestion` questionnaire chunks (quick-path, then ≤ 4-option drill-in) rather than one wide table — but the **selection semantics are identical** (unchecked installed item = remove, `recommended` adds `★` on top, etc.). The groups are deliberately broad — 7 total (4 shared + 3 pi-only), so a non-`pi` workspace sees only 4 screens. Several groups bundle more than one artifact type; within such a group, a leading `Group` column labels the sub-category and rows are ordered by it so the table still reads as labeled sections. Render every group's items as a markdown table using this fixed format:
+Offer every installable artifact, split into the groups below. The groups are deliberately broad — 7 total (4 shared + 3 pi-only), so a non-`pi` workspace sees only 4 groups. Several groups bundle more than one artifact type; within such a group, a sub-category label (the `Group` value: lifecycle phase for Skills, `rw`/`ro`/`pi-only` for personas, …) orders the items and names the drill-in chunks.
 
-| Pick | Item | Group | St | Purpose |
-|---|---|---|---|---|
-| `[x]` / `[ ]` | `<name>` (append ` ★` when recommended) | sub-category (see each group) — omit the column for single-type groups | short status token (see legend) | one-line purpose, ≤ ~6 words |
+**Item states.** Compute every candidate item's state first — states drive the quick-screen counts, the drill-in descriptions, and what confirming does:
 
-**Keep it narrow.** The `pi-ask-user` widget renders the table at fixed column widths, so wide cells force horizontal overflow — the user then has to zoom out, which makes the widget re-render and flicker. Render compact so the whole table fits a standard terminal width:
-
-- Use the short `St` token, never the long state name. Print the legend once, on a single line above the table: `St: ok=up to date · upd=update available · mod=modified locally · cflt=conflicting upgrade · gone=removed upstream · new=new this version · pkg=project package · — =not installed · brk=broken`.
-- Fold the recommendation mark into `Item` (append ` ★`) — do **not** add a separate `Rec` column.
-- Keep `Purpose` to a short phrase (truncate with `…` if needed); keep `Group` labels short (`UI`, `focus`, `safety`, `orch`, `msg`, `ext`, `skill`, `ref`, `hook`, `rw`, `ro`).
-- Keep the context preamble and the after-table prompt to short single lines — no multi-clause sentences that overflow the terminal.
-
-**Pre-selection rule.** The `Pick` column is pre-ticked from the workspace's current state — not from preference. Every item is either pre-checked `[x]` (touched if confirmed) or pre-unchecked `[ ]` (left alone if confirmed):
-
-| Current state | `St` token | Pre-check | What confirming will do |
+| Current state | `[st]` token | Surfaces where | What selecting does |
 |---|---|---|---|
-| `installed · up to date` | `ok` | `[x]` | no-op (kept as-is) |
-| `installed · outdated` (source newer than the installed copy; copy-mode only) | `upd` | `[x]` | refresh to current source |
-| `installed · modified` (target diverged from source) | `mod` | `[x]` | refresh from source — **local edits will be overwritten**; untick to preserve them |
-| `installed · upgrade available` (recorded version != current; user copy still matches the recorded-version source) | `upd` | `[x]` | clean refresh to the current-version source |
-| `installed · conflicting upgrade` (recorded version != current; user modified the copy AND source changed upstream) | `cflt` | `[ ]` | nothing — show the three-way diff (recorded vs installed vs current) inline and ask before any write; tick only after the user accepts the overwrite |
-| `installed · removed upstream` (artifact gone in the current version) | `gone` | `[x]` | propose deletion in Step 10 (subject to the removal-scope rule); untick to keep the local copy |
-| `not installed` | `—` | `[ ]` | nothing — unless the user ticks it to install |
-| `not installed · new in this version` (artifact added between recorded and current) | `new` | `[ ]` | nothing — unless the user ticks it; marked `★` if recommended |
-| `broken · skipped in preflight` (carried over from Step 5) | `brk` | `[ ]` | remove the dangling link in Step 10; tick it to attempt repair instead |
-| `not installed · ★ recommended` | `—` | `[ ]` | nothing — unless the user ticks it or replies `recommended` |
+| `installed · up to date` | `ok` | counted in `Keep as-is`; listed on the remove screen | keep (no-op); removable only via the remove screen |
+| `installed · outdated` (source newer than the installed copy; copy-mode only) | `upd` | counted in `Apply updates`; listed in Customise | refresh to current source |
+| `installed · modified` (target diverged from source) | `mod` | listed in Customise — never auto-refreshed by `Apply updates` | refresh from source — description must warn **local edits will be overwritten**; leave unselected to preserve them |
+| `installed · upgrade available` (recorded version != current; user copy still matches the recorded-version source) | `upd` | counted in `Apply updates` | clean refresh to the current-version source |
+| `installed · conflicting upgrade` (recorded version != current; user modified the copy AND source changed upstream) | `cflt` | its own diff-then-ask exchange — never resolved by Express, `Apply updates`, or a plain chunk pick | nothing until the user accepts the overwrite after the three-way diff |
+| `installed · removed upstream` (artifact gone in the current version) | `gone` | counted in `Apply updates` as a proposed deletion; always itemised in Step 9 | propose deletion in Step 10 (subject to the removal-scope rule); decline to keep the local copy |
+| `not installed` | `—` | listed in Customise | install when selected |
+| `not installed · new in this version` (artifact added between recorded and current) | `new` | listed in Customise; `★` when recommended | install when selected |
+| `broken · skipped in preflight` (carried over from Step 5) | `brk` | counted in `Apply updates` as link cleanup; always itemised in Step 9 | remove the dangling link in Step 10; select it in Customise to attempt repair instead |
 
-**The three-way diff for `conflicting upgrade`.** For each row in that state, compare:
+**The Express question (one screen, before group 1).** After computing states, ask one single-select that can resolve the whole menu:
+
+- **Fresh workspace** (no install record): `Recommended ★ (n items)` — select every `★` item across the groups this agent sees / `Everything (m items)` / `Custom — group by group` / `Nothing — skip the menu`.
+- **Existing workspace**: `Keep everything as-is (n installed)` / `Apply updates (k items)` — refresh every `upd`, propose the `gone`/`brk` cleanups, install nothing new / `Keep + add recommended ★ (adds j)` / `Custom — group by group`.
+
+An Express answer other than `Custom` skips all seven group screens and goes straight to Step 7 — with two exceptions Express can never resolve: (a) every `cflt` row still gets its per-row diff-then-ask exchange before Step 9, and (b) `gone`/`brk` cleanups are always itemised by name in the Step 9 summary, so nothing is deleted unseen. Mandatory pairings (group 6) apply to Express picks too. Cancel on the Express question = `Custom`.
+
+**Per-group screens (the `Custom` path).** Each group runs at most three screens, all within the Step 1 budget:
+
+1. **Quick screen** (single-select). Fresh: `Recommended ★ (n)` / `Everything (m)` / `Customise` / `Skip group`. Existing: `Keep as-is (n installed)` / `Apply updates (k changed)` / `Customise` / `Remove some…`. Counts come from the state table; a group with nothing installed and nothing recommended may go straight to its Customise chunks.
+2. **Customise drill-in** (multi-select, only when picked). The group's items chunked by sub-category, ≤ 9 options per call (`part i/n`; ≤ 4 on `AskUserQuestion`). Titles: `<name> ★ [st]`. Descriptions: the purpose in ≤ ~6 words plus the state in plain words and its consequence (`mod` → "refreshing overwrites your local edits"). Selecting an item installs or refreshes it; **leaving an installed item unselected keeps it as-is — it does not remove it.** `cflt` rows are listed for visibility, but selecting one only queues its diff-then-ask exchange.
+3. **Remove screen** (multi-select, only via `Remove some…` or when the user asks to remove). Lists **only** installed items the removal-scope rule allows (in inventory + recorded / symlinked-to-source). Selecting an item marks it for removal in Step 9/10; an empty selection or cancel removes nothing. Items held by a mandatory pairing (the damage-control variants and `ask-user-remote` while `agent-hub` stays kept) are not listed; explain the pairing if the user asks for them.
+
+**The three-way diff for `conflicting upgrade`.** For each `cflt` row, print the diff as normal agent text, comparing:
 
 - *source @ recorded* — read from `<source-root>/.versions/<recorded-version>/<artifact-path>`
 - *installed copy* — read from the target path in the workspace
 - *source @ current* — read from `<source-root>/<artifact-path>`
 
-If the recorded snapshot is missing (unpublished local build, or a version older than the snapshot retention), fall back to "treat installed copy as canonical" — do not pretend a diff exists. Mention the missing snapshot in the row's status text so the user can decide.
+Then ask a single-select with `displayMode: "inline"` (so the printed diff stays visible): `Overwrite with v<current>` / `Keep my copy`. Cancel = keep. If the recorded snapshot is missing (unpublished local build, or a version older than the snapshot retention), fall back to "treat installed copy as canonical" — do not pretend a diff exists; state the missing snapshot before asking.
 
-After the table, ask: *"Which items in this group? — adjust the picks, or reply `all` / `recommended` / `none` / `keep` (keep the pre-selection as shown)."* `recommended` ticks every `★` item **in addition to** the already-installed pre-selection (so the user never accidentally removes installed items by accepting recommendations). `keep` is the no-change shortcut.
-
-For an already-configured workspace, an **unchecked installed item means *remove it*** (subject to the removal-scope rule); a **checked one means *keep or update it***. An `St` token appears for every row — even `—` (not installed) — with the legend shown once above the table, so the user always sees an explicit state instead of inferring it from an empty checkbox.
+**After every group** (and after an Express answer), restate the outcome in one line using the state vocabulary — e.g. *"Skills: keep `code-review-and-quality` (up to date), install `security-and-hardening` (recommended), remove `performance-optimization`."* — so the user can correct it before moving on. Freeform replies on any group screen keep the shortcut semantics: `recommended` selects every `★` item **in addition to** what is installed (it never implies removal), `keep` is the no-change shortcut, `none` skips the group, `all` selects everything.
 
 **Source availability filter — never substitute across agents.** Each row is offered only when the source file the **chosen agent** needs already exists in this repo. The source location is fixed per agent:
 
@@ -208,7 +211,7 @@ If the per-agent source is missing, the row is **not shown** — never silently 
 
 Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **only when the agent is `pi`**.
 
-1. **Skills** *(`Group` column = lifecycle phase)* — one screen for all skills, ordered by phase. The catalogue spans **two skill roots**: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (see `docs/UPSTREAM-SKILLS.md`). When the same name exists in both, **the native `skills/` copy wins** and the vendored one is never offered as a separate row; names that exist only in the vendor root are offered from there. Record the resolved source root per skill in the install record so `doctor` and `update` know which copy (and which upstream commit) a workspace got:
+1. **Skills** *(sub-category = lifecycle phase)* — one group for all skills, chunked by phase in the drill-in. The catalogue spans **two skill roots**: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (see `docs/UPSTREAM-SKILLS.md`). When the same name exists in both, **the native `skills/` copy wins** and the vendored one is never offered as a separate row; names that exist only in the vendor root are offered from there. Record the resolved source root per skill in the install record so `doctor` and `update` know which copy (and which upstream commit) a workspace got:
    - *Define / Plan* — `spec-driven-development` ★, `planning-and-task-breakdown` ★, `idea-refine`
    - *Build* — `incremental-implementation` ★, `test-driven-development` ★, `context-engineering`, `source-driven-development`, `frontend-ui-engineering`, `api-and-interface-design`
    - *Verify* — `browser-testing-with-devtools`, `debugging-and-error-recovery` ★
@@ -220,29 +223,29 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
 
    **Internal skill companions.** `skills/_internal/grilling.md` is not a menu row and has no `SKILL.md`; it is a shared helper for `idea-refine`, `spec-driven-development`, and `planning-and-task-breakdown`. Whenever any of those three skills is installed, kept, refreshed, or removed, apply the helper as a sibling at `<skills-target>/_internal/grilling.md` using the same copy/symlink method, record it as a companion rather than a selected skill, and keep it while any installed parent skill still references it.
 
-2. **Agent personas** *(`Group` column = `rw` / `ro` / `pi-only`)* — one screen listing the **full availability matrix** for the chosen agent (never a hardcoded subset; `transform-persona --list --agent <agent>` is the authoritative roster). Read-only personas carry a read-only toolset and an explicit "Do NOT modify files." rule:
+2. **Agent personas** *(sub-category = `rw` / `ro` / `pi-only`)* — one group covering the **full availability matrix** for the chosen agent (never a hardcoded subset; `transform-persona --list --agent <agent>` is the authoritative roster). Read-only personas carry a read-only toolset and an explicit "Do NOT modify files." rule:
    - *rw* — `builder` ★, `test-engineer` ★, `documenter`, `planner` *(scoped: writes only the plan document in the plan directory; bash limited to read-only git inspection)*, `architect`, `releaser`
    - *ro* — `code-reviewer` ★, `security-auditor`, `plan-reviewer`, `researcher`, `deep-researcher`
    - *pi-only* *(shown only when the agent is `pi`)* — `bowser`, `web-debugger`, `orchestrator`
 
    For `claude-code`/`opencode`, installed rows are **generated artifacts** (see Step 3): record them with `transformed: true` in `## install-status`, and compute their status by comparing the installed file against `transform(current source)` — and for upgrades against `transform(.versions/<recorded>/agents/<name>.md)` — never against the raw canonical source, whose bytes legitimately differ from the generated output.
-3. **Commands / prompts** *(single-type — no `Group` column)* — mapped to the chosen agent; items without a per-agent source are filtered out, no cross-tool substitution. Full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `orchestrate` ★, `compound`, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`; and `orchestrate` has a source for `claude-code` (`.claude/commands/orchestrate.md`) and `opencode` (`.opencode/commands/af-orchestrate.md`) but **not** `pi` (no `.pi/prompts/orchestrate.md`), so the existing source-availability filter surfaces it for claude-code + opencode and hides it for pi automatically. `compound` follows the same pattern (`.claude/commands/compound.md` / `.opencode/commands/af-compound.md`, no pi prompt — the agent-hub harness ships its own `/compound` command); when `compound` is selected, recommend the `compound-learning` skill alongside it. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-fleet repo and act on target workspaces from there.)*
+3. **Commands / prompts** *(single-type — no sub-category)* — mapped to the chosen agent; items without a per-agent source are filtered out, no cross-tool substitution. Full candidate list: `spec` ★, `plan` ★, `build` ★, `test` ★, `review` ★, `orchestrate` ★, `compound`, `code-simplify`, `ship`, `design-agent`, `prime`. The actual menu shows only items whose per-agent source file exists — for example, `.pi/prompts/design-agent.md` and `.pi/prompts/prime.md` are absent, so neither is offered when the agent is `pi`; and `orchestrate` has a source for `claude-code` (`.claude/commands/orchestrate.md`) and `opencode` (`.opencode/commands/af-orchestrate.md`) but **not** `pi` (no `.pi/prompts/orchestrate.md`), so the existing source-availability filter surfaces it for claude-code + opencode and hides it for pi automatically. `compound` follows the same pattern (`.claude/commands/compound.md` / `.opencode/commands/af-compound.md`, no pi prompt — the agent-hub harness ships its own `/compound` command); when `compound` is selected, recommend the `compound-learning` skill alongside it. *(`setup` and `doctor` are installer-only — never offered, since they live in the source agent-fleet repo and act on target workspaces from there.)*
 
    **`orchestrate` carries a team-config companion.** `orchestrate-teams.yaml` (the named-team roster the `/orchestrate` command reads) is not its own menu row — it is a companion of the `orchestrate` command (same idea as the pi harness `justfile` companion). Whenever `orchestrate` is installed/kept/removed, install/remove the agent's team config from source in the same pass — `.claude/orchestrate-teams.yaml` for claude-code, `.opencode/orchestrate-teams.yaml` for opencode. Treat it as a normal versioned artifact for the Step 6 status tokens: a user-edited copy is `mod`/`cflt` and gets the three-way-diff treatment, never a silent clobber of their team definitions. **Removal safety:** when `orchestrate` is removed, the team config is removed **only** if it still matches the shipped source (unedited); a user-edited `orchestrate-teams.yaml` is preserved and listed under "Skipped — user-modified" rather than deleted, so custom team definitions survive an uninstall.
-4. **References & Hooks** *(`Group` column = `reference` / `hook`)* — one screen for the shared non-agent-specific artifacts:
+4. **References & Hooks** *(sub-category = `reference` / `hook`)* — one group for the shared non-agent-specific artifacts:
    - *reference* — testing, performance, security, accessibility checklists *(offered for every agent)*
    - *hook* — `session-start.sh`, `simplify-ignore.sh` (+ `simplify-ignore-test.sh`) *(**claude-code only** — hooks register into `.claude/settings.json`, and neither `docs/opencode-setup.md` nor `docs/pi-setup.md` defines a hook install path)*
 
    The **hook** sub-category is shown only when the agent is `claude-code`. For `opencode`/`pi` this group degrades to **References only** — no hook rows.
-5. **pi extensions & runtime skills** *(pi only; `Group` column = `extension` / `runtime-skill`)* — always-on once installed:
+5. **pi extensions & runtime skills** *(pi only; sub-category = `extension` / `runtime-skill`)* — always-on once installed:
    - *extension* — `mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `agent-fleet-update-check` ★, `btw`, `pi-voice-stt`
    - *runtime-skill* — `bowser`
 
    **Two complementary browser stacks.** `bowser` (runtime-skill, here) and `chrome-devtools-mcp` (extension, here) cover different browser needs and pair well — `bowser`/`playwright-cli` for headless, parallel, delegatable automation; `chrome-devtools-mcp` (driven by the `web-debugger` persona in group 2) for interactive headful debugging with live DOM/console/network. When the user wants full browser coverage, recommend both; when they only want one, fit it to the use case (automation vs interactive debug). See `docs/pi-extensions.md` ("Two browser stacks — when to use which").
 
-   **`bowser` external CLI dependency.** The `bowser` runtime-skill drives the external **Playwright Agent CLI** (`playwright-cli`), which is **not** an agent-fleet artifact and is not copied from this repo (same idea as the `pi-ask-user` external package). Whenever `bowser` is ticked (installed or kept), check whether `playwright-cli` is on `PATH` (`playwright-cli --help`, or `npx playwright-cli --help`). If it is missing, tell the user and offer the install — `npm install -g @playwright/cli@latest` (global) or note the `npx playwright-cli` ad-hoc fallback — then surface it in the Step 9 plan as an external dependency, not a file write. Record it under the same `external-pi-packages` / `project-packages` convention in `.ai/agent-fleet-setup.md` so re-runs re-verify it. Do not silently install a global package without the user's confirmation, and never block the `bowser` install on it — a missing CLI is a warning, not a hard stop. Install reference: <https://playwright.dev/agent-cli/installation>.
+   **`bowser` external CLI dependency.** The `bowser` runtime-skill drives the external **Playwright Agent CLI** (`playwright-cli`), which is **not** an agent-fleet artifact and is not copied from this repo (same idea as the `pi-ask-user` external package). Whenever `bowser` is selected (installed or kept), check whether `playwright-cli` is on `PATH` (`playwright-cli --help`, or `npx playwright-cli --help`). If it is missing, tell the user and offer the install — `npm install -g @playwright/cli@latest` (global) or note the `npx playwright-cli` ad-hoc fallback — then surface it in the Step 9 plan as an external dependency, not a file write. Record it under the same `external-pi-packages` / `project-packages` convention in `.ai/agent-fleet-setup.md` so re-runs re-verify it. Do not silently install a global package without the user's confirmation, and never block the `bowser` install on it — a missing CLI is a warning, not a hard stop. Install reference: <https://playwright.dev/agent-cli/installation>.
 
-   **`pi-voice-stt` provider configuration.** The `pi-voice-stt` extension (Alt+S voice dictation) is a **gated no-op until a provider is configured** — installing the files alone binds no hotkey. Whenever it is ticked (installed or kept) **and** the workspace has no `.ai/stt.json` yet, offer (don't force) to configure it now; the user may skip and run `/stt doctor` later. The config write is a **companion** of the extension (same idea as the `orchestrate-teams.yaml` companion), applied in Step 10, not a separate menu row. When the user opts in, ask the provider:
+   **`pi-voice-stt` provider configuration.** The `pi-voice-stt` extension (Alt+S voice dictation) is a **gated no-op until a provider is configured** — installing the files alone binds no hotkey. Whenever it is selected (installed or kept) **and** the workspace has no `.ai/stt.json` yet, offer (don't force) to configure it now; the user may skip and run `/stt doctor` later. The config write is a **companion** of the extension (same idea as the `orchestrate-teams.yaml` companion), applied in Step 10, not a separate menu row. When the user opts in, ask the provider:
    - **Azure Speech** (`type: azure`) — collect the resource endpoint and (optionally) candidate `locales` for per-phrase language identification, e.g. `["bg-BG","en-US"]`. Default env var names: `AZURE_SPEECH_KEY`, `AZURE_SPEECH_ENDPOINT`.
    - **Azure OpenAI Whisper** (`type: azure-openai`) — Whisper on Azure OpenAI / Azure AI Foundry; best for mixed-language speech. Collect the resource `endpoint` and the Whisper `deployment` name, plus `apiVersion` (default `2024-10-21`). **Use the legacy data-plane host `https://<resource>.openai.azure.com` (or `…cognitiveservices.azure.com`), not the Foundry `…services.ai.azure.com` host** — audio transcription 404s on the Foundry `/openai/v1` endpoint. Default env vars: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT` — but a multi-service Azure AI Services resource can reuse the Speech key, so offer `apiKeyEnv: AZURE_SPEECH_KEY` when the user says the key is shared.
    - **OpenAI-compatible** (`type: openai`) — collect `baseUrl` (default `https://api.openai.com/v1`; a `http://127.0.0.1:*/v1` loopback is allowed for local whisper) and `model` (default `whisper-1`). Default env var: `OPENAI_API_KEY`.
@@ -252,21 +255,21 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
    2. `<workspace>/.env` (repo root, auto-loaded by the `justfile`'s `dotenv-load`) — append the referenced secret variables as **empty placeholders** only if absent (`AZURE_SPEECH_KEY=`, `AZURE_SPEECH_ENDPOINT=`, or `OPENAI_API_KEY=`); never overwrite an existing value, and tell the user to fill them in. Ensure `.env` is gitignored — add a `.env` line to the workspace `.gitignore` if no `.env`/`.env*` rule already covers it.
 
    Record `.ai/stt.json` (and the `.env` keys touched) in `## install-status`. On a later removal of `pi-voice-stt`, delete `.ai/stt.json` **only** if it still matches what setup wrote (unedited; a user-edited config is preserved and listed under "Skipped — user-modified"), and **never** delete `.env`, its values, or the `.gitignore` line. Secrets in `.env` outlive the extension.
-6. **pi harnesses** *(pi only; `Group` column = harness category — install many, load through the explicit recipes; `just hub` stacks `damage-control-continue` + `ask-user-remote` before `agent-hub`)* — one screen for all harnesses:
+6. **pi harnesses** *(pi only; sub-category = harness category — install many, load through the explicit recipes; `just hub` stacks `damage-control-continue` + `ask-user-remote` before `agent-hub`)* — one group for all harnesses:
    - *orchestration* — `agent-hub`, `ask-user-remote`
    - *safety* — `damage-control`, `damage-control-continue`
    - *messaging* — `coms`
 
-   **Mandatory pairing: `agent-hub` ⇒ `damage-control` + `damage-control-continue` + `ask-user-remote`.** When `agent-hub` is ticked (installed or kept), auto-tick **both** damage-control variants and `ask-user-remote` in the same pass and refuse to untick any of them while `agent-hub` stays selected — explain that the hub's `just hub` main session loads `damage-control-continue` and `ask-user-remote` before `agent-hub` (so recipes pointing at missing harnesses would fail to launch or lose the `ask_user` handoff path), and the hub re-loads a guardrail into every spawned subagent as their only protection: `damage-control` (hard-stop) into specialists, `damage-control-continue` into research helpers. Removing either guardrail leaves part of the session unguarded; removing `ask-user-remote` makes agent-hub's `askUserAvailable` probe omit `ask_user` from the dispatcher tools. These harnesses without `agent-hub` remain freely selectable.
+   **Mandatory pairing: `agent-hub` ⇒ `damage-control` + `damage-control-continue` + `ask-user-remote`.** When `agent-hub` is selected (installed or kept), auto-include **both** damage-control variants and `ask-user-remote` in the same pass, state the auto-inclusion in the restate line, and keep all three off the remove screen while `agent-hub` stays selected — explain that the hub's `just hub` main session loads `damage-control-continue` and `ask-user-remote` before `agent-hub` (so recipes pointing at missing harnesses would fail to launch or lose the `ask_user` handoff path), and the hub re-loads a guardrail into every spawned subagent as their only protection: `damage-control` (hard-stop) into specialists, `damage-control-continue` into research helpers. Removing either guardrail leaves part of the session unguarded; removing `ask-user-remote` makes agent-hub's `askUserAvailable` probe omit `ask_user` from the dispatcher tools. These harnesses without `agent-hub` remain freely selectable.
 
-   **Harness companions (refreshed with the group, not separate rows).** A harness directory does not run on its own — the launch recipes live in the `justfile`, and several harnesses shell out to support files. So whenever **any** harness in this group is ticked (installed/kept) or unticked (removed), refresh its companions from source in the same pass — they are not shown as their own menu rows:
+   **Harness companions (refreshed with the group, not separate rows).** A harness directory does not run on its own — the launch recipes live in the `justfile`, and several harnesses shell out to support files. So whenever **any** harness in this group is installed, kept, or removed, refresh its companions from source in the same pass — they are not shown as their own menu rows:
    - `justfile` — the `just hub` / `just team-up` / `just conductor` / `just safe-coms` launch recipes plus private helpers.
    - `scripts/team-up.ts` — used by the `team-up` recipe.
    - `.pi/agents/peers.yaml`, `.pi/agents/teams.yaml`, and the peer personas they name (e.g. `architect`, `releaser`) — read by `team-up`.
    - `.pi/damage-control-rules.yaml` — the rule set the damage-control harness loads.
    - `.pi/harnesses/package.json` (+ `npm install --prefix .pi/harnesses`) — the harness runtime deps (`yaml`, `@sinclair/typebox`).
 
-   **The `justfile` is the one that goes stale on upgrade.** Refresh it from the **current** source, never leave the installed copy as-is: the source `justfile` is canonical, so refreshing it prunes recipes for harnesses retired since the recorded version and adds recipes for new ones. A workspace whose harness set changed between versions but whose `justfile` was left untouched is the exact failure this rule prevents — `just --list` keeps recipes pointing at deleted `.pi/harnesses/<name>/` dirs and lacks recipes for the new harnesses. Treat the `justfile` as a normal versioned artifact subject to the Step 6 status rules: it carries its own `St` token in the menu's after-table restate line (`ok`/`upd`/`mod`/`cflt`), and a user-edited `justfile` gets the same three-way diff and pre-unchecked `cflt` treatment as any other modified file — never a silent clobber. The `.versions/<recorded>/justfile` snapshot is the recorded-side of that diff.
+   **The `justfile` is the one that goes stale on upgrade.** Refresh it from the **current** source, never leave the installed copy as-is: the source `justfile` is canonical, so refreshing it prunes recipes for harnesses retired since the recorded version and adds recipes for new ones. A workspace whose harness set changed between versions but whose `justfile` was left untouched is the exact failure this rule prevents — `just --list` keeps recipes pointing at deleted `.pi/harnesses/<name>/` dirs and lacks recipes for the new harnesses. Treat the `justfile` as a normal versioned artifact subject to the Step 6 status rules: it carries its own state (`ok`/`upd`/`mod`/`cflt`) in the group's restate line, and a user-edited `justfile` gets the same `cflt` diff-then-ask treatment as any other modified file — never a silent clobber. The `.versions/<recorded>/justfile` snapshot is the recorded-side of that diff.
 
    **The `justfile` managed region.** The source `justfile` wraps its recipes between `# >>> agent-fleet:harnesses … >>>` and `# <<< agent-fleet:harnesses <<<` sentinels. Only that region is agent-fleet'. When refreshing into a target that has its own recipes outside the sentinels, replace **only** the managed region (preserving the user's recipes); if the target has no sentinels but every recipe matches the recorded-version `justfile` snapshot (i.e. the user never edited it), it is wholly ours — refresh the whole file, re-introducing the sentinels. If the target has no sentinels **and** has diverged from the snapshot, treat it as `mod`/`cflt` and show the diff before touching it. When merging into a `justfile` that already declares its own `set dotenv-load`, drop that line from the region rather than duplicating the setting (just errors on a repeated setting).
 
@@ -274,26 +277,34 @@ Groups, in order. Groups 1–4 apply to every agent; groups 5–7 are shown **on
 
 Defaults differ by workspace state:
 
-- **Fresh workspace (no install record).** Pre-selection is empty; replying `recommended` ticks the `★` items across groups 1–4. pi groups (5–7) stay empty unless the agent is `pi`.
-- **Existing workspace.** Pre-selection mirrors the install record — every `installed · *` row starts `[x]`. Replying `keep` accepts that pre-selection unchanged; replying `recommended` adds the `★` items on top of what is already installed (it never silently unticks installed items).
+- **Fresh workspace (no install record).** Nothing is installed, so quick screens open on their fresh variant; `Recommended ★` — on Express or on a group quick screen — selects the `★` items across groups 1–4, plus 5–7 when the agent is `pi`.
+- **Existing workspace.** The install record feeds the state table: every `installed · *` item counts toward `Keep as-is` and appears with its state in the drill-ins. `keep` (or the `Keep as-is` option) leaves everything untouched; `recommended` adds the `★` items on top of what is already installed — it never implies removing anything.
 
-Because groups now span sub-categories, the shortcuts (`all`, `recommended`, `none`, `keep`) and any comma-separated picks apply to the **whole group screen**, across every sub-category in it. After every group, restate the picks in one line so the user can correct them before moving on. The restate line uses the same status vocabulary — for example: *"Skills: keep `code-review-and-quality` (up to date), install `security-and-hardening` (recommended), remove `performance-optimization`."*
+Because groups span sub-categories, the freeform shortcuts (`all`, `recommended`, `none`, `keep`) and any comma-separated picks apply to the **whole group**, across every chunk in it.
 
-**External pi package status.** For Group 7, treat each row as an external pi package rather than an agent-fleet artifact. In the rendered table the `St` cell is `pkg` for any installed scope (state the scope in the after-table restate line) and `—` when not installed. Apply the same decision logic to every external package row, with package-specific install commands:
+**External pi package status.** For Group 7, treat each item as an external pi package rather than an agent-fleet artifact. Its title token is `pkg` for any installed scope (state the scope in the restate line) and `—` when not installed. Apply the same decision logic to every external package item, with package-specific install commands:
 
-- `installed · bundled by @chankov/agent-fleet` — only for packages actually exposed by this repo's pi manifest (currently `pi-ask-user`). Leave the row unchecked/no-op and do not add a duplicate package entry. Do **not** show `pi-codex-image-gen` as bundled by this repo.
-- `installed · project package` — `.pi/settings.json`/`pi list` already records the package spec (for example `npm:pi-ask-user` or `npm:pi-codex-image-gen`); pre-check it to keep.
-- `installed · global package` — user settings already provide the package; leave project install unchecked unless the user wants a project-scoped pin.
+- `installed · bundled by @chankov/agent-fleet` — only for packages actually exposed by this repo's pi manifest (currently `pi-ask-user`). Treat the item as a no-op keep and do not add a duplicate package entry. Do **not** show `pi-codex-image-gen` as bundled by this repo.
+- `installed · project package` — `.pi/settings.json`/`pi list` already records the package spec (for example `npm:pi-ask-user` or `npm:pi-codex-image-gen`); count it toward `Keep as-is`.
+- `installed · global package` — user settings already provide the package; do not add a project install unless the user wants a project-scoped pin.
 - `not installed` — show the project-scoped command for the row. Use `pi install -l npm:pi-ask-user` for `pi-ask-user` and `pi install -l npm:pi-codex-image-gen` for `pi-codex-image-gen`. Mention the global form (`pi install npm:<package>`) only when the user chose a global pi setup.
 
 When an external pi package is selected during clone/symlink or manual pi setup — or when `pi-ask-user` is installed by the Step 5b bootstrap — record that package's npm spec under an `external-pi-packages` / `project-packages` line in `.ai/agent-fleet-setup.md`; do not copy files from `node_modules` or this repo. When deselected later, remove only the package entry this setup owns (for example the project-scoped `.pi/settings.json` entry it recorded). A setup-recorded external package spec such as `npm:pi-codex-image-gen` is governed by this Group 7 ownership rule. Never remove a user-owned global package, an unrecorded project package, or a package entry that predates the install record; surface those as skipped/not owned instead.
 
-**Removal scope — what "unchecked = remove" actually touches.** A target item is eligible for removal only when **both** are true:
+**Removal scope — what the remove screen (and `gone`/`brk` cleanup) may touch.** A target item is eligible for removal only when **both** are true:
 
 1. **It is part of the agent-fleet inventory.** Its name matches an artifact shipped in the source repo's canonical trees (`skills/`, `vendor/agent-skills-upstream/skills/`, `agents/`, `.claude/commands/`, `.pi/prompts/`, `.pi/extensions/`, `.pi/harnesses/`, `.pi/skills/`, `references/`, `hooks/`). External pi packages are governed by the Group 7 ownership rule above. Other out-of-inventory items — user-authored skills, project-specific commands, custom personas, third-party plugins, external pi packages not managed by Group 7 (not setup-owned entries), unrelated dotfiles — are never proposed for removal even if they sit in the same directory.
 2. **It is recorded in this workspace's install record.** The `## install-status` section of `.ai/agent-fleet-setup.md` lists it as previously installed by this skill, *or* it is a symlink whose target resolves into the agent-fleet source root (which is unambiguously ours).
 
 If a candidate fails either test, list it once under a "Skipped — not owned by agent-fleet" line in the Step 9 plan and leave it alone. Settings files (`.claude/settings.json`, `.opencode/config*`, env vars, MCP config) are touched **only** to remove agent-fleet' own hook registrations — never other keys, never user env vars, never third-party MCP entries.
+
+**Tabular fallback rendering (no-widget runtimes only).** When Step 1 resolved to the tabular fallback, render each group as one compact markdown table and take the picks as a text reply — this legacy format keeps the old pre-checked semantics, since a printed table *can* show them:
+
+| Pick | Item | Group | St | Purpose |
+|---|---|---|---|---|
+| `[x]` / `[ ]` | `<name>` (append ` ★` when recommended) | sub-category — omit for single-type groups | short status token | one-line purpose, ≤ ~6 words |
+
+Print the token legend once, on a single line above the first table: `St: ok=up to date · upd=update available · mod=modified locally · cflt=conflicting upgrade · gone=removed upstream · new=new this version · pkg=project package · — =not installed · brk=broken`. Pre-check `[x]` every installed row (except `cflt` and `brk`, which start `[ ]`); in a reply, an unchecked installed item means *remove it* (still bound by the removal-scope rule) and a checked one means *keep or update it*. Keep cells narrow — wide cells overflow the terminal. This format and its uncheck-to-remove gesture exist **only** here; never use them on widget screens.
 
 ### 7. Offer project overrides
 
@@ -313,11 +324,11 @@ In the same `## agent-hub` draft, offer the project-knowledge keys when the Step
 
 Both keys accept comma-separated repo-relative paths; semantics and persona behavior are documented in `docs/agent-fleet-setup.md`. Skip a key when nothing matching exists — an empty guess sends every specialist hunting for files that aren't there.
 
-Write each section as terse `key: value` lines, never prose: the lifecycle skills and `agent-hub` load this file on every run/session start and parse it by key, so it stays minimal. Show the draft and let the user edit, accept, or skip each section. Reference env-var names for any credentials; keep secrets out of the file. When any drafted section references env-var names (browser-testing roles, STT keys), also offer an `## env` section with `required: <NAME>[, <NAME>]` listing those names — only `agent-fleet doctor` reads it, to warn on unset vars.
+Write each section as terse `key: value` lines, never prose: the lifecycle skills and `agent-hub` load this file on every run/session start and parse it by key, so it stays minimal. Collect the decisions per the Step 1 contract: print each drafted section as agent text, then — with ≤ 2 drafted sections — ask one single-select per section, `Accept` / `Edit (reply with the replacement)` / `Skip`, with `displayMode: "inline"` so the draft stays visible; with more sections, ask one multi-select *"Which override sections should the file include?"* (titles = section names, descriptions = one-line gist) and run the `Accept`/`Edit`/`Skip` pass only for sections the user flags for changes. Cancel on a section = skip it. Reference env-var names for any credentials; keep secrets out of the file. When any drafted section references env-var names (browser-testing roles, STT keys), also offer an `## env` section with `required: <NAME>[, <NAME>]` listing those names — only `agent-fleet doctor` reads it, to warn on unset vars.
 
 ### 8. Choose the install method
 
-If the install record's `## workspace-summary` already carries a `method:` line, **reuse it without asking** — the choice is per-workspace, not per-run. State the reused method in the Step 9 summary (`Method: symlink (from install record)`); the user can override by saying so there. Ask `copy` or `symlink` only on a first install (no record, or a record without a `method:` line).
+If the install record's `## workspace-summary` already carries a `method:` line, **reuse it without asking** — the choice is per-workspace, not per-run. State the reused method in the Step 9 summary (`Method: symlink (from install record)`); the user can override by saying so there. Ask `copy` or `symlink` only on a first install (no record, or a record without a `method:` line) — one single-select whose option descriptions name the trade-off (copy = self-contained, survives moving the source; symlink = tracks the source repo live).
 
 - `copy` — copy each artifact into its target path.
 - `symlink` — link each target path to the source artifact in the agent-fleet repo.
@@ -326,24 +337,31 @@ If the install record's `## workspace-summary` already carries a `method:` line,
 
 ### 9. Confirm the plan
 
-Present the plan compactly — the **"Keep it narrow"** rule from Step 6 applies here too, since this confirmation renders in the same `pi-ask-user` widget. Do **not** render a wide multi-column table: a `Target paths` column plus a `Notes` column plus an `Artifacts` cell that lists every skill name is exactly what overflows the terminal and forces the user to zoom out. Instead, group the plan by action — one short line per action, each artifact list wrapping naturally:
+Present the plan as compact agent text — printed **before** the confirm question, never packed into its `context` (Step 1 budget). Do **not** render a wide multi-column table: a `Target paths` column plus a `Notes` column plus an `Artifacts` cell that lists every skill name is exactly what overflows the terminal and forces the user to zoom out. Group the plan by action — one short line per action, each artifact list wrapping naturally:
 
-- `Add (N): a, b, c` — newly ticked items
-- `Refresh (N): a, b` — re-installed from source; append `— overwrites local edits` when any row was `mod`
-- `Remove (N): a` — unticked installed items (removal-scope rule already applied)
+- `Add (N): a, b, c` — newly selected items
+- `Refresh (N): a, b` — re-installed from source; append `— overwrites local edits` when any item was `mod`
+- `Remove (N): a` — remove-screen picks plus accepted `gone`/`brk` cleanups, each named (removal-scope rule already applied)
 - `Keep (N)` — render as a count, not a full name list (expand only if the user asks)
 - `Records: stamp v<current>, update install-status + overrides`
 - `Method: copy` (or `symlink`)
 
-Target paths are deterministic from the per-agent source map, so omit them from the confirmation — show a path only when the user asks. When the version delta from Step 4 is non-empty, lead with a short **"Changes since `v<recorded>` → `v<current>`"** heading followed by one short bullet per change (sourced from `CHANGELOG.md`, only the entries between the two versions) — bullets on their own lines, never crammed into one long line that overflows. Ask the user to confirm, and write nothing until they do.
+Target paths are deterministic from the per-agent source map, so omit them from the confirmation — show a path only when the user asks. When the version delta from Step 4 is non-empty, lead with a short **"Changes since `v<recorded>` → `v<current>`"** heading followed by one short bullet per change (sourced from `CHANGELOG.md`, only the entries between the two versions) — bullets on their own lines, never crammed into one long line that overflows.
 
-**Installer cleanup line.** When the install record already carries `keep-installer: true`, the summary instead ends with one line confirming the installer commands stay in place (`Installer: kept (from install record)`) — do not re-offer the removal. Otherwise the summary always ends with one line stating that the installer slash commands (`/setup-agent-fleet`, `/doctor-agent-fleet` — or `/af-*-agent-fleet` for OpenCode — plus the `guided-workspace-setup` skill body) will be removed after apply, so they do not pollute the user's slash-command list. Add the verbatim suffix: *"Reply `keep` to leave them in place; re-run `npx @chankov/agent-fleet init` later if removed."* If the user replies `keep`, record `keep-installer: true` in `## workspace-summary` and skip Step 10b. Otherwise the default is to remove them.
+**The confirm question.** Then confirm with **one single-select**, asked with `displayMode: "inline"` so the printed plan stays visible:
+
+- `Apply — and remove the installer commands` *(the default; the installer files are `/setup-agent-fleet` and `/doctor-agent-fleet` — the `/af-*` variants for OpenCode — plus the `guided-workspace-setup` skill body; they can be restored later with `npx @chankov/agent-fleet init`)*
+- `Apply — keep the installer commands` *(records `keep-installer: true` in `## workspace-summary` and skips Step 10b)*
+- `Adjust picks` *(the freeform reply names the group(s) to revisit; reopen only those quick screens, then re-print the plan and re-confirm)*
+- `Cancel — write nothing`
+
+Cancel (`esc`) = write nothing. When the install record already carries `keep-installer: true`, collapse the two Apply options into a single `Apply` and add `Installer: kept (from install record)` to the plan print — do not re-offer the removal.
 
 ### 10. Apply the setup
 
 Apply the changes: create directories, add or update selected artifacts, and remove deselected ones — **bound by the removal-scope rule from Step 6**. Selected personas for `claude-code`/`opencode` are applied with `node <source-root>/bin/cli.js transform-persona --agent <agent> --workspace <workspace> <name…>` and recorded with `transformed: true`; pi personas follow the normal copy/symlink path. Before deleting any target, verify both conditions: (a) the name is in the agent-fleet inventory and (b) the item is either listed in `## install-status` or is a symlink resolving into the source repo. If either check fails, skip the deletion silently and log the path under a "Skipped — not owned by agent-fleet" line in the final report.
 
-**Apply without mid-flight questions.** Refresh every ticked item from its per-agent source unconditionally. Do not pause to ask whether to overwrite a modified file — `installed · modified` already appeared in Step 6 with the explicit warning that refreshing overwrites local edits, and the user's tick is the consent. The Step 9 confirmation is the single gate; nothing further is asked during apply. (If the apply hits a genuine error — permission denied, source missing, broken target type — stop, report it, and ask how to proceed; that is not the same as soliciting consent.)
+**Apply without mid-flight questions.** Refresh every selected item from its per-agent source unconditionally. Do not pause to ask whether to overwrite a modified file — the `mod` item's description already warned in Step 6 that refreshing overwrites local edits, and the user's selection is the consent. The Step 9 confirmation is the single gate; nothing further is asked during apply. (If the apply hits a genuine error — permission denied, source missing, broken target type — stop, report it, and ask how to proceed; that is not the same as soliciting consent.)
 
 For settings files (`.claude/settings.json` and equivalents), edit only the agent-fleet hook entries; leave every other key — user permissions, env vars, third-party MCP servers, custom hooks — untouched.
 
@@ -357,7 +375,7 @@ For settings files (`.claude/settings.json` and equivalents), edit only the agen
 
 Then write both `.ai/` files: the agreed override sections from Step 7 into `.ai/agent-fleet-overrides.md`, and the install record — artifacts, target paths, method, **package version**, date — into `.ai/agent-fleet-setup.md`. The `version:` line in `## workspace-summary` is set to the package version from Step 2; this is what the next re-run will compare against to compute the version delta.
 
-### 10b. Remove the installer artifacts (unless the user said `keep`)
+### 10b. Remove the installer artifacts (unless the user chose to keep them)
 
 After Step 10 has written the catalogue + the `.ai/` files, the installer files dropped by `npx @chankov/agent-fleet init` — the `setup-agent-fleet` / `doctor-agent-fleet` slash commands and the `guided-workspace-setup` skill body itself — are no longer needed in the workspace. They were bootstrap plumbing, not part of the user's permanent install. Leaving them in place pollutes the agent's slash-command list and confuses re-runs (which should always go through `init`, not a stale local copy).
 
@@ -393,14 +411,19 @@ Close the report with one line explaining the installer-cleanup outcome:
 |---|---|
 | "The user wants everything — I'll install all skills without asking." | Loading every skill wastes context and dilutes discovery. The per-group menu and the `★` recommendations exist so a workspace gets only what it needs. |
 | "I'll skip the doctor preflight — the menu will surface broken items anyway." | Broken symlinks distort the install menu's `installed` / `not installed` state. Repair first so the menu reflects reality. |
-| "I'll collapse the 7 groups into one big checklist — it's faster." | The 7 groups are how the user reasons about scope (skills vs personas vs commands vs pi-only). A single flat list of ~50 items makes recommendations and sub-category labels meaningless. Keep the 7 screens; within a multi-type group, the `Group` column preserves the sub-sections. |
-| "I'll re-split the Skills group back into one screen per phase — six small screens are clearer." | The whole point of the restructure is 7 screens, not 19. The `Group` column already labels the phase within the single Skills screen; splitting it back re-introduces the screen sprawl we removed. |
+| "I'll collapse the 7 groups into one big checklist — it's faster." | The Express question is the sanctioned shortcut — one single-select that resolves all groups. A flat ~50-item multi-select is not: it blows the screen budget and makes recommendations and sub-category labels meaningless. Keep the groups; chunk drill-ins by sub-category. |
+| "I'll show every group's drill-in chunks unconditionally — the user should see all items." | The quick screen exists to spare the user ~20-item lists they didn't ask for. Chunks appear only behind `Customise` / `Remove some…`; the quick screen's counts already say what's installed and what's recommended. |
+| "`ask_user` can't pre-check installed items, so I'll print the old markdown table and parse a text reply instead." | The quick path exists precisely for this: counts in option titles, state words in descriptions, removal via the explicit remove screen. The table format belongs only to the no-widget tabular fallback. |
+| "I'll paste the group table into the `ask_user` context so the user sees everything at once." | The widget wraps and scrolls *options*, not tables. A table in `context` overflows, flickers, and defeats the redesign. Budget: ≤ 8 context lines, ≤ 9 options; long material prints as agent text before an `inline` call. |
+| "The user didn't select an installed item in the Customise chunk — they must want it removed." | Not selecting means keep-as-is. Removal happens only through the explicit remove screen (or an accepted `gone`/`brk` cleanup); an accidental non-pick must never delete an artifact. |
+| "The user pressed `esc` — I'll treat the defaults as accepted and continue." | Cancel is a no-op/skip on every screen except the Step 9 confirm, where it means *do not apply*. Treating cancel as consent is how workspaces get written to without agreement. |
+| "Express said `Apply updates`, so the `cflt` row gets refreshed too." | Express never resolves conflicts. Every `cflt` row gets its printed three-way diff and its own inline question, whatever Express answered. |
 | "The agent is `pi` and `pi-ask-user` is missing — I'll just run the menu in the tabular fallback and skip the bootstrap." | Step 5b exists precisely to avoid forcing a ~50-row menu through plain text. Offer the install-then-reload bootstrap first; only fall back to tabular if the user *declines*. |
 | "I installed `pi-ask-user` in Step 5b, so I'll keep going straight into the install menu in the same pass." | The tool only becomes callable after pi reloads. Stop the pass after install, ask the user to reload and re-run; the native widget is unavailable until then. |
 | "I'll copy the files now and confirm afterwards." | Writing before the Step 9 confirmation can clobber config the user wanted to keep. Confirmation is the only gate that protects the target workspace. |
 | "There is no `*-setup.md` for this agent, so I'll guess the install paths." | Guessed paths put artifacts where the agent never loads them. Read the agent's setup doc, or use the built-in map — a location is never invented. |
 | "The workspace already has a `.claude/` directory, so setup is done." | A directory existing is not install state. The `## install-status` section is the only record of what this skill installed; read it before deciding. |
-| "An existing file differs from the source — I'll pause and ask the user mid-apply whether to overwrite." | Step 6 already surfaced `installed · modified` with the warning that refreshing overwrites local edits. The user's tick is the consent. Mid-apply questions break the apply pass; they were replaced by the upfront status. |
+| "An existing file differs from the source — I'll pause and ask the user mid-apply whether to overwrite." | Step 6 already surfaced `mod` with the warning that refreshing overwrites local edits. The user's selection is the consent. Mid-apply questions break the apply pass; they were replaced by the upfront status. |
 | "`.pi/prompts/design-agent.md` doesn't exist, but `.claude/commands/design-agent.md` does — I'll symlink to the Claude file so the user gets the prompt." | That mixes runtimes silently and lets the source repo's claude-code tree drive a pi target. The source availability filter forbids it: items without a per-agent source are not offered at all. |
 | "The harness directories installed fine — the `justfile` is just launch shortcuts, I'll leave the existing one." | The `justfile` is how harnesses are launched; if it is not refreshed from the current source, retired-harness recipes linger (pointing at deleted `.pi/harnesses/<name>/` dirs) and newly added harnesses (for example `ask-user-remote` or the Hermes `conductor` recipe) have no recipe at all. It is a companion of the harness group and must be refreshed whenever any harness changes. |
 | "I'll just copy the source `justfile` over the target's to refresh it." | A wholesale copy clobbers any recipes the user authored. Refresh only the managed region between the `agent-fleet:harnesses` sentinels; a user-edited `justfile` outside that region is `mod`/`cflt` and gets the three-way diff first — never a silent overwrite. |
@@ -412,25 +435,28 @@ Close the report with one line explaining the installer-cleanup outcome:
 | "`/setup-agent-fleet` and `/doctor-agent-fleet` are useful — I'll re-install them at the end of apply so the user can re-run them locally." | They are installer commands that the CLI bootstraps and the skill itself cleans up in Step 10b by default. Keeping them is opt-in via `keep` in Step 9. Re-installing them silently undoes the cleanup the user implicitly chose. |
 | "The bootstrap marker is missing — I'll search the user's `~/repos/`, `~/projects/`, and `/media/` for any clone of `agent-fleet` to use as the source root." | Scanning the user's filesystem picks up dev clones, forks, half-edited working trees, and stale checkouts that are NOT the package the user installed from. The npm-installed copy is the only authoritative source after `init`. Without the marker, ask the user explicitly — never guess. |
 | "This `SKILL.md` is two levels below the workspace's `.pi/skills/`, so the workspace root must be the source root." | Bootstrap copies `SKILL.md` into the workspace precisely so the slash command can load it. The workspace is the *target* of the install, not the source. Use the marker file to find the real source; resolving from `SKILL.md`'s workspace location always lies. |
-| "The recorded version differs from the current — I'll just refresh everything to the new source without showing the diff." | Conflicting upgrades (user-modified copy + source changed upstream) require the three-way diff to be shown in Step 6, with the row pre-unchecked. Refreshing silently overwrites work the user did between versions. |
+| "The recorded version differs from the current — I'll just refresh everything to the new source without showing the diff." | Conflicting upgrades (user-modified copy + source changed upstream) require the three-way diff printed and the per-row inline question answered. Refreshing silently overwrites work the user did between versions. |
 | "The `.versions/<recorded>/` snapshot is missing — I'll pretend the installed copy matches the recorded source and refresh anyway." | A missing snapshot means we cannot compute the three-way diff. The skill must fall back to "treat installed copy as canonical" and surface the missing snapshot in the row's status so the user can decide — never pretend a diff exists. |
 | "The workspace has no `version:` line — I'll silently stamp the current version and move on." | A pre-versioning workspace must be flagged in Step 4 and the user prompted: stamp the current version (assume copies match) or wipe and reinstall. Silent stamping hides a real decision. |
-| "The user didn't say anything about the installer cleanup line — I'll leave the installer files in place to be safe." | The default is to remove. Step 9's confirmation line explicitly states the cleanup will happen unless the user replies `keep`. Silence is consent for the default, not opt-out from it. |
-| "I'll add `setup-agent-fleet` and `doctor-agent-fleet` to the install menu so the user can pick whether to keep them." | They are still installer-only and excluded from the menu. The keep-vs-remove choice is the single Step 9 line, not a menu group — adding them to the menu re-opens the pollution we just fixed. |
+| "The user picked plain `Apply` — I'll leave the installer files in place to be safe." | The default Apply option removes them; keeping is the explicit `Apply — keep the installer commands` option (or a recorded `keep-installer: true`). Choosing the default is consent for the cleanup, not opt-out from it. |
+| "I'll add `setup-agent-fleet` and `doctor-agent-fleet` to the install menu so the user can pick whether to keep them." | They are still installer-only and excluded from the menu. The keep-vs-remove choice is the pair of Apply options on the Step 9 confirm, not a menu group — adding them to the menu re-opens the pollution we just fixed. |
 | "The skill is currently executing; deleting its own file in Step 10b will crash mid-run." | The agent loads the skill into memory at the start of execution. Removing the file on disk does not unload the in-memory copy — Steps 10b and 11 complete normally before control returns. |
 
 ## Red Flags
 
 - Files written to the target workspace before the Step 9 confirmation.
 - The doctor preflight skipped on a workspace that already has prior install state.
-- An install menu rendered as one undifferentiated list instead of the 7 grouped tables (≤ 8), or the Skills group re-split into one screen per phase.
-- A multi-type group (Skills, Agent personas, References & Hooks, pi extensions & runtime skills, pi harnesses) rendered without the `Group` sub-category column.
+- The install menu rendered as one undifferentiated list instead of the Express question plus per-group quick screens, or drill-in chunks shown unconditionally instead of behind `Customise` / `Remove some…`.
+- A markdown table or status legend rendered inside a widget call's question or `context`, or a widget screen exceeding the Step 1 budget (> 9 options, > 8 context lines, > 4 options on `AskUserQuestion`).
+- The widget flow replaced by free-text table replies while `ask_user` / `AskUserQuestion` is available.
 - The agent is `pi`, `pi-ask-user` is missing, and the install menu was rendered in tabular fallback without first offering the Step 5b bootstrap.
 - Step 5b installed `pi-ask-user` but the pass continued into the install menu instead of stopping for the user to reload and re-run.
-- A menu group rendered without a per-row `St` token (or without the legend that defines them), or with installed items not pre-checked.
-- A menu table rendered with the long `installed · …` state names, a separate `Rec` column, or wide cells/preamble that overflow the terminal — render the compact form so the `pi-ask-user` widget fits without zooming.
+- A drill-in chunk not split by sub-category, or a widget option whose title/description omits the item's state — the user must never infer state from nothing.
+- An artifact removed without an explicit remove-screen pick (or accepted `gone`/`brk` cleanup) — including an unselected Customise item treated as a removal.
+- `esc`/cancel treated as consent on any screen, or Express / `Apply updates` refreshing a `cflt` row.
+- A three-way diff, override draft, or the Step 9 plan asked about with the default overlay covering it instead of `displayMode: "inline"`.
 - The Step 9 confirmation rendered as a wide multi-column table (a `Target paths` or `Notes` column, or an `Artifacts` cell listing every skill name) instead of compact action-grouped lines, or the "Changes since" delta crammed into one long line instead of short per-change bullets.
-- A `recommended` reply that silently unticks already-installed items instead of adding `★` items on top.
+- A `recommended` reply that silently drops already-installed items instead of adding `★` items on top.
 - `setup`, `doctor`, or `guided-workspace-setup` shown in the install menu — they are installer-only.
 - An item offered for one agent whose per-agent source file does not exist (cross-tool substitution).
 - Hook rows offered to a non-`claude-code` agent (group 4 should degrade to References-only for `opencode`/`pi`).
@@ -449,14 +475,14 @@ Close the report with one line explaining the installer-cleanup outcome:
 - An existing, differing target file overwritten without asking the user.
 - A re-run that ignores the existing `## install-status` and reinstalls everything.
 - A `pi` workspace using `agent-hub` reached Step 7 without being offered the `## agent-hub` / `language: <value>` override, or an existing language value was overwritten instead of preserved.
-- `agent-hub` installed or kept without `damage-control` **and** `damage-control-continue` — the mandatory pairing was skipped, or an untick of either damage-control variant was accepted while `agent-hub` stayed selected.
+- `agent-hub` installed or kept without `damage-control` **and** `damage-control-continue` — the mandatory pairing was skipped, or a removal of either damage-control variant was accepted while `agent-hub` stayed selected.
 - The `bowser` runtime-skill installed without checking for the external `playwright-cli` CLI — or a global `@playwright/cli` install run without the user's confirmation.
 - The overrides file padded with install status, summaries, or prose instead of terse `key: value` sections.
 - A re-run that detects a non-empty version delta but skips the "Changes since v<recorded> → v<current>" block in Step 9.
-- A `conflicting upgrade` row pre-checked, or the three-way diff omitted for it.
+- A `cflt` row refreshed without its printed diff and inline question, or the diff omitted entirely.
 - A pre-versioning workspace stamped with the current version without prompting the user first.
 - The post-apply `version:` line not matching the package version from Step 2.
-- Step 9 summary missing the installer-cleanup line, or the line stated `keep` as the default.
+- The Step 9 confirm question missing the installer-cleanup choice (the two Apply variants), or keep presented as the default.
 - Source root resolved by scanning the filesystem for `agent-fleet` repos (`find`, `fd`, `grep -r`, …) instead of using `.ai/.agent-fleet-bootstrap.json` or asking the user.
 - Source root resolved by treating `SKILL.md`'s workspace location (`.pi/skills/...` or `.claude/skills/...`) as the package root.
 - The bootstrap marker file (`.ai/.agent-fleet-bootstrap.json`) ignored when present, or trusted blindly when the path it names no longer exists.
@@ -472,15 +498,16 @@ After completing the workflow, confirm:
 - [ ] The coding agent was confirmed, and `docs/<agent>-setup.md` was read for `opencode`/`pi` (or the built-in map used for `claude-code`).
 - [ ] The doctor preflight ran on any workspace with prior install state, and its findings were resolved or explicitly skipped.
 - [ ] On `pi`, Step 5b ran before the menu: `pi-ask-user` was either already present (no-op) or its install-then-reload bootstrap was offered; the pass stopped after install when it was bootstrapped, and was not forced when the user declined.
-- [ ] The install menu was presented as the 7 grouped tables (groups 5–7 shown only for `pi`), not 19 screens and not one flat list; each was its own multi-select with `★` recommendations marked.
-- [ ] Each multi-type group (Skills, Agent personas, References & Hooks, and the pi extension/harness groups) carried a `Group` sub-category column ordering its rows.
-- [ ] Every row carried an explicit `St` token (`ok`, `upd`, `mod`, `cflt`, `gone`, `new`, `pkg`, `—`, or `brk`) with the legend shown once above the table — never blank and never the long `installed · …` state names that overflow the widget.
-- [ ] Installed items were pre-checked `[x]`; not-installed items were pre-checked `[ ]`; `recommended` added `★` items on top of the pre-selection without unticking installed ones.
+- [ ] The menu opened with the Express question; per-group quick screens ran only on `Custom` (groups 5–7 shown only for `pi`); drill-in chunks appeared only behind `Customise` / `Remove some…` — never one flat list, never unconditional chunks.
+- [ ] A fresh-workspace Express path reached the Step 9 confirm in ≤ 4 widget prompts (Express → overrides → method → confirm); a no-change re-run in ≤ 2 (`Keep as-is` → confirm).
+- [ ] Every widget screen stayed within the Step 1 budget (≤ 9 options, ≤ 8 context lines; ≤ 4 options on `AskUserQuestion`); no markdown table or token legend appeared inside a widget call; drill-in chunks were split by sub-category.
+- [ ] Every drill-in option carried its state — `[st]` token in the title, plain words in the description; `recommended` added `★` items on top of what is installed without dropping anything.
+- [ ] No artifact was removed without an explicit remove-screen pick or an accepted `gone`/`brk` cleanup; unselected Customise items were kept as-is; cancel was treated as skip/no-op everywhere except the Step 9 confirm, where it meant do-not-apply.
 - [ ] Items lacking a per-agent source were filtered out of the menu — no cross-tool substitution offered.
 - [ ] Hooks were offered only for `claude-code`; References were still offered for all agents.
 - [ ] On `claude-code`, groups were driven via `AskUserQuestion` (quick-path + ≤ 4-option chunks), not free-text table replies.
 - [ ] The personas group listed the full `transform-persona --list` roster for the chosen agent; pi-only personas appeared only for `pi`; selected personas for `claude-code`/`opencode` were written by the `transform-persona` CLI and recorded with `transformed: true`.
-- [ ] Apply ran without any overwrite-this-file prompt; ticked items refreshed unconditionally and unticked modified items were preserved.
+- [ ] Apply ran without any overwrite-this-file prompt; selected items refreshed unconditionally and unselected modified items were preserved.
 - [ ] `setup`, `doctor`, and `guided-workspace-setup` were excluded from the install menu.
 - [ ] Every selected artifact exists at its resolved target path; every deselected one was removed **only if** the removal-scope rule allowed it (in inventory + in install record / symlink-into-source).
 - [ ] When pi harnesses were installed/refreshed/removed, the `justfile` and harness support files were refreshed from the current source: the `justfile` lists a recipe for every installed harness, none for a removed one, and points at no missing `.pi/harnesses/<name>/`; user recipes outside the managed-region sentinels were preserved.
@@ -491,13 +518,13 @@ After completing the workflow, confirm:
 - [ ] If `agent-hub` was installed or kept, `damage-control` was installed/kept alongside it (mandatory pairing) and could not be deselected while `agent-hub` remained.
 - [ ] If the `bowser` runtime-skill was installed or kept, the external `playwright-cli` dependency was checked, and a missing CLI was surfaced with the install offer (`npm install -g @playwright/cli@latest`) rather than silently installed or treated as a hard failure.
 - [ ] `.ai/agent-fleet-setup.md` holds an up-to-date install record, including at least one `## doctor-runs` entry for this session, and a `version:` line in `## workspace-summary` that matches the package version from Step 2.
-- [ ] Step 9 was rendered as compact action-grouped lines (Add / Refresh / Remove / Keep-count / Records / Method), not a wide `Target paths` + `Notes` table that overflows the widget.
+- [ ] Step 9 was rendered as compact action-grouped lines (Add / Refresh / Remove / Keep-count / Records / Method) printed as agent text, followed by the single `inline` confirm question — not a wide `Target paths` + `Notes` table, and not a plan packed into the question's `context`.
 - [ ] When the version delta was non-empty, Step 9's summary led with the "Changes since v<recorded> → v<current>" heading followed by short per-change bullets sourced from `CHANGELOG.md` — never one long overflowing line.
-- [ ] Every `conflicting upgrade` row was rendered with its three-way diff in Step 6 and was not pre-checked.
+- [ ] Every `cflt` row got its three-way diff printed as text plus its own inline question, and was never resolved by Express or `Apply updates`.
 - [ ] A pre-versioning workspace was flagged in Step 4 and the user was prompted to stamp or wipe — not silently stamped.
 - [ ] Source root was resolved from `.ai/.agent-fleet-bootstrap.json` if present, or from `SKILL.md`'s realpath (symlink mode), or by asking the user — **never** by scanning the filesystem.
 - [ ] If the bootstrap marker named a path that no longer exists, the user was warned and asked for a new path — not silently ignored.
-- [ ] Step 9 summary ended with the installer-cleanup line: states remove-by-default and offers `keep` as the opt-out.
+- [ ] The Step 9 confirm carried the installer-cleanup choice as its two Apply options (remove-by-default, keep as the explicit alternative), collapsed to one `Apply` only when `keep-installer: true` was already recorded.
 - [ ] Step 10b ran (or was explicitly skipped because `keep-installer: true`); the installer files are absent from the workspace unless the user opted to keep them.
 - [ ] Step 11 report includes the one-line installer-cleanup outcome.
 - [ ] No broken symlinks remain in any of the scanned install-target directories.

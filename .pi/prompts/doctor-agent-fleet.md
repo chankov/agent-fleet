@@ -10,6 +10,6 @@ Also flag and offer to rewrite any remaining YAML configs (`teams.yaml`, `peers.
 
 Also validate `.ai/agent-fleet-overrides.md` when it exists, against the schema in `docs/agent-fleet-setup.md`: unknown sections, unknown keys in known sections, invalid values for the mechanically parsed `agent-hub` keys, missing `rules:` folders, and `## env` `required:` names that are neither set nor declared in the root `.env`. These findings are advisory only — report them with fix "edit by hand", never edit the overrides file.
 
-Present findings as a `# | Path | Issue | Suggested fix` table and ask the user to pick which fixes to apply.
+Present the findings per the skill's Step 1 interaction contract: print a short text summary (counts per kind, advisory findings as report-only text), then ask one `ask_user` multi-select — *"Which fixes should I apply now?"* — each option titled `<path> — <issue>` with the proposed fix as its description, chunked at ≤ 9 options; empty selection or cancel applies nothing. Without the widget, print a `# | Path | Issue | Suggested fix` table instead and take the picks as text.
 
 Never overwrite a regular file — only act on symlinks whose target is missing. Report `repaired`, `deleted`, and `skipped` counts, and append a `## doctor-runs` line to `.ai/agent-fleet-setup.md` with the date, agent, phase (`standalone`), and counts.
