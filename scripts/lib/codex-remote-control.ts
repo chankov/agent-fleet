@@ -12,6 +12,7 @@ export const CONFIG_MARKER = "agent-fleet-codex-remote-control-v1";
 export const UNIT_MARKER = "# Managed by agent-fleet codex remote-control";
 export const EMERGENCY_STOP_CONFIRMATION = "emergency-stop-confirmed";
 export const CODEX_CONTRACT_IDENTITY = "agent-fleet-codex-conductor-pilot-v1";
+const WORKSPACE_CONTRACT_MARKER = "<!-- Managed by agent-fleet Codex conductor -->";
 const RECOVERY_CONFIRMATION = "operator-confirmed";
 const MAX_TIMEOUT_MS = 0x7fffffff;
 // Observed remote-control teardown needs a bounded settle period before a
@@ -37,6 +38,7 @@ export interface LifecycleConfig {
 	marker: typeof CONFIG_MARKER;
 	codexBin: string;
 	repoRoot: string;
+	runtimeDir?: string;
 	comsDir: string;
 	project: string;
 	team: string;
@@ -47,6 +49,7 @@ export interface LifecycleConfig {
 export interface LifecyclePaths {
 	configPath: string;
 	unitPath: string;
+	runtimeDir: string;
 }
 
 export interface RenderOptions {
@@ -88,8 +91,24 @@ function absoluteFile(value: string, label: string): string {
 	}
 }
 
-function safeValue(value: string, label: string, safe: RegExp): string {
-	if (!safe.test(value) || value.includes("..")) fail(`Invalid ${label}: ${JSON.stringify(value)}`);
+function absoluteLocation(value: unknown, label: string): string {
+	if (typeof value !== "string" || !path.isAbsolute(value) || value.includes("\0")) {
+		fail(`${label} must be an absolute path`);
+	}
+	const normalized = path.resolve(value);
+	if (normalized !== value) fail(`${label} must be normalized`);
+	try { return fs.realpathSync(value); } catch { return normalized; }
+}
+
+function pathContains(parent: string, child: string): boolean {
+	const relative = path.relative(parent, child);
+	return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function safeValue(value: unknown, label: string, safe: RegExp): string {
+	if (typeof value !== "string" || !safe.test(value) || value.includes("..")) {
+		fail(`Invalid ${label}: ${JSON.stringify(value)}`);
+	}
 	return value;
 }
 
@@ -98,6 +117,8 @@ export function validateConfig(input: LifecycleConfig): LifecycleConfig {
 	const codexBin = absoluteFile(input.codexBin, "codexBin");
 	const repoRoot = absoluteFile(input.repoRoot, "repoRoot");
 	if (!fs.statSync(repoRoot).isDirectory()) fail("repoRoot must be a directory");
+	const runtimeDir = absoluteLocation(input.runtimeDir ?? lifecyclePaths().runtimeDir, "runtimeDir");
+	if (pathContains(repoRoot, runtimeDir)) fail("runtimeDir must be outside repoRoot");
 	// `comsDir` was added after the first pilot config was installed. Loading an
 	// owned v1 config may derive the same user-scoped default once, while every
 	// newly written config persists the validated absolute path explicitly.
@@ -109,7 +130,7 @@ export function validateConfig(input: LifecycleConfig): LifecycleConfig {
 	if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0 || input.timeoutMs > MAX_TIMEOUT_MS) {
 		fail(`Invalid timeoutMs: ${JSON.stringify(input.timeoutMs)}`);
 	}
-	return { marker: CONFIG_MARKER, codexBin, repoRoot, comsDir, project, team, name, timeoutMs: input.timeoutMs };
+	return { marker: CONFIG_MARKER, codexBin, repoRoot, runtimeDir, comsDir, project, team, name, timeoutMs: input.timeoutMs };
 }
 
 function capability(run: CommandRunner, bin: string, command: "start" | "stop" | "pair"): void {
@@ -169,9 +190,9 @@ export function emergencyStop(input: LifecycleConfig, run: CommandRunner = syste
 
 export function remoteThreadEnv(input: LifecycleConfig): Record<string, string> {
 	const config = validateConfig(input);
-	const contractPath = path.join(config.repoRoot, "codex", "conductor", "AGENTS.md");
+	const contractPath = path.join(conductorWorkspacePath(config.runtimeDir!), "AGENTS.md");
 	if (absoluteFile(contractPath, "contractPath") !== contractPath) {
-		fail("Dedicated Codex conductor contract path must be a real path under repoRoot");
+		fail("Managed Codex workspace contract path must be a real path under runtimeDir");
 	}
 	return {
 		AGENT_FLEET_REPO_ROOT: config.repoRoot,
@@ -221,9 +242,9 @@ export function assertConductorContext(
 	) {
 		fail("Configured Codex conductor context does not match the requested repository/project/conductor identity");
 	}
-	const expectedContract = path.join(config.repoRoot, "codex", "conductor", "AGENTS.md");
+	const expectedContract = path.join(conductorWorkspacePath(config.runtimeDir!), "AGENTS.md");
 	if (expected.contractPath !== expectedContract || absoluteFile(expected.contractPath, "contractPath") !== expectedContract) {
-		fail("Configured Codex contract path does not match the dedicated conductor contract");
+		fail("Configured Codex contract path does not match the managed workspace contract");
 	}
 	return config;
 }
@@ -232,11 +253,44 @@ export function lifecyclePaths(home = os.homedir()): LifecyclePaths {
 	return {
 		configPath: path.join(home, ".config", "agent-fleet", "codex-remote-control.json"),
 		unitPath: path.join(home, ".config", "systemd", "user", UNIT_NAME),
+		runtimeDir: path.join(home, ".local", "state", "agent-fleet", "codex-conductor"),
 	};
 }
 
+export function conductorWorkspacePath(runtimeDir: string): string {
+	return path.join(runtimeDir, "workspace");
+}
+
+function installWorkspaceContract(config: LifecycleConfig): void {
+	const workspacePath = conductorWorkspacePath(config.runtimeDir!);
+	fs.mkdirSync(workspacePath, { recursive: true, mode: 0o700 });
+	fs.chmodSync(workspacePath, 0o700);
+	const sourcePath = path.join(config.repoRoot, "codex", "CONDUCTOR.md");
+	const targetPath = path.join(workspacePath, "AGENTS.md");
+	if (fs.existsSync(targetPath) && !fs.readFileSync(targetPath, "utf8").startsWith(WORKSPACE_CONTRACT_MARKER)) {
+		fail(`Refusing to replace workspace contract not owned by agent-fleet: ${targetPath}`);
+	}
+	const source = fs.readFileSync(absoluteFile(sourcePath, "source contract"), "utf8");
+	if (!source.includes("{{CODEX_CONDUCTOR_SCRIPT}}")) fail("Canonical conductor contract is missing its managed script placeholder");
+	const scriptPath = absoluteFile(path.join(config.repoRoot, "scripts", "codex-conductor.ts"), "conductor script");
+	const rendered = source.replaceAll("{{CODEX_CONDUCTOR_SCRIPT}}", JSON.stringify(scriptPath));
+	writeAtomic(targetPath, `${WORKSPACE_CONTRACT_MARKER}\n${rendered}`, 0o600);
+}
+
+/** Escape one value embedded inside a double-quoted systemd unit token. */
 function unitEscape(value: string): string {
-	return value.replace(/\\/g, "\\\\").replace(/ /g, "\\x20").replace(/"/g, "\\\"");
+	return value
+		.replace(/\\/g, "\\\\")
+		.replace(/"/g, "\\\"")
+		.replace(/\n/g, "\\n")
+		.replace(/\r/g, "\\r")
+		.replace(/\t/g, "\\t")
+		.replace(/%/g, "%%");
+}
+
+/** WorkingDirectory uses path syntax rather than quoted Exec/Environment item syntax. */
+function unitPathEscape(value: string): string {
+	return unitEscape(value).replace(/ /g, "\\x20");
 }
 
 function sourceTemplatePath(): string {
@@ -251,7 +305,7 @@ export function renderUnit(input: LifecycleConfig, options: RenderOptions): stri
 	const template = fs.readFileSync(sourceTemplatePath(), "utf8");
 	const environment = remoteThreadEnv(config);
 	const values: Record<string, string> = {
-		"{{WORKING_DIRECTORY}}": unitEscape(config.repoRoot),
+		"{{WORKING_DIRECTORY}}": unitPathEscape(conductorWorkspacePath(config.runtimeDir!)),
 		"{{NODE_BIN}}": unitEscape(options.nodeBin),
 		"{{SCRIPT_PATH}}": unitEscape(options.scriptPath),
 		"{{CONFIG_PATH}}": unitEscape(options.configPath),
@@ -303,6 +357,7 @@ export function setup(input: LifecycleConfig, run: CommandRunner = systemRunner,
 	assertNoForeignFiles(paths, options.reconfigure === true);
 	const nodeBin = options.nodeBin ?? process.execPath;
 	const scriptPath = options.scriptPath ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "codex-remote-control.ts");
+	installWorkspaceContract(config);
 	writeAtomic(paths.configPath, `${JSON.stringify(config, null, "\t")}\n`, 0o600);
 	writeAtomic(paths.unitPath, renderUnit(config, { nodeBin, scriptPath, configPath: paths.configPath }), 0o644);
 	runOrFail(run, "systemctl", ["--user", "daemon-reload"]);
@@ -310,9 +365,9 @@ export function setup(input: LifecycleConfig, run: CommandRunner = systemRunner,
 	return paths;
 }
 
-interface RequestedState { active: string; sub: string; }
+export interface RequestedState { active: string; sub: string; }
 
-function requestedState(run: CommandRunner): RequestedState {
+export function requestedState(run: CommandRunner = systemRunner): RequestedState {
 	const output = runOrFail(run, "systemctl", ["--user", "show", UNIT_NAME, "--property=ActiveState", "--property=SubState"]).stdout;
 	const values = Object.fromEntries(output.split("\n").flatMap((line) => {
 		const index = line.indexOf("=");
@@ -326,10 +381,22 @@ export function status(run: CommandRunner = systemRunner): string {
 	return `requested systemd state: ${state.active} (${state.sub}); this is not daemon health`;
 }
 
+function resetFailed(run: CommandRunner): void {
+	runOrFail(run, "systemctl", ["--user", "reset-failed", UNIT_NAME]);
+}
+
+function stopFailedUnit(run: CommandRunner): void {
+	runOrFail(run, "systemctl", ["--user", "stop", UNIT_NAME]);
+	resetFailed(run);
+}
+
 export function start(input: LifecycleConfig, run: CommandRunner = systemRunner): "started" | "already-active" {
 	preflight(input, run);
 	const state = requestedState(run);
 	if (state.active === "active" && state.sub === "exited") return "already-active";
+	if (state.active === "failed") {
+		fail(`Refusing start from requested systemd state ${state.active} (${state.sub}); run recover or uninstall with operator confirmation`);
+	}
 	if (state.active !== "inactive" || state.sub !== "dead") fail(`Refusing start from requested systemd state ${state.active} (${state.sub})`);
 	runOrFail(run, "systemctl", ["--user", "start", UNIT_NAME]);
 	return "started";
@@ -339,6 +406,10 @@ export function stop(input: LifecycleConfig, run: CommandRunner = systemRunner):
 	preflight(input, run);
 	const state = requestedState(run);
 	if (state.active === "inactive" && state.sub === "dead") return "already-inactive";
+	if (state.active === "failed") {
+		stopFailedUnit(run);
+		return "stopped";
+	}
 	if (state.active !== "active" || state.sub !== "exited") fail(`Refusing stop from requested systemd state ${state.active} (${state.sub})`);
 	runOrFail(run, "systemctl", ["--user", "stop", UNIT_NAME]);
 	return "stopped";
@@ -349,6 +420,10 @@ export function emergencySystemdStop(input: LifecycleConfig, run: CommandRunner 
 	verifyEmergencyStopCapability(input, run, confirmation);
 	const state = requestedState(run);
 	if (state.active === "inactive" && state.sub === "dead") return "already-inactive";
+	if (state.active === "failed") {
+		stopFailedUnit(run);
+		return "stopped";
+	}
 	if (state.active !== "active" || state.sub !== "exited") fail(`Refusing emergency stop from requested systemd state ${state.active} (${state.sub})`);
 	runOrFail(run, "systemctl", ["--user", "stop", UNIT_NAME]);
 	return "stopped";
@@ -358,8 +433,13 @@ export function restart(input: LifecycleConfig, run: CommandRunner = systemRunne
 	if (confirmation !== RECOVERY_CONFIRMATION) fail("Recovery requires explicit operator confirmation");
 	const config = preflight(input, run);
 	const state = requestedState(run);
-	if (state.active !== "active" || state.sub !== "exited") fail(`Refusing recovery from requested systemd state ${state.active} (${state.sub})`);
-	runOrFail(run, "systemctl", ["--user", "stop", UNIT_NAME]);
+	if (state.active === "active" && state.sub === "exited") {
+		runOrFail(run, "systemctl", ["--user", "stop", UNIT_NAME]);
+	} else if (state.active === "failed") {
+		stopFailedUnit(run);
+	} else {
+		fail(`Refusing recovery from requested systemd state ${state.active} (${state.sub})`);
+	}
 	// Test runners are synchronous mocks; only the real lifecycle needs the
 	// bounded teardown interval observed on the authorized host.
 	if (run === systemRunner) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RESTART_SETTLE_MS);
@@ -381,10 +461,20 @@ export function uninstall(paths: LifecyclePaths, run: CommandRunner = systemRunn
 	}
 	const state = requestedState(run);
 	if (state.active === "active" && state.sub === "exited") runOrFail(run, "systemctl", ["--user", "stop", UNIT_NAME]);
+	else if (state.active === "failed") runOrFail(run, "systemctl", ["--user", "stop", UNIT_NAME]);
 	else if (state.active !== "inactive" || state.sub !== "dead") fail(`Refusing uninstall from requested systemd state ${state.active} (${state.sub})`);
+	// Clear the manager's loaded state while the owned unit still exists. After
+	// unlink + daemon-reload, reset-failed correctly returns "unit not loaded".
+	resetFailed(run);
 	runOrFail(run, "systemctl", ["--user", "disable", UNIT_NAME]);
 	fs.unlinkSync(paths.unitPath);
 	fs.unlinkSync(paths.configPath);
 	runOrFail(run, "systemctl", ["--user", "daemon-reload"]);
-	runOrFail(run, "systemctl", ["--user", "reset-failed", UNIT_NAME]);
+	const workspacePath = conductorWorkspacePath(config.runtimeDir!);
+	const workspaceContract = path.join(workspacePath, "AGENTS.md");
+	try {
+		if (fs.readFileSync(workspaceContract, "utf8").startsWith(WORKSPACE_CONTRACT_MARKER)) fs.unlinkSync(workspaceContract);
+	} catch { /* absent or operator-owned: retain it */ }
+	try { fs.rmdirSync(workspacePath); } catch { /* retain non-empty scratch data */ }
+	try { fs.rmdirSync(config.runtimeDir!); } catch { /* retain non-empty runtime data */ }
 }

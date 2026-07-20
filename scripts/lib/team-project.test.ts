@@ -81,18 +81,18 @@ test("conductorSpec types backend identity and injects only validated Codex cont
 	assert.equal(hermes.cwd, "/repo");
 	assert.deepEqual(hermes.env, {});
 
-	const codex = conductorSpec("codex", { repoRoot: "/repo", team: "docs", project: "af" });
+	const codex = conductorSpec("codex", { repoRoot: "/repo", runtimeDir: "/state/codex-conductor", team: "docs", project: "af", nodeBin: "/runtime/node" });
 	assert.equal(codex.workspaceMode, "conductor-codex");
 	assert.equal(codex.paneLabel, "conductor-codex-control");
 	assert.equal(codex.conductorName, "codex-docs-conductor");
-	assert.deepEqual(codex.command, ["node", "--experimental-strip-types", "/repo/scripts/codex-remote-control.ts", "control-pane"]);
-	assert.equal(codex.cwd, "/repo/codex/conductor");
+	assert.deepEqual(codex.command, ["/runtime/node", "--experimental-strip-types", "/repo/scripts/codex-remote-control.ts", "control-pane"]);
+	assert.equal(codex.cwd, "/state/codex-conductor/workspace");
 	assert.deepEqual(codex.env, {
 		AGENT_FLEET_REPO_ROOT: "/repo",
 		COMS_CLI_PROJECT: "af",
 		COMS_CLI_NAME: "codex-docs-conductor",
 		COMS_CLI_TIMEOUT_MS: "300000",
-		AGENT_FLEET_CODEX_CONTRACT_PATH: "/repo/codex/conductor/AGENTS.md",
+		AGENT_FLEET_CODEX_CONTRACT_PATH: "/state/codex-conductor/workspace/AGENTS.md",
 		AGENT_FLEET_CODEX_CONTRACT_IDENTITY: "agent-fleet-codex-conductor-pilot-v1",
 		AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
 	});
@@ -101,6 +101,8 @@ test("conductorSpec types backend identity and injects only validated Codex cont
 	}
 	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", team: "bad team", project: "af" }), /Invalid team name/);
 	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", team: "docs", project: "bad project" }), /Invalid project name/);
+	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", team: "docs", project: "af", nodeBin: "node" }), /absolute Node binary/);
+	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", runtimeDir: "/repo/runtime", team: "docs", project: "af" }), /runtime directory outside repoRoot/);
 });
 
 test("worktreeTag takes the last dot-segment of the checkout basename, sanitized", () => {
@@ -115,6 +117,12 @@ test("worktreeTag takes the last dot-segment of the checkout basename, sanitized
 	// Unsafe characters collapse to hyphens; empty result falls back to "repo".
 	assert.equal(worktreeTag("/x/my repo.a b"), "a-b");
 	assert.equal(worktreeTag("/x/."), "repo");
+});
+
+test("Codex launch gate consumes typed requested state rather than presentation text", () => {
+	const teamUp = readFileSync(join(REPO_ROOT, "scripts", "team-up.ts"), "utf-8");
+	assert.match(teamUp, /requestedState\(\)/);
+	assert.doesNotMatch(teamUp, /status\(\) !== "requested systemd state:/);
 });
 
 test("justfile public team recipes forward trailing args and hidden peer recipes pass --project", () => {

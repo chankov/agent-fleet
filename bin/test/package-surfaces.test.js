@@ -202,9 +202,10 @@ test("package, snapshot, and guided manifest surfaces stay aligned", () => {
   assert.match(pkg.scripts.test, /scripts\/coms-cli\.test\.ts/);
   assert.match(pkg.scripts.test, /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");
-  for (const required of ["codex", "hermes", "systemd", "docs", "scripts", "justfile"]) {
+  for (const required of ["codex", "hermes", "systemd", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md", "scripts", "justfile"]) {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);
   }
+  assert.doesNotMatch(snapshot, /^\s*"docs",$/m, "snapshot must not include docs omitted from the package root allowlist");
   const skill = readFileSync(join(root, "skills", "guided-workspace-setup", "SKILL.md"), "utf8");
   assert.match(skill, /companion-manifest\.json/);
   assert.match(skill, /last.*pi harness/i);

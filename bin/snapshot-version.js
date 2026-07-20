@@ -49,8 +49,19 @@ const ARTIFACT_PATHS = [
   // per-version copy for the upgrade three-way diff (retired-harness recipes
   // pruned, new-harness recipes added on refresh).
   "justfile",
-  // Codex pilot + Hermes operator/runbook links are versioned install inputs.
-  "docs",
+  // Snapshot only documentation shipped at the package root. Copying the
+  // whole directory would put non-installed docs into the three-way base.
+  "docs/agent-fleet-setup.md",
+  "docs/ARCHITECTURE.md",
+  "docs/codex-remote-conductor.md",
+  "docs/claude-code-coms-bridge.md",
+  "docs/coms-hermes-bridge.md",
+  "docs/pi-extensions.md",
+  "docs/npm-install.md",
+  "docs/skill-anatomy.md",
+  "docs/getting-started.md",
+  "docs/opencode-setup.md",
+  "docs/pi-setup.md",
   "references",
   "hooks",
 ];
@@ -76,7 +87,7 @@ for (const rel of ARTIFACT_PATHS) {
     filter: (srcPath) => {
       const base = srcPath.split("/").pop();
       if (SKIP_NAMES.has(base)) return false;
-      // Match what the npm `files` allowlist ships — dev-only tests stay out.
+      // Directory entries above match package surfaces; dev-only tests stay out.
       if (
         base.endsWith(".test.mjs") ||
         base.endsWith(".test.js") ||

@@ -56,6 +56,8 @@ The pi package manifest exposes this repo's skills, pi runtime skills, lifecycle
 
 It intentionally does not auto-expose this repo's own `.pi/extensions` or harness directories; install those through guided setup or the pi setup docs so their runtime dependencies are handled explicitly. `pi-codex-image-gen` is also not bundled or required; guided setup may offer it as an optional suggested external npm/pi package when package installation is available, and installs it only if selected (`pi install -l npm:pi-codex-image-gen`). Minimal setup works without it.
 
+The package also ships assets for the **experimental Linux Codex Remote-Control conductor** (`codex/`, `systemd/`, lifecycle/wrapper scripts, recipes, and runbook). Guided setup copies or links those assets with selected pi harnesses but never enables systemd, edits Codex config, starts a service, or pairs a phone. Those remain explicit operator actions and support only Codex CLI `0.144.x`; see [codex-remote-conductor.md](codex-remote-conductor.md). Its managed runtime contract is created later under `$HOME/.local/state/agent-fleet/codex-conductor/`, not inside the npm package or target checkout.
+
 ## Commands
 
 ### `npx @chankov/agent-fleet init`

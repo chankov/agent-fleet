@@ -111,6 +111,7 @@ test("rejects unsafe scope, ids, timeouts, duplicate flags, and unknown flags be
 	const cases: Array<{ args: string[]; expected: RegExp }> = [
 		{ args: ["list", "--project", "../escape", "--name", "caller"], expected: /Invalid project name/ },
 		{ args: ["list", "--project", "safe", "--name", "../caller"], expected: /Invalid coms name/ },
+		{ args: ["list", "--project", "safe", "--name", "projects"], expected: /reserved coms name/ },
 		{ args: ["send", "worker", "hello", "--project", "safe", "--name", "caller", "--await", "--timeout", "1", "--bogus"], expected: /unknown flag: --bogus/ },
 		{ args: ["await", ID, "--project", "safe", "--name", "caller", "--timeout", "1", "--timeout", "2"], expected: /--timeout may only be provided once/ },
 		{ args: ["await", "bad", "--project", "safe", "--name", "caller", "--timeout", "1"], expected: /Invalid msg_id/ },

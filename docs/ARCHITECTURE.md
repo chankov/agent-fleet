@@ -13,7 +13,7 @@ the runtime responsibilities and where each module lives in the repository.
 | **coms** | Peer communication protocol/data plane — envelope-based P2P messaging between agents | `.pi/harnesses/coms/`, `scripts/lib/coms-envelope.ts`, `scripts/coms-cli.ts` |
 | **Claude Code bridge** | Makes an interactive Claude Code pane a bidirectional coms peer | `scripts/coms-claude-bridge.ts`, `hooks/coms-stop-hook.mjs`, `skills/peer-coms/` — see [claude-code-coms-bridge.md](claude-code-coms-bridge.md) |
 | **Hermes bridge** | Remote human control — relays hub questions to Telegram, races phone vs. local answers, conductor/liaison skills | `scripts/coms-hermes-bridge.ts`, `.pi/harnesses/ask-user-remote/`, `hermes/skills/` — see [coms-hermes-bridge.md](coms-hermes-bridge.md) |
-| **Codex remote-control conductor** | Experimental outbound-only, user-systemd-managed conductor; verified on Codex CLI 0.144.x | `scripts/codex-remote-control.ts`, `codex/conductor/`, `systemd/user/` — see [codex-remote-conductor.md](codex-remote-conductor.md) |
+| **Codex remote-control conductor** | Experimental outbound-only, user-systemd-managed Android conductor; verified on Codex CLI 0.144.x | `scripts/codex-remote-control.ts`, `scripts/codex-conductor.ts`, `codex/CONDUCTOR.md`, `systemd/user/`; runtime under `~/.local/state/agent-fleet/codex-conductor/` — see [codex-remote-conductor.md](codex-remote-conductor.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, transformed per harness | `agents/`, `bin/lib/transform-persona.js` |
 
@@ -23,7 +23,7 @@ Agent Fleet is layered on purpose. Work flows **down** (delegate); evidence and 
 
 ```mermaid
 flowchart TD
-    You(["You  ·  + Hermes relay on your phone"])
+    You(["You · Hermes inbound relay · Codex outbound conductor on your phone"])
 
     subgraph HUBL["HUB — thin dispatcher  (just hub · just hub-team)"]
         Hub["agent-hub harness + orchestrator persona<br/>routes tasks · owns the Verification Contract on disk<br/>never swallows research dumps into its own context"]
@@ -70,7 +70,8 @@ hub (orchestrator)
 └── optional fleet peers (herdr + coms)
     ├── architect / releaser / web-debugger panes
     ├── Claude Code peer (coms bridge)
-    └── Hermes (phone human)
+    ├── Hermes (phone human · inbound ask_user)
+    └── Codex Remote Control (Android · outbound coms delegation)
 ```
 
 Composition rule: **the hub (or a slash command) orchestrates; personas do not invoke other personas as peers.** Specialists may only fan out to their configured **sub-agents**. Research helpers write findings to disk; the hub resumes specialists with paths, not raw dumps. Full pattern catalog: [references/orchestration-patterns.md](../references/orchestration-patterns.md).
@@ -85,6 +86,7 @@ flowchart TD
     AF -->|peer + install target| CC["<b>Claude Code</b><br/>bidirectional peer via<br/>the coms bridge"]
     AF -->|install target| OC["<b>OpenCode</b><br/>skill-driven execution<br/>(AGENTS.md + skill tool)"]
     AF -->|remote human| HERMES["<b>Hermes</b><br/>hub questions relayed<br/>to your phone (Telegram)"]
+    AF -->|outbound remote delegation| CODEX["<b>Codex Remote Control</b><br/>Android-approved calls to<br/>listed coms peers (experimental)"]
 ```
 
 ### External dependencies
@@ -98,7 +100,7 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | First-class peer via the [coms bridge](claude-code-coms-bridge.md); also a supported install target for skills/personas | Optional peer / alternate harness |
 | **[OpenCode](https://opencode.ai)** | Skill-driven execution target (`AGENTS.md` + `skill` tool); `af-*` slash commands | Optional alternate harness |
 | **Hermes** | Remote human-in-the-loop (Telegram relay for hub questions) — [coms-hermes-bridge](coms-hermes-bridge.md) | Optional |
-| **Codex CLI** | Experimental outbound remote-control conductor on supported `0.144.x`; user-systemd lifecycle — [runbook](codex-remote-conductor.md) | Optional / revalidate after minor-version changes |
+| **Codex CLI + ChatGPT Android** | Experimental outbound remote-control conductor on supported `0.144.x`; requires Node `22.6+`, user systemd, interactive pairing, and per-command mobile approvals — [runbook](codex-remote-conductor.md) | Optional / revalidate after minor-version or mobile-client changes |
 | **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** | Upstream skill library (manually vendored) | Bundled (vendored) |
 | **[disler/pi-vs-claude-code](https://github.com/disler/pi-vs-claude-code)** | Source inspiration / MIT port origin for pi harnesses | Design lineage (ported in-repo) |
 | **LLM providers** | Models per persona (`model:` / `models:` in agent frontmatter) — e.g. OpenAI Codex, GitHub Copilot, Ollama, … | Yes (at least one provider your agents can call) |
@@ -113,6 +115,8 @@ skills/                       # Agent Fleet-native skills (shadow vendored names
 agents/                       # Personas/subagents used by Agent Fleet
 scripts/                      # CLI helpers, bridges, team launchers (pure logic in scripts/lib/)
 hermes/                       # Hermes-facing skills/integration assets
+codex/                        # Canonical Codex conductor contract (runtime copy lives outside checkout)
+systemd/user/                 # Owned user-unit template for Codex remote control
 vendor/agent-skills-upstream/ # Manually imported upstream skills (pinned SHA)
 bin/                          # npm CLI: init/update/doctor/transform-persona
 hooks/                        # Session lifecycle + coms Stop hooks
@@ -140,8 +144,8 @@ packages/hermes-bridge/       # future Hermes integration package
 - **External agents are peers, not plugins.** Claude Code (and future CLI
   agents) join the fleet through bridge adaptors that speak coms envelopes —
   the fleet core stays agent-agnostic. Hermes remains the inbound `ask_user`/
-  Telegram route; the experimental Codex conductor is outbound-initiated only
-  as far as the pilot verifies.
+  Telegram route; the experimental Codex conductor is outbound-initiated only,
+  approval-gated, and restricted to listed peers through the validated wrapper.
 - **External conductor contracts are advisory.** Pi damage-control wraps Pi
   tool calls, not Hermes or Codex processes; human approvals and their
   contracts reduce risk but do not provide an OS command allowlist.

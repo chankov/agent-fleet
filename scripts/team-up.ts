@@ -148,7 +148,7 @@ function makeDelayLoader(peers: Peer[], mode: "peers" | "hub" | "conductor"): (p
 
 async function validateCodexLaunchOrDie(spec: ConductorSpec, project: string): Promise<void> {
 	try {
-		const { assertConductorContext, lifecyclePaths, loadOwnedConfig, preflight, status } = await import("./lib/codex-remote-control.ts");
+		const { assertConductorContext, lifecyclePaths, loadOwnedConfig, preflight, requestedState } = await import("./lib/codex-remote-control.ts");
 		const config = loadOwnedConfig(lifecyclePaths().configPath);
 		assertConductorContext(config, {
 			repoRoot: REPO_ROOT,
@@ -160,8 +160,9 @@ async function validateCodexLaunchOrDie(spec: ConductorSpec, project: string): P
 			contractIdentity: String(spec.env.AGENT_FLEET_CODEX_CONTRACT_IDENTITY),
 		});
 		preflight(config);
-		if (status() !== "requested systemd state: active (exited); this is not daemon health") {
-			throw new Error("Codex user service is not in requested active (exited) state");
+		const state = requestedState();
+		if (state.active !== "active" || state.sub !== "exited") {
+			throw new Error(`Codex user service is not in requested active (exited) state: ${state.active} (${state.sub})`);
 		}
 	} catch (err) {
 		die(`Codex launch refused before Herdr: ${err instanceof Error ? err.message : String(err)}`);
@@ -232,7 +233,13 @@ async function main(): Promise<void> {
 	let spec: ConductorSpec | undefined;
 	let label: string;
 	try {
-		spec = conductor ? conductorSpec(conductor, { repoRoot: REPO_ROOT, team, project }) : undefined;
+		spec = conductor ? conductorSpec(conductor, {
+			repoRoot: REPO_ROOT,
+			runtimeDir: path.join(os.homedir(), ".local", "state", "agent-fleet", "codex-conductor"),
+			team,
+			project,
+			nodeBin: process.execPath,
+		}) : undefined;
 		label = teamWorkspaceLabel(spec?.workspaceMode ?? (hub ? "hub" : "peers"), team, project, WORKTREE_TAG);
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));

@@ -17,26 +17,31 @@ import {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function fixture(t: { after(fn: () => void): void }): { root: string; configPath: string; conductorCwd: string; comsDir: string } {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fleet-conductor-test-"));
-	const bin = path.join(root, "fake-codex");
-	const conductorCwd = path.join(root, "codex", "conductor");
-	const comsDir = path.join(root, "coms");
-	const configPath = path.join(root, "config.json");
+	const base = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fleet-conductor-test-"));
+	const root = path.join(base, "repo");
+	const bin = path.join(base, "fake-codex");
+	const runtimeDir = path.join(base, "runtime", "codex-conductor");
+	const conductorCwd = path.join(runtimeDir, "workspace");
+	const comsDir = path.join(base, "coms");
+	const configPath = path.join(base, "config.json");
 	fs.mkdirSync(conductorCwd, { recursive: true });
+	fs.mkdirSync(path.join(root, "codex"), { recursive: true });
 	fs.mkdirSync(comsDir, { recursive: true });
-	fs.writeFileSync(path.join(conductorCwd, "AGENTS.md"), "# test\n");
+	fs.writeFileSync(path.join(root, "codex", "CONDUCTOR.md"), "# test\n");
+	fs.writeFileSync(path.join(conductorCwd, "AGENTS.md"), "<!-- Managed by agent-fleet Codex conductor -->\n# test\n");
 	fs.writeFileSync(bin, "#!/bin/sh\n", { mode: 0o755 });
 	fs.writeFileSync(configPath, JSON.stringify({
 		marker: "agent-fleet-codex-remote-control-v1",
 		codexBin: bin,
 		repoRoot: root,
+		runtimeDir,
 		comsDir,
 		project: "af",
 		team: "docs",
 		name: "codex-docs-conductor",
 		timeoutMs: 300_000,
 	}));
-	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+	t.after(() => fs.rmSync(base, { recursive: true, force: true }));
 	return { root, configPath, conductorCwd, comsDir };
 }
 
@@ -77,21 +82,25 @@ test("wrapper process uses the configured coms directory instead of ambient PI_C
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fleet-conductor-home-"));
 	const comsDir = path.join(home, "owned-coms");
 	const configDir = path.join(home, ".config", "agent-fleet");
+	const runtimeDir = path.join(home, ".local", "state", "agent-fleet", "codex-conductor");
 	const agentsDir = path.join(comsDir, "projects", "af", "agents");
 	const bin = path.join(home, "fake-codex");
 	fs.mkdirSync(configDir, { recursive: true });
+	fs.mkdirSync(path.join(runtimeDir, "workspace"), { recursive: true });
 	fs.mkdirSync(agentsDir, { recursive: true });
 	fs.writeFileSync(bin, "#!/bin/sh\n", { mode: 0o755 });
 	fs.writeFileSync(path.join(configDir, "codex-remote-control.json"), JSON.stringify({
 		marker: "agent-fleet-codex-remote-control-v1",
 		codexBin: bin,
 		repoRoot: REPO_ROOT,
+		runtimeDir,
 		comsDir,
 		project: "af",
 		team: "docs",
 		name: "codex-docs-conductor",
 		timeoutMs: 300_000,
 	}));
+	fs.writeFileSync(path.join(runtimeDir, "workspace", "AGENTS.md"), "<!-- Managed by agent-fleet Codex conductor -->\n# test\n");
 	fs.writeFileSync(path.join(agentsDir, "documenter.json"), JSON.stringify({
 		session_id: "fixture",
 		name: "documenter",
@@ -112,7 +121,7 @@ test("wrapper process uses the configured coms directory instead of ambient PI_C
 		path.join(REPO_ROOT, "scripts", "codex-conductor.ts"),
 		"list",
 	], {
-		cwd: path.join(REPO_ROOT, "codex", "conductor"),
+		cwd: path.join(runtimeDir, "workspace"),
 		encoding: "utf8",
 		env: { ...process.env, HOME: home, PI_COMS_DIR: path.join(home, "wrong-coms") },
 	});

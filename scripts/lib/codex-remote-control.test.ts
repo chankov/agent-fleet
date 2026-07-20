@@ -12,6 +12,7 @@ import {
 	loadOwnedConfig,
 	preflight,
 	renderUnit,
+	requestedState,
 	restart,
 	setup,
 	start,
@@ -19,6 +20,7 @@ import {
 	stop,
 	unitStart,
 	uninstall,
+	validateConfig,
 	type CommandRunner,
 	type LifecycleConfig,
 } from "./codex-remote-control.ts";
@@ -30,9 +32,14 @@ function fixture(t: { after(fn: () => void): void }): { root: string; config: Li
 	const repo = path.join(root, "repo");
 	const bin = path.join(root, "codex");
 	const comsDir = path.join(root, "coms");
-	fs.mkdirSync(path.join(repo, "codex", "conductor"), { recursive: true });
+	const runtimeDir = path.join(root, "runtime", "codex-conductor");
+	fs.mkdirSync(path.join(repo, "codex"), { recursive: true });
+	fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
+	fs.mkdirSync(path.join(runtimeDir, "workspace"), { recursive: true });
 	fs.mkdirSync(comsDir, { recursive: true });
-	fs.writeFileSync(path.join(repo, "codex", "conductor", "AGENTS.md"), "# test contract\n");
+	fs.writeFileSync(path.join(repo, "codex", "CONDUCTOR.md"), "# test contract\nUse {{CODEX_CONDUCTOR_SCRIPT}}.\n");
+	fs.writeFileSync(path.join(repo, "scripts", "codex-conductor.ts"), "// test wrapper\n");
+	fs.writeFileSync(path.join(runtimeDir, "workspace", "AGENTS.md"), "<!-- Managed by agent-fleet Codex conductor -->\n# test contract\n");
 	fs.writeFileSync(bin, "#!/bin/sh\n", { mode: 0o755 });
 	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 	return {
@@ -41,6 +48,7 @@ function fixture(t: { after(fn: () => void): void }): { root: string; config: Li
 			marker: "agent-fleet-codex-remote-control-v1",
 			codexBin: bin,
 			repoRoot: repo,
+			runtimeDir,
 			comsDir,
 			project: "af",
 			team: "docs",
@@ -117,7 +125,7 @@ test("unit start always preflights immediately before the daemonizing start comm
 		COMS_CLI_PROJECT: "af",
 		COMS_CLI_NAME: "codex-conductor",
 		COMS_CLI_TIMEOUT_MS: "30000",
-		AGENT_FLEET_CODEX_CONTRACT_PATH: path.join(config.repoRoot, "codex", "conductor", "AGENTS.md"),
+		AGENT_FLEET_CODEX_CONTRACT_PATH: path.join(config.runtimeDir!, "workspace", "AGENTS.md"),
 		AGENT_FLEET_CODEX_CONTRACT_IDENTITY: "agent-fleet-codex-conductor-pilot-v1",
 		AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
 	});
@@ -139,6 +147,20 @@ test("unit start rejects invalid context before spawning Codex", (t) => {
 	assert.equal(fake.calls.length, 0);
 });
 
+test("owned JSON configuration rejects non-string scope values and runtime paths inside the checkout", (t) => {
+	const { config } = fixture(t);
+	for (const value of [["af"], { project: "af" }, 7, true, null]) {
+		assert.throws(
+			() => validateConfig({ ...config, project: value } as unknown as LifecycleConfig),
+			/Invalid project/,
+		);
+	}
+	assert.throws(
+		() => validateConfig({ ...config, runtimeDir: path.join(config.repoRoot, "runtime") }),
+		/runtimeDir must be outside repoRoot/,
+	);
+});
+
 test("emergency stop after version drift requires only a currently proven exact stop capability", (t) => {
 	const { config } = fixture(t);
 	const supported = runner({ version: "codex-cli 0.145.0\n" });
@@ -152,12 +174,17 @@ test("emergency stop after version drift requires only a currently proven exact 
 	assert.equal(unsupported.calls.some(({ args }) => args.join(" ") === "remote-control stop"), false);
 });
 
-test("operator emergency stop keeps systemd as service owner after version drift", (t) => {
+test("operator emergency stop keeps systemd as owner and clears failed state after version drift", (t) => {
 	const { config } = fixture(t);
-	const drifted = runner({ version: "codex-cli 0.145.0\n", state: "ActiveState=active\nSubState=exited\n" });
-	assert.equal(emergencySystemdStop(config, drifted.runner, EMERGENCY_STOP_CONFIRMATION), "stopped");
-	assert.equal(drifted.calls.some(({ args }) => args.join(" ") === "remote-control stop"), false);
-	assert.equal(drifted.calls.at(-1)?.args.join(" "), `--user stop ${UNIT_NAME}`);
+	for (const state of ["ActiveState=active\nSubState=exited\n", "ActiveState=failed\nSubState=failed\n"]) {
+		const drifted = runner({ version: "codex-cli 0.145.0\n", state });
+		assert.equal(emergencySystemdStop(config, drifted.runner, EMERGENCY_STOP_CONFIRMATION), "stopped");
+		assert.equal(drifted.calls.some(({ args }) => args.join(" ") === "remote-control stop"), false);
+		assert.ok(drifted.calls.some(({ args }) => args.join(" ") === `--user stop ${UNIT_NAME}`));
+		if (state.includes("failed")) {
+			assert.equal(drifted.calls.at(-1)?.args.join(" "), `--user reset-failed ${UNIT_NAME}`);
+		}
+	}
 });
 
 test("normal start fails closed on version drift before systemd start", (t) => {
@@ -167,32 +194,56 @@ test("normal start fails closed on version drift before systemd start", (t) => {
 	assert.equal(drifted.calls.some(({ file, args }) => file === "systemctl" && args.includes("start")), false);
 });
 
-test("rendered user unit uses oneshot requested-state semantics and invokes helper entrypoints", (t) => {
+test("rendered user unit escapes paths/specifiers, quotes command arguments, narrows the workspace, and runs post-stop cleanup", (t) => {
 	const { root, config } = fixture(t);
 	const unit = renderUnit(config, {
-		nodeBin: "/usr/bin/node",
-		scriptPath: path.join(root, "scripts", "codex-remote-control.ts"),
-		configPath: path.join(root, "config.json"),
+		nodeBin: "/opt/Node 100%/bin/node",
+		scriptPath: path.join(root, "scripts 100%", "codex-remote-control.ts"),
+		configPath: path.join(root, "config 100%.json"),
 	});
 	assert.match(unit, /^Type=oneshot$/m);
 	assert.match(unit, /^RemainAfterExit=yes$/m);
-	assert.match(unit, /ExecStart=.* unit-start --config /);
-	assert.match(unit, /ExecStop=.* unit-stop --config /);
-	assert.match(unit, new RegExp(`Environment=AGENT_FLEET_REPO_ROOT=${config.repoRoot}`));
-	assert.match(unit, new RegExp(`Environment=PI_COMS_DIR=${config.comsDir}`));
-	assert.match(unit, /Environment=COMS_CLI_PROJECT=af/);
-	assert.match(unit, /Environment=COMS_CLI_NAME=codex-conductor/);
+	assert.match(unit, new RegExp(`^WorkingDirectory=${config.runtimeDir}/workspace$`, "m"));
+	assert.match(unit, /^ExecStart="\/opt\/Node 100%%\/bin\/node" .* unit-start --config ".*config 100%%\.json"$/m);
+	assert.match(unit, /^ExecStopPost="\/opt\/Node 100%%\/bin\/node" .* unit-stop --config ".*config 100%%\.json"$/m);
+	assert.match(unit, new RegExp(`Environment="AGENT_FLEET_REPO_ROOT=${config.repoRoot}"`));
+	assert.match(unit, new RegExp(`Environment="PI_COMS_DIR=${config.comsDir}"`));
+	assert.match(unit, new RegExp(`Environment="AGENT_FLEET_CODEX_CONTRACT_PATH=${config.runtimeDir}/workspace/AGENTS\\.md"`));
+	assert.match(unit, /Environment="COMS_CLI_PROJECT=af"/);
+	assert.match(unit, /Environment="COMS_CLI_NAME=codex-conductor"/);
+	assert.doesNotMatch(unit, /^ExecStop=/m);
 	assert.doesNotMatch(unit, /^Restart=/m);
 	assert.doesNotMatch(unit, /remote-control (?:start|stop|pair)/);
 	assert.doesNotMatch(unit, /(?:token|password|credential|pairing code|api[_-]?key)=/i);
+
+	const specialRepo = path.join(root, "repo 100%Q");
+	const specialRuntime = path.join(root, "runtime 100%Q");
+	fs.mkdirSync(path.join(specialRepo, "codex"), { recursive: true });
+	fs.mkdirSync(path.join(specialRuntime, "workspace"), { recursive: true });
+	fs.writeFileSync(path.join(specialRepo, "codex", "CONDUCTOR.md"), "# contract\n");
+	fs.writeFileSync(path.join(specialRuntime, "workspace", "AGENTS.md"), "<!-- Managed by agent-fleet Codex conductor -->\n# contract\n");
+	const specialUnit = renderUnit({ ...config, repoRoot: specialRepo, runtimeDir: specialRuntime }, {
+		nodeBin: "/usr/bin/node",
+		scriptPath: "/opt/agent fleet/script.ts",
+		configPath: "/tmp/config.json",
+	});
+	assert.match(specialUnit, /^WorkingDirectory=.*runtime\\x20100%%Q\/workspace$/m);
 });
 
 test("setup renders owned files, reloads, and enables without pairing or starting", (t) => {
 	const { root, config } = fixture(t);
+	fs.rmSync(config.runtimeDir!, { recursive: true });
 	const fake = runner();
 	const paths = setup(config, fake.runner, { home: root, nodeBin: "/usr/bin/node", scriptPath: "/opt/scripts/codex-remote-control.ts" });
 	assert.equal(fs.statSync(paths.configPath).mode & 0o777, 0o600);
 	assert.match(fs.readFileSync(paths.unitPath, "utf8"), /Agent Fleet Codex remote-control/);
+	const workspacePath = path.join(config.runtimeDir!, "workspace");
+	const workspace = fs.statSync(workspacePath);
+	assert.equal(workspace.isDirectory(), true);
+	assert.equal(workspace.mode & 0o777, 0o700);
+	const managedContract = fs.readFileSync(path.join(workspacePath, "AGENTS.md"), "utf8");
+	assert.match(managedContract, /^<!-- Managed by agent-fleet Codex conductor -->/);
+	assert.match(managedContract, new RegExp(JSON.stringify(path.join(config.repoRoot, "scripts", "codex-conductor.ts")).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 	assert.deepEqual(fake.calls.slice(-2).map(({ file, args }) => [file, args]), [
 		["systemctl", ["--user", "daemon-reload"]],
 		["systemctl", ["--user", "enable", UNIT_NAME]],
@@ -201,8 +252,18 @@ test("setup renders owned files, reloads, and enables without pairing or startin
 	assert.equal(loadOwnedConfig(paths.configPath).codexBin, config.codexBin);
 });
 
-test("requested-state lifecycle is idempotent only for active exited or inactive states", (t) => {
+test("setup refuses to overwrite an operator-owned workspace contract", (t) => {
 	const { root, config } = fixture(t);
+	const target = path.join(config.runtimeDir!, "workspace", "AGENTS.md");
+	fs.writeFileSync(target, "# operator contract\n");
+	assert.throws(
+		() => setup(config, runner().runner, { home: root, nodeBin: "/usr/bin/node", scriptPath: "/opt/scripts/codex-remote-control.ts" }),
+		/not owned by agent-fleet/,
+	);
+});
+
+test("requested-state lifecycle exposes typed state and recovers confirmed failed units", (t) => {
+	const { config } = fixture(t);
 	const active = runner({ state: "ActiveState=active\nSubState=exited\n" });
 	assert.equal(start(config, active.runner), "already-active");
 	assert.equal(active.calls.some(({ file, args }) => file === "systemctl" && args.includes("start")), false);
@@ -212,28 +273,44 @@ test("requested-state lifecycle is idempotent only for active exited or inactive
 	assert.equal(inactive.calls.at(-1)?.args.join(" "), `--user start ${UNIT_NAME}`);
 	assert.equal(stop(config, inactive.runner), "already-inactive");
 
-	const unknown = runner({ state: "ActiveState=failed\nSubState=failed\n" });
-	assert.throws(() => start(config, unknown.runner), /Refusing start/);
-	assert.throws(() => stop(config, unknown.runner), /Refusing stop/);
-	assert.match(status(unknown.runner), /requested systemd state: failed \(failed\)/);
+	const failed = runner({ state: "ActiveState=failed\nSubState=failed\n" });
+	assert.throws(() => start(config, failed.runner), /run recover or uninstall/);
+	assert.equal(stop(config, failed.runner), "stopped");
+	assert.deepEqual(requestedState(failed.runner), { active: "failed", sub: "failed" });
+	assert.match(status(failed.runner), /requested systemd state: failed \(failed\)/);
+	assert.ok(failed.calls.some(({ args }) => args.join(" ") === `--user stop ${UNIT_NAME}`));
+	assert.ok(failed.calls.some(({ args }) => args.join(" ") === `--user reset-failed ${UNIT_NAME}`));
 
-	const recovered = runner({ state: "ActiveState=active\nSubState=exited\n" });
+	const recovered = runner({ state: "ActiveState=failed\nSubState=failed\n" });
 	assert.equal(restart(config, recovered.runner, "operator-confirmed"), "restarted");
 	assert.equal(recovered.calls.at(-1)?.args.join(" "), `--user start ${UNIT_NAME}`);
 	assert.ok(recovered.calls.some(({ args }) => args.join(" ") === `--user stop ${UNIT_NAME}`));
+	assert.ok(recovered.calls.some(({ args }) => args.join(" ") === `--user reset-failed ${UNIT_NAME}`));
 });
 
-test("uninstall refuses non-owned files and removes only owned files after confirmed drift-safe stop", (t) => {
+test("uninstall clears failed state while the owned unit is loaded, then removes only owned files", (t) => {
 	const { root, config } = fixture(t);
 	const paths = { configPath: path.join(root, "config.json"), unitPath: path.join(root, "unit.service") };
 	fs.writeFileSync(paths.configPath, JSON.stringify(config), { mode: 0o600 });
 	fs.writeFileSync(paths.unitPath, "# Managed by agent-fleet codex remote-control\n", { mode: 0o644 });
-	const fake = runner({ version: "codex-cli 0.145.0\n", state: "ActiveState=active\nSubState=exited\n" });
-	uninstall(paths, fake.runner, { confirmation: "operator-confirmed", emergencyConfirmation: EMERGENCY_STOP_CONFIRMATION });
+	const fake = runner({ version: "codex-cli 0.145.0\n", state: "ActiveState=failed\nSubState=failed\n" });
+	let reloaded = false;
+	const strictRunner: CommandRunner = (file, args, options) => {
+		if (file === "systemctl" && args.includes("reset-failed") && reloaded) {
+			return { code: 1, stdout: "", stderr: `Unit ${UNIT_NAME} not loaded` };
+		}
+		const result = fake.runner(file, args, options);
+		if (file === "systemctl" && args.includes("daemon-reload")) reloaded = true;
+		return result;
+	};
+	uninstall(paths, strictRunner, { confirmation: "operator-confirmed", emergencyConfirmation: EMERGENCY_STOP_CONFIRMATION });
 	assert.equal(fs.existsSync(paths.configPath), false);
 	assert.equal(fs.existsSync(paths.unitPath), false);
-	assert.ok(fake.calls.some(({ args }) => args.join(" ") === `--user stop ${UNIT_NAME}`));
-	assert.ok(fake.calls.some(({ args }) => args.join(" ") === `--user disable ${UNIT_NAME}`));
+	assert.equal(fs.existsSync(config.runtimeDir!), false);
+	const systemdCalls = fake.calls.filter(({ file }) => file === "systemctl").map(({ args }) => args.join(" "));
+	assert.ok(systemdCalls.includes(`--user stop ${UNIT_NAME}`));
+	assert.ok(systemdCalls.includes(`--user disable ${UNIT_NAME}`));
+	assert.ok(systemdCalls.indexOf(`--user reset-failed ${UNIT_NAME}`) < systemdCalls.indexOf("--user daemon-reload"));
 
 	fs.writeFileSync(paths.unitPath, "[Service]\n");
 	assert.throws(() => uninstall(paths, runner().runner, { confirmation: "operator-confirmed" }), /not owned/);

@@ -15,6 +15,8 @@ another main agent** and **use a coms peer as a subagent**.
 > [extension catalog](../../../docs/pi-extensions.md) and the
 > [design plan](../../../docs/plans/agent-hub/).
 
+**Optional phone control:** `just hub-team <team> --project <name>` can supply the live peers for the experimental [Codex Android conductor](../../../docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch a second `conductor-codex <team>` peer workspace. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
+
 ## What it does
 
 The whole dispatch loop, end to end:

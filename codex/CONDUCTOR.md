@@ -25,25 +25,30 @@ prohibited commands safe.
 
 ## Verified loading mechanism
 
-The dedicated conductor working directory is:
+The dedicated runtime container is:
 
 ```text
-$AGENT_FLEET_REPO_ROOT/codex/conductor
+$HOME/.local/state/agent-fleet/codex-conductor
 ```
 
-The live gate proved Codex's `AGENTS.md` instruction discovery when a fresh
-remote-created session selected this directory as its instruction/session
-root. The expected contract file is:
+The container is deliberately outside every repository. Codex may expose the
+container parent—not only its `workspace` child—as the managed writable root,
+but no checkout source is present there. Wrapper commands must still run from
+the `workspace` child. The canonical repository contract lives outside the runtime
+container at `codex/CONDUCTOR.md`. Setup creates a managed runtime copy that a
+fresh remote-created session must load:
 
 ```text
-$AGENT_FLEET_REPO_ROOT/codex/conductor/AGENTS.md
+$HOME/.local/state/agent-fleet/codex-conductor/workspace/AGENTS.md
 ```
 
-`WorkingDirectory`, the selected session root, and an environment variable
-naming this file are context markers only. A new host/version must prove loading
-by following a unique rule from this file before delegation; failure means stop
-and report the compatibility gap. This contract does not invent a Codex flag,
-transport, or launch command.
+The runtime copy is replaceable only by the owned setup/reconfigure path; it is
+not repository source. `WorkingDirectory`, the selected session root, and an
+environment variable naming this file are context markers only. A new
+host/version or workspace change must prove direct managed-copy loading by
+following a unique rule from this file before delegation; failure means stop
+and report the compatibility gap.
+This contract does not invent a Codex flag, transport, or launch command.
 
 ## Required validated context
 
@@ -63,13 +68,15 @@ send and synthesize its result before considering another. The mandatory
 contention or a stale/ambiguous lock is a fail-closed result that requires
 human review, never automatic lock removal.
 
-1. Remain in the dedicated `codex/conductor` working directory. The wrapper
-   validates it against the owned configuration before any filesystem or network
-   access.
+1. Remain in the dedicated `$HOME/.local/state/agent-fleet/codex-conductor/workspace` scratch directory. The
+   wrapper validates it against the owned configuration before any filesystem
+   or network access. Repository source and the canonical contract are outside
+   the runtime container; do not modify the managed runtime copy or create
+   files in the container parent.
 2. Discover peers through the only allowed wrapper operation:
 
    ```bash
-   node --experimental-strip-types ../../scripts/codex-conductor.ts list
+   node --experimental-strip-types {{CODEX_CONDUCTOR_SCRIPT}} list
    ```
 
 3. Select only a recipient shown by that fresh command output. Obtain fresh
@@ -84,7 +91,7 @@ human review, never automatic lock removal.
    wrapper. Its owned timeout and Codex serialization mode are non-overridable:
 
    ```bash
-   node --experimental-strip-types ../../scripts/codex-conductor.ts send <listed-peer> \
+   node --experimental-strip-types {{CODEX_CONDUCTOR_SCRIPT}} send <listed-peer> \
      "<human-approved bounded task>"
    ```
 
@@ -127,8 +134,8 @@ Do not run, request, propose, or relay any of the following:
 
 Before reporting a delegation result, confirm:
 
-- This contract was loaded from the dedicated conductor root, not inferred
-  from cwd or environment alone.
+- This managed contract copy was loaded from the dedicated runtime container,
+  not inferred from cwd or environment alone.
 - Required context was validated without exposing secrets.
 - A fresh scoped `list` showed the target before the one awaited send.
 - Conversational confirmation and a visible `on-request` phone approval both

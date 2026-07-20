@@ -41,6 +41,17 @@ when you are on the herdr backend.
 - `coms_list` / `coms_send` / `coms_get` / `coms_await` tools — discover peers and
   exchange messages
 
+## External conductors
+
+Two optional phone-facing conductors use this same pool without becoming pane owners:
+
+- **Hermes/Telegram** is the inbound `ask_user` route and can also perform bounded coms delegation.
+- **Codex Remote Control** is an experimental outbound-only Android route. Its user-systemd service loads a managed contract from an external user-state workspace, and `scripts/codex-conductor.ts` permits only scoped `list` plus one serialized `send --await`. See the [operator runbook](../../../docs/codex-remote-conductor.md).
+
+Both must use the same validated project as the peers they target. Neither conductor may drive Herdr lifecycle.
+
+Standalone `coms-cli` queues are project-scoped under `~/.pi/coms/cli/projects/<project>/<name>/`. Legacy name-only queues fail closed until an operator assigns and moves the complete queue; `projects` is a reserved identity name.
+
 ## Pool scope is the reach boundary
 
 The pool widget defines who you can reach: `coms_list` and `coms_send` resolve targets through one

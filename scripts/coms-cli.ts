@@ -126,7 +126,7 @@ function ensureSpool(project: string, name: string): { pending: string; response
 	// A legacy name-only queue cannot be assigned to a project safely. Refuse
 	// rather than consuming it under whichever project happens to run first.
 	if (fs.existsSync(legacy)) {
-		fail(`Legacy name-only coms spool exists at ${legacy}; move or remove it manually after confirming its project before using coms-cli.`);
+		fail(`Legacy name-only coms spool exists at ${legacy}; stop that identity, inspect the queue, and move the complete directory under cli/projects/<project>/<name> after confirming its project. Do not delete ambiguous pending data.`);
 	}
 	const dirs = {
 		pending: path.join(base, "pending"),

@@ -55,6 +55,15 @@ is returned to the sender automatically (the Stop hook + bridge handle delivery)
 the request like any user instruction, scoped to what was asked; keep the final message
 self-contained (the peer sees only that text).
 
+## Legacy spool migration
+
+Project-scoped CLI queues live at `~/.pi/coms/cli/projects/<project>/<name>/`.
+If the CLI refuses because `~/.pi/coms/cli/<name>/` exists, stop commands for
+that identity, inspect the old `pending`, `responses`, and `inbound` queues,
+identify their owning project, and move the complete name directory under that
+project. Never delete pending data or merge ambiguous queues just to clear the
+error. `projects` is a reserved identity name.
+
 ## Common Rationalizations
 
 - *"I'll just do it myself, asking a peer is overhead"* — a researcher peer with the

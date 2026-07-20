@@ -51,11 +51,16 @@ function required(flags: Map<Flag, string>, flag: Flag): string {
 	return flags.get(flag) ?? fail(`--${flag} is required`);
 }
 
+function runtimeDir(flags: Map<Flag, string>): string {
+	return lifecyclePaths(flags.get("home")).runtimeDir;
+}
+
 function configFromFlags(flags: Map<Flag, string>): LifecycleConfig {
 	return validateConfig({
 		marker: CONFIG_MARKER,
 		codexBin: required(flags, "codex-bin"),
 		repoRoot: required(flags, "repo-root"),
+		runtimeDir: runtimeDir(flags),
 		comsDir: required(flags, "coms-dir"),
 		project: required(flags, "project"),
 		team: required(flags, "team"),
@@ -71,6 +76,7 @@ function conductorConfigFromFlags(flags: Map<Flag, string>): LifecycleConfig {
 		marker: CONFIG_MARKER,
 		codexBin: required(flags, "codex-bin"),
 		repoRoot: required(flags, "repo-root"),
+		runtimeDir: runtimeDir(flags),
 		comsDir: required(flags, "coms-dir"),
 		project,
 		team,
@@ -110,7 +116,7 @@ function main(): void {
 			const config = flags.has("repo-root") ? configFromFlags(flags) : validateConfig({
 				marker: CONFIG_MARKER,
 				codexBin: required(flags, "codex-bin"),
-				repoRoot: process.cwd(), comsDir: path.join(os.homedir(), ".pi", "coms"),
+				repoRoot: process.cwd(), runtimeDir: lifecyclePaths().runtimeDir, comsDir: path.join(os.homedir(), ".pi", "coms"),
 				project: "default", team: "codex", name: "codex", timeoutMs: 300_000,
 			});
 			preflight(config);

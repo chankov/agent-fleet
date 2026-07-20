@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Pilot-only external Codex conductor wrapper. It exposes no lifecycle,
+// Experimental external Codex conductor wrapper. It exposes no lifecycle,
 // pairing, authentication, Herdr, or scope-override functionality.
 
 import { spawnSync } from "node:child_process";
@@ -12,7 +12,7 @@ import { lifecyclePaths } from "./lib/codex-remote-control.ts";
 
 function main(): void {
 	// Parse flags before config or filesystem access, then bind all scope from
-	// the owned configuration and the dedicated conductor working directory.
+	// the owned configuration and the dedicated writable scratch directory.
 	const operation = parseConductorArgs(process.argv.slice(2));
 	const checkoutRoot = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 	const context = loadConductorContext({

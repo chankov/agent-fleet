@@ -45,4 +45,4 @@ node --experimental-strip-types /home/nchankov/repos/agent-fleet/scripts/coms-cl
 
 Hermes must not drive herdr panes or workspaces; the `just conductor` recipe creates the pane before Hermes starts. The no-herdr boundary is documented in `docs/coms-hermes-bridge.md` and governed by `.pi/damage-control-rules.yaml`.
 
-Hermes/Telegram remains the inbound `ask_user` path when the experimental Codex remote-control conductor is piloted. Codex is outbound-initiated only as far as verified, while both Hermes and Codex contracts remain advisory outside Pi damage-control; neither external process has an OS command allowlist. See the pre-pilot [Codex operator runbook](../docs/codex-remote-conductor.md).
+Hermes/Telegram remains the inbound `ask_user` path beside the experimental Codex remote-control conductor. Codex is outbound-initiated, approval-gated, and serialized through the validated wrapper; both Hermes and Codex contracts remain advisory outside Pi damage-control, and neither external process has an OS command allowlist. See the [Codex operator runbook](../docs/codex-remote-conductor.md).

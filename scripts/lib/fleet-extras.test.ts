@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -126,13 +126,14 @@ test("dry run: Hermes and pilot Codex conductors have distinct shared-layout roo
 	assert.equal(codexLayout.layout.first.label, "conductor-codex-control");
 	assert.deepEqual(codexLayout.layout.first.command.slice(-1), ["control-pane"]);
 	assert.equal(codexLayout.layout.first.command.includes("remote-control"), false);
-	assert.equal(codexLayout.layout.first.cwd, join(REPO_ROOT, "codex", "conductor"));
+	const runtimeWorkspace = join(homedir(), ".local", "state", "agent-fleet", "codex-conductor", "workspace");
+	assert.equal(codexLayout.layout.first.cwd, runtimeWorkspace);
 	assert.deepEqual(codexLayout.layout.first.env, {
 		AGENT_FLEET_REPO_ROOT: REPO_ROOT,
 		COMS_CLI_PROJECT: "af",
 		COMS_CLI_NAME: "codex-t-conductor",
 		COMS_CLI_TIMEOUT_MS: "300000",
-		AGENT_FLEET_CODEX_CONTRACT_PATH: join(REPO_ROOT, "codex", "conductor", "AGENTS.md"),
+		AGENT_FLEET_CODEX_CONTRACT_PATH: join(runtimeWorkspace, "AGENTS.md"),
 		AGENT_FLEET_CODEX_CONTRACT_IDENTITY: "agent-fleet-codex-conductor-pilot-v1",
 		AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
 	});

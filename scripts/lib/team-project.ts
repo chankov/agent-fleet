@@ -4,6 +4,7 @@
 // already isolates peers by --project; this file only keeps team workspace
 // labels, snapshot files, and generated launch argv in sync with that scope.
 
+import * as os from "node:os";
 import * as path from "node:path";
 
 export const DEFAULT_PROJECT = "default";
@@ -119,7 +120,7 @@ export function conductorCommand(): string[] {
 
 export function conductorSpec(
 	backend: ConductorBackend,
-	input: { repoRoot: string; team: string; project?: string },
+	input: { repoRoot: string; runtimeDir?: string; team: string; project?: string; nodeBin?: string },
 ): ConductorSpec {
 	const repoRoot = validateAbsoluteRepoRoot(input.repoRoot);
 	const team = validateTeamName(input.team);
@@ -140,19 +141,29 @@ export function conductorSpec(
 			team,
 		};
 	}
-	const contractDir = path.join(repoRoot, "codex", "conductor");
+	const runtimeDir = input.runtimeDir ?? path.join(os.homedir(), ".local", "state", "agent-fleet", "codex-conductor");
+	if (!path.isAbsolute(runtimeDir) || path.resolve(runtimeDir) !== runtimeDir) {
+		throw new Error(`Codex conductor requires an absolute runtime directory: ${JSON.stringify(runtimeDir)}`);
+	}
+	const relativeRuntime = path.relative(repoRoot, runtimeDir);
+	if (relativeRuntime === "" || (!relativeRuntime.startsWith("..") && !path.isAbsolute(relativeRuntime))) {
+		throw new Error("Codex conductor requires a runtime directory outside repoRoot");
+	}
+	const workspaceDir = path.join(runtimeDir, "workspace");
+	const nodeBin = input.nodeBin ?? process.execPath;
+	if (!path.isAbsolute(nodeBin)) throw new Error(`Codex conductor requires an absolute Node binary path: ${JSON.stringify(nodeBin)}`);
 	return {
 		backend,
 		workspaceMode: "conductor-codex",
 		paneLabel: "conductor-codex-control",
-		command: ["node", "--experimental-strip-types", path.join(repoRoot, "scripts", "codex-remote-control.ts"), "control-pane"],
-		cwd: contractDir,
+		command: [nodeBin, "--experimental-strip-types", path.join(repoRoot, "scripts", "codex-remote-control.ts"), "control-pane"],
+		cwd: workspaceDir,
 		env: {
 			AGENT_FLEET_REPO_ROOT: repoRoot,
 			COMS_CLI_PROJECT: project,
 			COMS_CLI_NAME: conductorName,
 			COMS_CLI_TIMEOUT_MS: String(DEFAULT_CODEX_TIMEOUT_MS),
-			AGENT_FLEET_CODEX_CONTRACT_PATH: path.join(contractDir, "AGENTS.md"),
+			AGENT_FLEET_CODEX_CONTRACT_PATH: path.join(workspaceDir, "AGENTS.md"),
 			AGENT_FLEET_CODEX_CONTRACT_IDENTITY: CODEX_CONTRACT_IDENTITY,
 			AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
 		},

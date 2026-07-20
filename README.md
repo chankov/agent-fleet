@@ -15,7 +15,8 @@ Agent Fleet is a **multi-agent orchestration system for AI coding agents**, buil
                 │                      │
                 ├── herdr (workspace)  ├── skills (how to work)
                 ├── coms (messages)    └── Verification Contract
-                └── Hermes (phone)
+                ├── Hermes (phone · inbound ask_user)
+                └── Codex Remote Control (phone · outbound delegation, experimental)
 ```
 
 | Layer | Job |
@@ -24,6 +25,7 @@ Agent Fleet is a **multi-agent orchestration system for AI coding agents**, buil
 | **[herdr](https://herdr.dev)** | Fleet control plane — tiled peer workspaces, presence, snapshot/resume |
 | **coms** | Peer data plane — bidirectional messaging between agents (including Claude Code panes) |
 | **Hermes** | Remote human control — relay hub questions to your phone |
+| **Codex conductor (experimental)** | Android-initiated, approval-gated delegation to live coms peers through a user-systemd service |
 | **[Skills](docs/skills-catalog.md) + [personas](docs/agents.md)** | Lifecycle discipline — how to spec, plan, build, verify, review, and ship |
 
 ---
@@ -85,6 +87,22 @@ Updates flow through `git pull`. Symlinks need Developer Mode on Windows.
 **pi details** — the package bundles `pi-ask-user` (interactive `ask_user` + skill); lifecycle commands load from `.pi/prompts/`, always-on utility extensions from `.pi/extensions/` (mcp-bridge, chrome-devtools-mcp, compact-and-continue, pi-voice-stt push-to-talk dictation), and the selectable harnesses live under `.pi/harnesses/` (loaded via the `justfile`). See [docs/pi-setup.md](docs/pi-setup.md) and the [pi extension catalog](docs/pi-extensions.md).
 
 </details>
+
+### Experimental: delegate to live peers from ChatGPT Android
+
+The optional Codex Remote-Control conductor is verified on Linux with Codex CLI `0.144.x`. Hermes remains the inbound `ask_user` route; Codex is outbound-only and delegates one confirmed task at a time to peers already visible in the same coms project.
+
+```bash
+cd /path/to/agent-fleet
+just conductor-codex-setup docs --project af   # once per configured context
+just conductor-codex-pair                       # interactive; never capture the code
+just conductor-codex-start
+just hub-team docs --project af                 # hub + peers Codex can reach
+```
+
+In ChatGPT Android, open the paired Remote Control host and use the managed external workspace at `$HOME/.local/state/agent-fleet/codex-conductor/workspace`. Do not start a local `codex` process for the Android flow, and do not also launch `conductor-codex docs` when `hub-team docs` already owns the same peers.
+
+Lifecycle, approval flow, examples, recovery, and security boundaries: **[Codex Remote-Control conductor runbook](docs/codex-remote-conductor.md)**.
 
 Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · [docs/npm-install.md](docs/npm-install.md).
 

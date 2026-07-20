@@ -45,6 +45,7 @@ export function validateComsProject(project: string): string {
 
 export function validateComsName(name: string): string {
 	if (!COMS_NAME_SAFE.test(name)) throw new Error(`Invalid coms name: ${JSON.stringify(name)}`);
+	if (name === "projects") throw new Error(`Invalid reserved coms name: ${JSON.stringify(name)}`);
 	return name;
 }
 

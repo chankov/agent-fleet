@@ -11,14 +11,16 @@ The user authorizes repository changes, complete user-level systemd installation
 Implemented and promoted after the live gate passed on Linux with Codex CLI `0.144.6` and Android ChatGPT:
 
 - user-systemd start/stop/restart and requested-state reporting passed; the service remains active when the control workspace closes;
-- a fresh remote thread loaded `codex/conductor/AGENTS.md` from the dedicated root;
+- the original live gate loaded the conductor contract; post-review setup now copies canonical `codex/CONDUCTOR.md` to external user-state runtime `workspace/AGENTS.md`;
 - global `approval_policy=on-request`, mobile command escalation, approval, and denial were observed;
 - the validated wrapper listed host peers across the remote PID namespace and completed one approved awaited delegation (`Pilot acknowledged. No files changed.`);
 - denial produced no peer message or lock, live lock contention failed closed, and normal completion released the lock;
 - public `conductor-codex*` lifecycle/live/dry recipes were promoted while legacy pilot aliases remain;
-- final `npm test` passed 262 tests; focused post-promotion tests, package-surface fixtures, public dry/live launch, `npm pack --dry-run`, and changeset status passed. Final verification commands are recorded in the implementation summary.
+- final post-review `npm test` passed 265 tests; focused regression tests, package-surface fixtures, public dry/live launch, `npm pack --dry-run`, rendered-unit verification, and changeset status passed. Final verification commands are recorded in the implementation summary.
 
 No pairing code, credential, token, remote URL, or auth material was committed.
+
+**Post-review hardening:** live evidence showed Codex 0.144.x/Android broadens the managed root to the runtime container parent regardless of daemon cwd. The runtime container was therefore moved entirely outside the checkout to `$HOME/.local/state/agent-fleet/codex-conductor`, with wrapper execution in `workspace`; canonical `codex/CONDUCTOR.md` remains in the read-only checkout and setup renders an absolute wrapper path into managed `workspace/AGENTS.md`. Failed-unit recovery, systemd escaping/uninstall ordering, typed state checks, reserved names, strict JSON types, exact Node propagation, migration guidance, and stale-lock recovery were added with regression tests. A fresh Android thread proved the final external runtime workspace and managed contract, requested one approval for one scoped list, listed the expected peers, and performed no edit/send.
 
 ## Confirmed Evidence and Policy
 
@@ -71,7 +73,7 @@ Confirmed gaps:
 5. **Strict current-list targeting.** `send` resolves its target only from the same fresh scoped peer list used by that invocation. Remove the hidden explicit-peer fallback. Codex mode rejects `--all`, detached send, missing `--await`, and missing explicit timeout/project/name.
 6. **Validated scope before filesystem/process use.** Resolve the repository root to an absolute real directory and validate it before generating paths. Reuse `validateProject`; add bounded safe conductor-name validation; validate timeout as a positive integer within Node’s timer range. Every filesystem-bearing coms command validates explicit project/name scope before use. Revalidate user config on every setup/start/status/control-pane path. Explicit flags override validated env defaults.
 7. **Single configured Codex context.** The user unit is intentionally singleton and stores one non-secret `(repo root, project, team, conductor identity, timeout, contract path, Codex binary)` configuration. A live recipe with a different scope fails before touching Herdr and instructs the human to reconfigure/restart the service. Multi-repository simultaneous Codex remote control is out of scope.
-8. **Dedicated contract loading must be proved, not inferred.** `WorkingDirectory` and an environment variable naming `codex/conductor/AGENTS.md` are context, not proof that a remote-created session loaded it. Gate S must identify one documented `0.144.x` candidate instruction/root loading mechanism and its exact argv/configuration; if it cannot, stop at Gate S. Implement that mechanism only behind an explicitly named pilot path, never a public launch path. Gate P must prove that the remote-created session loaded the dedicated contract at the selected root. Public Codex launch, promotion, and release remain unavailable until Gate P passes. No guessed CLI flag is allowed.
+8. **Dedicated contract loading must be proved, not inferred.** `WorkingDirectory` and an environment variable naming the managed external runtime `workspace/AGENTS.md` are context, not proof that a remote-created session loaded it. Gate S must identify one documented `0.144.x` candidate instruction/root loading mechanism and its exact argv/configuration; if it cannot, stop at Gate S. Implement that mechanism only behind an explicitly named pilot path, never a public launch path. Gate P must prove that the remote-created session loaded the dedicated contract at the selected root. Public Codex launch, promotion, and release remain unavailable until Gate P passes. No guessed CLI flag is allowed.
 9. **Typed backend, shared layout.** Add `ConductorBackend = "hermes" | "codex"` and one conductor pane spec. Keep Hermes’ command behavior, use backend workspace modes `conductor-hermes`/`conductor-codex`, and pane labels `conductor-hermes`/`conductor-codex-control`. Extend the existing root-pane layout data rather than copying tiling logic.
 10. **Backward-compatible public surface.** Bare `scripts/team-up.ts --conductor` and `just conductor` remain Hermes aliases. Explicit `--conductor hermes|codex` is internal/public script syntax. Before Gate P, Codex has only explicitly named pilot lifecycle/live/dry recipes; Task 8 exposes public setup/pair/start/stop/status/uninstall and live/dry recipes only after Gate P passes.
 11. **Distribution follows transitive runtime use.** Package, snapshot, and guided setup must carry the Codex contract, lifecycle helper/library, systemd template, coms CLI/core, team-up/layout dependencies, and Hermes contract/docs referenced by public recipes. Guided setup copies assets only; it never silently installs a user service or pairs Codex.
@@ -175,7 +177,7 @@ node --test scripts/lib/coms-cli-core.test.ts scripts/lib/coms-cli-process.test.
 
 **Acceptance criteria:**
 
-- [ ] `codex/conductor/AGENTS.md` requires validated `AGENT_FLEET_REPO_ROOT`, `COMS_CLI_PROJECT`, `COMS_CLI_NAME`, timeout, contract identity, and `--conductor codex` before any delegation; every `list`, `send`, `_listen`, `await`, `reply`, and `msg_id` shape carries explicit project/name scope and is valid only after its command-level validation.
+- [ ] `codex/CONDUCTOR.md` requires validated `AGENT_FLEET_REPO_ROOT`, `COMS_CLI_PROJECT`, `COMS_CLI_NAME`, timeout, contract identity, and `--conductor codex` before any delegation; every `list`, `send`, `_listen`, `await`, `reply`, and `msg_id` shape carries explicit project/name scope and is valid only after its command-level validation.
 - [ ] The only Codex delegation flow is scoped `list`, fresh human confirmation of listed recipient/bounded prompt/timeout, then `send ... --await --timeout`; no parallel send, `--all`, detached `send`, standalone `await`/`reply`, lifecycle command, direct Herdr control, secret relay, or bulk dump is allowed.
 - [ ] Codex retries a missing/timed-out peer at most once and synthesizes named evidence and unresolved gaps.
 - [ ] Hermes uses explicit project/name scope and the same listed-recipient rule while retaining its existing behavior and no-Herdr instruction.
@@ -202,7 +204,7 @@ Hermes omits `--conductor codex`; both contracts prohibit `--all`.
 
 **Files likely touched (2):**
 
-- `codex/conductor/AGENTS.md` (new)
+- `codex/CONDUCTOR.md` (new; copied to external user-state runtime `workspace/AGENTS.md`)
 - `hermes/skills/hub-conductor/SKILL.md`
 
 ### Runtime Gate — Observed Daemon Semantics
@@ -554,7 +556,7 @@ npx changeset status
 ### Repository rollback
 
 1. Remove Codex public recipes/backend wiring while retaining `just conductor`/`conductor-dry` as Hermes.
-2. Remove `codex/conductor/AGENTS.md`, lifecycle helper/library/template, and their package/snapshot/setup entries.
+2. Remove `codex/CONDUCTOR.md`, the managed user-state runtime `workspace/AGENTS.md`, lifecycle helper/library/template, and their package/snapshot/setup entries.
 3. Revert strict coms changes only if a proven regression requires it; preserve explicit project/name validation and do not reintroduce hidden-peer fallback without separate review.
 4. Remove the unreleased patch changeset. After release, use a follow-up changeset; never rewrite a published `.versions/<version>/` snapshot.
 5. Preserve unrelated pending `base`-team work throughout rollback.

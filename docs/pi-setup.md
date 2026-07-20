@@ -27,6 +27,8 @@ No plugin, wrapper, or custom system prompt is required for the core workflow.
 
 **Recommended companion packages:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-fleet` as a pi package; clone/symlink setups should install it separately. `pi-codex-image-gen` is an optional suggested npm/pi extension for image generation; guided setup can offer it when package installation is available, but it is not bundled or required.
 
+**Experimental phone conductor:** Linux users may pair Codex CLI `0.144.x` with ChatGPT Android to perform human-confirmed outbound delegation to live coms peers. Guided setup installs the repository assets when pi harnesses are selected, but deliberately never changes systemd, Codex auth/config, pairing, or service state. Host setup remains an explicit operator flow; see [Codex Remote-Control Conductor](codex-remote-conductor.md).
+
 ---
 
 ## Installation

@@ -18,6 +18,20 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 
 All three converge on the same `guided-workspace-setup` skill — they only differ in how the source files reach your workspace. None is being deprecated.
 
+## Optional experimental Android conductor
+
+Linux/pi fleet users can pair Codex Remote Control with ChatGPT Android and delegate one approval-gated task at a time to peers already running in a coms project. It is optional, supports only Codex CLI `0.144.x`, requires Node `22.6+` and user systemd, and does not replace Hermes as the inbound `ask_user` route.
+
+```bash
+cd /path/to/agent-fleet
+just conductor-codex-setup docs --project af
+just conductor-codex-pair
+just conductor-codex-start
+just hub-team docs --project af
+```
+
+The runtime contract is generated under `$HOME/.local/state/agent-fleet/codex-conductor/`, outside the checkout. Pairing is interactive secret-bearing output and must never be captured. Read the complete [Codex conductor runbook](codex-remote-conductor.md) before enabling the service.
+
 ## Quick Start (Any Agent)
 
 ### 1. Clone the repository

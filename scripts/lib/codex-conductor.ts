@@ -1,11 +1,11 @@
-// Fail-closed command construction for the pilot-only external Codex conductor.
+// Fail-closed command construction for the experimental external Codex conductor.
 // It deliberately exposes only the two contract-approved coms operations.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { validateComsName, validateComsProject } from "./coms-envelope.ts";
-import { loadOwnedConfig } from "./codex-remote-control.ts";
+import { conductorWorkspacePath, loadOwnedConfig } from "./codex-remote-control.ts";
 
 export interface ConductorContext {
 	repoRoot: string;
@@ -53,7 +53,7 @@ export function loadConductorContext(input: { configPath: string; cwd: string; c
 	if (config.repoRoot !== checkoutRoot) {
 		throw new Error("configured repository does not match this checkout");
 	}
-	const conductorCwd = path.join(config.repoRoot, "codex", "conductor");
+	const conductorCwd = conductorWorkspacePath(config.runtimeDir!);
 	if (realDirectory(input.cwd, "working directory") !== conductorCwd) {
 		throw new Error(`working directory must be ${conductorCwd}`);
 	}

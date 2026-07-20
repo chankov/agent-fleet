@@ -78,6 +78,16 @@ same return contract, ASK_USER handling, and history. The standing Claude sessio
 its context across review rounds, which is the point for code/plan review. See
 "Coms-backed dispatch" in `.pi/harnesses/agent-hub/README.md`.
 
+## Migrating legacy CLI spools
+
+Current releases isolate CLI queues by project at:
+
+```text
+~/.pi/coms/cli/projects/<project>/<name>/
+```
+
+Older releases used the ambiguous name-only path `~/.pi/coms/cli/<name>/`. If that legacy directory exists, `send`, `await`, `reply`, and listener operations fail closed rather than assigning queued messages to whichever project runs first. Before upgrading, stop commands using that CLI identity, inspect its `pending`, `responses`, and `inbound` files, determine the owning project, and move the complete `<name>` directory to `cli/projects/<project>/<name>`. Do not merge two queues or delete pending data merely to clear the error. The name `projects` is reserved for the namespace and cannot be used as a coms identity.
+
 ## Behavior notes
 
 - **Serialization:** one prompt at a time per pane; queue depth shows in the peer's

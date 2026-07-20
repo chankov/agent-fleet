@@ -6,7 +6,7 @@
 
 # How agent-fleet compares
 
-> This page compares the **skill-library layer** of Agent Fleet, which shares its lineage with [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (vendored here — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md)). The referenced head-to-head experiment was run against that shared skill library. Agent Fleet's orchestration layer (agent-hub, herdr, coms, Hermes) has no counterpart in the compared collections.
+> This page compares the **skill-library layer** of Agent Fleet, which shares its lineage with [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (vendored here — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md)). The referenced head-to-head experiment was run against that shared skill library. Agent Fleet's orchestration layer (agent-hub, herdr, coms, Hermes, and the experimental Codex Android conductor) has no counterpart in the compared collections.
 
 People often ask how **agent-fleet** relates to two other popular "skills for coding agents" collections: **Superpowers** (by Jesse Vincent / obra) and **Matt Pocock's skills**. All three are good, share a lot of DNA, and are worth learning from. This page is an honest map of how they're *shaped* differently so you can pick the one that fits how you work - or borrow from more than one.
 
@@ -43,7 +43,7 @@ Matt open-sourced the actual `.claude` directory he uses day to day - a tight se
 **Repo:** <https://github.com/mattpocock/skills> · related: <https://github.com/mattpocock/agent-rules-books>
 
 ### agent-fleet - this project
-agent-fleet organizes the **entire product lifecycle** as skills, with a meta-skill (`using-agent-skills`) that routes a task to the right one. Every skill carries a **Common Rationalizations** table (the excuses an agent makes to skip a step, each rebutted) and **Red Flags**. Slash commands map one-to-one to lifecycle phases, and `/ship` fans out review **personas** - `code-reviewer`, `security-auditor`, `test-engineer`, `web-performance-auditor` - in parallel, then merges them into a go/no-go. It deliberately keeps a human checkpoint at each phase and runs across Claude Code, OpenCode, and pi. On pi it goes further: the `agent-hub` harness dispatches the full 15-persona roster as a coordinated multi-agent team under a Verification Contract, with companion harnesses for Pi-to-Pi messaging (`coms`) and safety auditing (`damage-control`).
+agent-fleet organizes the **entire product lifecycle** as skills, with a meta-skill (`using-agent-skills`) that routes a task to the right one. Every skill carries a **Common Rationalizations** table (the excuses an agent makes to skip a step, each rebutted) and **Red Flags**. Slash commands map one-to-one to lifecycle phases, and `/ship` fans out review **personas** - `code-reviewer`, `security-auditor`, `test-engineer`, `web-performance-auditor` - in parallel, then merges them into a go/no-go. It deliberately keeps a human checkpoint at each phase and runs across Claude Code, OpenCode, and pi. On pi it goes further: the `agent-hub` harness dispatches the full 15-persona roster as a coordinated multi-agent team under a Verification Contract, with companion harnesses for Pi-to-Pi messaging (`coms`) and safety auditing (`damage-control`). Optional phone control splits by direction: Hermes relays inbound `ask_user` questions, while the experimental Codex Remote-Control conductor performs Android-approved outbound delegation to listed coms peers.
 
 ---
 
