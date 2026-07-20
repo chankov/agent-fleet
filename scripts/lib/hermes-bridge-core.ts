@@ -117,9 +117,9 @@ export function formatTelegramQuestion(input: HermesBridgeQuestion, limit = TELE
 	if (!isValidQid(input.qid)) throw new Error("qid must be a 26-character Crockford ULID");
 	const options = input.options ?? [];
 	const header = `❓ [${HUB_Q_PREFIX}:${input.qid}] ${input.question}`;
-	const optionsBlock = options.length > 0 ? `\n\nОпции:\n${formatOptions(options)}` : "";
-	const instruction = `\n\n↩ Отговори с reply на това съобщение, или напиши: ${HUB_Q_PREFIX}:${input.qid}: <отговор>`;
-	const contextPrefix = input.context ? "\n\nКонтекст: " : "";
+	const optionsBlock = options.length > 0 ? `\n\nOptions:\n${formatOptions(options)}` : "";
+	const instruction = `\n\n↩ Reply to this message, or type: ${HUB_Q_PREFIX}:${input.qid}: <answer>`;
+	const contextPrefix = input.context ? "\n\nContext: " : "";
 	const fixedLength = header.length + contextPrefix.length + optionsBlock.length + instruction.length;
 	const contextBudget = Math.max(0, limit - fixedLength);
 	const context = input.context ? truncateUtf16(input.context, contextBudget) : "";
@@ -199,7 +199,7 @@ export function timeoutErrorMessage(timeoutMs: number): string {
 }
 
 export function timeoutTelegramNote(qid: string, timeoutMs: number): string {
-	return `⌛ [${HUB_Q_PREFIX}:${qid}] Въпросът изтече след ${timeoutMs}ms.`;
+	return `⌛ [${HUB_Q_PREFIX}:${qid}] The question timed out after ${timeoutMs}ms.`;
 }
 
 export function timeoutOutcome(qid: string, timeoutMs = timeoutMsFromEnv()): {

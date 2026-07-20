@@ -27,6 +27,9 @@ const ARTIFACT_PATHS = [
   "skills",
   "vendor/agent-skills-upstream",
   "agents",
+  "codex",
+  "hermes",
+  "systemd",
   ".claude/commands",
   ".claude/orchestrate-teams.yaml",
   ".opencode/commands",
@@ -46,6 +49,8 @@ const ARTIFACT_PATHS = [
   // per-version copy for the upgrade three-way diff (retired-harness recipes
   // pruned, new-harness recipes added on refresh).
   "justfile",
+  // Codex pilot + Hermes operator/runbook links are versioned install inputs.
+  "docs",
   "references",
   "hooks",
 ];

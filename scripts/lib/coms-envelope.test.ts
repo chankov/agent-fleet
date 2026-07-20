@@ -25,6 +25,7 @@ import {
 	pruneDeadEntries,
 	readAllRegistryEntries,
 	registryFilePath,
+	registryHeartbeatIsFresh,
 	sendEnvelope,
 	ulid,
 	writeAck,
@@ -96,7 +97,17 @@ test("ulid is 26 chars, unique, monotonic-ish by time", () => {
 	assert.match(a, /^[0-9A-HJKMNP-TV-Z]+$/);
 });
 
-test("registry round trip + dead-entry pruning (own pid lives, fake pid pruned)", () => {
+test("fresh registry heartbeats remain live across PID namespaces", () => {
+	const entry = {
+		heartbeat_at: "2026-07-19T18:00:00.000Z",
+	} as RegistryEntry;
+	const now = Date.parse("2026-07-19T18:01:00.000Z");
+	assert.equal(registryHeartbeatIsFresh(entry, now), true);
+	assert.equal(registryHeartbeatIsFresh(entry, now + 31_000), false);
+	assert.equal(registryHeartbeatIsFresh({ ...entry, heartbeat_at: "invalid" }, now), false);
+});
+
+test("registry round trip + dead-entry pruning (own pid lives, fresh heartbeat survives namespace, stale fake pid pruned)", () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coms-envelope-test-"));
 	process.env.PI_COMS_DIR = dir; // NOTE: module already imported — path helpers read COMS_DIR at import; use explicit project via helpers
 	// The module captured COMS_DIR at import time, so exercise the fs shapes
@@ -117,11 +128,12 @@ test("registry round trip + dead-entry pruning (own pid lives, fake pid pruned)"
 	const project = `test-${process.pid}-${Date.now()}`;
 	fs.mkdirSync(path.dirname(registryFilePath(project, "alive")), { recursive: true });
 	writeRegistryAtomic(entry, project);
-	writeRegistryAtomic({ ...entry, name: "dead", session_id: "S2", pid: 999999999 }, project);
+	writeRegistryAtomic({ ...entry, name: "fresh", session_id: "S2", pid: 999999998, heartbeat_at: new Date().toISOString() }, project);
+	writeRegistryAtomic({ ...entry, name: "dead", session_id: "S3", pid: 999999999 }, project);
 
-	assert.equal(readAllRegistryEntries(project).length, 2);
+	assert.equal(readAllRegistryEntries(project).length, 3);
 	const live = pruneDeadEntries(project);
-	assert.deepEqual(live.map((e) => e.name), ["alive"]);
+	assert.deepEqual(live.map((e) => e.name), ["alive", "fresh"]);
 	// the dead entry file was removed
 	assert.equal(fs.existsSync(registryFilePath(project, "dead")), false);
 	fs.rmSync(path.dirname(path.dirname(registryFilePath(project, "x"))), { recursive: true, force: true });

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
 	DEFAULT_PROJECT,
 	conductorCommand,
+	conductorSpec,
 	hubCommand,
 	parseProjectFlag,
 	teamSnapshotPath,
@@ -44,11 +45,13 @@ test("workspace labels embed the worktree tag + mode and distinguish projects", 
 	// Default tag is "repo" (no checkout in hand); mode is carried verbatim.
 	assert.equal(teamWorkspaceLabel("peers", "docs"), "repo-peers-docs");
 	assert.equal(teamWorkspaceLabel("hub", "docs"), "repo-hub-docs");
-	assert.equal(teamWorkspaceLabel("conductor", "docs"), "repo-conductor-docs");
+	assert.equal(teamWorkspaceLabel("conductor-hermes", "docs"), "repo-conductor-hermes-docs");
+	assert.equal(teamWorkspaceLabel("conductor-codex", "docs"), "repo-conductor-codex-docs");
 	// The worktree tag keys the label to the checkout (wt2-hub-plan).
 	assert.equal(teamWorkspaceLabel("hub", "plan", DEFAULT_PROJECT, "wt2"), "wt2-hub-plan");
 	assert.equal(teamWorkspaceLabel("peers", "plan", DEFAULT_PROJECT, "wt2"), "wt2-peers-plan");
-	assert.equal(teamWorkspaceLabel("conductor", "plan", DEFAULT_PROJECT, "wt2"), "wt2-conductor-plan");
+	assert.equal(teamWorkspaceLabel("conductor-hermes", "plan", DEFAULT_PROJECT, "wt2"), "wt2-conductor-hermes-plan");
+	assert.equal(teamWorkspaceLabel("conductor-codex", "plan", DEFAULT_PROJECT, "wt2"), "wt2-conductor-codex-plan");
 	// Same team from a different worktree never collides.
 	assert.notEqual(
 		teamWorkspaceLabel("hub", "plan", DEFAULT_PROJECT, "wt2"),
@@ -56,15 +59,48 @@ test("workspace labels embed the worktree tag + mode and distinguish projects", 
 	);
 	assert.equal(teamWorkspaceLabel("peers", "docs", "acme", "wt2"), "wt2-peers-docs--project.acme");
 	assert.equal(teamWorkspaceLabel("hub", "docs", "acme", "wt2"), "wt2-hub-docs--project.acme");
-	assert.equal(teamWorkspaceLabel("conductor", "docs", "acme", "wt2"), "wt2-conductor-docs--project.acme");
+	assert.equal(teamWorkspaceLabel("conductor-hermes", "docs", "acme", "wt2"), "wt2-conductor-hermes-docs--project.acme");
+	assert.equal(teamWorkspaceLabel("conductor-codex", "docs", "acme", "wt2"), "wt2-conductor-codex-docs--project.acme");
 	assert.notEqual(teamWorkspaceLabel("peers", "docs--project-acme"), teamWorkspaceLabel("peers", "docs", "acme"));
 	assert.notEqual(teamWorkspaceLabel("hub", "docs--project-acme"), teamWorkspaceLabel("hub", "docs", "acme"));
-	assert.notEqual(teamWorkspaceLabel("conductor", "docs--project-acme"), teamWorkspaceLabel("conductor", "docs", "acme"));
+	assert.notEqual(teamWorkspaceLabel("conductor-hermes", "docs--project-acme"), teamWorkspaceLabel("conductor-hermes", "docs", "acme"));
+	assert.notEqual(teamWorkspaceLabel("conductor-codex", "docs--project-acme"), teamWorkspaceLabel("conductor-codex", "docs", "acme"));
 	assert.deepEqual(hubCommand(), ["just", "hub"]);
 	assert.deepEqual(hubCommand("acme"), ["just", "hub", "--project", "acme"]);
 	assert.deepEqual(conductorCommand(), ["hermes", "-p", "dev"]);
 	assert.equal(teamSnapshotPath("/snap", "docs"), join("/snap", "docs.json"));
 	assert.equal(teamSnapshotPath("/snap", "docs", "acme"), join("/snap", "projects", "acme", "docs.json"));
+});
+
+test("conductorSpec types backend identity and injects only validated Codex context", () => {
+	const hermes = conductorSpec("hermes", { repoRoot: "/repo", team: "docs", project: "af" });
+	assert.equal(hermes.workspaceMode, "conductor-hermes");
+	assert.equal(hermes.paneLabel, "conductor-hermes");
+	assert.equal(hermes.conductorName, "hermes-docs-conductor");
+	assert.deepEqual(hermes.command, ["hermes", "-p", "dev"]);
+	assert.equal(hermes.cwd, "/repo");
+	assert.deepEqual(hermes.env, {});
+
+	const codex = conductorSpec("codex", { repoRoot: "/repo", team: "docs", project: "af" });
+	assert.equal(codex.workspaceMode, "conductor-codex");
+	assert.equal(codex.paneLabel, "conductor-codex-control");
+	assert.equal(codex.conductorName, "codex-docs-conductor");
+	assert.deepEqual(codex.command, ["node", "--experimental-strip-types", "/repo/scripts/codex-remote-control.ts", "control-pane"]);
+	assert.equal(codex.cwd, "/repo/codex/conductor");
+	assert.deepEqual(codex.env, {
+		AGENT_FLEET_REPO_ROOT: "/repo",
+		COMS_CLI_PROJECT: "af",
+		COMS_CLI_NAME: "codex-docs-conductor",
+		COMS_CLI_TIMEOUT_MS: "300000",
+		AGENT_FLEET_CODEX_CONTRACT_PATH: "/repo/codex/conductor/AGENTS.md",
+		AGENT_FLEET_CODEX_CONTRACT_IDENTITY: "agent-fleet-codex-conductor-pilot-v1",
+		AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
+	});
+	for (const bad of ["relative", "/repo/../other"]) {
+		assert.throws(() => conductorSpec("codex", { repoRoot: bad, team: "docs", project: "af" }), /absolute repository root/);
+	}
+	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", team: "bad team", project: "af" }), /Invalid team name/);
+	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", team: "docs", project: "bad project" }), /Invalid project name/);
 });
 
 test("worktreeTag takes the last dot-segment of the checkout basename, sanitized", () => {
@@ -83,14 +119,30 @@ test("worktreeTag takes the last dot-segment of the checkout basename, sanitized
 
 test("justfile public team recipes forward trailing args and hidden peer recipes pass --project", () => {
 	const justfile = readFileSync(join(REPO_ROOT, "justfile"), "utf-8");
-	for (const recipe of ["team-up", "team-up-dry", "hub-team", "hub-team-dry", "conductor", "conductor-dry", "team-snapshot", "team-down", "team-resume"]) {
+	for (const recipe of ["team-up", "team-up-dry", "hub-team", "hub-team-dry", "conductor", "conductor-dry", "conductor-codex", "conductor-codex-dry", "conductor-codex-setup", "conductor-codex-reconfigure", "conductor-codex-pilot", "conductor-codex-pilot-dry", "conductor-codex-pilot-setup", "conductor-codex-pilot-reconfigure", "team-snapshot", "team-down", "team-resume"]) {
 		assert.match(justfile, new RegExp(`\\n${recipe} team=\\"full\\" \\*args:`), recipe);
+	}
+	for (const recipe of ["pair", "start", "status", "stop", "recover", "uninstall"]) {
+		assert.match(justfile, new RegExp(`\\nconductor-codex-${recipe}:`), `public ${recipe}`);
+		assert.match(justfile, new RegExp(`\\nconductor-codex-pilot-${recipe}:`), `pilot alias ${recipe}`);
 	}
 	for (const command of [
 		"scripts/team-up.ts --team {{team}} {{args}}",
 		"scripts/team-up.ts --team {{team}} --hub {{args}}",
 		"scripts/team-up.ts --team {{team}} --conductor {{args}}",
 		"scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}",
+		"scripts/team-up.ts --team {{team}} --conductor codex {{args}}",
+		"scripts/team-up.ts --team {{team}} --conductor codex --dry-run {{args}}",
+		"scripts/codex-remote-control.ts setup-conductor --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
+		"scripts/codex-remote-control.ts reconfigure-conductor --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
+		"scripts/codex-remote-control.ts setup-pilot --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
+		"scripts/codex-remote-control.ts reconfigure-pilot --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
+		"scripts/codex-remote-control.ts pair",
+		"scripts/codex-remote-control.ts start",
+		"scripts/codex-remote-control.ts status",
+		"scripts/codex-remote-control.ts stop",
+		"scripts/codex-remote-control.ts recover --confirm operator-confirmed",
+		"scripts/codex-remote-control.ts uninstall --confirm operator-confirmed",
 		"scripts/team-snapshot.ts snapshot {{team}} {{args}}",
 		"scripts/team-snapshot.ts down {{team}} {{args}}",
 		"scripts/team-snapshot.ts resume {{team}} {{args}}",
@@ -102,4 +154,5 @@ test("justfile public team recipes forward trailing args and hidden peer recipes
 	assert.match(justfile, /_claude-peer name model="" session="" project="default":/);
 	assert.match(justfile, /coms\/index\.ts .*--project \{\{project\}\}/);
 	assert.match(justfile, /coms-claude-bridge\.ts --name \{\{name\}\} --project \{\{project\}\}/);
+	assert.match(justfile, /\nconductor-codex team=/, "Gate-P-proven public Codex recipe is promoted");
 });

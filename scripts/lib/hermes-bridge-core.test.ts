@@ -59,9 +59,9 @@ test("Telegram question text contains the contract fields and is capped to 4096 
 		options: OPTIONS,
 	});
 	assert.match(msg, new RegExp(`❓ \\[HUB-Q:${QID}\\] Can we ship Phase 1\\?`));
-	assert.match(msg, /Контекст: Build is green\./);
-	assert.match(msg, /Опции:\n1\. Approve — Ship it\n2\. Revise — Request changes\n3\. Stop/);
-	assert.match(msg, new RegExp(`↩ Отговори с reply на това съобщение, или напиши: HUB-Q:${QID}: <отговор>`));
+	assert.match(msg, /Context: Build is green\./);
+	assert.match(msg, /Options:\n1\. Approve — Ship it\n2\. Revise — Request changes\n3\. Stop/);
+	assert.match(msg, new RegExp(`↩ Reply to this message, or type: HUB-Q:${QID}: <answer>`));
 
 	const capped = formatTelegramQuestion({
 		qid: QID,
@@ -71,9 +71,9 @@ test("Telegram question text contains the contract fields and is capped to 4096 
 	});
 	assert.equal(capped.length, 4096);
 	assert.match(capped, new RegExp(`\\[HUB-Q:${QID}\\]`));
-	assert.match(capped, /Контекст: /);
-	assert.match(capped, /Опции:/);
-	assert.match(capped, new RegExp(`HUB-Q:${QID}: <отговор>`));
+	assert.match(capped, /Context: /);
+	assert.match(capped, /Options:/);
+	assert.match(capped, new RegExp(`HUB-Q:${QID}: <answer>`));
 });
 
 test("answer-file paths and schema match ~/.pi/coms/hermes-bridge/questions/<qid>.answer.json", () => {
@@ -170,7 +170,7 @@ test("timeouts default from PI_COMS_TIMEOUT_MS or 1,800,000ms and produce bridge
 	assert.deepEqual(timeoutOutcome(QID, 45_000), {
 		response: null,
 		error: "no remote answer within 45000ms",
-		telegramNote: `⌛ [HUB-Q:${QID}] Въпросът изтече след 45000ms.`,
+		telegramNote: `⌛ [HUB-Q:${QID}] The question timed out after 45000ms.`,
 	});
 });
 

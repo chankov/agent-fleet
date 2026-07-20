@@ -269,14 +269,14 @@ async function main(): Promise<void> {
 		pending.delete(refMsgId);
 		markClosed(refMsgId, "cancelled");
 		appendLogFile(logFile, refMsgId, "cancelled", { reason: "cancel envelope" });
-		await hermesSend(to, `✖ [HUB-Q:${refMsgId}] Въпросът е отменен — отговорено е от конзолата.`).catch((err) => {
+		await hermesSend(to, `✖ [HUB-Q:${refMsgId}] The question was cancelled — it was answered from the console.`).catch((err) => {
 			appendLogFile(logFile, refMsgId, "delivery_error", { phase: "cancel_note", error: err instanceof Error ? err.message : String(err) });
 		});
 	}
 
 	async function handleLateAnswer(qid: string): Promise<void> {
 		appendLogFile(logFile, qid, "late_answer", { state: closed.get(qid) ?? "unknown" });
-		await hermesSend(to, `ℹ [HUB-Q:${qid}] Този въпрос вече е затворен; късният отговор е игнориран.`).catch((err) => {
+		await hermesSend(to, `ℹ [HUB-Q:${qid}] This question is already closed; the late answer was ignored.`).catch((err) => {
 			appendLogFile(logFile, qid, "delivery_error", { phase: "late_note", error: err instanceof Error ? err.message : String(err) });
 		});
 	}

@@ -186,7 +186,7 @@ export interface TeamLayoutOptions {
 	// existing argv shapes; non-default projects are appended to hidden recipe
 	// positional args after model/session.
 	project?: string;
-	hub?: { command: string[]; label: string; ratio?: number };
+	hub?: { command: string[]; label: string; ratio?: number; cwd?: string; env?: Record<string, string> };
 }
 
 function paneNode(
@@ -234,7 +234,16 @@ function bsp(nodes: LayoutNode[], depth: number): LayoutNode {
 export function buildTeamLayout(opts: TeamLayoutOptions): LayoutNode {
 	const { team, peers, repoRoot, envForPeer, resumeForPeer, delayForPeer, hub, project = DEFAULT_PROJECT } = opts;
 	validateProject(project);
-	if (peers.length === 0) throw new Error(`Team "${team}" has no peers.`);
+	if (peers.length === 0) {
+		if (!hub) throw new Error(`Team "${team}" has no peers.`);
+		return {
+			type: "pane",
+			command: hub.command,
+			cwd: hub.cwd ?? repoRoot,
+			label: hub.label,
+			...(hub.env && Object.keys(hub.env).length > 0 ? { env: hub.env } : {}),
+		};
+	}
 	const panes = peers.map((p) => paneNode(p, team, repoRoot, envForPeer, resumeForPeer, project, delayForPeer));
 	const grid = bsp(panes, hub ? 1 : 0);
 	if (!hub) return grid;
@@ -242,7 +251,13 @@ export function buildTeamLayout(opts: TeamLayoutOptions): LayoutNode {
 		type: "split",
 		direction: "right",
 		ratio: hub.ratio ?? 0.4,
-		first: { type: "pane", command: hub.command, cwd: repoRoot, label: hub.label },
+		first: {
+			type: "pane",
+			command: hub.command,
+			cwd: hub.cwd ?? repoRoot,
+			label: hub.label,
+			...(hub.env && Object.keys(hub.env).length > 0 ? { env: hub.env } : {}),
+		},
 		second: grid,
 	};
 }

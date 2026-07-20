@@ -101,6 +101,19 @@ The live recipe reuses `scripts/team-up.ts --conductor`: it creates a normal her
 
 Hard boundary: the Hermes conductor must not run `herdr` commands, drive panes, create/kill workspaces, or manage fleet lifecycle. Herdr driving stays with the human/orchestrator so the damage-control model remains intact; see `.pi/damage-control-rules.yaml` for the authoritative no-herdr boundary. Hermes may only operate inside the project coms pool through the documented coms CLI commands.
 
+## Hermes and the Codex pilot
+
+Hermes/Telegram remains the **inbound** human `ask_user` complement to the
+experimental Codex remote-control conductor. Codex is outbound-initiated and
+exclusive only as far as the pre-Gate-P pilot verifies; it is not an inbound
+question channel. The Codex user service and control-pane lifecycle are
+separate from Hermes. See the [experimental Codex operator runbook](codex-remote-conductor.md).
+
+Both conductor contracts are advisory outside Pi damage-control: Pi wraps Pi
+tool calls, not Hermes or Codex, and neither has an OS command allowlist.
+Human confirmation, approvals, and sandboxing reduce risk but do not
+technically enforce either external contract.
+
 ## Deferred
 
 - Standing conductor peer for pi → Hermes inbound messages.

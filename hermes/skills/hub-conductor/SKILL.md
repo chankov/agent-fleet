@@ -58,6 +58,7 @@ Use a longer timeout for build/test/review tasks when needed. Every `send --awai
 
 ## Hard Boundaries
 
+- **Advisory contract only.** This skill runs in an external Hermes process. Pi damage-control wraps Pi tool calls, not Hermes; this contract and any human confirmation reduce risk but do not provide an OS command allowlist or technical enforcement.
 - **No herdr driving.** Do not run `herdr pane`, `herdr workspace`, pane lifecycle commands, workspace lifecycle commands, or any command that creates, closes, restarts, or drives panes. Rationale: fleet lifecycle belongs to the human/orchestrator so the `.pi/damage-control-rules.yaml` model remains intact and Hermes cannot accidentally destroy or commandeer active work.
 - **Pool scope only.** Operate only through peers visible in the current project coms pool (`coms-cli list`, then `coms-cli send ... --await`). Do not widen to unrelated projects, global registries, hidden explicit peers, or external agent pools unless the human explicitly starts that topology and names the target project. Rationale: coms pool boundaries keep delegation auditable and prevent cross-project leakage.
 - **No secret or bulk-data relay.** Send bounded prompts and path references, not secrets or whole-file dumps. Rationale: peers need task context, not uncontrolled data replication.

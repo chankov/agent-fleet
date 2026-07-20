@@ -19,6 +19,34 @@ export const COMS_DIR = process.env.PI_COMS_DIR || path.join(os.homedir(), ".pi"
 export const MAX_HOPS = Number(process.env.PI_COMS_MAX_HOPS) || 5;
 export const DEFAULT_TIMEOUT_MS = Number(process.env.PI_COMS_TIMEOUT_MS) || 1_800_000;
 const LINE_CAP_BYTES = 64 * 1024;
+// Pi peers refresh heartbeat_at every 30 seconds. A fresh heartbeat is the
+// portable liveness signal for callers inside a sandbox/PID namespace, where
+// process.kill(pid, 0) can incorrectly report a live host peer as ESRCH.
+const REGISTRY_HEARTBEAT_FRESH_MS = 90_000;
+
+// Registry paths are shared by every coms participant. Keep their components
+// conservative so callers cannot escape the project/name directory structure.
+export const COMS_PROJECT_SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+export const COMS_NAME_SAFE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+export function validateComsProject(project: string): string {
+	if (
+		project.length === 0 ||
+		project === "." ||
+		project.includes("..") ||
+		project.includes("/") ||
+		project.includes("\\") ||
+		!COMS_PROJECT_SAFE.test(project)
+	) {
+		throw new Error(`Invalid project name: ${JSON.stringify(project)}`);
+	}
+	return project;
+}
+
+export function validateComsName(name: string): string {
+	if (!COMS_NAME_SAFE.test(name)) throw new Error(`Invalid coms name: ${JSON.stringify(name)}`);
+	return name;
+}
 
 // ━━ Envelope shapes (mirror coms/index.ts) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -221,11 +249,11 @@ export function isCancelEnvelope(obj: unknown): obj is CancelEnvelope {
 // ━━ Registry I/O (mirrors coms/index.ts semantics) ━━━━━━━━━━━━━━━━━━━━━━━━
 
 export function projectAgentsDir(project: string): string {
-	return path.join(COMS_DIR, "projects", project, "agents");
+	return path.join(COMS_DIR, "projects", validateComsProject(project), "agents");
 }
 
 export function registryFilePath(project: string, name: string): string {
-	return path.join(projectAgentsDir(project), `${name}.json`);
+	return path.join(projectAgentsDir(project), `${validateComsName(name)}.json`);
 }
 
 export function ensureComsDirs(project: string): void {
@@ -241,6 +269,7 @@ export function ensureComsDirs(project: string): void {
 }
 
 export function writeRegistryAtomic(entry: RegistryEntry, project: string): string {
+	validateComsName(entry.name);
 	const file = registryFilePath(project, entry.name);
 	const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
 	fs.writeFileSync(tmp, JSON.stringify(entry, null, 2));
@@ -261,8 +290,9 @@ export function readAllRegistryEntries(project: string): RegistryEntry[] {
 	let files: string[];
 	try {
 		files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
-	} catch {
-		return [];
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw new Error(`Unable to read coms registry ${dir}: ${(error as NodeJS.ErrnoException).code ?? "unknown error"}`);
 	}
 	const out: RegistryEntry[] = [];
 	for (const f of files) {
@@ -276,11 +306,24 @@ export function readAllRegistryEntries(project: string): RegistryEntry[] {
 	return out;
 }
 
-// Same liveness rule as the coms harness: ESRCH removes the entry, EPERM
-// counts as live.
+export function registryHeartbeatIsFresh(entry: RegistryEntry, now = Date.now()): boolean {
+	if (!entry.heartbeat_at) return false;
+	const heartbeat = Date.parse(entry.heartbeat_at);
+	if (!Number.isFinite(heartbeat)) return false;
+	const age = now - heartbeat;
+	return age >= -5_000 && age <= REGISTRY_HEARTBEAT_FRESH_MS;
+}
+
+// A fresh heartbeat wins before the PID probe because Codex remote commands
+// can execute in a distinct PID namespace. For entries without a fresh
+// heartbeat, preserve the harness rule: ESRCH removes; EPERM counts as live.
 export function pruneDeadEntries(project: string): RegistryEntry[] {
 	const live: RegistryEntry[] = [];
 	for (const entry of readAllRegistryEntries(project)) {
+		if (registryHeartbeatIsFresh(entry)) {
+			live.push(entry);
+			continue;
+		}
 		try {
 			process.kill(entry.pid, 0);
 			live.push(entry);
@@ -296,6 +339,7 @@ export function pruneDeadEntries(project: string): RegistryEntry[] {
 }
 
 export function resolveUniqueName(project: string, desiredName: string): string {
+	validateComsName(desiredName);
 	const liveNames = new Set(pruneDeadEntries(project).map((e) => e.name));
 	if (!liveNames.has(desiredName)) return desiredName;
 	let n = 2;

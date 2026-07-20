@@ -1,5 +1,5 @@
-# Първият team се активира при старт. Смяна: /agents-team
-# researcher / deep-researcher не се листват — винаги достъпни през spawn_research.
+# The first team is activated at startup. Switch with: /agents-team
+# researcher / deep-researcher are not listed — they are always available through spawn_research.
 
 default:
   - planner

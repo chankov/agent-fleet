@@ -13,6 +13,32 @@ export const DEFAULT_PROJECT = "default";
 // like "acme.prod", but ".." is not allowed anywhere.
 export const PROJECT_SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export const TEAM_SAFE = /^[A-Za-z0-9_-]+$/;
+export const CODEX_CONTRACT_IDENTITY = "agent-fleet-codex-conductor-pilot-v1";
+export const DEFAULT_CODEX_TIMEOUT_MS = 300_000;
+
+export type ConductorBackend = "hermes" | "codex";
+export type WorkspaceMode = "peers" | "hub" | "conductor-hermes" | "conductor-codex";
+
+export interface ConductorSpec {
+	backend: ConductorBackend;
+	workspaceMode: Extract<WorkspaceMode, `conductor-${string}`>;
+	paneLabel: string;
+	command: string[];
+	cwd: string;
+	env: Record<string, string>;
+	ratio: number;
+	displayText: string;
+	expectedServiceScope: "none" | "agent-fleet-codex-remote-control.service";
+	conductorName: string;
+	team: string;
+}
+
+function validateAbsoluteRepoRoot(repoRoot: string): string {
+	if (!path.isAbsolute(repoRoot) || path.resolve(repoRoot) !== repoRoot || repoRoot.includes("..")) {
+		throw new Error(`Invalid absolute repository root: ${JSON.stringify(repoRoot)}`);
+	}
+	return repoRoot;
+}
 
 export function validateProject(project: string): string {
 	if (
@@ -71,7 +97,7 @@ export function parseProjectFlag(argv: string[]): string {
 // on a shared `pi-hub-<team>`. Pass `tag` from worktreeTag(REPO_ROOT); it
 // defaults to "repo" only for callers that have no checkout in hand.
 export function teamWorkspaceLabel(
-	kind: "peers" | "hub" | "conductor",
+	kind: WorkspaceMode,
 	team: string,
 	project = DEFAULT_PROJECT,
 	tag = "repo",
@@ -89,6 +115,53 @@ export function hubCommand(project = DEFAULT_PROJECT): string[] {
 
 export function conductorCommand(): string[] {
 	return ["hermes", "-p", "dev"];
+}
+
+export function conductorSpec(
+	backend: ConductorBackend,
+	input: { repoRoot: string; team: string; project?: string },
+): ConductorSpec {
+	const repoRoot = validateAbsoluteRepoRoot(input.repoRoot);
+	const team = validateTeamName(input.team);
+	const project = validateProject(input.project ?? DEFAULT_PROJECT);
+	const conductorName = `${backend}-${team}-conductor`;
+	if (backend === "hermes") {
+		return {
+			backend,
+			workspaceMode: "conductor-hermes",
+			paneLabel: "conductor-hermes",
+			command: conductorCommand(),
+			cwd: repoRoot,
+			env: {},
+			ratio: 0.35,
+			displayText: "Hermes conductor; no herdr control",
+			expectedServiceScope: "none",
+			conductorName,
+			team,
+		};
+	}
+	const contractDir = path.join(repoRoot, "codex", "conductor");
+	return {
+		backend,
+		workspaceMode: "conductor-codex",
+		paneLabel: "conductor-codex-control",
+		command: ["node", "--experimental-strip-types", path.join(repoRoot, "scripts", "codex-remote-control.ts"), "control-pane"],
+		cwd: contractDir,
+		env: {
+			AGENT_FLEET_REPO_ROOT: repoRoot,
+			COMS_CLI_PROJECT: project,
+			COMS_CLI_NAME: conductorName,
+			COMS_CLI_TIMEOUT_MS: String(DEFAULT_CODEX_TIMEOUT_MS),
+			AGENT_FLEET_CODEX_CONTRACT_PATH: path.join(contractDir, "AGENTS.md"),
+			AGENT_FLEET_CODEX_CONTRACT_IDENTITY: CODEX_CONTRACT_IDENTITY,
+			AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
+		},
+		ratio: 0.35,
+		displayText: "Codex control pane; requested systemd state only",
+		expectedServiceScope: "agent-fleet-codex-remote-control.service",
+		conductorName,
+		team,
+	};
 }
 
 export function teamSnapshotPath(snapshotDir: string, team: string, project = DEFAULT_PROJECT): string {

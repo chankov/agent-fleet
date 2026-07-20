@@ -102,7 +102,10 @@ _claude-peer name model="" session="" project="default":
 # where the tag is the last dot-segment of this directory's basename (main.wt2 →
 # wt2, ringithub.end2 → end2, plain agent-fleet → agent-fleet). So the same team
 # launched from different repos/worktrees gets its own workspace (wt2-hub-plan vs
-# end2-hub-plan) instead of colliding on a shared label.
+# end2-hub-plan) instead of colliding on a shared label. This is not global
+# uniqueness: unrelated checkouts with the same basename/final dot-segment can
+# still collide. Existing-workspace refusal prevents clobbering; it does not
+# prove the labels are unique.
 #
 # `--project <name>` is a SEPARATE axis: it scopes the coms peer POOL. Without it
 # every peer lands in the shared "default" pool, where teams launched from OTHER
@@ -146,6 +149,82 @@ conductor team="full" *args:
 # e.g. just conductor-dry docs --project af
 conductor-dry team="full" *args:
     {{node_ts}} scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
+
+# Experimental Codex remote-control conductor lifecycle (verified with CLI
+# 0.144.x). Pairing stays interactive and its short-lived code must never be
+# captured. The user service is singleton across repos/projects.
+# e.g. just conductor-codex-setup docs --project af
+conductor-codex-setup team="full" *args:
+    {{node_ts}} scripts/codex-remote-control.ts setup-conductor --codex-bin "$(command -v codex)" --repo-root "$(pwd -P)" --coms-dir "$HOME/.pi/coms" --team "{{team}}" --timeout 300000 {{args}}
+
+conductor-codex-reconfigure team="full" *args:
+    {{node_ts}} scripts/codex-remote-control.ts reconfigure-conductor --codex-bin "$(command -v codex)" --repo-root "$(pwd -P)" --coms-dir "$HOME/.pi/coms" --team "{{team}}" --timeout 300000 {{args}}
+
+conductor-codex-pair:
+    {{node_ts}} scripts/codex-remote-control.ts pair
+
+conductor-codex-start:
+    {{node_ts}} scripts/codex-remote-control.ts start
+
+conductor-codex-status:
+    {{node_ts}} scripts/codex-remote-control.ts status
+
+conductor-codex-stop:
+    {{node_ts}} scripts/codex-remote-control.ts stop
+
+conductor-codex-recover:
+    {{node_ts}} scripts/codex-remote-control.ts recover --confirm operator-confirmed
+
+conductor-codex-uninstall:
+    {{node_ts}} scripts/codex-remote-control.ts uninstall --confirm operator-confirmed
+
+# Codex conductor + team in one workspace. The root is a requested-state
+# control pane; systemd owns the remote-control daemon.
+# e.g. just conductor-codex docs --project af
+conductor-codex team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor codex {{args}}
+
+conductor-codex-dry team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor codex --dry-run {{args}}
+
+# Legacy pilot aliases retained for the 0.144.x experimental rollout.
+# Setup/reconfigure resolve the selected binary and persist one validated
+# repo/project/team/coms context.
+# e.g. just conductor-codex-pilot-setup docs --project af
+conductor-codex-pilot-setup team="full" *args:
+    {{node_ts}} scripts/codex-remote-control.ts setup-pilot --codex-bin "$(command -v codex)" --repo-root "$(pwd -P)" --coms-dir "$HOME/.pi/coms" --team "{{team}}" --timeout 300000 {{args}}
+
+conductor-codex-pilot-reconfigure team="full" *args:
+    {{node_ts}} scripts/codex-remote-control.ts reconfigure-pilot --codex-bin "$(command -v codex)" --repo-root "$(pwd -P)" --coms-dir "$HOME/.pi/coms" --team "{{team}}" --timeout 300000 {{args}}
+
+conductor-codex-pilot-pair:
+    {{node_ts}} scripts/codex-remote-control.ts pair
+
+conductor-codex-pilot-start:
+    {{node_ts}} scripts/codex-remote-control.ts start
+
+conductor-codex-pilot-status:
+    {{node_ts}} scripts/codex-remote-control.ts status
+
+conductor-codex-pilot-stop:
+    {{node_ts}} scripts/codex-remote-control.ts stop
+
+conductor-codex-pilot-recover:
+    {{node_ts}} scripts/codex-remote-control.ts recover --confirm operator-confirmed
+
+conductor-codex-pilot-uninstall:
+    {{node_ts}} scripts/codex-remote-control.ts uninstall --confirm operator-confirmed
+
+# Legacy pilot live aliases use the same verified implementation. The root pane
+# is the lifecycle helper's foreground control pane, never a daemon command.
+# e.g. just conductor-codex-pilot docs --project af
+conductor-codex-pilot team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor codex {{args}}
+
+# Legacy pilot dry-run alias.
+# e.g. just conductor-codex-pilot-dry docs --project af
+conductor-codex-pilot-dry team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor codex --dry-run {{args}}
 
 # Snapshot a RUNNING team's session refs to ~/.pi/team-snapshots/<team>.json
 # (team keeps running — take one proactively so a crash is resumable).

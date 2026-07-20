@@ -1,0 +1,21 @@
+# Managed by agent-fleet codex remote-control
+[Unit]
+Description=Agent Fleet Codex remote-control requested state
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{WORKING_DIRECTORY}}
+Environment=AGENT_FLEET_REPO_ROOT={{AGENT_FLEET_REPO_ROOT}}
+Environment=PI_COMS_DIR={{PI_COMS_DIR}}
+Environment=COMS_CLI_PROJECT={{COMS_CLI_PROJECT}}
+Environment=COMS_CLI_NAME={{COMS_CLI_NAME}}
+Environment=COMS_CLI_TIMEOUT_MS={{COMS_CLI_TIMEOUT_MS}}
+Environment=AGENT_FLEET_CODEX_CONTRACT_PATH={{AGENT_FLEET_CODEX_CONTRACT_PATH}}
+Environment=AGENT_FLEET_CODEX_CONTRACT_IDENTITY={{AGENT_FLEET_CODEX_CONTRACT_IDENTITY}}
+Environment=AGENT_FLEET_CONDUCTOR_BACKEND={{AGENT_FLEET_CONDUCTOR_BACKEND}}
+ExecStart={{NODE_BIN}} --experimental-strip-types {{SCRIPT_PATH}} unit-start --config {{CONFIG_PATH}}
+ExecStop={{NODE_BIN}} --experimental-strip-types {{SCRIPT_PATH}} unit-stop --config {{CONFIG_PATH}}
+
+[Install]
+WantedBy=default.target

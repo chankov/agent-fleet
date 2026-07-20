@@ -26,6 +26,10 @@
 #                 runner: claude-code
 #                 model: opus
 
+# Hub-only workspace: `just hub-team base --project <name>` creates a Herdr
+# workspace containing only the guarded hub, with no reusable coms peer panes.
+base:
+
 full:
   - name: web-debugger
     persona: web-debugger

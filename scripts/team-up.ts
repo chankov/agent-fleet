@@ -35,10 +35,20 @@ import {
 	type Peer,
 } from "./lib/herdr-layout.ts";
 import { planSpawnDelays } from "./lib/spawn-stagger.ts";
-import { DEFAULT_PROJECT, conductorCommand, hubCommand, parseProjectFlag, teamWorkspaceLabel, validateTeamName, worktreeTag } from "./lib/team-project.ts";
+import {
+	DEFAULT_PROJECT,
+	conductorSpec,
+	hubCommand,
+	parseProjectFlag,
+	teamWorkspaceLabel,
+	validateTeamName,
+	worktreeTag,
+	type ConductorBackend,
+	type ConductorSpec,
+} from "./lib/team-project.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
+const REPO_ROOT = fs.realpathSync(path.resolve(SCRIPT_DIR, ".."));
 // Scopes the workspace label to this checkout so the same team from another
 // repo/worktree gets its own workspace instead of colliding (see worktreeTag).
 const WORKTREE_TAG = worktreeTag(REPO_ROOT);
@@ -47,7 +57,6 @@ const DEFAULT_PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
 // The guarded hub or Hermes conductor occupies this share of the workspace in
 // --hub/--conductor mode; the team tiles in the rest.
 const HUB_RATIO = 0.4;
-const CONDUCTOR_RATIO = 0.35;
 
 function flagValue(argv: string[], flag: string): string | null {
 	const i = argv.indexOf(flag);
@@ -62,6 +71,16 @@ function die(msg: string): never {
 	process.exit(1);
 }
 
+function parseConductorBackend(argv: string[]): ConductorBackend | null {
+	const indexes = argv.flatMap((value, index) => value === "--conductor" ? [index] : []);
+	if (indexes.length > 1) throw new Error("--conductor may only be provided once");
+	if (indexes.length === 0) return null;
+	const value = argv[indexes[0] + 1];
+	if (!value || value.startsWith("--")) return "hermes"; // legacy bare --conductor
+	if (value === "hermes" || value === "codex") return value;
+	throw new Error(`Unknown conductor backend: ${JSON.stringify(value)} (expected hermes or codex)`);
+}
+
 function loadTeam(team: string, peersYaml: string): Peer[] {
 	if (!fs.existsSync(peersYaml)) die(`peers.yaml not found at ${peersYaml}`);
 	const teams = parsePeersYaml(fs.readFileSync(peersYaml, "utf-8"));
@@ -70,7 +89,6 @@ function loadTeam(team: string, peersYaml: string): Peer[] {
 		const names = Object.keys(teams).join(", ") || "(none)";
 		die(`Unknown team "${team}". Available teams: ${names}`);
 	}
-	if (peers.length === 0) die(`Team "${team}" has no peers.`);
 	return peers;
 }
 
@@ -128,20 +146,37 @@ function makeDelayLoader(peers: Peer[], mode: "peers" | "hub" | "conductor"): (p
 	return delayForPeer;
 }
 
+async function validateCodexLaunchOrDie(spec: ConductorSpec, project: string): Promise<void> {
+	try {
+		const { assertConductorContext, lifecyclePaths, loadOwnedConfig, preflight, status } = await import("./lib/codex-remote-control.ts");
+		const config = loadOwnedConfig(lifecyclePaths().configPath);
+		assertConductorContext(config, {
+			repoRoot: REPO_ROOT,
+			project,
+			team: spec.team,
+			name: spec.conductorName,
+			timeoutMs: Number(spec.env.COMS_CLI_TIMEOUT_MS),
+			contractPath: String(spec.env.AGENT_FLEET_CODEX_CONTRACT_PATH),
+			contractIdentity: String(spec.env.AGENT_FLEET_CODEX_CONTRACT_IDENTITY),
+		});
+		preflight(config);
+		if (status() !== "requested systemd state: active (exited); this is not daemon health") {
+			throw new Error("Codex user service is not in requested active (exited) state");
+		}
+	} catch (err) {
+		die(`Codex launch refused before Herdr: ${err instanceof Error ? err.message : String(err)}`);
+	}
+}
+
 function buildLayoutOrDie(
 	team: string,
 	peers: Peer[],
 	envForPeer: (p: Peer) => Record<string, string> | undefined,
-	mode: "peers" | "hub" | "conductor",
 	project: string,
+	rootPane?: { command: string[]; label: string; ratio: number; cwd?: string; env?: Record<string, string> },
 	delayForPeer?: (p: Peer) => number | undefined,
 ): LayoutNode {
 	try {
-		const rootPane = mode === "hub"
-			? { command: hubCommand(project), label: "hub", ratio: HUB_RATIO }
-			: mode === "conductor"
-				? { command: conductorCommand(), label: "conductor", ratio: CONDUCTOR_RATIO }
-				: undefined;
 		return buildTeamLayout({
 			team,
 			peers,
@@ -171,7 +206,12 @@ async function main(): Promise<void> {
 	}
 	const dryRun = argv.includes("--dry-run");
 	const hub = argv.includes("--hub");
-	const conductor = argv.includes("--conductor");
+	let conductor: ConductorBackend | null;
+	try {
+		conductor = parseConductorBackend(argv);
+	} catch (err) {
+		die(err instanceof Error ? err.message : String(err));
+	}
 	if (hub && conductor) die("--hub and --conductor are mutually exclusive");
 	const mode: "peers" | "hub" | "conductor" = hub ? "hub" : conductor ? "conductor" : "peers";
 
@@ -186,19 +226,29 @@ async function main(): Promise<void> {
 		die(err instanceof Error ? err.message : String(err));
 	}
 	const peers = loadTeam(team, peersYaml);
+	if (peers.length === 0 && mode === "peers") {
+		die(`Team "${team}" has no peers. Empty teams require --hub or --conductor.`);
+	}
+	let spec: ConductorSpec | undefined;
 	let label: string;
 	try {
-		label = teamWorkspaceLabel(mode, team, project, WORKTREE_TAG);
+		spec = conductor ? conductorSpec(conductor, { repoRoot: REPO_ROOT, team, project }) : undefined;
+		label = teamWorkspaceLabel(spec?.workspaceMode ?? (hub ? "hub" : "peers"), team, project, WORKTREE_TAG);
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
+	const rootPane = hub
+		? { command: hubCommand(project), label: "hub", ratio: HUB_RATIO }
+		: spec
+			? { command: spec.command, label: spec.paneLabel, ratio: spec.ratio, cwd: spec.cwd, env: spec.env }
+			: undefined;
 
 	if (dryRun) {
 		// No herdr calls and no env_file reads on this path — must work with no
 		// herdr installed, and secrets never reach the output.
-		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), mode, project);
+		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), project, rootPane);
 		const projectNote = project === DEFAULT_PROJECT ? "" : `, project "${project}"`;
-		const extra = mode === "hub" ? " + hub" : mode === "conductor" ? " + conductor" : "";
+		const extra = mode === "hub" ? " + hub" : spec ? ` + ${spec.backend === "codex" ? "Codex conductor" : "Hermes conductor"}` : "";
 		console.log(
 			`# team-up (dry run) — team "${team}"${projectNote}, ${peers.length} peer(s)${extra}, herdr workspace "${label}"`,
 		);
@@ -211,7 +261,8 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), mode, project, makeDelayLoader(peers, mode));
+	if (spec?.backend === "codex") await validateCodexLaunchOrDie(spec, project);
+	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), project, rootPane, makeDelayLoader(peers, mode));
 
 	// Import lazily so --dry-run never touches the client (or the socket).
 	const { herdr, requireHerdr, HerdrUnavailableError } = await import(
@@ -223,7 +274,7 @@ async function main(): Promise<void> {
 	} catch (err) {
 		if (err instanceof HerdrUnavailableError) {
 			console.error(err.message);
-			const dryRecipe = mode === "hub" ? "hub-team-dry" : mode === "conductor" ? "conductor-dry" : "team-up-dry";
+			const dryRecipe = mode === "hub" ? "hub-team-dry" : spec?.backend === "codex" ? "conductor-codex-dry" : mode === "conductor" ? "conductor-dry" : "team-up-dry";
 			console.error(`(dry run still works: just ${dryRecipe} ${team}${project === DEFAULT_PROJECT ? "" : ` --project ${project}`})`);
 			process.exit(1);
 		}
@@ -253,12 +304,13 @@ async function main(): Promise<void> {
 		}
 	}
 
-	const launchedPrefix = mode === "hub" ? "hub + " : mode === "conductor" ? "conductor + " : "";
+	const launchedPrefix = mode === "hub" ? "hub + " : spec ? `${spec.backend} conductor + ` : "";
 	console.log(
 		`Launched ${launchedPrefix}${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`,
 	);
 	if (mode === "hub") console.log(`  • hub (${hubCommand(project).join(" ")} — guarded dispatcher)`);
-	if (mode === "conductor") console.log(`  • conductor (${conductorCommand().join(" ")} — Hermes conductor; no herdr control)`);
+	if (spec) console.log(`  • ${spec.paneLabel} (${spec.command.join(" ")} — ${spec.displayText})`);
+	if (spec?.backend === "codex") console.log("  • Closing this workspace does not stop the enabled Codex user service; stop it explicitly.");
 	for (const p of peers) console.log(`  • ${p.name}`);
 	console.log(`Focus: herdr workspace focus ${wsId}`);
 	console.log(`Close: herdr workspace close ${wsId}`);

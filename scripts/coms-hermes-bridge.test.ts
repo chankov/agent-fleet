@@ -244,9 +244,9 @@ test("cancel sends a note, emits no response, and late answers log late_answer p
 		to: "user-remote",
 		ref_msg_id: client.prompt.msg_id,
 	}));
-	await waitFor(() => readHermesCalls(f).find((call) => call.message.includes("отменен")));
+	await waitFor(() => readHermesCalls(f).find((call) => call.message.includes("was cancelled")));
 	writeAnswer(f, client.prompt.msg_id, "Too late");
-	await waitFor(() => readHermesCalls(f).find((call) => call.message.includes("вече е затворен")));
+	await waitFor(() => readHermesCalls(f).find((call) => call.message.includes("already closed")));
 
 	const gotResponse = await Promise.race([client.response.then(() => true), sleep(250).then(() => false)]);
 	assert.equal(gotResponse, false);
@@ -276,7 +276,7 @@ test("timeouts use PI_COMS_TIMEOUT_MS by default and return an error plus Telegr
 	const response = await client.response;
 	assert.equal(response.response, null);
 	assert.equal(response.error, "no remote answer within 120ms");
-	await waitFor(() => readHermesCalls(f).find((call) => call.message.includes("изтече след 120ms")));
+	await waitFor(() => readHermesCalls(f).find((call) => call.message.includes("timed out after 120ms")));
 	const events = readJsonLines(bridgeLogFile(f)).map((r) => r.event);
 	assert.ok(events.includes("timeout"));
 });

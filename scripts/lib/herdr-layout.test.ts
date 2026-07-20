@@ -28,6 +28,7 @@ function panesOf(node: LayoutNode): Array<Extract<LayoutNode, { type: "pane" }>>
 test("real peers.yaml parses into the shipped teams", () => {
 	const teams = parsePeersYaml(realPeersYaml);
 	assert.deepEqual(Object.keys(teams).sort(), [
+		"base",
 		"debug",
 		"default",
 		"docs",
@@ -41,6 +42,7 @@ test("real peers.yaml parses into the shipped teams", () => {
 		"security",
 		"web",
 	]);
+	assert.equal(teams.base.length, 0);
 	assert.equal(teams.full.length, 3);
 	assert.equal(teams.web.length, 1);
 	assert.equal(teams.docs.length, 2);
@@ -212,6 +214,23 @@ test("hub option puts the hub in a larger root pane with the team tiled beside i
 		}
 		assert.equal(panesOf(tree.second).length, 2);
 	}
+});
+
+test("empty base team produces a hub-only workspace layout", () => {
+	const teams = parsePeersYaml(realPeersYaml);
+	const tree = buildTeamLayout({
+		team: "base",
+		peers: teams.base,
+		repoRoot: REPO_ROOT,
+		hub: { command: ["just", "hub", "--project", "acme"], label: "hub" },
+		project: "acme",
+	});
+	assert.deepEqual(tree, {
+		type: "pane",
+		command: ["just", "hub", "--project", "acme"],
+		cwd: REPO_ROOT,
+		label: "hub",
+	});
 });
 
 test("conductor option puts Hermes in a root pane with the team tiled beside it", () => {
