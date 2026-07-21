@@ -677,6 +677,45 @@ orchestration surface the dispatcher persona never narrows.
 The dispatcher persona is **flavor-only** (decision G4 / 9) — it enriches the role but never narrows
 this tool set, so coms and dispatch stay available regardless of the chosen persona.
 
+## Optional Hermes local monitor transport
+
+The optional monitor is an Agent Fleet-owned transport boundary, not a Hermes runtime API or a
+bundled Hermes plugin. When enabled, `agent-hub` publishes dispatcher-turn and specialist-run
+state and owns generation-safe cancellation. A separate local Hermes UI or operator client may
+consume the owner-only discovery + Unix-socket contract documented in
+[`hermes/README.md`](../../../hermes/README.md#local-agent-hub-monitor-integration).
+
+Set these before the hub starts:
+
+```bash
+export AGENT_FLEET_PROFILE_ID="approved-profile-id"
+export AGENT_FLEET_MONITOR_RUNTIME_DIR="/absolute/owner-only/runtime-root"
+```
+
+Both are required for monitor startup; the runtime root must be absolute and owner-only, and the
+profile ID must be a safe identifier. The monitor also starts only for a Herdr-backed hub with
+`HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`; retain those values and `HERDR_SOCKET_PATH` in the
+standard `just hub-team <team>` flow. Workspace labels are display metadata, not monitor identity.
+
+The live contract exposes three authenticated newline-delimited JSON requests: `snapshot`, cursor-
+based `output`, and exact-generation `cancel`. The monitor is local-only and fails closed when its
+profile discovery, lease, token, or Unix socket is unavailable. A native cancel targets only the
+matching hub-owned process generation. A coms cancel abandons the local wait only; its peer can
+continue. Neither path controls or closes a Herdr workspace/pane.
+
+Example startup:
+
+```bash
+monitor_runtime="${XDG_RUNTIME_DIR:?}/agent-fleet-monitor"
+install -d -m 700 "$monitor_runtime"
+AGENT_FLEET_PROFILE_ID=dev \
+AGENT_FLEET_MONITOR_RUNTIME_DIR="$monitor_runtime" \
+just hub-team default
+```
+
+No Desktop/backend plugin installation is required or provided. Consumers must re-discover after
+lease or socket loss and must never persist or log the token.
+
 ## Requires
 
 - `.pi/agents/teams.yaml` for fixed specialist teams, the referenced persona `.md` files, and

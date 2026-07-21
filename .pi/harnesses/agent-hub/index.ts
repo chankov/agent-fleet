@@ -74,6 +74,13 @@ import { spawnPiAgent, killPiTree, type PiRunControl, type Termination } from ".
 import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "./research-watchdog.ts";
 import { renderHubFooterLeft } from "./footer.ts";
 import { HARNESS_VERSION, registerVersionStatus } from "./version.ts";
+import { cancelLocalOwnedProcess, cancelLocalWaitOnly, monitorKeyForAgent } from "./monitor-control.ts";
+import { createMonitorLifecycle, monitorLifecycleConfig } from "./monitor-lifecycle.ts";
+import { MonitorRegistry } from "../../../scripts/lib/hermes-monitor-registry.ts";
+import { MonitorStore } from "../../../scripts/lib/hermes-monitor-store.ts";
+import { createMonitorSessionBridge } from "./monitor-session-bridge.ts";
+import { MonitorRuntime } from "./monitor-runtime.ts";
+import { monitorReconcileEvidence, stableMonitorHubId } from "./monitor-recovery.ts";
 import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	appendExemptionToFile, exemptionsFilePath, fileExemptionsFor,
@@ -1802,6 +1809,9 @@ export default function (pi: ExtensionAPI) {
 	const pendingReplies: Map<string, PendingReply> = new Map();
 	const inboundQueue: Map<string, InboundContext> = new Map();
 	let server: net.Server | null = null;
+	let monitorLifecycle: ReturnType<typeof createMonitorLifecycle> | null = null;
+	let monitorHubId: string | null = null;
+	let monitorBridge: ReturnType<typeof createMonitorSessionBridge> | null = null;
 	let pingTimer: NodeJS.Timeout | null = null;
 	let keepaliveTimer: NodeJS.Timeout | null = null;
 	// herdr presence backend (active when this session runs inside a herdr
@@ -3238,7 +3248,10 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 
 		const histEntry = historyStart("agent", displayName(state.def.name));
 		state.histEntry = histEntry;
-
+		const agentKey = safeAgentKey(state.def.name);
+		const runNumber = state.runCount;
+		const monitorKey = monitorKeyForAgent(state.def.name, state.runCount);
+		const monitorStart = monitorBridge?.startChild({ key: monitorKey, id: `run-${agentKey}-${state.runCount}`, generation: 1, parentId: `hub-turn-${monitorHubId}`, specialist: agentKey }, process.env);
 		const startTime = Date.now();
 		state.timer = setInterval(() => {
 			state.elapsed = Date.now() - startTime;
@@ -3251,7 +3264,8 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		// at any point. A coms-preferring member with a live same-name pool peer
 		// is served by that peer; everything downstream (return contract, ASK_USER,
 		// research pipe, history) consumes the same result shape either way.
-		const finishRun = (output: string, exitCode: number, opts?: { idle?: boolean; notice?: string }) => {
+		const finishRun = async (output: string, exitCode: number, opts?: { idle?: boolean; notice?: string }) => {
+			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, output, exitCode === 0 ? "completed" : "failed"));
 			clearInterval(state.timer);
 			state.elapsed = Date.now() - startTime;
 			state.status = opts?.idle ? "idle" : exitCode === 0 ? "done" : "error";
@@ -3292,6 +3306,7 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			ctx.ui.notify(route.comsMissedNotice, "warning");
 		}
 		if (route.backend === "coms") {
+			void monitorBridge?.registerWaitOnly(monitorKey, () => state.comsAbort?.());
 			const allowNativeFallback = (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
 			const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
 			const comsRes = await dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
@@ -3318,8 +3333,6 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 				: "openrouter/google/gemini-3-flash-preview");
 
 		// Session file for this agent
-		const agentKey = safeAgentKey(state.def.name);
-		const runNumber = state.runCount;
 		const agentSessionFile = safePathWithin(sessionDir, `${agentKey}.json`);
 
 		// Session recycling: resuming an accumulated session re-bills its whole
@@ -3502,9 +3515,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// Whole-run deadline from the active mode's budget (null in strict mode).
 			turnDeadlineMs: turnBudget.agentTurnMs,
 		}, {
-			onProcess: (p) => { state.proc = p; },
+			onProcess: (p) => { state.proc = p; void monitorStart?.then(task => monitorBridge?.registerOwnedProcessFor(task, p)); },
 			...(driftMonitor ? { onControl: (c: PiRunControl) => { driftControl = c; } } : {}),
 			onTextDelta: (delta) => {
+				void monitorStart?.then(task => monitorBridge?.appendOutputFor(task, delta));
 				fullText += delta;
 				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
 				appendTimelineText(state.timeline, "text", delta);
@@ -3560,6 +3574,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 		// The process could not be spawned at all (proc `error` event).
 		if (res.spawnError) {
+			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, `Error spawning agent: ${res.spawnError}`, "failed"));
 			state.status = "error";
 			state.lastWork = `Error: ${res.spawnError}`;
 			state.killedByOperator = false;
@@ -3627,6 +3642,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		// fire any restart waiter, and return a message that tells the dispatcher
 		// LLM not to auto-retry. /agents-restart handles the fresh re-dispatch.
 		if (state.killedByOperator) {
+			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, "operator killed run", "cancelled"));
 			// !! (not `=== true`): TS otherwise narrows the field to the `false`
 			// assigned during setup — the concurrent /agents-restart mutation that
 			// makes this true is invisible to the checker across the await.
@@ -3651,6 +3667,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			};
 		}
 
+		await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, full, code === 0 ? "completed" : "failed"));
 		state.status = code === 0 ? "done" : "error";
 
 		// Mark session file as available for resume
@@ -6905,7 +6922,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// Coms-backed run: no local process to SIGTERM — only the wait can be
 			// released; the standing peer keeps running its turn in its own pane.
 			if (!state.proc) {
-				state.comsAbort?.();
+				void cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "wait_only_cancelled" } });
 				ctx.ui.notify(`Abandoning ${displayName(state.def.name)}'s coms dispatch (the peer pane keeps running)...`, "info");
 				return;
 			}
@@ -6913,7 +6930,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// delegate children die with it. The close handler resolves the awaited
 			// dispatch with a "do not auto-retry" message, unblocking the dispatcher.
 			state.killedByOperator = true;
-			killPiTree(state.proc);
+			cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree });
 			ctx.ui.notify(`Killing ${displayName(state.def.name)}...`, "info");
 		},
 	});
@@ -6969,16 +6986,17 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// re-dispatching (dispatchAgent rejects a re-entry while status is running).
 			// A coms-backed run has no process — abandoning the wait is the "kill".
 			if (state.status === "running" && (state.proc || state.comsAbort)) {
-				await new Promise<void>(res => {
-					state.onTerminate = res;
-					if (state.proc) {
-						state.killedByOperator = true;
-						state.restarting = true;
-						killPiTree(state.proc);
-					} else {
-						state.comsAbort?.();
-					}
-				});
+				let resolveTermination!: () => void;
+				const terminated = new Promise<void>(res => { resolveTermination = res; });
+				state.onTerminate = resolveTermination;
+				if (state.proc) {
+					state.killedByOperator = true;
+					state.restarting = true;
+					killPiTree(state.proc);
+				} else {
+					await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "restart" } });
+				}
+				await terminated;
 			}
 			// Re-run fresh: a frozen session file may be inconsistent, so drop it (no -c).
 			state.sessionFile = null;
@@ -7558,6 +7576,86 @@ ${researchCatalog}`;
 		}
 		delegateExtPath = resolveDelegateExtension(_ctx.cwd);
 
+		const monitorConfig = monitorLifecycleConfig(process.env);
+		if (monitorBridge || monitorLifecycle) { try { await monitorBridge?.cancelAllWaitOnly(); await monitorLifecycle?.stop(); } finally { monitorBridge=null; monitorLifecycle=null; } }
+		if (monitorConfig) {
+			try {
+				fs.mkdirSync(monitorConfig.profilePath, { recursive: true, mode: 0o700 });
+				const stableHubId = stableMonitorHubId({ profileId: monitorConfig.profileId, checkout: _ctx.cwd || process.cwd(), workspaceId: process.env.HERDR_WORKSPACE_ID, paneId: process.env.HERDR_PANE_ID });
+				monitorHubId = stableHubId;
+				const store = new MonitorStore();
+				const monitorRegistry = new MonitorRegistry({ runtimeDir: monitorConfig.runtimeDir });
+				monitorLifecycle = createMonitorLifecycle({
+					registry: monitorRegistry,
+					treeKill: killPiTree,
+					wait: (proc: ChildProcess) => new Promise<boolean>((resolve) => proc.once("close", () => resolve(true))),
+					getRecoveryEvidence: async (task: any) => {
+						if (task?.ownerSessionId) {
+							const evidence = monitorRegistry.evidenceForOwner(task.ownerSessionId, task.hubInstanceId ?? stableHubId);
+							if (evidence.transient) return { transient: true };
+							const herdr = await monitorReconcileEvidence({
+								hubId: task.hubInstanceId ?? stableHubId,
+								currentHubId: stableHubId,
+								paneId: process.env.HERDR_PANE_ID,
+								workspaceId: process.env.HERDR_WORKSPACE_ID,
+								herdr: {
+									pane: { get: async (id: string) => (await herdrApi.paneGet(id)).pane },
+									workspace: { get: async (id: string) => {
+										const panes = await herdrApi.paneList({ workspace_id: id });
+										return panes.panes.length ? { id } : null;
+									} },
+								},
+							});
+							return {
+								oldOwner: evidence.owner,
+								oldSocket: evidence.socket,
+								oldSession: evidence.session,
+								oldHerdr: herdr.herdr,
+								transient: herdr.transient,
+							};
+						}
+						return monitorReconcileEvidence({
+							owner: monitorLifecycle?.isAlive(),
+							socket: monitorLifecycle?.isAlive(),
+							session: true,
+							hubId: stableHubId,
+							currentHubId: stableHubId,
+							paneId: process.env.HERDR_PANE_ID,
+							workspaceId: process.env.HERDR_WORKSPACE_ID,
+							herdr: {
+								pane: { get: async (id: string) => (await herdrApi.paneGet(id)).pane },
+								workspace: { get: async (id: string) => {
+									const panes = await herdrApi.paneList({ workspace_id: id });
+									return panes.panes.length ? { id } : null;
+								} },
+							},
+						});
+					},
+				});
+				monitorBridge = createMonitorSessionBridge({
+					runtime: new MonitorRuntime({
+						runtimeDir: monitorConfig.runtimeDir,
+						profileId: monitorConfig.profileId,
+						hubInstanceId: stableHubId,
+					}),
+					registerOwnedProcess: (_key: string, process: ChildProcess, task: any) => monitorLifecycle?.registerOwnedGeneration({
+						taskId: task.id,
+						generation: task.generation,
+						process,
+					}),
+					cancelOwnedProcess: (request: any) => monitorLifecycle?.lowLevelCancelOwnedGeneration(request) ?? {
+						cancelled: false,
+						reason: "unsupported",
+					},
+				});
+				if (!monitorBridge.snapshot().tasks.some((task: any) => task.kind === "parent")) monitorBridge.startParent({ id: `hub-turn-${stableHubId}`, hubInstanceId: stableHubId, checkoutId: _ctx.cwd || process.cwd() });
+				await monitorLifecycle.startBridge(monitorBridge, { profilePath: monitorConfig.profilePath, profileId: monitorConfig.profileId, hubInstanceId: stableHubId });
+			} catch (error) {
+				monitorLifecycle = null;
+				_ctx.ui.notify(`Agent Fleet monitor disabled: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			}
+		}
+
 		// ── Embedded coms init ──
 		// Always refresh the ctx the coms handlers use. Bind the endpoint + register
 		// in the pool exactly once per process (guard on comsReady), so a /new session
@@ -8038,6 +8136,14 @@ ${researchCatalog}`;
 			try { server.close(); } catch { /* ignore */ }
 			server = null;
 		}
+		if (monitorBridge) { try { await monitorBridge.cancelAllWaitOnly(); } catch { /* ignore */ } }
+		if (monitorLifecycle) {
+			try { await monitorLifecycle.stop(); } catch { /* ignore */ }
+			monitorLifecycle = null;
+		}
+		monitorBridge?.reset();
+		monitorBridge?.stop();
+		monitorBridge = null;
 		if (identity) {
 			if (process.platform !== "win32") {
 				try { fs.unlinkSync(identity.endpoint); } catch { /* ignore */ }

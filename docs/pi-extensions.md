@@ -92,6 +92,7 @@ runtime itself.
 | [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub`; honors pre-granted exemptions from the hub's shared exemptions file | `just ext-damage-control` |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers. Supports path exemptions: `/allow`/`/allowed`/`/revoke`, a block-time approval dialog, and escalation from headless children to the hub dispatcher | `just ext-damage-control-continue` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine; launches damage-control-continue-guarded under a chosen name | `just safe-coms <name>` |
+| [Hermes local monitor transport](../hermes/README.md#local-agent-hub-monitor-integration) | Optional local companion | Owner-only discovery + Unix socket for agent-hub snapshots, cursor output, and exact-generation cancellation; consumed by a separate local Hermes client | Set the two monitor environment variables, then run `just hub-team <team>` |
 
 Each extension directory has its own `README.md` with the full description, command/tool
 surface, requirements, and per-extension upstream changes.
@@ -155,6 +156,13 @@ harnesses:
   `/handoff`, and peer-as-subagent flows.
 - **Solo mode** — `just hub-solo` keeps the dispatcher grid, delegation, research helpers, persona
   gate, and controls, but starts without the embedded coms layer.
+- **Optional Hermes local monitor transport** — uses `AGENT_FLEET_PROFILE_ID`, the absolute
+  `AGENT_FLEET_MONITOR_RUNTIME_DIR`, and the Herdr `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`
+  required to establish its stable hub identity. It is a source-owned, local-only transport—not a
+  Hermes SDK task/lifecycle RPC or a bundled plugin—and fails closed without validated owner-only
+  discovery, lease, token, and socket state. Follow the
+  [Hermes integration guide](../hermes/README.md#local-agent-hub-monitor-integration) for startup,
+  wire examples, cancellation semantics, and reconnect behavior.
 
 ---
 

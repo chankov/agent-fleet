@@ -1,0 +1,2 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import { present } from './state.js';
+test('presents loading empty error and uncorrelated monitor states', () => { assert.equal(present({loading:true}).kind,'loading'); assert.equal(present({tasks:[]}).kind,'empty'); assert.equal(present({error:'x'}).kind,'error'); assert.equal(present({tasks:[{id:'x',state:'running'}]}).kind,'tasks'); });

@@ -133,7 +133,7 @@ just team-down docs   # snapshot + close cleanly
 just team-resume docs # rebuild the grid; pi peers continue their conversations
 ```
 
-Deep dive: [agent-hub harness README](.pi/harnesses/agent-hub/README.md) (the full dispatch loop, coms layer, configuration) · [fleet hierarchy](docs/ARCHITECTURE.md#fleet-hierarchy) · [pi extension catalog](docs/pi-extensions.md) · [Claude Code coms bridge](docs/claude-code-coms-bridge.md) · [Hermes bridge](docs/coms-hermes-bridge.md).
+Deep dive: [agent-hub harness README](.pi/harnesses/agent-hub/README.md) (the full dispatch loop, coms layer, configuration) · [fleet hierarchy](docs/ARCHITECTURE.md#fleet-hierarchy) · [pi extension catalog](docs/pi-extensions.md) · [Claude Code coms bridge](docs/claude-code-coms-bridge.md) · [Hermes bridge](docs/coms-hermes-bridge.md) · [Hermes integration screenshots](hermes/README.md#integration-in-action).
 
 ---
 

@@ -3,12 +3,13 @@ node_modules/
 .env
 .env.*
 *.log
+__pycache__/
+*.pyc
 agent-fleet-*.tgz
 chankov-agent-fleet-*.tgz
 .changeset/.last-known-version
 .claude/.simplify-ignore-cache/
 docs/ideas/
-docs/prds/
 docs/plans/
 
 # pi extension runtime artifacts
@@ -27,3 +28,5 @@ tmp/
 .claude/settings.json
 .claude/settings.local.json
 ONBOARDING.md
+plans/
+docs/prds/

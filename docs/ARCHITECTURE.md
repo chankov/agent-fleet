@@ -13,6 +13,7 @@ the runtime responsibilities and where each module lives in the repository.
 | **coms** | Peer communication protocol/data plane — envelope-based P2P messaging between agents | `.pi/harnesses/coms/`, `scripts/lib/coms-envelope.ts`, `scripts/coms-cli.ts` |
 | **Claude Code bridge** | Makes an interactive Claude Code pane a bidirectional coms peer | `scripts/coms-claude-bridge.ts`, `hooks/coms-stop-hook.mjs`, `skills/peer-coms/` — see [claude-code-coms-bridge.md](claude-code-coms-bridge.md) |
 | **Hermes bridge** | Remote human control — relays hub questions to Telegram, races phone vs. local answers, conductor/liaison skills | `scripts/coms-hermes-bridge.ts`, `.pi/harnesses/ask-user-remote/`, `hermes/skills/` — see [coms-hermes-bridge.md](coms-hermes-bridge.md) |
+| **Hermes local monitor transport** | Local, authenticated visibility/control contract for hub-owned task generations; presentation is supplied by an external consumer | `.pi/harnesses/agent-hub/monitor-*.ts`, `scripts/lib/hermes-monitor-{model,store,registry,socket}.ts` — see [Hermes artifacts](../hermes/README.md#local-agent-hub-monitor-integration) |
 | **Codex remote-control conductor** | Experimental outbound-only, user-systemd-managed Android conductor; verified on Codex CLI 0.144.x | `scripts/codex-remote-control.ts`, `scripts/codex-conductor.ts`, `codex/CONDUCTOR.md`, `systemd/user/`; runtime under `~/.local/state/agent-fleet/codex-conductor/` — see [codex-remote-conductor.md](codex-remote-conductor.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, transformed per harness | `agents/`, `bin/lib/transform-persona.js` |
@@ -186,6 +187,10 @@ packages/hermes-bridge/       # future Hermes integration package
   the fleet core stays agent-agnostic. Hermes remains the inbound `ask_user`/
   Telegram route; the experimental Codex conductor is outbound-initiated only,
   approval-gated, and restricted to listed peers through the validated wrapper.
+- **Hermes monitor presentation is outside the fleet core.** Agent Fleet owns task state,
+  bounded output, leases, and generation-safe cancellation, and exposes them only through
+  owner-only discovery and a local Unix socket. A Hermes-facing consumer owns its UI and
+  reconnect behavior; no Hermes backend/Desktop plugin is bundled or installed.
 - **External conductor contracts are advisory.** Pi damage-control wraps Pi
   tool calls, not Hermes or Codex processes; human approvals and their
   contracts reduce risk but do not provide an OS command allowlist.
