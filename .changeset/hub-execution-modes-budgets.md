@@ -1,5 +1,5 @@
 ---
-"agent-fleet": minor
+"@chankov/agent-fleet": minor
 ---
 
 agent-hub: execution modes with enforced per-turn budgets, session recycling, and cheaper persona defaults — the fix for runaway over-orchestration (100+ dispatches / 100M+ tokens per task, mostly re-billed stale context).

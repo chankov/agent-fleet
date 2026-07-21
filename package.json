@@ -109,7 +109,8 @@
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.49",
-    "pi-ask-user": "^0.11.1"
+    "pi-ask-user": "^0.11.1",
+    "yaml": "^2.9.0"
   },
   "bundledDependencies": [
     "pi-ask-user"

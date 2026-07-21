@@ -1,5 +1,5 @@
 ---
-"agent-fleet": minor
+"@chankov/agent-fleet": minor
 ---
 
 agent-hub: complexity triage, in-flight drift watchdog, dynamic teams, and per-turn cost reporting — the qualitative follow-up to the execution-modes/budgets guardrails (stop over-engineering simple asks and catch drifting specialists while they run, not after).
