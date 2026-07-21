@@ -8,13 +8,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
+import YAML from "yaml";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-// yaml ships in .pi/harnesses/node_modules (the harnesses' runtime deps)
-const YAML = require(join(HERE, "..", "node_modules", "yaml"));
-
 const rules = YAML.parse(readFileSync(join(HERE, "..", "..", "damage-control-rules.yaml"), "utf-8"));
 const patterns = rules.bashToolPatterns.map((p) => ({ re: new RegExp(p.pattern, "i"), ...p }));
 
