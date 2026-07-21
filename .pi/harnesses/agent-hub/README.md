@@ -256,6 +256,21 @@ done agents are hidden in compact mode, and the coms pool widget collapses too, 
 collapses to just the prompt and footer. The current mode and binding are shown in the footer
 (`Alt+A view:dashboard` / `Alt+A view:compact`).
 
+### Version footer
+
+`agent-hub` renders its local harness version first in its custom footer:
+`v<version> · <model><thinking> · <team>`. It replaces pi's default footer, so it does **not**
+consume or render the shared version status; it reads its own adjacent stamped manifest directly.
+The four persistent-UI harnesses (`agent-hub`, `coms`, `damage-control`, and
+`damage-control-continue`) still register that one shared key, which gives default footers one
+version in stacked non-hub sessions. In the supported guardrail-plus-hub stack, the hub's custom
+footer supplies the single visible version. Damage-Control can update its own safety status after
+a violation without overwriting the shared version entry. The canonical source is the
+repository-root `package.json`; the adjacent harness manifest is a synchronized stamp maintained
+by `bin/sync-harness-versions.js`. Its local `version.ts` reader intentionally stays with the
+harness for copied or symlinked installs, but those installs still need the pre-existing full
+`.pi/harnesses/` dependency installation.
+
 ### Voice dictation indicator
 
 The custom footer renders the optional [`pi-voice-stt`](../../extensions/pi-voice-stt/README.md)
@@ -333,9 +348,140 @@ research-keep: 8
 (LRU by finish time, default 4; `all` disables the cap). Auto-research pipe helpers are
 always pruned as soon as they finish, regardless of this key.
 
+### Bounded local-disk searches
+
+Every `read`, `grep`, `find`, and `ls` call made by a native research helper or a nested
+`delegate` child has a **parent-side** watchdog. The default is **120 seconds per tool call**;
+it is a per-tool bound, not a whole-run deadline — the whole-run bound is the execution
+mode's per-run deadline below. Configure it in the repository-standard overrides file:
+
+```markdown
+## agent-hub
+recon-search-timeout-s: 120  # integer 1..3600
+# recon-search-timeout-s: off # disable this per-tool watchdog
+```
+
+Invalid values warn at session start and use 120. Calls are tracked independently by their
+JSONL `toolCallId`; a repeated start/update cannot extend an existing deadline. A timeout returns
+`tool_timeout` with the call metadata, ends the research/delegate lifecycle, sends SIGTERM to the
+child's explicitly owned process group, then SIGKILL after a finite grace period. The parent also
+has a final settlement timer, so it settles rather than waiting indefinitely for `close` or
+inherited pipe drain. If child/process-group death cannot be confirmed after this bounded cleanup,
+the timeout metadata reports `terminationConfirmed: false`: this prevents the parent hanging, but
+may indicate an uninterruptible OS-level process that needs operator attention. This group
+ownership covers descendants even when the pi leader exits first; nested delegates own their groups
+and forward parent cancellation, avoiding detached-orphan processes. Caller
+cancellation follows the same bounded cleanup path but is reported as `cancelled`, not
+`tool_timeout`.
+
+### Execution modes & turn budgets
+
+The hub runs one of three **execution modes** — `fast`, `standard` (default), `strict` —
+with **per-user-turn budgets enforced in code**, not prose. This is the guardrail against
+runaway orchestration (the observed failure mode: 100+ dispatches and 100M+ tokens for one
+task, most of it re-billed stale specialist context).
+
+| Budget (per user turn)            | fast   | standard | strict  |
+|-----------------------------------|--------|----------|---------|
+| `dispatch_agent` calls            | 2      | 8        | 24      |
+| `spawn_research` calls            | 1      | 4        | 12      |
+| Turn wall clock                   | 15 min | 60 min   | 240 min |
+| Per-run deadline (specialist/research/delegate) | 10 min | 30 min | off |
+| Specialist session recycled after | 3 runs | 5 runs   | 5 runs  |
+| Nested delegation                 | off    | on       | on      |
+
+- **fast** — single-specialist path for small, low-risk asks; assertion ledger optional,
+  no nested delegation.
+- **standard** — batched execution: one recon max, builder batches of 4–6 plan tasks with
+  one gate each, one review gate at the end.
+- **strict** — the full Verification Contract (parity inventories, per-batch gates,
+  second confirming reads); use for production migrations and security-sensitive work.
+
+When a budget is exhausted, `dispatch_agent`/`spawn_research` **refuse** with instructions
+to summarize and ask the user; the next user message opens a fresh window. Switch modes
+live with `/hub-mode fast|standard|strict` (no argument shows the current mode and usage);
+set the project default and per-axis overrides in the overrides file:
+
+```markdown
+## agent-hub
+mode: standard                # fast|standard|strict
+max-dispatches-per-turn: 8    # integer or off
+max-research-per-turn: 4      # integer or off
+turn-wall-time-s: 3600        # integer or off
+agent-turn-timeout-s: 1800    # whole-run deadline per spawned run; integer or off
+session-recycle-runs: 5       # recycle a specialist session after N resumed runs; integer or off
+```
+
+Two related always-on behaviors: specialist **context pressure is measured over
+input + cacheRead + cacheWrite** (resumed sessions re-send their whole accumulated context
+as cache reads — counting `input` alone hid that entirely), and a specialist session is
+**recycled** (fresh session, no `-c` resume) once it has served `session-recycle-runs` runs
+or its measured context passes 60%. The dispatch result notes the recycle so the dispatcher
+knows the specialist starts without session memory — task text and `artifacts:` paths must
+carry the state, which the deliverable-to-file protocol already ensures.
+
+The per-run deadline lands as `turn_timeout` (exit 124) with partial output preserved, for
+dispatched specialists, research helpers, and nested delegate children alike — a hung child
+can no longer hold its parent for hours.
+
+### Task triage (complexity tiers)
+
+The dispatcher classifies each user turn with the `set_task_tier` tool BEFORE its first
+dispatch — `trivial` / `small` / `feature` / `project` — and the hub lowers the enforced
+dispatch/research caps to **min(mode, tier)**: trivial = 1 dispatch / 1 research,
+small = 2 / 2, feature = 6 / 4, `project` defers to the mode. Skipping the call makes the
+first dispatch assume `feature` (except in strict mode, where tiers are opt-in). The tier
+resets every user turn and shows in the `hub-mode` status chip (`Mode: standard·small · …`).
+The system prompt ties the tier to the anti-over-engineering rules: a provided plan is a
+spec (no re-planning), assertions stay ≤3 for trivial/small asks, and "using every persona"
+is called out as a smell. Two hygiene guards are enforced in code, not prose: a
+**duplicate-dispatch guard** refuses re-dispatching the same agent with a near-identical
+task inside one turn, and every budget/duplicate refusal is counted in `/hub-report`.
+
+### Drift watchdog (in-flight observation)
+
+An armed dispatch is observed **while it runs**, from the same JSON event stream that
+drives the cards — not post-hoc:
+
+- **Layer 1 — deterministic rules, zero tokens** (`drift-watchdog.js`): a write/edit
+  outside the dispatch's declared `scope` globs, the identical tool call repeated 4×,
+  5 consecutive failed tool calls, or 200 total tool calls in one run.
+- **Layer 2 — LLM judge, escalation only**: when a rule fires (single-flight, 90 s
+  cooldown), a one-shot cheap run (default model: the researcher persona's; override with
+  `watchdog-judge-model`) reads the original task + declared scope + recent tool trail and
+  answers `VERDICT: ON_TRACK|DRIFTING|STUCK`. Judge failures fail open.
+- **Intervention**: DRIFTING/STUCK terminates the run as **`drift_stop`** (exit 125,
+  partial output preserved) and the dispatch result instructs: re-dispatch ONCE with a
+  corrected, narrowed task — never the same task unchanged.
+
+Enablement is dynamic, precedence top to bottom: the `watchdog: true|false` param on a
+single `dispatch_agent` call → a per-agent override (`/watchdog builder on|off|clear`) →
+the hub-wide setting (`/watchdog on|off|auto`, default `auto`, project default via the
+`watchdog:` overrides key). Read-only research helpers are not monitored — they already
+run under the per-tool watchdog + turn deadline and cannot write.
+
+### Dynamic teams
+
+Rosters start from `.pi/agents/teams.yaml` but are not frozen there:
+
+- `/agents-add <persona>…` / `/agents-drop <persona>…` — restructure the ACTIVE team
+  live (drop refuses running or last members; session files are kept for re-adding).
+- `/agents-save <name>` — persist the current roster as a named team back into
+  `teams.yaml` (targeted block upsert; comments and other teams untouched).
+- `team_adjust` — the dispatcher itself may add/drop a persona **with a stated reason**;
+  disabled in fast mode, capped at 8 roster members, and every change is notified to the
+  human. The system prompt is rebuilt each turn, so changes take effect immediately.
+
+### `/hub-report`
+
+Per-turn cost accounting: dispatches (agent, status, elapsed, billed/output tokens),
+research runs, session recycles, drift stops, and budget/duplicate refusals — for the
+current turn, the last completed turn, and session totals. Billed tokens count
+input + cacheRead + cacheWrite, the same measure the recycler uses.
+
 Paths that don't exist produce a session-start warning, never an error. The full key list for
-`## agent-hub` (models, sub-roles, depth budgets, persona gate, research retention) is
-documented in `docs/agent-fleet-setup.md`.
+`## agent-hub` (models, sub-roles, depth budgets, persona gate, research retention, watchdog,
+mode/budget keys) is documented in `docs/agent-fleet-setup.md`.
 
 ## The coms layer
 

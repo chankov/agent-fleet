@@ -87,7 +87,7 @@ runtime itself.
 
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
-| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, peer-as-subagent — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just hub` |
+| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, peer-as-subagent, and footer `v<version> · <model><thinking> · <team>` — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just hub` |
 | [ask-user-remote](../.pi/harnesses/ask-user-remote/README.md) | Orchestration | Captures stock `pi-ask-user` and registers the default `ask_user`; with `user-remote` live it races local UI against the Hermes bridge, otherwise it is stock local behavior | loaded by `just hub` / `hub-solo` |
 | [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub`; honors pre-granted exemptions from the hub's shared exemptions file | `just ext-damage-control` |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers. Supports path exemptions: `/allow`/`/allowed`/`/revoke`, a block-time approval dialog, and escalation from headless children to the hub dispatcher | `just ext-damage-control-continue` |
@@ -95,6 +95,26 @@ runtime itself.
 
 Each extension directory has its own `README.md` with the full description, command/tool
 surface, requirements, and per-extension upstream changes.
+
+### Harness version footer and provenance
+
+The four persistent-UI harnesses — `agent-hub`, `coms`, `damage-control`, and
+`damage-control-continue` — each register `v<version>` on one shared status key. In pi's
+default status footer, that shared key gives a supported stack exactly one version instead of one
+copy per harness. `agent-hub` replaces the default footer: it does **not** consume that status
+key. Its custom footer reads its own adjacent stamped manifest and renders one local version
+first — `v<version> · <model><thinking> · <team>` — so an agent-hub stack also displays the
+version exactly once.
+
+The shared version status is independent of mutable owner status: for example, a
+Damage-Control violation can replace its own safety message without overwriting the version
+entry. The canonical value is the root `package.json` version. During a release,
+`bin/sync-harness-versions.js` stamps that value into each adjacent persistent-harness
+`package.json` after the root bump and before lockfile finalization and snapshotting. Each
+harness keeps a local `version.ts` provenance reader so copied or symlinked harness directories
+resolve their adjacent stamp rather than the launch directory. That local provenance does not
+make a harness self-contained: copied target harnesses still require the existing full
+`.pi/harnesses/` dependency installation described in [Setup](#setup).
 
 ### `agent-hub` components
 

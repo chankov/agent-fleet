@@ -13,7 +13,7 @@ models:
   - ollama/kimi-k2.7-code:cloud
   - ollama/glm-5.2:cloud
   - ollama/minimax-m3:cloud
-thinking: high
+thinking: medium
 delegate_depth: 1
 subagents:
   preflight:

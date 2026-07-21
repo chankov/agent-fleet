@@ -64,9 +64,12 @@ ls .changeset/*.md 2>/dev/null | grep -v README || echo "no pending changesets â
 npm version patch --no-git-tag-version
 ```
 
-## 6. Rebuild the version snapshot
+## 6. Stamp harness manifests and rebuild the version snapshot
 
 ```sh
+# derives each persistent harness's adjacent version stamp from the root package version
+node bin/sync-harness-versions.js
+
 # mirrors the new version's artifacts into .versions/<new-version>/
 node bin/snapshot-version.js
 ```

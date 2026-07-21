@@ -4,11 +4,11 @@ description: Plan critic — reviews, challenges, and validates implementation p
 tools: read,grep,find,ls
 model: openai-codex/gpt-5.6-terra
 models:
-  - openai-codex/gpt-5.6-terra
+  - openai-codex/gpt-5.6-sol
   - openai-codex/gpt-5.6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
-thinking: high
+thinking: medium
 delegate_depth: 1
 subagents:
   feasibility:

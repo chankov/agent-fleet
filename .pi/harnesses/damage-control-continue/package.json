@@ -1,6 +1,7 @@
 {
-  "name": "agent-fleet-pi-damage-control-continue",
-  "private": true,
-  "type": "module",
-  "main": "index.ts"
+	"name": "agent-fleet-pi-damage-control-continue",
+	"private": true,
+	"type": "module",
+	"main": "index.ts",
+	"version": "0.0.3"
 }

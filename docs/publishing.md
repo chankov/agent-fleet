@@ -54,7 +54,8 @@ ships is `agent-fleet` — both names are intentional.
    Packages" PR that:
    - Rolls every `.changeset/*.md` into `CHANGELOG.md`
    - Bumps `package.json#version`
-   - Runs `node bin/snapshot-version.js` to write `.versions/<x.y.z>/`
+   - Runs `node bin/sync-harness-versions.js` to stamp the adjacent persistent-harness manifests
+   - Finalizes `package-lock.json`, then runs `node bin/snapshot-version.js` to write `.versions/<x.y.z>/`
 
 4. **Review the Version Packages PR.** Inspect the changelog entry and the
    bumped version. Merge it.

@@ -25,6 +25,55 @@ export function parseTeamsYaml(raw: string): Record<string, string[]> {
 	return teams;
 }
 
+// Normalize a dispatcher-supplied agent name to the persona-slug key space:
+// display names ("Test Engineer"), underscores, and stray whitespace all resolve
+// to the same key the hub stores states under ("test-engineer").
+export function normalizeAgentInput(value: string): string {
+	return String(value ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+// Duplicate-dispatch guard: one fingerprint per (agent, task) where the task
+// text is normalized hard (case, whitespace, punctuation) so trivial rewording
+// still collides. Genuinely different tasks differ in their words, not their
+// commas.
+export function taskFingerprint(agent: string, task: string): string {
+	const normalizedTask = String(task ?? "")
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.trim()
+		.replace(/\s+/g, " ");
+	return `${normalizeAgentInput(agent)}::${normalizedTask}`;
+}
+
+// Replace one team's block in teams.yaml text (or append it) without touching
+// comments or other teams — a full re-serialize would destroy the file's
+// header comments. The block is `name:` plus its `  - member` lines.
+export function upsertTeamInYaml(raw: string, name: string, members: string[]): string {
+	const block = `${name}:\n${members.map(m => `  - ${m}`).join("\n")}\n`;
+	const lines = String(raw ?? "").split("\n");
+	let start = -1;
+	let end = -1;
+	for (let i = 0; i < lines.length; i++) {
+		const teamMatch = lines[i].match(/^(\S[^:]*):\s*$/);
+		if (start === -1) {
+			if (teamMatch && teamMatch[1].trim() === name) start = i;
+			continue;
+		}
+		// Inside the target block: it ends at the next top-level key or a
+		// top-level comment (comments are never deleted, only members are).
+		if (teamMatch || /^#/.test(lines[i])) { end = i; break; }
+	}
+	if (start === -1) {
+		const body = String(raw ?? "");
+		const sep = body.length === 0 || body.endsWith("\n\n") ? "" : body.endsWith("\n") ? "\n" : "\n\n";
+		return body + sep + block;
+	}
+	if (end === -1) end = lines.length;
+	// Keep blank/comment lines that trail the block attached to the NEXT section.
+	while (end - 1 > start && lines[end - 1].trim() === "") end--;
+	return [...lines.slice(0, start), ...block.split("\n").slice(0, -1), ...lines.slice(end)].join("\n");
+}
+
 export function safeAgentKey(value: string): string {
 	if (typeof value !== "string") {
 		throw new Error("Agent key must be a string");

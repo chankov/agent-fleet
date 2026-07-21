@@ -70,13 +70,18 @@ import {
 	type AutocompleteItem, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
-import { spawnPiAgent, killPiTree } from "./spawn.ts";
+import { spawnPiAgent, killPiTree, type PiRunControl, type Termination } from "./spawn.ts";
+import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "./research-watchdog.ts";
+import { renderHubFooterLeft } from "./footer.ts";
+import { HARNESS_VERSION, registerVersionStatus } from "./version.ts";
 import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	appendExemptionToFile, exemptionsFilePath, fileExemptionsFor,
 	type AccessDecision, type AccessDecisionChoice, type AccessRequest,
 } from "../damage-control/shared.ts";
-import { clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, MAX_DELEGATE_DEPTH, parseTeamsYaml, safeAgentKey, safePathWithin } from "./helpers.ts";
+import { clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_TIERS, budgetStatusLine, checkTurnBudget, normalizeHubMode, normalizeTaskTier, resolveTurnBudget, shouldRecycleSession } from "./run-budget.js";
+import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
 import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "./artifacts.js";
 import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return-contract.js";
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
@@ -185,6 +190,9 @@ interface AgentState {
 	contextPct: number;
 	sessionFile: string | null;
 	runCount: number;
+	// Runs served by the CURRENT accumulated session (-c resume chain). Reset on
+	// recycle; drives shouldRecycleSession together with the measured contextPct.
+	runsSinceFresh: number;
 	timer?: ReturnType<typeof setInterval>;
 	// Mid-turn delegation (delegate tool). Children parsed live from the event
 	// file, keyed by child id; rendered as nested rows under the card and kept
@@ -385,6 +393,27 @@ function extractNeedsResearch(output: string): string[] {
 //                              to retain for /agents-cont resume (LRU, default 4);
 //                              "all" disables pruning. Auto-research pipe helpers
 //                              are always pruned as soon as they finish.
+//   recon-search-timeout-s: <1..3600>|off — parent-side deadline for each
+//                              read/grep/find/ls call made by research helpers
+//                              and read-only delegate children (default 120).
+//   mode: fast|standard|strict — default execution mode (see run-budget.js).
+//                              fast = single-specialist path, standard = batched
+//                              work with turn budgets (default), strict = full
+//                              Verification Contract with wide budgets.
+//   max-dispatches-per-turn: <n>|off — dispatch_agent calls allowed per user turn
+//                              (replaces the mode default; "off" = unlimited).
+//   max-research-per-turn: <n>|off — spawn_research calls allowed per user turn.
+//   turn-wall-time-s: <n>|off  — wall-clock budget per user turn.
+//   agent-turn-timeout-s: <n>|off — whole-run deadline for each spawned
+//                              specialist/research/delegate run (not per tool).
+//   session-recycle-runs: <n>|off — recycle a specialist's accumulated session
+//                              after this many resumed runs (also recycled at
+//                              ≥60% measured context regardless).
+//   watchdog: on|off|auto      — drift watchdog default for dispatched
+//                              specialists (default auto; see drift-watchdog.js).
+//   watchdog-judge-model: <model spec> — model for the drift judge (default:
+//                              the researcher persona's model, else the
+//                              dispatcher's).
 
 interface AgentTeamOverrides {
 	language: string;
@@ -397,6 +426,19 @@ interface AgentTeamOverrides {
 	rulesDirs: string[];
 	docsPaths: string[];
 	researchKeep: number;
+	reconSearchTimeoutMs: number | null;
+	hubMode: string;
+	// Per-axis turn-budget overrides for run-budget.js resolveTurnBudget():
+	// number replaces the mode default, null = "off", undefined = keep default.
+	budgetOverrides: {
+		maxDispatches?: number | null;
+		maxResearch?: number | null;
+		wallMs?: number | null;
+		agentTurnMs?: number | null;
+		recycleRuns?: number | null;
+	};
+	watchdogSetting: string;
+	watchdogJudgeModel: string | null;
 	warnings: string[];
 }
 
@@ -411,6 +453,11 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	rulesDirs: [],
 	docsPaths: [],
 	researchKeep: DEFAULT_RESEARCH_KEEP,
+	reconSearchTimeoutMs: 120_000,
+	hubMode: DEFAULT_HUB_MODE,
+	budgetOverrides: {},
+	watchdogSetting: DEFAULT_WATCHDOG_SETTING,
+	watchdogJudgeModel: null,
 	warnings: [],
 };
 
@@ -424,6 +471,7 @@ function freshOverrides(): AgentTeamOverrides {
 		personaDelegateDepth: {},
 		rulesDirs: [],
 		docsPaths: [],
+		budgetOverrides: {},
 		warnings: [],
 	};
 }
@@ -468,6 +516,51 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 				result.researchKeep = keep;
 			} else {
 				result.warnings.push(`research-keep "${value}" is not a non-negative integer or "all" — using the default (${DEFAULT_RESEARCH_KEEP})`);
+			}
+		}
+		if (key === "recon-search-timeout-s" && value) {
+			if (value.toLowerCase() === "off") {
+				result.reconSearchTimeoutMs = null;
+			} else if (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 3600) {
+				result.reconSearchTimeoutMs = Number(value) * 1000;
+			} else {
+				result.warnings.push(`recon-search-timeout-s "${value}" is not an integer from 1 to 3600 or "off" — using the default (120)`);
+			}
+		}
+		if (key === "mode" && value) {
+			const mode = normalizeHubMode(value);
+			if (mode) {
+				result.hubMode = mode;
+			} else {
+				result.warnings.push(`mode "${value}" is not one of ${HUB_MODES.join("|")} — using the default (${DEFAULT_HUB_MODE})`);
+			}
+		}
+		if (key === "watchdog" && value) {
+			const setting = normalizeWatchdogSetting(value);
+			if (setting) {
+				result.watchdogSetting = setting;
+			} else {
+				result.warnings.push(`watchdog "${value}" is not one of ${WATCHDOG_SETTINGS.join("|")} — using the default (${DEFAULT_WATCHDOG_SETTING})`);
+			}
+		}
+		if (key === "watchdog-judge-model" && value) result.watchdogJudgeModel = value;
+		// Turn-budget keys: a positive integer replaces the mode default, "off"
+		// disables the axis. Counts are unitless; *-s keys are seconds → ms.
+		const budgetKeys: Record<string, { field: keyof AgentTeamOverrides["budgetOverrides"]; scaleMs: boolean }> = {
+			"max-dispatches-per-turn": { field: "maxDispatches", scaleMs: false },
+			"max-research-per-turn": { field: "maxResearch", scaleMs: false },
+			"turn-wall-time-s": { field: "wallMs", scaleMs: true },
+			"agent-turn-timeout-s": { field: "agentTurnMs", scaleMs: true },
+			"session-recycle-runs": { field: "recycleRuns", scaleMs: false },
+		};
+		if (budgetKeys[key] && value) {
+			const { field, scaleMs } = budgetKeys[key];
+			if (value.toLowerCase() === "off") {
+				result.budgetOverrides[field] = null;
+			} else if (/^\d+$/.test(value) && Number(value) >= 1) {
+				result.budgetOverrides[field] = Number(value) * (scaleMs ? 1000 : 1);
+			} else {
+				result.warnings.push(`${key} "${value}" is not a positive integer or "off" — using the ${result.hubMode} mode default`);
 			}
 		}
 		const slug = "[a-z0-9]+(?:-[a-z0-9]+)*";
@@ -1938,6 +2031,55 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// Resolved once at session_start: the delegate extension injected into
 	// specialists that declare `subagents:` (null → delegation disabled).
 	let delegateExtPath: string | null = null;
+	// Per-tool deadline for read/grep/find/ls in research helpers/delegates. The
+	// whole-run bound is separate: the turn budget's agentTurnMs (run-budget.js).
+	let reconSearchTimeoutMs: number | null = 120_000;
+	// ── Execution mode & per-turn budgets (run-budget.js) ──
+	// hubMode: overrides-file default, switchable live via /hub-mode (session-
+	// lifetime). Budgets are per USER TURN: counters reset in before_agent_start,
+	// so exhaustion means "stop, summarize, ask" and the next user message opens
+	// a fresh window. currentTurnStartedAt (above) doubles as the wall-clock base.
+	let hubMode: string = DEFAULT_HUB_MODE;
+	let budgetOverrides: AgentTeamOverrides["budgetOverrides"] = {};
+	let turnDispatchCount = 0;
+	let turnResearchCount = 0;
+	// Task tier (complexity triage): declared by the dispatcher via set_task_tier,
+	// reset each user turn. Null until declared; the first dispatch of a turn
+	// assumes DEFAULT_TASK_TIER outside strict mode. Caps = min(mode, tier).
+	let turnTaskTier: string | null = null;
+	// Duplicate-dispatch guard: fingerprints of (agent, task) already dispatched
+	// THIS turn. Auto-research resumes and /agents-restart call dispatchAgent
+	// directly, so only real dispatcher tool calls are guarded.
+	const turnDispatchFingerprints = new Set<string>();
+	// ── Drift watchdog (drift-watchdog.js) ──
+	// Hub-wide setting from the overrides file, live-switchable via /watchdog;
+	// per-agent overrides ("on"/"off") win over it; a dispatch_agent `watchdog`
+	// param wins over both.
+	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
+	let watchdogJudgeModel: string | null = null;
+	const watchdogAgentOverrides = new Map<string, "on" | "off">();
+	function currentBudget() {
+		return resolveTurnBudget(hubMode, budgetOverrides, turnTaskTier);
+	}
+	function updateModeStatus() {
+		try {
+			widgetCtx?.ui?.setStatus("hub-mode", budgetStatusLine(hubMode, { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnTaskTier));
+		} catch {}
+	}
+	// ── Per-turn cost report (/hub-report) ──
+	interface TurnReport {
+		startedAt: number;
+		tier: string | null;
+		dispatches: { agent: string; status: string; elapsed: number; billed: number; out: number }[];
+		research: number;
+		recycles: number;
+		driftStops: number;
+		refusals: number;
+	}
+	const freshTurnReport = (): TurnReport => ({ startedAt: Date.now(), tier: null, dispatches: [], research: 0, recycles: 0, driftStops: 0, refusals: 0 });
+	let turnReport: TurnReport = freshTurnReport();
+	let lastTurnReport: TurnReport | null = null;
+	const sessionTotals = { turns: 0, dispatches: 0, research: 0, recycles: 0, driftStops: 0, refusals: 0, billed: 0, out: 0 };
 	// Session-wide delegated-spend counter (tokens across all delegate children),
 	// surfaced in the status line. Resets on session_start.
 	let delegatedTokens = 0;
@@ -2264,6 +2406,30 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		}
 	}
 
+	function freshAgentState(def: AgentDef): AgentState {
+		const key = safeAgentKey(def.name);
+		const sessionFile = safePathWithin(sessionDir, `${key}.json`);
+		return {
+			def,
+			status: "idle",
+			task: "",
+			toolCount: 0,
+			elapsed: 0,
+			lastWork: "",
+			contextPct: 0,
+			sessionFile: existsSync(sessionFile) ? sessionFile : null,
+			runCount: 0,
+			runsSinceFresh: 0,
+			timeline: [],
+		};
+	}
+
+	// Auto-size grid columns based on team size
+	function recomputeGrid() {
+		const size = agentStates.size;
+		gridCols = size <= 3 ? size : size === 4 ? 2 : 3;
+	}
+
 	function activateTeam(teamName: string) {
 		activeTeamName = teamName;
 		const members = teams[teamName] || [];
@@ -2274,25 +2440,47 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		for (const member of members) {
 			const def = defsByName.get(member.toLowerCase());
 			if (!def) continue;
-			const key = safeAgentKey(def.name);
-			const sessionFile = safePathWithin(sessionDir, `${key}.json`);
-			agentStates.set(def.name.toLowerCase(), {
-				def,
-				status: "idle",
-				task: "",
-				toolCount: 0,
-				elapsed: 0,
-				lastWork: "",
-				contextPct: 0,
-				sessionFile: existsSync(sessionFile) ? sessionFile : null,
-				runCount: 0,
-				timeline: [],
-			});
+			agentStates.set(def.name.toLowerCase(), freshAgentState(def));
 		}
+		recomputeGrid();
+	}
 
-		// Auto-size grid columns based on team size
-		const size = agentStates.size;
-		gridCols = size <= 3 ? size : size === 4 ? 2 : 3;
+	// ── Dynamic roster (add/drop/save; /agents-add, /agents-drop, team_adjust) ──
+	// The system prompt is rebuilt every turn from agentStates, so a roster
+	// change takes effect on the dispatcher's next turn with no restart.
+
+	function rosterAdd(name: string): { ok: boolean; message: string } {
+		const key = normalizeAgentInput(name);
+		const def = allAgentDefs.find(d => d.name.toLowerCase() === key);
+		if (!def) {
+			const available = allAgentDefs.map(d => d.name).sort().join(", ") || "(none)";
+			return { ok: false, message: `No persona "${name}". Available: ${available}` };
+		}
+		if (agentStates.has(def.name.toLowerCase())) {
+			return { ok: false, message: `${displayName(def.name)} is already in the active team` };
+		}
+		agentStates.set(def.name.toLowerCase(), freshAgentState(def));
+		recomputeGrid();
+		updateWidget();
+		return { ok: true, message: `${displayName(def.name)} added to the active team` };
+	}
+
+	function rosterDrop(name: string): { ok: boolean; message: string } {
+		const key = normalizeAgentInput(name);
+		const state = agentStates.get(key);
+		if (!state) {
+			return { ok: false, message: `"${name}" is not in the active team (${Array.from(agentStates.values()).map(s => s.def.name).join(", ") || "empty"})` };
+		}
+		if (state.status === "running") {
+			return { ok: false, message: `${displayName(state.def.name)} is running — wait for it to finish or /agents-kill it first` };
+		}
+		if (agentStates.size <= 1) {
+			return { ok: false, message: `${displayName(state.def.name)} is the last team member — add a replacement before dropping it` };
+		}
+		agentStates.delete(key);
+		recomputeGrid();
+		updateWidget();
+		return { ok: true, message: `${displayName(state.def.name)} dropped from the active team (its session file is kept for re-adding)` };
 	}
 
 	// ── Grid Rendering ───────────────────────────
@@ -2974,14 +3162,49 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		};
 	}
 
+	// One-shot drift judge (drift-watchdog.js layer 2): a cheap model reads the
+	// original task + recent tool trail and answers ON_TRACK/DRIFTING/STUCK. It
+	// runs WHILE the specialist keeps working; only a negative verdict stops the
+	// run. Judge failures fail open — a broken judge must never kill good work.
+	async function runDriftJudge(
+		input: { agentLabel: string; agentKey: string; task: string; scopeGlobs: string[]; trail: string[]; violation: { rule: string; detail: string } },
+		ctx: any,
+	): Promise<{ verdict: string; reason: string } | null> {
+		const researcherDef = allAgentDefs.find(d => d.name.toLowerCase() === "researcher");
+		const model = watchdogJudgeModel
+			?? (researcherDef ? resolvedModel(researcherDef) : null)
+			?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
+		const judgeSession = safePathWithin(sessionDir, `drift-judge-${input.agentKey}.json`);
+		try { unlinkSync(judgeSession); } catch {}
+		try {
+			const res = await spawnPiAgent({
+				model,
+				tools: "read",
+				thinking: "off",
+				appendSystemPrompt: "You are a strict, terse runtime watchdog. Answer with exactly one VERDICT line.",
+				sessionFile: judgeSession,
+				prompt: buildJudgePrompt({ agent: input.agentLabel, task: input.task, scopeGlobs: input.scopeGlobs, trail: input.trail, violation: input.violation }),
+				detached: true,
+				turnDeadlineMs: 60_000,
+			});
+			if (res.spawnError || res.exitCode !== 0) return null;
+			return parseJudgeVerdict(res.output);
+		} catch {
+			return null;
+		} finally {
+			try { unlinkSync(judgeSession); } catch {}
+		}
+	}
+
 	async function dispatchAgent(
 		agentName: string,
 		task: string,
 		ctx: any,
 		inputArtifacts: InputArtifactPreview[] = [],
 		scopeGlobs: string[] = [],
-	): Promise<{ output: string; exitCode: number; elapsed: number }> {
-		const key = agentName.toLowerCase();
+		watchdogParam?: boolean,
+	): Promise<{ output: string; exitCode: number; elapsed: number; billed?: number; out?: number }> {
+		const key = normalizeAgentInput(agentName);
 		const state = agentStates.get(key);
 		if (!state) {
 			return Promise.resolve({
@@ -3099,6 +3322,24 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		const runNumber = state.runCount;
 		const agentSessionFile = safePathWithin(sessionDir, `${agentKey}.json`);
 
+		// Session recycling: resuming an accumulated session re-bills its whole
+		// context on every model call, and that — not output — is where degraded
+		// sessions burned their tokens (85M of 102M observed tokens were cache
+		// reads). Past the run/context threshold, start fresh: the task text plus
+		// artifact paths must carry the state (they should anyway).
+		const turnBudget = currentBudget();
+		let sessionRecycled = false;
+		if (state.sessionFile && shouldRecycleSession(state.runsSinceFresh, state.contextPct, turnBudget)) {
+			try { unlinkSync(agentSessionFile); } catch {}
+			state.sessionFile = null;
+			state.runsSinceFresh = 0;
+			state.contextPct = 0;
+			sessionRecycled = true;
+			turnReport.recycles++;
+			sessionTotals.recycles++;
+			ctx.ui.notify(`${displayName(state.def.name)}: session recycled (stale context) — starting fresh`, "info");
+		}
+
 		// Clarification protocol — every specialist learns to bubble up questions
 		// to the dispatcher instead of guessing.
 		const clarificationProtocol = `
@@ -3149,7 +3390,8 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 				return [role, override ? { ...r, model: override } : r];
 			}))
 			: null;
-		const delegationActive = !!subagentRoles && !!delegateExtPath;
+		// Fast mode is a single-specialist path: no nested delegation trees.
+		const delegationActive = turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
 		// Researcher personas get the continue variant (block-but-keep-going) like the
 		// dedicated research helpers; every other specialist gets the hard-stop variant.
 		// Research helpers normally spawn via spawnResearch, but a custom team could list
@@ -3180,6 +3422,8 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 					eventDir: delegationDir,
 					damageControl: damageControlExtPath || undefined,
 					delegateExt: delegateExtPath,
+					reconSearchTimeoutMs,
+					turnDeadlineMs: turnBudget.agentTurnMs,
 					cwd: ctx.cwd || process.cwd(),
 				}),
 			};
@@ -3210,11 +3454,37 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		const thinkingLevel = resolveThinkingLevel(resolvedThinking(state.def));
 		const wantThinking = thinkingLevel !== "off";
 
+		// ── Drift watchdog: layer-1 rules on the live stream, judge on escalation ──
+		// Precedence: dispatch param > per-agent /watchdog override > hub setting.
+		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting);
+		const driftMonitor = watchdogArmed ? createDriftMonitor({ scopeGlobs }) : null;
+		let driftControl: PiRunControl | undefined;
+		let driftStop: { rule: string; detail: string; verdict: string; reason: string } | null = null;
+		let judgeBusy = false;
+		let judgeCooldownUntil = 0;
+		const escalateDrift = (violation: { rule: string; detail: string }) => {
+			if (!driftMonitor || judgeBusy || driftStop || Date.now() < judgeCooldownUntil) return;
+			judgeBusy = true;
+			void runDriftJudge(
+				{ agentLabel: displayName(state.def.name), agentKey, task, scopeGlobs, trail: driftMonitor.trail(), violation },
+				ctx,
+			).then(v => {
+				judgeBusy = false;
+				judgeCooldownUntil = Date.now() + 90_000;
+				if (v && (v.verdict === "drifting" || v.verdict === "stuck")) {
+					driftStop = { ...violation, verdict: v.verdict, reason: v.reason };
+					driftControl?.terminate("drift_stop");
+				}
+			}).catch(() => { judgeBusy = false; });
+		};
+
 		// Spawn via the shared helper — first run creates the session, subsequent
 		// runs resume it (-c). Stream events drive the card + zoom timeline.
 		// `detached` puts the specialist in its own process group so /agents-kill
 		// can SIGTERM the whole delegation tree (killPiTree).
 		let fullText = "";
+		let runBilled = 0;
+		let runOut = 0;
 		const res = await spawnPiAgent({
 			model,
 			tools: effectiveTools,
@@ -3226,8 +3496,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			extensions,
 			env: { ...guardrailEnv(agentKey), ...(delegateEnv || {}) },
 			detached: true,
+			// A research persona dispatched through a custom team is still a native
+			// research helper, so it receives the same per-tool watchdog.
+			...(RESEARCHER_PERSONAS.has(personaKey) ? { toolWatchdog: { timeoutMs: reconSearchTimeoutMs } } : {}),
+			// Whole-run deadline from the active mode's budget (null in strict mode).
+			turnDeadlineMs: turnBudget.agentTurnMs,
 		}, {
 			onProcess: (p) => { state.proc = p; },
+			...(driftMonitor ? { onControl: (c: PiRunControl) => { driftControl = c; } } : {}),
 			onTextDelta: (delta) => {
 				fullText += delta;
 				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
@@ -3250,10 +3526,25 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				});
 				updateWidget();
 				state.zoomRender?.();
+				const violation = driftMonitor?.onToolStart(toolName, argStr);
+				if (violation) escalateDrift(violation);
 			},
-			onUsage: (usage) => {
+			onToolEnd: (toolName, _id, isError) => {
+				const violation = driftMonitor?.onToolEnd(toolName, isError);
+				if (violation) escalateDrift(violation);
+			},
+			onUsage: (usage, source) => {
+				// Sum per-message usage; the agent_end usage restates the LAST
+				// message, so it only counts when no message_end ever arrived.
+				if (source === "message_end" || (runBilled === 0 && runOut === 0)) {
+					runBilled += (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
+					runOut += usage.output || 0;
+				}
 				if (contextWindow > 0) {
-					state.contextPct = ((usage.input || 0) / contextWindow) * 100;
+					// Real context = fresh input + cache reads + cache writes. Counting
+					// usage.input alone showed 1–20% while tens of thousands of cached
+					// tokens were re-sent per step, so the restart advice never fired.
+					state.contextPct = (((usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0)) / contextWindow) * 100;
 					updateWidget();
 				}
 			},
@@ -3288,6 +3579,48 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 		const full = res.output;
 		const code = res.exitCode;
+		if (res.termination) {
+			const reason = res.termination.reason;
+			const tool = res.termination.tool;
+			state.status = "error";
+			state.lastWork = reason === "tool_timeout"
+				? `tool_timeout: ${tool?.toolName || "tool"} (${tool?.toolCallId || "unknown"})`
+				: reason === "turn_timeout"
+					? `turn_timeout after ${Math.round(state.elapsed / 1000)}s`
+					: reason === "drift_stop"
+						? `drift_stop: ${driftStop?.verdict || "watchdog"} (${driftStop?.rule || "rule"})`
+						: "cancelled by caller";
+			updateWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, "error");
+			const onTerminate = state.onTerminate;
+			state.onTerminate = undefined;
+			onTerminate?.();
+			if (reason === "drift_stop") {
+				turnReport.driftStops++;
+				sessionTotals.driftStops++;
+				ctx.ui.notify(`${displayName(state.def.name)} stopped by the drift watchdog (${driftStop?.verdict || "verdict"}: ${driftStop?.reason || driftStop?.detail || "no reason"})`, "warning");
+			}
+			const explanation = reason === "tool_timeout"
+				? `exceeded its per-tool watchdog on ${tool?.toolName || "tool"} (${tool?.toolCallId || "unknown"})`
+				: reason === "turn_timeout"
+					? `exceeded the per-run deadline (${Math.round(state.elapsed / 1000)}s; agent-turn-timeout-s / mode budget). ` +
+						`Do NOT re-dispatch the same task unchanged — split it into smaller pieces, or ask the user to raise the deadline`
+					: reason === "drift_stop"
+						? `was stopped by the drift watchdog. Rule "${driftStop?.rule || "unknown"}" fired (${driftStop?.detail || "no detail"}); ` +
+							`judge verdict ${(driftStop?.verdict || "drifting").toUpperCase()}: ${driftStop?.reason || "(no reason given)"}. ` +
+							`Re-dispatch ONCE with a corrected, NARROWED task that addresses this verdict — never repeat the same task unchanged. ` +
+							`If you believe the watchdog is wrong, tell the user; they can disable it with /watchdog ${key} off`
+						: "was cancelled by its caller";
+			return {
+				output: `${reason}: agent ${displayName(state.def.name)} ${explanation}; terminationConfirmed=${res.termination.confirmed}.` +
+					(full.trim() ? `\n\nPartial output before termination:\n${full.slice(-2000)}` : ""),
+				exitCode: reason === "cancelled" ? 130 : reason === "drift_stop" ? 125 : 124,
+				elapsed: state.elapsed,
+				billed: runBilled,
+				out: runOut,
+			};
+		}
 
 		// Operator kill (Phase 2). The exit was a SIGTERM from /agents-kill or
 		// /agents-restart, not a real completion: free the card (status → idle),
@@ -3323,6 +3656,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		// Mark session file as available for resume
 		if (code === 0) {
 			state.sessionFile = agentSessionFile;
+			state.runsSinceFresh++;
 		}
 
 		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
@@ -3353,11 +3687,16 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				? `${full}${errBlock}`
 				: `Agent "${displayName(state.def.name)}" exited with code ${code} and produced no output.${errBlock}`;
 		}
+		if (sessionRecycled) {
+			output = `(ℹ ${displayName(state.def.name)}'s session was recycled before this run — it has no memory of earlier dispatches; state must travel via task text/artifacts.)\n\n${output}`;
+		}
 
 		return {
 			output,
 			exitCode: code ?? 1,
 			elapsed: state.elapsed,
+			billed: runBilled,
+			out: runOut,
 		};
 	}
 
@@ -3447,7 +3786,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		prompt: string,
 		ctx: any,
 		inputArtifacts: InputArtifactPreview[] = [],
-	): Promise<{ output: string; exitCode: number; elapsed: number }> {
+		signal?: AbortSignal,
+	): Promise<{ output: string; exitCode: number; elapsed: number; termination?: Termination }> {
 		state.status = "running";
 		state.task = prompt;
 		state.toolCount = 0;
@@ -3487,6 +3827,11 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// aborting the whole research turn.
 			extensions: damageControlContinueExtPath ? [damageControlContinueExtPath] : [],
 			env: guardrailEnv(`research-r${state.id}`),
+			// Shared native-research policy: owns a child group and applies the
+			// configured per-tool deadline (including explicit `off`/null).
+			...researchWatchdogSpawnOptions(reconSearchTimeoutMs, signal),
+			// Whole-run deadline from the active mode's budget (null in strict mode).
+			turnDeadlineMs: currentBudget().agentTurnMs,
 		}, {
 			onProcess: (p) => { state.proc = p; },
 			onTextDelta: (delta) => {
@@ -3514,7 +3859,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			},
 			onUsage: (usage) => {
 				if (contextWindow > 0) {
-					state.contextPct = ((usage.input || 0) / contextWindow) * 100;
+					// Same context truth as dispatchAgent: include cache reads/writes.
+					state.contextPct = (((usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0)) / contextWindow) * 100;
 					updateResearchWidget();
 				}
 			},
@@ -3543,6 +3889,23 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 		const full = res.output;
 		const code = res.exitCode;
+		const termination = res.termination;
+		if (termination) {
+			const outcome = researchTerminationOutcome(state.id, termination);
+			state.status = "error";
+			state.finishedAt = Date.now();
+			state.lastWork = outcome.lastWork;
+			updateResearchWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, "error");
+			pruneResearch();
+			return {
+				output: outcome.output,
+				exitCode: outcome.exitCode,
+				elapsed: state.elapsed,
+				termination,
+			};
+		}
 
 		// Operator kill (via /agents-kill rN|all or its research-* aliases).
 		// Resolve gracefully so a spawn_research tool call awaiting this helper
@@ -4235,11 +4598,54 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			agent: Type.String({ description: "Agent name (case-insensitive)" }),
 			task: Type.String({ description: "Task description for the agent to execute" }),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the specialist must read the file itself." }))),
-			scope: Type.Optional(Type.Array(Type.String({ description: "Optional advisory file scope globs for writable agents. Changes outside are reported in details.scopeViolations; nothing is auto-reverted." }))),
+			scope: Type.Optional(Type.Array(Type.String({ description: "Optional advisory file scope globs for writable agents. Changes outside are reported in details.scopeViolations; nothing is auto-reverted. Also arms the drift watchdog's live out-of-scope rule." }))),
+			watchdog: Type.Optional(Type.Boolean({ description: "Force the drift watchdog on/off for THIS dispatch (default: per-agent /watchdog override, then the hub-wide setting)." })),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
-			const { agent, task, artifacts, scope } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[] };
+			const { task, artifacts, scope, watchdog } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[]; watchdog?: boolean };
+			// Display names / underscores resolve to the persona slug key space, so
+			// `agent: "Test Engineer"` never burns a dispatch on a lookup error.
+			const agent = normalizeAgentInput((params as { agent: string }).agent);
+			// Unclassified turn: assume the default tier (outside strict, whose full
+			// contract runs uncapped by tiers). The prompt asks for set_task_tier
+			// FIRST; this is the fail-safe, not the intended path.
+			if (turnTaskTier === null && hubMode !== "strict") {
+				turnTaskTier = DEFAULT_TASK_TIER;
+				turnReport.tier = turnTaskTier;
+				updateModeStatus();
+			}
+			// Turn-budget gate: refuse BEFORE any spawn. The dispatcher must stop,
+			// summarize, and ask the user; a new user turn opens a fresh window.
+			const budgetRefusal = checkTurnBudget(
+				"dispatch",
+				{ dispatches: turnDispatchCount, research: turnResearchCount },
+				currentBudget(),
+				Date.now() - (currentTurnStartedAt || Date.now()),
+				hubMode,
+			);
+			if (budgetRefusal) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: budgetRefusal.message }],
+					details: { agent, task, status: "budget_refused", reason: budgetRefusal.reason, elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
+			}
+			// Duplicate-dispatch guard: the same agent with a near-identical task in
+			// one turn is running in circles — the result already exists.
+			const fingerprint = taskFingerprint(agent, task);
+			if (turnDispatchFingerprints.has(fingerprint)) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: `⚠ Duplicate dispatch refused: you already dispatched ${agent} with this task (or a trivial rewording of it) THIS turn. Use the earlier result — re-read its digest/returnPath — or change the task materially (new instructions, corrected inputs) before re-dispatching.` }],
+					details: { agent, task, status: "duplicate_refused", elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
+			}
+			turnDispatchCount++;
+			sessionTotals.dispatches++;
+			updateModeStatus();
 			let writableTracked = false;
 			let scopeSnapshot: any = null;
 			let scopeOverlapBaseline = writableOverlapCounter;
@@ -4269,7 +4675,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					scopeSnapshot = snapshotWorktree(ctx.cwd || process.cwd());
 				}
 
-				let result = await dispatchAgent(agent, task, ctx, inputArtifacts, scopeGlobs);
+				let result = await dispatchAgent(agent, task, ctx, inputArtifacts, scopeGlobs, watchdog);
+				let dispatchBilled = result.billed ?? 0;
+				let dispatchOut = result.out ?? 0;
 
 				// Auto-research pipe: when the specialist pauses with NEEDS_RESEARCH
 				// lines, the hub (in code, not the dispatcher LLM) fans out read-only
@@ -4311,7 +4719,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					const resumePrompt = "Research findings for your NEEDS_RESEARCH questions are ready. " +
 						"Read each file with your read tool, then continue from where you paused:\n" +
 						answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
-					result = await dispatchAgent(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs);
+					result = await dispatchAgent(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog);
+					dispatchBilled += result.billed ?? 0;
+					dispatchOut += result.out ?? 0;
 				}
 
 				let scopeViolations: any = null;
@@ -4343,6 +4753,15 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				const questions = extractAskUserQuestions(result.output);
 
 				const status = result.exitCode === 0 ? "done" : "error";
+				// Record the fingerprint only for completed or watchdog/deadline-stopped
+				// runs — those must not be repeated unchanged. A failed spawn or plain
+				// error stays retryable (the failure may be transient).
+				if (result.exitCode === 0 || result.exitCode === 124 || result.exitCode === 125) {
+					turnDispatchFingerprints.add(fingerprint);
+				}
+				turnReport.dispatches.push({ agent, status, elapsed: result.elapsed, billed: dispatchBilled, out: dispatchOut });
+				sessionTotals.billed += dispatchBilled;
+				sessionTotals.out += dispatchOut;
 				const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 				const questionsNotice = questions.length > 0
 					? `\n\n⚠ ${questions.length} ASK_USER question(s) raised by ${agent}. ` +
@@ -4470,6 +4889,28 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
 			const { task, persona, model, artifacts } = params as { task: string; persona?: string; model?: string; artifacts?: string[] };
 
+			// Turn-budget gate (dispatcher-initiated research only — the auto-research
+			// pipe and the /research command are exempt).
+			const budgetRefusal = checkTurnBudget(
+				"research",
+				{ dispatches: turnDispatchCount, research: turnResearchCount },
+				currentBudget(),
+				Date.now() - (currentTurnStartedAt || Date.now()),
+				hubMode,
+			);
+			if (budgetRefusal) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: budgetRefusal.message }],
+					details: { status: "budget_refused", reason: budgetRefusal.reason },
+				};
+			}
+			turnResearchCount++;
+			turnReport.research++;
+			sessionTotals.research++;
+			updateModeStatus();
+
 			let def: AgentDef;
 			let isPersona = false;
 			if (persona) {
@@ -4500,11 +4941,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			}
 
 			try {
-				const result = await spawnResearch(state, task, ctx, inputArtifacts);
+				const result = await spawnResearch(state, task, ctx, inputArtifacts, _signal);
 				const truncated = result.output.length > 8000
 					? result.output.slice(0, 8000) + "\n\n... [truncated]"
 					: result.output;
-				const status = result.exitCode === 0 ? "done" : "error";
+				const status = result.termination
+					? result.termination.reason
+					: result.exitCode === 0 ? "done" : "error";
 				const label = isPersona ? displayName(def.name) : "ad-hoc";
 				const summary = `[research r${state.id} · ${label} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 				return {
@@ -4517,6 +4960,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 						elapsed: result.elapsed,
 						exitCode: result.exitCode,
 						fullOutput: result.output,
+						termination: result.termination,
 						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview })),
 					},
 				};
@@ -4566,6 +5010,102 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				return new Text(header + "\n" + theme.fg("muted", output), 0, 0);
 			}
 			return new Text(header, 0, 0);
+		},
+	});
+
+	// ── set_task_tier Tool (complexity triage) ──
+	// The dispatcher classifies each user turn BEFORE its first dispatch; the
+	// declared tier lowers the dispatch/research caps to min(mode, tier) in code.
+	// Skipping it makes the first dispatch assume the default tier (run-budget.js).
+
+	pi.registerTool({
+		name: "set_task_tier",
+		label: "Set Task Tier",
+		description:
+			"Classify THIS user turn's ask before your first dispatch: trivial (one obvious, low-risk change — 1 dispatch), small (a contained change, no planning pipeline — 2 dispatches), feature (a normal multi-step feature — 6 dispatches), project (a large effort — mode budget applies). The hub enforces the resulting caps; re-call it if the ask turns out bigger than classified (raising the tier mid-turn is allowed and cheap — say why).",
+		parameters: Type.Object({
+			tier: Type.String({ description: "One of: trivial | small | feature | project" }),
+			reason: Type.Optional(Type.String({ description: "One line on why this tier fits the ask." })),
+		}),
+		async execute(_callId, params, _signal, _onUpdate, _ctx) {
+			const { tier, reason } = params as { tier: string; reason?: string };
+			const normalized = normalizeTaskTier(tier);
+			if (!normalized) {
+				return {
+					content: [{ type: "text" as const, text: `Unknown tier "${tier}" — expected one of: ${TASK_TIERS.join(", ")}. Tier unchanged (${turnTaskTier ?? "unset"}).` }],
+					details: { status: "error", tier: turnTaskTier },
+				};
+			}
+			turnTaskTier = normalized;
+			turnReport.tier = normalized;
+			updateModeStatus();
+			const b = currentBudget();
+			const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
+			return {
+				content: [{ type: "text" as const, text: `Task tier: ${normalized}${reason ? ` (${reason})` : ""}. Effective caps this turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Size the apparatus accordingly — do not spend a cap just because it exists.` }],
+				details: { status: "ok", tier: normalized },
+			};
+		},
+		renderCall(args, theme) {
+			return new Text(
+				theme.fg("toolTitle", theme.bold("set_task_tier ")) +
+				theme.fg("accent", String((args as any).tier || "?")) +
+				theme.fg("dim", (args as any).reason ? ` — ${String((args as any).reason).slice(0, 60)}` : ""),
+				0, 0,
+			);
+		},
+	});
+
+	// ── team_adjust Tool (dispatcher-driven roster changes, gated) ──
+	// The dispatcher may restructure its own team mid-session — but never in fast
+	// mode, never past the roster cap, and the human is notified of every change.
+	const TEAM_ADJUST_ROSTER_CAP = 8;
+
+	pi.registerTool({
+		name: "team_adjust",
+		label: "Team Adjust",
+		description:
+			"Add or drop a specialist persona in the ACTIVE team (the roster you can dispatch to). Use sparingly, when the current roster genuinely cannot serve the task (e.g. add security-auditor for a security-sensitive change, drop an unused specialist). Not available in fast mode. The human sees every change and can revert with /agents-add //agents-drop.",
+		parameters: Type.Object({
+			action: Type.String({ description: "add | drop" }),
+			agent: Type.String({ description: "Persona name (case-insensitive), e.g. security-auditor" }),
+			reason: Type.String({ description: "One line on why the roster must change for this task." }),
+		}),
+		async execute(_callId, params, _signal, _onUpdate, ctx) {
+			const { action, agent, reason } = params as { action: string; agent: string; reason: string };
+			const act = String(action || "").trim().toLowerCase();
+			if (hubMode === "fast") {
+				return {
+					content: [{ type: "text" as const, text: "team_adjust is disabled in fast mode — a single-specialist path never needs roster changes. Ask the user to /hub-mode standard if the task outgrew fast mode." }],
+					details: { status: "refused" },
+				};
+			}
+			if (act !== "add" && act !== "drop") {
+				return { content: [{ type: "text" as const, text: `Unknown action "${action}" — expected add or drop.` }], details: { status: "error" } };
+			}
+			if (act === "add" && agentStates.size >= TEAM_ADJUST_ROSTER_CAP) {
+				return {
+					content: [{ type: "text" as const, text: `Roster cap reached (${TEAM_ADJUST_ROSTER_CAP}) — drop an unused member first, or ask the user to /agents-add manually.` }],
+					details: { status: "refused" },
+				};
+			}
+			const result = act === "add" ? rosterAdd(agent) : rosterDrop(agent);
+			if (result.ok) {
+				ctx.ui.notify(`team_adjust (${act}): ${result.message} — dispatcher's reason: ${reason || "(none given)"}`, "info");
+			}
+			const roster = Array.from(agentStates.values()).map(s => s.def.name).join(", ");
+			return {
+				content: [{ type: "text" as const, text: `${result.message}. Active team: ${roster}.` }],
+				details: { status: result.ok ? "ok" : "refused", roster },
+			};
+		},
+		renderCall(args, theme) {
+			return new Text(
+				theme.fg("toolTitle", theme.bold("team_adjust ")) +
+				theme.fg("accent", `${String((args as any).action || "?")} ${String((args as any).agent || "?")}`) +
+				theme.fg("dim", (args as any).reason ? ` — ${String((args as any).reason).slice(0, 50)}` : ""),
+				0, 0,
+			);
 		},
 	});
 
@@ -5357,6 +5897,178 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			await openHistory(ctx);
+		},
+	});
+
+	// ── /hub-mode: execution mode (fast|standard|strict) ──
+	// Session-lifetime switch over the overrides-file default. Budgets bind on
+	// the NEXT tool call (counters are per user turn and keep running); the
+	// dispatcher prompt rebuilds with the new mode on the next turn.
+	pi.registerCommand("hub-mode", {
+		description: "Show or set the execution mode: fast (single specialist) | standard (batched, default) | strict (full Verification Contract)",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const requested = (args || "").trim();
+			if (!requested) {
+				const b = currentBudget();
+				const cap = (n: number | null) => (n == null ? "∞" : String(n));
+				ctx.ui.notify(
+					`Execution mode: ${hubMode}\nThis turn: ${turnDispatchCount}/${cap(b.maxDispatches)} dispatches, ` +
+					`${turnResearchCount}/${cap(b.maxResearch)} research\nSwitch with /hub-mode ${HUB_MODES.join("|")}`,
+					"info",
+				);
+				return;
+			}
+			const mode = normalizeHubMode(requested);
+			if (!mode) {
+				ctx.ui.notify(`Unknown mode "${requested}" — expected one of: ${HUB_MODES.join(", ")}`, "error");
+				return;
+			}
+			hubMode = mode;
+			updateModeStatus();
+			ctx.ui.notify(`Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)`, "success");
+		},
+	});
+
+	pi.registerCommand("watchdog", {
+		description: "Drift watchdog: /watchdog [on|off|auto] hub-wide, /watchdog <agent> [on|off|clear] per agent, no args to show",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const parts = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (parts.length === 0) {
+				const perAgent = watchdogAgentOverrides.size > 0
+					? Array.from(watchdogAgentOverrides.entries()).map(([k, v]) => `${k}: ${v}`).join(", ")
+					: "(none)";
+				ctx.ui.notify(
+					`Drift watchdog: ${watchdogSetting} (hub-wide)\nPer-agent overrides: ${perAgent}\n` +
+					`Judge model: ${watchdogJudgeModel || "(researcher persona's, else dispatcher's)"}\n` +
+					`Usage: /watchdog on|off|auto — or /watchdog <agent> on|off|clear`,
+					"info",
+				);
+				return;
+			}
+			if (parts.length === 1) {
+				const setting = normalizeWatchdogSetting(parts[0]);
+				if (!setting) {
+					ctx.ui.notify(`Unknown setting "${parts[0]}" — expected one of: ${WATCHDOG_SETTINGS.join(", ")} (or /watchdog <agent> on|off|clear)`, "error");
+					return;
+				}
+				watchdogSetting = setting;
+				ctx.ui.notify(`Drift watchdog → ${setting} (applies from the next dispatch)`, "success");
+				return;
+			}
+			const agentKey = normalizeAgentInput(parts[0]);
+			const value = parts[1].toLowerCase();
+			if (!agentStates.has(agentKey)) {
+				ctx.ui.notify(`"${parts[0]}" is not in the active team (${Array.from(agentStates.values()).map(s => s.def.name).join(", ")})`, "error");
+				return;
+			}
+			if (value === "clear") {
+				watchdogAgentOverrides.delete(agentKey);
+				ctx.ui.notify(`Drift watchdog override cleared for ${agentKey} (hub-wide setting "${watchdogSetting}" applies)`, "success");
+				return;
+			}
+			if (value !== "on" && value !== "off") {
+				ctx.ui.notify(`Per-agent watchdog must be on, off, or clear — got "${parts[1]}"`, "error");
+				return;
+			}
+			watchdogAgentOverrides.set(agentKey, value);
+			ctx.ui.notify(`Drift watchdog for ${agentKey} → ${value} (overrides the hub-wide "${watchdogSetting}")`, "success");
+		},
+	});
+
+	pi.registerCommand("agents-add", {
+		description: "Add persona(s) to the active team without switching teams: /agents-add <name> [<name>…]",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (names.length === 0) {
+				const available = allAgentDefs
+					.filter(d => !agentStates.has(d.name.toLowerCase()))
+					.map(d => d.name).sort().join(", ") || "(all personas are already in the team)";
+				ctx.ui.notify(`Usage: /agents-add <persona> [<persona>…]\nNot in the team yet: ${available}`, "info");
+				return;
+			}
+			const results = names.map(n => rosterAdd(n));
+			const level = results.some(r => r.ok) ? "success" : "error";
+			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
+			ctx.ui.setStatus("agent-team", `Team: ${activeTeamName}* (${agentStates.size})`);
+		},
+	});
+
+	pi.registerCommand("agents-drop", {
+		description: "Drop persona(s) from the active team: /agents-drop <name> [<name>…]",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (names.length === 0) {
+				ctx.ui.notify(`Usage: /agents-drop <persona> [<persona>…]\nActive team: ${Array.from(agentStates.values()).map(s => s.def.name).join(", ")}`, "info");
+				return;
+			}
+			const results = names.map(n => rosterDrop(n));
+			const level = results.some(r => r.ok) ? "success" : "error";
+			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
+			ctx.ui.setStatus("agent-team", `Team: ${activeTeamName}* (${agentStates.size})`);
+		},
+	});
+
+	pi.registerCommand("agents-save", {
+		description: "Persist the CURRENT roster as a named team in .pi/agents/teams.yaml: /agents-save <team-name>",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = (args || "").trim();
+			if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
+				ctx.ui.notify("Usage: /agents-save <team-name> (letters, digits, hyphens, underscores)", "error");
+				return;
+			}
+			const members = Array.from(agentStates.values()).map(s => s.def.name);
+			if (members.length === 0) {
+				ctx.ui.notify("The active team is empty — nothing to save.", "error");
+				return;
+			}
+			const teamsPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "teams.yaml");
+			let raw = "";
+			try { raw = existsSync(teamsPath) ? readFileSync(teamsPath, "utf-8") : ""; } catch {}
+			try {
+				mkdirSync(join(ctx.cwd || process.cwd(), ".pi", "agents"), { recursive: true });
+				writeFileSync(teamsPath, upsertTeamInYaml(raw, name, members), "utf-8");
+			} catch (err) {
+				ctx.ui.notify(`Could not write ${teamsPath}: ${err instanceof Error ? err.message : String(err)}`, "error");
+				return;
+			}
+			teams[name] = members;
+			activeTeamName = name;
+			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
+			ctx.ui.notify(`Team "${name}" saved to .pi/agents/teams.yaml — ${members.join(", ")}`, "success");
+		},
+	});
+
+	pi.registerCommand("hub-report", {
+		description: "Per-turn cost report: dispatches, research, tokens, recycles, drift stops (last turn + session totals)",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			const fmtTok = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+			const renderReport = (label: string, r: TurnReport): string => {
+				const billed = r.dispatches.reduce((n, d) => n + d.billed, 0);
+				const out = r.dispatches.reduce((n, d) => n + d.out, 0);
+				const rows = r.dispatches.map(d => `  ${d.agent}: ${d.status} in ${Math.round(d.elapsed / 1000)}s · ${fmtTok(d.billed)} billed / ${fmtTok(d.out)} out`);
+				return [
+					`${label} — tier ${r.tier ?? "(unset)"} · ${r.dispatches.length} dispatch(es) · ${r.research} research · ` +
+						`${fmtTok(billed)} billed / ${fmtTok(out)} out · ${r.recycles} recycle(s) · ${r.driftStops} drift stop(s) · ${r.refusals} refusal(s)`,
+					...rows,
+				].join("\n");
+			};
+			const lines: string[] = [];
+			if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) {
+				lines.push(renderReport("Current turn", turnReport));
+			}
+			if (lastTurnReport) lines.push(renderReport("Last turn", lastTurnReport));
+			lines.push(
+				`Session — ${sessionTotals.turns} dispatching turn(s) · ${sessionTotals.dispatches} dispatch(es) · ${sessionTotals.research} research · ` +
+				`${fmtTok(sessionTotals.billed)} billed / ${fmtTok(sessionTotals.out)} out · ${sessionTotals.recycles} recycle(s) · ` +
+				`${sessionTotals.driftStops} drift stop(s) · ${sessionTotals.refusals} refusal(s)`,
+			);
+			ctx.ui.notify(lines.join("\n\n"), "info");
 		},
 	});
 
@@ -6488,6 +7200,20 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		currentOrchestratorEntry = null;
 		askUserStarts.clear();
 		turnAskUserIntervals.length = 0;
+		// Fresh turn → fresh budget window (mode itself persists across turns).
+		// The tier and the duplicate guard are turn-scoped too: a new user message
+		// is a new ask, so it re-triages and may legitimately repeat a task.
+		turnDispatchCount = 0;
+		turnResearchCount = 0;
+		turnTaskTier = null;
+		turnDispatchFingerprints.clear();
+		// Snapshot the previous turn's cost report before opening a fresh one.
+		if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) {
+			lastTurnReport = turnReport;
+			sessionTotals.turns++;
+		}
+		turnReport = freshTurnReport();
+		updateModeStatus();
 
 		// Build dynamic agent catalog from active team only
 		const agentCatalog = Array.from(agentStates.values())
@@ -6537,8 +7263,8 @@ ask the human. You MUST instead:
   the user in ${userLanguage} and wait for their reply in the next turn.`;
 
 		const toolList = askUserAvailable
-			? "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger), and `ask_user` (talk to the human)"
-			: "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), and `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger). `ask_user` is NOT available — see the section below";
+			? "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), `set_task_tier` (classify the ask before the first dispatch), `team_adjust` (add/drop a team persona, sparingly), `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger), and `ask_user` (talk to the human)"
+			: "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), `set_task_tier` (classify the ask before the first dispatch), `team_adjust` (add/drop a team persona, sparingly), and `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger). `ask_user` is NOT available — see the section below";
 
 		const dispatchSection = askUserAvailable
 			? `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
@@ -6580,6 +7306,105 @@ ask the human. You MUST instead:
 - When a specialist emits an \`ASK_USER:\` line in English, translate it to
   ${userLanguage} before relaying to the user.${userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : ""}`;
 
+		// ── Execution mode section + mode-conditional Verification Contract ──
+		// The mode is the dispatcher's operating envelope: the hub ENFORCES the
+		// budgets in code (dispatch_agent/spawn_research refuse past them); the
+		// prompt teaches the dispatcher to plan within them instead of hitting them.
+		const budget = currentBudget();
+		const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
+		const capMin = (ms: number | null) => (ms == null ? "unlimited" : `${Math.round(ms / 60_000)} min`);
+		const modeSection = `## Task triage (FIRST, before any dispatch)
+Call \`set_task_tier\` to classify THIS turn's ask — the hub lowers the enforced caps
+to min(mode, tier), so an honest tier is how you avoid burning budget on ceremony:
+- trivial — one obvious, low-risk change (1 dispatch, 1 research). No ledger, no review pipeline.
+- small — a contained change in familiar code (2 dispatches, 2 research). At most 3 narrow assertions.
+- feature — a normal multi-step feature (6 dispatches, 4 research). Ledger + one review gate.
+- project — a large, multi-phase effort (mode budget applies). Full rigor per the mode.
+If you skip the call, the hub assumes "feature". Re-call it (say why) if the ask turns
+out bigger — raising the tier mid-turn is allowed. Tie the tier to the USER'S ask, not
+to how interesting the work is.
+- A provided plan is a SPEC: when the user hands you an existing plan/task list (a PLAN
+  file, a numbered breakdown), do NOT re-plan or re-spec it. Skip planner and
+  plan-reviewer; batch the plan's tasks straight to the builder and use the plan's own
+  acceptance criteria as the assertions.
+- Using every persona is a smell, not a virtue: each dispatch must change the outcome.
+  If a dispatch's absence would change nothing, don't make it.
+
+## Execution mode: ${hubMode}${turnTaskTier ? ` · tier: ${turnTaskTier}` : ""}
+Budgets for THIS user turn (enforced by the hub — exhausted budgets make dispatch_agent/
+spawn_research refuse; a new user message opens a fresh window; /hub-mode switches mode):
+- dispatch_agent calls: ${cap(budget.maxDispatches)} · spawn_research calls: ${cap(budget.maxResearch)}
+- turn wall clock: ${capMin(budget.wallMs)} · per-run deadline: ${capMin(budget.agentTurnMs)}
+Plan within the budget: batch related work into ONE dispatch (a coherent slice of 4–6
+plan tasks, not one dispatch per micro-task), and when a budget refusal comes back, STOP —
+summarize progress and ask the user; never retry the refused call in the same turn.
+Repeating an identical task to the same agent in one turn is refused in code
+(duplicate guard) — use the earlier result or change the task materially.
+Every task you dispatch states four things: the objective, the expected output format,
+the files in scope (also pass them as \`scope\` globs — they arm the live drift watchdog),
+and the boundaries (what NOT to touch). Vague tasks produce duplicated or drifting work.
+${hubMode === "fast"
+	? `FAST mode rules: this is a single-specialist path for small, low-risk asks.
+- Use at most ONE specialist dispatch (plus one research call only if truly needed).
+- Skip the assertion ledger and the plan/review pipeline; rely on the specialist's own
+  verification and report back.
+- Nested delegation is disabled; do not commission inventories or parity audits.
+- If the task turns out to be larger than fast mode fits, say so and ask the user to
+  switch modes (/hub-mode standard) instead of burning the budget.`
+	: hubMode === "standard"
+		? `STANDARD mode rules: rigor where it pays, batching everywhere else.
+- At most ONE reconnaissance pass before building (skip it for familiar code); prefer the
+  specialist's own recon over a separate research run.
+- Execute plans in a FEW large batches (4–6 tasks per builder dispatch), each followed by
+  ONE verification gate; do not re-audit everything after every small fix — re-verify only
+  the assertions the fix touched.
+- One review gate at the end (code review; security only when the change is
+  security-sensitive) — not one per micro-slice.
+- Reserve deep-researcher for genuinely cross-cutting questions (max 1–2 per task).`
+		: `STRICT mode rules: the full Verification Contract below applies — use for production
+migrations, security-sensitive work, or when the user explicitly asks for it. The wide
+budgets are a checkpoint, not a target: when one is hit, stop and check in with the user.`}
+`;
+
+		const fullVerificationContract = `## Verification Contract (assertion ledger)
+A clearly stated requirement must never be silently dropped. You OWN a ledger of checkable
+acceptance assertions; build it before you dispatch, and refuse "done" until each is proven.
+- BEFORE dispatching a builder for any non-trivial task, convert the request into numbered
+  assertions and record them with \`set_assertions\` — one pass condition each, tagged
+  test | runtime-ui | code-grep | manual (see skills/orchestration-verification/SKILL.md).
+  Pass the relevant assertions VERBATIM into each dispatch.
+- Keep assertions NARROW: one subsystem / one behavior each. Never bundle several
+  subsystems into one giant assertion — a compound assertion forces a full re-audit after
+  every small fix. After a fix, re-verify the touched assertions only.
+- After each verification gate, call \`update_assertion\` with proven (and name the evidence),
+  unproven, or failed. Advance ONLY on proven; unproven and failed both mean not done.
+- A runtime-ui assertion (visibility, placement, "appears in the table") is proven only by an
+  actual runtime observation — dispatch a browser-capable specialist; a static review never
+  closes it.
+- For "make X behave like existing Y" requests, FIRST spawn_research a deep-researcher parity
+  inventory of every site where the exemplar is special-cased, and turn each site into an
+  assertion — otherwise the exemplar ships and its siblings are missed.
+- On a "wrong again" correction, call \`set_assertions\` again to rebuild the ledger from the
+  LATEST correction before re-dispatching (a regression reset — old summaries are now suspect).
+- After a context compaction your status line shows only counts (e.g. "2✓ 3○"), not the
+  assertion text. Call \`get_assertions\` to read the full ledger back — ids, tags, pass
+  conditions, and the named evidence on each proven/failed assertion — before you re-dispatch
+  or report done. This is your bounded read-only window onto recorded ground truth; you do not
+  author code.
+- Specialist returns land pre-parsed in \`details.structuredReturn\` with the raw return at
+  \`details.returnPath\` — read the digest/path directly; NEVER spawn a research helper just to
+  read a return artifact you already hold.
+The ledger is persisted and its status is shown to the human; it is advisory — it informs your
+gating, it does not auto-block a dispatch.`;
+
+		const verificationSection = hubMode === "fast"
+			? `## Verification (fast mode)
+The assertion ledger is OPTIONAL in fast mode. State what was asked, dispatch the one
+specialist, and verify from its returned evidence (command output, file:line). If the
+request carries real acceptance criteria or turns risky, ask the user to switch to
+standard/strict instead of improvising rigor here.`
+			: fullVerificationContract;
+
 		// Peer section only when coms initialised. Decision G4: the coms_* tools are
 		// already in the active tool surface when ready; here we just teach the
 		// dispatcher how and when to reach for them.
@@ -6615,7 +7440,10 @@ ${languageLines}
 ## Active Team: ${activeTeamName}
 Members: ${teamMembers}
 You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents
-outside this team.
+outside this team. The roster CAN change mid-session: the human via /agents-add,
+/agents-drop, /agents-team — or you via \`team_adjust\` (add/drop with a reason)
+when the current roster genuinely cannot serve the task. Use it sparingly; more
+personas is usually the wrong answer.
 
 ## How to Work
 - Analyze the user's request and break it into clear sub-tasks.
@@ -6627,30 +7455,8 @@ ${dispatchSection}
 
 ${askUserBlock}
 
-## Verification Contract (assertion ledger)
-A clearly stated requirement must never be silently dropped. You OWN a ledger of checkable
-acceptance assertions; build it before you dispatch, and refuse "done" until each is proven.
-- BEFORE dispatching a builder for any non-trivial task, convert the request into numbered
-  assertions and record them with \`set_assertions\` — one pass condition each, tagged
-  test | runtime-ui | code-grep | manual (see skills/orchestration-verification/SKILL.md).
-  Pass the relevant assertions VERBATIM into each dispatch.
-- After each verification gate, call \`update_assertion\` with proven (and name the evidence),
-  unproven, or failed. Advance ONLY on proven; unproven and failed both mean not done.
-- A runtime-ui assertion (visibility, placement, "appears in the table") is proven only by an
-  actual runtime observation — dispatch a browser-capable specialist; a static review never
-  closes it.
-- For "make X behave like existing Y" requests, FIRST spawn_research a deep-researcher parity
-  inventory of every site where the exemplar is special-cased, and turn each site into an
-  assertion — otherwise the exemplar ships and its siblings are missed.
-- On a "wrong again" correction, call \`set_assertions\` again to rebuild the ledger from the
-  LATEST correction before re-dispatching (a regression reset — old summaries are now suspect).
-- After a context compaction your status line shows only counts (e.g. "2✓ 3○"), not the
-  assertion text. Call \`get_assertions\` to read the full ledger back — ids, tags, pass
-  conditions, and the named evidence on each proven/failed assertion — before you re-dispatch
-  or report done. This is your bounded read-only window onto recorded ground truth; you do not
-  author code.
-The ledger is persisted and its status is shown to the human; it is advisory — it informs your
-gating, it does not auto-block a dispatch.
+${modeSection}
+${verificationSection}
 
 ## Research helpers (read-only)
 - \`spawn_research\` runs a READ-ONLY helper (read/grep/find/ls — no bash, no writes)
@@ -6717,6 +7523,7 @@ ${researchCatalog}`;
 	// ── Session Start ────────────────────────────
 
 	pi.on("session_start", async (_event, _ctx) => {
+		registerVersionStatus(_ctx);
 		// Clear widgets + any research helpers from a previous session
 		for (const [, st] of Array.from(researchStates.entries())) {
 			if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); }
@@ -6901,6 +7708,16 @@ ${researchCatalog}`;
 		const overrides = parseAgentTeamOverrides(_ctx.cwd);
 		userLanguage = overrides.language;
 		researchKeep = overrides.researchKeep;
+		reconSearchTimeoutMs = overrides.reconSearchTimeoutMs;
+		hubMode = overrides.hubMode;
+		budgetOverrides = overrides.budgetOverrides;
+		watchdogSetting = overrides.watchdogSetting;
+		watchdogJudgeModel = overrides.watchdogJudgeModel;
+		turnDispatchCount = 0;
+		turnResearchCount = 0;
+		turnTaskTier = null;
+		turnDispatchFingerprints.clear();
+		updateModeStatus();
 		if (overrides.warnings.length > 0) {
 			_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
 		}
@@ -7002,7 +7819,7 @@ ${researchCatalog}`;
 		// The coms_* tools when the peer layer bound successfully; ask_user only when
 		// pi-ask-user is installed. Per decision G4 the dispatcher persona NEVER narrows
 		// this surface.
-		const dispatcherTools = ["dispatch_agent", "spawn_research", "set_assertions", "update_assertion", "get_assertions"];
+		const dispatcherTools = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust", "set_assertions", "update_assertion", "get_assertions"];
 		if (comsReady) dispatcherTools.push("coms_list", "coms_send", "coms_get", "coms_await");
 		if (askUserAvailable) dispatcherTools.push("ask_user");
 		// Fleet tools only inside a herdr pane with a live server (graceful
@@ -7091,9 +7908,7 @@ ${researchCatalog}`;
 				const filled = Math.round(pct / 10);
 				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 
-				const left = theme.fg("dim", ` ${model}${think}`) +
-					theme.fg("muted", " · ") +
-					theme.fg("accent", activeTeamName);
+				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think, activeTeamName);
 				const hint = theme.fg("muted", "Alt+A ") + theme.fg("dim", `view:${viewMode}`);
 				// The btw extension flips this global the first time a /btw command or
 				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.

@@ -19,6 +19,17 @@ aborted (`ctx.abort()`). For the softer variant that blocks but feeds back so th
 adapts and keeps working, see [`damage-control-continue`](../damage-control-continue/README.md)
 — the default guardrail for the `just hub` main session and spawned research helpers.
 
+## Version footer and provenance
+
+This persistent-UI harness shows `v<version>` below the prompt. It shares one common-key
+status with `agent-hub`, `coms`, and `damage-control-continue`, so a stack renders the version
+once. Its version remains separate from the mutable `damage-control` status: an active-rule or
+last-violation message never replaces it. The root `package.json` is canonical;
+`bin/sync-harness-versions.js` synchronizes its value into this adjacent manifest. The local
+`version.ts` reader supports copied or symlinked harness directories by resolving that adjacent
+stamp, but those targets still require the pre-existing full `.pi/harnesses/` dependency
+installation.
+
 ## Exemptions (pre-granted only)
 
 The hard-stop variant honors **pre-granted exemptions** from the shared exemptions

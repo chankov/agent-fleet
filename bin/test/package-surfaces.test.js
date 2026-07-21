@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -190,6 +191,16 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
       assert.equal(existsSync(join(workspace, "systemd", "user-owned.service")), method === "copy");
     } finally {
       rmSync(workspace, { recursive: true, force: true });
+    }
+  }
+});
+
+test("package dry-run includes each versioned harness entrypoint, module, and adjacent manifest", () => {
+  const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8" }));
+  const paths = new Set(packed[0].files.map(({ path }) => path));
+  for (const harness of ["agent-hub", "coms", "damage-control", "damage-control-continue"]) {
+    for (const file of ["index.ts", "version.ts", "package.json"]) {
+      assert.ok(paths.has(`.pi/harnesses/${harness}/${file}`), `${harness}/${file}`);
     }
   }
 });

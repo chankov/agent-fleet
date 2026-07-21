@@ -64,14 +64,14 @@ function fakePi() {
 }
 
 function fakeCtx(cwd, { hasUI = false, select } = {}) {
-	const state = { aborted: false, selectCalls: 0, notifications: [] };
+	const state = { aborted: false, selectCalls: 0, notifications: [], statuses: new Map() };
 	const ctx = {
 		cwd,
 		hasUI,
 		abort: () => { state.aborted = true; },
 		ui: {
 			notify: (msg) => state.notifications.push(msg),
-			setStatus: () => {},
+			setStatus: (key, text) => state.statuses.set(key, text),
 			select: async (...args) => { state.selectCalls++; return select ? select(...args) : undefined; },
 			confirm: async () => false,
 		},
@@ -243,6 +243,27 @@ test("continue: hub denial and timeout fail closed without re-asking", async () 
 	} finally {
 		silentHub.server.close();
 	}
+});
+
+test("version status persists while hard-stop and continue safety status changes", async () => {
+	const hardStop = await boot(hardStopExt, fixtureCwd());
+	const versionKey = "00-agent-fleet-version";
+	const version = hardStop.state.statuses.get(versionKey);
+	assert.match(version, /^v\d+\.\d+\.\d+/);
+	assert.match(hardStop.state.statuses.get("damage-control"), /Damage-Control Active/);
+	await hardStop.toolCall(readEnv);
+	assert.equal(hardStop.state.statuses.get(versionKey), version);
+	assert.match(hardStop.state.statuses.get("damage-control"), /Last Violation/);
+
+	const continued = await boot(continueExt, fixtureCwd());
+	const continuedVersion = continued.state.statuses.get(versionKey);
+	assert.equal(continuedVersion, version);
+	await continued.commands.allow.handler(".env turn", continued.ctx);
+	assert.equal(continued.state.statuses.get(versionKey), continuedVersion);
+	assert.match(continued.state.statuses.get("damage-control"), /1 exemption/);
+	await continued.commands.revoke.handler(".env", continued.ctx);
+	assert.equal(continued.state.statuses.get(versionKey), continuedVersion);
+	assert.match(continued.state.statuses.get("damage-control"), /Damage-Control \(continue\): \d+ Rules$/);
 });
 
 test("hard-stop: honors pre-granted file exemptions, aborts otherwise", async () => {

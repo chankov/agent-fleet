@@ -134,3 +134,42 @@ test('delegate spawn planning decrements tree budget and withholds delegate conf
   assert.deepEqual(plan.childExtensions, ['/repo/.pi/harnesses/damage-control/index.ts']);
   assert.equal(plan.childTools, READ_ONLY_TOOLS);
 });
+
+test('normalizeAgentInput maps display names and separators onto persona slugs', async () => {
+  const { normalizeAgentInput } = await import('../.pi/harnesses/agent-hub/helpers.ts');
+  assert.equal(normalizeAgentInput('Test Engineer'), 'test-engineer');
+  assert.equal(normalizeAgentInput('test_engineer'), 'test-engineer');
+  assert.equal(normalizeAgentInput('  Builder '), 'builder');
+  assert.equal(normalizeAgentInput('code-reviewer'), 'code-reviewer');
+  assert.equal(normalizeAgentInput('Deep  Researcher'), 'deep-researcher');
+});
+
+test('taskFingerprint collides on trivial rewording but not on different tasks', async () => {
+  const { taskFingerprint } = await import('../.pi/harnesses/agent-hub/helpers.ts');
+  const a = taskFingerprint('Builder', 'Implement the login form, then run tests.');
+  const b = taskFingerprint('builder', '  implement the LOGIN form — then run tests!! ');
+  assert.equal(a, b);
+  assert.notEqual(a, taskFingerprint('builder', 'Implement the signup form, then run tests.'));
+  assert.notEqual(a, taskFingerprint('test-engineer', 'Implement the login form, then run tests.'));
+});
+
+test('upsertTeamInYaml replaces one block, preserving comments and other teams', async () => {
+  const { upsertTeamInYaml, parseTeamsYaml: parse } = await import('../.pi/harnesses/agent-hub/helpers.ts');
+  const raw = '# header comment\n\ndefault:\n  - planner\n  - builder\n\ndebug:\n  - builder\n';
+  const next = upsertTeamInYaml(raw, 'default', ['builder', 'code-reviewer']);
+  assert.match(next, /^# header comment\n/);
+  assert.deepEqual(parse(next), {
+    default: ['builder', 'code-reviewer'],
+    debug: ['builder'],
+  });
+});
+
+test('upsertTeamInYaml appends a new team at the end', async () => {
+  const { upsertTeamInYaml, parseTeamsYaml: parse } = await import('../.pi/harnesses/agent-hub/helpers.ts');
+  const raw = 'default:\n  - planner\n';
+  const next = upsertTeamInYaml(raw, 'custom', ['builder', 'bowser']);
+  assert.deepEqual(parse(next), {
+    default: ['planner'],
+    custom: ['builder', 'bowser'],
+  });
+});

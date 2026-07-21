@@ -13,6 +13,16 @@ peers through per-project registry files under `~/.pi/coms/projects/<project>/ag
 Surfaces a live "pool" widget of connected peers, with ping and keepalive cycles and a
 clean shutdown lifecycle.
 
+## Version footer and provenance
+
+This persistent-UI harness shows `v<version>` below the prompt. It shares one common-key
+status with `agent-hub`, `damage-control`, and `damage-control-continue`, so a stack renders the
+version once. The root `package.json` is canonical; `bin/sync-harness-versions.js` synchronizes
+its value into this adjacent manifest. The local `version.ts` reader is retained so a copied or
+symlinked harness resolves its own adjacent stamp, not the launch directory. That provenance
+pair does not carry dependencies: copy/symlink targets still require the existing full
+`.pi/harnesses/` dependency installation.
+
 ## Presence backends: herdr vs files
 
 Presence (who's alive, what state they're in) is pluggable; the **envelope transport,

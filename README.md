@@ -114,7 +114,7 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 
 What makes it different is what it **doesn't** put in front of the dispatcher LLM. Multi-agent setups usually drown the orchestrator: every subagent's output, every research dump flows back into one context window until it compacts and forgets. `agent-hub` is built the other way around:
 
-- **Research never enters the dispatcher context.** Specialists end their turn with `NEEDS_RESEARCH:` lines; the hub fans out read-only helpers, writes findings to disk, and resumes the specialist with file paths. The dispatcher sees a one-line notice — never the raw findings.
+- **Research never enters the dispatcher context.** Specialists end their turn with `NEEDS_RESEARCH:` lines; the hub fans out read-only helpers, writes findings to disk, and resumes the specialist with file paths. The dispatcher sees a one-line notice — never the raw findings. Each local-disk research tool call has a parent-side 120-second watchdog (configurable as `recon-search-timeout-s` in `.ai/agent-fleet-overrides.md`), not a whole-agent deadline.
 - **The Verification Contract lives on disk.** A ledger of checkable acceptance assertions, built from the request *before* any builder runs, rendered as one status line (`Assertions: 2✓ 1○ 1✗ · open: A4`). A stated requirement is never silently dropped, and the contract survives compaction.
 - **Specialists run `--no-extensions`.** Tools and credentials stay scoped to the subagent that needs them instead of leaking up into the dispatcher.
 

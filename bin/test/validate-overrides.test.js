@@ -87,6 +87,7 @@ models.builder: github-copilot/claude-sonnet-4.6, github-copilot/claude-haiku-4.
 thinking.code-reviewer: xhigh
 subagents.code-reviewer.docs: github-copilot/claude-sonnet-4.6, tools=read,grep
 delegate-depth.code-reviewer: 1
+recon-search-timeout-s: 120
 rules: docs/rules
 docs: Docs/AGENTS.md
 `;
@@ -151,14 +152,66 @@ branching: sometimes
 persona-gate: maybe
 thinking.builder: ultra
 delegate-depth.builder: -1
+recon-search-timeout-s: 0
 `);
   const issues = findings.map((f) => f.issue);
-  assert.equal(findings.length, 5);
+  assert.equal(findings.length, 6);
   assert.match(issues[0], /todo .* "inline" is not one of: embedded\|separate/);
   assert.match(issues[1], /branching .* "sometimes"/);
   assert.match(issues[2], /persona-gate .* "maybe"/);
   assert.match(issues[3], /thinking\.builder .* "ultra" is not one of: off\|minimal/);
   assert.match(issues[4], /delegate-depth\.builder .* not a non-negative integer/);
+  assert.match(issues[5], /recon-search-timeout-s .* not an integer from 1 to 3600 or "off"/);
+});
+
+test("execution-mode and turn-budget keys accept valid values", () => {
+  assert.deepEqual(findingsFor(`## agent-hub
+mode: strict
+max-dispatches-per-turn: 8
+max-research-per-turn: off
+turn-wall-time-s: 3600
+agent-turn-timeout-s: off
+session-recycle-runs: 5
+`), []);
+});
+
+test("execution-mode and turn-budget keys flag invalid values", () => {
+  const issues = findingsFor(`## agent-hub
+mode: turbo
+max-dispatches-per-turn: zero
+session-recycle-runs: -1
+`).map((f) => f.issue);
+  assert.equal(issues.length, 3);
+  assert.match(issues[0], /mode .* "turbo" is not one of: fast\|standard\|strict/);
+  assert.match(issues[1], /max-dispatches-per-turn .* not an integer from 1 to 1000 or "off"/);
+  assert.match(issues[2], /session-recycle-runs .* not an integer from 1 to 1000 or "off"/);
+});
+
+test("watchdog keys accept valid values", () => {
+  assert.deepEqual(findingsFor(`## agent-hub
+watchdog: auto
+watchdog-judge-model: openai-codex/gpt-5.3-codex-spark
+`), []);
+});
+
+test("watchdog setting flags invalid values", () => {
+  const issues = findingsFor(`## agent-hub
+watchdog: sometimes
+`).map((f) => f.issue);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0], /watchdog .* "sometimes" is not one of: on\|off\|auto/);
+});
+
+test("recon search timeout accepts its integer range and off", () => {
+  assert.deepEqual(findingsFor(`## agent-hub
+recon-search-timeout-s: 1
+`), []);
+  assert.deepEqual(findingsFor(`## agent-hub
+recon-search-timeout-s: 3600
+`), []);
+  assert.deepEqual(findingsFor(`## agent-hub
+recon-search-timeout-s: off
+`), []);
 });
 
 test("missing rules folders are flagged, existing ones are not", () => {

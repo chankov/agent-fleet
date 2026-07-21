@@ -1,0 +1,4 @@
+# Gitignored dependency trees required by Agent Fleet's local commands.
+node_modules/
+.pi/extensions/node_modules/
+.pi/harnesses/node_modules/

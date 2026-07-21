@@ -24,6 +24,17 @@ By default both variants hard-block. The choice is whether the agent's turn dies
 or keeps going — plus, in this variant, whether **you** let the call through via
 exemptions (below).
 
+## Version footer and provenance
+
+This persistent-UI harness shows `v<version>` below the prompt. It shares one common-key
+status with `agent-hub`, `coms`, and `damage-control`, so a stack renders the version once. Its
+version remains separate from the mutable `damage-control` status: active-rule and
+last-violation feedback never replaces it. The root `package.json` is canonical;
+`bin/sync-harness-versions.js` synchronizes its value into this adjacent manifest. The local
+`version.ts` reader supports copied or symlinked harness directories by resolving that adjacent
+stamp, but those targets still require the pre-existing full `.pi/harnesses/` dependency
+installation.
+
 ## Exemptions — allow access per turn or per session
 
 Runtime allowances layered on top of the rules file (which is never modified).

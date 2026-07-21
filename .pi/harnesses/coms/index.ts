@@ -23,6 +23,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
+import { registerVersionStatus } from "./version.ts";
 
 import {
 	formatPeerStatus,
@@ -783,6 +784,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ━━ session_start ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 	pi.on("session_start", async (_event, ctx) => {
+		registerVersionStatus(ctx);
 		currentCtx = ctx;
 
 		// 1. Resolve identity from CLI flags > frontmatter > defaults.

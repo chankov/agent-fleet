@@ -9,14 +9,14 @@ models:
   - ollama/kimi-k2.7-code:cloud
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
-thinking: medium
+thinking: low
 delegate_depth: 1
 subagents:
   coverage-scout:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-5.3-codex-spark
     tools: read,grep,find,ls
   conventions:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-5.3-codex-spark
     tools: read,grep,find,ls
 ---
 
@@ -37,7 +37,14 @@ You have pre-configured read-only scouts on a fast/cheap model:
 `coverage-scout` and `conventions`. The budget is 4 delegate children per
 dispatch. You write all tests yourself — NEVER delegate test writing.
 
-1. Before writing tests, in ONE message issue parallel `delegate` calls: send
+**Run the pre-pass only when it earns its cost:** the FIRST test dispatch in a
+feature or an unfamiliar area of the codebase. SKIP it (and go straight to the
+Approach below) when you are adding a few targeted tests to files you have
+already worked with this session, when the task names the exact test file and
+pattern to follow, or when a prior dispatch's scout findings still cover this
+area — reuse those findings instead of re-scouting.
+
+1. When the pre-pass applies, in ONE message issue parallel `delegate` calls: send
    `coverage-scout` the code under test so it inventories the existing tests
    and maps coverage gaps (public API, edge cases, error paths not yet
    covered) — and when the task carries acceptance assertions, have it report

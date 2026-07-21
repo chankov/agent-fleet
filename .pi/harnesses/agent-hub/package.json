@@ -1,6 +1,7 @@
 {
-  "name": "agent-fleet-pi-agent-hub",
-  "private": true,
-  "type": "module",
-  "main": "index.ts"
+	"name": "agent-fleet-pi-agent-hub",
+	"private": true,
+	"type": "module",
+	"main": "index.ts",
+	"version": "0.0.3"
 }

@@ -28,32 +28,42 @@ harness under `.pi/extensions/`.
 
 ## Directory anatomy
 
-Every harness is a directory with exactly three files:
+Every harness has these three required baseline files:
 
 ```
 .pi/harnesses/<name>/
   index.ts        # the extension
-  package.json    # four fields, identical shape for every harness
+  package.json    # shared manifest fields; persistent-UI targets add a version stamp
   README.md       # the discovery surface
 ```
 
+Persistent-UI targets may additionally include a local `version.ts` provenance reader beside
+their adjacent stamped `package.json`; do not describe those target harnesses as having exactly
+three files.
+
 ### package.json
 
-Identical shape for every harness — only `name` changes:
+Every harness manifest shares the same base shape (only `name` changes). Persistent-UI targets
+add a root-derived `version` stamp:
 
 ```json
 {
   "name": "agent-fleet-pi-<name>",
   "private": true,
   "type": "module",
-  "main": "index.ts"
+  "main": "index.ts",
+  "version": "<root package version>"
 }
 ```
 
-Runtime dependencies are **not** declared here. Shared deps (`@sinclair/typebox`, `yaml`)
-live in `.pi/harnesses/package.json` and are installed once by `just install`. The
-`@mariozechner/pi-*` packages are provided by the pi runtime. If a harness needs a new
-dependency, add it to `.pi/harnesses/package.json`, not the per-harness file.
+The root `package.json` is canonical; `bin/sync-harness-versions.js` synchronizes the adjacent
+harness stamps. A persistent-UI harness may keep a local provenance reader beside that manifest
+so a copied or symlinked directory resolves its adjacent stamp, not the launch cwd. This does
+**not** make it dependency-free. Runtime dependencies remain in `.pi/harnesses/package.json` and
+are installed once by `just install`; copied/symlinked target harnesses still need that full
+harness dependency installation. The `@mariozechner/pi-*` packages are provided by the pi runtime.
+If a harness needs a new dependency, add it to `.pi/harnesses/package.json`, not the per-harness
+file.
 
 ## The ExtensionAPI surface
 
@@ -107,7 +117,10 @@ Handlers are `async (event, ctx) => …`.
 - `ctx.sessionManager.getBranch()` — session entries, for state reconstruction
 - `ctx.abort()` — abort the current turn
 - `ctx.hasUI` — false in headless runs; guard UI-only commands with it
-- `ctx.ui.setFooter(fn)` / `setWidget(id, fn, opts)` / `setStatus(text, id)` — UI surfaces
+- `ctx.ui.setFooter(fn)` / `setWidget(id, fn, opts)` / `setStatus(key, text)` — UI surfaces.
+  Use a stable, namespaced status key per concern. Stack-wide data such as the harness version
+  uses one shared key so stacked harnesses deduplicate `v<version>`; mutable status (for example,
+  Damage-Control activity or violations) uses its own key and must not overwrite that version.
 - `ctx.ui.notify(text, level)` — transient message (`info` | `warning` | `error` | `success`)
 - `ctx.ui.confirm(title, body, opts)` — yes/no dialog
 - `ctx.ui.select(title, options)` — pick-one dialog

@@ -51,6 +51,7 @@ import {
 	type Exemption,
 	type ExemptionScope,
 } from "../damage-control/shared.ts";
+import { registerVersionStatus } from "./version.ts";
 
 interface Rule {
 	pattern: string;
@@ -264,6 +265,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		registerVersionStatus(ctx);
 		const projectRulesPath = path.join(ctx.cwd, ".pi", "damage-control-rules.yaml");
 		const globalRulesPath = path.join(os.homedir(), ".pi", "damage-control-rules.yaml");
 		const rulesPath = fs.existsSync(projectRulesPath) ? projectRulesPath : fs.existsSync(globalRulesPath) ? globalRulesPath : null;

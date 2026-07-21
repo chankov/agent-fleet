@@ -96,11 +96,12 @@ a `.changeset/<random-name>.md` file — commit that alongside your change.
 
 1. PRs merge to `main` with their changeset files.
 2. The release GitHub Action opens (or updates) a "Version Packages" PR that
-   aggregates pending changesets into one version bump + `CHANGELOG.md` update.
-3. Merging that PR triggers `changeset publish` — the package goes to npm and a
+   aggregates pending changesets into a version bump + `CHANGELOG.md` update.
+3. In that PR, synchronize adjacent harness version stamps, refresh
+   `package-lock.json`, then snapshot active artifacts into `.versions/<x.y.z>/`
+   for future three-way diffs against this release.
+4. Merging the PR triggers `changeset publish` — the package goes to npm and a
    matching git tag (`v<x.y.z>`) is pushed.
-4. The same workflow snapshots the active artifacts into `.versions/<x.y.z>/`
-   so that future installs can run a three-way diff against this exact release.
 
 ### Backporting a version-aware change
 

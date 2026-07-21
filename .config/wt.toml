@@ -1,0 +1,4 @@
+# Make new worktrees immediately usable by copying selected local dependencies
+# from the primary worktree before Worktrunk enters the new checkout.
+[pre-start]
+copy-ignored = "wt step copy-ignored"

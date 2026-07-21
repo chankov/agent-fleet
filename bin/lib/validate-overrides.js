@@ -48,6 +48,15 @@ const KNOWN_SECTIONS = {
       "persona-gate": oneOf(["on", "off", "true", "false", "yes", "no", "1", "0"]),
       "rules": checkFolders("rules"),
       "docs": checkPaths("docs entry point"),
+      "recon-search-timeout-s": oneOfIntegerOrOff(1, 3600),
+      "mode": oneOf(["fast", "standard", "strict"]),
+      "max-dispatches-per-turn": oneOfIntegerOrOff(1, 1000),
+      "max-research-per-turn": oneOfIntegerOrOff(1, 1000),
+      "turn-wall-time-s": oneOfIntegerOrOff(1, 86400),
+      "agent-turn-timeout-s": oneOfIntegerOrOff(1, 86400),
+      "session-recycle-runs": oneOfIntegerOrOff(1, 1000),
+      "watchdog": oneOf(["on", "off", "auto"]),
+      "watchdog-judge-model": null,
     },
     patterns: [
       { re: new RegExp(`^model\\.${SLUG}$`), example: "model.<persona>" },
@@ -76,6 +85,16 @@ function oneOf(values) {
   return (value) => {
     const v = value.trim().toLowerCase();
     return values.includes(v) ? null : `"${value}" is not one of: ${values.join("|")}`;
+  };
+}
+
+function oneOfIntegerOrOff(min, max) {
+  return (value) => {
+    const v = value.trim().toLowerCase();
+    if (v === "off") return null;
+    return /^\d+$/.test(v) && Number(v) >= min && Number(v) <= max
+      ? null
+      : `"${value}" is not an integer from ${min} to ${max} or "off"`;
   };
 }
 

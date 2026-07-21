@@ -35,7 +35,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
-import { spawnPiAgent } from "./spawn.ts";
+import { spawnPiAgent, killPiTree } from "./spawn.ts";
 import {
 	delegateBudgetRefusal,
 	DELEGATE_TREE_SPAWN_BUDGET,
@@ -68,6 +68,10 @@ export interface DelegateConfig {
 	eventDir: string;
 	damageControl?: string;
 	delegateExt: string;
+	/** Parent-side per-tool deadline inherited by every terminal child. */
+	reconSearchTimeoutMs?: number | null;
+	/** Whole-run deadline per delegate child (hub mode budget); null/absent = off. */
+	turnDeadlineMs?: number | null;
 	cwd: string;
 }
 
@@ -139,9 +143,7 @@ export default function (pi: ExtensionAPI) {
 	// signals the specialist's negative PID), but if only this process is
 	// terminated, forward the signal to any live children.
 	process.on("SIGTERM", () => {
-		for (const child of liveChildren) {
-			try { child.kill("SIGTERM"); } catch {}
-		}
+		for (const child of liveChildren) killPiTree(child, "SIGTERM");
 	});
 
 	const emit = (event: Record<string, unknown>) => {
@@ -303,6 +305,16 @@ export default function (pi: ExtensionAPI) {
 					extensions: childExtensions,
 					env: childConfig ? { AGENT_HUB_DELEGATE_CONFIG: JSON.stringify(childConfig) } : undefined,
 					cwd: config.cwd,
+					// Each nested child owns its group. The SIGTERM trap above forwards
+					// parent cancellation so detached children cannot become orphans.
+					detached: true,
+					signal: _signal,
+					// `null` is the explicit `off` override; preserve it rather than
+					// silently restoring the default for terminal children.
+					toolWatchdog: { timeoutMs: config.reconSearchTimeoutMs === undefined ? 120_000 : config.reconSearchTimeoutMs },
+					// Whole-run bound from the hub's mode budget: a hung delegate (the
+					// 92-minute conventions scout) must not hold its parent hostage.
+					turnDeadlineMs: config.turnDeadlineMs === undefined ? null : config.turnDeadlineMs,
 				}, {
 					onProcess: (p) => { childProc = p; liveChildren.add(p); },
 					onTextDelta: (delta) => queueDelta("text", delta),
@@ -325,8 +337,8 @@ export default function (pi: ExtensionAPI) {
 
 			flushTimeline();
 			const elapsed = Date.now() - startTime;
-			const code = res.spawnError ? 1 : (res.exitCode ?? 1);
-			emit({ t: "exit", id: childId, code, elapsed, ts: Date.now() });
+			const code = res.spawnError ? 1 : (res.termination ? (res.termination.reason === "cancelled" ? 130 : res.termination.reason === "drift_stop" ? 125 : 124) : (res.exitCode ?? 1));
+			emit({ t: "exit", id: childId, code, elapsed, termination: res.termination, ts: Date.now() });
 
 			if (res.spawnError) {
 				const spawnFailure = `Delegate ${childId} failed to spawn: ${res.spawnError}`;
@@ -338,7 +350,18 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			let output = res.output;
-			if (code !== 0) {
+			if (res.termination) {
+				const reason = res.termination.reason;
+				const tool = res.termination.tool;
+				const explanation = reason === "tool_timeout"
+					? `exceeded its per-tool watchdog on ${tool?.toolName || "tool"} (${tool?.toolCallId || "unknown"})`
+					: reason === "turn_timeout"
+						? "exceeded the per-run deadline (mode budget / agent-turn-timeout-s)"
+						: reason === "drift_stop"
+							? "was stopped by the drift watchdog"
+							: "was cancelled by its caller";
+				output = `${reason}: delegate ${childId} ${explanation}; terminationConfirmed=${res.termination.confirmed}.`;
+			} else if (code !== 0) {
 				const errTail = res.stderr.trim().slice(-1000);
 				output = output
 					? `${output}\n\n[stderr]\n${errTail}`
@@ -354,9 +377,9 @@ export default function (pi: ExtensionAPI) {
 
 			return {
 				content: [{ type: "text" as const, text:
-					`[delegate ${childId} · ${roleDef.model} · ${effectiveTools}] ${code === 0 ? "done" : "error"} ` +
+					`[delegate ${childId} · ${roleDef.model} · ${effectiveTools}] ${res.termination ? res.termination.reason : code === 0 ? "done" : "error"} ` +
 					`in ${Math.round(elapsed / 1000)}s${noteBlock}\n\n${digest.text}` }],
-				details: { id: childId, role: roleKey, model: roleDef.model, status: code === 0 ? "done" : "error", elapsed, resultPath: childResultFile, digestFound: digest.hasDigest },
+				details: { id: childId, role: roleKey, model: roleDef.model, status: res.termination ? res.termination.reason : code === 0 ? "done" : "error", elapsed, resultPath: childResultFile, digestFound: digest.hasDigest, termination: res.termination },
 			};
 		},
 	});

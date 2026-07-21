@@ -74,7 +74,47 @@ hub (orchestrator)
     └── Codex Remote Control (Android · outbound coms delegation)
 ```
 
-Composition rule: **the hub (or a slash command) orchestrates; personas do not invoke other personas as peers.** Specialists may only fan out to their configured **sub-agents**. Research helpers write findings to disk; the hub resumes specialists with paths, not raw dumps. Full pattern catalog: [references/orchestration-patterns.md](../references/orchestration-patterns.md).
+Composition rule: **the hub (or a slash command) orchestrates; personas do not invoke other personas as peers.** Specialists may only fan out to their configured **sub-agents**. Research helpers write findings to disk; the hub resumes specialists with paths, not raw dumps.
+
+### Research search supervision
+
+The shared `spawnPiAgent` seam supervises every `read`/`grep`/`find`/`ls` call from native
+research helpers and nested delegate children. The supervisor tracks JSONL `toolCallId` values
+independently, with a default 120-second deadline (`recon-search-timeout-s: 1..3600|off` under
+`## agent-hub`). It is a per-tool watchdog; the whole-run bound is separate — the execution
+mode's per-run deadline (`agent-turn-timeout-s`), which terminates a hung run as `turn_timeout`.
+On timeout or caller cancellation it owns and terminates the child's process group (SIGTERM,
+then SIGKILL after a bounded grace), has a separate settlement timer for missing `close`/pipe
+drain, and reports timeout separately from cancellation. Research helpers and nested delegates
+are each given safe process-group ownership; delegates forward parent termination so no detached
+child is orphaned. Full pattern catalog: [references/orchestration-patterns.md](../references/orchestration-patterns.md).
+
+### Execution modes & turn budgets
+
+The hub enforces per-user-turn budgets in code (`run-budget.js`): `fast`/`standard`/`strict`
+modes cap `dispatch_agent` calls, `spawn_research` calls, and wall clock per turn, set the
+per-run deadline above, and control nested delegation. Exhausted budgets make the dispatch
+tools refuse with "summarize and ask the user"; a new user message opens a fresh window.
+Specialist context pressure is measured over input + cacheRead + cacheWrite, and specialist
+sessions are recycled (fresh spawn instead of `-c` resume) after `session-recycle-runs` runs
+or ≥60% measured context — resumed sessions otherwise re-bill their accumulated context on
+every model call. Configured under `## agent-hub` (`mode`, `max-dispatches-per-turn`,
+`max-research-per-turn`, `turn-wall-time-s`, `agent-turn-timeout-s`, `session-recycle-runs`);
+switched live with `/hub-mode`.
+
+On top of the mode sit three qualitative guardrails. **Task triage**: the dispatcher
+classifies each turn via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)
+and the caps drop to min(mode, tier); a duplicate-dispatch guard refuses near-identical
+re-dispatches within a turn. **Drift watchdog** (`drift-watchdog.js`): armed dispatches are
+observed in-flight from the JSON event stream — deterministic rules (out-of-scope writes
+against the declared `scope` globs, tool-call loops, consecutive failures, tool-call cap)
+escalate to a one-shot cheap LLM judge whose DRIFTING/STUCK verdict terminates the run as
+`drift_stop` (exit 125, partial output preserved); enabled per hub/agent/dispatch
+(`watchdog` key, `/watchdog`, `watchdog` param). **Dynamic teams**: `/agents-add`,
+`/agents-drop`, `/agents-save` restructure the roster live (the system prompt rebuilds
+every turn), and the gated `team_adjust` tool lets the dispatcher itself adjust the roster
+outside fast mode, with user notification. `/hub-report` accounts each turn's dispatches,
+tokens (billed = input + cacheRead + cacheWrite), recycles, drift stops, and refusals.
 
 ## Runtime stack (tools the fleet sits on)
 
