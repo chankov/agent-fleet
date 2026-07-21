@@ -1,4 +1,4 @@
-// Behavioral tests for the damage-control exemption layer: the harnesses are
+// Behavioral tests for the damage-control exemption layer: the harness is
 // loaded against a fake ExtensionAPI, with "@mariozechner/pi-coding-agent"
 // (provided by pi at runtime) stubbed via a module resolve hook.
 
@@ -26,8 +26,7 @@ registerHooks({
 });
 
 const continueExt = (await import("./index.ts")).default;
-const hardStopExt = (await import("../damage-control/index.ts")).default;
-const { appendExemptionToFile } = await import("../damage-control/shared.ts");
+const { readExemptionsFile } = await import("../lib/damage-control-shared.ts");
 
 const RULES_YAML = `
 bashToolPatterns:
@@ -64,7 +63,7 @@ function fakePi() {
 }
 
 function fakeCtx(cwd, { hasUI = false, select } = {}) {
-	const state = { aborted: false, selectCalls: 0, notifications: [], statuses: new Map() };
+	const state = { aborted: false, selectCalls: 0, selectOptions: [], notifications: [], statuses: new Map() };
 	const ctx = {
 		cwd,
 		hasUI,
@@ -72,7 +71,11 @@ function fakeCtx(cwd, { hasUI = false, select } = {}) {
 		ui: {
 			notify: (msg) => state.notifications.push(msg),
 			setStatus: (key, text) => state.statuses.set(key, text),
-			select: async (...args) => { state.selectCalls++; return select ? select(...args) : undefined; },
+			select: async (...args) => {
+				state.selectCalls++;
+				state.selectOptions.push(args[1]);
+				return select ? select(...args) : undefined;
+			},
 			confirm: async () => false,
 		},
 	};
@@ -94,6 +97,7 @@ async function boot(ext, cwd, ctxOpts) {
 }
 
 const readEnv = { type: "tool_call", toolName: "read", input: { path: ".env" } };
+const deleteReadme = { type: "tool_call", toolName: "bash", input: { command: "rm -- README.md" } };
 
 test.beforeEach(() => {
 	delete process.env.AGENT_HUB_ASK_ENDPOINT;
@@ -175,6 +179,16 @@ test("continue: destructive bash patterns are never exemptible or prompted", asy
 	assert.equal(h.state.selectCalls, 0);
 });
 
+test("continue: interactive protected deletion only offers one-call approval", async () => {
+	const h = await boot(continueExt, fixtureCwd(), {
+		hasUI: true,
+		select: (_title, options) => options.find((option) => option === "Allow once"),
+	});
+	assert.equal((await h.toolCall(deleteReadme)).block, false);
+	assert.deepEqual(h.state.selectOptions[0], ["Keep blocked", "Allow once"]);
+	assert.equal(h.log.some(({ data }) => data.action === "exemption_granted"), false);
+});
+
 function fakeHubServer(socketPath, decision) {
 	const seen = [];
 	const server = net.createServer((socket) => {
@@ -205,11 +219,50 @@ test("continue: headless child escalates to the hub — approval lets the call t
 		assert.equal(seen[0].type, "access_request");
 		assert.equal(seen[0].agent, "researcher-r1");
 		assert.equal(seen[0].pattern, ".env");
+		assert.equal(seen[0].category, "zero_access");
 		// grant is remembered in-process — no second round-trip
 		assert.equal((await h.toolCall(readEnv)).block, false);
 		assert.equal(seen.length, 1);
 	} finally {
 		server.close();
+	}
+});
+
+test("continue: headless protected deletion requests one-call approval without persisting an exemption", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "dc-exemptions-"));
+	const sock = join(dir, "hub.sock");
+	const exemptionsFile = join(dir, "exemptions.json");
+	const { server, seen } = await fakeHubServer(sock, "allow_once");
+	process.env.AGENT_HUB_ASK_ENDPOINT = sock;
+	process.env.AGENT_HUB_AGENT_ID = "builder";
+	process.env.AGENT_HUB_EXEMPTIONS_FILE = exemptionsFile;
+	try {
+		const h = await boot(continueExt, fixtureCwd(), { hasUI: false });
+		assert.equal((await h.toolCall(deleteReadme)).block, false);
+		assert.equal(seen.length, 1);
+		assert.equal(seen[0].category, "no_delete");
+		assert.equal(seen[0].invocation, "rm -- README.md");
+		assert.deepEqual(readExemptionsFile(exemptionsFile), []);
+	} finally {
+		server.close();
+	}
+});
+
+test("continue: denied protected deletion returns actionable feedback without aborting the child", async () => {
+	const sock = join(mkdtempSync(join(tmpdir(), "dc-exemptions-")), "hub.sock");
+	const denyHub = await fakeHubServer(sock, "deny");
+	process.env.AGENT_HUB_ASK_ENDPOINT = sock;
+	process.env.AGENT_HUB_AGENT_ID = "builder";
+	try {
+		const h = await boot(continueExt, fixtureCwd(), { hasUI: false });
+		const res = await h.toolCall(deleteReadme);
+		assert.equal(res.block, true);
+		assert.equal(h.state.aborted, false);
+		assert.match(res.reason, /DENIED/);
+		assert.match(res.reason, /rm -- README\.md/);
+		assert.equal(denyHub.seen[0].category, "no_delete");
+	} finally {
+		denyHub.server.close();
 	}
 });
 
@@ -245,51 +298,15 @@ test("continue: hub denial and timeout fail closed without re-asking", async () 
 	}
 });
 
-test("version status persists while hard-stop and continue safety status changes", async () => {
-	const hardStop = await boot(hardStopExt, fixtureCwd());
-	const versionKey = "00-agent-fleet-version";
-	const version = hardStop.state.statuses.get(versionKey);
-	assert.match(version, /^v\d+\.\d+\.\d+/);
-	assert.match(hardStop.state.statuses.get("damage-control"), /Damage-Control Active/);
-	await hardStop.toolCall(readEnv);
-	assert.equal(hardStop.state.statuses.get(versionKey), version);
-	assert.match(hardStop.state.statuses.get("damage-control"), /Last Violation/);
-
+test("version status persists while continue safety status changes", async () => {
 	const continued = await boot(continueExt, fixtureCwd());
-	const continuedVersion = continued.state.statuses.get(versionKey);
-	assert.equal(continuedVersion, version);
+	const versionKey = "00-agent-fleet-version";
+	const version = continued.state.statuses.get(versionKey);
+	assert.match(version, /^v\d+\.\d+\.\d+/);
 	await continued.commands.allow.handler(".env turn", continued.ctx);
-	assert.equal(continued.state.statuses.get(versionKey), continuedVersion);
+	assert.equal(continued.state.statuses.get(versionKey), version);
 	assert.match(continued.state.statuses.get("damage-control"), /1 exemption/);
 	await continued.commands.revoke.handler(".env", continued.ctx);
-	assert.equal(continued.state.statuses.get(versionKey), continuedVersion);
+	assert.equal(continued.state.statuses.get(versionKey), version);
 	assert.match(continued.state.statuses.get("damage-control"), /Damage-Control \(continue\): \d+ Rules$/);
-});
-
-test("hard-stop: honors pre-granted file exemptions, aborts otherwise", async () => {
-	const file = join(mkdtempSync(join(tmpdir(), "dc-exemptions-")), "exemptions.json");
-	const cwd = fixtureCwd();
-
-	// no exemption → block + abort (turn dies)
-	const blocked = await boot(hardStopExt, cwd);
-	assert.equal((await blocked.toolCall(readEnv)).block, true);
-	assert.equal(blocked.state.aborted, true);
-
-	// exemption granted in the hub session → allowed, no abort
-	appendExemptionToFile(file, { pattern: ".env", scope: "session", grantedVia: "command", grantedAt: new Date().toISOString() });
-	process.env.AGENT_HUB_EXEMPTIONS_FILE = file;
-	const allowed = await boot(hardStopExt, cwd);
-	assert.equal((await allowed.toolCall(readEnv)).block, false);
-	assert.equal(allowed.state.aborted, false);
-
-	// agent-scoped grants only reach their agent
-	appendExemptionToFile(file, { pattern: "README.md", scope: "session", agent: "builder", grantedVia: "escalation", grantedAt: new Date().toISOString() });
-	process.env.AGENT_HUB_AGENT_ID = "test-engineer";
-	const other = await boot(hardStopExt, cwd);
-	const res = await other.toolCall({ type: "tool_call", toolName: "bash", input: { command: "rm README.md" } });
-	assert.equal(res.block, true);
-	process.env.AGENT_HUB_AGENT_ID = "builder";
-	const builder = await boot(hardStopExt, cwd);
-	const res2 = await builder.toolCall({ type: "tool_call", toolName: "bash", input: { command: "rm README.md" } });
-	assert.equal(res2.block, false);
 });

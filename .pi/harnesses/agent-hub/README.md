@@ -210,8 +210,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 - **Default damage-control guardrails** — `just hub` and `just hub-solo` load the
   `damage-control-continue` harness before `agent-hub`, so dispatcher tool calls are checked against
   `.pi/damage-control-rules.yaml` and a blocked call feeds back instead of aborting the turn. A
-  guardrail is also re-loaded into every spawned subagent (see [Safety scope](#safety-scope)):
-  research helpers get the same continue variant, other specialists get the hard-stop `damage-control`.
+  guardrail is also re-loaded into every native specialist, research helper, and nested delegate
+  (see [Safety scope](#safety-scope)). Missing safety plumbing refuses child dispatch.
 - **Embedded coms** — the dispatcher is a discoverable peer on the local machine. Multiple
   `agent-hub` (or plain `coms`) sessions on the same box find each other through per-project registry
   files and exchange messages over a unix socket (named pipe on Windows).
@@ -261,7 +261,7 @@ collapses to just the prompt and footer. The current mode and binding are shown 
 `agent-hub` renders its local harness version first in its custom footer:
 `v<version> · <model><thinking> · <team>`. It replaces pi's default footer, so it does **not**
 consume or render the shared version status; it reads its own adjacent stamped manifest directly.
-The four persistent-UI harnesses (`agent-hub`, `coms`, `damage-control`, and
+The three persistent-UI harnesses (`agent-hub`, `coms`, and
 `damage-control-continue`) still register that one shared key, which gives default footers one
 version in stacked non-hub sessions. In the supported guardrail-plus-hub stack, the hub's custom
 footer supplies the single visible version. Damage-Control can update its own safety status after
@@ -747,18 +747,16 @@ Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
 to hub/dispatcher tool calls in that parent pi process — and because it is the *continue* variant, a
 blocked dispatcher call feeds back and the turn keeps going rather than aborting. Specialist and
 research agents are spawned as separate pi subprocesses with `--no-extensions` — but `agent-hub`
-resolves a damage-control harness (from this session's `-e` flags, else the repo-local
-`.pi/harnesses/<variant>/index.ts`) and re-loads *only* that one into each child via `-e`. The variant
-is chosen per child: research helpers (`researcher` / `deep-researcher`) get `damage-control-continue`
-so a blocked read lets them adapt and keep going; every other specialist gets the hard-stop
-`damage-control` that aborts on a violation. (Continue falls back to the hard-stop variant when it
-isn't installed, so researchers stay guarded either way.) `--no-extensions` keeps discovery off, so
-children never auto-load the `.pi/extensions/` utilities or recursively re-load `agent-hub`; the
-explicit `-e` still applies, so every child's tool calls are checked against the same
-`.pi/damage-control-rules.yaml`. If damage-control can't be resolved, a session-start warning is
-shown and children spawn unguarded. Research helpers are additionally read-only by construction.
-The guided setup (`guided-workspace-setup`) enforces the pairing: installing or keeping `agent-hub`
-always installs/keeps `damage-control` (and `damage-control-continue`) with it.
+resolves `damage-control-continue` from this session's `-e` flags, else the repo-local harness, and
+re-loads it into every native specialist, research helper, and nested delegate via explicit `-e`.
+`--no-extensions` keeps discovery off, so children never auto-load `.pi/extensions/` utilities or
+recursively re-load `agent-hub`; the explicit guardrail still checks every child's tool calls against
+`.pi/damage-control-rules.yaml`. Protected-path blocks escalate to the hub for explicit approval;
+protected deletions offer only Deny or Allow once, while inherently dangerous command patterns are
+non-exemptible. Denial or timeout blocks the call without aborting the child's turn. If continue
+cannot be resolved, dispatch is refused—children are never spawned unguarded. Research helpers are
+additionally read-only by construction. Guided setup enforces `agent-hub` ⇒
+`damage-control-continue` + `ask-user-remote`.
 
 ### Related recipes
 

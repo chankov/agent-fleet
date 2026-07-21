@@ -1,8 +1,8 @@
 /**
- * Damage-Control (continue) — same rules as damage-control, but the agent keeps working
+ * Damage-Control (continue) — fail-closed guardrails without aborting the agent turn
  *
- * Difference from damage-control/index.ts:
- *   - The blocked tool result is replaced with actionable feedback that
+ * On a blocked tool call:
+ *   - The result is replaced with actionable feedback that
  *     distinguishes destructive vs non-destructive intent and tells the
  *     agent how to adapt.
  *   - We do NOT call ctx.abort(), so the agent's turn continues and can
@@ -23,10 +23,9 @@
  *     dispatcher over its coms socket and waits for the user's decision;
  *     timeout or denial fails closed.
  *
- * In this repo it is the default guardrail for the orchestrator/dispatcher
- * (the agent-hub main session) and for spawned research helpers, which need
- * to recover from a blocked read and keep going rather than abort the turn.
- * Other specialists (builder, etc.) keep the hard-stop damage-control harness.
+ * In this repo it is the only supported safety harness: the agent-hub main
+ * session and every native specialist, research helper, and nested delegate
+ * use it. Missing safety plumbing makes Agent Hub refuse child dispatch.
  *
  * Usage: pi -e .pi/harnesses/damage-control-continue/index.ts
  */
@@ -50,7 +49,8 @@ import {
 	type AccessRequest,
 	type Exemption,
 	type ExemptionScope,
-} from "../damage-control/shared.ts";
+	type PathRuleCategory,
+} from "../lib/damage-control-shared.ts";
 import { registerVersionStatus } from "./version.ts";
 
 interface Rule {
@@ -299,6 +299,7 @@ export default function (pi: ExtensionAPI) {
 		// those are exemptible/escalatable. Destructive bashToolPatterns leave
 		// this null and can never be exempted.
 		let matchedPattern: string | null = null;
+		let matchedCategory: PathRuleCategory | null = null;
 
 		const checkPaths = (pathsToCheck: string[]) => {
 			for (const p of pathsToCheck) {
@@ -306,6 +307,7 @@ export default function (pi: ExtensionAPI) {
 				for (const zap of rules.zeroAccessPaths) {
 					if (isPathMatch(resolved, zap, ctx.cwd)) {
 						matchedPattern = zap;
+						matchedCategory = "zero_access";
 						return `Access to zero-access path restricted: ${zap}`;
 					}
 				}
@@ -325,6 +327,7 @@ export default function (pi: ExtensionAPI) {
 				if (event.input.glob.includes(zap) || isPathMatch(event.input.glob, zap, ctx.cwd)) {
 					violationReason = `Glob matches zero-access path: ${zap}`;
 					matchedPattern = zap;
+					matchedCategory = "zero_access";
 					break;
 				}
 			}
@@ -337,6 +340,7 @@ export default function (pi: ExtensionAPI) {
 				if (event.input.pattern.includes(zap) || isPathMatch(event.input.pattern, zap, ctx.cwd)) {
 					violationReason = `Find pattern matches zero-access path: ${zap}`;
 					matchedPattern = zap;
+					matchedCategory = "zero_access";
 					break;
 				}
 			}
@@ -364,6 +368,7 @@ export default function (pi: ExtensionAPI) {
 						if (command.includes(zap)) {
 							violationReason = `Bash command references zero-access path: ${zap}`;
 							matchedPattern = zap;
+							matchedCategory = "zero_access";
 							break;
 						}
 					}
@@ -374,6 +379,7 @@ export default function (pi: ExtensionAPI) {
 						if (command.includes(rop) && (/[\s>|]/.test(command) || command.includes("rm") || command.includes("mv") || command.includes("sed"))) {
 							violationReason = `Bash command may modify read-only path: ${rop}`;
 							matchedPattern = rop;
+							matchedCategory = "read_only";
 							break;
 						}
 					}
@@ -388,6 +394,7 @@ export default function (pi: ExtensionAPI) {
 							if (matched) {
 								violationReason = `Bash command attempts to delete/move protected path: ${ndp}`;
 								matchedPattern = ndp;
+								matchedCategory = "no_delete";
 								break;
 							}
 						}
@@ -400,6 +407,7 @@ export default function (pi: ExtensionAPI) {
 						if (isPathMatch(resolved, rop, ctx.cwd)) {
 							violationReason = `Modification of read-only path restricted: ${rop}`;
 							matchedPattern = rop;
+							matchedCategory = "read_only";
 							break;
 						}
 					}
@@ -431,9 +439,12 @@ export default function (pi: ExtensionAPI) {
 					const ONCE = "Allow once";
 					const TURN = "Allow for this turn";
 					const SESSION = "Allow for this session";
+					const choices = matchedCategory === "no_delete"
+						? [KEEP, ONCE]
+						: [KEEP, ONCE, TURN, SESSION];
 					const choice = await ctx.ui.select(
 						`🛡️ Blocked: ${event.toolName} — ${violationReason}`,
-						[KEEP, ONCE, TURN, SESSION],
+						choices,
 						{ timeout: PROMPT_TIMEOUT_MS },
 					);
 					if (choice === ONCE) {
@@ -470,6 +481,7 @@ export default function (pi: ExtensionAPI) {
 						tool: event.toolName,
 						rule: violationReason,
 						pattern: matchedPattern,
+						category: matchedCategory!,
 						invocation: invocation.slice(0, 500),
 					};
 					const decision = await requestAccessFromHub(endpoint, req);

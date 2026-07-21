@@ -198,11 +198,12 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
 test("package dry-run includes each versioned harness entrypoint, module, and adjacent manifest", () => {
   const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8" }));
   const paths = new Set(packed[0].files.map(({ path }) => path));
-  for (const harness of ["agent-hub", "coms", "damage-control", "damage-control-continue"]) {
+  for (const harness of ["agent-hub", "coms", "damage-control-continue"]) {
     for (const file of ["index.ts", "version.ts", "package.json"]) {
       assert.ok(paths.has(`.pi/harnesses/${harness}/${file}`), `${harness}/${file}`);
     }
   }
+  assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/damage-control/")), false);
 });
 
 test("package, snapshot, and guided manifest surfaces stay aligned", () => {

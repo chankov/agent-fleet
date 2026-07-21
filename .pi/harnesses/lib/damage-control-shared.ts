@@ -1,5 +1,5 @@
 /**
- * Shared exemption + escalation plumbing for the damage-control harnesses.
+ * Shared exemption + escalation plumbing for damage-control-continue and agent-hub.
  *
  * Exemptions are runtime, session-scoped allowances layered on top of
  * `.pi/damage-control-rules.yaml` — they never edit the rules file and only
@@ -7,11 +7,8 @@
  * noDeletePaths), never to the destructive bashToolPatterns.
  *
  * Consumers:
- *  - damage-control-continue — full support: /allow command, block-time
- *    prompt in interactive sessions, escalation to the agent-hub dispatcher
- *    from headless children
- *  - damage-control (hard stop) — honors pre-granted exemptions from the
- *    shared file only; no prompting, no escalation
+ *  - damage-control-continue — /allow commands, block-time prompts, and
+ *    escalation to the agent-hub dispatcher from headless children
  *  - agent-hub — computes the shared file path, passes the env plumbing to
  *    spawned children, and answers access_request envelopes on its coms socket
  */
@@ -28,6 +25,7 @@ export const EXEMPTIONS_FILE_ENV = "AGENT_HUB_EXEMPTIONS_FILE";
 export const AGENT_ID_ENV = "AGENT_HUB_AGENT_ID";
 
 export type ExemptionScope = "turn" | "session";
+export type PathRuleCategory = "zero_access" | "read_only" | "no_delete";
 
 export interface Exemption {
 	/** The protected pattern being unlocked — same syntax as the rules file entries. */
@@ -106,10 +104,26 @@ export interface AccessRequest {
 	tool: string;
 	rule: string;
 	pattern: string;
+	category: PathRuleCategory;
 	invocation: string;
 }
 
 export type AccessDecisionChoice = "deny" | "allow_once" | "allow_agent" | "allow_all";
+
+/** Protected deletions are approved per invocation; broader grants stay operator-explicit. */
+export function accessDecisionChoices(category: PathRuleCategory): AccessDecisionChoice[] {
+	return category === "no_delete"
+		? ["deny", "allow_once"]
+		: ["deny", "allow_once", "allow_agent", "allow_all"];
+}
+
+/** Coalesce identical asks without letting one delete approval cover sibling paths. */
+export function accessRequestCacheKey(
+	request: Pick<AccessRequest, "agent" | "pattern" | "category" | "invocation">,
+): string {
+	const base = `${request.agent}::${request.pattern}`;
+	return request.category === "no_delete" ? `${base}::${request.invocation}` : base;
+}
 
 export interface AccessDecision {
 	type: "access_decision";

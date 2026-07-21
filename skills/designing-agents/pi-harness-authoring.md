@@ -9,8 +9,8 @@ A pi harness is a TypeScript pi extension that reshapes a whole session. The har
 in `.pi/harnesses/` were ported from `disler/pi-vs-claude-code`; `docs/pi-extensions.md`
 is their catalog. A harness can:
 
-- set status, widgets, or overlays — `agent-hub`, `damage-control`
-- gate every tool call and block or confirm it — `damage-control`
+- set status, widgets, or overlays — `agent-hub`, `damage-control-continue`
+- gate every tool call and block or confirm it — `damage-control-continue`
 - register a new tool or `/command` — `agent-hub`, `coms`
 - inject text into the system prompt — `agent-hub`
 - orchestrate sub-agents — `agent-hub`
@@ -23,7 +23,7 @@ pi auto-discovers and loads **every** directory under `.pi/extensions/`. The thr
 coexist. Harnesses are different: most are **mutually exclusive** — two that both replace
 the footer fight, two that register the same CLI flag abort startup. So harnesses live in
 `.pi/harnesses/`, which pi does **not** auto-discover, and load explicitly via `pi -e <path>`
-or the `justfile`. The supported stack is `damage-control` before `agent-hub`; never put a
+or the `justfile`. The supported stack is `damage-control-continue` before `agent-hub`; never put a
 harness under `.pi/extensions/`.
 
 ## Directory anatomy
@@ -161,7 +161,7 @@ Do not write from scratch. Pick the nearest pattern and adapt it:
 
 | If the harness… | Study | Approx. lines |
 |---|---|---|
-| Blocks tool calls from a rules file | `damage-control` | 200 |
+| Blocks tool calls from a rules file | `damage-control-continue` | ~530 |
 | Sets widgets/status or registers orchestration commands/tools | `agent-hub` | large |
 | Orchestrates sub-agents | `agent-hub` | large |
 | Adds local cross-agent messaging | `coms`, `agent-hub` | large |

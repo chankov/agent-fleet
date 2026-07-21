@@ -57,13 +57,13 @@ all of them. If the harnesses lived there, a plain `pi` run would load them all 
 same CLI flags would abort startup with duplicate registrations. So the harnesses live in
 `.pi/harnesses/` instead, and you load the desired recipe explicitly:
 
-- through the `justfile` — `just hub`, `just ext-damage-control`, `just safe-coms`, …
+- through the `justfile` — `just hub`, `just ext-damage-control-continue`, `just safe-coms`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts`
 
 When you consume this repo from another project, point `pi -e` at the harness file you
 want, or symlink that one directory into *its* `.pi/harnesses/` — never drop the harnesses
 into `.pi/extensions/`, and never load all of them at once. The supported multi-harness
-exception is loading a damage-control variant before `agent-hub` for a guarded hub session (see
+exception is loading `damage-control-continue` and `ask-user-remote` before `agent-hub` for a guarded hub session (see
 [pi-setup.md](pi-setup.md#optional-pi-extensions)).
 
 ---
@@ -89,17 +89,25 @@ runtime itself.
 |-----------|----------|--------------|-----|
 | [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: damage-control guardrails by default via `just hub`, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, peer-as-subagent, and footer `v<version> · <model><thinking> · <team>` — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just hub` |
 | [ask-user-remote](../.pi/harnesses/ask-user-remote/README.md) | Orchestration | Captures stock `pi-ask-user` and registers the default `ask_user`; with `user-remote` live it races local UI against the Hermes bridge, otherwise it is stock local behavior | loaded by `just hub` / `hub-solo` |
-| [damage-control](../.pi/harnesses/damage-control/README.md) | Safety | Blocks destructive tool calls and aborts the turn; loaded into spawned specialists by `agent-hub`; honors pre-granted exemptions from the hub's shared exemptions file | `just ext-damage-control` |
-| [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Same rules, but blocks deliver feedback so the agent adapts and keeps working (no abort); default guardrail for the `just hub` main session + research helpers. Supports path exemptions: `/allow`/`/allowed`/`/revoke`, a block-time approval dialog, and escalation from headless children to the hub dispatcher | `just ext-damage-control-continue` |
+| [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Only supported safety harness; guards the hub plus every native specialist, researcher, and delegate. Blocks feed back without aborting the turn; protected paths support explicit approval, while dangerous command patterns remain non-exemptible | `just ext-damage-control-continue` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between pi agents on one machine; launches damage-control-continue-guarded under a chosen name | `just safe-coms <name>` |
 | [Hermes local monitor transport](../hermes/README.md#local-agent-hub-monitor-integration) | Optional local companion | Owner-only discovery + Unix socket for agent-hub snapshots, cursor output, and exact-generation cancellation; consumed by a separate local Hermes client | Set the two monitor environment variables, then run `just hub-team <team>` |
 
 Each extension directory has its own `README.md` with the full description, command/tool
 surface, requirements, and per-extension upstream changes.
 
+### Migration: retired hard-stop harness
+
+The former `.pi/harnesses/damage-control/` hard-stop harness and `just ext-damage-control`
+recipe are retired. Refresh pi harnesses with guided setup: it removes only an unchanged,
+setup-recorded copy (or an agent-fleet source symlink), preserves user-modified/unowned copies,
+and refreshes the managed `justfile` region. Use `damage-control-continue` for standalone and
+Agent Hub safety; missing child safety now fails closed instead of falling back or spawning
+unguarded.
+
 ### Harness version footer and provenance
 
-The four persistent-UI harnesses — `agent-hub`, `coms`, `damage-control`, and
+The three persistent-UI harnesses — `agent-hub`, `coms`, and
 `damage-control-continue` — each register `v<version>` on one shared status key. In pi's
 default status footer, that shared key gives a supported stack exactly one version instead of one
 copy per harness. `agent-hub` replaces the default footer: it does **not** consume that status
@@ -144,14 +152,13 @@ harnesses:
   `damage-control-continue` safety harness and `ask-user-remote` before `agent-hub`, so the
   dispatcher's tool calls are checked against the rules file and the `askUserAvailable` probe sees
   `ask_user`. A blocked call feeds back and the turn keeps going rather than aborting. `agent-hub` also
-  re-loads a guardrail into every spawned subagent (via an explicit `-e` that survives their
-  `--no-extensions`): research helpers (`researcher` / `deep-researcher`) get the same continue
-  variant, while other specialists (builder, test-engineer, …) get the hard-stop `damage-control`
-  that aborts on a violation. Protected-path access can be granted at runtime: `/allow <pattern>
-  [turn|session]` in the hub pre-authorizes (session grants reach every spawned child via a shared
-  session-scoped exemptions file), a block in the hub's own session opens an approval dialog, and a
-  block inside a headless child escalates an `access_request` to the hub's coms socket so the user
-  decides — deny / once / this agent / all agents. Destructive bash patterns are never exemptible.
+  re-loads `damage-control-continue` into every native specialist, research helper, and nested
+  delegate (via an explicit `-e` that survives `--no-extensions`). Protected-path access can be
+  granted at runtime: `/allow <pattern> [turn|session]` in the hub pre-authorizes, a parent-session
+  block opens an approval dialog, and a headless child escalates to the hub. Protected deletion
+  offers only deny/once; other protected paths may be scoped to an agent or session. Denial and
+  timeout fail closed without aborting the child turn. Destructive bash patterns are never exemptible,
+  and a missing continue harness refuses child dispatch.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
   `/handoff`, and peer-as-subagent flows.
 - **Solo mode** — `just hub-solo` keeps the dispatcher grid, delegation, research helpers, persona
@@ -237,7 +244,7 @@ These ported files are runtime dependencies of the extensions above:
   extensions load into the peer process. The `web-debugger` peer uses this to get
   `chrome-devtools-mcp`'s `chrome_devtools__*` tools (see the two-browser-stacks section above).
 - **`.pi/damage-control-rules.yaml`** — the destructive-command / protected-path rule set
-  for `damage-control`.
+  for `damage-control-continue`.
 - **`.pi/skills/bowser/`** — a pi-runtime skill for headless Playwright browser
   automation, used by the `bowser` agent persona. Kept separate from the core
   engineering `skills/`. It drives the external **Playwright Agent CLI**

@@ -110,7 +110,7 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 
 ## agent-hub: a thin-context dispatcher for pi
 
-`agent-hub` turns a single **pi** session into a **dispatcher that drives a live team of specialist subagents** — planner, builder, reviewer, test-engineer, documenter — with read-only research helpers fanning out beneath them, peer-to-peer `coms` messaging embedded, and a `damage-control` guardrail on every tool call.
+`agent-hub` turns a single **pi** session into a **dispatcher that drives a live team of specialist subagents** — planner, builder, reviewer, test-engineer, documenter — with read-only research helpers fanning out beneath them, peer-to-peer `coms` messaging embedded, and a `damage-control-continue` guardrail on every tool call.
 
 What makes it different is what it **doesn't** put in front of the dispatcher LLM. Multi-agent setups usually drown the orchestrator: every subagent's output, every research dump flows back into one context window until it compacts and forgets. `agent-hub` is built the other way around:
 

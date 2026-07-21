@@ -16,7 +16,7 @@ clean shutdown lifecycle.
 ## Version footer and provenance
 
 This persistent-UI harness shows `v<version>` below the prompt. It shares one common-key
-status with `agent-hub`, `damage-control`, and `damage-control-continue`, so a stack renders the
+status with `agent-hub` and `damage-control-continue`, so a stack renders the
 version once. The root `package.json` is canonical; `bin/sync-harness-versions.js` synchronizes
 its value into this adjacent manifest. The local `version.ts` reader is retained so a copied or
 symlinked harness resolves its own adjacent stamp, not the launch directory. That provenance

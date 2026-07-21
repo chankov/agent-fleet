@@ -8,8 +8,8 @@
 # under .pi/extensions/, so anything placed there loads on every plain `pi` run.
 # Most harnesses are mutually exclusive — they live in .pi/harnesses/ (which pi
 # does NOT auto-discover) and are loaded via `pi -e` below. The supported stack
-# is a damage-control variant before agent-hub (damage-control-continue for the main
-# session), so the hub recipes run with guardrails by default.
+# loads damage-control-continue before agent-hub, so hub sessions and all native
+# children run with guardrails by default.
 #
 # Everything between the two `agent-fleet:harnesses` sentinels below is a
 # MANAGED REGION: guided-workspace-setup regenerates it from the installed
@@ -45,12 +45,8 @@ pi:
 
 # ---------------------------------------------------------------- safety
 
-# Damage-control: block destructive tool calls (aborts the turn)
-ext-damage-control:
-    pi -e .pi/harnesses/damage-control/index.ts
-
-# Damage-control (continue): same rules, but blocks deliver feedback so the agent adapts
-# and keeps working instead of aborting the turn. Default guardrail for the hub main agent.
+# Damage-control: blocks deliver feedback so the agent adapts and keeps working
+# instead of aborting the turn. Default guardrail for the hub and native children.
 ext-damage-control-continue:
     pi -e .pi/harnesses/damage-control-continue/index.ts
 
@@ -62,8 +58,8 @@ ext-damage-control-continue:
 # agents/orchestrator.md is installed, so the hub still launches when it is absent. Override
 # with your own --system-prompt <persona>.md passed after `just hub`.
 # Guarded agent hub: damage-control-continue + remote-capable ask_user + dispatcher grid + research helpers + embedded coms + orchestrator.
-# The main session loads the CONTINUE guardrail (blocks feed back so the dispatcher adapts and keeps going);
-# spawned specialists still inherit the hard-stop damage-control variant (research helpers inherit continue).
+# The main session and every native child use the continue guardrail; blocked calls
+# feed back so the agent can report or safely adapt without aborting its turn.
 hub *args:
     persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts $persona {{args}}
 

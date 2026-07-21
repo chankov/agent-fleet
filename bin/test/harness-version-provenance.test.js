@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const harnesses = ["agent-hub", "coms", "damage-control", "damage-control-continue"];
+const harnesses = ["agent-hub", "coms", "damage-control-continue"];
 const rootVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
 async function importFresh(path) {
@@ -21,7 +21,7 @@ function copyPair(source, destination, version) {
 	writeFileSync(join(destination, "package.json"), JSON.stringify(manifest));
 }
 
-test("four local provenance modules read their adjacent root-derived stamps and share one status key", async () => {
+test("three local provenance modules read their adjacent root-derived stamps and share one status key", async () => {
 	const keys = new Set();
 	for (const name of harnesses) {
 		const dir = join(root, ".pi", "harnesses", name);

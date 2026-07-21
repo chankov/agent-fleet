@@ -83,9 +83,8 @@ import { MonitorRuntime } from "./monitor-runtime.ts";
 import { monitorReconcileEvidence, stableMonitorHubId } from "./monitor-recovery.ts";
 import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
-	appendExemptionToFile, exemptionsFilePath, fileExemptionsFor,
-	type AccessDecision, type AccessDecisionChoice, type AccessRequest,
-} from "../damage-control/shared.ts";
+	exemptionsFilePath, type AccessRequest,
+} from "../lib/damage-control-shared.ts";
 import { clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
 import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_TIERS, budgetStatusLine, checkTurnBudget, normalizeHubMode, normalizeTaskTier, resolveTurnBudget, shouldRecycleSession } from "./run-budget.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
@@ -95,6 +94,8 @@ import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
 import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from "./research-retention.js";
+import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
+import { createAccessApprovalRouter } from "./access-approval.ts";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import {
 	formatPeerStatus,
@@ -1236,44 +1237,8 @@ function scanAgentDirs(cwd: string): AgentDef[] {
 	return agents;
 }
 
-// Resolve a damage-control harness so spawned subagents inherit a guardrail.
-// Order: (1) the exact `-e` path this session was launched with (mirrors `just hub`,
-// robust to symlinks / consuming projects), (2) the repo-local harness under cwd.
-// `dirName` selects the variant: "damage-control" (hard-stop, aborts the turn) or
-// "damage-control-continue" (delivers feedback and keeps going). The dir-name regex
-// is anchored on the trailing slash so "damage-control" never matches the longer
-// "damage-control-continue/index.ts" path (and vice-versa). Returns an absolute
-// path, or null if that variant isn't present.
-function resolveDamageControlVariant(cwd: string, dirName: string): string | null {
-	const argv = process.argv;
-	const re = new RegExp(`${dirName}[/\\\\]index\\.ts$`);
-	for (let i = 0; i < argv.length - 1; i++) {
-		if (argv[i] === "-e" || argv[i] === "--extension") {
-			const abs = resolve(argv[i + 1]);
-			if (re.test(abs) && existsSync(abs)) return abs;
-		}
-	}
-	const local = join(cwd, ".pi", "harnesses", dirName, "index.ts");
-	return existsSync(local) ? local : null;
-}
-
-// Persona names (lowercased) that read-only-research, so they get the continue
-// damage-control variant instead of the hard-stop one when dispatched directly.
+// Persona names whose read-only tools receive the research watchdog policy.
 const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
-
-// The hard-stop guardrail (aborts the turn) loaded into specialists that aren't
-// research helpers. Null → those subagents spawn unguarded, exactly as before.
-function resolveDamageControlExtension(cwd: string): string | null {
-	return resolveDamageControlVariant(cwd, "damage-control");
-}
-
-// The continue guardrail (blocks but feeds back, no abort) used for the
-// orchestrator/dispatcher main session and spawned research helpers. Falls back
-// to the hard-stop variant when continue isn't installed, so researchers stay
-// guarded either way.
-function resolveDamageControlContinueExtension(cwd: string): string | null {
-	return resolveDamageControlVariant(cwd, "damage-control-continue") ?? resolveDamageControlExtension(cwd);
-}
 
 // The delegate extension injected into specialists that declare `subagents:`.
 // It lives next to this file; fall back to the conventional project path when
@@ -1840,12 +1805,12 @@ export default function (pi: ExtensionAPI) {
 	// escalations land here, and spawned children read it through the
 	// AGENT_HUB_EXEMPTIONS_FILE env plumbing.
 	let exemptionsFile: string | null = null;
-	// access_request dialogs are serialized (concurrent children don't fight
-	// for the screen), in-flight asks are deduped per agent+pattern, and
-	// explicit denials are cached so a confused child can't re-prompt.
-	let accessAskQueue: Promise<unknown> = Promise.resolve();
-	const accessDenyCache = new Set<string>();
-	const pendingAccessAsks = new Map<string, Promise<AccessDecisionChoice>>();
+	const accessApprovalRouter = createAccessApprovalRouter({
+		getContext: () => currentCtx,
+		getExemptionsFile: () => exemptionsFile,
+		appendLog: (entry) => { try { pi.appendEntry("damage-control-log", entry); } catch { /* best-effort */ } },
+		now: nowIso,
+	});
 
 	const agentStates: Map<string, AgentState> = new Map();
 	// Read-only research helpers (Phase 4), keyed by numeric id (handle `rN`). Lives
@@ -2030,14 +1995,9 @@ than bulk-reading doc trees; when an entry point is a folder, start from its REA
 or index file. If your work changes something the docs describe (architecture, public
 APIs, commands, structure), say so in your final response so the docs can be updated.`;
 	}
-	// Resolved once at session_start: the hard-stop damage-control harness loaded
-	// into spawned specialists (builder, test-engineer, …) so guardrails follow them.
-	let damageControlExtPath: string | null = null;
-	// The continue variant (blocks but feeds back instead of aborting), loaded into
-	// spawned research helpers (researcher / deep-researcher) so a blocked read lets
-	// them adapt and keep going rather than dead-end the turn. The orchestrator/
-	// dispatcher main session loads it via the `just hub` recipe.
-	let damageControlContinueExtPath: string | null = null;
+	// The one supported safety harness. Every native specialist, researcher, and
+	// nested delegate receives it; a missing harness refuses child dispatch.
+	let safetyHarnessPath: string | null = null;
 	// Resolved once at session_start: the delegate extension injected into
 	// specialists that declare `subagents:` (null → delegation disabled).
 	let delegateExtPath: string | null = null;
@@ -3405,14 +3365,9 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 			: null;
 		// Fast mode is a single-specialist path: no nested delegation trees.
 		const delegationActive = turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
-		// Researcher personas get the continue variant (block-but-keep-going) like the
-		// dedicated research helpers; every other specialist gets the hard-stop variant.
-		// Research helpers normally spawn via spawnResearch, but a custom team could list
-		// a researcher persona — honor it here too.
-		const dispatchDamageControl = RESEARCHER_PERSONAS.has(personaKey)
-			? damageControlContinueExtPath
-			: damageControlExtPath;
-		const extensions = dispatchDamageControl ? [dispatchDamageControl] : [];
+		const safety = requireSafetyHarness(safetyHarnessPath);
+		if (!safety.ok) return finishRun(safety.error, 1);
+		const extensions = [...safety.extensions];
 		let effectiveTools = state.def.tools;
 		let delegateEnv: Record<string, string> | undefined;
 		let delegationProtocol = "";
@@ -3433,7 +3388,7 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 					parentTools: state.def.tools,
 					personaPrompt: state.def.systemPrompt,
 					eventDir: delegationDir,
-					damageControl: damageControlExtPath || undefined,
+					damageControl: safetyHarnessPath || undefined,
 					delegateExt: delegateExtPath,
 					reconSearchTimeoutMs,
 					turnDeadlineMs: turnBudget.agentTurnMs,
@@ -3782,8 +3737,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		updateResearchWidget();
 	}
 
-	// Env plumbing for spawned children: the shared exemptions file (both
-	// damage-control variants honor pre-granted exemptions from it) and, when
+	// Env plumbing for spawned children: the shared exemptions file and, when
 	// coms is up, the endpoint damage-control-continue escalates blocked path
 	// access to (access_request → user dialog in this hub). spawnPiAgent
 	// spreads process.env, so delegate grandchildren inherit these for free.
@@ -3805,6 +3759,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		inputArtifacts: InputArtifactPreview[] = [],
 		signal?: AbortSignal,
 	): Promise<{ output: string; exitCode: number; elapsed: number; termination?: Termination }> {
+		const safety = requireSafetyHarness(safetyHarnessPath);
+		if (!safety.ok) return { output: safety.error, exitCode: 1, elapsed: 0 };
+
 		state.status = "running";
 		state.task = prompt;
 		state.toolCount = 0;
@@ -3839,10 +3796,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			sessionFile: sessionPath,
 			resume: !!state.sessionFile,
 			prompt: appendInputArtifacts(prompt, inputArtifacts),
-			// Research helpers get the continue variant: a blocked read (e.g. peeking
-			// at .env to verify a key) feeds back and lets them adapt rather than
-			// aborting the whole research turn.
-			extensions: damageControlContinueExtPath ? [damageControlContinueExtPath] : [],
+			// A blocked read feeds back so the helper can adapt without aborting.
+			extensions: safety.extensions,
 			env: guardrailEnv(`research-r${state.id}`),
 			// Shared native-research policy: owns a child group and applies the
 			// configured per-tool deadline (including explicit `off`/null).
@@ -4120,95 +4075,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		);
 	}
 
-	// A headless child's damage-control-continue hit a protected-path block and
-	// escalates for approval. Synchronous over this one socket: the child has no
-	// server of its own, so we hold the connection open and write the decision
-	// line when the user answers. The child fails closed after its own timeout;
-	// a late "allow" still lands in the exemptions file, so the next attempt
-	// (from any child) passes.
+	// A headless child's protected-path block is routed to the serialized,
+	// fail-closed approval controller. The socket remains open until a decision.
 	function handleAccessRequest(socket: net.Socket, req: AccessRequest): void {
-		const respond = (decision: AccessDecisionChoice) => {
-			const reply: AccessDecision = { type: "access_decision", msg_id: req.msg_id, decision };
-			try { socket.write(JSON.stringify(reply) + "\n"); } catch { /* child may have timed out */ }
-			try { socket.end(); } catch { /* ignore */ }
-		};
-		const agent = (typeof req.agent === "string" && req.agent) || req.sender_session || "unknown-agent";
-		const pattern = typeof req.pattern === "string" ? req.pattern : "";
-		if (!pattern) {
-			respond("deny");
-			return;
-		}
-		const cacheKey = `${agent}::${pattern}`;
-
-		// Already granted session-wide (an earlier ask or /allow) — no dialog.
-		if (fileExemptionsFor(exemptionsFile ?? undefined, agent).some((e) => e.pattern === pattern)) {
-			respond("allow_all");
-			return;
-		}
-		if (accessDenyCache.has(cacheKey)) {
-			respond("deny");
-			return;
-		}
-		// The same ask is already on screen (e.g. delegate children racing) — share the outcome.
-		const pending = pendingAccessAsks.get(cacheKey);
-		if (pending) {
-			pending.then(respond).catch(() => respond("deny"));
-			return;
-		}
-
-		const ask: Promise<AccessDecisionChoice> = accessAskQueue.then(async (): Promise<AccessDecisionChoice> => {
-			const ctx = currentCtx;
-			if (!ctx || !ctx.hasUI) return "deny";
-			const DENY = "Deny (keep blocked)";
-			const ONCE = "Allow once";
-			const AGENT = `Allow for ${agent} (this session)`;
-			const ALL = "Allow for all agents (this session)";
-			try {
-				ctx.ui.notify(
-					`🛡️ Access request from ${agent}: ${req.rule}\n   tool: ${req.tool}\n   attempted: ${String(req.invocation || "").slice(0, 200)}`,
-					"warning",
-				);
-				// Generous timeout — the child gives up (fail closed) long before
-				// this; keeping the dialog up lets a late answer persist below.
-				const choice = await ctx.ui.select(
-					`🛡️ ${agent} requests access: ${pattern}`,
-					[DENY, ONCE, AGENT, ALL],
-					{ timeout: 600_000 },
-				);
-				if (choice === ONCE) return "allow_once";
-				if (choice === AGENT) return "allow_agent";
-				if (choice === ALL) return "allow_all";
-				// Only an explicit Deny is cached; a dismissed/timed-out dialog may be re-asked.
-				if (choice === DENY) accessDenyCache.add(cacheKey);
-				return "deny";
-			} catch {
-				return "deny";
-			}
-		});
-		accessAskQueue = ask.catch(() => {});
-		pendingAccessAsks.set(cacheKey, ask);
-		ask.then((decision) => {
-			pendingAccessAsks.delete(cacheKey);
-			if ((decision === "allow_agent" || decision === "allow_all") && exemptionsFile) {
-				try {
-					appendExemptionToFile(exemptionsFile, {
-						pattern,
-						scope: "session",
-						agent: decision === "allow_agent" ? agent : undefined,
-						grantedVia: "escalation",
-						grantedAt: nowIso(),
-					});
-				} catch { /* best-effort — allow_once semantics still hold via the reply */ }
-			}
-			try { pi.appendEntry("damage-control-log", { action: `escalation_${decision}`, agent, pattern, tool: req.tool, rule: req.rule }); } catch { /* best-effort */ }
-			try {
-				currentCtx?.ui.notify(
-					`🛡️ Access ${decision === "deny" ? "denied" : `granted (${decision.replace(/_/g, " ")})`}: ${pattern} — ${agent}`,
-					decision === "deny" ? "warning" : "info",
-				);
-			} catch { /* ignore */ }
-			respond(decision);
-		}).catch(() => respond("deny"));
+		void accessApprovalRouter.handle(socket, req);
 	}
 
 	function connHandler(socket: net.Socket): void {
@@ -7542,6 +7412,7 @@ ${researchCatalog}`;
 
 	pi.on("session_start", async (_event, _ctx) => {
 		registerVersionStatus(_ctx);
+		accessApprovalRouter.reset();
 		// Clear widgets + any research helpers from a previous session
 		for (const [, st] of Array.from(researchStates.entries())) {
 			if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); }
@@ -7566,12 +7437,11 @@ ${researchCatalog}`;
 		delegatedTokens = 0;
 		widgetCtx = _ctx;
 		contextWindow = _ctx.model?.contextWindow || 0;
-		damageControlExtPath = resolveDamageControlExtension(_ctx.cwd);
-		damageControlContinueExtPath = resolveDamageControlContinueExtension(_ctx.cwd);
-		if (!damageControlExtPath) {
+		safetyHarnessPath = resolveSafetyHarness(_ctx.cwd);
+		if (!safetyHarnessPath) {
 			_ctx.ui.notify(
-				"damage-control harness not found — specialists and research helpers will spawn UNGUARDED. Install .pi/harnesses/damage-control/ (guided setup pairs it with agent-hub).",
-				"warning",
+				"damage-control-continue harness not found — native child dispatches will be refused. Install .pi/harnesses/damage-control-continue/.",
+				"error",
 			);
 		}
 		delegateExtPath = resolveDelegateExtension(_ctx.cwd);

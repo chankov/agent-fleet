@@ -121,7 +121,7 @@ test('delegate spawn planning decrements tree budget and withholds delegate conf
     depth: MAX_DELEGATE_DEPTH,
     remainingSpawns: DELEGATE_TREE_SPAWN_BUDGET,
     effectiveTools: READ_ONLY_TOOLS,
-    damageControl: '/repo/.pi/harnesses/damage-control/index.ts',
+    damageControl: '/repo/.pi/harnesses/damage-control-continue/index.ts',
     delegateExt: '/repo/.pi/harnesses/agent-hub/delegate.ts',
   });
 
@@ -131,7 +131,7 @@ test('delegate spawn planning decrements tree budget and withholds delegate conf
   assert.equal(plan.childRemainingSpawns, DELEGATE_TREE_SPAWN_BUDGET - 1);
   assert.equal(plan.childCanDelegate, false);
   assert.equal(plan.includeDelegateConfig, false);
-  assert.deepEqual(plan.childExtensions, ['/repo/.pi/harnesses/damage-control/index.ts']);
+  assert.deepEqual(plan.childExtensions, ['/repo/.pi/harnesses/damage-control-continue/index.ts']);
   assert.equal(plan.childTools, READ_ONLY_TOOLS);
 });
 

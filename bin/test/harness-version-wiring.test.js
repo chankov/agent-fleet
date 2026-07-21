@@ -5,9 +5,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const targets = ["agent-hub", "coms", "damage-control", "damage-control-continue"];
+const targets = ["agent-hub", "coms", "damage-control-continue"];
 
-test("all four target entrypoints import and register their local version module at session start", () => {
+test("all three target entrypoints import and register their local version module at session start", () => {
 	for (const name of targets) {
 		const source = readFileSync(join(root, ".pi", "harnesses", name, "index.ts"), "utf8");
 		assert.match(source, /from "\.\/version\.ts"/, name);

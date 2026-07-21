@@ -10,7 +10,6 @@ const ROOT_PACKAGE_NAME = "@chankov/agent-fleet";
 export const HARNESS_VERSION_MANIFESTS = [
 	".pi/harnesses/agent-hub/package.json",
 	".pi/harnesses/coms/package.json",
-	".pi/harnesses/damage-control/package.json",
 	".pi/harnesses/damage-control-continue/package.json",
 ];
 
@@ -46,7 +45,7 @@ function rootVersion(sourceRoot) {
 }
 
 /**
- * Stamp the four UI-owning harness manifests from the canonical root version.
+ * Stamp the three UI-owning harness manifests from the canonical root version.
  * `check` is read-only and throws when a derived stamp has drifted.
  */
 export function syncHarnessVersions(sourceRoot = root, { check = false } = {}) {

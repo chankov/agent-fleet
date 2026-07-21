@@ -63,4 +63,4 @@ Each state can define a cleanup routine that the Supervisor executes (e.g., kill
 ## 5. Integration
 The Chronicle was designed to integrate with:
 - **agent-team** (now consolidated under **agent-hub**): To fetch specialized personas for specific states.
-- **damage-control**: To enforce safety rules across all worker sub-agents spawned by the Supervisor.
+- **damage-control-continue**: To enforce safety rules across all worker sub-agents spawned by the Supervisor without aborting their reporting turn.

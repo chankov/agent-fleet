@@ -1,7 +1,7 @@
-# Specification: Damage-Control Extension
+# Specification: Damage-Control Continue Extension
 
 ## 1. Overview
-**Damage-Control** is a safety and observability extension for the Pi Coding Agent. It enforces security patterns and "Rules of Engagement" by auditing tool calls in real-time. It intercepts potentially dangerous operations and enforces path-based access controls.
+**Damage-Control Continue** is a safety and observability extension for the Pi Coding Agent. It enforces security patterns and "Rules of Engagement" by auditing tool calls in real-time. It intercepts potentially dangerous operations and enforces path-based access controls.
 
 ## 2. Core Architecture
 - **Rule Engine**: Loads `.pi/damage-control-rules.yaml` on `session_start`. If missing, it defaults to an empty rule set.
@@ -29,10 +29,10 @@ The extension uses `isToolCallEventType(toolName, event)` for type-safe narrowin
 ## 4. Intervention & UI
 - **Status Indicator**: Use `ctx.ui.setStatus()` to show an indicator of active safety rules (e.g., "🛡️ Damage-Control Active: 142 Rules").
 - **Violation Feedback**: When a violation is blocked or confirmed, update the status temporarily to show the last event (e.g., "⚠️ Last Violation: git reset --hard").
-- **Blocking**: Return `{ block: true, reason: "Security Policy Violation: [Reason]" }`.
-- **User Confirmation (`ask: true`)**:
-    - For rules with `ask: true`, the handler must `await ctx.ui.confirm(title, message, { timeout: 30000 })`.
-    - Return `{ block: !confirmed, reason: "User denied execution" }`.
+- **Blocking without aborting**: Return `{ block: true, reason: "Security Policy Violation: [Reason]" }`; do not call `ctx.abort()`. The operation fails closed while the agent remains able to report or safely adapt.
+- **Protected-path approval**: Interactive path violations may be approved explicitly. Headless Agent Hub children escalate to the dispatcher and fail closed on denial, timeout, missing UI, or an unreachable endpoint. `noDeletePaths` offers only Deny or Allow once; other path categories may use scoped/session grants.
+- **Non-exemptible commands**: `bashToolPatterns` never open an approval bypass.
+- **User Confirmation (`ask: true`)**: Rules explicitly marked `ask` use `ctx.ui.confirm`; denial blocks without aborting the turn.
 - **Notifications**: Use `ctx.ui.notify()` to alert the user when a rule is triggered.
 
 ## 5. Logging & Persistence

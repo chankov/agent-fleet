@@ -6,12 +6,14 @@ import { tmpdir } from "node:os";
 import * as net from "node:net";
 
 import {
+	accessDecisionChoices,
+	accessRequestCacheKey,
 	appendExemptionToFile,
 	fileExemptionsFor,
 	readExemptionsFile,
 	removeExemptionFromFile,
 	requestAccessFromHub,
-} from "./shared.ts";
+} from "./damage-control-shared.ts";
 
 function tempFile() {
 	return join(mkdtempSync(join(tmpdir(), "dc-shared-")), "exemptions.json");
@@ -56,6 +58,23 @@ test("removeExemptionFromFile: removes all entries for a pattern", () => {
 	assert.equal(removeExemptionFromFile(file, ".env"), false);
 });
 
+test("protected deletion only permits deny or one-call approval", () => {
+	assert.deepEqual(accessDecisionChoices("no_delete"), ["deny", "allow_once"]);
+	assert.deepEqual(accessDecisionChoices("zero_access"), ["deny", "allow_once", "allow_agent", "allow_all"]);
+});
+
+test("protected deletion requests are coalesced by invocation, not broad rule pattern", () => {
+	const base = { agent: "builder", pattern: ".github/", category: "no_delete" };
+	assert.notEqual(
+		accessRequestCacheKey({ ...base, invocation: "rm -- .github/workflows/a.yml" }),
+		accessRequestCacheKey({ ...base, invocation: "rm -- .github/workflows/b.yml" }),
+	);
+	assert.equal(
+		accessRequestCacheKey({ ...base, invocation: "rm -- .github/workflows/a.yml" }),
+		accessRequestCacheKey({ ...base, invocation: "rm -- .github/workflows/a.yml" }),
+	);
+});
+
 // ── escalation client ──
 
 function fakeHub(socketPath, onRequest) {
@@ -84,6 +103,7 @@ function request(pattern = ".env") {
 		tool: "read",
 		rule: `Access to zero-access path restricted: ${pattern}`,
 		pattern,
+		category: "zero_access",
 		invocation: `{"path":"${pattern}"}`,
 	};
 }

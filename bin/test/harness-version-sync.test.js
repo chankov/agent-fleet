@@ -23,7 +23,12 @@ function manifest(dir, relativePath) {
 	return JSON.parse(readFileSync(join(dir, relativePath), "utf8"));
 }
 
-test("stamps exactly the four UI-owning harness manifests and preserves unrelated fields", () => {
+test("stamps exactly the three UI-owning harness manifests and preserves unrelated fields", () => {
+	assert.deepEqual(HARNESS_VERSION_MANIFESTS, [
+		".pi/harnesses/agent-hub/package.json",
+		".pi/harnesses/coms/package.json",
+		".pi/harnesses/damage-control-continue/package.json",
+	]);
 	const dir = fixture({ version: "1.2.3-beta.4+build.5" });
 	try {
 		const result = syncHarnessVersions(dir);
