@@ -1,0 +1,337 @@
+# npm install path
+
+The `@chankov/agent-fleet` package ships every skill, persona, slash command,
+and pi extension as installable content, plus a thin CLI that hands off to the
+LLM-driven `guided-workspace-setup` skill. The CLI never writes installable
+artifacts on its own — that decision (and the conversation around it) belongs
+to the coding agent.
+
+## Package name vs CLI name
+
+| | Name |
+|---|---|
+| **npm package** (use this for `npm install` and the first `npx`) | `@chankov/agent-fleet` |
+| **CLI binary** (the command the package ships) | `agent-fleet` |
+
+The package is published under the `@chankov` npm scope to guarantee identity —
+only [Nikolay Chankov](https://www.npmjs.com/~chankov) can publish to that
+scope. The CLI binary stays the short name `agent-fleet` because that's what
+goes on `PATH` after install.
+
+So:
+
+- First time / one-shot: `npx @chankov/agent-fleet <cmd>` — npx resolves the
+  scoped package and runs its bin.
+- After a project / global install: `npx agent-fleet <cmd>` works too,
+  because the bin is named `agent-fleet`.
+
+## Quick start
+
+### Guided workspace setup
+
+```bash
+# In the workspace you want to configure:
+npx @chankov/agent-fleet init
+# Then open your coding agent in this directory and run:
+#   /setup-agent-fleet
+```
+
+That's it. `npx` fetches the package, the CLI detects your coding agent and
+prints the next-step command, and `/setup-agent-fleet` runs the full guided install
+inside your agent.
+
+### First-class pi package
+
+For pi users who want package-native loading instead of copied/symlinked setup artifacts:
+
+```bash
+# Project-scoped; writes .pi/settings.json
+pi install -l npm:@chankov/agent-fleet
+
+# Or global for every pi session
+pi install npm:@chankov/agent-fleet
+```
+
+The pi package manifest exposes this repo's skills, pi runtime skills, lifecycle prompts, and bundled `pi-ask-user` resources. The bundled companion provides the `ask_user` tool and `ask-user` skill without a separate `pi-ask-user` install.
+
+It intentionally does not auto-expose this repo's own `.pi/extensions` or harness directories; install those through guided setup or the pi setup docs so their runtime dependencies are handled explicitly. `pi-codex-image-gen` is also not bundled or required; guided setup may offer it as an optional suggested external npm/pi package when package installation is available, and installs it only if selected (`pi install -l npm:pi-codex-image-gen`). Minimal setup works without it.
+
+The package also ships assets for the **experimental Linux Codex Remote-Control conductor** (`codex/`, `systemd/`, lifecycle/wrapper scripts, recipes, and runbook). Guided setup copies or links those assets with selected pi harnesses but never enables systemd, edits Codex config, starts a service, or pairs a phone. Those remain explicit operator actions and support only Codex CLI `0.144.x`; see [codex-remote-conductor.md](codex-remote-conductor.md). Its managed runtime contract is created later under `$HOME/.local/state/agent-fleet/codex-conductor/`, not inside the npm package or target checkout.
+
+## Commands
+
+### `npx @chankov/agent-fleet init`
+
+Materializes the package, **bootstraps the installer artifacts** into the
+workspace (so the agent has a `/setup-agent-fleet` and `/doctor-agent-fleet` command to invoke),
+and hands off to `/setup-agent-fleet`.
+
+What `init` writes per agent:
+
+| Agent | Files written to the workspace |
+|---|---|
+| `claude-code` | `.claude/commands/setup-agent-fleet.md`, `.claude/commands/doctor-agent-fleet.md`, `.claude/skills/guided-workspace-setup/SKILL.md` |
+| `pi` | `.pi/prompts/setup-agent-fleet.md`, `.pi/prompts/doctor-agent-fleet.md`, `.pi/skills/guided-workspace-setup/SKILL.md` |
+| `opencode` | `.opencode/commands/af-setup-agent-fleet.md`, `.opencode/commands/af-doctor-agent-fleet.md`, `.opencode/skills/guided-workspace-setup/SKILL.md` |
+
+These are **just the plumbing** — the slash commands, plus the skill they
+invoke. The actual catalogue (spec-driven-development, code-reviewer,
+test-engineer, pi extensions, …) is picked by you inside `/setup-agent-fleet`. Re-run
+`init` to refresh the plumbing after a package upgrade; bootstrap files
+are always overwritten because they're scaffolding, not user data.
+
+After `/setup-agent-fleet` finishes its install pass, **the bootstrap files
+are removed by default** so they don't clutter your agent's slash-command
+list. Re-run `npx @chankov/agent-fleet init` whenever you want
+`/setup-agent-fleet` back. To keep them in place across runs, reply `keep`
+to the Step 9 confirmation prompt — the skill will record
+`keep-installer: true` in `.ai/agent-fleet-setup.md`.
+
+### How the skill finds the source package
+
+`init` writes one extra file alongside the bootstrap: `.ai/.agent-fleet-bootstrap.json`.
+This is the **authoritative** record of where the npm package lives:
+
+```json
+{
+  "sourceRoot": "/home/you/.npm/_npx/<hash>/node_modules/@chankov/agent-fleet",
+  "version": "0.3.0",
+  "agent": "pi",
+  "method": "copy",
+  "bootstrappedAt": "2026-05-24T..."
+}
+```
+
+When `/setup-agent-fleet` runs inside your agent, it reads this marker
+*first* to find the source package. This matters on dev machines where you
+may also have a git clone of `agent-fleet` elsewhere — the marker prevents
+the skill from accidentally using that clone instead of the version the
+user just installed via npm.
+
+If the marker is missing or its `sourceRoot` no longer exists (e.g. npx
+cleaned its cache), the skill **asks you explicitly** for the path. It
+never scans your filesystem for other agent-fleet repos — that would
+silently pick up forks, stale checkouts, or dev clones that aren't what
+you installed.
+
+The marker is removed by the same Step 10b cleanup that removes the
+slash commands.
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--agent <claude-code\|opencode\|pi>` | auto-detect | Skip the agent prompt |
+| `--method <copy\|symlink>` | `copy` | Default install method passed to the skill |
+| `--workspace <path>` | `cwd` | Target workspace |
+| `--launch` | off | Shell into the coding agent after init (best effort) |
+
+```bash
+npx @chankov/agent-fleet init --agent claude-code
+npx @chankov/agent-fleet init --workspace ~/projects/foo --method symlink
+```
+
+### `npx @chankov/agent-fleet doctor`
+
+Deterministic preflight scan — walks every install-target directory, lists
+broken symlinks and stale persona references, and offers fixes. Same scan
+that `/doctor-agent-fleet` runs inside the agent.
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--workspace <path>` | `cwd` | Target workspace |
+| `--dry-run` | off | Show findings; do not apply |
+| `--yes` / `-y` | off | Apply all suggested fixes without prompting |
+
+```bash
+npx @chankov/agent-fleet doctor --workspace ~/projects/foo --dry-run
+npx @chankov/agent-fleet doctor -y
+```
+
+### `npx @chankov/agent-fleet update`
+
+Reads the workspace's `.ai/agent-fleet-setup.md`, compares the recorded
+package version against the installed package version, and **re-installs the
+`/setup-agent-fleet` command** so it is always available after an update.
+`guided-workspace-setup` removes the installer command at the end of a run by
+default (Step 10b), so a workspace that has completed setup once would
+otherwise have no command to hand off to. The actual diff-aware refresh then
+runs inside the coding agent via `/setup-agent-fleet`.
+
+The agent and install method are recovered from the bootstrap marker written
+at init time; if that marker was cleaned up too, `update` auto-detects the
+agent (and prompts only when the workspace has more than one agent dir).
+Override with `--agent` / `--method`, or preview with `--dry-run`.
+
+```bash
+# Upgrade the package itself first, then check the delta:
+npm install -g @chankov/agent-fleet@latest
+npx agent-fleet update --workspace .
+# /setup-agent-fleet is now back in your workspace — open your agent and run
+# it to review per-artifact diffs.
+```
+
+### `npx @chankov/agent-fleet transform-persona`
+
+Generates per-agent subagent definitions from the canonical personas in
+`agents/*.md`. `pi` gets the canonical file unchanged; `claude-code` and
+`opencode` get a transformed copy — `tools`/`model` translated to the target's
+vocabulary (`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …; `mode:
+subagent` + tool denials for OpenCode), agent-hub-only frontmatter dropped,
+body untouched. pi-only personas (`bowser`, `orchestrator`) are refused for
+other agents. This is what
+`/setup-agent-fleet` runs during apply; transformed installs are always
+copies (never symlinks), recorded with `transformed: true`.
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--agent <claude-code\|opencode\|pi>` | — (required) | Target agent |
+| `--list` | off | Print the availability matrix (persona → target path) |
+| `--all` | off | Transform every available persona |
+| `--workspace <path>` | — | Write into `<path>`; omit to print to stdout |
+| `--dry-run` | off | With `--workspace`: show what would be written |
+
+```bash
+npx @chankov/agent-fleet transform-persona --list --agent claude-code
+npx @chankov/agent-fleet transform-persona --agent claude-code code-reviewer
+npx @chankov/agent-fleet transform-persona --agent opencode --all --workspace .
+```
+
+## Versioning
+
+The package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
+
+| Change | Bump |
+|---|---|
+| Skill removed, renamed, or its documented workflow changes; persona retired; command removed; install-record schema breakage | **major** |
+| New skill, new persona, new command, new option in an existing skill | **minor** |
+| Wording fix, doctor scan improvement, CLI bug fix | **patch** |
+
+### Pinning
+
+To pin a workspace to a specific version, install the package as a project
+dependency instead of using `npx`:
+
+```bash
+npm install --save-dev @chankov/agent-fleet@0.0.1
+npx agent-fleet init   # resolves to the pinned 0.0.1
+```
+
+Or pin globally:
+
+```bash
+npm install -g @chankov/agent-fleet@0.0.1
+```
+
+### What "update" actually changes
+
+The package update is just `npm`'s usual upgrade. The interesting part runs
+inside the agent: `guided-workspace-setup` reads the `version:` line from
+`.ai/agent-fleet-setup.md`, computes the delta against the current package
+version, and surfaces per-artifact `Status` based on a three-way diff:
+
+| Status | Means |
+|---|---|
+| `installed · upgrade available` | Source changed upstream; user copy still matches the old source → clean refresh |
+| `installed · conflicting upgrade` | Source changed upstream AND user modified the copy → three-way diff shown, write requires explicit consent |
+| `installed · removed upstream` | Artifact gone in the new version → proposed for deletion (subject to the removal-scope rule) |
+| `not installed · new in this version` | New artifact added in the new version → offered, marked `★` if recommended |
+
+The diff is sourced from `.versions/<recorded-version>/` inside the package —
+a snapshot the release pipeline writes for every published version.
+
+## Other install paths
+
+npm is the recommended path for most users. The other two stay supported:
+
+- **[Claude Code plugin marketplace](../README.md#quick-start)** — best UX
+  inside Claude Code. Same skills, marketplace-managed updates.
+- **Git clone + symlinks** — best for skill authors and contributors. Clone
+  the repo, run `/setup-agent-fleet` from there, choose `symlink` in Step 8. Updates
+  flow through `git pull`. Symlinks need Developer Mode on Windows.
+
+All three paths converge on the same `guided-workspace-setup` skill — the
+difference is only in how the source files reach the workspace.
+
+## CI usage
+
+`npx @chankov/agent-fleet init` is interactive by default (it prompts for
+the agent when detection is ambiguous). For CI, pass `--agent` explicitly:
+
+```bash
+npx --yes @chankov/agent-fleet@latest init --agent claude-code --method copy --workspace .
+```
+
+`doctor` accepts `--yes` for non-interactive repair. Note that the
+LLM-driven `/setup-agent-fleet` flow is not CI-runnable by design — confirmation gates
+exist precisely so a human approves every write.
+
+## Receiving update notifications
+
+Three independent mechanisms surface "a new version is published" without
+you having to remember to check. All three share a single cache at
+`$XDG_CACHE_HOME/agent-fleet/latest-version.json` (24h TTL) so the
+registry is hit at most once per day.
+
+### 1. CLI update-notifier (always on)
+
+Every `npx @chankov/agent-fleet <cmd>` invocation runs a fast cache read
+on entry. If the cached latest version exceeds the running CLI version, a
+banner prints to stderr before the command output:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ agent-fleet update available: 0.1.0 → 0.2.0                 │
+│   Run: npx @chankov/agent-fleet@latest update               │
+│   Releases: https://github.com/chankov/agent-fleet/releases │
+└──────────────────────────────────────────────────────────────┘
+```
+
+If the cache is stale, a detached background process refreshes it for the
+*next* invocation — the current run is never blocked.
+
+### 2. Claude Code session-start hook
+
+When `hooks/session-start.sh` is installed (offered in Group 18 of `/setup-agent-fleet`),
+every new Claude Code session runs the check with a 3-second wall-clock cap.
+If an upgrade is available, the banner is injected into the session context
+so Claude can mention it on its first turn — e.g. *"Note: agent-fleet 0.2.0
+is available; want me to apply it via `/setup-agent-fleet`?"*
+
+### 3. pi extension (`agent-fleet-update-check`)
+
+When installed (offered in Group 10 of `/setup-agent-fleet`), the extension fires on the
+first `agent_start` event of each pi session and emits a `ctx.ui.notify`
+message in the pi UI if a newer version is published. Reads the same cache
+as the CLI — no double-fetching.
+
+### Opting out
+
+Any of these environment variables disables all three:
+
+```bash
+export AGENT_SKILLS_NO_UPDATE_CHECK=1   # agent-fleet-specific
+export NO_UPDATE_NOTIFIER=1             # conventional, also honoured
+# CI=true is auto-detected — banners never appear in CI logs
+```
+
+### Forcing a manual check
+
+```bash
+# Block on a single registry fetch; print the banner if outdated
+npx @chankov/agent-fleet check-update
+
+# Bypass the cache entirely
+rm ~/.cache/agent-fleet/latest-version.json
+npx @chankov/agent-fleet check-update
+```
+
+## Troubleshooting
+
+- **"Could not auto-detect your coding agent."** Pass `--agent` or run
+  `init` from a workspace that already has one of `.claude/`, `.opencode/`,
+  or `.pi/`.
+- **`update` says "no install record".** Run `init` once first; the install
+  record is what `update` reads.
+- **The version-aware menu shows `(snapshot missing)`.** The recorded version
+  is older than the snapshot retention in this package. The skill falls back
+  to "treat installed copy as canonical" — refresh manually if you want to
+  reset the baseline.

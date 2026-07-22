@@ -1,0 +1,8045 @@
+/**
+ * Agent Hub — Dispatcher orchestrator + embedded coms peer-to-peer layer
+ *
+ * The merged harness (plan: docs/plans/agent-hub-multi-agent-harness.md). It is
+ * `agent-team` (dispatcher grid + per-agent model + kill/restart + /zoom +
+ * read-only research helpers + dispatcher persona gate) with the `coms` P2P layer
+ * EMBEDDED in the same extension — not stacked as a second `-e`, which would
+ * double-register the --name/--purpose/... CLI flags and abort startup.
+ *
+ * So the dispatcher is ALSO a coms peer: it can use another long-lived peer as a
+ * subagent (coms_send + coms_await), hand the whole session off to a peer
+ * (/handoff), and be addressed by other peers as a subagent itself. If the coms
+ * endpoint fails to bind, the harness degrades to a coms-less dispatcher
+ * (comsReady=false withholds the coms_* tools).
+ *
+ * Commands:
+ *   /agents-team          — switch active team
+ *   /agents-list          — list loaded agents
+ *   /agents-history       — timeline of agent execution (durations + grand total)
+ *   /agent-model <persona>[.<role>] — switch a team or research persona's (or
+ *                           delegate sub-role's) model from its declared candidates
+ *   /agent-model-thinking <persona> — switch a team or research persona's thinking
+ *                           level (off|minimal|low|medium|high|xhigh)
+ *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
+ *   /agent-models-substitute <source> <target> — swap one model across all personas
+ *   /dispatch-policy      — show which members route to coms peers (.pi/agents/dispatch-policy.yaml)
+ *   /agents-kill <name|rN|all> — SIGTERM a frozen specialist (and its delegation
+ *                           tree); on a research helper it kills AND removes the
+ *                           card + session ("all" clears every research helper)
+ *                           (aliases: /research-rm rN, /research-clear)
+ *   /agents-restart <name|rN> — kill + re-run its last task fresh (research: must
+ *                           be finished; runs on a fresh session)
+ *   /zoom <name|rN|child> — scrollable read-only view of an agent's stream
+ *                           (team member, research helper rN, or delegate child id)
+ *   /research <task>      — spawn a read-only research helper (@persona, --model)
+ *   /agents-cont rN ...   — resume a finished research helper (alias: /research-cont)
+ *
+ * Finished research helpers are auto-pruned: auto-research pipe helpers as soon
+ * as they finish (findings persist as files under findings/), manual/persona
+ * helpers beyond the `research-keep` most recent (default 4, overrides file).
+ *   /persona              — select/reset the dispatcher persona
+ *   /handoff <peer>       — hand the session off to a coms peer (summarized brief)
+ *   /coms                 — refresh the coms peer pool (--all / --project <name>)
+ *   /compound [focus]     — end-of-session compound-learning pass: confirm this
+ *                           session's lessons with the user, then dispatch the
+ *                           documenter to land them in the project's rules/docs
+ *
+ * Shortcuts:
+ *   Alt+A                 — toggle agent view: dashboard grid (above editor) ↔
+ *                           compact running-agents list (below editor: one line
+ *                           per *running* agent — name · context · state)
+ *   Alt+] / Alt+[         — compact view: mark next/previous running subagent
+ *   Alt+\                 — compact view: zoom the marked subagent (Q/Esc closes)
+ *
+ * Note: the marker/zoom only affect what you *view* — typing always prompts the
+ * main session (there is no transcript takeover; zoom is a modal overlay). main
+ * is never a marker target.
+ *
+ * Identity flags (coms): --name --purpose --project --color --explicit
+ *
+ * Usage: just hub
+ * Direct guarded launch: pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts
+ */
+
+import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import { DynamicBorder, getMarkdownTheme as getPiMdTheme, copyToClipboard } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
+import {
+	Text, Box, Container, Spacer, Markdown, matchesKey, Key,
+	type AutocompleteItem, truncateToWidth, visibleWidth,
+} from "@mariozechner/pi-tui";
+import { spawn, type ChildProcess } from "child_process";
+import { spawnPiAgent, killPiTree, type PiRunControl, type Termination } from "./spawn.ts";
+import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "./research-watchdog.ts";
+import { renderHubFooterLeft } from "./footer.ts";
+import { HARNESS_VERSION, registerVersionStatus } from "./version.ts";
+import { cancelLocalOwnedProcess, cancelLocalWaitOnly, monitorKeyForAgent } from "./monitor-control.ts";
+import { createMonitorLifecycle, monitorLifecycleConfig } from "./monitor-lifecycle.ts";
+import { MonitorRegistry } from "../../../scripts/lib/hermes-monitor-registry.ts";
+import { MonitorStore } from "../../../scripts/lib/hermes-monitor-store.ts";
+import { createMonitorSessionBridge } from "./monitor-session-bridge.ts";
+import { MonitorRuntime } from "./monitor-runtime.ts";
+import { monitorReconcileEvidence, stableMonitorHubId } from "./monitor-recovery.ts";
+import {
+	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
+	exemptionsFilePath, type AccessRequest,
+} from "../lib/damage-control-shared.ts";
+import { clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_TIERS, budgetStatusLine, checkTurnBudget, normalizeHubMode, normalizeTaskTier, resolveTurnBudget, shouldRecycleSession } from "./run-budget.js";
+import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
+import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "./artifacts.js";
+import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return-contract.js";
+import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
+import { validateEvidence } from "./evidence-rules.js";
+import { comsRequiredRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
+import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from "./research-retention.js";
+import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
+import { createAccessApprovalRouter } from "./access-approval.ts";
+import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
+import {
+	formatPeerStatus,
+	HerdrAgentWatch,
+	HerdrPresence,
+	herdrPaneId,
+	herdrPresenceAvailable,
+	parsePeerName,
+	type HerdrAgentInfo,
+} from "../lib/herdr-presence.ts";
+import { herdr as herdrApi, herdrAvailable } from "../lib/herdr-client.ts";
+import { peerCommand } from "../../../scripts/lib/herdr-layout.ts";
+import { join, resolve } from "path";
+import * as net from "node:net";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import * as crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+// ── Types ────────────────────────────────────────
+
+interface AgentDef {
+	name: string;
+	description: string;
+	tools: string;
+	model?: string;
+	// Allowed switch targets for /agent-model and model profiles (frontmatter
+	// `models:` list). The default `model:` is implicitly a candidate too.
+	models?: string[];
+	// Mid-turn delegation (injected delegate tool): the sub-roles this persona
+	// may spawn, each with a model and an optional tool cap (frontmatter
+	// `subagents:` map). Model choice is configuration, never the child LLM's.
+	subagents?: Record<string, SubagentRole>;
+	// How deep this persona's delegation tree may go (frontmatter
+	// `delegate_depth:`). Default 1: it can spawn children, they cannot.
+	delegateDepth?: number;
+	// Non-fatal frontmatter problems (e.g. a subagents role without a model),
+	// surfaced once at session start.
+	warnings?: string[];
+	kind?: string;
+	// Per-agent thinking level for `/zoom` debugging. A pi --thinking level
+	// (off|minimal|low|medium|high|xhigh), default off. When non-off, thinking
+	// deltas are captured into the zoom timeline.
+	thinking?: string;
+	systemPrompt: string;
+	file: string;
+}
+
+// One entry in an agent's zoom timeline (Phase 3). Consecutive text/thinking
+// deltas are coalesced into the trailing entry of the same kind; each tool call
+// is its own entry.
+interface TimelineEntry {
+	kind: "text" | "tool" | "thinking";
+	title: string;
+	content: string;
+	timestamp: number;
+}
+
+// A delegate child (or grandchild) of a dispatched specialist, reconstructed
+// from the JSONL events delegate.ts appends to the dispatch's delegation dir.
+// Satisfies Zoomable (def/status/timeline/zoomRender) so /zoom <child-id>
+// opens the same overlay specialists get; `parent` is "root" for direct
+// children or another child's id for sub-sub-agents.
+interface DelegationChild {
+	id: string;
+	parent: string;
+	role: string;
+	model: string;
+	tools: string;
+	def: { name: string };
+	status: "running" | "done" | "error";
+	toolCount: number;
+	tokens: number;
+	lastWork: string;
+	startedAt: number;
+	elapsed: number;
+	timeline: TimelineEntry[];
+	zoomRender?: (force?: boolean) => void;
+	// The /agents-history node for this delegate child, set on its spawn event so
+	// the exit event can close it. Lets a delegating specialist's row subtract the
+	// time it spent awaiting its own sub-sub-agents.
+	histEntry?: HistoryEntry;
+}
+
+interface InputArtifactPreview {
+	input: string;
+	path: string;
+	displayPath: string;
+	preview: string;
+}
+
+interface AgentState {
+	def: AgentDef;
+	status: "idle" | "running" | "done" | "error";
+	task: string;
+	toolCount: number;
+	elapsed: number;
+	lastWork: string;
+	contextPct: number;
+	sessionFile: string | null;
+	runCount: number;
+	// Runs served by the CURRENT accumulated session (-c resume chain). Reset on
+	// recycle; drives shouldRecycleSession together with the measured contextPct.
+	runsSinceFresh: number;
+	timer?: ReturnType<typeof setInterval>;
+	// Mid-turn delegation (delegate tool). Children parsed live from the event
+	// file, keyed by child id; rendered as nested rows under the card and kept
+	// after completion for post-hoc /zoom. Reset on each dispatch.
+	delegations?: Map<string, DelegationChild>;
+	delegationsWatcher?: { close(): void };
+	// Kill / restart (Phase 2). The live child is stored so a frozen specialist
+	// can be SIGTERM'd. `killedByOperator` tells the close handler the exit was an
+	// operator kill (so it returns a "do not auto-retry" message instead of a
+	// normal error); `restarting` distinguishes a kill-for-restart from a plain
+	// kill; `onTerminate` lets /agents-restart await the kill before re-dispatching.
+	proc?: ChildProcess;
+	killedByOperator?: boolean;
+	restarting?: boolean;
+	onTerminate?: () => void;
+	// Zoom timeline (Phase 3). A structured, persisted record of the specialist's
+	// stream — coalesced assistant text, tool calls (name + args), and thinking
+	// deltas when the persona opts in. `/zoom` renders this; it survives completion
+	// so post-hoc zoom works without reading the session file. `zoomRender` is set
+	// while a `/zoom` overlay is open so the stream parser can refresh it live
+	// (throttled; pass force=true for the final frame).
+	timeline: TimelineEntry[];
+	zoomRender?: (force?: boolean) => void;
+	// The /agents-history node for the current dispatch, so delegate children parsed
+	// from the event file can attach to it as the root parent of their subtree.
+	histEntry?: HistoryEntry;
+	// Coms-backed dispatch (dispatch-policy.yaml): which backend served the last
+	// run, the peer's model for the card badge, and the abandon hook /agents-kill
+	// and /agents-restart use instead of a SIGTERM — the standing peer itself
+	// cannot be killed from the hub, only the wait can be released.
+	lastBackend?: "native" | "coms";
+	comsPeerModel?: string;
+	comsAbort?: () => void;
+}
+
+// A read-only research helper (Phase 4). Spawned on demand to assist the standing
+// team with reconnaissance/search/doc-reading — it never writes and never runs bash.
+// Keyed by a numeric id surfaced to the operator as the handle `rN`. Ephemeral by
+// construction: session files live under the same dir as team sessions and are wiped
+// on session_start; finished helpers are auto-pruned per the retention policy
+// (research-retention.js — auto-pipe helpers immediately, older manual ones beyond
+// the `research-keep` cap); `/agents-kill rN` (alias `/research-rm`) kills AND
+// removes one by hand. Resumable via `/agents-cont` (alias `/research-cont`,
+// subcont-style, bumping turnCount) while retained.
+interface ResearchState {
+	id: number;
+	def: AgentDef;        // a `kind: research` persona, or a synthesized def for anon helpers
+	persona: boolean;     // true → spawned from a persona; false → ad-hoc anonymous
+	ephemeral: boolean;   // true → auto-research pipe spawn: pruned as soon as it finishes
+	model: string;        // resolved pi model spec (shown on the card)
+	status: "idle" | "running" | "done" | "error";
+	task: string;
+	toolCount: number;
+	elapsed: number;
+	lastWork: string;
+	contextPct: number;
+	sessionFile: string | null;  // set after a successful run → enables `-c` resume
+	turnCount: number;
+	finishedAt?: number;  // last time a run ended (any status) — LRU key for retention
+	timer?: ReturnType<typeof setInterval>;
+	proc?: ChildProcess;
+	killedByOperator?: boolean;
+	timeline: TimelineEntry[];
+	zoomRender?: (force?: boolean) => void;
+}
+
+// The subset of state `/zoom` needs. Both AgentState (standing team) and ResearchState
+// (read-only helpers) satisfy it, so the same ZoomUI overlay renders either one.
+interface Zoomable {
+	def: { name: string };
+	status: string;
+	timeline: TimelineEntry[];
+	zoomRender?: (force?: boolean) => void;
+}
+
+// One node in the /agents-history tree: an orchestrator (dispatcher) turn, a
+// dispatched specialist, a research helper, or a delegate sub-sub-agent. `parent`
+// links a node to the one that launched it (null = top level — an orchestrator
+// turn, or a turn-less manual /research). `endedAt` is null while the node is still
+// running, so the overlay can tick its duration live. Parallelism is derived at
+// render time from overlapping [startedAt, endedAt] ranges among siblings.
+type HistoryKind = "orchestrator" | "agent" | "research" | "delegate";
+interface HistoryEntry {
+	kind: HistoryKind;
+	name: string;
+	startedAt: number;
+	endedAt: number | null;
+	status: "running" | "done" | "error" | "idle";
+	parent: HistoryEntry | null;
+	// Extra "awaiting, not working" intervals to subtract from this node's real work
+	// on top of its children — currently the time a dispatcher turn spent blocked on
+	// `ask_user` (the human is away, the model isn't working). Orchestrator-only.
+	awaitIntervals?: Array<[number, number]>;
+}
+
+// Format a millisecond duration the way /agents-history shows it: plain seconds
+// under a minute ("42sec"), m:ss above it ("10:20min" for 620s). Used for every
+// per-agent row and the footer total.
+function fmtDuration(ms: number): string {
+	const totalSec = Math.max(0, Math.round(ms / 1000));
+	if (totalSec < 60) return `${totalSec}sec`;
+	const m = Math.floor(totalSec / 60);
+	const s = totalSec % 60;
+	return `${m}:${String(s).padStart(2, "0")}min`;
+}
+
+// Total covered length of a set of (possibly overlapping) time intervals — the
+// wall-clock during which AT LEAST ONE interval was active. Used to subtract the
+// time a node spent awaiting children: a parent's "real work" is its own span
+// minus the union of its children's runs (so parallel awaits aren't counted twice,
+// and a dispatcher blocked on six concurrent agents is credited once, not six times).
+function unionMs(intervals: Array<[number, number]>): number {
+	if (intervals.length === 0) return 0;
+	const sorted = intervals.slice().sort((a, b) => a[0] - b[0]);
+	let total = 0;
+	let curStart = sorted[0][0];
+	let curEnd = sorted[0][1];
+	for (let i = 1; i < sorted.length; i++) {
+		const [s, e] = sorted[i];
+		if (s > curEnd) {
+			total += curEnd - curStart;
+			curStart = s;
+			curEnd = e;
+		} else if (e > curEnd) {
+			curEnd = e;
+		}
+	}
+	return total + (curEnd - curStart);
+}
+
+// ── Display Name Helper ──────────────────────────
+
+function displayName(name: string): string {
+	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+// ── ASK_USER: marker extraction ──────────────────
+// Specialists emit `ASK_USER: <question>` per the clarification protocol injected
+// into their system prompt. We pull them out so the dispatcher can surface each.
+
+function extractAskUserQuestions(output: string): string[] {
+	const questions: string[] = [];
+	for (const rawLine of output.split("\n")) {
+		const line = rawLine.trim();
+		const match = line.match(/^ASK_USER\s*:\s*(.+)$/i);
+		if (match) {
+			const q = match[1].trim();
+			if (q && !questions.includes(q)) questions.push(q);
+		}
+	}
+	return questions;
+}
+
+// ── NEEDS_RESEARCH: marker extraction ────────────
+// Specialists emit `NEEDS_RESEARCH: <question>` per the research protocol when they
+// need reconnaissance they cannot perform with their own tools. The HUB (not the
+// dispatcher LLM) intercepts these in code: it fans out read-only research helpers,
+// writes each helper's findings to a file under .pi/agent-sessions/findings/, and
+// resumes the specialist's session with the file paths — so large findings never
+// pass through the dispatcher's context.
+
+function extractNeedsResearch(output: string): string[] {
+	const questions: string[] = [];
+	for (const rawLine of output.split("\n")) {
+		const line = rawLine.trim();
+		const match = line.match(/^NEEDS_RESEARCH\s*:\s*(.+)$/i);
+		if (match) {
+			const q = match[1].trim();
+			if (q && !questions.includes(q)) questions.push(q);
+		}
+	}
+	return questions;
+}
+
+// ── Overrides Parser (.ai/agent-fleet-overrides.md) ──
+// Reads the `## agent-hub` section (`## agent-team` is accepted as a legacy
+// alias; when both are present their keys merge, later lines winning).
+// Supported keys:
+//   language: <name>           — user-facing language. Default: English.
+//   persona-gate: on|off       — block input until a dispatcher persona is picked.
+//   model.<persona>: <spec>    — replace the persona's default model for this project.
+//   models.<persona>: <a>, <b> — replace the persona's model candidate list.
+//   thinking.<persona>: <level> — replace the persona's thinking level for this
+//                              project (off|minimal|low|medium|high|xhigh).
+//   subagents.<persona>.<role>: <model>[, tools=<caps>]
+//                              — replace/add one delegate sub-role for this project.
+//   delegate-depth.<persona>: <n> — replace the persona's delegation depth budget.
+//   rules: <dir>[, <dir>...]   — repo-relative folders of project rule files (HOW —
+//                              compliance). Personas resolve them index-first: a
+//                              folder's top-level README.md/index.md is a loading
+//                              manifest when present; otherwise the folder is
+//                              searched recursively.
+//   docs: <path>[, <path>...]  — repo-relative documentation entry points (WHAT/WHY —
+//                              orientation): canonical files (e.g. Docs/AGENTS.md) or
+//                              doc folders. Specialists and research helpers read the
+//                              ones relevant to their task; context, not compliance.
+//   research-keep: <n>|all     — how many finished manual/persona research helpers
+//                              to retain for /agents-cont resume (LRU, default 4);
+//                              "all" disables pruning. Auto-research pipe helpers
+//                              are always pruned as soon as they finish.
+//   recon-search-timeout-s: <1..3600>|off — parent-side deadline for each
+//                              read/grep/find/ls call made by research helpers
+//                              and read-only delegate children (default 120).
+//   mode: fast|standard|strict — default execution mode (see run-budget.js).
+//                              fast = single-specialist path, standard = batched
+//                              work with turn budgets (default), strict = full
+//                              Verification Contract with wide budgets.
+//   max-dispatches-per-turn: <n>|off — dispatch_agent calls allowed per user turn
+//                              (replaces the mode default; "off" = unlimited).
+//   max-research-per-turn: <n>|off — spawn_research calls allowed per user turn.
+//   turn-wall-time-s: <n>|off  — wall-clock budget per user turn.
+//   agent-turn-timeout-s: <n>|off — whole-run deadline for each spawned
+//                              specialist/research/delegate run (not per tool).
+//   session-recycle-runs: <n>|off — recycle a specialist's accumulated session
+//                              after this many resumed runs (also recycled at
+//                              ≥60% measured context regardless).
+//   watchdog: on|off|auto      — drift watchdog default for dispatched
+//                              specialists (default auto; see drift-watchdog.js).
+//   watchdog-judge-model: <model spec> — model for the drift judge (default:
+//                              the researcher persona's model, else the
+//                              dispatcher's).
+
+interface AgentTeamOverrides {
+	language: string;
+	personaGate: boolean;
+	personaModels: Record<string, string>;
+	personaModelLists: Record<string, string[]>;
+	personaThinking: Record<string, string>;
+	personaSubagents: Record<string, Record<string, SubagentRole>>;
+	personaDelegateDepth: Record<string, number>;
+	rulesDirs: string[];
+	docsPaths: string[];
+	researchKeep: number;
+	reconSearchTimeoutMs: number | null;
+	hubMode: string;
+	// Per-axis turn-budget overrides for run-budget.js resolveTurnBudget():
+	// number replaces the mode default, null = "off", undefined = keep default.
+	budgetOverrides: {
+		maxDispatches?: number | null;
+		maxResearch?: number | null;
+		wallMs?: number | null;
+		agentTurnMs?: number | null;
+		recycleRuns?: number | null;
+	};
+	watchdogSetting: string;
+	watchdogJudgeModel: string | null;
+	warnings: string[];
+}
+
+const DEFAULT_OVERRIDES: AgentTeamOverrides = {
+	language: "English",
+	personaGate: false,
+	personaModels: {},
+	personaModelLists: {},
+	personaThinking: {},
+	personaSubagents: {},
+	personaDelegateDepth: {},
+	rulesDirs: [],
+	docsPaths: [],
+	researchKeep: DEFAULT_RESEARCH_KEEP,
+	reconSearchTimeoutMs: 120_000,
+	hubMode: DEFAULT_HUB_MODE,
+	budgetOverrides: {},
+	watchdogSetting: DEFAULT_WATCHDOG_SETTING,
+	watchdogJudgeModel: null,
+	warnings: [],
+};
+
+function freshOverrides(): AgentTeamOverrides {
+	return {
+		...DEFAULT_OVERRIDES,
+		personaModels: {},
+		personaModelLists: {},
+		personaThinking: {},
+		personaSubagents: {},
+		personaDelegateDepth: {},
+		rulesDirs: [],
+		docsPaths: [],
+		budgetOverrides: {},
+		warnings: [],
+	};
+}
+
+function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
+	const path = join(cwd, ".ai", "agent-fleet-overrides.md");
+	if (!existsSync(path)) return freshOverrides();
+
+	let raw: string;
+	try {
+		raw = readFileSync(path, "utf-8");
+	} catch {
+		return freshOverrides();
+	}
+
+	const result: AgentTeamOverrides = freshOverrides();
+	let inSection = false;
+	for (const rawLine of raw.split("\n")) {
+		const line = rawLine.replace(/\r$/, "");
+		const heading = line.match(/^##\s+(.+?)\s*$/);
+		if (heading) {
+			const name = heading[1].trim().toLowerCase();
+			inSection = name === "agent-hub" || name === "agent-team";
+			continue;
+		}
+		if (!inSection) continue;
+		const kv = line.match(/^\s*([a-zA-Z][\w.-]*)\s*:\s*(.+?)\s*$/);
+		if (!kv) continue;
+		const key = kv[1].toLowerCase();
+		const value = kv[2].trim();
+		if (key === "language" && value) result.language = value;
+		if (key === "persona-gate") result.personaGate = /^(on|true|yes|1)$/i.test(value);
+		if (key === "rules" && value) {
+			result.rulesDirs = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
+		if (key === "docs" && value) {
+			result.docsPaths = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
+		if (key === "research-keep" && value) {
+			const keep = parseResearchKeep(value);
+			if (keep != null) {
+				result.researchKeep = keep;
+			} else {
+				result.warnings.push(`research-keep "${value}" is not a non-negative integer or "all" — using the default (${DEFAULT_RESEARCH_KEEP})`);
+			}
+		}
+		if (key === "recon-search-timeout-s" && value) {
+			if (value.toLowerCase() === "off") {
+				result.reconSearchTimeoutMs = null;
+			} else if (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 3600) {
+				result.reconSearchTimeoutMs = Number(value) * 1000;
+			} else {
+				result.warnings.push(`recon-search-timeout-s "${value}" is not an integer from 1 to 3600 or "off" — using the default (120)`);
+			}
+		}
+		if (key === "mode" && value) {
+			const mode = normalizeHubMode(value);
+			if (mode) {
+				result.hubMode = mode;
+			} else {
+				result.warnings.push(`mode "${value}" is not one of ${HUB_MODES.join("|")} — using the default (${DEFAULT_HUB_MODE})`);
+			}
+		}
+		if (key === "watchdog" && value) {
+			const setting = normalizeWatchdogSetting(value);
+			if (setting) {
+				result.watchdogSetting = setting;
+			} else {
+				result.warnings.push(`watchdog "${value}" is not one of ${WATCHDOG_SETTINGS.join("|")} — using the default (${DEFAULT_WATCHDOG_SETTING})`);
+			}
+		}
+		if (key === "watchdog-judge-model" && value) result.watchdogJudgeModel = value;
+		// Turn-budget keys: a positive integer replaces the mode default, "off"
+		// disables the axis. Counts are unitless; *-s keys are seconds → ms.
+		const budgetKeys: Record<string, { field: keyof AgentTeamOverrides["budgetOverrides"]; scaleMs: boolean }> = {
+			"max-dispatches-per-turn": { field: "maxDispatches", scaleMs: false },
+			"max-research-per-turn": { field: "maxResearch", scaleMs: false },
+			"turn-wall-time-s": { field: "wallMs", scaleMs: true },
+			"agent-turn-timeout-s": { field: "agentTurnMs", scaleMs: true },
+			"session-recycle-runs": { field: "recycleRuns", scaleMs: false },
+		};
+		if (budgetKeys[key] && value) {
+			const { field, scaleMs } = budgetKeys[key];
+			if (value.toLowerCase() === "off") {
+				result.budgetOverrides[field] = null;
+			} else if (/^\d+$/.test(value) && Number(value) >= 1) {
+				result.budgetOverrides[field] = Number(value) * (scaleMs ? 1000 : 1);
+			} else {
+				result.warnings.push(`${key} "${value}" is not a positive integer or "off" — using the ${result.hubMode} mode default`);
+			}
+		}
+		const slug = "[a-z0-9]+(?:-[a-z0-9]+)*";
+		const modelKey = key.match(new RegExp(`^model\\.(${slug})$`));
+		if (modelKey && value) result.personaModels[modelKey[1]] = value;
+		const modelsKey = key.match(new RegExp(`^models\\.(${slug})$`));
+		if (modelsKey && value) {
+			result.personaModelLists[modelsKey[1]] = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
+		const thinkingKey = key.match(new RegExp(`^thinking\\.(${slug})$`));
+		if (thinkingKey && value) {
+			const level = value.toLowerCase();
+			if (VALID_THINKING_LEVELS.has(level)) {
+				result.personaThinking[thinkingKey[1]] = level;
+			} else {
+				result.warnings.push(`thinking.${thinkingKey[1]} "${value}" is not a valid level (off|minimal|low|medium|high|xhigh) — ignored`);
+			}
+		}
+		const subKey = key.match(new RegExp(`^subagents\\.(${slug})\\.(${slug})$`));
+		if (subKey && value) {
+			// `<model>` or `<model>, tools=<caps>` — the caps list itself contains
+			// commas, hence the anchored optional group instead of a comma split.
+			const m = value.match(/^(\S+?)(?:\s*,\s*tools\s*=\s*([\w,-]+))?$/);
+			if (m) {
+				(result.personaSubagents[subKey[1]] ||= {})[subKey[2]] = {
+					model: m[1],
+					...(m[2] ? { tools: m[2] } : {}),
+				};
+			}
+		}
+		const depthKey = key.match(new RegExp(`^delegate-depth\\.(${slug})$`));
+		if (depthKey && value) {
+			const n = Number(value);
+			if (Number.isInteger(n) && n >= 0) {
+				result.personaDelegateDepth[depthKey[1]] = clampDelegateDepth(n);
+				if (n > MAX_DELEGATE_DEPTH) {
+					result.warnings.push(`delegate-depth.${depthKey[1]} ${n} exceeds the maximum (${MAX_DELEGATE_DEPTH}) — clamped to ${MAX_DELEGATE_DEPTH}`);
+				}
+			}
+		}
+	}
+	return result;
+}
+
+// ── Model Profiles Parser (.pi/agents/model-profiles.yaml) ──
+// Two-level YAML: profile name → persona → model spec. Validated at session
+// start against each persona's declared candidates; an invalid entry drops the
+// whole profile (never a partial apply).
+
+function parseModelProfilesYaml(raw: string): Record<string, Record<string, string>> {
+	const profiles: Record<string, Record<string, string>> = {};
+	let current: string | null = null;
+	for (const line of raw.split("\n")) {
+		if (/^\s*(#|$)/.test(line)) continue;
+		const top = line.match(/^(\S[^:]*):\s*$/);
+		if (top) {
+			current = top[1].trim();
+			profiles[current] = {};
+			continue;
+		}
+		const kv = line.match(/^\s+([\w-]+)\s*:\s*(.+?)\s*$/);
+		if (kv && current) profiles[current][kv[1].toLowerCase()] = kv[2];
+	}
+	return profiles;
+}
+
+// ── Frontmatter Parser ───────────────────────────
+
+// One declared delegate sub-role: the model the child runs on and an optional
+// tool cap that wins over tool inheritance (see delegate.ts write safety).
+interface SubagentRole {
+	model: string;
+	tools?: string;
+}
+
+// Inline forms of a subagents role value: `role: <model-spec>` shorthand or
+// `role: { model: x, tools: a,b }`. Regex extraction (not comma-splitting)
+// because the tools cap itself contains commas.
+function parseInlineSubagentRole(v: string): { model?: string; tools?: string } {
+	const s = v.trim();
+	if (!s) return {};
+	if (s.startsWith("{")) {
+		const model = s.match(/model\s*:\s*([^\s,}]+)/)?.[1];
+		const tools = s.match(/tools\s*:\s*([\w,-]+)/)?.[1];
+		return { ...(model ? { model } : {}), ...(tools ? { tools } : {}) };
+	}
+	return { model: s };
+}
+
+function parseAgentFile(filePath: string): AgentDef | null {
+	try {
+		const raw = readFileSync(filePath, "utf-8");
+		const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+		if (!match) return null;
+
+		const frontmatter: Record<string, string> = {};
+		const lists: Record<string, string[]> = {};
+		const warnings: string[] = [];
+		let subagents: Record<string, SubagentRole> | undefined;
+		const fmLines = match[1].split("\n");
+		for (let i = 0; i < fmLines.length; i++) {
+			const line = fmLines[i];
+			const idx = line.indexOf(":");
+			if (idx <= 0) continue;
+			const key = line.slice(0, idx).trim();
+			const value = line.slice(idx + 1).trim();
+			if (key === "subagents") {
+				// One-level role map. Each role is `role: <model>`, an inline
+				// `role: { model: x, tools: y }`, or an indented `model:`/`tools:`
+				// block. Malformed roles are skipped with a warning, never fatal.
+				const entries: Record<string, { model?: string; tools?: string }> = {};
+				let currentRole: string | null = null;
+				let roleIndent = -1;
+				let j = i + 1;
+				while (j < fmLines.length) {
+					const m = fmLines[j].match(/^(\s+)([a-z0-9]+(?:-[a-z0-9]+)*)\s*:\s*(.*)$/);
+					if (!m) break;
+					const ind = m[1].length;
+					if (roleIndent === -1) roleIndent = ind;
+					if (ind < roleIndent) break;
+					if (ind === roleIndent) {
+						currentRole = m[2];
+						entries[currentRole] = parseInlineSubagentRole(m[3]);
+					} else if (currentRole) {
+						const v = m[3].trim();
+						if (m[2] === "model" && v) entries[currentRole].model = v;
+						else if (m[2] === "tools" && v) entries[currentRole].tools = v;
+					}
+					j++;
+				}
+				i = j - 1;
+				const roles: Record<string, SubagentRole> = {};
+				for (const [role, e] of Object.entries(entries)) {
+					if (e.model) roles[role] = { model: e.model, ...(e.tools ? { tools: e.tools } : {}) };
+					else warnings.push(`subagents role "${role}" declares no model — skipped`);
+				}
+				if (Object.keys(roles).length > 0) subagents = roles;
+				continue;
+			}
+			if (value) {
+				frontmatter[key] = value;
+				continue;
+			}
+			// Empty value → possibly a YAML list (e.g. `models:` followed by `- item`
+			// lines). Consume the indented items so they aren't re-parsed as keys.
+			const items: string[] = [];
+			let j = i + 1;
+			while (j < fmLines.length) {
+				const m = fmLines[j].match(/^\s+-\s+(.+)$/);
+				if (!m) break;
+				items.push(m[1].trim());
+				j++;
+			}
+			if (items.length > 0) {
+				lists[key] = items;
+				i = j - 1;
+			}
+		}
+
+		if (!frontmatter.name) return null;
+		try {
+			safeAgentKey(frontmatter.name);
+		} catch {
+			return null;
+		}
+
+		let delegateDepth: number | undefined;
+		if (frontmatter.delegate_depth !== undefined) {
+			const n = Number(frontmatter.delegate_depth);
+			if (Number.isInteger(n) && n >= 0) {
+				delegateDepth = clampDelegateDepth(n);
+				if (n > MAX_DELEGATE_DEPTH) warnings.push(`delegate_depth "${frontmatter.delegate_depth}" exceeds the maximum (${MAX_DELEGATE_DEPTH}) — clamped to ${MAX_DELEGATE_DEPTH}`);
+			} else {
+				warnings.push(`delegate_depth "${frontmatter.delegate_depth}" is not a non-negative integer — using default (1)`);
+			}
+		}
+
+		return {
+			name: frontmatter.name,
+			description: frontmatter.description || "",
+			tools: frontmatter.tools || "read,grep,find,ls",
+			model: frontmatter.model || undefined,
+			models: lists.models,
+			subagents,
+			delegateDepth,
+			warnings: warnings.length > 0 ? warnings : undefined,
+			kind: frontmatter.kind || undefined,
+			thinking: frontmatter.thinking || undefined,
+			systemPrompt: match[2].trim(),
+			file: filePath,
+		};
+	} catch {
+		return null;
+	}
+}
+
+// ── Thinking level + timeline helpers (Phase 3) ──
+
+// pi --thinking levels, off→xhigh. Single source of truth for the validator, the
+// /agent-model-thinking picker, and the display badge.
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+const VALID_THINKING_LEVELS = new Set<string>(THINKING_LEVELS);
+
+// Map a persona's `thinking:` frontmatter value to a pi --thinking level.
+// Pass-through for valid levels; truthy words ("on"/"true"/"yes"/"1") → "low";
+// anything else (or unset) → "off".
+function resolveThinkingLevel(raw?: string): string {
+	if (!raw) return "off";
+	const v = raw.trim().toLowerCase();
+	if (VALID_THINKING_LEVELS.has(v)) return v;
+	if (v === "on" || v === "true" || v === "yes" || v === "1") return "low";
+	return "off";
+}
+
+// Short display codes for the thinking level, shown as a "(code)" badge after the
+// model in cards + the compact view (e.g. gpt-5.5 (xh)). `off` → "" so no badge
+// renders for the common no-extended-thinking case.
+const THINKING_ABBREV: Record<string, string> = {
+	off: "",
+	minimal: "min",
+	low: "low",
+	medium: "med",
+	high: "hi",
+	xhigh: "xh",
+};
+
+function abbrevThinking(level: string): string {
+	return THINKING_ABBREV[level] ?? "";
+}
+
+// Coalesce a streaming text/thinking delta into the timeline: extend the trailing
+// entry when it's the same kind, otherwise start a new one.
+function appendTimelineText(timeline: TimelineEntry[], kind: "text" | "thinking", delta: string) {
+	if (!delta) return;
+	const last = timeline[timeline.length - 1];
+	if (last && last.kind === kind) {
+		last.content += delta;
+	} else {
+		timeline.push({ kind, title: kind === "text" ? "Assistant" : "Thinking", content: delta, timestamp: Date.now() });
+	}
+}
+
+// ── Zoom overlay (Phase 3) ───────────────────────
+// Read-only, scrollable view of one specialist's stream, modelled on the
+// session-replay overlay but reading a *live* AgentState.timeline so it updates
+// while the agent runs. Holds a reference to the state (not a snapshot) so each
+// render reflects newly-streamed events.
+
+// ── Research helpers (Phase 4) ───────────────────
+// Read-only by construction: a research helper only ever gets these tools — no bash,
+// no write/edit — regardless of what its persona declares. This is the defining
+// constraint of a research helper vs. a full specialist (requirement 3).
+const RESEARCH_TOOLS = "read,grep,find,ls";
+
+// Auto-research pipe budgets: how many NEEDS_RESEARCH pause/resume rounds a single
+// dispatch_agent call may trigger, and how many questions are honored per round.
+const MAX_AUTO_RESEARCH_ROUNDS = 2;
+const MAX_AUTO_RESEARCH_QUESTIONS = 4;
+const CONTEXT_WARN_THRESHOLD = 70;
+
+// Conservative delegation budgets: one delegate layer only, with four total
+// child spawns reserved tree-wide for a dispatch.
+const DELEGATE_CALL_BUDGET = DELEGATE_TREE_SPAWN_BUDGET;
+
+// Appended to every research helper's system prompt so it knows its sandbox and how to
+// report. Kept separate from the dispatcher's clarification protocol: helpers don't
+// bubble up ASK_USER — they report findings and the dispatcher decides what to do.
+const RESEARCH_PROTOCOL = `
+
+## You are a READ-ONLY research helper
+You can ONLY read, search, and list files (tools: read, grep, find, ls). You CANNOT
+edit, write, or run shell/bash commands — they are not available to you. Investigate
+what you're asked, then report findings concisely, citing concrete locations as
+path:line. Do not propose or attempt edits; another agent will act on your findings.
+If something can't be found or is ambiguous, say so plainly rather than guessing.`;
+
+// System prompt for an ad-hoc (anonymous) research helper — one with no persona file.
+const ANON_RESEARCH_PROMPT = `# Research Helper
+
+You are an ad-hoc read-only research helper assisting a team of specialist agents.
+Locate the relevant code or docs, read the surrounding context, and report concise,
+well-cited findings the rest of the team can act on.`;
+
+// Parse a research handle: "r3", "R3", "#3", or bare "3" → 3. null if not a handle.
+function parseResearchHandle(arg: string): number | null {
+	const m = arg.trim().match(/^#?r?(\d+)$/i);
+	return m ? parseInt(m[1], 10) : null;
+}
+
+class ZoomUI {
+	private selectedIndex = 0;
+	private expandedIndex: number | null = null;
+	private scrollOffset = 0;
+	private followTail = true;
+	private autoExpandedTailIndex: number | null = null;
+
+	constructor(
+		private state: Zoomable,
+		private onDone: () => void,
+		private notify: (message: string, type?: "info" | "success" | "warning" | "error") => void,
+	) {}
+
+	handleInput(data: string, tui: any): void {
+		const n = this.state.timeline.length;
+		if (matchesKey(data, Key.up)) {
+			this.followTail = false;
+			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+		} else if (matchesKey(data, Key.down)) {
+			this.selectedIndex = Math.min(n - 1, this.selectedIndex + 1);
+			if (this.selectedIndex >= n - 1) this.followTail = true;
+		} else if (matchesKey(data, Key.enter)) {
+			this.expandedIndex = this.expandedIndex === this.selectedIndex ? null : this.selectedIndex;
+			if (this.followTail && this.selectedIndex >= n - 1) this.autoExpandedTailIndex = this.selectedIndex;
+		} else if (matchesKey(data, Key.space) || matchesKey(data, Key.ctrl("c"))) {
+			void this.copySelected();
+		} else if (matchesKey(data, Key.escape) || matchesKey(data, "q") || matchesKey(data, Key.shift("q"))) {
+			this.onDone();
+			return;
+		}
+		tui.requestRender();
+	}
+
+	private async copySelected(): Promise<void> {
+		const item = this.state.timeline[this.selectedIndex];
+		if (!item) return;
+		try {
+			await copyToClipboard(item.content);
+			this.notify("Copied selected zoom row", "success");
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.notify(`Failed to copy selected zoom row: ${message}`, "error");
+		}
+	}
+
+	// Render one timeline entry (card + trailing spacer) to its exact lines, so the
+	// scroll math and viewport capping can use real heights — an expanded markdown
+	// entry is many lines, a collapsed one is two. Mirrors the old inline card build.
+	private renderItemBlock(item: TimelineEntry, absoluteIndex: number, width: number, theme: any, mdTheme: any): string[] {
+		const isSelected = absoluteIndex === this.selectedIndex;
+		const isExpanded = isSelected && absoluteIndex === this.expandedIndex;
+
+		const cardBox = new Box(1, 0, (s: string) => isSelected ? theme.bg("selectedBg", s) : s);
+
+		let icon = "○", color = "dim";
+		if (item.kind === "text") { icon = "🤖"; color = "accent"; }
+		else if (item.kind === "tool") { icon = "🛠️"; color = "warning"; }
+		else if (item.kind === "thinking") { icon = "💭"; color = "dim"; }
+
+		cardBox.addChild(new Text(`${theme.fg(color, icon)} ${theme.bold(item.title)}`, 0, 0));
+
+		if (isExpanded) {
+			cardBox.addChild(new Spacer(1));
+			cardBox.addChild(new Markdown(item.content || "(empty)", 2, 0, mdTheme));
+		} else {
+			const flat = (item.content || "").replace(/\s+/g, " ").trim();
+			const preview = truncateToWidth(flat, Math.max(0, width - 8));
+			cardBox.addChild(new Text(theme.fg("dim", "  " + (preview || "…")), 0, 0));
+		}
+
+		const block = new Container();
+		block.addChild(cardBox);
+		block.addChild(new Spacer(1));
+		return block.render(width);
+	}
+
+	// Height-aware scroll: scroll the viewport so the selected entry's FULL height
+	// fits in the content budget. Entries above the selection may be tall (expanded
+	// markdown), so a per-entry-is-one-line assumption clipped the last/expanded
+	// entry below the fold — this counts real line heights instead.
+	private ensureVisible(heights: number[], contentHeight: number) {
+		if (this.selectedIndex < this.scrollOffset) this.scrollOffset = this.selectedIndex;
+		const sumToSelected = (from: number): number => {
+			let s = 0;
+			for (let i = from; i <= this.selectedIndex; i++) s += heights[i] ?? 0;
+			return s;
+		};
+		// Push the top of the window down until the selected entry fits (or it is
+		// the only entry shown, in which case the overlay clips a too-tall entry).
+		while (this.scrollOffset < this.selectedIndex && sumToSelected(this.scrollOffset) > contentHeight) {
+			this.scrollOffset++;
+		}
+		if (this.scrollOffset < 0) this.scrollOffset = 0;
+	}
+
+	render(width: number, height: number, theme: any): string[] {
+		const items = this.state.timeline;
+		// Live tail-follow: keep the selection pinned to the newest entry as the
+		// stream grows, until the user scrolls up. Auto-expand each new tail entry
+		// once so the latest message opens full, while still allowing Enter to collapse it.
+		if (this.followTail && items.length > 0) {
+			this.selectedIndex = items.length - 1;
+			if (this.autoExpandedTailIndex !== this.selectedIndex) {
+				this.expandedIndex = this.selectedIndex;
+				this.autoExpandedTailIndex = this.selectedIndex;
+			}
+		}
+		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, items.length - 1));
+
+		const mdTheme = getPiMdTheme();
+		const st = this.state.status;
+		const statusColor = st === "error" ? "error" : st === "running" ? "warning" : "success";
+
+		// Chrome (border + header + footer) is rendered separately from the body so
+		// the body can be windowed to an exact line budget — header and footer always
+		// stay visible no matter how tall the expanded entries are.
+		const top = new Container();
+		top.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+		top.addChild(new Text(
+			`${theme.fg("accent", theme.bold(" ZOOM"))} ${theme.fg("dim", "|")} ${theme.bold(displayName(this.state.def.name))} ${theme.fg("dim", "|")} ${theme.fg(statusColor, st)} ${theme.fg("dim", "|")} ${theme.fg("success", String(items.length))} events`,
+			1, 0,
+		));
+		top.addChild(new Spacer(1));
+		const topLines = top.render(width);
+
+		const bottom = new Container();
+		bottom.addChild(new Text(theme.fg("dim", " ↑/↓ Navigate • Enter Collapse/Expand • Space/Ctrl+C Copy • Q/Esc Close • live"), 1, 0));
+		bottom.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+		const bottomLines = bottom.render(width);
+
+		const contentHeight = Math.max(3, height - topLines.length - bottomLines.length);
+
+		let bodyLines: string[];
+		if (items.length === 0) {
+			bodyLines = [theme.fg("dim", "  No activity captured yet.")];
+		} else {
+			const blocks = items.map((item, i) => this.renderItemBlock(item, i, width, theme, mdTheme));
+			const heights = blocks.map(b => b.length);
+			this.ensureVisible(heights, contentHeight);
+			bodyLines = [];
+			for (let i = this.scrollOffset; i < blocks.length; i++) {
+				// Always show the first windowed entry (the selected one fits by
+				// construction); stop before a later entry would overflow the budget.
+				if (bodyLines.length > 0 && bodyLines.length + heights[i] > contentHeight) break;
+				bodyLines.push(...blocks[i]);
+			}
+		}
+
+		return [...topLines, ...bodyLines, ...bottomLines];
+	}
+}
+
+// Read-only scrollable overlay for /agents-history. Renders the execution log as a
+// timeline: orchestrator (dispatcher) turns at depth 0, the specialists they
+// dispatched indented beneath, and parallel siblings deeper still with a "│→"
+// connector. Every row shows a live duration; the footer carries the grand total.
+// Shares the zoom overlay's chrome (bordered header/footer, windowed body) and is
+// re-rendered on a 1s tick so running durations advance while it is open.
+class HistoryUI {
+	private scrollOffset = 0;
+	private followTail = true;
+
+	constructor(
+		private getEntries: () => HistoryEntry[],
+		private getLabel: () => string,
+		private onDone: () => void,
+	) {}
+
+	handleInput(data: string, tui: any): void {
+		if (matchesKey(data, Key.up)) {
+			this.followTail = false;
+			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+		} else if (matchesKey(data, Key.down)) {
+			this.followTail = false;
+			this.scrollOffset++;
+		} else if (matchesKey(data, "g") || matchesKey(data, Key.shift("g"))) {
+			this.followTail = true; // jump back to the live tail
+		} else if (matchesKey(data, Key.escape) || matchesKey(data, "q") || matchesKey(data, Key.shift("q"))) {
+			this.onDone();
+			return;
+		}
+		tui.requestRender();
+	}
+
+	private statusGlyph(e: HistoryEntry, theme: any): string {
+		if (e.status === "running") return theme.fg("warning", "●");
+		if (e.status === "done") return theme.fg("success", "✓");
+		if (e.status === "error") return theme.fg("error", "✗");
+		return theme.fg("dim", "⊘");
+	}
+
+	// Pad a styled left segment to the full width with a right-aligned duration.
+	// Width math uses visibleWidth (ANSI-aware); the styled string is only truncated
+	// when it would actually overflow, so colors stay intact in the common case.
+	private rowLine(styledLeft: string, dur: string, width: number, theme: any): string {
+		const budget = Math.max(0, width - dur.length - 2);
+		let left = styledLeft;
+		let w = visibleWidth(styledLeft);
+		if (w > budget) {
+			left = truncateToWidth(styledLeft, budget);
+			w = visibleWidth(left);
+		}
+		const gap = Math.max(1, width - w - dur.length - 1);
+		return ` ${left}${" ".repeat(gap)}${dur ? theme.fg("dim", dur) : ""}`;
+	}
+
+	// A node's *real work*: its own span minus the time it spent awaiting — both its
+	// children (the union of their runs) and, for a dispatcher, any `ask_user` waits
+	// (`awaitIntervals`). All clipped to the node's own window and unioned together,
+	// so overlapping awaits are never subtracted twice. A leaf with no awaits returns
+	// its full span; a dispatcher blocked on six concurrent agents (or on the human)
+	// is credited only for the time it was actually working between/around the awaits.
+	private realWorkMs(entry: HistoryEntry, kids: HistoryEntry[], now: number): number {
+		const start = entry.startedAt;
+		const end = entry.endedAt ?? now;
+		const span = end - start;
+		const intervals: Array<[number, number]> = [];
+		for (const k of kids) {
+			const s = Math.max(k.startedAt, start);
+			const e = Math.min(k.endedAt ?? now, end);
+			if (e > s) intervals.push([s, e]);
+		}
+		for (const [s0, e0] of entry.awaitIntervals ?? []) {
+			const s = Math.max(s0, start);
+			const e = Math.min(e0, end);
+			if (e > s) intervals.push([s, e]);
+		}
+		if (intervals.length === 0) return Math.max(0, span);
+		return Math.max(0, span - unionMs(intervals));
+	}
+
+	// Group entries by parent (children sorted by start time). Shared by buildRows
+	// (tree walk) and render (footer total), so the tree is built once per frame.
+	private groupByParent(entries: HistoryEntry[]): Map<HistoryEntry | null, HistoryEntry[]> {
+		const childrenOf = new Map<HistoryEntry | null, HistoryEntry[]>();
+		for (const e of entries) {
+			const arr = childrenOf.get(e.parent) ?? [];
+			arr.push(e);
+			childrenOf.set(e.parent, arr);
+		}
+		for (const arr of childrenOf.values()) arr.sort((a, b) => a.startedAt - b.startedAt);
+		return childrenOf;
+	}
+
+	// Build the display rows by walking the parent→child tree. Siblings are sorted by
+	// start time; those whose runs overlap form a "wave" and are marked parallel
+	// (a "│→" connector). Indentation tracks tree depth, so delegate sub-sub-agents
+	// nest under the specialist that spawned them.
+	private buildRows(childrenOf: Map<HistoryEntry | null, HistoryEntry[]>, width: number, theme: any, now: number): string[] {
+		// Mark parallel waves within each sibling group.
+		const parallel = new Set<HistoryEntry>();
+		for (const arr of childrenOf.values()) {
+			let waveStart = 0;
+			let waveMaxEnd = -Infinity;
+			const flush = (endIdx: number) => {
+				if (endIdx - waveStart >= 2) {
+					for (let i = waveStart; i < endIdx; i++) parallel.add(arr[i]);
+				}
+			};
+			for (let i = 0; i < arr.length; i++) {
+				const end = arr[i].endedAt ?? now;
+				if (i === waveStart) {
+					waveMaxEnd = end;
+				} else if (arr[i].startedAt < waveMaxEnd) {
+					waveMaxEnd = Math.max(waveMaxEnd, end);
+				} else {
+					flush(i);
+					waveStart = i;
+					waveMaxEnd = end;
+				}
+			}
+			flush(arr.length);
+		}
+
+		const rows: string[] = [];
+		const walk = (entry: HistoryEntry, depth: number) => {
+			const kids = childrenOf.get(entry) ?? [];
+			const dur = fmtDuration(this.realWorkMs(entry, kids, now));
+			const glyph = this.statusGlyph(entry, theme);
+			const isPar = parallel.has(entry);
+			const pad = "  ".repeat(depth);
+			const connector = isPar ? theme.fg("accent", "│→ ") : "";
+			let label: string;
+			if (entry.kind === "orchestrator") {
+				label = `${theme.bold(theme.fg("accent", entry.name))} ${theme.fg("dim", "(dispatcher)")}`;
+			} else if (entry.kind === "delegate") {
+				label = `${theme.fg("dim", entry.name)} ${theme.fg("dim", "(delegate)")}`;
+			} else {
+				label = isPar ? theme.fg("muted", entry.name) : entry.name;
+			}
+			rows.push(this.rowLine(`${pad}${connector}${glyph} ${label}`, dur, width, theme));
+			for (const child of kids) walk(child, depth + 1);
+		};
+		for (const top of childrenOf.get(null) ?? []) walk(top, 0);
+		return rows;
+	}
+
+	render(width: number, height: number, theme: any): string[] {
+		const entries = this.getEntries();
+		const now = Date.now();
+		const runningCount = entries.filter(e => e.status === "running" && e.kind !== "orchestrator").length;
+
+		const top = new Container();
+		top.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+		top.addChild(new Text(
+			`${theme.fg("accent", theme.bold(" AGENTS HISTORY"))} ${theme.fg("dim", "|")} ${theme.bold(this.getLabel())} ${theme.fg("dim", "|")} ${theme.fg("warning", String(runningCount))} running`,
+			1, 0,
+		));
+		top.addChild(new Spacer(1));
+		const topLines = top.render(width);
+
+		const childrenOf = this.groupByParent(entries);
+
+		// Footer total = the real work of everyone: the dispatched specialists' and
+		// research helpers' full runtime PLUS each dispatcher turn's own work (its span
+		// minus the time it awaited agents and the human via ask_user). Wall-clock is
+		// intentionally NOT shown — it would fold in the idle gaps between turns.
+		const runEntries = entries.filter(e => e.kind === "agent" || e.kind === "research");
+		const dispatchers = entries.filter(e => e.kind === "orchestrator");
+		let summaryLine = theme.fg("dim", " No agent activity yet.");
+		if (runEntries.length > 0 || dispatchers.length > 0) {
+			const agentMs = runEntries.reduce((n, e) => n + ((e.endedAt ?? now) - e.startedAt), 0);
+			const dispatcherMs = dispatchers.reduce((n, e) => n + this.realWorkMs(e, childrenOf.get(e) ?? [], now), 0);
+			summaryLine =
+				theme.fg("success", theme.bold(` Σ real work ${fmtDuration(agentMs + dispatcherMs)}`)) +
+				theme.fg("dim", ` · ${runEntries.length} runs  (agents ${fmtDuration(agentMs)} + dispatchers ${fmtDuration(dispatcherMs)})`);
+		}
+
+		const bottom = new Container();
+		bottom.addChild(new Text(summaryLine, 1, 0));
+		bottom.addChild(new Text(theme.fg("dim", " ↑/↓ Scroll • G Live tail • Q/Esc Close"), 1, 0));
+		bottom.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+		const bottomLines = bottom.render(width);
+
+		const contentHeight = Math.max(3, height - topLines.length - bottomLines.length);
+		const rows = this.buildRows(childrenOf, width, theme, now);
+
+		let bodyLines: string[];
+		if (rows.length === 0) {
+			bodyLines = [theme.fg("dim", "  No dispatches yet — history fills as agents run.")];
+		} else {
+			const maxOffset = Math.max(0, rows.length - contentHeight);
+			if (this.followTail) this.scrollOffset = maxOffset;
+			this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxOffset));
+			bodyLines = rows.slice(this.scrollOffset, this.scrollOffset + contentHeight);
+		}
+
+		return [...topLines, ...bodyLines, ...bottomLines];
+	}
+}
+
+function scanAgentDirs(cwd: string): AgentDef[] {
+	const dirs = [
+		join(cwd, "agents"),
+		join(cwd, ".claude", "agents"),
+		join(cwd, ".pi", "agents"),
+	];
+
+	const agents: AgentDef[] = [];
+	const seen = new Set<string>();
+
+	for (const dir of dirs) {
+		if (!existsSync(dir)) continue;
+		try {
+			for (const file of readdirSync(dir)) {
+				if (!file.endsWith(".md")) continue;
+				const fullPath = resolve(dir, file);
+				const def = parseAgentFile(fullPath);
+				if (def && !seen.has(def.name.toLowerCase())) {
+					seen.add(def.name.toLowerCase());
+					agents.push(def);
+				}
+			}
+		} catch {}
+	}
+
+	return agents;
+}
+
+// Persona names whose read-only tools receive the research watchdog policy.
+const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
+
+// The delegate extension injected into specialists that declare `subagents:`.
+// It lives next to this file; fall back to the conventional project path when
+// import.meta resolution doesn't map to a real file (e.g. a bundling loader).
+function resolveDelegateExtension(cwd: string): string | null {
+	try {
+		const p = fileURLToPath(new URL("./delegate.ts", import.meta.url));
+		if (existsSync(p)) return p;
+	} catch {}
+	const local = join(cwd, ".pi", "harnesses", "agent-hub", "delegate.ts");
+	return existsSync(local) ? local : null;
+}
+
+// ━━ Embedded coms: Constants ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const COMS_DIR = process.env.PI_COMS_DIR || path.join(os.homedir(), ".pi", "coms");
+const MAX_HOPS = Number(process.env.PI_COMS_MAX_HOPS) || 5;
+const TIMEOUT_MS = Number(process.env.PI_COMS_TIMEOUT_MS) || 1_800_000;
+const PING_INTERVAL_MS = Number(process.env.PI_COMS_PING_INTERVAL_MS) || 10_000;
+const KEEPALIVE_INTERVAL_MS = 30_000;
+const LINE_CAP_BYTES = 64 * 1024;
+
+const FALLBACK_PALETTE = [
+	"#72F1B8", "#36F9F6", "#FF7EDB", "#FEDE5D",
+	"#C792EA", "#FF8B39", "#4D9DE0", "#FFAA8B",
+];
+
+// ━━ Embedded coms: Types ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+type EnvelopeType = "prompt" | "response" | "ping";
+
+interface Envelope {
+	type: EnvelopeType;
+	msg_id: string;
+	sender_session: string;
+	sender_endpoint: string;
+	hops: number;
+	timestamp: string;
+}
+
+interface PromptEnvelope extends Envelope {
+	type: "prompt";
+	prompt: string;
+	sender_name: string;
+	sender_cwd: string;
+	conversation_id?: string | null;
+	response_schema?: object | null;
+}
+
+interface ResponseEnvelope extends Envelope {
+	type: "response";
+	response: any;
+	error?: string | null;
+}
+
+interface PingEnvelope extends Envelope {
+	type: "ping";
+}
+
+interface AgentCard {
+	name: string;
+	purpose: string;
+	model: string;
+	color: string;
+	context_used_pct: number;
+	queue_depth: number;
+}
+
+interface Pong {
+	type: "pong";
+	msg_id: string;
+	agent_card: AgentCard;
+}
+
+interface RegistryEntry {
+	session_id: string;
+	name: string;
+	purpose: string;
+	model: string;
+	color: string;
+	pid: number;
+	endpoint: string;
+	cwd: string;
+	started_at: string;
+	explicit: boolean;
+	version: number;
+	// Live status snapshot — refreshed every KEEPALIVE_INTERVAL_MS by the heartbeat.
+	// Optional so older entries (pre-heartbeat-refresh) still parse cleanly.
+	context_used_pct?: number;
+	queue_depth?: number;
+	heartbeat_at?: string;
+}
+
+interface PendingReply {
+	resolve: (value: any) => void;
+	reject: (err: Error) => void;
+	timer: NodeJS.Timeout | null;
+	promise: Promise<{ response?: any; error?: string | null }>;
+	result?: { response?: any; error?: string | null };
+	target_name?: string;
+	created_at: string;
+}
+
+interface InboundContext {
+	msg_id: string;
+	hops: number;
+	sender_endpoint: string;
+	sender_session: string;
+	response_schema?: object | null;
+	fulfilled: boolean;
+}
+
+// ━━ Embedded coms: Helpers ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+function ulid(): string {
+	const time = Date.now();
+	const rand = crypto.randomBytes(10);
+	let timeStr = "";
+	let t = time;
+	for (let i = 9; i >= 0; i--) {
+		timeStr = CROCKFORD[t % 32] + timeStr;
+		t = Math.floor(t / 32);
+	}
+	let randStr = "";
+	let bits = 0;
+	let value = 0;
+	for (const byte of rand) {
+		value = (value << 8) | byte;
+		bits += 8;
+		while (bits >= 5) {
+			bits -= 5;
+			randStr += CROCKFORD[(value >> bits) & 31];
+		}
+	}
+	return (timeStr + randStr).slice(0, 26);
+}
+
+function hexFg(hex: string, s: string): string {
+	const r = parseInt(hex.slice(1, 3), 16);
+	const g = parseInt(hex.slice(3, 5), 16);
+	const b = parseInt(hex.slice(5, 7), 16);
+	return `\x1b[38;2;${r};${g};${b}m${s}\x1b[39m`;
+}
+
+function isValidHex(hex: string): boolean {
+	return /^#[0-9a-fA-F]{6}$/.test(hex);
+}
+
+function fallbackColor(sessionId: string): string {
+	const h = crypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 8);
+	return FALLBACK_PALETTE[Number(BigInt("0x" + h)) % FALLBACK_PALETTE.length];
+}
+
+function parseComsFrontmatter(raw: string): { name?: string; description?: string; color?: string; body: string } {
+	const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+	if (!match) return { body: raw };
+	const frontmatter: Record<string, string> = {};
+	for (const line of match[1].split("\n")) {
+		const idx = line.indexOf(":");
+		if (idx > 0) {
+			const key = line.slice(0, idx).trim();
+			let val = line.slice(idx + 1).trim();
+			// strip surrounding quotes for values like color: "#36F9F6"
+			if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+				val = val.slice(1, -1);
+			}
+			frontmatter[key] = val;
+		}
+	}
+	return {
+		name: frontmatter.name,
+		description: frontmatter.description,
+		color: frontmatter.color,
+		body: match[2],
+	};
+}
+
+function makeEndpoint(sessionId: string): string {
+	if (process.platform === "win32") {
+		return `\\\\.\\pipe\\pi-coms-${sessionId}`;
+	}
+	return path.join(COMS_DIR, "sockets", `${sessionId}.sock`);
+}
+
+function nowIso(): string {
+	return new Date().toISOString();
+}
+
+function abbreviateModel(model: string): string {
+	let m = model || "";
+	if (m.startsWith("claude-")) m = m.slice("claude-".length);
+	if (m.length > 14) m = m.slice(0, 14);
+	return m;
+}
+
+// ━━ Embedded coms: CLI flag shape (read via pi.registerFlag/pi.getFlag) ━━
+
+interface CliFlags {
+	name?: string;
+	purpose?: string;
+	project?: string;
+	color?: string;
+	explicit?: boolean;
+}
+
+function readCliFlags(pi: ExtensionAPI): CliFlags {
+	// Identity flags are declared via pi.registerFlag at extension load time so
+	// pi's CLI parser accepts them; here we just read them back.
+	const name = pi.getFlag("name") as string | undefined;
+	const purpose = pi.getFlag("purpose") as string | undefined;
+	const project = pi.getFlag("project") as string | undefined;
+	const color = pi.getFlag("color") as string | undefined;
+	const explicit = pi.getFlag("explicit") as boolean | undefined;
+	return {
+		name: name && name.length > 0 ? name : undefined,
+		purpose: purpose && purpose.length > 0 ? purpose : undefined,
+		project: project && project.length > 0 ? project : undefined,
+		color: color && color.length > 0 ? color : undefined,
+		explicit: explicit === true,
+	};
+}
+
+// ━━ Embedded coms: Registry I/O ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function projectAgentsDir(project: string): string {
+	return path.join(COMS_DIR, "projects", project, "agents");
+}
+
+function registryFilePath(project: string, name: string): string {
+	return path.join(projectAgentsDir(project), `${name}.json`);
+}
+
+function writeRegistryAtomic(entry: RegistryEntry, project: string): string {
+	const dir = projectAgentsDir(project);
+	fs.mkdirSync(dir, { recursive: true });
+	const final = registryFilePath(project, entry.name);
+	const tmp = `${final}.tmp`;
+	fs.writeFileSync(tmp, JSON.stringify(entry, null, 2));
+	fs.renameSync(tmp, final);
+	return final;
+}
+
+function readAllRegistryEntries(project: string): RegistryEntry[] {
+	const dir = projectAgentsDir(project);
+	if (!fs.existsSync(dir)) return [];
+	const out: RegistryEntry[] = [];
+	let files: string[];
+	try {
+		files = fs.readdirSync(dir);
+	} catch {
+		return [];
+	}
+	for (const f of files) {
+		if (!f.endsWith(".json")) continue;
+		try {
+			const raw = fs.readFileSync(path.join(dir, f), "utf-8");
+			const parsed = JSON.parse(raw) as RegistryEntry;
+			if (parsed && typeof parsed.session_id === "string") {
+				out.push(parsed);
+			}
+		} catch {
+			// skip malformed
+		}
+	}
+	return out;
+}
+
+function readAllRegistryEntriesAcrossProjects(): RegistryEntry[] {
+	const root = path.join(COMS_DIR, "projects");
+	let projects: string[];
+	try {
+		projects = fs.readdirSync(root);
+	} catch {
+		return [];
+	}
+	const out: RegistryEntry[] = [];
+	for (const p of projects) {
+		try {
+			if (!fs.statSync(path.join(root, p)).isDirectory()) continue;
+		} catch {
+			continue;
+		}
+		out.push(...readAllRegistryEntries(p));
+	}
+	return out;
+}
+
+function removeRegistryEntry(project: string, name: string): void {
+	try {
+		fs.unlinkSync(registryFilePath(project, name));
+	} catch {
+		// best-effort
+	}
+}
+
+function pruneDeadEntries(project: string): RegistryEntry[] {
+	const entries = readAllRegistryEntries(project);
+	const live: RegistryEntry[] = [];
+	for (const entry of entries) {
+		try {
+			process.kill(entry.pid, 0);
+			live.push(entry);
+		} catch (e: any) {
+			if (e && e.code === "ESRCH") {
+				removeRegistryEntry(project, entry.name);
+			} else {
+				// EPERM means the process exists but we can't signal it — treat as live.
+				live.push(entry);
+			}
+		}
+	}
+	return live;
+}
+
+function resolveUniqueName(project: string, desiredName: string): string {
+	// Returns a name that doesn't collide with any LIVE registered agent.
+	// pruneDeadEntries auto-removes ESRCH entries; we only care about live ones.
+	const liveEntries = pruneDeadEntries(project);
+	const liveNames = new Set(liveEntries.map(e => e.name));
+	if (!liveNames.has(desiredName)) return desiredName;
+	let n = 2;
+	while (liveNames.has(`${desiredName}${n}`)) n++;
+	return `${desiredName}${n}`;
+}
+
+function pruneDeadEntriesAllProjects(): RegistryEntry[] {
+	const root = path.join(COMS_DIR, "projects");
+	let projects: string[];
+	try {
+		projects = fs.readdirSync(root);
+	} catch {
+		return [];
+	}
+	const out: RegistryEntry[] = [];
+	for (const p of projects) {
+		try {
+			if (!fs.statSync(path.join(root, p)).isDirectory()) continue;
+		} catch {
+			continue;
+		}
+		out.push(...pruneDeadEntries(p));
+	}
+	return out;
+}
+
+// ━━ Embedded coms: Transport ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function probeStaleSocket(endpoint: string): Promise<"in_use" | "stale"> {
+	return new Promise((resolve) => {
+		const sock = net.createConnection({ path: endpoint });
+		let settled = false;
+		const finish = (verdict: "in_use" | "stale") => {
+			if (settled) return;
+			settled = true;
+			try { sock.destroy(); } catch { /* ignore */ }
+			resolve(verdict);
+		};
+		const timer = setTimeout(() => finish("stale"), 250);
+		sock.once("connect", () => {
+			clearTimeout(timer);
+			finish("in_use");
+		});
+		sock.once("error", (err: any) => {
+			clearTimeout(timer);
+			if (err && err.code === "ECONNREFUSED") {
+				finish("stale");
+			} else {
+				// ENOENT or other — treat as stale (file may be gone or unusable)
+				finish("stale");
+			}
+		});
+	});
+}
+
+async function bindEndpoint(
+	endpoint: string,
+	connHandler: (socket: net.Socket) => void,
+): Promise<net.Server> {
+	if (process.platform !== "win32" && fs.existsSync(endpoint)) {
+		const verdict = await probeStaleSocket(endpoint);
+		if (verdict === "in_use") {
+			throw new Error(`coms: endpoint already in use (${endpoint})`);
+		}
+		try {
+			fs.unlinkSync(endpoint);
+		} catch {
+			// best-effort
+		}
+	}
+	return await new Promise<net.Server>((resolve, reject) => {
+		const server = net.createServer(connHandler);
+		server.once("error", reject);
+		server.listen(endpoint, () => {
+			server.removeListener("error", reject);
+			resolve(server);
+		});
+	});
+}
+
+function readOneLine(socket: net.Socket): Promise<string> {
+	return new Promise((resolve, reject) => {
+		let buf = "";
+		let settled = false;
+		const onData = (chunk: Buffer) => {
+			buf += chunk.toString("utf-8");
+			if (buf.length > LINE_CAP_BYTES) {
+				if (settled) return;
+				settled = true;
+				socket.removeListener("data", onData);
+				reject(new Error("line too large"));
+				return;
+			}
+			const nl = buf.indexOf("\n");
+			if (nl >= 0) {
+				if (settled) return;
+				settled = true;
+				socket.removeListener("data", onData);
+				resolve(buf.slice(0, nl));
+			}
+		};
+		socket.on("data", onData);
+		socket.once("error", (err) => {
+			if (settled) return;
+			settled = true;
+			reject(err);
+		});
+		socket.once("close", () => {
+			if (settled) return;
+			settled = true;
+			reject(new Error("connection closed before line received"));
+		});
+	});
+}
+
+function sendEnvelope(endpoint: string, envelope: Envelope | Pong | { type: string; msg_id?: string; [k: string]: any }): Promise<any> {
+	return new Promise((resolve, reject) => {
+		const sock = net.createConnection({ path: endpoint });
+		let settled = false;
+		const fail = (err: Error) => {
+			if (settled) return;
+			settled = true;
+			try { sock.destroy(); } catch { /* ignore */ }
+			reject(err);
+		};
+		sock.once("error", fail);
+		sock.once("connect", async () => {
+			try {
+				sock.write(JSON.stringify(envelope) + "\n");
+				const line = await readOneLine(sock);
+				const parsed = JSON.parse(line);
+				try { sock.end(); } catch { /* ignore */ }
+				if (settled) return;
+				settled = true;
+				if (parsed && parsed.type === "nack") {
+					reject(new Error(parsed.error || "nack"));
+				} else {
+					resolve(parsed);
+				}
+			} catch (err) {
+				fail(err instanceof Error ? err : new Error(String(err)));
+			}
+		});
+	});
+}
+
+// ━━ Embedded coms: System-prompt frontmatter scan ━━━━━━━━━━━━━━━━━━━━━━━━
+
+function findSystemPromptPath(argv: string[]): string | null {
+	// Prefer --system-prompt (overwrite). Fall back to --append-system-prompt.
+	// These flags are pi-builtin (not extension-registered) so we still scan
+	// argv directly. First match wins per preference order.
+	const scan = (flag: string): string | null => {
+		for (let i = 0; i < argv.length; i++) {
+			if (argv[i] === flag && i + 1 < argv.length) {
+				const candidate = argv[i + 1];
+				if (candidate.endsWith(".md")) {
+					try {
+						if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+							return candidate;
+						}
+					} catch {
+						// fall through
+					}
+				}
+			}
+		}
+		return null;
+	};
+	return scan("--system-prompt") ?? scan("--append-system-prompt");
+}
+
+function readFrontmatterFromArgv(argv: string[]): { name?: string; description?: string; color?: string } {
+	const p = findSystemPromptPath(argv);
+	if (!p) return {};
+	try {
+		const raw = fs.readFileSync(p, "utf-8");
+		const { name, description, color } = parseComsFrontmatter(raw);
+		return { name, description, color };
+	} catch {
+		return {};
+	}
+}
+
+// ── Extension ────────────────────────────────────
+
+export default function (pi: ExtensionAPI) {
+	// ── Embedded coms: identity CLI flags ──
+	// Registered here (factory load time) so pi's CLI parser accepts them. Because
+	// coms is EMBEDDED (one extension, not a second `-e`), these register exactly once.
+	pi.registerFlag("name", { description: "Coms: override agent name (else frontmatter or auto-generated)", type: "string", default: undefined });
+	pi.registerFlag("purpose", { description: "Coms: override agent purpose (else frontmatter description)", type: "string", default: undefined });
+	pi.registerFlag("project", { description: "Coms: project namespace for peer discovery", type: "string", default: "default" });
+	pi.registerFlag("color", { description: "Coms: hex color #RRGGBB (else frontmatter or palette fallback)", type: "string", default: undefined });
+	pi.registerFlag("explicit", { description: "Coms: hide from auto-discovery; addressable only by exact name", type: "boolean", default: false });
+	pi.registerFlag("solo", { description: "Run without the coms layer (fixed specialists + research only — `just hub-solo`)", type: "boolean", default: false });
+
+	// ── Embedded coms: peer state ──
+	let identity: {
+		session_id: string;
+		name: string;
+		purpose: string;
+		color: string;
+		project: string;
+		explicit: boolean;
+		cwd: string;
+		model: string;
+		endpoint: string;
+		registryFile: string;
+	} | null = null;
+	const peerCards: Map<string, AgentCard & { staleCount: number }> = new Map();
+	const pendingReplies: Map<string, PendingReply> = new Map();
+	const inboundQueue: Map<string, InboundContext> = new Map();
+	let server: net.Server | null = null;
+	let monitorLifecycle: ReturnType<typeof createMonitorLifecycle> | null = null;
+	let monitorHubId: string | null = null;
+	let monitorBridge: ReturnType<typeof createMonitorSessionBridge> | null = null;
+	let pingTimer: NodeJS.Timeout | null = null;
+	let keepaliveTimer: NodeJS.Timeout | null = null;
+	// herdr presence backend (active when this session runs inside a herdr
+	// pane and the server answers ping). The envelope transport and the file
+	// registry are untouched — herdr only replaces the presence/ping layer.
+	let herdrPresence: HerdrPresence | null = null;
+	let herdrWatch: HerdrAgentWatch | null = null;
+	let turnState: "idle" | "working" = "idle";
+	let includeExplicit = false;
+	let displayProject: string | null = null;
+	let currentCtx: ExtensionContext | null = null;
+	let currentInbound: InboundContext | null = null;
+	// comsReady gates the coms_* tools + the peer section of the dispatcher prompt.
+	// If the endpoint bind or registry write fails, the harness degrades to a
+	// coms-less dispatcher rather than aborting.
+	let comsReady = false;
+	// Purpose shown to peers. An explicit --purpose CLI flag pins it; otherwise the
+	// active dispatcher persona's description drives it (syncComsPurpose), falling
+	// back to comsBasePurpose when no persona is selected.
+	let comsBasePurpose = "agent-hub dispatcher";
+	let comsPurposeExplicit = false;
+
+	// ── Damage-control exemptions + access escalation state ──
+	// exemptionsFile is the session-scoped shared exemptions file: /allow
+	// session grants (via the co-loaded damage-control-continue) and approved
+	// escalations land here, and spawned children read it through the
+	// AGENT_HUB_EXEMPTIONS_FILE env plumbing.
+	let exemptionsFile: string | null = null;
+	const accessApprovalRouter = createAccessApprovalRouter({
+		getContext: () => currentCtx,
+		getExemptionsFile: () => exemptionsFile,
+		appendLog: (entry) => { try { pi.appendEntry("damage-control-log", entry); } catch { /* best-effort */ } },
+		now: nowIso,
+	});
+
+	const agentStates: Map<string, AgentState> = new Map();
+	// Read-only research helpers (Phase 4), keyed by numeric id (handle `rN`). Lives
+	// alongside the standing team but renders in its own widget row.
+	const researchStates: Map<number, ResearchState> = new Map();
+	let nextResearchId = 1;
+	// Retention cap for finished durable (manual/persona) helpers — set from the
+	// overrides file's `research-keep:` key at session start (default 4, Infinity
+	// for "all"). Ephemeral auto-pipe helpers ignore the cap: pruned on finish.
+	let researchKeep = DEFAULT_RESEARCH_KEEP;
+
+	// ── Execution history (/agents-history) ──────────
+	// A tree of every dispatch: orchestrator (dispatcher) turns, the specialists they
+	// dispatch, research helpers, and delegate sub-sub-agents. Orchestrator entries
+	// are created lazily — only when a turn actually dispatches something — so
+	// chat-only turns leave no noise. Each node's displayed duration is its *real
+	// work* (its span minus the time it spent awaiting children), so a dispatcher
+	// blocked on its agents isn't double-counted. Running nodes (endedAt=null) tick
+	// live while the overlay is open via `historyRender`. Reset on session_start.
+	const executionHistory: HistoryEntry[] = [];
+	let currentOrchestratorEntry: HistoryEntry | null = null;
+	let turnActive = false;
+	let currentTurnStartedAt = 0;
+	let historyRender: (() => void) | null = null;
+	// ask_user wait tracking (so the dispatcher's real work excludes time the human
+	// was away): each ask_user call's [start, end] from the tool_execution events,
+	// keyed by tool-call id while open. Intervals that close before the turn's
+	// orchestrator entry exists are buffered here, then seeded onto it.
+	const askUserStarts = new Map<string, number>();
+	const turnAskUserIntervals: Array<[number, number]> = [];
+
+	function pushHistory(kind: HistoryKind, name: string, parent: HistoryEntry | null, startedAt: number): HistoryEntry {
+		const entry: HistoryEntry = { kind, name, startedAt, endedAt: null, status: "running", parent };
+		executionHistory.push(entry);
+		historyRender?.();
+		return entry;
+	}
+
+	// Lazily open (and return) the orchestrator entry for the active turn. Returns
+	// null outside a turn (e.g. a manual /research), so that helper renders as a
+	// top-level, turn-less row instead of attaching to a stale dispatcher entry.
+	function ensureOrchestratorEntry(): HistoryEntry | null {
+		if (!turnActive) return null;
+		if (!currentOrchestratorEntry) {
+			currentOrchestratorEntry = pushHistory(
+				"orchestrator",
+				dispatcherPersona ? displayName(dispatcherPersona.name) : "Dispatcher",
+				null,
+				currentTurnStartedAt,
+			);
+			// Carry over any ask_user waits that closed before this entry existed.
+			if (turnAskUserIntervals.length) {
+				currentOrchestratorEntry.awaitIntervals = [...turnAskUserIntervals];
+				turnAskUserIntervals.length = 0;
+			}
+		}
+		return currentOrchestratorEntry;
+	}
+
+	function historyStart(kind: "agent" | "research", name: string): HistoryEntry {
+		return pushHistory(kind, name, ensureOrchestratorEntry(), Date.now());
+	}
+
+	function historyDescendantOf(node: HistoryEntry, ancestor: HistoryEntry): boolean {
+		let p = node.parent;
+		while (p) {
+			if (p === ancestor) return true;
+			p = p.parent;
+		}
+		return false;
+	}
+
+	function historyEnd(entry: HistoryEntry, status: HistoryEntry["status"], endedAt?: number): void {
+		entry.endedAt = endedAt ?? Date.now();
+		entry.status = status;
+		// When a specialist/orchestrator ends, close any still-running descendant
+		// (e.g. a delegate child whose exit event never landed) so it stops extending
+		// and skewing the parent's real-work subtraction. Delegate ends never sweep.
+		if (entry.kind !== "delegate") {
+			for (const e of executionHistory) {
+				if (e.endedAt === null && historyDescendantOf(e, entry)) {
+					e.endedAt = entry.endedAt;
+					if (e.status === "running") e.status = status === "error" ? "error" : "done";
+				}
+			}
+		}
+		historyRender?.();
+	}
+
+	let researchPersonas: AgentDef[] = [];
+	let allAgentDefs: AgentDef[] = [];
+	let teams: Record<string, string[]> = {};
+	// Named model profiles from .pi/agents/model-profiles.yaml (validated at
+	// session start) and the session-lifetime per-persona model overrides set by
+	// /agent-model and /models (lowercase persona name → pi model spec). Overrides
+	// reset on session_start; profiles make re-applying cheap.
+	let modelProfiles: Record<string, Record<string, string>> = {};
+	// Backend routing policy (.pi/agents/dispatch-policy.yaml): per dispatch, a
+	// member preferring coms is served by a live same-name pool peer instead of a
+	// native subagent spawn. Missing file → everything native (status quo).
+	let dispatchPolicy: {
+		default: string;
+		grace_s: number;
+		substitutions: Record<string, { prefer: string; fallback: string; timeout_s?: number }>;
+	} = { default: "native", grace_s: 30, substitutions: {} };
+	let dispatchPolicyWarnings: string[] = [];
+	// One "coms peer missing → native" notice per member per team activation.
+	const comsMissNotified = new Set<string>();
+	const modelOverrides = new Map<string, string>();
+	// Session-lifetime per-persona thinking-level overrides set by
+	// /agent-model-thinking (lowercase persona name → pi --thinking level). Wins
+	// over the persona's frontmatter `thinking:`; resets on session_start; takes
+	// effect on the persona's next dispatch (/agents-restart applies it now).
+	const thinkingOverrides = new Map<string, string>();
+	// Session-lifetime model overrides for delegate sub-roles, set by
+	// /agent-model <persona>.<role>. Keyed "<persona>.<role>" (lowercase); applied
+	// when the dispatch serializes AGENT_HUB_DELEGATE_CONFIG, so nested children
+	// inherit them. Resets on session_start. /models profiles never touch these.
+	const subagentModelOverrides = new Map<string, string>();
+	let activeTeamName = "";
+	let gridCols = 2;
+	// View mode toggled by Alt+A: "dashboard" = full bordered card grid above the
+	// editor; "compact" = one line per *running* agent (name · context · state)
+	// rendered BELOW the editor, just above the footer. Idle/done agents are hidden
+	// in compact mode, so an idle session shows nothing but the prompt + footer.
+	let viewMode: "dashboard" | "compact" = "dashboard";
+	// Compact-view agent switcher: the key of the marked subagent (lowercase persona
+	// name for team specialists, `rN` for research helpers — matching /zoom
+	// resolution), or null when nothing is marked. main is never listed (it is the
+	// session under the input box). Alt+]/Alt+[ move it; Alt+\ zooms it.
+	let markedAgent: string | null = null;
+	let runningWidgetInstalled = false;
+	let widgetCtx: any;
+	let sessionDir = "";
+	let contextWindow = 0;
+	let activeWritableDispatches = 0;
+	let writableOverlapCounter = 0;
+	let pendingHandoff: { target: string; token: string } | null = null;
+	let userLanguage: string = DEFAULT_OVERRIDES.language;
+	// Project rule folders from the overrides file's `rules:` key (repo-relative,
+	// validated at session_start). Non-empty → every dispatched specialist gets a
+	// "Project rules" prompt block; personas resolve the folders index-first (a
+	// top-level README.md/index.md is a loading manifest) with recursive discovery
+	// as the no-index fallback.
+	let projectRulesDirs: string[] = [];
+	// Project documentation entry points from the overrides file's `docs:` key
+	// (repo-relative files or folders, validated at session_start). Non-empty →
+	// dispatched specialists and research helpers get a "Project docs" prompt block.
+	let projectDocsPaths: string[] = [];
+
+	// Prompt blocks for the project's own rules (HOW — compliance) and docs
+	// (WHAT/WHY — orientation). Rules discovery is index-first so a curated rule
+	// tree (README manifest + session bundles) is honored instead of bulk-read;
+	// the blind recursive find is only the no-index fallback. The validation duty
+	// itself is written into the planner/code-reviewer personas.
+	function buildRulesProtocol(): string {
+		if (projectRulesDirs.length === 0) return "";
+		return `
+
+## Project rules
+This project keeps its own rules in: ${projectRulesDirs.join(", ")} (repo-relative).
+Rules are HOW constraints — read the ones relevant to your task and comply with them.
+Resolve them index-first: when a listed folder has a top-level README.md or index.md,
+read that first and follow its loading manifest (session bundles, "load X when Y"
+lists) to select the rule files that apply to your task; do not bulk-read the tree.
+Only when a folder has no such index, discover rule files recursively
+(\`find <dir> -type f\`) and read the relevant ones. If you plan or review work,
+validate your subject against the rules; when delegating, pass the relevant rule
+file paths and the specific points to check on to the child.`;
+	}
+
+	function buildDocsProtocol(): string {
+		if (projectDocsPaths.length === 0) return "";
+		return `
+
+## Project docs
+This project's canonical documentation entry points are: ${projectDocsPaths.join(", ")}
+(repo-relative). Docs carry WHAT/WHY context — architecture, standards, decisions.
+They orient you; they are not compliance rules. Before working in an unfamiliar area,
+read the entry points relevant to your task and follow the links they contain rather
+than bulk-reading doc trees; when an entry point is a folder, start from its README.md
+or index file. If your work changes something the docs describe (architecture, public
+APIs, commands, structure), say so in your final response so the docs can be updated.`;
+	}
+	// The one supported safety harness. Every native specialist, researcher, and
+	// nested delegate receives it; a missing harness refuses child dispatch.
+	let safetyHarnessPath: string | null = null;
+	// Resolved once at session_start: the delegate extension injected into
+	// specialists that declare `subagents:` (null → delegation disabled).
+	let delegateExtPath: string | null = null;
+	// Per-tool deadline for read/grep/find/ls in research helpers/delegates. The
+	// whole-run bound is separate: the turn budget's agentTurnMs (run-budget.js).
+	let reconSearchTimeoutMs: number | null = 120_000;
+	// ── Execution mode & per-turn budgets (run-budget.js) ──
+	// hubMode: overrides-file default, switchable live via /hub-mode (session-
+	// lifetime). Budgets are per USER TURN: counters reset in before_agent_start,
+	// so exhaustion means "stop, summarize, ask" and the next user message opens
+	// a fresh window. currentTurnStartedAt (above) doubles as the wall-clock base.
+	let hubMode: string = DEFAULT_HUB_MODE;
+	let budgetOverrides: AgentTeamOverrides["budgetOverrides"] = {};
+	let turnDispatchCount = 0;
+	let turnResearchCount = 0;
+	// Task tier (complexity triage): declared by the dispatcher via set_task_tier,
+	// reset each user turn. Null until declared; the first dispatch of a turn
+	// assumes DEFAULT_TASK_TIER outside strict mode. Caps = min(mode, tier).
+	let turnTaskTier: string | null = null;
+	// Duplicate-dispatch guard: fingerprints of (agent, task) already dispatched
+	// THIS turn. Auto-research resumes and /agents-restart call dispatchAgent
+	// directly, so only real dispatcher tool calls are guarded.
+	const turnDispatchFingerprints = new Set<string>();
+	// ── Drift watchdog (drift-watchdog.js) ──
+	// Hub-wide setting from the overrides file, live-switchable via /watchdog;
+	// per-agent overrides ("on"/"off") win over it; a dispatch_agent `watchdog`
+	// param wins over both.
+	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
+	let watchdogJudgeModel: string | null = null;
+	const watchdogAgentOverrides = new Map<string, "on" | "off">();
+	function currentBudget() {
+		return resolveTurnBudget(hubMode, budgetOverrides, turnTaskTier);
+	}
+	function updateModeStatus() {
+		try {
+			widgetCtx?.ui?.setStatus("hub-mode", budgetStatusLine(hubMode, { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnTaskTier));
+		} catch {}
+	}
+	// ── Per-turn cost report (/hub-report) ──
+	interface TurnReport {
+		startedAt: number;
+		tier: string | null;
+		dispatches: { agent: string; status: string; elapsed: number; billed: number; out: number }[];
+		research: number;
+		recycles: number;
+		driftStops: number;
+		refusals: number;
+	}
+	const freshTurnReport = (): TurnReport => ({ startedAt: Date.now(), tier: null, dispatches: [], research: 0, recycles: 0, driftStops: 0, refusals: 0 });
+	let turnReport: TurnReport = freshTurnReport();
+	let lastTurnReport: TurnReport | null = null;
+	const sessionTotals = { turns: 0, dispatches: 0, research: 0, recycles: 0, driftStops: 0, refusals: 0, billed: 0, out: 0 };
+	// Session-wide delegated-spend counter (tokens across all delegate children),
+	// surfaced in the status line. Resets on session_start.
+	let delegatedTokens = 0;
+
+	// ── Verification Contract: assertion ledger (advisory) ──
+	// The dispatcher (orchestrator persona) owns a list of checkable acceptance
+	// assertions built from the request before any builder runs, recorded via the
+	// set_assertions / update_assertion tools. The hub persists the ledger to
+	// <sessionDir>/assertions.json (wiped on session_start like findings/) and
+	// renders a one-line status, so the contract survives compaction without
+	// flooding the dispatcher LLM context. Advisory by design: status is surfaced,
+	// but a dispatch is never hard-refused on an unproven assertion (PRD open
+	// question 2 — start advisory, revisit enforcement at Checkpoint A). The only
+	// in-tool refusal is cosmetic: "proven" requires named evidence.
+	type AssertionStatus = "open" | "proven" | "unproven" | "failed";
+	interface Assertion {
+		id: string;        // A1, A2, …
+		tag: string;       // test | runtime-ui | code-grep | manual
+		text: string;      // one checkable pass condition
+		status: AssertionStatus;
+		evidence?: string; // named evidence for proven / failed
+	}
+	let assertions: Assertion[] = [];
+
+	function persistAssertions() {
+		if (!sessionDir) return;
+		try {
+			writeFileSync(safePathWithin(sessionDir, "assertions.json"), JSON.stringify(assertions, null, 2));
+		} catch {}
+	}
+
+	function assertionStatusLine(): string {
+		if (assertions.length === 0) return "";
+		const count = (s: AssertionStatus) => assertions.filter(a => a.status === s).length;
+		const open = assertions.filter(a => a.status === "open" || a.status === "unproven").map(a => a.id);
+		const failed = assertions.filter(a => a.status === "failed").map(a => a.id);
+		const head = `Assertions: ${count("proven")}✓ ${open.length}○ ${count("failed")}✗`;
+		if (failed.length) return `${head} · failed: ${failed.join(",")}`;
+		if (open.length) return `${head} · open: ${open.join(",")}`;
+		return `${head} · all proven`;
+	}
+
+	function renderAssertionLedgerLines(): string[] {
+		return assertions.map(a => {
+			const ev = a.evidence ? ` — evidence: ${a.evidence}` : "";
+			return `${a.id} [${a.tag}] ${a.status.toUpperCase()}: ${a.text}${ev}`;
+		});
+	}
+
+	function renderAssertionLedgerText(): string {
+		if (assertions.length === 0) return "";
+		return `${assertionStatusLine()}\n${renderAssertionLedgerLines().join("\n")}`;
+	}
+
+	// One-line status only — the full ledger lives on disk and in this closure,
+	// never re-injected into the dispatcher LLM context.
+	function updateAssertionStatus() {
+		const line = assertionStatusLine();
+		if (!line) return;
+		try { widgetCtx?.ui?.setStatus("assertions", line); } catch {}
+	}
+
+	// ── Dispatcher persona gate (Phase 6) ──
+	// Every agent runs a declared persona; the dispatcher's is sourced from an
+	// orchestrator persona file (frontmatter `kind: orchestrator`). The gate blocks
+	// input until one is picked. It is FLAVOR-ONLY: the chosen persona's body is
+	// merged INTO the orchestrator prompt and NEVER narrows the tool surface
+	// (dispatch_agent/ask_user are always preserved — decision G4).
+	let orchestratorPersonas: AgentDef[] = [];
+	let dispatcherPersona: AgentDef | null = null;
+	let personaGateEnabled = false;
+	let personaGateSatisfied = true;
+
+	// Candidate models a persona may switch to: the default `model:` plus the
+	// `models:` list, deduped, order preserved.
+	function allowedModels(def: AgentDef): string[] {
+		const out: string[] = [];
+		for (const m of [def.model, ...(def.models || [])]) {
+			if (m && !out.includes(m)) out.push(m);
+		}
+		return out;
+	}
+
+	// The model a persona would dispatch on right now: session override →
+	// frontmatter default → undefined (dispatcher's model).
+	function resolvedModel(def: AgentDef): string | undefined {
+		return modelOverrides.get(def.name.toLowerCase()) ?? def.model;
+	}
+
+	// The raw thinking value a persona would dispatch with right now: session
+	// override (/agent-model-thinking) → frontmatter `thinking:`. Pass through
+	// resolveThinkingLevel before use to get a valid pi --thinking level.
+	function resolvedThinking(def: AgentDef): string | undefined {
+		return thinkingOverrides.get(def.name.toLowerCase()) ?? def.thinking;
+	}
+
+	// Resolve a model/thinking-switchable persona def by its (lowercased) name:
+	// a live team member's def first, then a research persona (researcher /
+	// deep-researcher). Lets /agent-model and /agent-model-thinking target
+	// research helpers exactly like standard team members — the override maps
+	// are keyed by name, so the switch is honored on the helper's next spawn.
+	function switchablePersonaDef(name: string): AgentDef | undefined {
+		return agentStates.get(name)?.def
+			?? researchPersonas.find(d => d.name.toLowerCase() === name);
+	}
+
+	function artifactsRoot(): string {
+		return safePathWithin(sessionDir, "artifacts");
+	}
+
+	function ensureArtifactsLayout(): string {
+		const root = artifactsRoot();
+		mkdirSync(root, { recursive: true });
+		for (const kind of ARTIFACT_KINDS) {
+			mkdirSync(safePathWithin(root, kind), { recursive: true });
+		}
+		return root;
+	}
+
+	function loadInputArtifacts(paths: string[] | undefined, ctx: any): InputArtifactPreview[] {
+		if (!paths || paths.length === 0) return [];
+		const root = ensureArtifactsLayout();
+		return resolveArtifactPaths(paths, {
+			repoDir: ctx.cwd || process.cwd(),
+			sessionDir,
+			artifactRoot: root,
+			exists: existsSync,
+		}).map((item: any) => {
+			if (!existsSync(item.path)) {
+				throw new Error(`Artifact not found: ${item.input} (resolved to ${item.path})`);
+			}
+			const preview = artifactPreviewFromText(readFileSync(item.path, "utf-8"));
+			return { ...item, preview };
+		});
+	}
+
+	function appendInputArtifacts(task: string, artifacts: InputArtifactPreview[]): string {
+		return artifacts.length > 0 ? task + formatInputArtifactsSection(artifacts) : task;
+	}
+
+	function appendDeclaredScope(task: string, scopeGlobs: string[]): string {
+		if (!scopeGlobs || scopeGlobs.length === 0) return task;
+		return task + `\n\n## Declared scope — advisory guardrail\nStay within these paths/globs when changing files; changes outside them will be flagged to the dispatcher for a human decision, not auto-reverted.\n${scopeGlobs.map(s => `- ${s}`).join("\n")}`;
+	}
+
+	function hasWriteCapability(tools: string): boolean {
+		const toolSet = new Set(String(tools || "").split(",").map(t => t.trim()).filter(Boolean));
+		return ["write", "edit", "bash"].some(t => toolSet.has(t));
+	}
+
+	function scopeNoticeText(scopeViolations: any): string {
+		if (!scopeViolations) return "";
+		if (scopeViolations.skipped) {
+			return `\n\n⚠ Scope gate skipped: ${scopeViolations.reason || "not a git worktree"}.`;
+		}
+		if (!scopeViolations.outOfScope || scopeViolations.outOfScope.length === 0) return "";
+		const overlap = scopeViolations.concurrentWritableOverlap
+			? " Concurrent writable dispatches overlapped this run, so attribution is approximate."
+			: "";
+		return `\n\n⚠ Scope advisory: changed outside declared scope: ${scopeViolations.outOfScope.join(", ")}. Review these paths and decide whether to accept them or explicitly order cleanup; the hub did not revert anything.${overlap}`;
+	}
+
+	function writeReturnArtifact(agentKey: string, runCount: number, output: string): string {
+		const root = ensureArtifactsLayout();
+		const returnsDir = safePathWithin(root, "returns");
+		mkdirSync(returnsDir, { recursive: true });
+		const file = safePathWithin(returnsDir, `${agentKey}-run${runCount}.md`);
+		writeFileSync(file, output, "utf-8");
+		return file;
+	}
+
+	function evidencePathExists(evidencePath: string): boolean {
+		const raw = String(evidencePath || "").trim().replace(/\\/g, "/");
+		const evidenceRoot = safePathWithin(artifactsRoot(), "evidence");
+		let candidate: string | null = null;
+		try {
+			if (raw.startsWith("artifacts/evidence/")) {
+				candidate = safePathWithin(evidenceRoot, raw.slice("artifacts/evidence/".length));
+			} else if (raw.startsWith(".pi/agent-sessions/artifacts/evidence/")) {
+				candidate = safePathWithin(evidenceRoot, raw.slice(".pi/agent-sessions/artifacts/evidence/".length));
+			} else if (path.isAbsolute(raw)) {
+				const resolved = path.resolve(raw);
+				const rel = path.relative(evidenceRoot, resolved);
+				if (!rel.startsWith("..") && !path.isAbsolute(rel)) candidate = resolved;
+			}
+		} catch {
+			candidate = null;
+		}
+		return !!candidate && existsSync(candidate);
+	}
+
+	function listArtifactFiles(): string[] {
+		const root = artifactsRoot();
+		if (!existsSync(root)) return [];
+		const out: string[] = [];
+		const walk = (dir: string) => {
+			for (const entry of readdirSync(dir, { withFileTypes: true } as any)) {
+				const full = path.join(dir, entry.name);
+				if (entry.isDirectory()) walk(full);
+				else if (entry.isFile()) out.push(full);
+			}
+		};
+		try { walk(root); } catch { return []; }
+		return out.sort();
+	}
+
+	function renderArtifactIndexText(): string {
+		const root = artifactsRoot();
+		const lines = listArtifactFiles().map(file => {
+			const rel = path.relative(root, file).split(path.sep).join("/");
+			let preview = "(unreadable)";
+			try { preview = artifactPreviewFromText(readFileSync(file, "utf-8")); } catch {}
+			return `artifacts/${rel} — ${preview}`;
+		});
+		return lines.join("\n");
+	}
+
+	function appendMachineHandoffSections(brief: string): string {
+		const sections: string[] = [];
+		const ledger = renderAssertionLedgerText();
+		if (ledger) sections.push(`## Verification ledger (verbatim, machine-appended)\n${ledger}`);
+		const artifacts = renderArtifactIndexText();
+		if (artifacts) sections.push(`## Artifact index\n${artifacts}`);
+		return sections.length > 0 ? `${brief}\n\n${sections.join("\n\n")}` : brief;
+	}
+
+	function structuredReturnDigest(parsed: any): string {
+		if (!parsed) return "";
+		const lines: string[] = ["Structured return (parsed):"];
+		for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) {
+			const entries = parsed[key] || [];
+			if (entries.length === 0) continue;
+			lines.push(`${key}:`);
+			for (const entry of entries) {
+				const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : "";
+				lines.push(`- ${entry.id}: ${entry.note || "(no note)"}${evidence}`);
+			}
+		}
+		for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) {
+			const entries = parsed[key] || [];
+			if (entries.length > 0) lines.push(`${key}: ${entries.slice(0, 5).join("; ")}${entries.length > 5 ? " …" : ""}`);
+		}
+		return lines.join("\n");
+	}
+
+	function contractNoticeText(notices: any[]): string {
+		if (!notices || notices.length === 0) return "";
+		const lines = ["⚠ Structured return contract notices:"];
+		const missing = notices.filter(n => n.type === "missing").map(n => n.id);
+		const noStructured = notices.find(n => n.type === "no_structured_return");
+		const noEvidence = notices.filter(n => n.type === "proven_without_evidence");
+		if (noStructured) lines.push(`- no_structured_return: no parseable structured return for dispatched assertions ${(noStructured.ids || []).join(", ")} — treat all as unproven; full output is on disk.`);
+		if (missing.length > 0) lines.push(`- missing: return does not cover ${missing.join(", ")} — treat as unproven.`);
+		for (const notice of noEvidence) lines.push(`- proven_without_evidence: ${notice.id} claimed proven without named evidence — demoted to unproven.`);
+		return lines.join("\n");
+	}
+
+	function loadAgents(cwd: string) {
+		// Create session storage dir
+		sessionDir = safePathWithin(cwd, ".pi", "agent-sessions");
+		if (!existsSync(sessionDir)) {
+			mkdirSync(sessionDir, { recursive: true });
+		}
+
+		// Findings from auto-research rounds are as ephemeral as the agent sessions
+		// that consumed them — wipe at session start. Same for delegation event
+		// dirs (delegate children's events + sessions).
+		try { rmSync(safePathWithin(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
+		try { rmSync(safePathWithin(sessionDir, "delegations"), { recursive: true, force: true }); } catch {}
+		try { rmSync(safePathWithin(sessionDir, "artifacts"), { recursive: true, force: true }); } catch {}
+		ensureArtifactsLayout();
+		// The assertion ledger is per-task and as ephemeral as the session that owns
+		// it — wipe on session start like findings/, then start with an empty ledger.
+		try { rmSync(safePathWithin(sessionDir, "assertions.json"), { force: true }); } catch {}
+		assertions = [];
+
+		// Load all agent definitions
+		allAgentDefs = scanAgentDirs(cwd);
+
+		// Load teams from .pi/agents/teams.yaml
+		const teamsPath = join(cwd, ".pi", "agents", "teams.yaml");
+		if (existsSync(teamsPath)) {
+			try {
+				teams = parseTeamsYaml(readFileSync(teamsPath, "utf-8"));
+			} catch {
+				teams = {};
+			}
+		} else {
+			teams = {};
+		}
+
+		// If no teams defined, create a default "all" team
+		if (Object.keys(teams).length === 0) {
+			teams = { all: allAgentDefs.map(d => d.name) };
+		}
+
+		// Load model profiles (raw — validated at session_start once per-project
+		// overrides have been applied to the persona defs).
+		const profilesPath = join(cwd, ".pi", "agents", "model-profiles.yaml");
+		if (existsSync(profilesPath)) {
+			try {
+				modelProfiles = parseModelProfilesYaml(readFileSync(profilesPath, "utf-8"));
+			} catch {
+				modelProfiles = {};
+			}
+		} else {
+			modelProfiles = {};
+		}
+
+		// Load the dispatch backend policy from .pi/agents/dispatch-policy.yaml.
+		// parseDispatchPolicy never throws; a malformed file degrades to defaults
+		// with warnings surfaced once at session_start.
+		const policyPath = join(cwd, ".pi", "agents", "dispatch-policy.yaml");
+		dispatchPolicy = { default: "native", grace_s: 30, substitutions: {} };
+		dispatchPolicyWarnings = [];
+		if (existsSync(policyPath)) {
+			try {
+				const parsed = parseDispatchPolicy(readFileSync(policyPath, "utf-8"));
+				dispatchPolicy = parsed.policy;
+				dispatchPolicyWarnings = parsed.warnings;
+			} catch (err) {
+				dispatchPolicyWarnings = [`dispatch-policy.yaml unreadable: ${err instanceof Error ? err.message : String(err)}`];
+			}
+		}
+	}
+
+	function freshAgentState(def: AgentDef): AgentState {
+		const key = safeAgentKey(def.name);
+		const sessionFile = safePathWithin(sessionDir, `${key}.json`);
+		return {
+			def,
+			status: "idle",
+			task: "",
+			toolCount: 0,
+			elapsed: 0,
+			lastWork: "",
+			contextPct: 0,
+			sessionFile: existsSync(sessionFile) ? sessionFile : null,
+			runCount: 0,
+			runsSinceFresh: 0,
+			timeline: [],
+		};
+	}
+
+	// Auto-size grid columns based on team size
+	function recomputeGrid() {
+		const size = agentStates.size;
+		gridCols = size <= 3 ? size : size === 4 ? 2 : 3;
+	}
+
+	function activateTeam(teamName: string) {
+		activeTeamName = teamName;
+		const members = teams[teamName] || [];
+		const defsByName = new Map(allAgentDefs.map(d => [d.name.toLowerCase(), d]));
+
+		agentStates.clear();
+		comsMissNotified.clear();
+		for (const member of members) {
+			const def = defsByName.get(member.toLowerCase());
+			if (!def) continue;
+			agentStates.set(def.name.toLowerCase(), freshAgentState(def));
+		}
+		recomputeGrid();
+	}
+
+	// ── Dynamic roster (add/drop/save; /agents-add, /agents-drop, team_adjust) ──
+	// The system prompt is rebuilt every turn from agentStates, so a roster
+	// change takes effect on the dispatcher's next turn with no restart.
+
+	function rosterAdd(name: string): { ok: boolean; message: string } {
+		const key = normalizeAgentInput(name);
+		const def = allAgentDefs.find(d => d.name.toLowerCase() === key);
+		if (!def) {
+			const available = allAgentDefs.map(d => d.name).sort().join(", ") || "(none)";
+			return { ok: false, message: `No persona "${name}". Available: ${available}` };
+		}
+		if (agentStates.has(def.name.toLowerCase())) {
+			return { ok: false, message: `${displayName(def.name)} is already in the active team` };
+		}
+		agentStates.set(def.name.toLowerCase(), freshAgentState(def));
+		recomputeGrid();
+		updateWidget();
+		return { ok: true, message: `${displayName(def.name)} added to the active team` };
+	}
+
+	function rosterDrop(name: string): { ok: boolean; message: string } {
+		const key = normalizeAgentInput(name);
+		const state = agentStates.get(key);
+		if (!state) {
+			return { ok: false, message: `"${name}" is not in the active team (${Array.from(agentStates.values()).map(s => s.def.name).join(", ") || "empty"})` };
+		}
+		if (state.status === "running") {
+			return { ok: false, message: `${displayName(state.def.name)} is running — wait for it to finish or /agents-kill it first` };
+		}
+		if (agentStates.size <= 1) {
+			return { ok: false, message: `${displayName(state.def.name)} is the last team member — add a replacement before dropping it` };
+		}
+		agentStates.delete(key);
+		recomputeGrid();
+		updateWidget();
+		return { ok: true, message: `${displayName(state.def.name)} dropped from the active team (its session file is kept for re-adding)` };
+	}
+
+	// ── Grid Rendering ───────────────────────────
+
+	const CARD_HEIGHT = 4;
+
+	function truncateCardText(text: string, maxWidth: number): string {
+		const width = Math.max(0, maxWidth);
+		if (width === 0) return "";
+		if (visibleWidth(text) <= width) return text;
+		if (width <= 3) return ".".repeat(width);
+		return `${truncateToWidth(text, width - 3)}...`;
+	}
+
+	function shortModel(model: string | undefined): string {
+		return model ? model.split("/").pop()! : "default";
+	}
+
+	// A " (code)" thinking badge for display, or "" when the level is off.
+	function thinkingSuffix(rawThinking: string | undefined): string {
+		const code = abbrevThinking(resolveThinkingLevel(rawThinking));
+		return code ? ` (${code})` : "";
+	}
+
+	// The model + thinking badge a persona would dispatch with: "gpt-5.5 (xh)".
+	function modelWithThinking(def: AgentDef): string {
+		return shortModel(resolvedModel(def)) + thinkingSuffix(resolvedThinking(def));
+	}
+
+	function contextPressure(contextPct: number): boolean {
+		return contextPct >= CONTEXT_WARN_THRESHOLD;
+	}
+
+	function contextLabel(contextPct: number, warn = false): string {
+		return `${warn ? "⚠" : ""}${Math.ceil(contextPct)}%`;
+	}
+
+	function cardStatus(status: "idle" | "running" | "done" | "error", elapsed: number): { color: string; text: string } {
+		const color = status === "idle" ? "dim"
+			: status === "running" ? "accent"
+			: status === "done" ? "success" : "error";
+		const icon = status === "idle" ? "○"
+			: status === "running" ? "●"
+			: status === "done" ? "✓" : "✗";
+		const time = status !== "idle" ? ` ${Math.round(elapsed / 1000)}s` : "";
+		return { color, text: `${icon} ${status}${time}` };
+	}
+
+	function renderCardHeaderLine(
+		nameRaw: string,
+		contextPct: number,
+		modelRaw: string,
+		statusRaw: string,
+		statusColor: string,
+		w: number,
+		theme: any,
+		warnContext = false,
+	): string {
+		const indent = w > 0 ? " " : "";
+		const contentWidth = Math.max(0, w - visibleWidth(indent));
+		if (contentWidth === 0) return "";
+
+		const rightRaw = `${modelRaw} ${statusRaw}`;
+		const rightWidth = visibleWidth(rightRaw);
+		const renderRight = () => theme.fg("dim", `${modelRaw} `) + theme.fg(statusColor, statusRaw);
+
+		if (rightWidth === contentWidth) return indent + renderRight();
+		if (rightWidth > contentWidth) return indent + theme.fg("dim", truncateCardText(rightRaw, contentWidth));
+
+		const leftBudget = Math.max(0, contentWidth - rightWidth - 1);
+		const ctxRaw = contextLabel(contextPct, warnContext);
+		const ctxWidth = visibleWidth(ctxRaw);
+		let leftVisible = 0;
+		let leftStyled = "";
+
+		if (leftBudget >= ctxWidth) {
+			const nameBudget = Math.max(0, leftBudget - ctxWidth - 1);
+			const nameText = truncateCardText(nameRaw, nameBudget);
+			const ctxStyle = warnContext ? "warning" : "dim";
+			if (nameText) {
+				leftStyled = theme.fg("accent", theme.bold(nameText)) + theme.fg(ctxStyle, ` ${ctxRaw}`);
+				leftVisible = visibleWidth(`${nameText} ${ctxRaw}`);
+			} else {
+				leftStyled = theme.fg(ctxStyle, ctxRaw);
+				leftVisible = ctxWidth;
+			}
+		} else {
+			const ctxText = truncateCardText(ctxRaw, leftBudget);
+			leftStyled = theme.fg(warnContext ? "warning" : "dim", ctxText);
+			leftVisible = visibleWidth(ctxText);
+		}
+
+		const gap = " ".repeat(Math.max(1, contentWidth - leftVisible - rightWidth));
+		return indent + leftStyled + gap + renderRight();
+	}
+
+	function renderWorkLine(workRaw: string, w: number, theme: any): string {
+		const indent = w > 0 ? " " : "";
+		const maxWorkWidth = Math.max(0, Math.min(50, w - visibleWidth(indent)));
+		return indent + theme.fg("muted", truncateCardText(workRaw, maxWorkWidth));
+	}
+
+	function renderBorderedLine(content: string, w: number, theme: any): string {
+		return theme.fg("dim", "│")
+			+ content
+			+ " ".repeat(Math.max(0, w - visibleWidth(content)))
+			+ theme.fg("dim", "│");
+	}
+
+	// One-line agent summary for compact view: " Name   42%  gpt-5.5 (xh)  ● running 12s".
+	// nameWidth aligns the name column across the running set; the styled line is
+	// truncated to the widget width so ANSI runs never overflow. `model` already
+	// carries the thinking badge (modelWithThinking); pass "" to omit it.
+	function renderCompactLine(
+		nameRaw: string,
+		contextPct: number,
+		model: string,
+		status: { color: string; text: string },
+		nameWidth: number,
+		width: number,
+		theme: any,
+		marked = false,
+		warnContext = false,
+	): string {
+		const vis = visibleWidth(nameRaw);
+		const name = vis >= nameWidth ? nameRaw : nameRaw + " ".repeat(nameWidth - vis);
+		const ctx = contextLabel(contextPct, warnContext).padStart(4);
+		// The marked row (compact-view switcher) gets a `›` lead + a full-width
+		// selectedBg highlight, mirroring ZoomUI's selected-row treatment.
+		const lead = marked ? theme.fg("accent", "›") : " ";
+		const line = lead
+			+ theme.fg("accent", theme.bold(name))
+			+ "  " + theme.fg(warnContext ? "warning" : "dim", ctx)
+			+ (model ? "  " + theme.fg("dim", model) : "")
+			+ "  " + theme.fg(status.color, status.text);
+		const truncated = truncateToWidth(line, width);
+		if (!marked) return truncated;
+		const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
+		return theme.bg("selectedBg", truncated + pad);
+	}
+
+	// One nested row per delegate child: "├ quality-1  sonnet-4.6 3.4k ● running 12s".
+	// Sub-sub-agents (parent !== "root") get an extra indent.
+	function renderChildLine(c: DelegationChild, w: number, theme: any): string {
+		const indent = w > 0 ? " " : "";
+		const contentWidth = Math.max(0, w - visibleWidth(indent));
+		if (contentWidth === 0) return "";
+		const status = cardStatus(c.status, c.status === "running" ? Date.now() - c.startedAt : c.elapsed);
+		const leftRaw = `${c.parent !== "root" ? "  " : ""}├ ${c.id}`;
+		const rightRaw = `${shortModel(c.model)} ${formatTokens(c.tokens)} ${status.text}`;
+		const rightWidth = visibleWidth(rightRaw);
+		if (rightWidth >= contentWidth) {
+			return indent + theme.fg("dim", truncateCardText(rightRaw, contentWidth));
+		}
+		const leftText = truncateCardText(leftRaw, Math.max(0, contentWidth - rightWidth - 1));
+		const gap = " ".repeat(Math.max(1, contentWidth - visibleWidth(leftText) - rightWidth));
+		return indent
+			+ theme.fg("muted", leftText)
+			+ gap
+			+ theme.fg("dim", `${shortModel(c.model)} ${formatTokens(c.tokens)} `)
+			+ theme.fg(status.color, status.text);
+	}
+
+	// Cap on nested rows per card; beyond it a "+N more" summary line renders.
+	const MAX_CHILD_ROWS = 6;
+
+	function renderCard(state: AgentState, colWidth: number, theme: any): string[] {
+		const w = Math.max(0, colWidth - 2);
+		const status = cardStatus(state.status, state.elapsed);
+		const headerLine = renderCardHeaderLine(
+			displayName(state.def.name),
+			state.contextPct,
+			// A coms-routed run shows the serving peer's model behind a ⇄coms badge
+			// instead of the native persona model it did NOT dispatch with.
+			state.lastBackend === "coms" ? `⇄coms ${shortModel(state.comsPeerModel)}` : modelWithThinking(state.def),
+			status.text,
+			status.color,
+			w,
+			theme,
+			contextPressure(state.contextPct),
+		);
+		const workRaw = state.task
+			? (state.lastWork || state.task)
+			: state.def.description;
+
+		// Nested delegate-child rows + a subtree rollup line (children count and
+		// token total — sub-sub spend is included in both its own row and here).
+		// Running children sort ahead of finished ones so a live child is never the
+		// row dropped by MAX_CHILD_ROWS; spawn order (startedAt) breaks ties within
+		// a group so the list stays stable as children complete.
+		const children = state.delegations ? Array.from(state.delegations.values()) : [];
+		children.sort((a, b) => {
+			const ar = a.status === "running" ? 0 : 1;
+			const br = b.status === "running" ? 0 : 1;
+			return ar !== br ? ar - br : a.startedAt - b.startedAt;
+		});
+		const childLines: string[] = [];
+		if (children.length > 0) {
+			for (const c of children.slice(0, MAX_CHILD_ROWS)) {
+				childLines.push(renderBorderedLine(renderChildLine(c, w, theme), w, theme));
+			}
+			if (children.length > MAX_CHILD_ROWS) {
+				childLines.push(renderBorderedLine(" " + theme.fg("dim", `… +${children.length - MAX_CHILD_ROWS} more`), w, theme));
+			}
+			const subtreeTokens = children.reduce((n, c) => n + c.tokens, 0);
+			childLines.push(renderBorderedLine(
+				" " + theme.fg("dim", `└ ${children.length} delegate${children.length !== 1 ? "s" : ""} · ${formatTokens(subtreeTokens)} tok`),
+				w, theme,
+			));
+		}
+
+		return [
+			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
+			renderBorderedLine(headerLine, w, theme),
+			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
+			...childLines,
+			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
+		];
+	}
+
+	// A research-helper card. Mirrors renderCard's compact two-line layout while
+	// keeping the `rN` handle + persona/anon label + turn in the name slot.
+	function renderResearchCard(state: ResearchState, colWidth: number, theme: any): string[] {
+		const w = Math.max(0, colWidth - 2);
+		const status = cardStatus(state.status, state.elapsed);
+		const label = state.persona ? displayName(state.def.name) : "research";
+		const turnStr = state.turnCount > 1 ? ` ·T${state.turnCount}` : "";
+		const headerLine = renderCardHeaderLine(
+			`r${state.id} ${label}${turnStr}`,
+			state.contextPct,
+			shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
+			status.text,
+			status.color,
+			w,
+			theme,
+		);
+		const workRaw = state.lastWork || state.task || state.def.description;
+
+		return [
+			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
+			renderBorderedLine(headerLine, w, theme),
+			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
+			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
+		];
+	}
+
+	function updateWidget() {
+		if (!widgetCtx) return;
+		installRunningWidget();
+
+		widgetCtx.ui.setWidget("agent-team", (_tui: any, theme: any) => {
+			const text = new Text("", 0, 1);
+
+			return {
+				render(width: number): string[] {
+					// Compact mode hides the dashboard grid; running agents are shown
+					// in the belowEditor "agent-running" widget instead.
+					if (viewMode === "compact") return [];
+
+					if (agentStates.size === 0) {
+						text.setText(theme.fg("dim", "No agents found. Add .md files to agents/"));
+						return text.render(width);
+					}
+
+					const cols = Math.min(gridCols, agentStates.size);
+					const gap = 1;
+					const colWidth = Math.floor((width - gap * (cols - 1)) / cols);
+					const agents = Array.from(agentStates.values());
+					const rows: string[][] = [];
+
+					for (let i = 0; i < agents.length; i += cols) {
+						const rowAgents = agents.slice(i, i + cols);
+						const cards = rowAgents.map(a => renderCard(a, colWidth, theme));
+
+						// Cards vary in height (delegate-child rows) — pad every card in
+						// the row to the tallest one so columns stay aligned.
+						const cardHeight = Math.max(CARD_HEIGHT, ...cards.map(c => c.length));
+						while (cards.length < cols) {
+							cards.push(Array(cardHeight).fill(" ".repeat(Math.max(0, colWidth))));
+						}
+
+						const blank = " ".repeat(Math.max(0, colWidth));
+						for (let line = 0; line < cardHeight; line++) {
+							rows.push(cards.map(card => card[line] ?? blank));
+						}
+					}
+
+					const output = rows.map(cols => cols.join(" ".repeat(gap)));
+					text.setText(output.join("\n"));
+					return text.render(width);
+				},
+				invalidate() {
+					text.invalidate();
+				},
+			};
+		});
+	}
+
+	// Research helpers render in their own widget row, labelled "research", below the
+	// team grid. The widget is removed entirely when no helpers exist so it takes no
+	// space on a fresh session.
+	function updateResearchWidget() {
+		if (!widgetCtx) return;
+		if (researchStates.size === 0) {
+			widgetCtx.ui.setWidget("agent-research", undefined);
+			return;
+		}
+		widgetCtx.ui.setWidget("agent-research", (_tui: any, theme: any) => {
+			const text = new Text("", 0, 1);
+
+			return {
+				render(width: number): string[] {
+					const states = Array.from(researchStates.values());
+					if (states.length === 0) {
+						text.setText("");
+						return text.render(width);
+					}
+
+					// Compact mode hides the research grid; running helpers are folded
+					// into the belowEditor "agent-running" widget instead.
+					if (viewMode === "compact") return [];
+
+					const cols = Math.min(gridCols, states.length);
+					const gap = 1;
+					const colWidth = Math.floor((width - gap * (cols - 1)) / cols);
+					const labelText = "── research ";
+					const header = theme.fg("dim", labelText + "─".repeat(Math.max(0, width - labelText.length)));
+					const rows: string[][] = [];
+
+					for (let i = 0; i < states.length; i += cols) {
+						const rowStates = states.slice(i, i + cols);
+						const cards = rowStates.map(s => renderResearchCard(s, colWidth, theme));
+
+						while (cards.length < cols) {
+							cards.push(Array(CARD_HEIGHT).fill(" ".repeat(Math.max(0, colWidth))));
+						}
+
+						const cardHeight = cards[0].length;
+						for (let line = 0; line < cardHeight; line++) {
+							rows.push(cards.map(card => card[line] || ""));
+						}
+					}
+
+					const grid = rows.map(cs => cs.join(" ".repeat(gap)));
+					text.setText([header, ...grid].join("\n"));
+					return text.render(width);
+				},
+				invalidate() {
+					text.invalidate();
+				},
+			};
+		});
+	}
+
+	// The compact running-agents widget, rendered BELOW the editor (between the
+	// input box and the footer). Registered once; it re-renders on every frame
+	// driven by the existing updateWidget/updateResearchWidget refreshes, reading
+	// live state + viewMode each time. In dashboard mode it renders nothing. In
+	// compact mode it lists only *running* team specialists and research helpers,
+	// one line each — idle/done agents are omitted.
+	// Ordered list of switchable subagents for the compact-view marker: running team
+	// specialists then running research helpers. main is the session under the input
+	// box, so it is never listed. Each entry's `key` matches /zoom resolution
+	// (lowercase persona name for team, `rN` for research), so Alt+\ can resolve it.
+	function switchableAgents(): { key: string; name: string; ctx: number; ctxWarn: boolean; model: string; status: { color: string; text: string } }[] {
+		return [
+			...Array.from(agentStates.values())
+				.filter(a => a.status === "running")
+				.map(a => ({
+					key: a.def.name.toLowerCase(),
+					name: displayName(a.def.name),
+					ctx: a.contextPct,
+					ctxWarn: contextPressure(a.contextPct),
+					model: a.lastBackend === "coms" ? `⇄coms ${shortModel(a.comsPeerModel)}` : modelWithThinking(a.def),
+					status: cardStatus(a.status, a.elapsed),
+				})),
+			...Array.from(researchStates.values())
+				.filter(s => s.status === "running")
+				.map(s => ({
+					key: `r${s.id}`,
+					name: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"}`,
+					ctx: s.contextPct,
+					ctxWarn: false,
+					model: shortModel(s.model) + thinkingSuffix(resolvedThinking(s.def)),
+					status: cardStatus(s.status, s.elapsed),
+				})),
+		];
+	}
+
+	// Keep markedAgent pointing at a still-running entry: if the marked one is gone
+	// (finished/killed), clamp to the nearest surviving entry, or null when empty.
+	// Called from the cycle shortcuts and before a zoom.
+	function clampMarker() {
+		const keys = switchableAgents().map(a => a.key);
+		if (keys.length === 0) { markedAgent = null; return; }
+		if (markedAgent && keys.includes(markedAgent)) return;
+		markedAgent = keys[0];
+	}
+
+	function installRunningWidget() {
+		if (!widgetCtx || runningWidgetInstalled) return;
+		runningWidgetInstalled = true;
+		widgetCtx.ui.setWidget("agent-running", (_tui: any, theme: any) => ({
+			invalidate() {},
+			render(width: number): string[] {
+				if (viewMode !== "compact") return [];
+				const running = switchableAgents();
+				if (running.length === 0) return [];
+				const nameWidth = Math.min(24, Math.max(...running.map(r => visibleWidth(r.name))));
+				return running.map(r => renderCompactLine(r.name, r.ctx, r.model, r.status, nameWidth, width, theme, r.key === markedAgent, r.ctxWarn));
+			},
+		}), { placement: "belowEditor" });
+	}
+
+	// ── Delegation observability ─────────────────
+	// delegate.ts (running inside the specialist) appends JSONL events to
+	// <sessionDir>/delegations/<agentKey>/events.jsonl. The hub tails that file
+	// (fs.watch for responsiveness + a 1s poll fallback) and rebuilds child
+	// states for the nested card rows, /zoom, and the spend rollup.
+
+	function formatTokens(n: number): string {
+		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+		return `${n}`;
+	}
+
+	function updateDelegatedSpendStatus() {
+		if (!widgetCtx || delegatedTokens <= 0) return;
+		try { widgetCtx.ui.setStatus("delegated-spend", `Δ delegated: ${formatTokens(delegatedTokens)} tok`); } catch {}
+	}
+
+	function handleDelegationEvent(state: AgentState, e: any) {
+		if (!state.delegations || typeof e?.id !== "string") return;
+		if (e.t === "spawn") {
+			const startedAt = e.ts || Date.now();
+			const parentId = typeof e.parent === "string" ? e.parent : "root";
+			// Attach to the /agents-history tree: a "root" child hangs off the
+			// specialist's own dispatch node; a deeper grandchild hangs off the
+			// already-recorded parent child. Falls back to the specialist node.
+			const parentEntry = parentId !== "root"
+				? state.delegations.get(parentId)?.histEntry ?? state.histEntry ?? null
+				: state.histEntry ?? null;
+			const histEntry = pushHistory("delegate", displayName(e.role || e.id), parentEntry, startedAt);
+			state.delegations.set(e.id, {
+				id: e.id,
+				parent: parentId,
+				role: e.role || e.id,
+				model: e.model || "",
+				tools: e.tools || "",
+				def: { name: e.id },
+				status: "running",
+				toolCount: 0,
+				tokens: 0,
+				lastWork: "",
+				startedAt,
+				elapsed: 0,
+				timeline: [],
+				histEntry,
+			});
+			return;
+		}
+		const child = state.delegations.get(e.id);
+		if (!child) return;
+		if (e.t === "timeline") {
+			appendTimelineText(child.timeline, e.kind === "thinking" ? "thinking" : "text", e.delta || "");
+			if (e.kind !== "thinking") {
+				const trailing = child.timeline[child.timeline.length - 1];
+				if (trailing?.kind === "text") {
+					child.lastWork = trailing.content.split("\n").filter((l) => l.trim()).pop() || "";
+				}
+			}
+			child.zoomRender?.();
+		} else if (e.t === "tool") {
+			child.toolCount++;
+			child.timeline.push({
+				kind: "tool",
+				title: `Tool: ${e.name || "tool"}`,
+				content: e.args || "",
+				timestamp: Date.now(),
+			});
+			child.zoomRender?.();
+		} else if (e.t === "usage") {
+			const add = (e.input || 0) + (e.output || 0);
+			child.tokens += add;
+			delegatedTokens += add;
+			updateDelegatedSpendStatus();
+		} else if (e.t === "exit") {
+			child.status = e.code === 0 ? "done" : "error";
+			child.elapsed = e.elapsed || (Date.now() - child.startedAt);
+			if (child.histEntry) historyEnd(child.histEntry, child.status, child.startedAt + child.elapsed);
+			child.zoomRender?.(true);
+		}
+	}
+
+	// Tail the dispatch's delegation event file. Returns a closer that drains
+	// one final time so post-completion events (exit, last usage) land.
+	function startDelegationWatch(state: AgentState, dir: string) {
+		state.delegations = new Map();
+		const eventsFile = join(dir, "events.jsonl");
+		let offset = 0;
+		let pending = "";
+		const drain = () => {
+			let size: number;
+			try { size = fs.statSync(eventsFile).size; } catch { return; }
+			if (size <= offset) return;
+			let chunk: string;
+			try {
+				const fd = fs.openSync(eventsFile, "r");
+				try {
+					const buf = Buffer.alloc(size - offset);
+					fs.readSync(fd, buf, 0, buf.length, offset);
+					chunk = buf.toString("utf-8");
+				} finally {
+					fs.closeSync(fd);
+				}
+			} catch { return; }
+			offset = size;
+			pending += chunk;
+			const lines = pending.split("\n");
+			pending = lines.pop() || "";
+			let dirty = false;
+			for (const line of lines) {
+				if (!line.trim()) continue;
+				try {
+					handleDelegationEvent(state, JSON.parse(line));
+					dirty = true;
+				} catch {}
+			}
+			if (dirty) updateWidget();
+		};
+		const timer = setInterval(drain, 1000);
+		try { (timer as any).unref?.(); } catch {}
+		let watcher: fs.FSWatcher | null = null;
+		try { watcher = fs.watch(dir, () => drain()); } catch {}
+		state.delegationsWatcher = {
+			close() {
+				clearInterval(timer);
+				try { watcher?.close(); } catch {}
+				drain();
+			},
+		};
+	}
+
+	// ── Dispatch Agent (returns Promise) ─────────
+
+	// ── Coms-backed dispatch (dispatch-policy.yaml) ──
+	// Serve a dispatch through a live same-name coms peer instead of spawning a
+	// native subagent. The dispatch protocols ride in the message BODY — a
+	// standing peer only ever receives a user prompt, never a system-prompt
+	// append. Returns the mapped result, or null when the envelope could not be
+	// delivered and the policy allows falling back to the native spawn path.
+	async function dispatchViaComs(
+		state: AgentState,
+		task: string,
+		peerName: string,
+		timeoutMs: number,
+		allowNativeFallback: boolean,
+		ctx: any,
+		inputArtifacts: InputArtifactPreview[],
+		scopeGlobs: string[],
+	): Promise<{ output: string; exitCode: number; elapsed: number; abandoned?: boolean } | null> {
+		const peer = resolveTarget(peerName);
+		if (!peer || !identity) {
+			if (allowNativeFallback) return null;
+			return { output: `coms dispatch failed: peer "${peerName}" left the pool (fallback: none).`, exitCode: 1, elapsed: 0 };
+		}
+		state.lastBackend = "coms";
+		state.comsPeerModel = peer.model;
+		state.contextPct = peer.context_used_pct ?? 0;
+		state.lastWork = `→ coms peer ${peer.name}...`;
+		updateWidget();
+
+		const agentKey = safeAgentKey(state.def.name);
+		const runNumber = state.runCount;
+		// Body-level equivalents of the native path's system-prompt protocols, so
+		// the downstream pipeline (ASK_USER extraction, structured return, artifact
+		// handoff) consumes a coms reply exactly like a subagent's final output.
+		const dispatchProtocol = `
+
+---
+## Dispatch protocol (agent-hub)
+You are serving a dispatched task as a standing peer; the dispatcher only receives this reply, so make it your complete final answer.
+- Clarification: if you need a HUMAN decision (ambiguity, missing input, contradiction, or a destructive/irreversible next step), do NOT guess — include line(s) of the form \`ASK_USER: <one clear English question>\`; you will be re-dispatched with the answers.
+- Deliverable-to-file: when your deliverable is a document (plan, review, critique, inventory, report) and your tools allow writing, write the full document to .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence) — never repo-root ./artifacts/... — and finish with the artifact-relative path (artifacts/<kind>/${agentKey}-run${runNumber}.md) plus a digest of at most 10 lines.
+- If the task includes acceptance assertions (A1, A2, ...), include the structured return from skills/orchestration-verification/SKILL.md.` +
+			buildRulesProtocol() + buildDocsProtocol();
+
+		const prompt = appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs) + dispatchProtocol;
+		const msg_id = ulid();
+		const env: PromptEnvelope = {
+			type: "prompt",
+			msg_id,
+			sender_session: identity.session_id,
+			sender_endpoint: identity.endpoint,
+			sender_name: identity.name,
+			sender_cwd: identity.cwd,
+			hops: currentInbound ? currentInbound.hops + 1 : 0,
+			timestamp: nowIso(),
+			prompt,
+			conversation_id: null,
+			response_schema: null,
+		};
+		try {
+			await sendEnvelope(peer.endpoint, env);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (allowNativeFallback) {
+				ctx.ui.notify(`${displayName(state.def.name)}: coms peer unreachable (${msg}) — falling back to a native subagent.`, "warning");
+				return null;
+			}
+			return { output: `coms dispatch to "${peer.name}" failed: ${msg} (fallback: none).`, exitCode: 1, elapsed: 0 };
+		}
+
+		// Same pending-reply mechanics as coms_send, with the member's timeout.
+		let resolveFn!: (v: { response?: any; error?: string | null }) => void;
+		let rejectFn!: (e: Error) => void;
+		const promise = new Promise<{ response?: any; error?: string | null }>((res, rej) => {
+			resolveFn = res;
+			rejectFn = rej;
+		});
+		const entry: PendingReply = { resolve: resolveFn, reject: rejectFn, timer: null, promise, target_name: peer.name, created_at: nowIso() };
+		entry.timer = setTimeout(() => {
+			if (entry.result) return;
+			entry.result = { error: "timeout" };
+			try { entry.resolve(entry.result); } catch { /* ignore */ }
+		}, timeoutMs);
+		try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
+		pendingReplies.set(msg_id, entry);
+		try {
+			pi.appendEntry("coms-log", { event: "outbound_prompt", msg_id, target: peer.name, hops: env.hops, dispatched_as: state.def.name });
+		} catch {
+			// best-effort
+		}
+
+		// /agents-kill and /agents-restart on a coms-backed run only abandon the
+		// wait — the standing peer keeps running its turn in its own pane.
+		let abandoned = false;
+		const abortPromise = new Promise<{ error: string }>(res => {
+			state.comsAbort = () => {
+				abandoned = true;
+				res({ error: "abandoned" });
+			};
+		});
+		const outcome = await Promise.race([entry.promise, abortPromise]);
+		state.comsAbort = undefined;
+		if (entry.timer) {
+			try { clearTimeout(entry.timer); } catch { /* ignore */ }
+			entry.timer = null;
+		}
+		pendingReplies.delete(msg_id);
+
+		// Refresh the context badge from the peer's registry heartbeat.
+		const after = resolveTarget(peer.name);
+		if (after?.context_used_pct !== undefined) state.contextPct = after.context_used_pct;
+
+		if (abandoned) {
+			return {
+				output: `Dispatch to coms peer "${peer.name}" was abandoned by the operator. The peer may still be working in its own pane — do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
+				exitCode: 1,
+				elapsed: 0,
+				abandoned: true,
+			};
+		}
+		const err = outcome.error;
+		if (err) {
+			return {
+				output: err === "timeout"
+					? `coms peer "${peer.name}" did not reply within ${Math.round(timeoutMs / 1000)}s. The peer may still be working in its pane — check it before re-dispatching.`
+					: `coms peer "${peer.name}" returned an error: ${err}`,
+				exitCode: 1,
+				elapsed: 0,
+			};
+		}
+		const response = (outcome as { response?: any }).response;
+		return {
+			output: typeof response === "string" ? response : JSON.stringify(response, null, 2),
+			exitCode: 0,
+			elapsed: 0,
+		};
+	}
+
+	// One-shot drift judge (drift-watchdog.js layer 2): a cheap model reads the
+	// original task + recent tool trail and answers ON_TRACK/DRIFTING/STUCK. It
+	// runs WHILE the specialist keeps working; only a negative verdict stops the
+	// run. Judge failures fail open — a broken judge must never kill good work.
+	async function runDriftJudge(
+		input: { agentLabel: string; agentKey: string; task: string; scopeGlobs: string[]; trail: string[]; violation: { rule: string; detail: string } },
+		ctx: any,
+	): Promise<{ verdict: string; reason: string } | null> {
+		const researcherDef = allAgentDefs.find(d => d.name.toLowerCase() === "researcher");
+		const model = watchdogJudgeModel
+			?? (researcherDef ? resolvedModel(researcherDef) : null)
+			?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
+		const judgeSession = safePathWithin(sessionDir, `drift-judge-${input.agentKey}.json`);
+		try { unlinkSync(judgeSession); } catch {}
+		try {
+			const res = await spawnPiAgent({
+				model,
+				tools: "read",
+				thinking: "off",
+				appendSystemPrompt: "You are a strict, terse runtime watchdog. Answer with exactly one VERDICT line.",
+				sessionFile: judgeSession,
+				prompt: buildJudgePrompt({ agent: input.agentLabel, task: input.task, scopeGlobs: input.scopeGlobs, trail: input.trail, violation: input.violation }),
+				detached: true,
+				turnDeadlineMs: 60_000,
+			});
+			if (res.spawnError || res.exitCode !== 0) return null;
+			return parseJudgeVerdict(res.output);
+		} catch {
+			return null;
+		} finally {
+			try { unlinkSync(judgeSession); } catch {}
+		}
+	}
+
+	async function dispatchAgent(
+		agentName: string,
+		task: string,
+		ctx: any,
+		inputArtifacts: InputArtifactPreview[] = [],
+		scopeGlobs: string[] = [],
+		watchdogParam?: boolean,
+	): Promise<{ output: string; exitCode: number; elapsed: number; billed?: number; out?: number }> {
+		const key = normalizeAgentInput(agentName);
+		const state = agentStates.get(key);
+		if (!state) {
+			return Promise.resolve({
+				output: `Agent "${agentName}" not found. Available: ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`,
+				exitCode: 1,
+				elapsed: 0,
+			});
+		}
+
+		if (state.status === "running") {
+			return Promise.resolve({
+				output: `Agent "${displayName(state.def.name)}" is already running. Wait for it to finish.`,
+				exitCode: 1,
+				elapsed: 0,
+			});
+		}
+
+		state.status = "running";
+		state.task = task;
+		state.toolCount = 0;
+		state.elapsed = 0;
+		state.lastWork = "";
+		state.runCount++;
+		state.killedByOperator = false;
+		state.restarting = false;
+		state.timeline = [];
+		state.delegationsWatcher?.close();
+		state.delegationsWatcher = undefined;
+		state.delegations = undefined;
+		updateWidget();
+
+		const histEntry = historyStart("agent", displayName(state.def.name));
+		state.histEntry = histEntry;
+		const agentKey = safeAgentKey(state.def.name);
+		const runNumber = state.runCount;
+		const monitorKey = monitorKeyForAgent(state.def.name, state.runCount);
+		const monitorStart = monitorBridge?.startChild({ key: monitorKey, id: `run-${agentKey}-${state.runCount}`, generation: 1, parentId: `hub-turn-${monitorHubId}`, specialist: agentKey }, process.env);
+		const startTime = Date.now();
+		state.timer = setInterval(() => {
+			state.elapsed = Date.now() - startTime;
+			updateWidget();
+		}, 1000);
+
+		// ── Backend routing (dispatch-policy.yaml) ──
+		// Decided per dispatch, never at team activation: the hub and its peers
+		// boot in parallel (`just hub-team`), so a member's coms peer may register
+		// at any point. A coms-preferring member with a live same-name pool peer
+		// is served by that peer; everything downstream (return contract, ASK_USER,
+		// research pipe, history) consumes the same result shape either way.
+		const finishRun = async (output: string, exitCode: number, opts?: { idle?: boolean; notice?: string }) => {
+			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, output, exitCode === 0 ? "completed" : "failed"));
+			clearInterval(state.timer);
+			state.elapsed = Date.now() - startTime;
+			state.status = opts?.idle ? "idle" : exitCode === 0 ? "done" : "error";
+			state.lastWork = output.split("\n").filter((l: string) => l.trim()).pop() || "";
+			if (output.trim()) appendTimelineText(state.timeline, "text", output);
+			updateWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, state.status);
+			if (opts?.notice) {
+				ctx.ui.notify(opts.notice, state.status === "done" ? "success" : state.status === "idle" ? "info" : "error");
+			}
+			const onTerminate = state.onTerminate;
+			state.onTerminate = undefined;
+			onTerminate?.();
+			return { output, exitCode, elapsed: state.elapsed };
+		};
+
+		const personaKey = state.def.name.toLowerCase();
+		const livePeerNames = () => (comsReady && identity ? peersInScope().map(e => e.name) : []);
+		let route: any = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames() });
+		if (route.backend === "await-coms") {
+			// coms-required member (fallback: none) whose peer is not live yet:
+			// poll the pool through the grace window, then refuse with guidance.
+			const graceS = route.grace_s;
+			const deadline = Date.now() + graceS * 1000;
+			state.lastWork = `waiting for coms peer (≤${graceS}s)...`;
+			updateWidget();
+			while (Date.now() < deadline && route.backend !== "coms") {
+				await new Promise(res => setTimeout(res, 1000));
+				route = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames() });
+			}
+			if (route.backend !== "coms") {
+				return finishRun(comsRequiredRefusal(displayName(state.def.name), graceS), 1);
+			}
+		}
+		if (route.backend === "native" && route.comsMissedNotice && !comsMissNotified.has(personaKey)) {
+			comsMissNotified.add(personaKey);
+			ctx.ui.notify(route.comsMissedNotice, "warning");
+		}
+		if (route.backend === "coms") {
+			void monitorBridge?.registerWaitOnly(monitorKey, () => state.comsAbort?.());
+			const allowNativeFallback = (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
+			const comsRes = await dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
+			if (comsRes) {
+				histEntry.name = `${displayName(state.def.name)} (coms)`;
+				return finishRun(comsRes.output, comsRes.exitCode, {
+					idle: comsRes.abandoned,
+					notice: comsRes.abandoned
+						? `${displayName(state.def.name)} coms dispatch abandoned (the peer pane keeps running)`
+						: `${displayName(state.def.name)} ${comsRes.exitCode === 0 ? "done" : "error"} in ${Math.round((Date.now() - startTime) / 1000)}s (coms peer)`,
+				});
+			}
+			// Envelope undeliverable + fallback allowed — continue as a plain native dispatch.
+		}
+		state.lastBackend = "native";
+		state.comsPeerModel = undefined;
+
+		// Per-agent model: a session override (/agent-model, /models) wins;
+		// otherwise the persona's frontmatter `model:` (a full pi spec, e.g.
+		// anthropic/claude-opus-4-7). Falls back to the dispatcher's model.
+		const model = resolvedModel(state.def)
+			?? (ctx.model
+				? `${ctx.model.provider}/${ctx.model.id}`
+				: "openrouter/google/gemini-3-flash-preview");
+
+		// Session file for this agent
+		const agentSessionFile = safePathWithin(sessionDir, `${agentKey}.json`);
+
+		// Session recycling: resuming an accumulated session re-bills its whole
+		// context on every model call, and that — not output — is where degraded
+		// sessions burned their tokens (85M of 102M observed tokens were cache
+		// reads). Past the run/context threshold, start fresh: the task text plus
+		// artifact paths must carry the state (they should anyway).
+		const turnBudget = currentBudget();
+		let sessionRecycled = false;
+		if (state.sessionFile && shouldRecycleSession(state.runsSinceFresh, state.contextPct, turnBudget)) {
+			try { unlinkSync(agentSessionFile); } catch {}
+			state.sessionFile = null;
+			state.runsSinceFresh = 0;
+			state.contextPct = 0;
+			sessionRecycled = true;
+			turnReport.recycles++;
+			sessionTotals.recycles++;
+			ctx.ui.notify(`${displayName(state.def.name)}: session recycled (stale context) — starting fresh`, "info");
+		}
+
+		// Clarification protocol — every specialist learns to bubble up questions
+		// to the dispatcher instead of guessing.
+		const clarificationProtocol = `
+
+## Clarification protocol
+If at any point you need a decision from the human user (ambiguity, missing input,
+contradiction, or a destructive/irreversible next step), DO NOT guess. Stop and
+return a single line of the form:
+
+  ASK_USER: <your question in one clear English sentence>
+
+You may emit multiple ASK_USER lines if you have several questions. The dispatcher
+will surface each to the human user in ${userLanguage} and re-dispatch you with the
+answers. Do not invent values, do not pick "reasonable defaults" silently — ask.
+
+## Research protocol
+If you need reconnaissance you cannot perform with your own tools (broad code search,
+reading unfamiliar areas of the codebase, summarizing docs), DO NOT guess and DO NOT
+ask the user. Pause for research instead: end your turn with one or more lines of the
+form
+
+  NEEDS_RESEARCH: <one specific, self-contained question>
+
+with nothing after them. Your session pauses there; read-only research helpers are
+spawned for you, each helper's findings are saved to a file, and you are resumed in
+this same session with the file paths — read them and continue from where you left
+off. Ask at most ${MAX_AUTO_RESEARCH_QUESTIONS} questions per pause. Use ASK_USER only
+for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked up.`;
+
+		// Project rules and docs — when the overrides file lists rule folders or
+		// doc entry points, every specialist learns where they are and how to
+		// resolve them (rules index-first, docs as orientation entry points).
+		const rulesProtocol = buildRulesProtocol();
+		const docsProtocol = buildDocsProtocol();
+
+		// Mid-turn delegation: a persona that declares `subagents:` gets the
+		// delegate extension injected (`-e delegate.ts`), the `delegate` tool
+		// added to its allowlist (pi filters extension tools too), and its
+		// declared roles/budgets serialized into AGENT_HUB_DELEGATE_CONFIG. The
+		// hub pre-creates and tails the dispatch's delegation event dir for the
+		// nested card rows. Personas without `subagents:` spawn exactly as before.
+		// Effective roles: each role's model replaced by its /agent-model
+		// "<persona>.<role>" session override when one exists. Serialized into the
+		// delegate config, so nested children inherit the switch for free.
+		const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
+			? Object.fromEntries(Object.entries(state.def.subagents).map(([role, r]) => {
+				const override = subagentModelOverrides.get(`${personaKey}.${role.toLowerCase()}`);
+				return [role, override ? { ...r, model: override } : r];
+			}))
+			: null;
+		// Fast mode is a single-specialist path: no nested delegation trees.
+		const delegationActive = turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
+		const safety = requireSafetyHarness(safetyHarnessPath);
+		if (!safety.ok) return finishRun(safety.error, 1);
+		const extensions = [...safety.extensions];
+		let effectiveTools = state.def.tools;
+		let delegateEnv: Record<string, string> | undefined;
+		let delegationProtocol = "";
+		if (delegationActive) {
+			const delegationDir = safePathWithin(sessionDir, "delegations", agentKey);
+			try { rmSync(delegationDir, { recursive: true, force: true }); } catch {}
+			mkdirSync(delegationDir, { recursive: true });
+			extensions.push(delegateExtPath!);
+			effectiveTools = `${state.def.tools},delegate`;
+			delegateEnv = {
+				AGENT_HUB_DELEGATE_CONFIG: JSON.stringify({
+					persona: state.def.name,
+					tag: "root",
+					roles: subagentRoles,
+					depth: clampDelegateDepth(state.def.delegateDepth ?? MAX_DELEGATE_DEPTH),
+					callBudget: DELEGATE_CALL_BUDGET,
+					remainingSpawns: DELEGATE_TREE_SPAWN_BUDGET,
+					parentTools: state.def.tools,
+					personaPrompt: state.def.systemPrompt,
+					eventDir: delegationDir,
+					damageControl: safetyHarnessPath || undefined,
+					delegateExt: delegateExtPath,
+					reconSearchTimeoutMs,
+					turnDeadlineMs: turnBudget.agentTurnMs,
+					cwd: ctx.cwd || process.cwd(),
+				}),
+			};
+			delegationProtocol = `
+
+## Delegation protocol
+You have a \`delegate\` tool with pre-configured sub-agents on cheaper models
+(roles: ${Object.keys(subagentRoles!).join(", ")}). Prefer delegating scoped, self-contained
+sub-tasks to them over doing everything yourself. A child shares NONE of your
+context — put everything it needs into its instruction/context. You may run up
+to ${DELEGATE_TREE_SPAWN_BUDGET} delegate calls for this dispatch; parallel children are forced read-only.
+Children are terminal workers: they do not receive delegate tooling at remaining depth 0.`;
+			startDelegationWatch(state, delegationDir);
+		}
+
+		const deliverableProtocol = `
+
+## Deliverable-to-file protocol
+When your deliverable is a document (plan, review, critique, inventory, report), write the full document to the real session artifact path when your tools allow it: .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence). Do NOT write repo-root ./artifacts/... files. In your final response, report and pass the artifact-relative handoff path: artifacts/<kind>/${agentKey}-run${runNumber}.md. If your persona already has an explicit output path contract such as planner PLAN_FILE, keep that existing behavior and also summarize/return the session artifact path the hub gives you.
+Finish with the artifact-relative path plus a digest of no more than 10 lines. If the dispatch includes acceptance assertions (A1, A2, ...), also include the structured return from skills/orchestration-verification/SKILL.md. If your tools are read-only and you cannot write a document artifact yourself, finish with the digest + structured return; the hub will still persist your full final return under artifacts/returns/ for dispatcher recovery.`;
+
+		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + docsProtocol + delegationProtocol + deliverableProtocol;
+
+		// Per-agent thinking: the persona's `thinking:` frontmatter (or a
+		// /agent-model-thinking session override) sets the pi --thinking reasoning
+		// level. Non-off also enables thinking deltas in the JSON stream so `/zoom`
+		// can show the reasoning.
+		const thinkingLevel = resolveThinkingLevel(resolvedThinking(state.def));
+		const wantThinking = thinkingLevel !== "off";
+
+		// ── Drift watchdog: layer-1 rules on the live stream, judge on escalation ──
+		// Precedence: dispatch param > per-agent /watchdog override > hub setting.
+		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting);
+		const driftMonitor = watchdogArmed ? createDriftMonitor({ scopeGlobs }) : null;
+		let driftControl: PiRunControl | undefined;
+		let driftStop: { rule: string; detail: string; verdict: string; reason: string } | null = null;
+		let judgeBusy = false;
+		let judgeCooldownUntil = 0;
+		const escalateDrift = (violation: { rule: string; detail: string }) => {
+			if (!driftMonitor || judgeBusy || driftStop || Date.now() < judgeCooldownUntil) return;
+			judgeBusy = true;
+			void runDriftJudge(
+				{ agentLabel: displayName(state.def.name), agentKey, task, scopeGlobs, trail: driftMonitor.trail(), violation },
+				ctx,
+			).then(v => {
+				judgeBusy = false;
+				judgeCooldownUntil = Date.now() + 90_000;
+				if (v && (v.verdict === "drifting" || v.verdict === "stuck")) {
+					driftStop = { ...violation, verdict: v.verdict, reason: v.reason };
+					driftControl?.terminate("drift_stop");
+				}
+			}).catch(() => { judgeBusy = false; });
+		};
+
+		// Spawn via the shared helper — first run creates the session, subsequent
+		// runs resume it (-c). Stream events drive the card + zoom timeline.
+		// `detached` puts the specialist in its own process group so /agents-kill
+		// can SIGTERM the whole delegation tree (killPiTree).
+		let fullText = "";
+		let runBilled = 0;
+		let runOut = 0;
+		const res = await spawnPiAgent({
+			model,
+			tools: effectiveTools,
+			thinking: thinkingLevel,
+			appendSystemPrompt: appendedSystemPrompt,
+			sessionFile: agentSessionFile,
+			resume: !!state.sessionFile,
+			prompt: appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs),
+			extensions,
+			env: { ...guardrailEnv(agentKey), ...(delegateEnv || {}) },
+			detached: true,
+			// A research persona dispatched through a custom team is still a native
+			// research helper, so it receives the same per-tool watchdog.
+			...(RESEARCHER_PERSONAS.has(personaKey) ? { toolWatchdog: { timeoutMs: reconSearchTimeoutMs } } : {}),
+			// Whole-run deadline from the active mode's budget (null in strict mode).
+			turnDeadlineMs: turnBudget.agentTurnMs,
+		}, {
+			onProcess: (p) => { state.proc = p; void monitorStart?.then(task => monitorBridge?.registerOwnedProcessFor(task, p)); },
+			...(driftMonitor ? { onControl: (c: PiRunControl) => { driftControl = c; } } : {}),
+			onTextDelta: (delta) => {
+				void monitorStart?.then(task => monitorBridge?.appendOutputFor(task, delta));
+				fullText += delta;
+				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
+				appendTimelineText(state.timeline, "text", delta);
+				updateWidget();
+				state.zoomRender?.();
+			},
+			onThinkingDelta: (delta) => {
+				if (!wantThinking) return;
+				appendTimelineText(state.timeline, "thinking", delta);
+				state.zoomRender?.();
+			},
+			onToolStart: (toolName, argStr) => {
+				state.toolCount++;
+				state.timeline.push({
+					kind: "tool",
+					title: `Tool: ${toolName}`,
+					content: argStr,
+					timestamp: Date.now(),
+				});
+				updateWidget();
+				state.zoomRender?.();
+				const violation = driftMonitor?.onToolStart(toolName, argStr);
+				if (violation) escalateDrift(violation);
+			},
+			onToolEnd: (toolName, _id, isError) => {
+				const violation = driftMonitor?.onToolEnd(toolName, isError);
+				if (violation) escalateDrift(violation);
+			},
+			onUsage: (usage, source) => {
+				// Sum per-message usage; the agent_end usage restates the LAST
+				// message, so it only counts when no message_end ever arrived.
+				if (source === "message_end" || (runBilled === 0 && runOut === 0)) {
+					runBilled += (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
+					runOut += usage.output || 0;
+				}
+				if (contextWindow > 0) {
+					// Real context = fresh input + cache reads + cache writes. Counting
+					// usage.input alone showed 1–20% while tens of thousands of cached
+					// tokens were re-sent per step, so the restart advice never fired.
+					state.contextPct = (((usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0)) / contextWindow) * 100;
+					updateWidget();
+				}
+			},
+		});
+
+		clearInterval(state.timer);
+		state.elapsed = Date.now() - startTime;
+		state.proc = undefined;
+		// Stop tailing the delegation event file (one final drain inside close,
+		// so trailing exit/usage events land). Child states stay for /zoom.
+		state.delegationsWatcher?.close();
+		state.delegationsWatcher = undefined;
+
+		// The process could not be spawned at all (proc `error` event).
+		if (res.spawnError) {
+			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, `Error spawning agent: ${res.spawnError}`, "failed"));
+			state.status = "error";
+			state.lastWork = `Error: ${res.spawnError}`;
+			state.killedByOperator = false;
+			state.restarting = false;
+			updateWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, "error");
+			const onTerminate = state.onTerminate;
+			state.onTerminate = undefined;
+			onTerminate?.();
+			return {
+				output: `Error spawning agent: ${res.spawnError}`,
+				exitCode: 1,
+				elapsed: state.elapsed,
+			};
+		}
+
+		const full = res.output;
+		const code = res.exitCode;
+		if (res.termination) {
+			const reason = res.termination.reason;
+			const tool = res.termination.tool;
+			state.status = "error";
+			state.lastWork = reason === "tool_timeout"
+				? `tool_timeout: ${tool?.toolName || "tool"} (${tool?.toolCallId || "unknown"})`
+				: reason === "turn_timeout"
+					? `turn_timeout after ${Math.round(state.elapsed / 1000)}s`
+					: reason === "drift_stop"
+						? `drift_stop: ${driftStop?.verdict || "watchdog"} (${driftStop?.rule || "rule"})`
+						: "cancelled by caller";
+			updateWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, "error");
+			const onTerminate = state.onTerminate;
+			state.onTerminate = undefined;
+			onTerminate?.();
+			if (reason === "drift_stop") {
+				turnReport.driftStops++;
+				sessionTotals.driftStops++;
+				ctx.ui.notify(`${displayName(state.def.name)} stopped by the drift watchdog (${driftStop?.verdict || "verdict"}: ${driftStop?.reason || driftStop?.detail || "no reason"})`, "warning");
+			}
+			const explanation = reason === "tool_timeout"
+				? `exceeded its per-tool watchdog on ${tool?.toolName || "tool"} (${tool?.toolCallId || "unknown"})`
+				: reason === "turn_timeout"
+					? `exceeded the per-run deadline (${Math.round(state.elapsed / 1000)}s; agent-turn-timeout-s / mode budget). ` +
+						`Do NOT re-dispatch the same task unchanged — split it into smaller pieces, or ask the user to raise the deadline`
+					: reason === "drift_stop"
+						? `was stopped by the drift watchdog. Rule "${driftStop?.rule || "unknown"}" fired (${driftStop?.detail || "no detail"}); ` +
+							`judge verdict ${(driftStop?.verdict || "drifting").toUpperCase()}: ${driftStop?.reason || "(no reason given)"}. ` +
+							`Re-dispatch ONCE with a corrected, NARROWED task that addresses this verdict — never repeat the same task unchanged. ` +
+							`If you believe the watchdog is wrong, tell the user; they can disable it with /watchdog ${key} off`
+						: "was cancelled by its caller";
+			return {
+				output: `${reason}: agent ${displayName(state.def.name)} ${explanation}; terminationConfirmed=${res.termination.confirmed}.` +
+					(full.trim() ? `\n\nPartial output before termination:\n${full.slice(-2000)}` : ""),
+				exitCode: reason === "cancelled" ? 130 : reason === "drift_stop" ? 125 : 124,
+				elapsed: state.elapsed,
+				billed: runBilled,
+				out: runOut,
+			};
+		}
+
+		// Operator kill (Phase 2). The exit was a SIGTERM from /agents-kill or
+		// /agents-restart, not a real completion: free the card (status → idle),
+		// fire any restart waiter, and return a message that tells the dispatcher
+		// LLM not to auto-retry. /agents-restart handles the fresh re-dispatch.
+		if (state.killedByOperator) {
+			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, "operator killed run", "cancelled"));
+			// !! (not `=== true`): TS otherwise narrows the field to the `false`
+			// assigned during setup — the concurrent /agents-restart mutation that
+			// makes this true is invisible to the checker across the await.
+			const wasRestart = !!state.restarting;
+			state.killedByOperator = false;
+			state.restarting = false;
+			state.status = "idle";
+			state.lastWork = wasRestart ? "(killed for restart)" : "(killed by operator)";
+			updateWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, "idle");
+			ctx.ui.notify(`${displayName(state.def.name)} killed by operator`, "info");
+			const onTerminate = state.onTerminate;
+			state.onTerminate = undefined;
+			onTerminate?.();
+			return {
+				output: wasRestart
+					? `Agent "${displayName(state.def.name)}" was killed by the operator for a restart. A fresh run is starting now; WAIT for the follow-up result before acting — do not re-dispatch this agent yourself.`
+					: `Agent "${displayName(state.def.name)}" was killed by the operator. Do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
+				exitCode: code ?? 143,
+				elapsed: state.elapsed,
+			};
+		}
+
+		await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, full, code === 0 ? "completed" : "failed"));
+		state.status = code === 0 ? "done" : "error";
+
+		// Mark session file as available for resume
+		if (code === 0) {
+			state.sessionFile = agentSessionFile;
+			state.runsSinceFresh++;
+		}
+
+		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+		updateWidget();
+		state.zoomRender?.(true);
+		historyEnd(histEntry, state.status);
+
+		ctx.ui.notify(
+			`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
+			state.status === "done" ? "success" : "error"
+		);
+
+		// Let a restart waiter proceed even when the agent finished naturally
+		// between the operator's /agents-restart and the kill landing.
+		const onTerminate = state.onTerminate;
+		state.onTerminate = undefined;
+		onTerminate?.();
+
+		// On a non-zero exit, surface stderr so failures with no JSON output
+		// (e.g. a bad --model spec or a provider whose API key isn't configured)
+		// reach the dispatcher as a readable message instead of an empty result.
+		let output = full;
+		if (code !== 0) {
+			const errText = res.stderr.trim();
+			const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
+			const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
+			output = full
+				? `${full}${errBlock}`
+				: `Agent "${displayName(state.def.name)}" exited with code ${code} and produced no output.${errBlock}`;
+		}
+		if (sessionRecycled) {
+			output = `(ℹ ${displayName(state.def.name)}'s session was recycled before this run — it has no memory of earlier dispatches; state must travel via task text/artifacts.)\n\n${output}`;
+		}
+
+		return {
+			output,
+			exitCode: code ?? 1,
+			elapsed: state.elapsed,
+			billed: runBilled,
+			out: runOut,
+		};
+	}
+
+	// ── Research helpers (Phase 4) ───────────────
+
+	function researchSessionPath(id: number): string {
+		return safePathWithin(sessionDir, `research-${id}.json`);
+	}
+
+	// A synthesized def for an anonymous (no-persona) research helper.
+	function anonResearchDef(): AgentDef {
+		return {
+			name: "research",
+			description: "Ad-hoc read-only research helper.",
+			tools: RESEARCH_TOOLS,
+			systemPrompt: ANON_RESEARCH_PROMPT,
+			file: "",
+		};
+	}
+
+	// Resolve the model for a research helper: an explicit --model wins, then the
+	// persona's resolved model (session override via /agent-model → frontmatter
+	// default), then the dispatcher's model (the default for anon helpers).
+	function resolveResearchModel(def: AgentDef, explicit: string | undefined, ctx: any): string {
+		if (explicit) return explicit;
+		const resolved = resolvedModel(def);
+		if (resolved) return resolved;
+		return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview";
+	}
+
+	function createResearchState(def: AgentDef, persona: boolean, model: string, ephemeral = false): ResearchState {
+		const id = nextResearchId++;
+		const state: ResearchState = {
+			id,
+			def,
+			persona,
+			ephemeral,
+			model,
+			status: "running",
+			task: "",
+			toolCount: 0,
+			elapsed: 0,
+			lastWork: "",
+			contextPct: 0,
+			sessionFile: null,
+			turnCount: 1,
+			timeline: [],
+		};
+		researchStates.set(id, state);
+		return state;
+	}
+
+	// Retention pass, run whenever a helper finishes: drop finished auto-pipe
+	// helpers immediately (their findings persist as files under findings/, their
+	// handles are never resumed) and finished durable helpers beyond the
+	// `research-keep` most recent — so the research row doesn't grow without
+	// bound. Running helpers are untouched; ids stay monotonic (no handle reuse).
+	// /agents-history is unaffected: the timeline holds its own entries.
+	function pruneResearch() {
+		const ids = selectResearchPrunable(Array.from(researchStates.values()), researchKeep);
+		if (ids.length === 0) return;
+		for (const id of ids) {
+			try { unlinkSync(researchSessionPath(id)); } catch {}
+			researchStates.delete(id);
+		}
+		updateResearchWidget();
+	}
+
+	// Env plumbing for spawned children: the shared exemptions file and, when
+	// coms is up, the endpoint damage-control-continue escalates blocked path
+	// access to (access_request → user dialog in this hub). spawnPiAgent
+	// spreads process.env, so delegate grandchildren inherit these for free.
+	function guardrailEnv(agentId: string): Record<string, string> {
+		const env: Record<string, string> = { [AGENT_ID_ENV]: agentId };
+		if (exemptionsFile) env[EXEMPTIONS_FILE_ENV] = exemptionsFile;
+		if (comsReady && identity) env[ASK_ENDPOINT_ENV] = identity.endpoint;
+		return env;
+	}
+
+	// Spawn (or resume) a read-only research helper. Mirrors dispatchAgent's stream
+	// handling but is forced read-only (RESEARCH_TOOLS), drives the research widget, and
+	// resolves with the findings — the CALLER decides what to do with them (the
+	// spawn_research tool returns them inline; the /research command delivers a follow-up).
+	async function spawnResearch(
+		state: ResearchState,
+		prompt: string,
+		ctx: any,
+		inputArtifacts: InputArtifactPreview[] = [],
+		signal?: AbortSignal,
+	): Promise<{ output: string; exitCode: number; elapsed: number; termination?: Termination }> {
+		const safety = requireSafetyHarness(safetyHarnessPath);
+		if (!safety.ok) return { output: safety.error, exitCode: 1, elapsed: 0 };
+
+		state.status = "running";
+		state.task = prompt;
+		state.toolCount = 0;
+		state.elapsed = 0;
+		state.lastWork = "";
+		state.killedByOperator = false;
+		state.timeline = [];
+		updateResearchWidget();
+
+		const histEntry = historyStart("research", `Research r${state.id}`);
+
+		const startTime = Date.now();
+		state.timer = setInterval(() => {
+			state.elapsed = Date.now() - startTime;
+			updateResearchWidget();
+		}, 1000);
+
+		const thinkingLevel = resolveThinkingLevel(resolvedThinking(state.def));
+		const wantThinking = thinkingLevel !== "off";
+		const sessionPath = researchSessionPath(state.id);
+
+		// READ-ONLY by construction: RESEARCH_TOOLS only, regardless of persona frontmatter.
+		let fullText = "";
+		const res = await spawnPiAgent({
+			model: state.model,
+			tools: RESEARCH_TOOLS,
+			thinking: thinkingLevel,
+			// Research helpers get the docs orientation block (WHAT/WHY entry
+			// points) but not the rules block — rules govern producing/validating
+			// changes, which read-only research does not do.
+			appendSystemPrompt: state.def.systemPrompt + RESEARCH_PROTOCOL + buildDocsProtocol(),
+			sessionFile: sessionPath,
+			resume: !!state.sessionFile,
+			prompt: appendInputArtifacts(prompt, inputArtifacts),
+			// A blocked read feeds back so the helper can adapt without aborting.
+			extensions: safety.extensions,
+			env: guardrailEnv(`research-r${state.id}`),
+			// Shared native-research policy: owns a child group and applies the
+			// configured per-tool deadline (including explicit `off`/null).
+			...researchWatchdogSpawnOptions(reconSearchTimeoutMs, signal),
+			// Whole-run deadline from the active mode's budget (null in strict mode).
+			turnDeadlineMs: currentBudget().agentTurnMs,
+		}, {
+			onProcess: (p) => { state.proc = p; },
+			onTextDelta: (delta) => {
+				fullText += delta;
+				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
+				appendTimelineText(state.timeline, "text", delta);
+				updateResearchWidget();
+				state.zoomRender?.();
+			},
+			onThinkingDelta: (delta) => {
+				if (!wantThinking) return;
+				appendTimelineText(state.timeline, "thinking", delta);
+				state.zoomRender?.();
+			},
+			onToolStart: (toolName, argStr) => {
+				state.toolCount++;
+				state.timeline.push({
+					kind: "tool",
+					title: `Tool: ${toolName}`,
+					content: argStr,
+					timestamp: Date.now(),
+				});
+				updateResearchWidget();
+				state.zoomRender?.();
+			},
+			onUsage: (usage) => {
+				if (contextWindow > 0) {
+					// Same context truth as dispatchAgent: include cache reads/writes.
+					state.contextPct = (((usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0)) / contextWindow) * 100;
+					updateResearchWidget();
+				}
+			},
+		});
+
+		clearInterval(state.timer);
+		state.elapsed = Date.now() - startTime;
+		state.proc = undefined;
+
+		// The process could not be spawned at all (proc `error` event).
+		if (res.spawnError) {
+			state.status = "error";
+			state.finishedAt = Date.now();
+			state.lastWork = `Error: ${res.spawnError}`;
+			state.killedByOperator = false;
+			updateResearchWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, "error");
+			pruneResearch();
+			return {
+				output: `Error spawning research helper: ${res.spawnError}`,
+				exitCode: 1,
+				elapsed: state.elapsed,
+			};
+		}
+
+		const full = res.output;
+		const code = res.exitCode;
+		const termination = res.termination;
+		if (termination) {
+			const outcome = researchTerminationOutcome(state.id, termination);
+			state.status = "error";
+			state.finishedAt = Date.now();
+			state.lastWork = outcome.lastWork;
+			updateResearchWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, "error");
+			pruneResearch();
+			return {
+				output: outcome.output,
+				exitCode: outcome.exitCode,
+				elapsed: state.elapsed,
+				termination,
+			};
+		}
+
+		// Operator kill (via /agents-kill rN|all or its research-* aliases).
+		// Resolve gracefully so a spawn_research tool call awaiting this helper
+		// doesn't hang.
+		if (state.killedByOperator) {
+			state.killedByOperator = false;
+			state.status = "idle";
+			state.finishedAt = Date.now();
+			state.lastWork = "(killed by operator)";
+			updateResearchWidget();
+			state.zoomRender?.(true);
+			historyEnd(histEntry, "idle");
+			pruneResearch();
+			return {
+				output: `Research helper r${state.id} was killed by the operator before it finished.`,
+				exitCode: code ?? 143,
+				elapsed: state.elapsed,
+			};
+		}
+
+		state.status = code === 0 ? "done" : "error";
+		state.finishedAt = Date.now();
+		if (code === 0) state.sessionFile = sessionPath;
+		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+		updateResearchWidget();
+		state.zoomRender?.(true);
+		historyEnd(histEntry, state.status);
+		pruneResearch();
+
+		ctx.ui.notify(
+			`Research r${state.id} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
+			state.status === "done" ? "success" : "error",
+		);
+
+		let output = full;
+		if (code !== 0) {
+			const errText = res.stderr.trim();
+			const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
+			const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
+			output = full
+				? `${full}${errBlock}`
+				: `Research helper r${state.id} exited with code ${code} and produced no output.${errBlock}`;
+		}
+
+		return { output, exitCode: code ?? 1, elapsed: state.elapsed };
+	}
+
+	// Deliver a /research result back to the dispatcher as a follow-up turn (the human
+	// kicked it off via slash command, so there is no awaiting tool call to return to).
+	function deliverResearchFollowUp(state: ResearchState, result: { output: string; exitCode: number; elapsed: number }) {
+		const truncated = result.output.length > 8000
+			? result.output.slice(0, 8000) + "\n\n... [truncated]"
+			: result.output;
+		const status = result.exitCode === 0 ? "finished" : "failed";
+		const label = state.persona ? displayName(state.def.name) : "research";
+		pi.sendMessage({
+			customType: "research-result",
+			content: `[research r${state.id} · ${label}${state.turnCount > 1 ? ` · Turn ${state.turnCount}` : ""}] ${status} in ${Math.round(result.elapsed / 1000)}s.\n\nFindings:\n${truncated}`,
+			display: true,
+		}, { deliverAs: "followUp", triggerTurn: true });
+	}
+
+	// ── Embedded coms: connection handlers ──
+
+	function ackOk(socket: net.Socket, msg_id: string): void {
+		try {
+			socket.write(JSON.stringify({ type: "ack", msg_id }) + "\n");
+		} catch {
+			// ignore
+		}
+		try { socket.end(); } catch { /* ignore */ }
+	}
+
+	function nack(socket: net.Socket, msg_id: string, error: string): void {
+		try {
+			socket.write(JSON.stringify({ type: "nack", msg_id, error }) + "\n");
+		} catch {
+			// ignore
+		}
+		try { socket.end(); } catch { /* ignore */ }
+	}
+
+	function handlePrompt(socket: net.Socket, env: PromptEnvelope): void {
+		// 1. Hop limit check
+		if (typeof env.hops !== "number" || env.hops >= MAX_HOPS) {
+			nack(socket, env.msg_id, "hops exceeded");
+			return;
+		}
+
+		// 2. Insert into inbound queue
+		const inbound: InboundContext = {
+			msg_id: env.msg_id,
+			hops: env.hops,
+			sender_endpoint: env.sender_endpoint,
+			sender_session: env.sender_session,
+			response_schema: env.response_schema ?? null,
+			fulfilled: false,
+		};
+		inboundQueue.set(env.msg_id, inbound);
+
+		// 3. Track the current inbound so that any coms_send issued during the
+		//    resulting LLM turn inherits the right hop count.
+		currentInbound = inbound;
+
+		// 4. Inject as a follow-up message into the receiver's next turn.
+		try {
+			pi.sendMessage(
+				{
+					customType: "coms-inbound",
+					content: `[from ${env.sender_name} @ ${env.sender_cwd}]\n\n${env.prompt}`,
+					display: true,
+					details: {
+						msg_id: env.msg_id,
+						sender_session: env.sender_session,
+						response_schema: env.response_schema ?? null,
+					},
+				},
+				{ deliverAs: "followUp", triggerTurn: true },
+			);
+		} catch (err) {
+			// If sendMessage fails, drop the inbound and nack.
+			inboundQueue.delete(env.msg_id);
+			currentInbound = null;
+			nack(socket, env.msg_id, "internal error");
+			return;
+		}
+
+		// 5. Ack + audit log
+		ackOk(socket, env.msg_id);
+		try {
+			pi.appendEntry("coms-log", {
+				event: "inbound_prompt",
+				msg_id: env.msg_id,
+				sender: env.sender_session,
+				hops: env.hops,
+			});
+		} catch {
+			// best-effort
+		}
+	}
+
+	function handleResponse(socket: net.Socket, env: ResponseEnvelope): void {
+		const pending = pendingReplies.get(env.msg_id);
+		if (pending) {
+			if (pending.timer) {
+				try { clearTimeout(pending.timer); } catch { /* ignore */ }
+				pending.timer = null;
+			}
+			pending.result = { response: env.response, error: env.error ?? null };
+			try {
+				pending.resolve(pending.result);
+			} catch {
+				// ignore
+			}
+			// Note: do NOT delete the entry here — coms_get poll may still want it.
+		} else {
+			try {
+				pi.appendEntry("coms-log", { event: "orphan_response", msg_id: env.msg_id });
+			} catch {
+				// best-effort
+			}
+		}
+		ackOk(socket, env.msg_id);
+	}
+
+	function handlePing(socket: net.Socket, env: PingEnvelope): void {
+		const ctx = currentCtx;
+		const ident = identity;
+		const pct = ctx ? Math.round(ctx.getContextUsage()?.percent ?? 0) : 0;
+		const card: AgentCard = {
+			name: ident?.name ?? "unknown",
+			purpose: ident?.purpose ?? "",
+			model: ctx?.model?.id ?? ident?.model ?? "unknown",
+			color: ident?.color ?? "#36F9F6",
+			context_used_pct: pct,
+			queue_depth: inboundQueue.size,
+		};
+		const pong: Pong = { type: "pong", msg_id: env.msg_id, agent_card: card };
+		try {
+			socket.write(JSON.stringify(pong) + "\n");
+		} catch {
+			// ignore
+		}
+		try { socket.end(); } catch { /* ignore */ }
+	}
+
+	function isValidEnvelope(obj: any): obj is Envelope {
+		return (
+			obj &&
+			typeof obj === "object" &&
+			typeof obj.type === "string" &&
+			typeof obj.msg_id === "string" &&
+			typeof obj.sender_session === "string" &&
+			typeof obj.sender_endpoint === "string"
+		);
+	}
+
+	// A headless child's protected-path block is routed to the serialized,
+	// fail-closed approval controller. The socket remains open until a decision.
+	function handleAccessRequest(socket: net.Socket, req: AccessRequest): void {
+		void accessApprovalRouter.handle(socket, req);
+	}
+
+	function connHandler(socket: net.Socket): void {
+		let buf = "";
+		let handled = false;
+		const onData = (chunk: Buffer) => {
+			if (handled) return;
+			buf += chunk.toString("utf-8");
+			if (buf.length > LINE_CAP_BYTES) {
+				handled = true;
+				socket.removeListener("data", onData);
+				nack(socket, "", "malformed envelope");
+				return;
+			}
+			const nl = buf.indexOf("\n");
+			if (nl < 0) return;
+			handled = true;
+			socket.removeListener("data", onData);
+			const line = buf.slice(0, nl);
+			let parsed: any;
+			try {
+				parsed = JSON.parse(line);
+			} catch {
+				nack(socket, "", "malformed envelope");
+				return;
+			}
+			if (!isValidEnvelope(parsed)) {
+				const mid = parsed && typeof parsed.msg_id === "string" ? parsed.msg_id : "";
+				nack(socket, mid, "malformed envelope");
+				return;
+			}
+			try {
+				if (parsed.type === "prompt") {
+					handlePrompt(socket, parsed as PromptEnvelope);
+				} else if (parsed.type === "response") {
+					handleResponse(socket, parsed as ResponseEnvelope);
+				} else if (parsed.type === "ping") {
+					handlePing(socket, parsed as PingEnvelope);
+				} else if (parsed.type === "access_request") {
+					handleAccessRequest(socket, parsed as AccessRequest);
+				} else {
+					nack(socket, parsed.msg_id, "unknown type");
+				}
+			} catch {
+				nack(socket, parsed.msg_id, "internal error");
+			}
+		};
+		socket.on("data", onData);
+		socket.once("error", () => {
+			// connection failures during handshake — drop quietly
+			try { socket.destroy(); } catch { /* ignore */ }
+		});
+	}
+
+	// ── Embedded coms: registry refresh + persona→purpose sync ──
+
+	// Re-write this agent's registry entry with a fresh live-status snapshot. Shared
+	// by the keepalive heartbeat and syncComsPurpose so peers see current values.
+	function writeLiveRegistry(): void {
+		if (!identity) return;
+		try {
+			const ctx = currentCtx;
+			const live: RegistryEntry = {
+				session_id: identity.session_id,
+				name: identity.name,
+				purpose: identity.purpose,
+				model: ctx?.model?.id ?? identity.model,
+				color: identity.color,
+				pid: process.pid,
+				endpoint: identity.endpoint,
+				cwd: identity.cwd,
+				started_at: nowIso(),
+				explicit: identity.explicit,
+				version: 1,
+				context_used_pct: Math.round(ctx?.getContextUsage()?.percent ?? 0),
+				queue_depth: inboundQueue.size,
+				heartbeat_at: nowIso(),
+			};
+			writeRegistryAtomic(live, identity.project);
+		} catch {
+			// best-effort
+		}
+	}
+
+	// Keep the coms purpose in sync with the active dispatcher persona so peers see a
+	// meaningful description (decision: map peer identity onto persona description). An
+	// explicit --purpose CLI flag always wins; otherwise the persona's name+description
+	// becomes the purpose, falling back to comsBasePurpose when no persona is set.
+	function syncComsPurpose(): void {
+		if (!identity || !comsReady || comsPurposeExplicit) return;
+		const next = dispatcherPersona
+			? `${displayName(dispatcherPersona.name)} — ${dispatcherPersona.description}`.trim()
+			: comsBasePurpose;
+		if (next === identity.purpose) return;
+		identity.purpose = next;
+		writeLiveRegistry();
+	}
+
+	// ── Embedded coms: ping + pool helpers ──
+
+	async function pingPeer(endpoint: string): Promise<AgentCard | null> {
+		if (!identity) return null;
+		const env: PingEnvelope = {
+			type: "ping",
+			msg_id: ulid(),
+			sender_session: identity.session_id,
+			sender_endpoint: identity.endpoint,
+			hops: 0,
+			timestamp: nowIso(),
+		};
+		try {
+			const resp = await sendEnvelope(endpoint, env);
+			if (resp && resp.type === "pong" && resp.agent_card) {
+				return resp.agent_card as AgentCard;
+			}
+		} catch {
+			// ignore — peer unreachable
+		}
+		return null;
+	}
+
+	function renderPool(width: number, theme: Theme): string[] {
+		// Compact mode hides the coms pool too — only running agents show below the editor.
+		if (viewMode === "compact") return [];
+		const projectFilter = displayProject ?? identity?.project ?? "default";
+		const registryEntries = projectFilter === "*"
+			? readAllRegistryEntriesAcrossProjects()
+			: readAllRegistryEntries(projectFilter);
+
+		interface Row {
+			name: string;
+			model: string;
+			color: string;
+			purpose: string;
+			pct: number | null;
+			pending: boolean;
+			stale: boolean;
+		}
+		const rows: Row[] = [];
+		const seenSessions = new Set<string>();
+
+		for (const [sid, card] of peerCards.entries()) {
+			if (identity && sid === identity.session_id) continue;
+			seenSessions.add(sid);
+			rows.push({
+				name: card.name,
+				model: card.model,
+				color: card.color,
+				purpose: card.purpose,
+				pct: card.context_used_pct,
+				pending: false,
+				stale: (card.staleCount ?? 0) >= 3,
+			});
+		}
+
+		// Registry-only entries that aren't yet in peerCards → pending
+		const seenNames = new Set(rows.map((r) => r.name));
+		for (const entry of registryEntries) {
+			if (identity && entry.session_id === identity.session_id) continue;
+			if (!includeExplicit && entry.explicit) continue;
+			if (seenSessions.has(entry.session_id)) continue;
+			if (seenNames.has(entry.name)) continue;
+			rows.push({
+				name: entry.name,
+				model: entry.model,
+				color: entry.color,
+				purpose: entry.purpose,
+				pct: null,
+				pending: true,
+				stale: false,
+			});
+		}
+
+		// Border helpers — sandwich the body with single-line box-drawing rules
+		// so the widget reads as its own block. The top border carries a branded
+		// ` coms ` tag; bottom border stays a plain rule for minimalism.
+		const safeWidth = Math.max(0, width);
+		let topBorder: string;
+		let bottomBorder: string;
+		if (safeWidth < 12) {
+			topBorder = theme.fg("dim", "━".repeat(safeWidth));
+			bottomBorder = theme.fg("dim", "━".repeat(safeWidth));
+		} else {
+			const left = theme.fg("dim", "┏━") + theme.fg("border", " coms ");
+			const leftFill = theme.fg("dim", "━");
+			const nameLen = identity ? identity.name.length : 0;
+			const rightTagVisLen = identity ? nameLen + 4 : 0;
+			const remaining = safeWidth - 9 /* "┏━ coms ━" */ - rightTagVisLen - 1 /* "┓" */;
+			if (identity && remaining >= 1) {
+				const rightTag =
+					theme.fg("dim", " ") +
+					hexFg(identity.color, identity.name) +
+					theme.fg("dim", " ━");
+				const middle = theme.fg("dim", "━".repeat(remaining));
+				const right = theme.fg("dim", "┓");
+				topBorder = left + leftFill + middle + rightTag + right;
+			} else {
+				const fallbackRemaining = Math.max(0, safeWidth - 2 /* "┏━" */ - 6 /* " coms " */ - 1 /* "┓" */);
+				const right = theme.fg("dim", "━".repeat(fallbackRemaining) + "┓");
+				topBorder = left + right;
+			}
+			bottomBorder = theme.fg("dim", "┗" + "━".repeat(safeWidth - 2) + "┛");
+		}
+
+		if (rows.length === 0) {
+			const emptyMsg = theme.fg("muted", "no peers connected");
+			return [
+				topBorder,
+				truncateToWidth(theme.fg("dim", " ") + emptyMsg, width),
+				bottomBorder,
+			];
+		}
+
+		rows.sort((a, b) => a.name.localeCompare(b.name));
+
+		const out: string[] = [topBorder];
+
+		for (const r of rows) {
+			const pctNum = r.pct ?? 0;
+			const filled = Math.max(0, Math.min(15, Math.round((pctNum / 100) * 15)));
+			const empty = 15 - filled;
+			const pctLabel = r.pct == null ? "--%" : `${r.pct}%`;
+
+			if (r.stale) {
+				const dimRow = `✗ ${r.name.padEnd(12)} ${abbreviateModel(r.model).padEnd(14)} [${"-".repeat(15)}] ${pctLabel.padStart(4)}  —  ${r.purpose || ""}`;
+				out.push(truncateToWidth(" " + theme.fg("dim", dimRow), width));
+				continue;
+			}
+
+			const swatch = r.pending ? theme.fg("dim", "●") : hexFg(r.color, "●");
+			const namePart = theme.fg("accent", r.name.padEnd(12));
+			const modelPart = theme.fg("dim", abbreviateModel(r.model).padEnd(14));
+			const barFill = r.pending
+				? theme.fg("dim", "-".repeat(15))
+				: hexFg(r.color, "#".repeat(filled)) + theme.fg("dim", "-".repeat(empty));
+			const bar = theme.fg("warning", "[") + barFill + theme.fg("warning", "]");
+			const pctPart = " " + theme.fg("accent", pctLabel.padStart(4));
+			const sep = theme.fg("dim", "  —  ");
+			const purposePart = theme.fg("muted", r.purpose || "");
+
+			const line = " " + swatch + " " + namePart + " " + modelPart + " " + bar + pctPart + sep + purposePart;
+			out.push(truncateToWidth(line, width));
+		}
+
+		out.push(bottomBorder);
+		return out;
+	}
+
+	function installPoolWidget(ctx: ExtensionContext): void {
+		if (!ctx.hasUI) return;
+		try {
+			ctx.ui.setWidget("coms-pool", (_tui, theme) => ({
+				invalidate() {},
+				render(width: number): string[] {
+					return renderPool(width, theme);
+				},
+			}), { placement: "belowEditor" });
+		} catch {
+			// non-fatal
+		}
+	}
+
+	async function refreshPool(): Promise<void> {
+		if (!identity) return;
+		const peers = peersInScope();
+
+		const results = await Promise.allSettled(peers.map(async (peer) => {
+			const pingEnv: PingEnvelope = {
+				type: "ping",
+				msg_id: ulid(),
+				sender_session: identity!.session_id,
+				sender_endpoint: identity!.endpoint,
+				hops: 0,
+				timestamp: nowIso(),
+			};
+			const reply = await sendEnvelope(peer.endpoint, pingEnv);
+			return { peer, pong: reply as Pong };
+		}));
+
+		const seenSessions = new Set<string>();
+		let changed = false;
+
+		for (const r of results) {
+			if (r.status === "fulfilled" && r.value.pong && r.value.pong.agent_card) {
+				const { peer, pong } = r.value;
+				seenSessions.add(peer.session_id);
+				const prev = peerCards.get(peer.session_id);
+				const next = { ...pong.agent_card, staleCount: 0 };
+				if (!prev || JSON.stringify({ ...prev, staleCount: 0 }) !== JSON.stringify(next)) {
+					peerCards.set(peer.session_id, next);
+					changed = true;
+				}
+			}
+		}
+
+		for (const [sid, card] of peerCards.entries()) {
+			if (identity && sid === identity.session_id) continue;
+			if (!seenSessions.has(sid)) {
+				card.staleCount = (card.staleCount ?? 0) + 1;
+				if (card.staleCount > 6) {
+					peerCards.delete(sid);
+				}
+				changed = true;
+			}
+		}
+
+		if (changed && currentCtx?.hasUI) {
+			installPoolWidget(currentCtx);
+		}
+	}
+
+	function listProjects(): string[] {
+		const root = path.join(COMS_DIR, "projects");
+		try {
+			return fs.readdirSync(root).filter((d) => {
+				try { return fs.statSync(path.join(root, d)).isDirectory(); } catch { return false; }
+			});
+		} catch {
+			return [];
+		}
+	}
+
+	// The peers currently in scope — exactly what the coms pool widget shows: live
+	// (pruned) registry entries in the displayed project (displayProject, or the home
+	// project; "*" only when the human widened via /coms --project *), excluding self
+	// and — unless /coms --all set includeExplicit — explicit peers. This is the
+	// SECURITY BOUNDARY for every coms op: list, send, and handoff resolve only within
+	// it. Widening it is a deliberate human action via /coms, never something the LLM
+	// can do on its own. Single source of truth — reused by the widget refresh, the
+	// handoff completions, coms_list, and resolveTarget so they can never diverge.
+	function peersInScope(): RegistryEntry[] {
+		if (!identity) return [];
+		const filter = displayProject ?? identity.project;
+		const live = filter === "*" ? pruneDeadEntriesAllProjects() : pruneDeadEntries(filter);
+		return live.filter(
+			(e) => e.session_id !== identity!.session_id && (includeExplicit || !e.explicit),
+		);
+	}
+
+	// Join herdr's live pane states back to the coms registry: a herdr agent
+	// whose custom_status leads with a peer name maps to that peer's registry
+	// entry (which carries the full card the 32-char custom_status cannot).
+	// Pool-scope semantics are preserved — only entries from peersInScope()
+	// become cards; peers outside herdr panes stay visible as registry-only
+	// "pending" rows exactly like an unpinged peer in the files backend.
+	function herdrSyncPeerCards(agents: HerdrAgentInfo[]): void {
+		if (!identity) return;
+		const liveNames = new Set<string>();
+		for (const a of agents) {
+			const peerName = parsePeerName(a.custom_status as string | undefined);
+			if (peerName) liveNames.add(peerName);
+		}
+		let changed = false;
+		const liveSessions = new Set<string>();
+		for (const entry of peersInScope()) {
+			if (!liveNames.has(entry.name)) continue;
+			liveSessions.add(entry.session_id);
+			const next = {
+				name: entry.name,
+				purpose: entry.purpose,
+				model: entry.model,
+				color: entry.color,
+				context_used_pct: entry.context_used_pct ?? 0,
+				queue_depth: entry.queue_depth ?? 0,
+				staleCount: 0,
+			};
+			const prev = peerCards.get(entry.session_id);
+			if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
+				peerCards.set(entry.session_id, next);
+				changed = true;
+			}
+		}
+		for (const sid of [...peerCards.keys()]) {
+			if (sid === identity.session_id) continue;
+			if (!liveSessions.has(sid)) {
+				peerCards.delete(sid);
+				changed = true;
+			}
+		}
+		if (changed && currentCtx?.hasUI) {
+			installPoolWidget(currentCtx);
+		}
+	}
+
+	function resolveTarget(target: string): RegistryEntry | null {
+		// Scoped to the connected pool only (peersInScope): you can reach exactly the
+		// peers the widget shows. Match by name first (preferred, human-facing), then by
+		// session_id. A peer outside the current scope is intentionally NOT resolved — the
+		// human must widen scope via /coms --project / --all first. This closes the old
+		// cross-project leak where a name match fell through to scanning every project.
+		const scope = peersInScope();
+		const byName = scope.find((e) => e.name === target);
+		if (byName) return byName;
+		return scope.find((e) => e.session_id === target) ?? null;
+	}
+
+	// ── dispatch_agent Tool (registered at top level) ──
+
+	pi.registerTool({
+		name: "dispatch_agent",
+		label: "Dispatch Agent",
+		description: "Dispatch a task to a specialist agent. The agent will execute the task and return the result. Use the system prompt to see available agent names.",
+		parameters: Type.Object({
+			agent: Type.String({ description: "Agent name (case-insensitive)" }),
+			task: Type.String({ description: "Task description for the agent to execute" }),
+			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the specialist must read the file itself." }))),
+			scope: Type.Optional(Type.Array(Type.String({ description: "Optional advisory file scope globs for writable agents. Changes outside are reported in details.scopeViolations; nothing is auto-reverted. Also arms the drift watchdog's live out-of-scope rule." }))),
+			watchdog: Type.Optional(Type.Boolean({ description: "Force the drift watchdog on/off for THIS dispatch (default: per-agent /watchdog override, then the hub-wide setting)." })),
+		}),
+
+		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+			const { task, artifacts, scope, watchdog } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[]; watchdog?: boolean };
+			// Display names / underscores resolve to the persona slug key space, so
+			// `agent: "Test Engineer"` never burns a dispatch on a lookup error.
+			const agent = normalizeAgentInput((params as { agent: string }).agent);
+			// Unclassified turn: assume the default tier (outside strict, whose full
+			// contract runs uncapped by tiers). The prompt asks for set_task_tier
+			// FIRST; this is the fail-safe, not the intended path.
+			if (turnTaskTier === null && hubMode !== "strict") {
+				turnTaskTier = DEFAULT_TASK_TIER;
+				turnReport.tier = turnTaskTier;
+				updateModeStatus();
+			}
+			// Turn-budget gate: refuse BEFORE any spawn. The dispatcher must stop,
+			// summarize, and ask the user; a new user turn opens a fresh window.
+			const budgetRefusal = checkTurnBudget(
+				"dispatch",
+				{ dispatches: turnDispatchCount, research: turnResearchCount },
+				currentBudget(),
+				Date.now() - (currentTurnStartedAt || Date.now()),
+				hubMode,
+			);
+			if (budgetRefusal) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: budgetRefusal.message }],
+					details: { agent, task, status: "budget_refused", reason: budgetRefusal.reason, elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
+			}
+			// Duplicate-dispatch guard: the same agent with a near-identical task in
+			// one turn is running in circles — the result already exists.
+			const fingerprint = taskFingerprint(agent, task);
+			if (turnDispatchFingerprints.has(fingerprint)) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: `⚠ Duplicate dispatch refused: you already dispatched ${agent} with this task (or a trivial rewording of it) THIS turn. Use the earlier result — re-read its digest/returnPath — or change the task materially (new instructions, corrected inputs) before re-dispatching.` }],
+					details: { agent, task, status: "duplicate_refused", elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
+			}
+			turnDispatchCount++;
+			sessionTotals.dispatches++;
+			updateModeStatus();
+			let writableTracked = false;
+			let scopeSnapshot: any = null;
+			let scopeOverlapBaseline = writableOverlapCounter;
+			let concurrentWritableAtStart = false;
+
+			try {
+				if (onUpdate) {
+					onUpdate({
+						content: [{ type: "text", text: `Dispatching to ${agent}...` }],
+						details: { agent, task, status: "dispatching" },
+					});
+				}
+
+				const dispatchedAssertionIds = extractAssertionIds(task);
+				const inputArtifacts = loadInputArtifacts(artifacts, ctx);
+				const scopeGlobs = (scope || []).map(s => String(s).trim()).filter(Boolean);
+				const stateForScope = agentStates.get(agent.toLowerCase());
+				const agentCanWrite = !!stateForScope && hasWriteCapability(stateForScope.def.tools);
+				if (agentCanWrite) {
+					concurrentWritableAtStart = activeWritableDispatches > 0;
+					scopeOverlapBaseline = writableOverlapCounter;
+					if (concurrentWritableAtStart) writableOverlapCounter++;
+					activeWritableDispatches++;
+					writableTracked = true;
+				}
+				if (scopeGlobs.length > 0 && agentCanWrite) {
+					scopeSnapshot = snapshotWorktree(ctx.cwd || process.cwd());
+				}
+
+				let result = await dispatchAgent(agent, task, ctx, inputArtifacts, scopeGlobs, watchdog);
+				let dispatchBilled = result.billed ?? 0;
+				let dispatchOut = result.out ?? 0;
+
+				// Auto-research pipe: when the specialist pauses with NEEDS_RESEARCH
+				// lines, the hub (in code, not the dispatcher LLM) fans out read-only
+				// helpers, writes findings to files, and resumes the specialist's
+				// session with the paths. The dispatcher only ever sees a short notice,
+				// keeping its context clean of raw findings.
+				const researchRounds: { questions: string[]; files: string[] }[] = [];
+				while (result.exitCode === 0 && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS) {
+					const researchQs = extractNeedsResearch(result.output).slice(0, MAX_AUTO_RESEARCH_QUESTIONS);
+					if (researchQs.length === 0) break;
+
+					if (onUpdate) {
+						onUpdate({
+							content: [{ type: "text", text: `${agent} paused for research (${researchQs.length} question(s)) — spawning read-only helpers...` }],
+							details: { agent, task, status: "researching" },
+						});
+					}
+
+					const findingsDir = safePathWithin(sessionDir, "findings");
+					mkdirSync(findingsDir, { recursive: true });
+					const agentKey = safeAgentKey(agentStates.get(agent.toLowerCase())?.def.name ?? agent);
+
+					const answered = await Promise.all(researchQs.map(async (q) => {
+						const rDef = anonResearchDef();
+						// Ephemeral: auto-pipe helpers are pruned as soon as they finish —
+						// their findings persist as files, their rN handles are never resumed.
+						const rState = createResearchState(rDef, false, resolveResearchModel(rDef, undefined, ctx), true);
+						updateResearchWidget();
+						const rRes = await spawnResearch(rState, q, ctx);
+						const file = safePathWithin(findingsDir, `${agentKey}-r${rState.id}.md`);
+						const body = `# Research findings r${rState.id}\n\n**Question:** ${q}\n\n` +
+							(rRes.exitCode === 0 ? rRes.output : `(research helper failed, exit ${rRes.exitCode})\n\n${rRes.output}`) + "\n";
+						writeFileSync(file, body, "utf-8");
+						return { question: q, file };
+					}));
+
+					researchRounds.push({ questions: researchQs, files: answered.map(a => a.file) });
+
+					const resumePrompt = "Research findings for your NEEDS_RESEARCH questions are ready. " +
+						"Read each file with your read tool, then continue from where you paused:\n" +
+						answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
+					result = await dispatchAgent(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog);
+					dispatchBilled += result.billed ?? 0;
+					dispatchOut += result.out ?? 0;
+				}
+
+				let scopeViolations: any = null;
+				if (scopeSnapshot) {
+					const diff = diffAgainst(scopeSnapshot, ctx.cwd || process.cwd());
+					const concurrentWritableOverlap = concurrentWritableAtStart || writableOverlapCounter !== scopeOverlapBaseline;
+					if (diff.skipped) {
+						scopeViolations = { skipped: true, reason: diff.reason, declaredScope: scopeGlobs, concurrentWritableOverlap };
+					} else {
+						const checked = checkScope(diff.paths, scopeGlobs);
+						scopeViolations = { ...checked, changedPaths: diff.paths, declaredScope: scopeGlobs, concurrentWritableOverlap };
+					}
+				}
+
+				const parsedReturn = parseStructuredReturn(result.output);
+				const contractNotices = crossCheck(parsedReturn, dispatchedAssertionIds);
+				const shouldUseDigest = dispatchedAssertionIds.length > 0 || !!parsedReturn;
+				const state = agentStates.get(agent.toLowerCase());
+				const agentKey = safeAgentKey(state?.def.name ?? agent);
+				const returnPath = shouldUseDigest
+					? writeReturnArtifact(agentKey, state?.runCount ?? 0, result.output)
+					: null;
+
+				const truncated = result.output.length > 8000
+					? result.output.slice(0, 8000) + "\n\n... [truncated]"
+					: result.output;
+
+				// Extract bubble-up questions emitted via the clarification protocol.
+				const questions = extractAskUserQuestions(result.output);
+
+				const status = result.exitCode === 0 ? "done" : "error";
+				// Record the fingerprint only for completed or watchdog/deadline-stopped
+				// runs — those must not be repeated unchanged. A failed spawn or plain
+				// error stays retryable (the failure may be transient).
+				if (result.exitCode === 0 || result.exitCode === 124 || result.exitCode === 125) {
+					turnDispatchFingerprints.add(fingerprint);
+				}
+				turnReport.dispatches.push({ agent, status, elapsed: result.elapsed, billed: dispatchBilled, out: dispatchOut });
+				sessionTotals.billed += dispatchBilled;
+				sessionTotals.out += dispatchOut;
+				const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
+				const questionsNotice = questions.length > 0
+					? `\n\n⚠ ${questions.length} ASK_USER question(s) raised by ${agent}. ` +
+					  `You MUST call ask_user for each (in ${userLanguage}) before re-dispatching:\n` +
+					  questions.map((q, i) => `  ${i + 1}. ${q}`).join("\n")
+					: "";
+
+				const answeredCount = researchRounds.reduce((n, r) => n + r.questions.length, 0);
+				const unresolved = extractNeedsResearch(result.output);
+				const researchNotice = researchRounds.length > 0
+					? `\n\nℹ ${agent} auto-paused for research ${researchRounds.length} round(s); ${answeredCount} question(s) answered by read-only helpers. ` +
+					  `Findings were saved under ${safePathWithin(sessionDir, "findings")} and read by the agent directly — they are NOT inlined here.`
+					: "";
+				const budgetNotice = unresolved.length > 0 && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS
+					? `\n\n⚠ ${agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. ` +
+					  `Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`
+					: "";
+
+				const returnPathNotice = returnPath ? `\n\nFull specialist output: ${returnPath}` : "";
+				const contextNotice = state && contextPressure(state.contextPct)
+					? `\n\n⚠ ${displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`
+					: "";
+				const scopeNotice = scopeNoticeText(scopeViolations);
+				const contractNotice = contractNoticeText(contractNotices);
+				const digest = shouldUseDigest
+					? [structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contractNotice].filter(Boolean).join("\n\n")
+					: truncated;
+
+				return {
+					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}${returnPathNotice}${contextNotice}${scopeNotice}\n\n${digest}` }],
+					details: {
+						agent,
+						task,
+						status,
+						elapsed: result.elapsed,
+						exitCode: result.exitCode,
+						fullOutput: result.output,
+						structuredReturn: parsedReturn,
+						returnPath,
+						contractNotices,
+						questions,
+						researchRounds,
+						scopeViolations,
+						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview })),
+					},
+				};
+			} catch (err: any) {
+				return {
+					content: [{ type: "text", text: `Error dispatching to ${agent}: ${err?.message || err}` }],
+					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
+			} finally {
+				if (writableTracked) activeWritableDispatches = Math.max(0, activeWritableDispatches - 1);
+			}
+		},
+
+		renderCall(args, theme) {
+			const agentName = (args as any).agent || "?";
+			const task = (args as any).task || "";
+			const preview = task.length > 60 ? task.slice(0, 57) + "..." : task;
+			return new Text(
+				theme.fg("toolTitle", theme.bold("dispatch_agent ")) +
+				theme.fg("accent", agentName) +
+				theme.fg("dim", " — ") +
+				theme.fg("muted", preview),
+				0, 0,
+			);
+		},
+
+		renderResult(result, options, theme) {
+			const details = result.details as any;
+			if (!details) {
+				const text = result.content[0];
+				return new Text(text?.type === "text" ? text.text : "", 0, 0);
+			}
+
+			// Streaming/partial result while agent is still running
+			if (options.isPartial || details.status === "dispatching") {
+				return new Text(
+					theme.fg("accent", `● ${details.agent || "?"}`) +
+					theme.fg("dim", " working..."),
+					0, 0,
+				);
+			}
+
+			const icon = details.status === "done" ? "✓" : "✗";
+			const color = details.status === "done" ? "success" : "error";
+			const elapsed = typeof details.elapsed === "number" ? Math.round(details.elapsed / 1000) : 0;
+			const header = theme.fg(color, `${icon} ${details.agent}`) +
+				theme.fg("dim", ` ${elapsed}s`);
+
+			const questions: string[] = Array.isArray(details.questions) ? details.questions : [];
+			const questionsBlock = questions.length > 0
+				? "\n" + theme.fg("warning", `⚠ ${questions.length} ASK_USER question(s) raised — surface via ask_user`)
+				: "";
+
+			if (options.expanded && details.fullOutput) {
+				const output = details.fullOutput.length > 4000
+					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
+					: details.fullOutput;
+				return new Text(header + questionsBlock + "\n" + theme.fg("muted", output), 0, 0);
+			}
+
+			return new Text(header + questionsBlock, 0, 0);
+		},
+	});
+
+	// ── spawn_research Tool (dispatcher → read-only helper) ──
+	// The dispatcher fans out research (decision 8): dispatched specialists are
+	// sandboxed (--no-extensions, no dispatch tool) and cannot spawn their own helpers,
+	// so when one needs reconnaissance the DISPATCHER runs this, collects the findings,
+	// and folds them into the specialist's task. Always read-only → safe to run without
+	// ask_user gating.
+	pi.registerTool({
+		name: "spawn_research",
+		label: "Spawn Research",
+		description: "Spawn a READ-ONLY research helper (read/grep/find/ls — no bash, no writes) and return its findings. Use for reconnaissance, code search, and reading docs/code before dispatching a builder, or to gather context for a specialist (specialists cannot spawn their own helpers). Pass `persona` to use a research persona, or omit it for an ad-hoc helper.",
+		parameters: Type.Object({
+			task: Type.String({ description: "What to investigate. Be specific about what to find and report." }),
+			persona: Type.Optional(Type.String({ description: "Optional research-persona name (see the Research personas list). It brings its own role/model/thinking. Omit for an anonymous helper." })),
+			model: Type.Optional(Type.String({ description: "Optional pi model spec for an anonymous helper (ignored when `persona` is set — the persona carries its own model)." })),
+			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the helper must read the file itself." }))),
+		}),
+
+		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+			const { task, persona, model, artifacts } = params as { task: string; persona?: string; model?: string; artifacts?: string[] };
+
+			// Turn-budget gate (dispatcher-initiated research only — the auto-research
+			// pipe and the /research command are exempt).
+			const budgetRefusal = checkTurnBudget(
+				"research",
+				{ dispatches: turnDispatchCount, research: turnResearchCount },
+				currentBudget(),
+				Date.now() - (currentTurnStartedAt || Date.now()),
+				hubMode,
+			);
+			if (budgetRefusal) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: budgetRefusal.message }],
+					details: { status: "budget_refused", reason: budgetRefusal.reason },
+				};
+			}
+			turnResearchCount++;
+			turnReport.research++;
+			sessionTotals.research++;
+			updateModeStatus();
+
+			let def: AgentDef;
+			let isPersona = false;
+			if (persona) {
+				const found = researchPersonas.find(d => d.name.toLowerCase() === persona.toLowerCase());
+				if (!found) {
+					const available = researchPersonas.map(d => d.name).join(", ") || "(none defined)";
+					return {
+						content: [{ type: "text", text: `No research persona "${persona}". Available: ${available}. Omit \`persona\` for an ad-hoc helper.` }],
+						details: { status: "error" },
+					};
+				}
+				def = found;
+				isPersona = true;
+			} else {
+				def = anonResearchDef();
+			}
+
+			const resolvedModel = resolveResearchModel(def, isPersona ? undefined : model, ctx);
+			const inputArtifacts = loadInputArtifacts(artifacts, ctx);
+			const state = createResearchState(def, isPersona, resolvedModel);
+			updateResearchWidget();
+
+			if (onUpdate) {
+				onUpdate({
+					content: [{ type: "text", text: `Spawning research helper r${state.id}...` }],
+					details: { handle: `r${state.id}`, persona: isPersona ? def.name : null, status: "spawning" },
+				});
+			}
+
+			try {
+				const result = await spawnResearch(state, task, ctx, inputArtifacts, _signal);
+				const truncated = result.output.length > 8000
+					? result.output.slice(0, 8000) + "\n\n... [truncated]"
+					: result.output;
+				const status = result.termination
+					? result.termination.reason
+					: result.exitCode === 0 ? "done" : "error";
+				const label = isPersona ? displayName(def.name) : "ad-hoc";
+				const summary = `[research r${state.id} · ${label} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s`;
+				return {
+					content: [{ type: "text", text: `${summary}\n\n${truncated}` }],
+					details: {
+						handle: `r${state.id}`,
+						persona: isPersona ? def.name : null,
+						model: resolvedModel,
+						status,
+						elapsed: result.elapsed,
+						exitCode: result.exitCode,
+						fullOutput: result.output,
+						termination: result.termination,
+						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview })),
+					},
+				};
+			} catch (err: any) {
+				return {
+					content: [{ type: "text", text: `Error spawning research helper: ${err?.message || err}` }],
+					details: { handle: `r${state.id}`, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
+			}
+		},
+
+		renderCall(args, theme) {
+			const persona = (args as any).persona;
+			const task = (args as any).task || "";
+			const preview = task.length > 60 ? task.slice(0, 57) + "..." : task;
+			return new Text(
+				theme.fg("toolTitle", theme.bold("spawn_research ")) +
+				theme.fg("accent", persona ? `@${persona}` : "ad-hoc") +
+				theme.fg("dim", " — ") +
+				theme.fg("muted", preview),
+				0, 0,
+			);
+		},
+
+		renderResult(result, options, theme) {
+			const details = result.details as any;
+			if (!details) {
+				const text = result.content[0];
+				return new Text(text?.type === "text" ? text.text : "", 0, 0);
+			}
+			if (options.isPartial || details.status === "spawning") {
+				return new Text(
+					theme.fg("accent", `● ${details.handle || "research"}`) +
+					theme.fg("dim", " researching..."),
+					0, 0,
+				);
+			}
+			const icon = details.status === "done" ? "✓" : "✗";
+			const color = details.status === "done" ? "success" : "error";
+			const elapsed = typeof details.elapsed === "number" ? Math.round(details.elapsed / 1000) : 0;
+			const header = theme.fg(color, `${icon} ${details.handle || "research"}`) +
+				theme.fg("dim", ` read-only ${elapsed}s`);
+			if (options.expanded && details.fullOutput) {
+				const output = details.fullOutput.length > 4000
+					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
+					: details.fullOutput;
+				return new Text(header + "\n" + theme.fg("muted", output), 0, 0);
+			}
+			return new Text(header, 0, 0);
+		},
+	});
+
+	// ── set_task_tier Tool (complexity triage) ──
+	// The dispatcher classifies each user turn BEFORE its first dispatch; the
+	// declared tier lowers the dispatch/research caps to min(mode, tier) in code.
+	// Skipping it makes the first dispatch assume the default tier (run-budget.js).
+
+	pi.registerTool({
+		name: "set_task_tier",
+		label: "Set Task Tier",
+		description:
+			"Classify THIS user turn's ask before your first dispatch: trivial (one obvious, low-risk change — 1 dispatch), small (a contained change, no planning pipeline — 2 dispatches), feature (a normal multi-step feature — 6 dispatches), project (a large effort — mode budget applies). The hub enforces the resulting caps; re-call it if the ask turns out bigger than classified (raising the tier mid-turn is allowed and cheap — say why).",
+		parameters: Type.Object({
+			tier: Type.String({ description: "One of: trivial | small | feature | project" }),
+			reason: Type.Optional(Type.String({ description: "One line on why this tier fits the ask." })),
+		}),
+		async execute(_callId, params, _signal, _onUpdate, _ctx) {
+			const { tier, reason } = params as { tier: string; reason?: string };
+			const normalized = normalizeTaskTier(tier);
+			if (!normalized) {
+				return {
+					content: [{ type: "text" as const, text: `Unknown tier "${tier}" — expected one of: ${TASK_TIERS.join(", ")}. Tier unchanged (${turnTaskTier ?? "unset"}).` }],
+					details: { status: "error", tier: turnTaskTier },
+				};
+			}
+			turnTaskTier = normalized;
+			turnReport.tier = normalized;
+			updateModeStatus();
+			const b = currentBudget();
+			const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
+			return {
+				content: [{ type: "text" as const, text: `Task tier: ${normalized}${reason ? ` (${reason})` : ""}. Effective caps this turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Size the apparatus accordingly — do not spend a cap just because it exists.` }],
+				details: { status: "ok", tier: normalized },
+			};
+		},
+		renderCall(args, theme) {
+			return new Text(
+				theme.fg("toolTitle", theme.bold("set_task_tier ")) +
+				theme.fg("accent", String((args as any).tier || "?")) +
+				theme.fg("dim", (args as any).reason ? ` — ${String((args as any).reason).slice(0, 60)}` : ""),
+				0, 0,
+			);
+		},
+	});
+
+	// ── team_adjust Tool (dispatcher-driven roster changes, gated) ──
+	// The dispatcher may restructure its own team mid-session — but never in fast
+	// mode, never past the roster cap, and the human is notified of every change.
+	const TEAM_ADJUST_ROSTER_CAP = 8;
+
+	pi.registerTool({
+		name: "team_adjust",
+		label: "Team Adjust",
+		description:
+			"Add or drop a specialist persona in the ACTIVE team (the roster you can dispatch to). Use sparingly, when the current roster genuinely cannot serve the task (e.g. add security-auditor for a security-sensitive change, drop an unused specialist). Not available in fast mode. The human sees every change and can revert with /agents-add //agents-drop.",
+		parameters: Type.Object({
+			action: Type.String({ description: "add | drop" }),
+			agent: Type.String({ description: "Persona name (case-insensitive), e.g. security-auditor" }),
+			reason: Type.String({ description: "One line on why the roster must change for this task." }),
+		}),
+		async execute(_callId, params, _signal, _onUpdate, ctx) {
+			const { action, agent, reason } = params as { action: string; agent: string; reason: string };
+			const act = String(action || "").trim().toLowerCase();
+			if (hubMode === "fast") {
+				return {
+					content: [{ type: "text" as const, text: "team_adjust is disabled in fast mode — a single-specialist path never needs roster changes. Ask the user to /hub-mode standard if the task outgrew fast mode." }],
+					details: { status: "refused" },
+				};
+			}
+			if (act !== "add" && act !== "drop") {
+				return { content: [{ type: "text" as const, text: `Unknown action "${action}" — expected add or drop.` }], details: { status: "error" } };
+			}
+			if (act === "add" && agentStates.size >= TEAM_ADJUST_ROSTER_CAP) {
+				return {
+					content: [{ type: "text" as const, text: `Roster cap reached (${TEAM_ADJUST_ROSTER_CAP}) — drop an unused member first, or ask the user to /agents-add manually.` }],
+					details: { status: "refused" },
+				};
+			}
+			const result = act === "add" ? rosterAdd(agent) : rosterDrop(agent);
+			if (result.ok) {
+				ctx.ui.notify(`team_adjust (${act}): ${result.message} — dispatcher's reason: ${reason || "(none given)"}`, "info");
+			}
+			const roster = Array.from(agentStates.values()).map(s => s.def.name).join(", ");
+			return {
+				content: [{ type: "text" as const, text: `${result.message}. Active team: ${roster}.` }],
+				details: { status: result.ok ? "ok" : "refused", roster },
+			};
+		},
+		renderCall(args, theme) {
+			return new Text(
+				theme.fg("toolTitle", theme.bold("team_adjust ")) +
+				theme.fg("accent", `${String((args as any).action || "?")} ${String((args as any).agent || "?")}`) +
+				theme.fg("dim", (args as any).reason ? ` — ${String((args as any).reason).slice(0, 50)}` : ""),
+				0, 0,
+			);
+		},
+	});
+
+	// ── Verification Contract tools (assertion ledger) ──
+	// set_assertions builds/rebuilds the ledger before dispatching; update_assertion
+	// records a gate outcome. Both persist to disk and refresh the one-line status;
+	// neither blocks a dispatch (advisory). See skills/orchestration-verification.
+
+	pi.registerTool({
+		name: "set_assertions",
+		label: "Set Assertions",
+		description:
+			"Record the acceptance-assertion ledger for the current task (the Verification Contract). Call this BEFORE dispatching a builder, with one checkable assertion per requirement, and again to REBUILD the whole ledger on a 'wrong again' regression reset (it replaces any existing list). Each assertion needs an id (A1, A2, …), a verification tag (test | runtime-ui | code-grep | manual), and one pass condition. See skills/orchestration-verification/SKILL.md for the format. The ledger is persisted and its status is shown to the human; it does not block dispatch.",
+		parameters: Type.Object({
+			assertions: Type.Array(
+				Type.Object({
+					id: Type.String({ description: "Stable id, e.g. A1, A2 — referenced verbatim in dispatches and returns." }),
+					tag: Type.String({ description: "How it will be proven: test | runtime-ui | code-grep | manual." }),
+					text: Type.String({ description: "One checkable pass condition (split compound requirements into separate assertions)." }),
+				}),
+				{ description: "The full assertion list — replaces any existing ledger." },
+			),
+		}),
+		async execute(_callId, params, _signal, _onUpdate, _ctx) {
+			const input = (params as { assertions: Array<{ id: string; tag: string; text: string }> }).assertions || [];
+			assertions = input.map(a => ({
+				id: String(a.id).trim(),
+				tag: String(a.tag).trim(),
+				text: String(a.text).trim(),
+				status: "open" as AssertionStatus,
+			}));
+			persistAssertions();
+			updateAssertionStatus();
+			const ids = assertions.map(a => a.id).join(", ") || "(none)";
+			return {
+				content: [{ type: "text" as const, text: `Ledger set: ${assertions.length} assertion(s) open — ${ids}. Pass the relevant ones verbatim into each dispatch and advance only on proven.` }],
+				details: { count: assertions.length },
+			};
+		},
+		renderCall(args, theme) {
+			const n = Array.isArray((args as any).assertions) ? (args as any).assertions.length : 0;
+			return new Text(
+				theme.fg("toolTitle", theme.bold("set_assertions ")) +
+				theme.fg("muted", `${n} assertion(s)`),
+				0, 0,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "update_assertion",
+		label: "Update Assertion",
+		description:
+			"Update one acceptance assertion's status after a verification gate. status is proven (name the evidence — test name, command output, file:line, or runtime observation), unproven (not yet checked), or failed (checked and wrong). Advance the task only on proven; treat unproven/failed as not done. A runtime-ui assertion is proven only by an actual runtime observation, never a static review.",
+		parameters: Type.Object({
+			id: Type.String({ description: "Assertion id to update, e.g. A2." }),
+			status: Type.String({ description: "One of: proven | unproven | failed." }),
+			evidence: Type.Optional(Type.String({ description: "Named evidence for proven/failed — test name, command output, file:line, or runtime observation." })),
+		}),
+		async execute(_callId, params, _signal, _onUpdate, _ctx) {
+			const { id, status, evidence } = params as { id: string; status: string; evidence?: string };
+			const wanted = String(status).trim().toLowerCase();
+			if (!["proven", "unproven", "failed"].includes(wanted)) {
+				return {
+					content: [{ type: "text" as const, text: `status must be one of proven | unproven | failed (got "${status}").` }],
+					details: { status: "error" },
+				};
+			}
+			const a = assertions.find(x => x.id.toLowerCase() === String(id).trim().toLowerCase());
+			if (!a) {
+				const known = assertions.map(x => x.id).join(", ") || "(empty)";
+				return {
+					content: [{ type: "text" as const, text: `No assertion "${id}" in the ledger. Call set_assertions first, or check the id. Current: ${known}.` }],
+					details: { status: "error" },
+				};
+			}
+			if (wanted === "proven") {
+				const validation = validateEvidence(a.tag, evidence || "", { fileExists: evidencePathExists, evidenceRoot: safePathWithin(artifactsRoot(), "evidence") });
+				if (!validation.ok) {
+					return {
+						content: [{ type: "text" as const, text: `${a.id} stays ${a.status}: ${validation.reason}` }],
+						details: { status: "rejected", reason: validation.reason },
+					};
+				}
+			}
+			a.status = wanted as AssertionStatus;
+			a.evidence = wanted === "unproven" ? undefined : (evidence?.trim() || undefined);
+			persistAssertions();
+			updateAssertionStatus();
+			const open = assertions.filter(x => x.status === "open" || x.status === "unproven").map(x => x.id);
+			const failed = assertions.filter(x => x.status === "failed").map(x => x.id);
+			const tail = failed.length
+				? `Failed: ${failed.join(", ")}. Still open: ${open.join(", ") || "none"}.`
+				: open.length
+					? `Still open: ${open.join(", ")}.`
+					: "All assertions proven.";
+			return {
+				content: [{ type: "text" as const, text: `${a.id} → ${a.status}${a.evidence ? ` (${a.evidence})` : ""}. ${tail}` }],
+				details: { id: a.id, status: a.status },
+			};
+		},
+		renderCall(args, theme) {
+			const id = (args as any).id || "";
+			const status = (args as any).status || "";
+			return new Text(
+				theme.fg("toolTitle", theme.bold("update_assertion ")) +
+				theme.fg("accent", id) +
+				theme.fg("dim", " → ") +
+				theme.fg("muted", status),
+				0, 0,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "get_assertions",
+		label: "Get Assertions",
+		description:
+			"Read back the full acceptance-assertion ledger — every id, tag, status, pass condition, and named evidence. Use this to recover the ledger after a context compaction (the dispatcher status line shows only counts, not the assertion text) before re-dispatching or reporting done. Read-only: it never changes the ledger.",
+		parameters: Type.Object({}),
+		async execute(_callId, _params, _signal, _onUpdate, _ctx) {
+			if (assertions.length === 0) {
+				return {
+					content: [{ type: "text" as const, text: "Ledger is empty. Call set_assertions to build the acceptance assertions before dispatching." }],
+					details: { count: 0 },
+				};
+			}
+			return {
+				content: [{ type: "text" as const, text: renderAssertionLedgerText() }],
+				details: { count: assertions.length },
+			};
+		},
+		renderCall(_args, theme) {
+			return new Text(
+				theme.fg("toolTitle", theme.bold("get_assertions ")) +
+				theme.fg("muted", `${assertions.length} assertion(s)`),
+				0, 0,
+			);
+		},
+	});
+
+	// ── Embedded coms tools (dispatcher ⇄ peers) ──
+
+	pi.registerTool({
+		name: "coms_list",
+		label: "Coms List",
+		description:
+			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
+			"names, models, and live context-window usage. Discovery is scoped to what the human displays " +
+			"via /coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
+		parameters: Type.Object({
+			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /coms displays — a widening request is ignored." })),
+			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /coms --all." })),
+		}),
+		async execute(_callId, params) {
+			if (!identity) {
+				return {
+					content: [{ type: "text" as const, text: "coms not initialised." }],
+					details: { agents: [], project: null },
+				};
+			}
+			// Clamp discovery to the human-set pool scope (displayProject + includeExplicit,
+			// driven by /coms). The LLM's project/include_explicit may NARROW within that
+			// scope but can never widen it — cross-project or explicit discovery requires a
+			// deliberate /coms --project / --all from the human. So coms_list returns exactly
+			// the pool, the same boundary coms_send enforces.
+			const scopeProject = displayProject ?? identity.project;
+			let projects: string[];
+			let widened = false;
+			if (scopeProject === "*") {
+				projects = params.project && params.project !== "*" ? [params.project] : listProjects();
+			} else {
+				projects = [scopeProject];
+				if (params.project && params.project !== scopeProject) widened = true;
+			}
+			// include_explicit may only narrow (turn OFF); it cannot reveal explicit peers
+			// unless the human already did via /coms --all.
+			const includeExp = includeExplicit && params.include_explicit !== false;
+			if (params.include_explicit === true && !includeExplicit) widened = true;
+
+			const collected: { entry: RegistryEntry; project: string }[] = [];
+			for (const proj of projects) {
+				for (const entry of pruneDeadEntries(proj)) {
+					if (entry.explicit && !includeExp) continue;
+					if (entry.session_id === identity.session_id) continue;
+					collected.push({ entry, project: proj });
+				}
+			}
+
+			// Ping each peer in parallel for live context usage.
+			const pongs = await Promise.allSettled(collected.map((c) => pingPeer(c.entry.endpoint)));
+
+			const agents = collected.map((c, i) => {
+				const r = pongs[i];
+				const pong = r.status === "fulfilled" ? r.value : null;
+				return {
+					name: c.entry.name,
+					session_id: c.entry.session_id,
+					purpose: c.entry.purpose,
+					model: c.entry.model,
+					cwd: c.entry.cwd,
+					project: c.project,
+					alive: pong != null,
+					context_used_pct: pong ? pong.context_used_pct : null,
+					color: c.entry.color,
+				};
+			});
+
+			const notice = widened
+				? `\n\n(Discovery is scoped to "${scopeProject}"${includeExplicit ? "" : ", explicit peers hidden"}. ` +
+				  `Widening to other projects or revealing --explicit peers is a human action via ` +
+				  `/coms --project <name> or /coms --all.)`
+				: "";
+
+			const lines = agents.length === 0
+				? "No peer agents in your pool."
+				: agents.map((a) => {
+					const ctxStr = a.context_used_pct != null ? ` ${a.context_used_pct}%` : " ?%";
+					const live = a.alive ? "●" : "✗";
+					return `${live} ${a.name} (${a.model})${ctxStr}${a.purpose ? ` — ${a.purpose}` : ""}`;
+				}).join("\n");
+
+			return {
+				content: [{ type: "text" as const, text: `${agents.length} peer(s) in pool (project ${scopeProject}):\n${lines}${notice}` }],
+				details: { agents, project: scopeProject, scoped: true, widenRequested: widened },
+			};
+		},
+		renderCall(args, theme) {
+			const proj = (args as any).project;
+			const filter = proj ? ` ${proj}` : "";
+			return new Text(
+				theme.fg("toolTitle", theme.bold("coms_list")) + theme.fg("dim", filter),
+				0, 0,
+			);
+		},
+		renderResult(result, options, theme) {
+			const details = result.details as any;
+			const agents: any[] = details?.agents ?? [];
+			const header = theme.fg("accent", `📡 ${agents.length} peer(s)`);
+			if (!options.expanded || agents.length === 0) {
+				return new Text(header, 0, 0);
+			}
+			const rows = agents.map((a) => {
+				const dot = a.alive ? theme.fg("success", "●") : theme.fg("error", "✗");
+				const pct = a.context_used_pct != null ? `${a.context_used_pct}%` : "?%";
+				return `${dot} ${theme.fg("accent", a.name)} ${theme.fg("dim", a.model)} ${theme.fg("warning", pct)}`;
+			}).join("\n");
+			return new Text(header + "\n" + rows, 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "coms_send",
+		label: "Coms Send",
+		description:
+			"Send a prompt to a peer agent. Returns synchronously with a msg_id once the receiver acks. " +
+			"Use coms_get (non-blocking) or coms_await (blocking) with the msg_id to retrieve the response. " +
+			"Throws if the receiver is unreachable or rejects the envelope.",
+		parameters: Type.Object({
+			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /coms --project or /coms --all." }),
+			prompt: Type.String({ description: "The prompt to send." }),
+			handoff_token: Type.Optional(Type.String({ description: "Internal /handoff token. Only include when the /handoff follow-up explicitly gives you one; it authorizes the machine-appended ledger/artifact appendix." })),
+			conversation_id: Type.Optional(Type.String()),
+			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
+		}),
+		async execute(_callId, params) {
+			if (!identity) {
+				throw new Error("coms not initialised");
+			}
+			const target = resolveTarget(params.target);
+			if (!target) {
+				// Refuse without confirming whether the peer exists outside the pool — that
+				// existence is itself cross-project metadata. Point at the human-controlled
+				// widening path instead.
+				const scope = displayProject ?? identity.project;
+				throw new Error(
+					`coms: no connected peer "${params.target}" in your pool (project ${scope}). ` +
+					`Only peers shown in the coms pool are reachable. If you expected this peer, ask the ` +
+					`human to widen scope with /coms --project <name> or /coms --all, then retry.`,
+				);
+			}
+			const hops = currentInbound ? currentInbound.hops + 1 : 0;
+			if (hops >= MAX_HOPS) {
+				throw new Error(`coms: hop limit reached (${hops} >= ${MAX_HOPS})`);
+			}
+			let outboundPrompt = String(params.prompt || "");
+			const handoffAppendAuthorized = !!(
+				pendingHandoff &&
+				pendingHandoff.target === target.name &&
+				params.handoff_token === pendingHandoff.token
+			);
+			if (handoffAppendAuthorized) {
+				outboundPrompt = appendMachineHandoffSections(outboundPrompt);
+			}
+
+			const msg_id = ulid();
+			const env: PromptEnvelope = {
+				type: "prompt",
+				msg_id,
+				sender_session: identity.session_id,
+				sender_endpoint: identity.endpoint,
+				sender_name: identity.name,
+				sender_cwd: identity.cwd,
+				hops,
+				timestamp: nowIso(),
+				prompt: outboundPrompt,
+				conversation_id: params.conversation_id ?? null,
+				response_schema: (params.response_schema as object | undefined) ?? null,
+			};
+
+			// Send the envelope synchronously and wait for the receiver's ack.
+			await sendEnvelope(target.endpoint, env);
+			if (handoffAppendAuthorized) pendingHandoff = null;
+
+			// Register a pending entry whose promise the receiver-side handleResponse
+			// (or the timeout below) will settle.
+			let resolveFn!: (v: { response?: any; error?: string | null }) => void;
+			let rejectFn!: (e: Error) => void;
+			const promise = new Promise<{ response?: any; error?: string | null }>((res, rej) => {
+				resolveFn = res;
+				rejectFn = rej;
+			});
+			const entry: PendingReply = {
+				resolve: resolveFn,
+				reject: rejectFn,
+				timer: null,
+				promise,
+				target_name: target.name,
+				created_at: nowIso(),
+			};
+			entry.timer = setTimeout(() => {
+				if (entry.result) return;
+				entry.result = { error: "timeout" };
+				try { entry.resolve(entry.result); } catch { /* ignore */ }
+			}, TIMEOUT_MS);
+			// Don't keep the event loop alive solely for this timer.
+			try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
+			pendingReplies.set(msg_id, entry);
+
+			try {
+				pi.appendEntry("coms-log", {
+					event: "outbound_prompt",
+					msg_id,
+					target: target.name,
+					hops,
+				});
+			} catch {
+				// best-effort
+			}
+
+			return {
+				content: [{ type: "text" as const, text: `coms_send → ${target.name}\nmsg_id ${msg_id}\nhops ${hops}` }],
+				details: { msg_id, target: target.name, target_session: target.session_id, hops },
+			};
+		},
+		renderCall(args, theme) {
+			const tgt = (args as any).target ?? "?";
+			const prompt = (args as any).prompt ?? "";
+			const preview = prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt;
+			return new Text(
+				theme.fg("toolTitle", theme.bold("coms_send ")) +
+				theme.fg("accent", tgt) +
+				theme.fg("dim", " — ") +
+				theme.fg("muted", preview),
+				0, 0,
+			);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (!d) {
+				const t = result.content[0];
+				return new Text(t?.type === "text" ? t.text : "", 0, 0);
+			}
+			return new Text(
+				theme.fg("success", "→ ") +
+				theme.fg("accent", d.target) +
+				theme.fg("dim", `  msg_id `) +
+				theme.fg("warning", d.msg_id),
+				0, 0,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "coms_get",
+		label: "Coms Get",
+		description:
+			"Non-blocking poll of a pending coms_send reply. Returns status pending|complete|error and (when complete) the response.",
+		parameters: Type.Object({
+			msg_id: Type.String({ description: "msg_id returned by coms_send." }),
+		}),
+		async execute(_callId, params) {
+			const entry = pendingReplies.get(params.msg_id);
+			if (!entry) {
+				return {
+					content: [{ type: "text" as const, text: `coms_get: unknown msg_id ${params.msg_id}` }],
+					details: { status: "error", error: "unknown msg_id" },
+				};
+			}
+			if (entry.result) {
+				const r = entry.result;
+				const text = r.error
+					? `coms_get: error — ${r.error}`
+					: `coms_get: complete\n${typeof r.response === "string" ? r.response : JSON.stringify(r.response, null, 2)}`;
+				return {
+					content: [{ type: "text" as const, text }],
+					details: { status: "complete", response: r.response, error: r.error ?? null },
+				};
+			}
+			return {
+				content: [{ type: "text" as const, text: `coms_get: pending` }],
+				details: { status: "pending" },
+			};
+		},
+		renderCall(args, theme) {
+			const id = (args as any).msg_id ?? "?";
+			return new Text(
+				theme.fg("toolTitle", theme.bold("coms_get ")) + theme.fg("warning", id),
+				0, 0,
+			);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			const status = d?.status ?? "?";
+			const color = status === "complete" ? "success" : status === "pending" ? "warning" : "error";
+			return new Text(theme.fg(color, status), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "coms_await",
+		label: "Coms Await",
+		description:
+			"Block until a pending coms_send reply lands or the timeout fires. Default timeout 30 minutes (PI_COMS_TIMEOUT_MS).",
+		parameters: Type.Object({
+			msg_id: Type.String({ description: "msg_id returned by coms_send." }),
+			timeout_ms: Type.Optional(Type.Number({ description: "Override the default timeout (ms)." })),
+		}),
+		async execute(_callId, params) {
+			const entry = pendingReplies.get(params.msg_id);
+			if (!entry) {
+				return {
+					content: [{ type: "text" as const, text: `coms_await: unknown msg_id ${params.msg_id}` }],
+					details: { error: "unknown msg_id" },
+				};
+			}
+			const timeoutMs = typeof params.timeout_ms === "number" && params.timeout_ms > 0
+				? params.timeout_ms
+				: TIMEOUT_MS;
+
+			const timed = new Promise<{ error: string }>((resolve) => {
+				const t = setTimeout(() => resolve({ error: "timeout" }), timeoutMs);
+				try { (t as any).unref?.(); } catch { /* ignore */ }
+			});
+
+			const winner = await Promise.race([entry.promise, timed]);
+			if ((winner as any).error) {
+				return {
+					content: [{ type: "text" as const, text: `coms_await: error — ${(winner as any).error}` }],
+					details: { error: (winner as any).error },
+				};
+			}
+			const resp = (winner as any).response;
+			return {
+				content: [{ type: "text" as const, text: typeof resp === "string" ? resp : JSON.stringify(resp, null, 2) }],
+				details: { response: resp },
+			};
+		},
+		renderCall(args, theme) {
+			const id = (args as any).msg_id ?? "?";
+			return new Text(
+				theme.fg("toolTitle", theme.bold("coms_await ")) + theme.fg("warning", id),
+				0, 0,
+			);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			return new Text(theme.fg("success", "✓ response received"), 0, 0);
+		},
+	});
+
+	// ── Fleet (herdr) tools ─────────────────────
+	//
+	// Registered unconditionally (registerTool must run at load), but gated
+	// into setActiveTools only when the session runs inside a herdr pane AND
+	// the server answers ping (herdrFleetReady, probed at session_start) —
+	// outside herdr the tools are absent, like coms. Destructive verbs:
+	// herdr_close_pane confirms with the HUMAN before closing (the continue-
+	// flow equivalent for a dispatcher-owned tool); the bash-level
+	// `herdr pane close` etc. are hard-blocked by .pi/damage-control-rules.yaml
+	// for spawned specialists.
+
+	let herdrFleetReady = false;
+
+	pi.registerTool({
+		name: "herdr_spawn_peer",
+		label: "Herdr Spawn Peer",
+		description:
+			"Spawn a pane in the CURRENT herdr workspace: either a peers.yaml-style coms peer (persona [+ name/model], launched via `just _peer`) or a raw command pane. Returns the new pane_id. Use for standing up an extra worker/watcher next to this session; peers become addressable via coms_send once booted.",
+		parameters: Type.Object({
+			persona: Type.Optional(Type.String({ description: "Persona under agents/ (e.g. researcher). Omit for a raw command pane." })),
+			name: Type.String({ description: "Pane label; for persona peers also the coms peer name." }),
+			model: Type.Optional(Type.String({ description: "Optional model spec for the peer (pi --model)." })),
+			command: Type.Optional(Type.String({ description: "Raw shell command for a non-peer pane (mutually exclusive with persona)." })),
+			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction (default right)." })),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			const ownPane = herdrPaneId();
+			if (!ownPane) {
+				return { content: [{ type: "text" as const, text: "not inside a herdr pane." }], details: { error: "no pane" } };
+			}
+			try {
+				let argv: string[];
+				if (params.persona) {
+					argv = peerCommand({ persona: params.persona, name: params.name, model: params.model }, "hub-spawned");
+				} else if (params.command) {
+					argv = ["bash", "-lc", params.command];
+				} else {
+					return { content: [{ type: "text" as const, text: "pass persona (peer) or command (raw pane)." }], details: { error: "bad args" } };
+				}
+				const { pane } = await herdrApi.paneSplit({
+					target_pane_id: ownPane,
+					direction: params.direction ?? "right",
+					command: argv,
+					cwd: currentCtx?.cwd ?? process.cwd(),
+					focus: false,
+				});
+				try { await herdrApi.paneRename(pane.pane_id, params.name); } catch { /* cosmetic */ }
+				return {
+					content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}` }],
+					details: { pane_id: pane.pane_id, name: params.name },
+				};
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_spawn_peer failed: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			const a = args as any;
+			return new Text(
+				theme.fg("toolTitle", theme.bold("herdr_spawn_peer ")) + theme.fg("accent", a.name ?? "?") + theme.fg("dim", a.persona ? ` (${a.persona})` : " (raw)"),
+				0, 0,
+			);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			return new Text(theme.fg("success", `✓ ${d?.pane_id ?? "spawned"}`), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_read_pane",
+		label: "Herdr Read Pane",
+		description:
+			"Read the recent output of a herdr pane (bounded; max 200 lines). Read-to-decide: check on a spawned worker or an unbridged tool before acting. Prefer coms_send/coms_await for talking to pi or bridged peers.",
+		parameters: Type.Object({
+			pane_id: Type.String({ description: "Pane id, e.g. w3:p2 (see herdr_spawn_peer result or the sidebar)." }),
+			lines: Type.Optional(Type.Number({ description: "Line cap, default 60, max 200." })),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			const lines = Math.min(Math.max(1, params.lines ?? 60), 200);
+			try {
+				const { read } = await herdrApi.paneRead({ pane_id: params.pane_id, lines });
+				return { content: [{ type: "text" as const, text: read.text || "(pane is empty)" }], details: { pane_id: params.pane_id, lines } };
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_read_pane failed: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			return new Text(theme.fg("toolTitle", theme.bold("herdr_read_pane ")) + theme.fg("warning", (args as any).pane_id ?? "?"), 0, 0);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			return new Text(theme.fg("success", `✓ read ${d?.pane_id}`), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_close_pane",
+		label: "Herdr Close Pane",
+		description:
+			"Close a herdr pane (kills whatever runs in it). DESTRUCTIVE — the human is asked to confirm every call. Only close panes you spawned; never close the human's own panes.",
+		parameters: Type.Object({
+			pane_id: Type.String({ description: "Pane id to close." }),
+			reason: Type.String({ description: "One line shown to the human: why this pane can die." }),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			const ctx = currentCtx;
+			if (!ctx?.hasUI) {
+				return { content: [{ type: "text" as const, text: "no UI to confirm the close — refused." }], details: { error: "no ui" } };
+			}
+			const ok = await ctx.ui.confirm(
+				"herdr_close_pane",
+				`Close pane ${params.pane_id}? Reason: ${params.reason}\nThis kills the process running in it.`,
+			);
+			if (!ok) {
+				return { content: [{ type: "text" as const, text: `human declined closing ${params.pane_id} — adapt and continue.` }], details: { declined: true } };
+			}
+			try {
+				await herdrApi.paneClose(params.pane_id);
+				return { content: [{ type: "text" as const, text: `closed ${params.pane_id}` }], details: { closed: params.pane_id } };
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_close_pane failed: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			return new Text(theme.fg("toolTitle", theme.bold("herdr_close_pane ")) + theme.fg("error", (args as any).pane_id ?? "?"), 0, 0);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			if (d?.declined) return new Text(theme.fg("warning", "✗ declined by human"), 0, 0);
+			return new Text(theme.fg("success", `✓ closed`), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_notify",
+		label: "Herdr Notify",
+		description:
+			"Show a desktop notification via herdr — reach the human when they are not watching this pane (long task finished, fleet needs attention). Not a substitute for ask_user.",
+		parameters: Type.Object({
+			title: Type.String({ description: "Notification title." }),
+			body: Type.Optional(Type.String({ description: "Notification body." })),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			try {
+				await herdrApi.notificationShow({ title: params.title, body: params.body ?? "" });
+				return { content: [{ type: "text" as const, text: `notified: ${params.title}` }], details: { title: params.title } };
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_notify failed: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			return new Text(theme.fg("toolTitle", theme.bold("herdr_notify ")) + theme.fg("accent", (args as any).title ?? ""), 0, 0);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			return new Text(theme.fg("success", "✓ notified"), 0, 0);
+		},
+	});
+
+	// ── ask_user Tool (dispatcher → human) ──
+	//
+	// We do NOT register `ask_user` here. The recommended companion package
+	// `pi-ask-user` (see docs/pi-setup.md) owns that tool name with a richer
+	// implementation. Registering our own conflicts regardless of load order:
+	//   - if we register first, pi-ask-user fails to load
+	//   - if pi-ask-user registers first, our registration fails
+	// and pi has no synchronous probe at load time — `pi.getAllTools()` is
+	// a runtime action method that throws when called from the factory.
+	//
+	// Instead, in `session_start` (where action methods ARE allowed) we check
+	// `pi.getAllTools()`, gate `ask_user` into `setActiveTools` only if present,
+	// and warn the user to `pi install npm:pi-ask-user` if it's missing.
+
+	let askUserAvailable = false;
+
+	// ── Dispatcher persona picker (blocking gate) ──
+	// Mirrors purpose-gate's blocking loop, but over a select of orchestrator
+	// personas instead of a free-text purpose. Loops until one is picked; the
+	// on/off setting (and turning it off) is the only way to skip.
+	async function pickDispatcherPersona(ctx: any) {
+		while (!dispatcherPersona) {
+			const options = orchestratorPersonas.map(p => `${displayName(p.name)} — ${p.description}`);
+			const choice = await ctx.ui.select("Select dispatcher persona", options);
+			if (choice === undefined) {
+				ctx.ui.notify(
+					"A dispatcher persona is required. Set `persona-gate: off` under `## agent-hub` in .ai/agent-fleet-overrides.md to skip.",
+					"warning",
+				);
+				continue;
+			}
+			const idx = options.indexOf(choice);
+			dispatcherPersona = orchestratorPersonas[idx] || null;
+		}
+		personaGateSatisfied = true;
+		// Reflect the chosen persona into the coms identity so peers see who we are.
+		syncComsPurpose();
+		// Flavor-only: do NOT call setActiveTools(persona.tools) — the dispatcher's
+		// orchestration surface must be preserved (decision G4). The persona only
+		// flavors the system prompt, applied in before_agent_start.
+		ctx.ui.setStatus("dispatcher-persona", `Persona: ${displayName(dispatcherPersona.name)}`);
+		ctx.ui.notify(`Dispatcher persona: ${displayName(dispatcherPersona.name)}`, "success");
+	}
+
+	// ── Commands ─────────────────────────────────
+
+	pi.registerCommand("agents-team", {
+		description: "Select a team to work with",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			const teamNames = Object.keys(teams);
+			if (teamNames.length === 0) {
+				ctx.ui.notify("No teams defined in .pi/agents/teams.yaml", "warning");
+				return;
+			}
+
+			const options = teamNames.map(name => {
+				const members = teams[name].map(m => displayName(m));
+				return `${name} — ${members.join(", ")}`;
+			});
+
+			const choice = await ctx.ui.select("Select Team", options);
+			if (choice === undefined) return;
+
+			const idx = options.indexOf(choice);
+			const name = teamNames[idx];
+			activateTeam(name);
+			updateWidget();
+			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
+			ctx.ui.notify(`Team: ${name} — ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`, "info");
+		},
+	});
+
+	pi.registerCommand("agents-list", {
+		description: "List all loaded agents",
+		handler: async (_args, _ctx) => {
+			widgetCtx = _ctx;
+			const names = Array.from(agentStates.values())
+				.map(s => {
+					const session = s.sessionFile ? "resumed" : "new";
+					const override = modelOverrides.get(s.def.name.toLowerCase());
+					const model = override ? `${override} (switched)` : (s.def.model || "dispatcher's");
+					const thinkOverride = thinkingOverrides.get(s.def.name.toLowerCase());
+					const thinking = thinkOverride
+						? `${resolveThinkingLevel(thinkOverride)} (switched)`
+						: resolveThinkingLevel(s.def.thinking);
+					const switchedRoles = Object.keys(s.def.subagents || {})
+						.map(role => ({ role, m: subagentModelOverrides.get(`${s.def.name.toLowerCase()}.${role.toLowerCase()}`) }))
+						.filter((x): x is { role: string; m: string } => !!x.m);
+					const subLabel = switchedRoles.length
+						? `, switched sub-roles: ${switchedRoles.map(x => `${x.role}→${shortModel(x.m)}`).join(", ")}`
+						: "";
+					return `${displayName(s.def.name)} (${s.status}, ${session}, model: ${model}, thinking: ${thinking}, runs: ${s.runCount}${subLabel}): ${s.def.description}`;
+				})
+				.join("\n");
+			_ctx.ui.notify(names || "No agents loaded", "info");
+		},
+	});
+
+	// Open the read-only /agents-history overlay. Mirrors openZoom's chrome and adds
+	// a 1s tick so running durations advance live; `historyRender` lets a new
+	// dispatch refresh the panel the instant it starts/ends.
+	async function openHistory(ctx: any): Promise<void> {
+		let tick: ReturnType<typeof setInterval> | null = null;
+		await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
+			const ui = new HistoryUI(
+				() => executionHistory,
+				() => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub"),
+				() => done(undefined),
+			);
+			historyRender = () => tui.requestRender();
+			tick = setInterval(() => tui.requestRender(), 1000);
+			return {
+				render: (w: number) => ui.render(w, Math.max(10, Math.floor((tui.terminal?.rows ?? 36) * 0.85)), theme),
+				handleInput: (data: string) => ui.handleInput(data, tui),
+				invalidate: () => {},
+			};
+		}, {
+			overlay: true,
+			overlayOptions: { width: "80%", anchor: "center", maxHeight: "90%" },
+		});
+		if (tick) clearInterval(tick);
+		historyRender = null;
+	}
+
+	pi.registerCommand("agents-history", {
+		description: "Timeline of agent execution — orchestrator turns, dispatches, research helpers, durations, and a grand total",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			await openHistory(ctx);
+		},
+	});
+
+	// ── /hub-mode: execution mode (fast|standard|strict) ──
+	// Session-lifetime switch over the overrides-file default. Budgets bind on
+	// the NEXT tool call (counters are per user turn and keep running); the
+	// dispatcher prompt rebuilds with the new mode on the next turn.
+	pi.registerCommand("hub-mode", {
+		description: "Show or set the execution mode: fast (single specialist) | standard (batched, default) | strict (full Verification Contract)",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const requested = (args || "").trim();
+			if (!requested) {
+				const b = currentBudget();
+				const cap = (n: number | null) => (n == null ? "∞" : String(n));
+				ctx.ui.notify(
+					`Execution mode: ${hubMode}\nThis turn: ${turnDispatchCount}/${cap(b.maxDispatches)} dispatches, ` +
+					`${turnResearchCount}/${cap(b.maxResearch)} research\nSwitch with /hub-mode ${HUB_MODES.join("|")}`,
+					"info",
+				);
+				return;
+			}
+			const mode = normalizeHubMode(requested);
+			if (!mode) {
+				ctx.ui.notify(`Unknown mode "${requested}" — expected one of: ${HUB_MODES.join(", ")}`, "error");
+				return;
+			}
+			hubMode = mode;
+			updateModeStatus();
+			ctx.ui.notify(`Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)`, "success");
+		},
+	});
+
+	pi.registerCommand("watchdog", {
+		description: "Drift watchdog: /watchdog [on|off|auto] hub-wide, /watchdog <agent> [on|off|clear] per agent, no args to show",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const parts = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (parts.length === 0) {
+				const perAgent = watchdogAgentOverrides.size > 0
+					? Array.from(watchdogAgentOverrides.entries()).map(([k, v]) => `${k}: ${v}`).join(", ")
+					: "(none)";
+				ctx.ui.notify(
+					`Drift watchdog: ${watchdogSetting} (hub-wide)\nPer-agent overrides: ${perAgent}\n` +
+					`Judge model: ${watchdogJudgeModel || "(researcher persona's, else dispatcher's)"}\n` +
+					`Usage: /watchdog on|off|auto — or /watchdog <agent> on|off|clear`,
+					"info",
+				);
+				return;
+			}
+			if (parts.length === 1) {
+				const setting = normalizeWatchdogSetting(parts[0]);
+				if (!setting) {
+					ctx.ui.notify(`Unknown setting "${parts[0]}" — expected one of: ${WATCHDOG_SETTINGS.join(", ")} (or /watchdog <agent> on|off|clear)`, "error");
+					return;
+				}
+				watchdogSetting = setting;
+				ctx.ui.notify(`Drift watchdog → ${setting} (applies from the next dispatch)`, "success");
+				return;
+			}
+			const agentKey = normalizeAgentInput(parts[0]);
+			const value = parts[1].toLowerCase();
+			if (!agentStates.has(agentKey)) {
+				ctx.ui.notify(`"${parts[0]}" is not in the active team (${Array.from(agentStates.values()).map(s => s.def.name).join(", ")})`, "error");
+				return;
+			}
+			if (value === "clear") {
+				watchdogAgentOverrides.delete(agentKey);
+				ctx.ui.notify(`Drift watchdog override cleared for ${agentKey} (hub-wide setting "${watchdogSetting}" applies)`, "success");
+				return;
+			}
+			if (value !== "on" && value !== "off") {
+				ctx.ui.notify(`Per-agent watchdog must be on, off, or clear — got "${parts[1]}"`, "error");
+				return;
+			}
+			watchdogAgentOverrides.set(agentKey, value);
+			ctx.ui.notify(`Drift watchdog for ${agentKey} → ${value} (overrides the hub-wide "${watchdogSetting}")`, "success");
+		},
+	});
+
+	pi.registerCommand("agents-add", {
+		description: "Add persona(s) to the active team without switching teams: /agents-add <name> [<name>…]",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (names.length === 0) {
+				const available = allAgentDefs
+					.filter(d => !agentStates.has(d.name.toLowerCase()))
+					.map(d => d.name).sort().join(", ") || "(all personas are already in the team)";
+				ctx.ui.notify(`Usage: /agents-add <persona> [<persona>…]\nNot in the team yet: ${available}`, "info");
+				return;
+			}
+			const results = names.map(n => rosterAdd(n));
+			const level = results.some(r => r.ok) ? "success" : "error";
+			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
+			ctx.ui.setStatus("agent-team", `Team: ${activeTeamName}* (${agentStates.size})`);
+		},
+	});
+
+	pi.registerCommand("agents-drop", {
+		description: "Drop persona(s) from the active team: /agents-drop <name> [<name>…]",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (names.length === 0) {
+				ctx.ui.notify(`Usage: /agents-drop <persona> [<persona>…]\nActive team: ${Array.from(agentStates.values()).map(s => s.def.name).join(", ")}`, "info");
+				return;
+			}
+			const results = names.map(n => rosterDrop(n));
+			const level = results.some(r => r.ok) ? "success" : "error";
+			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
+			ctx.ui.setStatus("agent-team", `Team: ${activeTeamName}* (${agentStates.size})`);
+		},
+	});
+
+	pi.registerCommand("agents-save", {
+		description: "Persist the CURRENT roster as a named team in .pi/agents/teams.yaml: /agents-save <team-name>",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = (args || "").trim();
+			if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
+				ctx.ui.notify("Usage: /agents-save <team-name> (letters, digits, hyphens, underscores)", "error");
+				return;
+			}
+			const members = Array.from(agentStates.values()).map(s => s.def.name);
+			if (members.length === 0) {
+				ctx.ui.notify("The active team is empty — nothing to save.", "error");
+				return;
+			}
+			const teamsPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "teams.yaml");
+			let raw = "";
+			try { raw = existsSync(teamsPath) ? readFileSync(teamsPath, "utf-8") : ""; } catch {}
+			try {
+				mkdirSync(join(ctx.cwd || process.cwd(), ".pi", "agents"), { recursive: true });
+				writeFileSync(teamsPath, upsertTeamInYaml(raw, name, members), "utf-8");
+			} catch (err) {
+				ctx.ui.notify(`Could not write ${teamsPath}: ${err instanceof Error ? err.message : String(err)}`, "error");
+				return;
+			}
+			teams[name] = members;
+			activeTeamName = name;
+			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
+			ctx.ui.notify(`Team "${name}" saved to .pi/agents/teams.yaml — ${members.join(", ")}`, "success");
+		},
+	});
+
+	pi.registerCommand("hub-report", {
+		description: "Per-turn cost report: dispatches, research, tokens, recycles, drift stops (last turn + session totals)",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			const fmtTok = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+			const renderReport = (label: string, r: TurnReport): string => {
+				const billed = r.dispatches.reduce((n, d) => n + d.billed, 0);
+				const out = r.dispatches.reduce((n, d) => n + d.out, 0);
+				const rows = r.dispatches.map(d => `  ${d.agent}: ${d.status} in ${Math.round(d.elapsed / 1000)}s · ${fmtTok(d.billed)} billed / ${fmtTok(d.out)} out`);
+				return [
+					`${label} — tier ${r.tier ?? "(unset)"} · ${r.dispatches.length} dispatch(es) · ${r.research} research · ` +
+						`${fmtTok(billed)} billed / ${fmtTok(out)} out · ${r.recycles} recycle(s) · ${r.driftStops} drift stop(s) · ${r.refusals} refusal(s)`,
+					...rows,
+				].join("\n");
+			};
+			const lines: string[] = [];
+			if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) {
+				lines.push(renderReport("Current turn", turnReport));
+			}
+			if (lastTurnReport) lines.push(renderReport("Last turn", lastTurnReport));
+			lines.push(
+				`Session — ${sessionTotals.turns} dispatching turn(s) · ${sessionTotals.dispatches} dispatch(es) · ${sessionTotals.research} research · ` +
+				`${fmtTok(sessionTotals.billed)} billed / ${fmtTok(sessionTotals.out)} out · ${sessionTotals.recycles} recycle(s) · ` +
+				`${sessionTotals.driftStops} drift stop(s) · ${sessionTotals.refusals} refusal(s)`,
+			);
+			ctx.ui.notify(lines.join("\n\n"), "info");
+		},
+	});
+
+	// Alt+A toggles the agent view between the full dashboard grid (above the
+	// editor) and the compact running-agents list (below the editor). alt+a has no
+	// default pi binding — every useful ctrl+letter is already taken (ctrl+r is
+	// session-rename), and alt+a is not consumed by the editor, so it reaches the
+	// extension shortcut handler in the main input.
+	pi.registerShortcut("alt+a", {
+		description: "Toggle agent view: dashboard ↔ compact",
+		handler: (ctx) => {
+			widgetCtx = ctx;
+			viewMode = viewMode === "dashboard" ? "compact" : "dashboard";
+			updateWidget();
+			updateResearchWidget();
+			ctx.ui.notify(`Agent view: ${viewMode}`, "info");
+		},
+	});
+
+	// Compact-view agent switcher. Alt+] / Alt+[ move the marker through the running
+	// subagents; Alt+\ zooms the marked one (same overlay as /zoom). main is never a
+	// target — it is the session under the input, which always takes typed prompts.
+	// Keys verified free of pi's reserved editor bindings (keybindings.d.ts): alt+up/
+	// down/left/right and ctrl+] / ctrl+alt+] are reserved, but alt+[ / alt+] / alt+\
+	// are not. Caveat: alt+[ emits `ESC [` (CSI prefix) on some terminals and may be
+	// eaten by the escape parser — alt+] and alt+\ are the reliable pair.
+	function cycleMarker(delta: number, ctx: any) {
+		widgetCtx = ctx;
+		if (viewMode !== "compact") {
+			ctx.ui.notify("Agent switching is a compact-view feature — press Alt+A first", "info");
+			return;
+		}
+		const keys = switchableAgents().map(a => a.key);
+		if (keys.length === 0) {
+			ctx.ui.notify("No running subagents to switch between", "info");
+			return;
+		}
+		const cur = markedAgent ? keys.indexOf(markedAgent) : -1;
+		markedAgent = cur === -1
+			? (delta > 0 ? keys[0] : keys[keys.length - 1])
+			: keys[(cur + delta + keys.length) % keys.length];
+		updateWidget();
+	}
+
+	pi.registerShortcut("alt+]", {
+		description: "Compact view: mark next subagent",
+		handler: (ctx) => cycleMarker(1, ctx),
+	});
+	pi.registerShortcut("alt+[", {
+		description: "Compact view: mark previous subagent",
+		handler: (ctx) => cycleMarker(-1, ctx),
+	});
+	pi.registerShortcut("alt+\\", {
+		description: "Compact view: zoom the marked subagent",
+		handler: async (ctx) => {
+			widgetCtx = ctx;
+			if (viewMode !== "compact") {
+				ctx.ui.notify("Agent zoom from the marker is a compact-view feature — press Alt+A first", "info");
+				return;
+			}
+			clampMarker();
+			if (!markedAgent) {
+				ctx.ui.notify("No running subagent marked to zoom", "info");
+				return;
+			}
+			const rid = parseResearchHandle(markedAgent);
+			const target: Zoomable | undefined = rid != null
+				? researchStates.get(rid)
+				: agentStates.get(markedAgent);
+			if (!target) {
+				ctx.ui.notify(`Marked agent ${markedAgent} is no longer available`, "warning");
+				return;
+			}
+			await openZoom(target, ctx);
+		},
+	});
+
+	// Completions over loaded agent names, annotated with current status.
+	const agentNameCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = Array.from(agentStates.values()).map(s => ({
+			value: s.def.name,
+			label: `${displayName(s.def.name)} (${s.status})`,
+		}));
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// A delegate child anywhere in the team, by its id (e.g. "quality-1").
+	function findDelegationChild(arg: string): { child: DelegationChild; owner: AgentState } | null {
+		const lower = arg.toLowerCase();
+		for (const st of agentStates.values()) {
+			const child = st.delegations?.get(lower);
+			if (child) return { child, owner: st };
+		}
+		return null;
+	}
+
+	// Completions for /zoom: team member names, research handles (rN), and
+	// delegate child ids nested under their parent specialist.
+	const zoomCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const teamItems = Array.from(agentStates.values()).map(s => ({
+			value: s.def.name,
+			label: `${displayName(s.def.name)} (${s.status})`,
+		}));
+		const researchItems = Array.from(researchStates.values()).map(s => ({
+			value: `r${s.id}`,
+			label: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"} (${s.status})`,
+		}));
+		const childItems = Array.from(agentStates.values()).flatMap(s =>
+			Array.from(s.delegations?.values() || []).map(c => ({
+				value: c.id,
+				label: `${c.id} — delegate of ${displayName(s.def.name)} (${c.status})`,
+			})),
+		);
+		const items = [...teamItems, ...researchItems, ...childItems];
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// Open the read-only zoom overlay over a live timeline. Shared by /zoom and the
+	// compact-view Alt+\ switcher. While open, `target.zoomRender` lets the stream
+	// parser refresh it on new events (throttled to ~12fps; force=true pushes the
+	// final frame on completion).
+	async function openZoom(target: Zoomable, ctx: any): Promise<void> {
+		let lastRender = 0;
+		await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
+			const ui = new ZoomUI(target, () => done(undefined), (message, type) => ctx.ui.notify(message, type as any));
+			target.zoomRender = (force?: boolean) => {
+				const now = Date.now();
+				if (force || now - lastRender > 80) {
+					lastRender = now;
+					tui.requestRender();
+				}
+			};
+			return {
+				// Pass the real terminal height (not a hard-coded 30) so the
+				// height-aware scroll keeps the selected/last entry fully visible.
+				render: (w: number) => ui.render(w, Math.max(10, Math.floor(((tui.terminal?.rows ?? 36) * 0.85))), theme),
+				handleInput: (data: string) => ui.handleInput(data, tui),
+				invalidate: () => {},
+			};
+		}, {
+			overlay: true,
+			overlayOptions: { width: "80%", anchor: "center", maxHeight: "90%" },
+		});
+		target.zoomRender = undefined;
+	}
+
+	pi.registerCommand("zoom", {
+		description: "Scrollable read-only view of an agent's stream: /zoom <name|rN>",
+		getArgumentCompletions: zoomCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const arg = args?.trim() || "";
+			// A research handle (rN/#N/N) targets a research helper; a delegate child
+			// id (e.g. "quality-1") targets a nested child; anything else is a team
+			// member name. All satisfy Zoomable, so the same overlay renders each.
+			const rid = parseResearchHandle(arg);
+			const target: Zoomable | undefined = rid != null
+				? researchStates.get(rid)
+				: arg
+					? agentStates.get(arg.toLowerCase()) ?? findDelegationChild(arg)?.child
+					: undefined;
+			if (!target) {
+				const teamKnown = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+				const researchKnown = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
+				const childKnown = Array.from(agentStates.values())
+					.flatMap(s => Array.from(s.delegations?.keys() || [])).join(", ");
+				const known = [teamKnown, researchKnown, childKnown].filter(Boolean).join(", ");
+				ctx.ui.notify(`Usage: /zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			await openZoom(target, ctx);
+		},
+	});
+
+	// Completions for /agent-model: persona names plus a `persona.role` entry per
+	// declared delegate sub-role, labeled with the model currently in effect.
+	const agentModelCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const personaItems = Array.from(agentStates.values()).map(s => ({
+			value: s.def.name,
+			label: `${displayName(s.def.name)} (${s.status})`,
+		}));
+		// Research personas (researcher / deep-researcher) are switchable too —
+		// spawned on demand, so they have no live status to show.
+		const researchItems = researchPersonas.map(d => ({
+			value: d.name,
+			label: `${displayName(d.name)} (research — ${shortModel(resolvedModel(d))})`,
+		}));
+		const roleItems = Array.from(agentStates.values()).flatMap(s =>
+			Object.entries(s.def.subagents || {}).map(([role, r]) => {
+				const override = subagentModelOverrides.get(`${s.def.name.toLowerCase()}.${role.toLowerCase()}`);
+				return {
+					value: `${s.def.name}.${role}`,
+					label: `${s.def.name}.${role} — ${shortModel(override ?? r.model)}${override ? " (switched)" : ""}`,
+				};
+			}),
+		);
+		const items = [...personaItems, ...researchItems, ...roleItems];
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /agent-model <persona>[.<role>] — switch a persona's model among its
+	// declared candidates (frontmatter `model:` + `models:`), or a delegate
+	// sub-role's model among its declared default + the parent persona's
+	// candidates. Session-lifetime: the choice resets on session_start and takes
+	// effect on the persona's NEXT dispatch (/agents-restart applies it
+	// immediately). Nothing outside the declared lists is ever selectable.
+	pi.registerCommand("agent-model", {
+		description: "Switch a persona's or sub-role's model from its declared candidates: /agent-model <persona>[.<role>]",
+		getArgumentCompletions: agentModelCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const arg = (args || "").trim().toLowerCase();
+
+			// Dot form: <persona>.<role> targets a delegate sub-role. Candidates are
+			// the role's declared model (default) + the parent's candidate list.
+			if (arg.includes(".")) {
+				const dot = arg.indexOf(".");
+				const personaName = arg.slice(0, dot);
+				const roleName = arg.slice(dot + 1);
+				const parent = agentStates.get(personaName);
+				const roles = parent?.def.subagents || {};
+				const roleKey = Object.keys(roles).find(r => r.toLowerCase() === roleName);
+				if (!parent || !roleKey) {
+					const valid = Array.from(agentStates.values()).flatMap(s =>
+						Object.keys(s.def.subagents || {}).map(r => `${s.def.name}.${r}`));
+					ctx.ui.notify(
+						`No sub-role "${arg}". Valid targets: ${valid.join(", ") || "none (no persona declares subagents:)"}`,
+						"error",
+					);
+					return;
+				}
+				const role = roles[roleKey];
+				const overrideKey = `${personaName}.${roleKey.toLowerCase()}`;
+				const candidates: string[] = [];
+				for (const m of [role.model, ...allowedModels(parent.def)]) {
+					if (m && !candidates.includes(m)) candidates.push(m);
+				}
+				const current = subagentModelOverrides.get(overrideKey) ?? role.model;
+				const options = candidates.map(m => {
+					const tags = [m === role.model ? "default" : "", m === current ? "current" : ""].filter(Boolean);
+					return tags.length ? `${m} (${tags.join(", ")})` : m;
+				});
+				const label = `${displayName(parent.def.name)}.${roleKey}`;
+				const choice = await ctx.ui.select(`Model for ${label}`, options);
+				if (choice === undefined) return;
+				const picked = candidates[options.indexOf(choice)];
+				if (picked === current) {
+					ctx.ui.notify(`${label} is already on ${picked}`, "info");
+					return;
+				}
+				if (picked === role.model) {
+					subagentModelOverrides.delete(overrideKey);
+				} else {
+					subagentModelOverrides.set(overrideKey, picked);
+				}
+				updateWidget();
+				ctx.ui.notify(
+					`${label} → ${picked} (applies on next dispatch of ${parent.def.name})`,
+					"success",
+				);
+				return;
+			}
+
+			const name = arg;
+			// Team member (live state) OR a research persona — both switchable.
+			const def = name ? switchablePersonaDef(name) : undefined;
+			if (!def) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => s.def.name),
+					...researchPersonas.map(d => d.name),
+				].join(", ");
+				ctx.ui.notify(`Usage: /agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
+				return;
+			}
+			if (!def.models || def.models.length === 0) {
+				ctx.ui.notify(
+					`${displayName(def.name)} declares no model candidates — add a \`models:\` list to ${def.file} or a \`models.${def.name}:\` override in .ai/agent-fleet-overrides.md.`,
+					"warning",
+				);
+				return;
+			}
+			const candidates = allowedModels(def);
+			const current = resolvedModel(def);
+			// A persona without a frontmatter default runs on the dispatcher's model —
+			// offer that as an explicit candidate so the override can be cleared.
+			const DISPATCHER_DEFAULT = "(dispatcher's model)";
+			if (!def.model) candidates.unshift(DISPATCHER_DEFAULT);
+			const options = candidates.map(m => {
+				const isDefault = def.model ? m === def.model : m === DISPATCHER_DEFAULT;
+				const isCurrent = current ? m === current : m === DISPATCHER_DEFAULT;
+				const tags = [isDefault ? "default" : "", isCurrent ? "current" : ""].filter(Boolean);
+				return tags.length ? `${m} (${tags.join(", ")})` : m;
+			});
+			const choice = await ctx.ui.select(`Model for ${displayName(def.name)}`, options);
+			if (choice === undefined) return;
+			const picked = candidates[options.indexOf(choice)];
+			const pickedIsCurrent = current ? picked === current : picked === DISPATCHER_DEFAULT;
+			if (pickedIsCurrent) {
+				ctx.ui.notify(`${displayName(def.name)} is already on ${picked}`, "info");
+				return;
+			}
+			if (picked === def.model || picked === DISPATCHER_DEFAULT) {
+				modelOverrides.delete(name);
+			} else {
+				modelOverrides.set(name, picked);
+			}
+			updateWidget();
+			// Research helpers spawn fresh each time, so the switch lands on their
+			// next spawn; team members apply on next dispatch (restartable now).
+			const applyHint = (def.kind || "").toLowerCase() === "research"
+				? "applies on next /research or spawn_research"
+				: `applies on next dispatch; /agents-restart ${def.name} to apply now`;
+			ctx.ui.notify(`${displayName(def.name)} → ${picked} (${applyHint})`, "success");
+			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
+				ctx.ui.notify(
+					`Note: ${displayName(def.name)} prefers a coms peer (dispatch-policy.yaml) — this model override only applies to native(-fallback) runs; the peer keeps its own model.`,
+					"info",
+				);
+			}
+		},
+	});
+
+	// Completions for /agent-model-thinking: persona names labeled with the
+	// thinking level currently in effect.
+	const agentThinkingCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = [
+			...Array.from(agentStates.values()).map(s => ({
+				value: s.def.name,
+				label: `${displayName(s.def.name)} — ${resolveThinkingLevel(resolvedThinking(s.def))}`,
+			})),
+			...researchPersonas.map(d => ({
+				value: d.name,
+				label: `${displayName(d.name)} (research) — ${resolveThinkingLevel(resolvedThinking(d))}`,
+			})),
+		];
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /agent-model-thinking <persona> — switch a persona's reasoning effort among
+	// pi's --thinking levels (off|minimal|low|medium|high|xhigh). Session-lifetime:
+	// the choice resets on session_start and takes effect on the persona's NEXT
+	// dispatch (/agents-restart applies it immediately). Selecting the frontmatter
+	// default clears the override.
+	pi.registerCommand("agent-model-thinking", {
+		description: "Switch a persona's thinking level from pi's --thinking levels: /agent-model-thinking <persona>",
+		getArgumentCompletions: agentThinkingCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = (args || "").trim().toLowerCase();
+			// Team member (live state) OR a research persona — both switchable.
+			const def = name ? switchablePersonaDef(name) : undefined;
+			if (!def) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => s.def.name),
+					...researchPersonas.map(d => d.name),
+				].join(", ");
+				ctx.ui.notify(`Usage: /agent-model-thinking <persona>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			const defaultLevel = resolveThinkingLevel(def.thinking);
+			const current = resolveThinkingLevel(resolvedThinking(def));
+			const levels = [...THINKING_LEVELS];
+			const options = levels.map(l => {
+				const tags = [l === defaultLevel ? "default" : "", l === current ? "current" : ""].filter(Boolean);
+				return tags.length ? `${l} (${tags.join(", ")})` : l;
+			});
+			const choice = await ctx.ui.select(`Thinking level for ${displayName(def.name)}`, options);
+			if (choice === undefined) return;
+			const picked = levels[options.indexOf(choice)];
+			if (picked === current) {
+				ctx.ui.notify(`${displayName(def.name)} is already on thinking: ${picked}`, "info");
+				return;
+			}
+			if (picked === defaultLevel) {
+				thinkingOverrides.delete(name);
+			} else {
+				thinkingOverrides.set(name, picked);
+			}
+			updateWidget();
+			// Research helpers spawn fresh each time, so the switch lands on their
+			// next spawn; team members apply on next dispatch (restartable now).
+			const applyHint = (def.kind || "").toLowerCase() === "research"
+				? "applies on next /research or spawn_research"
+				: `applies on next dispatch; /agents-restart ${def.name} to apply now`;
+			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "success");
+		},
+	});
+
+	// Completions for /models: profile names with their persona → model summary.
+	const modelProfileCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = Object.entries(modelProfiles).map(([name, entries]) => ({
+			value: name,
+			label: `${name} — ${Object.entries(entries).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
+		}));
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /models [profile] — apply a named model profile (a validated macro over the
+	// personas' declared candidates). Bare /models opens a picker.
+	pi.registerCommand("models", {
+		description: "Apply a model profile to the team: /models [profile]",
+		getArgumentCompletions: modelProfileCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = Object.keys(modelProfiles);
+			if (names.length === 0) {
+				ctx.ui.notify("No model profiles loaded — define .pi/agents/model-profiles.yaml (invalid profiles are dropped at session start).", "warning");
+				return;
+			}
+			let profileName = (args || "").trim();
+			if (!profileName) {
+				const options = names.map(n =>
+					`${n} — ${Object.entries(modelProfiles[n]).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
+				);
+				const choice = await ctx.ui.select("Select model profile", options);
+				if (choice === undefined) return;
+				profileName = names[options.indexOf(choice)];
+			}
+			const profile = modelProfiles[profileName];
+			if (!profile) {
+				ctx.ui.notify(`No profile "${profileName}". Known: ${names.join(", ")}`, "error");
+				return;
+			}
+			const applied: string[] = [];
+			for (const [persona, model] of Object.entries(profile)) {
+				const def = allAgentDefs.find(d => d.name.toLowerCase() === persona);
+				if (!def) continue; // validated at session start; defensive
+				if (model === def.model) modelOverrides.delete(persona);
+				else modelOverrides.set(persona, model);
+				applied.push(`${displayName(persona)} → ${shortModel(model)}`);
+			}
+			updateWidget();
+			ctx.ui.notify(`Profile "${profileName}": ${applied.join(", ")} (applies on next dispatch)`, "success");
+		},
+	});
+
+	// All known model strings across every persona (allowedModels union), deduped
+	// preserving first-seen order. Used for /agent-models-substitute autocomplete.
+	function allKnownModels(): string[] {
+		const seen = new Set<string>();
+		const out: string[] = [];
+		for (const def of allAgentDefs) {
+			for (const m of allowedModels(def)) {
+				if (m && !seen.has(m)) { seen.add(m); out.push(m); }
+			}
+		}
+		return out;
+	}
+
+	// Completions for /agent-models-substitute: a flat list of known models.
+	// Free text allowed too — we just suggest, never restrict, so ad-hoc targets
+	// (e.g. a model a persona does not declare) still produce a clean "skipped"
+	// report at apply time.
+	const substituteCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = allKnownModels().map(m => ({ value: m, label: m }));
+		if (items.length === 0) return null;
+		const p = prefix.toLowerCase();
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(p));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /agent-models-substitute <source> <target> — replace one model across all
+	// personas (team members + research + orchestrator; never the dispatcher).
+	// Per-persona validity: target must be in that persona's allowedModels.
+	// Applies session-lifetime (same lifetime as /agent-model); takes effect on
+	// the persona's NEXT dispatch (/agents-restart applies it immediately).
+	// One-step flow: dry-run summary is shown up front, then the swap is
+	// applied unconditionally — the operator runs the command to commit.
+	pi.registerCommand("agent-models-substitute", {
+		description: "Replace one model across all personas: /agent-models-substitute <source> <target>",
+		getArgumentCompletions: substituteCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (tokens.length !== 2) {
+				ctx.ui.notify(
+					`Usage: /agent-models-substitute <source> <target>. ` +
+					`Both must be model specs (e.g. openai-codex/gpt-5.3-codex-spark).`,
+					"error",
+				);
+				return;
+			}
+			const [source, target] = tokens;
+
+			// Build the dry-run. Walk every loaded persona (team + research +
+			// orchestrator all live in allAgentDefs) and decide per-persona:
+			//   - "match"   : current effective model === source AND target is a
+			//                 declared candidate → will be switched.
+			//   - "skip"    : any other case, with a reason.
+			const matches: { def: AgentDef; current: string }[] = [];
+			const skipped: { def: AgentDef; reason: string }[] = [];
+			for (const def of allAgentDefs) {
+				const current = resolvedModel(def);
+				if (!current) {
+					skipped.push({ def, reason: "no default model (runs on dispatcher's model)" });
+					continue;
+				}
+				if (current !== source) {
+					skipped.push({ def, reason: `current is ${current} (not ${source})` });
+					continue;
+				}
+				if (!allowedModels(def).includes(target)) {
+					skipped.push({ def, reason: `target ${target} not in declared candidates (model:/models: in ${def.file})` });
+					continue;
+				}
+				matches.push({ def, current });
+			}
+
+			// If target === source, the substitution is a no-op. We still report
+			// it so the operator sees that the request was understood.
+			if (source === target) {
+				ctx.ui.notify(
+					`Source and target are the same (${source}); nothing to do. ` +
+					`Affected: ${matches.length}, skipped: ${skipped.length}.`,
+					"info",
+				);
+				return;
+			}
+
+			// Apply: for every match, if the persona's frontmatter default IS the
+			// target, clear any existing override (so it tracks frontmatter
+			// updates); otherwise record target in modelOverrides. Mirrors
+			// /agent-model and /models.
+			const applied: string[] = [];
+			for (const { def } of matches) {
+				const key = def.name.toLowerCase();
+				if (def.model === target) {
+					modelOverrides.delete(key);
+				} else {
+					modelOverrides.set(key, target);
+				}
+				applied.push(`${displayName(def.name)}: ${source} → ${target}`);
+			}
+
+			const skipDetails = skipped.map(s => `${displayName(s.def.name)}: ${s.reason}`);
+			const summary = [
+				`Substitution ${source} → ${target}:`,
+				`  Affected: ${applied.length}${applied.length ? ` (${applied.join(", ")})` : ""}`,
+				`  Skipped: ${skipped.length}${skipped.length ? ` (${skipDetails.join("; ")})` : ""}`,
+				`  Applies on next dispatch (/agents-restart to apply now).`,
+			].join("\n");
+			updateWidget();
+			ctx.ui.notify(summary, applied.length > 0 ? "success" : "info");
+		},
+	});
+
+	// Completions for /research: research-persona names prefixed with @.
+	const researchPersonaCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = researchPersonas.map(d => ({
+			value: `@${d.name}`,
+			label: `@${d.name} — ${d.description.slice(0, 50)}`,
+		}));
+		if (items.length === 0) return null;
+		const p = prefix.toLowerCase();
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(p));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /research [@persona] [--model <spec>] <task> — spawn a read-only helper. Fire-and-
+	// forget: the result is delivered to the dispatcher as a follow-up turn.
+	pi.registerCommand("research", {
+		description: "Spawn a read-only research helper: /research [@persona] [--model <spec>] <task>",
+		getArgumentCompletions: researchPersonaCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			let rest = (args ?? "").trim();
+			let personaName: string | undefined;
+			let modelArg: string | undefined;
+
+			// Strip leading @persona / --model flags (order-tolerant), rest is the task.
+			for (;;) {
+				const sp = rest.indexOf(" ");
+				const tok = sp === -1 ? rest : rest.slice(0, sp);
+				if (tok.startsWith("@") && tok.length > 1) {
+					personaName = tok.slice(1);
+					rest = sp === -1 ? "" : rest.slice(sp + 1).trim();
+				} else if (tok === "--model") {
+					const after = sp === -1 ? "" : rest.slice(sp + 1).trim();
+					const sp2 = after.indexOf(" ");
+					modelArg = sp2 === -1 ? after : after.slice(0, sp2);
+					rest = sp2 === -1 ? "" : after.slice(sp2 + 1).trim();
+				} else if (tok.startsWith("--model=") && tok.length > 8) {
+					modelArg = tok.slice(8);
+					rest = sp === -1 ? "" : rest.slice(sp + 1).trim();
+				} else {
+					break;
+				}
+			}
+
+			const task = rest;
+			if (!task) {
+				ctx.ui.notify("Usage: /research [@persona] [--model <spec>] <task>", "error");
+				return;
+			}
+
+			let def: AgentDef;
+			let isPersona = false;
+			if (personaName) {
+				const found = researchPersonas.find(d => d.name.toLowerCase() === personaName!.toLowerCase());
+				if (!found) {
+					const available = researchPersonas.map(d => `@${d.name}`).join(", ") || "(none)";
+					ctx.ui.notify(`No research persona "@${personaName}". Available: ${available}`, "error");
+					return;
+				}
+				def = found;
+				isPersona = true;
+			} else {
+				def = anonResearchDef();
+			}
+
+			const resolvedModel = resolveResearchModel(def, isPersona ? undefined : modelArg, ctx);
+			const state = createResearchState(def, isPersona, resolvedModel);
+			updateResearchWidget();
+			ctx.ui.notify(`Research r${state.id} (${isPersona ? displayName(def.name) : "ad-hoc"}, read-only) started…`, "info");
+
+			// Fire-and-forget; deliver findings as a follow-up turn when done.
+			spawnResearch(state, task, ctx).then(result => deliverResearchFollowUp(state, result));
+		},
+	});
+
+	// Completions over research handles, annotated with status.
+	const researchHandleCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = Array.from(researchStates.values()).map(s => ({
+			value: `r${s.id}`,
+			label: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"} (${s.status})`,
+		}));
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// ── Unified subagent commands ────────────────
+	// Team specialists are addressed by persona name, research helpers by their rN
+	// handle — one command family covers both (mirroring /zoom's target resolution).
+	// The research-* commands remain as aliases of their agents-* counterparts.
+
+	// Resume a finished helper on its existing session. Shared by /agents-cont and
+	// its /research-cont alias.
+	const researchContHandler = async (args: string | undefined, ctx: any) => {
+		widgetCtx = ctx;
+		const trimmed = (args ?? "").trim();
+		const sp = trimmed.indexOf(" ");
+		if (sp === -1) {
+			ctx.ui.notify("Usage: /agents-cont rN <prompt>", "error");
+			return;
+		}
+		const rid = parseResearchHandle(trimmed.slice(0, sp));
+		const prompt = trimmed.slice(sp + 1).trim();
+		const state = rid != null ? researchStates.get(rid) : undefined;
+		if (!state) {
+			ctx.ui.notify(`No research helper "${trimmed.slice(0, sp)}". Use /research to start one.`, "error");
+			return;
+		}
+		if (!prompt) {
+			ctx.ui.notify("Usage: /agents-cont rN <prompt>", "error");
+			return;
+		}
+		if (state.status === "running") {
+			ctx.ui.notify(`Research r${state.id} is still running — wait for it to finish.`, "warning");
+			return;
+		}
+		state.turnCount++;
+		updateResearchWidget();
+		ctx.ui.notify(`Continuing research r${state.id} (Turn ${state.turnCount})…`, "info");
+		spawnResearch(state, prompt, ctx).then(result => deliverResearchFollowUp(state, result));
+	};
+
+	pi.registerCommand("agents-cont", {
+		description: "Continue a finished research helper: /agents-cont rN <prompt>",
+		getArgumentCompletions: researchHandleCompletions,
+		handler: researchContHandler,
+	});
+
+	pi.registerCommand("research-cont", {
+		description: "Continue a finished research helper (alias of /agents-cont): /research-cont rN <prompt>",
+		getArgumentCompletions: researchHandleCompletions,
+		handler: researchContHandler,
+	});
+
+	// Remove one research helper (SIGTERM if running) — the state, its card, and
+	// its session file. Team specialists are standing and cannot be removed.
+	function removeResearchHelper(state: ResearchState, ctx: any) {
+		if (state.proc && state.status === "running") {
+			state.killedByOperator = true;
+			state.proc.kill("SIGTERM");
+			ctx.ui.notify(`Research r${state.id} killed and removed.`, "warning");
+		} else {
+			ctx.ui.notify(`Research r${state.id} removed.`, "info");
+		}
+		try { unlinkSync(researchSessionPath(state.id)); } catch {}
+		researchStates.delete(state.id);
+		updateResearchWidget();
+	}
+
+	// Remove all helpers (SIGTERM any running). Shared by /agents-kill all and /research-clear.
+	function clearResearchHelpers(ctx: any) {
+		let killed = 0;
+		const total = researchStates.size;
+		for (const [, state] of Array.from(researchStates.entries())) {
+			if (state.proc && state.status === "running") {
+				state.killedByOperator = true;
+				state.proc.kill("SIGTERM");
+				killed++;
+			}
+			try { unlinkSync(researchSessionPath(state.id)); } catch {}
+		}
+		researchStates.clear();
+		nextResearchId = 1;
+		updateResearchWidget();
+		const msg = total === 0
+			? "No research helpers to clear."
+			: `Cleared ${total} research helper${total !== 1 ? "s" : ""}${killed > 0 ? ` (${killed} killed)` : ""}.`;
+		ctx.ui.notify(msg, total === 0 ? "info" : "success");
+	}
+
+	// /research-rm — alias of /agents-kill rN (kill on a research handle removes).
+	pi.registerCommand("research-rm", {
+		description: "Remove a research helper (alias of /agents-kill rN): /research-rm rN",
+		getArgumentCompletions: researchHandleCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const rid = parseResearchHandle((args ?? "").trim());
+			const state = rid != null ? researchStates.get(rid) : undefined;
+			if (!state) {
+				ctx.ui.notify(`Usage: /research-rm rN. Known: ${Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ") || "none"}`, "error");
+				return;
+			}
+			removeResearchHelper(state, ctx);
+		},
+	});
+
+	// /research-clear — alias of /agents-kill all.
+	pi.registerCommand("research-clear", {
+		description: "Remove all research helpers (alias of /agents-kill all)",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			clearResearchHelpers(ctx);
+		},
+	});
+
+	pi.registerCommand("dispatch-policy", {
+		description: "Show dispatch backend routing (dispatch-policy.yaml) for the active team",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			const live = new Set(comsReady && identity ? peersInScope().map(e => e.name.toLowerCase()) : []);
+			const lines = Array.from(agentStates.values()).map(s => {
+				const key = s.def.name.toLowerCase();
+				const sub = dispatchPolicy.substitutions[key];
+				const prefer = sub ? sub.prefer : dispatchPolicy.default === "coms" ? "coms" : "native";
+				if (prefer !== "coms") return `${displayName(s.def.name)}: native`;
+				const fb = sub?.fallback === "none" ? "coms-required" : "coms, fallback native";
+				return `${displayName(s.def.name)}: ${fb} — peer ${live.has(key) ? "LIVE" : "not in pool"}`;
+			});
+			const policyPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "dispatch-policy.yaml");
+			const src = existsSync(policyPath) ? ".pi/agents/dispatch-policy.yaml" : "(no dispatch-policy.yaml — all native)";
+			ctx.ui.notify(
+				`Dispatch backends — ${src}, default: ${dispatchPolicy.default}\n${lines.join("\n") || "(no active team)"}\n` +
+				`Routing is decided per dispatch against the live coms pool (/coms to refresh).`,
+				"info",
+			);
+		},
+	});
+
+	// Completions over both target kinds: team persona names + research handles
+	// (rN), each annotated with status — for the unified /agents-kill and
+	// /agents-restart.
+	const subagentTargetCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const items = [...(agentNameCompletions("") ?? []), ...(researchHandleCompletions("") ?? [])];
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	// /agents-kill completions additionally offer "all" (research helpers only).
+	const agentsKillCompletions = (prefix: string): AutocompleteItem[] | null => {
+		const targets = subagentTargetCompletions("") ?? [];
+		const items = researchStates.size > 0
+			? [...targets, { value: "all", label: "all — kill & remove every research helper" }]
+			: targets;
+		if (items.length === 0) return null;
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(prefix.toLowerCase()));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	pi.registerCommand("agents-kill", {
+		description: "Kill a running specialist, or kill & remove research helper(s): /agents-kill <name|rN|all>",
+		getArgumentCompletions: agentsKillCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = args?.trim();
+			// "all" clears every research helper (kill any running). Team specialists
+			// are standing — never touched by "all".
+			if (name?.toLowerCase() === "all") {
+				clearResearchHelpers(ctx);
+				return;
+			}
+			// An rN handle targets a research helper. Research helpers are disposable
+			// by design, so kill also REMOVES — the card, the state, and the session
+			// file go with the process (a finished helper is simply removed).
+			const rid = name ? parseResearchHandle(name) : null;
+			if (rid != null) {
+				const rState = researchStates.get(rid);
+				if (!rState) {
+					const known = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
+					ctx.ui.notify(`No research helper "${name}". Known: ${known || "none"}`, "error");
+					return;
+				}
+				removeResearchHelper(rState, ctx);
+				return;
+			}
+			const state = name ? agentStates.get(name.toLowerCase()) : undefined;
+			if (!state) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
+					...Array.from(researchStates.values()).map(s => `r${s.id}`),
+				].join(", ");
+				ctx.ui.notify(`Usage: /agents-kill <name|rN|all>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			if (state.status !== "running" || (!state.proc && !state.comsAbort)) {
+				ctx.ui.notify(`${displayName(state.def.name)} is not running — nothing to kill.`, "warning");
+				return;
+			}
+			// Coms-backed run: no local process to SIGTERM — only the wait can be
+			// released; the standing peer keeps running its turn in its own pane.
+			if (!state.proc) {
+				void cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "wait_only_cancelled" } });
+				ctx.ui.notify(`Abandoning ${displayName(state.def.name)}'s coms dispatch (the peer pane keeps running)...`, "info");
+				return;
+			}
+			// Branch A: SIGTERM the child's process group (killPiTree) so any live
+			// delegate children die with it. The close handler resolves the awaited
+			// dispatch with a "do not auto-retry" message, unblocking the dispatcher.
+			state.killedByOperator = true;
+			cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree });
+			ctx.ui.notify(`Killing ${displayName(state.def.name)}...`, "info");
+		},
+	});
+
+	pi.registerCommand("agents-restart", {
+		description: "Kill and re-run a specialist's (or re-run a finished research helper's) last task fresh: /agents-restart <name|rN>",
+		getArgumentCompletions: subagentTargetCompletions,
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = args?.trim();
+			// An rN handle re-runs a finished helper's last task on a fresh session
+			// (unlike /agents-cont, which resumes the existing one). A running helper
+			// can't be restarted mid-flight — spawnResearch's promise is held by its
+			// original caller, and /agents-kill removes the helper outright.
+			const rid = name ? parseResearchHandle(name) : null;
+			if (rid != null) {
+				const rState = researchStates.get(rid);
+				if (!rState) {
+					const known = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
+					ctx.ui.notify(`No research helper "${name}". Known: ${known || "none"}`, "error");
+					return;
+				}
+				if (rState.status === "running") {
+					ctx.ui.notify(`Research r${rState.id} is still running — wait for it to finish (or /agents-kill r${rState.id} to discard it and /research the task again).`, "warning");
+					return;
+				}
+				if (!rState.task) {
+					ctx.ui.notify(`Research r${rState.id} has no previous task to restart.`, "warning");
+					return;
+				}
+				rState.sessionFile = null;
+				rState.turnCount = 1;
+				updateResearchWidget();
+				ctx.ui.notify(`Restarting research r${rState.id} (fresh)...`, "info");
+				spawnResearch(rState, rState.task, ctx).then(result => deliverResearchFollowUp(rState, result));
+				return;
+			}
+			const state = name ? agentStates.get(name.toLowerCase()) : undefined;
+			if (!state) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
+					...Array.from(researchStates.values()).map(s => `r${s.id}`),
+				].join(", ");
+				ctx.ui.notify(`Usage: /agents-restart <name|rN>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			const task = state.task;
+			if (!task) {
+				ctx.ui.notify(`${displayName(state.def.name)} has no previous task to restart.`, "warning");
+				return;
+			}
+			// If it's mid-run, kill it and wait for the child to actually exit before
+			// re-dispatching (dispatchAgent rejects a re-entry while status is running).
+			// A coms-backed run has no process — abandoning the wait is the "kill".
+			if (state.status === "running" && (state.proc || state.comsAbort)) {
+				let resolveTermination!: () => void;
+				const terminated = new Promise<void>(res => { resolveTermination = res; });
+				state.onTerminate = resolveTermination;
+				if (state.proc) {
+					state.killedByOperator = true;
+					state.restarting = true;
+					killPiTree(state.proc);
+				} else {
+					await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "restart" } });
+				}
+				await terminated;
+			}
+			// Re-run fresh: a frozen session file may be inconsistent, so drop it (no -c).
+			state.sessionFile = null;
+			ctx.ui.notify(`Restarting ${displayName(state.def.name)} (fresh)...`, "info");
+			const result = await dispatchAgent(state.def.name, task, ctx);
+			// The original dispatch_agent tool call already returned, so deliver the
+			// fresh result to the dispatcher as a follow-up turn (subagent-widget style).
+			const truncated = result.output.length > 8000
+				? result.output.slice(0, 8000) + "\n\n... [truncated]"
+				: result.output;
+			const status = result.exitCode === 0 ? "completed" : "failed";
+			pi.sendMessage({
+				customType: "agent-restart-result",
+				content: `[${displayName(state.def.name)}] restarted by operator and ${status} in ${Math.round(result.elapsed / 1000)}s.\n\n${truncated}`,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+		},
+	});
+
+	pi.registerCommand("persona", {
+		description: "Select or reset the dispatcher persona (orchestrator flavor)",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			if (orchestratorPersonas.length === 0) {
+				ctx.ui.notify(
+					"No orchestrator personas found. Add a persona file with `kind: orchestrator` in agents/ or .pi/agents/.",
+					"warning",
+				);
+				return;
+			}
+			const options = [
+				"Reset to default (no persona)",
+				...orchestratorPersonas.map(p => `${displayName(p.name)} — ${p.description}`),
+			];
+			const choice = await ctx.ui.select("Select dispatcher persona", options);
+			if (choice === undefined) return;
+			if (choice === options[0]) {
+				dispatcherPersona = null;
+				ctx.ui.setStatus("dispatcher-persona", "Persona: Default");
+				ctx.ui.notify("Dispatcher persona reset to default", "success");
+				syncComsPurpose();
+				return;
+			}
+			const idx = options.indexOf(choice) - 1;
+			dispatcherPersona = orchestratorPersonas[idx] || null;
+			// Flavor-only — never narrows tools (decision G4).
+			ctx.ui.setStatus("dispatcher-persona", `Persona: ${displayName(dispatcherPersona!.name)}`);
+			ctx.ui.notify(`Dispatcher persona: ${displayName(dispatcherPersona!.name)}`, "success");
+			syncComsPurpose();
+		},
+	});
+
+	// ── Embedded coms: /coms + /handoff ──
+
+	// Completions over live peer names for /handoff.
+	const comsPeerCompletions = (prefix: string): AutocompleteItem[] | null => {
+		// Same pool scope as coms_send/handoff resolution — only offer peers you can reach.
+		const entries = peersInScope();
+		const items = entries.map(e => ({ value: e.name, label: `${e.name} — ${e.purpose || e.model}` }));
+		if (items.length === 0) return null;
+		const p = prefix.toLowerCase();
+		const filtered = items.filter(i => i.value.toLowerCase().startsWith(p));
+		return filtered.length > 0 ? filtered : items;
+	};
+
+	pi.registerCommand("coms", {
+		description: "Force-refresh the coms pool widget (or filter with --all / --project <name>)",
+		handler: async (args, ctx) => {
+			if (!comsReady) { ctx.ui.notify("coms is not active in this session.", "warning"); return; }
+			const trimmed = (args ?? "").trim();
+			if (trimmed.includes("--all")) {
+				includeExplicit = !includeExplicit;
+				try { ctx.ui.notify(`coms: include_explicit = ${includeExplicit}`, "info"); } catch { /* ignore */ }
+			}
+			const projectMatch = trimmed.match(/--project\s+(\S+)/);
+			if (projectMatch) {
+				displayProject = projectMatch[1];
+				try { ctx.ui.notify(`coms: displaying project ${displayProject}`, "info"); } catch { /* ignore */ }
+			}
+			if (herdrWatch) {
+				await herdrWatch.start(); // re-list + resubscribe + sync cards
+			} else {
+				await refreshPool();
+			}
+		},
+	});
+
+	// ━━ herdr presence: turn-state reporting ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	// The herdr sidebar mirrors turn state (idle ↔ working) push-style;
+	// context % rides the keepalive refresh.
+	pi.on("before_agent_start", async () => {
+		turnState = "working";
+		if (herdrPresence && identity) {
+			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+			void herdrPresence.report("working", formatPeerStatus(identity.name, pct, inboundQueue.size));
+		}
+	});
+	pi.on("agent_end", async () => {
+		turnState = "idle";
+		if (herdrPresence && identity) {
+			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+			void herdrPresence.report("idle", formatPeerStatus(identity.name, pct, inboundQueue.size));
+		}
+	});
+
+	// /handoff <peer> — hand the session off to a coms peer. Per decision G1 we do NOT
+	// extract the compaction summary; instead we ask the dispatcher LLM (next turn) to
+	// compose a SELF-CONTAINED brief and coms_send it, then await + relay the reply.
+	pi.registerCommand("handoff", {
+		description: "Hand the session off to a coms peer (the dispatcher composes a self-contained brief): /handoff <peer>",
+		getArgumentCompletions: comsPeerCompletions,
+		handler: async (args, ctx) => {
+			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /handoff unavailable.", "warning"); return; }
+			const target = (args ?? "").trim();
+			if (!target) {
+				ctx.ui.notify("Usage: /handoff <peer>. See the coms pool for live peer names.", "error");
+				return;
+			}
+			const peer = resolveTarget(target);
+			if (!peer) {
+				ctx.ui.notify(`coms: no live peer "${target}". Use /coms to refresh the pool.`, "error");
+				return;
+			}
+			const handoffToken = crypto.randomBytes(8).toString("hex");
+			pendingHandoff = { target: peer.name, token: handoffToken };
+			pi.sendMessage({
+				customType: "coms-handoff",
+				content:
+					`HANDOFF REQUEST → peer "${peer.name}".\n\n` +
+					`Compose a SELF-CONTAINED handoff brief (the peer does NOT share your context): state the ` +
+					`overall goal, what's been done so far, key decisions and constraints, the current status, ` +
+					`and the concrete next steps you want the peer to take. Then call ` +
+					`coms_send(target: "${peer.name}", handoff_token: "${handoffToken}", prompt: <the brief only; the hub appends the verification ledger and artifact index in code only when this token matches>), coms_await its msg_id, and relay ` +
+					`the peer's reply to me in ${userLanguage}.`,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+			ctx.ui.notify(`Handoff to ${peer.name}: asking the dispatcher to compose a brief…`, "info");
+		},
+	});
+
+	// /compound [focus] — end-of-session compound-learning pass. Mirrors /handoff's
+	// shape: the dispatcher LLM (which saw the whole session) composes the
+	// candidate-lessons brief itself, gates it on the user, then dispatches the
+	// documenter to land the approved lessons per skills/compound-learning/SKILL.md.
+	// The rules/docs targets come from the overrides file; artifacts travel as
+	// paths through the dispatch's `artifacts` array, never as pasted bodies.
+	pi.registerCommand("compound", {
+		description: "Capture this session's lessons into the project's rules/docs via the documenter: /compound [focus]",
+		handler: async (args, ctx) => {
+			if (!agentStates.has("documenter")) {
+				ctx.ui.notify(
+					"compound: the documenter persona is not in the active team — switch with /agents-team (e.g. default or release), then re-run /compound.",
+					"warning",
+				);
+				return;
+			}
+			const focus = (args ?? "").trim();
+			const rulesLine = projectRulesDirs.length > 0
+				? projectRulesDirs.join(", ")
+				: "(none declared in .ai/agent-fleet-overrides.md — the documenter must locate an existing rules tree or, failing that, propose lessons without writing)";
+			const docsLine = projectDocsPaths.length > 0
+				? projectDocsPaths.join(", ")
+				: "(none declared)";
+			pi.sendMessage({
+				customType: "compound-learning",
+				content:
+					`COMPOUND REQUEST — capture this session's lessons into the project's rules and docs (compound-learning pass).\n\n` +
+					`1. From THIS session's context, compose a candidate-lessons brief: user corrections, review findings that recurred, ` +
+					`wrong assumptions that cost rework, debugging root causes, and changes that invalidated existing docs. At most 5 lessons; ` +
+					`each is one imperative sentence plus a one-line Why (the failure it prevents) and a one-line Evidence (what happened this session). ` +
+					`${focus ? `Focus especially on: ${focus}. ` : ""}` +
+					`If nothing rises to a lesson, tell the user there is nothing worth compounding and stop.\n` +
+					`2. Confirm the list with the user in ${userLanguage} (ask_user when available) — they approve, trim, or reword. Do not dispatch before this confirmation.\n` +
+					`3. Dispatch the documenter with a SELF-CONTAINED task (it shares none of your context) containing: the approved lessons verbatim ` +
+					`(with Why + Evidence); the project rule folders: ${rulesLine}; the docs entry points: ${docsLine}; the assertion ledger path ` +
+					`.pi/agent-sessions/assertions.json (when it exists); and the instruction to read skills/compound-learning/SKILL.md and follow it exactly — ` +
+					`dedupe index-first against the existing rule tree, minimal diffs on existing files, caps of 5 lessons / 1 new file. State that the user ` +
+					`already approved this lesson list, so it may apply without a second gate. Pass the relevant review/return/evidence artifact paths via the ` +
+					`dispatch's artifacts array — paths only, never pasted bodies.\n` +
+					`4. Relay the documenter's file-by-file result to me in ${userLanguage}.`,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+			ctx.ui.notify("Compound: asking the dispatcher to compose the candidate-lessons brief…", "info");
+		},
+	});
+
+	// ── ask_user wait tracking (for /agents-history real-work) ──
+	// pi-ask-user blocks the dispatcher turn while the human answers. Bracket each
+	// ask_user call with its tool_execution start/end so /agents-history can subtract
+	// that "away from keyboard" time from the dispatcher's real work.
+	pi.on("tool_execution_start", async (event) => {
+		if (event.toolName === "ask_user") askUserStarts.set(event.toolCallId, Date.now());
+	});
+	pi.on("tool_execution_end", async (event) => {
+		if (event.toolName !== "ask_user") return;
+		const startedAt = askUserStarts.get(event.toolCallId);
+		askUserStarts.delete(event.toolCallId);
+		if (startedAt == null) return;
+		const interval: [number, number] = [startedAt, Date.now()];
+		// Attach to the live dispatcher entry, or buffer until one is created this turn.
+		if (currentOrchestratorEntry) (currentOrchestratorEntry.awaitIntervals ??= []).push(interval);
+		else turnAskUserIntervals.push(interval);
+		historyRender?.();
+	});
+
+	// ── System Prompt Override ───────────────────
+
+	pi.on("before_agent_start", async (_event, _ctx) => {
+		// Open a fresh dispatcher turn for /agents-history. The orchestrator entry is
+		// created lazily (only if this turn actually dispatches), so chat-only turns
+		// add no history rows. Defensively close any entry a prior turn left open
+		// (e.g. an aborted turn where agent_end never fired).
+		if (currentOrchestratorEntry && currentOrchestratorEntry.endedAt === null) {
+			currentOrchestratorEntry.endedAt = Date.now();
+			if (currentOrchestratorEntry.status === "running") currentOrchestratorEntry.status = "done";
+		}
+		turnActive = true;
+		currentTurnStartedAt = Date.now();
+		currentOrchestratorEntry = null;
+		askUserStarts.clear();
+		turnAskUserIntervals.length = 0;
+		// Fresh turn → fresh budget window (mode itself persists across turns).
+		// The tier and the duplicate guard are turn-scoped too: a new user message
+		// is a new ask, so it re-triages and may legitimately repeat a task.
+		turnDispatchCount = 0;
+		turnResearchCount = 0;
+		turnTaskTier = null;
+		turnDispatchFingerprints.clear();
+		// Snapshot the previous turn's cost report before opening a fresh one.
+		if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) {
+			lastTurnReport = turnReport;
+			sessionTotals.turns++;
+		}
+		turnReport = freshTurnReport();
+		updateModeStatus();
+
+		// Build dynamic agent catalog from active team only
+		const agentCatalog = Array.from(agentStates.values())
+			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}`)
+			.join("\n\n");
+
+		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+
+		// Research personas (kind: research) the dispatcher can spawn read-only via
+		// spawn_research. Independent of team membership.
+		const researchCatalog = researchPersonas.length > 0
+			? researchPersonas
+				.map(d => `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${resolvedModel(d) || "(dispatcher's default)"} · **Thinking:** ${resolveThinkingLevel(resolvedThinking(d))}\n${d.description}`)
+				.join("\n\n")
+			: "(No research personas defined. Call `spawn_research` without `persona` for an ad-hoc read-only helper.)";
+
+		// Two flavors of the system prompt depending on whether ask_user is
+		// registered (i.e. pi-ask-user is installed). Without it the dispatcher
+		// must state assumptions explicitly instead of asking.
+		const askUserBlock = askUserAvailable
+			? `## When to call \`ask_user\` (non-negotiable triggers)
+- Requirements are ambiguous, incomplete, or contradictory.
+- Multiple valid approaches exist and the trade-off is preference-dependent
+  (architecture, library choice, naming, scope cuts).
+- A specialist returned an \`ASK_USER:\` marker — surface every one.
+- A specialist's output contradicts an earlier specialist's output, or contradicts
+  the user's stated requirement — ask the user to resolve it.
+- The next dispatch would be costly to undo (destructive edit, migration, mass
+  rename, production-facing change, secret/credential handling).
+- You're about to assume a value (path, version, flag, threshold) the user did
+  not specify.
+
+Calling \`ask_user\`:
+- Read the tool's own description for the exact parameter shape — different
+  installs ship slightly different schemas. Always pass \`question\` and, when
+  helpful, \`context\` (a 1–3 line summary of what you've already found).
+- Provide multiple-choice \`options\` whenever you can enumerate 2–6 valid
+  answers — it's faster for the user than free text.
+- Ask exactly **one** focused question per call. Do not bundle unrelated questions.`
+			: `## ask_user is NOT available in this session
+The \`pi-ask-user\` package is not installed, so you have no interactive way to
+ask the human. You MUST instead:
+- State every assumption explicitly in ${userLanguage} before dispatching.
+- Phrase it as: "Assuming X (because Y) — say STOP/correct if wrong, otherwise I'll proceed."
+- Wait for the user's next message before continuing on anything destructive.
+- For \`ASK_USER:\` markers raised by specialists, relay the question verbatim to
+  the user in ${userLanguage} and wait for their reply in the next turn.`;
+
+		const toolList = askUserAvailable
+			? "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), `set_task_tier` (classify the ask before the first dispatch), `team_adjust` (add/drop a team persona, sparingly), `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger), and `ask_user` (talk to the human)"
+			: "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), `set_task_tier` (classify the ask before the first dispatch), `team_adjust` (add/drop a team persona, sparingly), and `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger). `ask_user` is NOT available — see the section below";
+
+		const dispatchSection = askUserAvailable
+			? `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
+  ways, call \`ask_user\` first. Never invent constraints or "reasonable defaults"
+  the user did not state.
+- Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
+  augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
+- For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
+- After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
+  the result \`details.questions\`). For each one: call \`ask_user\` in ${userLanguage},
+  then re-dispatch the specialist with the answer.`
+			: `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
+  ways, STATE your assumption explicitly in ${userLanguage} and wait for the user
+  to correct it. Never invent constraints or "reasonable defaults" silently.
+- Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
+  augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
+- For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
+- After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
+  the result \`details.questions\`). For each one: relay it verbatim to the user
+  in ${userLanguage} and wait for the reply before re-dispatching.`;
+
+		const ambiguityRule = askUserAvailable
+			? `- NEVER proceed past an ambiguity by guessing. Either call \`ask_user\`, or state
+  the assumption explicitly in ${userLanguage} and say you'll proceed unless corrected.`
+			: `- NEVER proceed past an ambiguity by guessing. State the assumption explicitly
+  in ${userLanguage} and wait for the user to confirm or correct.`;
+
+		const languageLines = askUserAvailable
+			? `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
+  write to the user, every \`ask_user\` question and \`context\` field — ${userLanguage}.
+- Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
+  personas are written in English; do not translate task descriptions for them.
+- When a specialist emits an \`ASK_USER:\` line in English, translate it to
+  ${userLanguage} before passing it through \`ask_user\`.${userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : ""}`
+			: `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
+  write to the user is ${userLanguage}.
+- Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
+  personas are written in English; do not translate task descriptions for them.
+- When a specialist emits an \`ASK_USER:\` line in English, translate it to
+  ${userLanguage} before relaying to the user.${userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : ""}`;
+
+		// ── Execution mode section + mode-conditional Verification Contract ──
+		// The mode is the dispatcher's operating envelope: the hub ENFORCES the
+		// budgets in code (dispatch_agent/spawn_research refuse past them); the
+		// prompt teaches the dispatcher to plan within them instead of hitting them.
+		const budget = currentBudget();
+		const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
+		const capMin = (ms: number | null) => (ms == null ? "unlimited" : `${Math.round(ms / 60_000)} min`);
+		const modeSection = `## Task triage (FIRST, before any dispatch)
+Call \`set_task_tier\` to classify THIS turn's ask — the hub lowers the enforced caps
+to min(mode, tier), so an honest tier is how you avoid burning budget on ceremony:
+- trivial — one obvious, low-risk change (1 dispatch, 1 research). No ledger, no review pipeline.
+- small — a contained change in familiar code (2 dispatches, 2 research). At most 3 narrow assertions.
+- feature — a normal multi-step feature (6 dispatches, 4 research). Ledger + one review gate.
+- project — a large, multi-phase effort (mode budget applies). Full rigor per the mode.
+If you skip the call, the hub assumes "feature". Re-call it (say why) if the ask turns
+out bigger — raising the tier mid-turn is allowed. Tie the tier to the USER'S ask, not
+to how interesting the work is.
+- A provided plan is a SPEC: when the user hands you an existing plan/task list (a PLAN
+  file, a numbered breakdown), do NOT re-plan or re-spec it. Skip planner and
+  plan-reviewer; batch the plan's tasks straight to the builder and use the plan's own
+  acceptance criteria as the assertions.
+- Using every persona is a smell, not a virtue: each dispatch must change the outcome.
+  If a dispatch's absence would change nothing, don't make it.
+
+## Execution mode: ${hubMode}${turnTaskTier ? ` · tier: ${turnTaskTier}` : ""}
+Budgets for THIS user turn (enforced by the hub — exhausted budgets make dispatch_agent/
+spawn_research refuse; a new user message opens a fresh window; /hub-mode switches mode):
+- dispatch_agent calls: ${cap(budget.maxDispatches)} · spawn_research calls: ${cap(budget.maxResearch)}
+- turn wall clock: ${capMin(budget.wallMs)} · per-run deadline: ${capMin(budget.agentTurnMs)}
+Plan within the budget: batch related work into ONE dispatch (a coherent slice of 4–6
+plan tasks, not one dispatch per micro-task), and when a budget refusal comes back, STOP —
+summarize progress and ask the user; never retry the refused call in the same turn.
+Repeating an identical task to the same agent in one turn is refused in code
+(duplicate guard) — use the earlier result or change the task materially.
+Every task you dispatch states four things: the objective, the expected output format,
+the files in scope (also pass them as \`scope\` globs — they arm the live drift watchdog),
+and the boundaries (what NOT to touch). Vague tasks produce duplicated or drifting work.
+${hubMode === "fast"
+	? `FAST mode rules: this is a single-specialist path for small, low-risk asks.
+- Use at most ONE specialist dispatch (plus one research call only if truly needed).
+- Skip the assertion ledger and the plan/review pipeline; rely on the specialist's own
+  verification and report back.
+- Nested delegation is disabled; do not commission inventories or parity audits.
+- If the task turns out to be larger than fast mode fits, say so and ask the user to
+  switch modes (/hub-mode standard) instead of burning the budget.`
+	: hubMode === "standard"
+		? `STANDARD mode rules: rigor where it pays, batching everywhere else.
+- At most ONE reconnaissance pass before building (skip it for familiar code); prefer the
+  specialist's own recon over a separate research run.
+- Execute plans in a FEW large batches (4–6 tasks per builder dispatch), each followed by
+  ONE verification gate; do not re-audit everything after every small fix — re-verify only
+  the assertions the fix touched.
+- One review gate at the end (code review; security only when the change is
+  security-sensitive) — not one per micro-slice.
+- Reserve deep-researcher for genuinely cross-cutting questions (max 1–2 per task).`
+		: `STRICT mode rules: the full Verification Contract below applies — use for production
+migrations, security-sensitive work, or when the user explicitly asks for it. The wide
+budgets are a checkpoint, not a target: when one is hit, stop and check in with the user.`}
+`;
+
+		const fullVerificationContract = `## Verification Contract (assertion ledger)
+A clearly stated requirement must never be silently dropped. You OWN a ledger of checkable
+acceptance assertions; build it before you dispatch, and refuse "done" until each is proven.
+- BEFORE dispatching a builder for any non-trivial task, convert the request into numbered
+  assertions and record them with \`set_assertions\` — one pass condition each, tagged
+  test | runtime-ui | code-grep | manual (see skills/orchestration-verification/SKILL.md).
+  Pass the relevant assertions VERBATIM into each dispatch.
+- Keep assertions NARROW: one subsystem / one behavior each. Never bundle several
+  subsystems into one giant assertion — a compound assertion forces a full re-audit after
+  every small fix. After a fix, re-verify the touched assertions only.
+- After each verification gate, call \`update_assertion\` with proven (and name the evidence),
+  unproven, or failed. Advance ONLY on proven; unproven and failed both mean not done.
+- A runtime-ui assertion (visibility, placement, "appears in the table") is proven only by an
+  actual runtime observation — dispatch a browser-capable specialist; a static review never
+  closes it.
+- For "make X behave like existing Y" requests, FIRST spawn_research a deep-researcher parity
+  inventory of every site where the exemplar is special-cased, and turn each site into an
+  assertion — otherwise the exemplar ships and its siblings are missed.
+- On a "wrong again" correction, call \`set_assertions\` again to rebuild the ledger from the
+  LATEST correction before re-dispatching (a regression reset — old summaries are now suspect).
+- After a context compaction your status line shows only counts (e.g. "2✓ 3○"), not the
+  assertion text. Call \`get_assertions\` to read the full ledger back — ids, tags, pass
+  conditions, and the named evidence on each proven/failed assertion — before you re-dispatch
+  or report done. This is your bounded read-only window onto recorded ground truth; you do not
+  author code.
+- Specialist returns land pre-parsed in \`details.structuredReturn\` with the raw return at
+  \`details.returnPath\` — read the digest/path directly; NEVER spawn a research helper just to
+  read a return artifact you already hold.
+The ledger is persisted and its status is shown to the human; it is advisory — it informs your
+gating, it does not auto-block a dispatch.`;
+
+		const verificationSection = hubMode === "fast"
+			? `## Verification (fast mode)
+The assertion ledger is OPTIONAL in fast mode. State what was asked, dispatch the one
+specialist, and verify from its returned evidence (command output, file:line). If the
+request carries real acceptance criteria or turns risky, ask the user to switch to
+standard/strict instead of improvising rigor here.`
+			: fullVerificationContract;
+
+		// Peer section only when coms initialised. Decision G4: the coms_* tools are
+		// already in the active tool surface when ready; here we just teach the
+		// dispatcher how and when to reach for them.
+		const comsSection = comsReady && identity
+			? `
+## Peer agents (coms)
+You are ALSO a peer on the coms mesh — project "${identity.project}", name "${identity.name}". Beyond
+your own team you can talk to the peers in your coms POOL — the agents shown in the pool widget:
+- \`coms_list\` — discover the peers in your pool (names, models, live context usage). The pool is
+  scoped to YOUR project and excludes private (explicit) peers. You CANNOT widen this — only the human
+  can, with \`/coms --project <name>\` or \`/coms --all\`. Do not ask coms_list for other projects.
+- \`coms_send\` returns a msg_id; then \`coms_await\` (blocking) or \`coms_get\` (poll) reads the reply.
+  This lets you use a peer as an on-demand subagent: send a SELF-CONTAINED task, await it, and fold the
+  result into your plan. A peer does NOT share your context — spell out everything it needs.
+- Only peers in your pool are reachable. \`coms_send\`/\`/handoff\` to anyone outside it is refused. If
+  you need a peer that is not in the pool, ASK THE HUMAN to widen scope (\`/coms --project\`/\`--all\`),
+  then retry. Do not pass cross-project context to a peer unless the human approved that reach.
+- Prefer \`dispatch_agent\`/\`spawn_research\` for in-team work; reach for coms when a task needs another
+  STANDING agent already in your pool (a human-driven peer, a specialist outside this team).
+- A peer can also address YOU as a subagent — answer an inbound coms prompt as a normal turn.
+- Some team members may be transparently served by a same-name pool peer (dispatch-policy.yaml).
+  This changes NOTHING for you: keep dispatching them via \`dispatch_agent\`; never coms_send the
+  same task to their peer as well.
+`
+			: "";
+
+		const orchestratorPrompt = `You are a dispatcher agent — an orchestrator. You coordinate specialist agents
+to accomplish tasks. You do NOT have direct access to the codebase. You have ${toolList}.
+
+## Language
+${languageLines}
+
+## Active Team: ${activeTeamName}
+Members: ${teamMembers}
+You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents
+outside this team. The roster CAN change mid-session: the human via /agents-add,
+/agents-drop, /agents-team — or you via \`team_adjust\` (add/drop with a reason)
+when the current roster genuinely cannot serve the task. Use it sparingly; more
+personas is usually the wrong answer.
+
+## How to Work
+- Analyze the user's request and break it into clear sub-tasks.
+- Choose the right agent(s) for each sub-task.
+${dispatchSection}
+- Review results and dispatch follow-up agents if needed.
+- If a task fails, try a different agent or adjust the task description.
+- Summarize the outcome for the user in ${userLanguage}.
+
+${askUserBlock}
+
+${modeSection}
+${verificationSection}
+
+## Research helpers (read-only)
+- \`spawn_research\` runs a READ-ONLY helper (read/grep/find/ls — no bash, no writes)
+  and returns its findings to you inline. Use it for reconnaissance, code search, and
+  reading docs/code BEFORE you dispatch a builder — or to fan out background research.
+- Two flavours: pass \`persona\` to spawn one of the research personas listed below (it
+  brings its own role/model); omit \`persona\` for an ad-hoc helper (optional \`model\`).
+- Match the helper to the job: use a lighter/faster persona for simple reads and a
+  higher-capability one for ambiguous, cross-cutting, or high-stakes research. Compare
+  the **Model** / **Thinking** shown for each persona below and pick deliberately.
+- Specialists you dispatch are sandboxed and CANNOT spawn their own helpers. When a
+  specialist needs research help, YOU run \`spawn_research\`, collect the findings, and
+  fold them into the specialist's task — do not ask the specialist to do it itself.
+- Research helpers are ephemeral and read-only, so they are always safe to run.
+${comsSection}${herdrFleetReady ? `
+## Fleet (herdr)
+This session runs inside a herdr workspace and can drive panes:
+- \`herdr_spawn_peer\` stands up an extra worker next to you — a persona peer (joins the coms
+  pool, then talk to it via \`coms_send\`) or a raw command pane (a build watcher, a server).
+  Spawn deliberately; every pane is a process the human sees. Tear down what you spawned.
+- \`herdr_read_pane\` is read-to-decide: peek at a worker/tool pane's recent output before
+  acting on it. It is NOT a messaging channel — prefer \`coms_send\`/\`coms_await\` for pi and
+  bridged peers; reading screens is the last resort for unbridged tools.
+- \`herdr_close_pane\` kills a pane and asks the HUMAN to confirm first. Close only panes you
+  spawned, when their job is done or they are stuck.
+- \`herdr_notify\` reaches the human via desktop notification when they are away — use it when
+  a long fleet task finishes or needs attention; it does not replace \`ask_user\`.
+` : ""}
+## Hard Rules
+- NEVER try to read, write, or execute code directly — you have no such tools.
+- ALWAYS use \`dispatch_agent\` to get work done; use \`spawn_research\` for read-only recon.
+${ambiguityRule}
+- You can chain agents: spawn_research to gather context, builder to implement.
+- You can dispatch the same agent multiple times with different tasks.
+- Keep tasks focused — one clear objective per dispatch.
+
+## Agents
+
+${agentCatalog}
+
+## Research personas
+
+${researchCatalog}`;
+
+		// Flavor-only persona merge (decision 9 / G4): the dispatcher persona's body
+		// goes FIRST, then the orchestration rules. The persona enriches the role; it
+		// never replaces the orchestrator prompt and never narrows the tool surface.
+		const systemPrompt = dispatcherPersona
+			? `${dispatcherPersona.systemPrompt}\n\n${orchestratorPrompt}`
+			: orchestratorPrompt;
+
+		return { systemPrompt };
+	});
+
+	// ── Persona gate: block input until a dispatcher persona is picked ──
+	pi.on("input", async (_event, ctx) => {
+		if (personaGateEnabled && !personaGateSatisfied) {
+			ctx.ui.notify("Pick a dispatcher persona first (see the select dialog).", "warning");
+			return { action: "handled" as const };
+		}
+		return { action: "continue" as const };
+	});
+
+	// ── Session Start ────────────────────────────
+
+	pi.on("session_start", async (_event, _ctx) => {
+		registerVersionStatus(_ctx);
+		accessApprovalRouter.reset();
+		// Clear widgets + any research helpers from a previous session
+		for (const [, st] of Array.from(researchStates.entries())) {
+			if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); }
+		}
+		researchStates.clear();
+		nextResearchId = 1;
+		// Wipe the /agents-history log from any previous session.
+		executionHistory.length = 0;
+		currentOrchestratorEntry = null;
+		turnActive = false;
+		askUserStarts.clear();
+		turnAskUserIntervals.length = 0;
+		if (widgetCtx) {
+			widgetCtx.ui.setWidget("agent-team", undefined);
+			widgetCtx.ui.setWidget("agent-research", undefined);
+		}
+		// Stop tailing any delegation event files from a previous session.
+		for (const [, st] of Array.from(agentStates.entries())) {
+			st.delegationsWatcher?.close();
+			st.delegationsWatcher = undefined;
+		}
+		delegatedTokens = 0;
+		widgetCtx = _ctx;
+		contextWindow = _ctx.model?.contextWindow || 0;
+		safetyHarnessPath = resolveSafetyHarness(_ctx.cwd);
+		if (!safetyHarnessPath) {
+			_ctx.ui.notify(
+				"damage-control-continue harness not found — native child dispatches will be refused. Install .pi/harnesses/damage-control-continue/.",
+				"error",
+			);
+		}
+		delegateExtPath = resolveDelegateExtension(_ctx.cwd);
+
+		const monitorConfig = monitorLifecycleConfig(process.env);
+		if (monitorBridge || monitorLifecycle) { try { await monitorBridge?.cancelAllWaitOnly(); await monitorLifecycle?.stop(); } finally { monitorBridge=null; monitorLifecycle=null; } }
+		if (monitorConfig) {
+			try {
+				fs.mkdirSync(monitorConfig.profilePath, { recursive: true, mode: 0o700 });
+				const stableHubId = stableMonitorHubId({ profileId: monitorConfig.profileId, checkout: _ctx.cwd || process.cwd(), workspaceId: process.env.HERDR_WORKSPACE_ID, paneId: process.env.HERDR_PANE_ID });
+				monitorHubId = stableHubId;
+				const store = new MonitorStore();
+				const monitorRegistry = new MonitorRegistry({ runtimeDir: monitorConfig.runtimeDir });
+				monitorLifecycle = createMonitorLifecycle({
+					registry: monitorRegistry,
+					treeKill: killPiTree,
+					wait: (proc: ChildProcess) => new Promise<boolean>((resolve) => proc.once("close", () => resolve(true))),
+					getRecoveryEvidence: async (task: any) => {
+						if (task?.ownerSessionId) {
+							const evidence = monitorRegistry.evidenceForOwner(task.ownerSessionId, task.hubInstanceId ?? stableHubId);
+							if (evidence.transient) return { transient: true };
+							const herdr = await monitorReconcileEvidence({
+								hubId: task.hubInstanceId ?? stableHubId,
+								currentHubId: stableHubId,
+								paneId: process.env.HERDR_PANE_ID,
+								workspaceId: process.env.HERDR_WORKSPACE_ID,
+								herdr: {
+									pane: { get: async (id: string) => (await herdrApi.paneGet(id)).pane },
+									workspace: { get: async (id: string) => {
+										const panes = await herdrApi.paneList({ workspace_id: id });
+										return panes.panes.length ? { id } : null;
+									} },
+								},
+							});
+							return {
+								oldOwner: evidence.owner,
+								oldSocket: evidence.socket,
+								oldSession: evidence.session,
+								oldHerdr: herdr.herdr,
+								transient: herdr.transient,
+							};
+						}
+						return monitorReconcileEvidence({
+							owner: monitorLifecycle?.isAlive(),
+							socket: monitorLifecycle?.isAlive(),
+							session: true,
+							hubId: stableHubId,
+							currentHubId: stableHubId,
+							paneId: process.env.HERDR_PANE_ID,
+							workspaceId: process.env.HERDR_WORKSPACE_ID,
+							herdr: {
+								pane: { get: async (id: string) => (await herdrApi.paneGet(id)).pane },
+								workspace: { get: async (id: string) => {
+									const panes = await herdrApi.paneList({ workspace_id: id });
+									return panes.panes.length ? { id } : null;
+								} },
+							},
+						});
+					},
+				});
+				monitorBridge = createMonitorSessionBridge({
+					runtime: new MonitorRuntime({
+						runtimeDir: monitorConfig.runtimeDir,
+						profileId: monitorConfig.profileId,
+						hubInstanceId: stableHubId,
+					}),
+					registerOwnedProcess: (_key: string, process: ChildProcess, task: any) => monitorLifecycle?.registerOwnedGeneration({
+						taskId: task.id,
+						generation: task.generation,
+						process,
+					}),
+					cancelOwnedProcess: (request: any) => monitorLifecycle?.lowLevelCancelOwnedGeneration(request) ?? {
+						cancelled: false,
+						reason: "unsupported",
+					},
+				});
+				if (!monitorBridge.snapshot().tasks.some((task: any) => task.kind === "parent")) monitorBridge.startParent({ id: `hub-turn-${stableHubId}`, hubInstanceId: stableHubId, checkoutId: _ctx.cwd || process.cwd() });
+				await monitorLifecycle.startBridge(monitorBridge, { profilePath: monitorConfig.profilePath, profileId: monitorConfig.profileId, hubInstanceId: stableHubId });
+			} catch (error) {
+				monitorLifecycle = null;
+				_ctx.ui.notify(`Agent Fleet monitor disabled: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			}
+		}
+
+		// ── Embedded coms init ──
+		// Always refresh the ctx the coms handlers use. Bind the endpoint + register
+		// in the pool exactly once per process (guard on comsReady), so a /new session
+		// keeps the same peer identity rather than leaking a second socket. On any
+		// failure we degrade: comsReady stays false and the coms_* tools are withheld.
+		currentCtx = _ctx;
+		const soloMode = pi.getFlag("solo") === true;
+		if (!comsReady && !soloMode) {
+			try {
+				const flags = readCliFlags(pi);
+				const fm = readFrontmatterFromArgv(process.argv);
+				const project = flags.project || "default";
+				const explicit = flags.explicit === true;
+				const session_id = ulid();
+				const defaultName = `hub-${session_id.slice(-6)}`;
+				// pi's built-in `--name` (session display name) shadows the `--name` flag
+				// the embedded coms layer registers, so `flags.name` (getFlag) stays empty
+				// when a user passes `--name`. Recover it via getSessionName() — it ranks
+				// like the CLI flag (above frontmatter), so `just hub --name foo` is honored.
+				const sessionName = typeof pi.getSessionName === "function" ? (pi.getSessionName() || undefined) : undefined;
+				const desiredName = flags.name || sessionName || fm.name || defaultName;
+				const name = resolveUniqueName(project, desiredName);
+				if (name !== desiredName) {
+					try { pi.appendEntry("coms-log", { event: "name_collision", desired: desiredName, assigned: name, project }); } catch { /* best-effort */ }
+				}
+				comsPurposeExplicit = !!flags.purpose;
+				comsBasePurpose = flags.purpose || fm.description || "agent-hub dispatcher";
+				const purpose = comsBasePurpose;
+
+				// Color: --color CLI flag > frontmatter color > deterministic fallback.
+				let color = fallbackColor(session_id);
+				if (fm.color && isValidHex(fm.color)) color = fm.color;
+				if (flags.color && isValidHex(flags.color)) color = flags.color;
+
+				const endpoint = makeEndpoint(session_id);
+				const cwd = _ctx.cwd || process.cwd();
+				const model = _ctx.model?.id ?? "unknown";
+
+				fs.mkdirSync(path.join(COMS_DIR, "projects", project, "agents"), { recursive: true });
+				if (process.platform !== "win32") {
+					fs.mkdirSync(path.join(COMS_DIR, "sockets"), { recursive: true });
+					try { fs.chmodSync(COMS_DIR, 0o700); } catch { /* best-effort */ }
+				}
+
+				server = await bindEndpoint(endpoint, connHandler);
+
+				const entry: RegistryEntry = {
+					session_id, name, purpose, model, color,
+					pid: process.pid, endpoint, cwd,
+					started_at: nowIso(), explicit, version: 1,
+				};
+				const registryFile = writeRegistryAtomic(entry, project);
+
+				identity = { session_id, name, purpose, color, project, explicit, cwd, model, endpoint, registryFile };
+				includeExplicit = false;
+				displayProject = project;
+				comsReady = true;
+				try { pi.appendEntry("coms-log", { event: "boot", session_id, name, project }); } catch { /* best-effort */ }
+
+				try {
+					_ctx.ui.setStatus("coms", `📡 ${name}@${project}`);
+					installPoolWidget(_ctx);
+				} catch { /* hasUI may be false — non-fatal */ }
+
+				// Presence backend: herdr (push events, no polling) when this
+				// session runs inside a herdr pane with a live server; the files
+				// ping loop otherwise. The registry keepalive runs in BOTH — it
+				// carries the full agent card (context %, queue depth) that
+				// herdr's 32-char custom_status cannot, and keeps us
+				// discoverable to peers running outside herdr panes.
+				const useHerdr = await herdrPresenceAvailable();
+				if (useHerdr) {
+					const paneId = herdrPaneId()!;
+					herdrPresence = new HerdrPresence({ paneId, source: `coms:${session_id}` });
+					void herdrPresence.report("idle", formatPeerStatus(name, 0, 0));
+					herdrWatch = new HerdrAgentWatch({
+						ownPaneId: paneId,
+						onChange: (agents) => herdrSyncPeerCards(agents),
+					});
+					void herdrWatch.start();
+					try { pi.appendEntry("coms-log", { event: "presence_backend", backend: "herdr", pane: paneId }); } catch { /* best-effort */ }
+				} else {
+					pingTimer = setInterval(() => { refreshPool().catch(() => {}); }, PING_INTERVAL_MS);
+					try { (pingTimer as any).unref?.(); } catch { /* ignore */ }
+				}
+				keepaliveTimer = setInterval(() => {
+					if (!identity) return;
+					try {
+						const missingBeforeWrite = !fs.existsSync(identity.registryFile);
+						writeLiveRegistry();
+						if (missingBeforeWrite) {
+							try { pi.appendEntry("coms-log", { event: "self_heal", session_id: identity.session_id, reason: "registry file missing" }); } catch { /* best-effort */ }
+							if (!fs.existsSync(identity.registryFile)) writeLiveRegistry();
+						}
+					} catch { /* best-effort */ }
+					// herdr backend: refresh our sidebar entry and re-join peer
+					// cards against the registry heartbeats just written.
+					if (herdrPresence && identity) {
+						const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
+						void herdrPresence.report(turnState, formatPeerStatus(identity.name, pct, inboundQueue.size));
+					}
+					if (herdrWatch) herdrSyncPeerCards(herdrWatch.current());
+				}, KEEPALIVE_INTERVAL_MS);
+				try { (keepaliveTimer as any).unref?.(); } catch { /* ignore */ }
+
+				if (!useHerdr) refreshPool().catch(() => {});
+			} catch (err) {
+				comsReady = false;
+				try { _ctx.ui?.notify?.(`📡 coms: init failed — ${err instanceof Error ? err.message : String(err)} (coms tools disabled)`, "error"); } catch { /* ignore */ }
+			}
+		}
+
+		// ── Damage-control shared exemptions file ──
+		// One per hub session (solo mode included). Exporting the path on our own
+		// process.env lets the co-loaded damage-control-continue mirror /allow
+		// session grants into the same file the spawned children read.
+		if (!exemptionsFile) {
+			exemptionsFile = exemptionsFilePath(identity?.session_id ?? `hub-solo-${process.pid}`);
+			process.env[EXEMPTIONS_FILE_ENV] = exemptionsFile;
+		}
+
+		// Wipe old agent session files so subagents start fresh
+		const sessDir = safePathWithin(_ctx.cwd, ".pi", "agent-sessions");
+		if (existsSync(sessDir)) {
+			for (const f of readdirSync(sessDir)) {
+				if (f.endsWith(".json")) {
+					try { unlinkSync(join(sessDir, f)); } catch {}
+				}
+			}
+		}
+
+		loadAgents(_ctx.cwd);
+
+		// Surface non-fatal persona frontmatter warnings (skipped subagents roles,
+		// bad delegate_depth) once per session.
+		const fmWarnings = allAgentDefs.flatMap(d => (d.warnings || []).map(w => `${d.name}: ${w}`));
+		if (fmWarnings.length > 0) {
+			_ctx.ui.notify(`Persona frontmatter warnings:\n${fmWarnings.join("\n")}`, "warning");
+		}
+		if (!delegateExtPath && allAgentDefs.some(d => d.subagents)) {
+			_ctx.ui.notify(
+				"delegate.ts not found next to agent-hub — `subagents:` declarations are inert (specialists dispatch without a delegate tool).",
+				"warning",
+			);
+		}
+
+		// Load per-project overrides (user-facing language, persona gate, models).
+		const overrides = parseAgentTeamOverrides(_ctx.cwd);
+		userLanguage = overrides.language;
+		researchKeep = overrides.researchKeep;
+		reconSearchTimeoutMs = overrides.reconSearchTimeoutMs;
+		hubMode = overrides.hubMode;
+		budgetOverrides = overrides.budgetOverrides;
+		watchdogSetting = overrides.watchdogSetting;
+		watchdogJudgeModel = overrides.watchdogJudgeModel;
+		turnDispatchCount = 0;
+		turnResearchCount = 0;
+		turnTaskTier = null;
+		turnDispatchFingerprints.clear();
+		updateModeStatus();
+		if (overrides.warnings.length > 0) {
+			_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
+		}
+
+		// Project rule folders and doc entry points: keep the configured lists
+		// as-is (personas resolve them against the repo root), but warn once per
+		// missing path — a typo'd path would otherwise silently yield nothing.
+		projectRulesDirs = overrides.rulesDirs;
+		for (const dir of projectRulesDirs) {
+			if (!existsSync(join(_ctx.cwd, dir))) {
+				_ctx.ui.notify(`agent-fleet-overrides: rules folder "${dir}" not found in ${_ctx.cwd}`, "warning");
+			}
+		}
+		projectDocsPaths = overrides.docsPaths;
+		for (const p of projectDocsPaths) {
+			if (!existsSync(join(_ctx.cwd, p))) {
+				_ctx.ui.notify(`agent-fleet-overrides: docs entry point "${p}" not found in ${_ctx.cwd}`, "warning");
+			}
+		}
+
+		// Model switching state resets each session; per-project overrides replace
+		// the persona defs' default model / candidate list before anything reads them.
+		modelOverrides.clear();
+		subagentModelOverrides.clear();
+		thinkingOverrides.clear();
+		for (const def of allAgentDefs) {
+			const lower = def.name.toLowerCase();
+			if (overrides.personaModels[lower]) def.model = overrides.personaModels[lower];
+			if (overrides.personaModelLists[lower]) def.models = overrides.personaModelLists[lower];
+			if (overrides.personaThinking[lower]) def.thinking = overrides.personaThinking[lower];
+			// Delegation overrides: replace/add individual sub-roles (other declared
+			// roles keep their frontmatter values) and the depth budget.
+			const subOv = overrides.personaSubagents[lower];
+			if (subOv) {
+				def.subagents = { ...(def.subagents || {}) };
+				for (const [role, r] of Object.entries(subOv)) def.subagents[role] = r;
+			}
+			if (overrides.personaDelegateDepth[lower] !== undefined) {
+				def.delegateDepth = overrides.personaDelegateDepth[lower];
+			}
+		}
+
+		// Validate model profiles against the (post-override) declared candidates.
+		// Any violation drops the whole profile — never a partial apply.
+		const profileErrors: string[] = [];
+		for (const [profileName, entries] of Object.entries(modelProfiles)) {
+			for (const [persona, model] of Object.entries(entries)) {
+				const def = allAgentDefs.find(d => d.name.toLowerCase() === persona);
+				if (!def) {
+					profileErrors.push(`profile "${profileName}": unknown persona "${persona}"`);
+				} else if (!allowedModels(def).includes(model)) {
+					profileErrors.push(`profile "${profileName}": ${persona} does not declare ${model} (model:/models: in ${def.file})`);
+				}
+			}
+		}
+		if (profileErrors.length > 0) {
+			const dropped = new Set(profileErrors.map(e => e.match(/^profile "([^"]+)"/)![1]));
+			for (const name of dropped) delete modelProfiles[name];
+			_ctx.ui.notify(
+				`model-profiles.yaml: dropped ${Array.from(dropped).map(n => `"${n}"`).join(", ")}:\n${profileErrors.join("\n")}`,
+				"error",
+			);
+		}
+
+		if (dispatchPolicyWarnings.length > 0) {
+			_ctx.ui.notify(
+				`dispatch-policy.yaml: ${dispatchPolicyWarnings.length} construct(s) dropped:\n${dispatchPolicyWarnings.join("\n")}`,
+				"warning",
+			);
+		}
+
+		// Dispatcher persona gate (Phase 6 / requirement 1). Orchestrator personas are
+		// persona files tagged `kind: orchestrator` (decision G5 — keeps builder
+		// out of the dispatcher picker). The gate is enabled only when turned on AND at
+		// least one orchestrator persona exists, so it never blocks with nothing to pick.
+		orchestratorPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "orchestrator");
+		// Research personas (kind: research) — spawnable read-only via spawn_research and
+		// the /research command, independent of team membership.
+		researchPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "research");
+		dispatcherPersona = null;
+		personaGateEnabled = overrides.personaGate && orchestratorPersonas.length > 0;
+		personaGateSatisfied = !personaGateEnabled;
+
+		// Default to first team — use /agents-team to switch
+		const teamNames = Object.keys(teams);
+		if (teamNames.length > 0) {
+			activateTeam(teamNames[0]);
+		}
+
+		// Probe for `ask_user` (registered by the `pi-ask-user` companion package
+		// when installed). Action methods like getAllTools are runtime-only, so
+		// this MUST happen at session_start, not at extension load.
+		askUserAvailable = pi.getAllTools().some(t => t.name === "ask_user");
+
+		// Dispatcher's tool surface: dispatch_agent + spawn_research always; the
+		// assertion-ledger tools (set/update/get) own the Verification Contract —
+		// get_assertions is the bounded read-only recovery path so the dispatcher can
+		// re-read the full ledger after a compaction (the status line shows only counts).
+		// The coms_* tools when the peer layer bound successfully; ask_user only when
+		// pi-ask-user is installed. Per decision G4 the dispatcher persona NEVER narrows
+		// this surface.
+		const dispatcherTools = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust", "set_assertions", "update_assertion", "get_assertions"];
+		if (comsReady) dispatcherTools.push("coms_list", "coms_send", "coms_get", "coms_await");
+		if (askUserAvailable) dispatcherTools.push("ask_user");
+		// Fleet tools only inside a herdr pane with a live server (graceful
+		// degradation like coms — outside herdr the tools are absent).
+		herdrFleetReady = herdrPaneId() !== null && (await herdrAvailable()) !== null;
+		if (herdrFleetReady) dispatcherTools.push("herdr_spawn_peer", "herdr_read_pane", "herdr_close_pane", "herdr_notify");
+		pi.setActiveTools(dispatcherTools);
+
+		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
+		const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+		const askUserLabel = askUserAvailable
+			? "available (via pi-ask-user)"
+			: "NOT AVAILABLE — run `pi install npm:pi-ask-user`";
+		const personaGateLabel = personaGateEnabled
+			? `ON — pick an orchestrator persona to begin (${orchestratorPersonas.length} available)`
+			: orchestratorPersonas.length === 0
+				? "off (no `kind: orchestrator` personas found)"
+				: "off (set `persona-gate: on` to enable)";
+		const comsLabel = comsReady && identity
+			? `📡 ${identity.name}@${identity.project} — peers via coms_list; /handoff <peer> to delegate`
+			: soloMode
+				? "off (--solo: fixed specialists + research only)"
+				: "off (endpoint bind failed — coms tools disabled)";
+		const fleetLabel = herdrFleetReady
+			? "herdr — spawn/read/close panes + notify (herdr_* tools active)"
+			: "off (not inside a herdr pane, or no herdr server)";
+		const comsPreferred = Object.entries(dispatchPolicy.substitutions)
+			.filter(([, s]) => s.prefer === "coms")
+			.map(([n]) => n);
+		const dispatchLabel = dispatchPolicy.default === "coms"
+			? "coms default — any member with a live same-name pool peer is served by it (/dispatch-policy)"
+			: comsPreferred.length > 0
+				? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /dispatch-policy for status)`
+				: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)";
+		_ctx.ui.notify(
+			`Team: ${activeTeamName} (${members})\n` +
+			`Team sets loaded from: .pi/agents/teams.yaml\n` +
+			`Dispatch backends: ${dispatchLabel}\n` +
+			`User-facing language: ${userLanguage} (override in .ai/agent-fleet-overrides.md)\n` +
+			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n` +
+			`Persona gate: ${personaGateLabel}\n` +
+			`Coms: ${comsLabel}\n` +
+			`Fleet: ${fleetLabel}\n\n` +
+			`/agents-team          Select a team\n` +
+			`/agents-list          List active agents and status\n` +
+			`/agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
+			`/agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
+			`/agent-model-thinking <persona> Switch a persona's thinking level\n` +
+			`/models [profile]     Apply a named model profile to the team\n` +
+			`/agent-models-substitute <src> <tgt> Swap one model across all personas\n` +
+			`/dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)\n` +
+			`/agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
+			`/agents-restart <name> Kill + re-run its last task fresh\n` +
+			`/zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream\n` +
+			`/research <task>      Spawn a read-only research helper (@persona, --model)\n` +
+			`/research-cont rN ... Resume a finished research helper\n` +
+			`/research-rm rN       Remove a research helper (kill if running)\n` +
+			`/research-clear       Remove all research helpers\n` +
+			`/persona              Select/reset the dispatcher persona\n` +
+			`/coms [--all|--project N] Refresh the coms peer pool\n` +
+			`/handoff <peer>       Hand the session off to a coms peer\n` +
+			`/compound [focus]     Capture session lessons into the project rules/docs`,
+			"info",
+		);
+		_ctx.ui.setStatus("dispatcher-persona", personaGateEnabled ? "Persona: (pick one)" : "Persona: Default");
+		updateWidget();
+
+		// Fire the blocking persona gate (input stays swallowed until satisfied).
+		if (personaGateEnabled) {
+			void pickDispatcherPersona(_ctx);
+		}
+
+		// Footer: model (thinking) | team | context bar, with the pi-voice-stt
+		// recording indicator on a second line below it (when recording).
+		_ctx.ui.setFooter((_tui, theme, footerData) => ({
+			dispose: () => {},
+			invalidate() {},
+			render(width: number): string[] {
+				const model = _ctx.model?.id || "no-model";
+				// Dispatcher's live thinking level as the same " (code)" badge subagents
+				// show after their model (off → no badge). Optional-chained so an older
+				// pi without getThinkingLevel just renders the model alone.
+				const think = thinkingSuffix(pi.getThinkingLevel?.());
+				const usage = _ctx.getContextUsage();
+				const pct = usage ? usage.percent : 0;
+				const filled = Math.round(pct / 10);
+				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
+
+				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think, activeTeamName);
+				const hint = theme.fg("muted", "Alt+A ") + theme.fg("dim", `view:${viewMode}`);
+				// The btw extension flips this global the first time a /btw command or
+				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.
+				const btwHint = (globalThis as { __btwActivated?: boolean }).__btwActivated
+					? theme.fg("muted", "  ·  Alt+' ") + theme.fg("dim", "btw")
+					: "";
+				const right = hint + btwHint +
+					theme.fg("muted", "  ·  ") +
+					theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
+				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));
+
+				const lines = [truncateToWidth(left + pad + right, width)];
+
+				// The pi-voice-stt extension publishes its animated indicator via
+				// setStatus("voice-stt", …). The custom footer above replaces the
+				// built-in one (which would render it), so surface it here as a second
+				// line below the model line. Optional-chained for older pi runtimes.
+				const stt = footerData?.getExtensionStatuses?.().get("voice-stt");
+				if (stt && stt.trim()) {
+					// Recording → accent (live), transcribing → muted (working).
+					const color = /REC/.test(stt) ? "accent" : "muted";
+					lines.push(truncateToWidth(theme.fg(color, ` ${stt}`), width));
+				}
+
+				return lines;
+			},
+		}));
+	});
+
+	// ── Embedded coms: respond to inbound peer prompts at turn end ──
+	// When this agent was addressed by a peer (an inbound prompt in the queue), the
+	// turn's final assistant text becomes the response we ship back to the sender.
+	pi.on("agent_end", async (_event, ctx) => {
+		// Close the /agents-history dispatcher turn (if this turn opened one). The
+		// orchestrator entry's span covers all of its dispatches plus the wrap-up.
+		turnActive = false;
+		if (currentOrchestratorEntry) {
+			currentOrchestratorEntry.endedAt = Date.now();
+			if (currentOrchestratorEntry.status === "running") currentOrchestratorEntry.status = "done";
+			currentOrchestratorEntry = null;
+			historyRender?.();
+		}
+
+		const inbound = [...inboundQueue.values()].reverse().find((i) => !i.fulfilled);
+		if (!inbound || !identity) return;
+
+		// Walk the session branch for the most recent assistant message text.
+		let lastAssistantText = "";
+		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				const m = entry.message as any;
+				if (typeof m.content === "string") {
+					lastAssistantText = m.content;
+				} else if (Array.isArray(m.content)) {
+					lastAssistantText = m.content
+						.filter((b: any) => b && b.type === "text")
+						.map((b: any) => b.text)
+						.join("\n");
+				}
+			}
+		}
+
+		let payload: any = lastAssistantText;
+		let error: string | null = null;
+		if (inbound.response_schema && typeof inbound.response_schema === "object") {
+			try {
+				payload = JSON.parse(lastAssistantText);
+			} catch {
+				error = "response not valid JSON";
+				payload = null;
+			}
+		}
+
+		const respEnv: ResponseEnvelope = {
+			type: "response",
+			msg_id: inbound.msg_id,
+			sender_session: identity.session_id,
+			sender_endpoint: identity.endpoint,
+			hops: 0,
+			timestamp: nowIso(),
+			response: payload,
+			error,
+		};
+
+		try {
+			await sendEnvelope(inbound.sender_endpoint, respEnv);
+			try {
+				pi.appendEntry("coms-log", {
+					event: "outbound_response",
+					msg_id: inbound.msg_id,
+					error,
+				});
+			} catch {
+				// best-effort
+			}
+		} catch (e: any) {
+			try {
+				pi.appendEntry("coms-log", {
+					event: "outbound_response_failed",
+					msg_id: inbound.msg_id,
+					reason: e?.message ?? String(e),
+				});
+			} catch {
+				// best-effort
+			}
+		}
+
+		inbound.fulfilled = true;
+		inboundQueue.delete(inbound.msg_id);
+		if (currentInbound && currentInbound.msg_id === inbound.msg_id) {
+			currentInbound = null;
+		}
+	});
+
+	// ── Embedded coms: clean shutdown ──
+	// Tear down the coms layer (timers, server, registry, socket) and SIGTERM any
+	// specialist/research children so they don't outlive the dispatcher.
+	let shuttingDown = false;
+	async function cleanShutdown(): Promise<void> {
+		if (shuttingDown) return;
+		shuttingDown = true;
+		if (pingTimer) { try { clearInterval(pingTimer); } catch { /* ignore */ } pingTimer = null; }
+		if (keepaliveTimer) { try { clearInterval(keepaliveTimer); } catch { /* ignore */ } keepaliveTimer = null; }
+		if (herdrWatch) { try { herdrWatch.stop(); } catch { /* ignore */ } herdrWatch = null; }
+		if (herdrPresence) { try { void herdrPresence.release(); } catch { /* ignore */ } herdrPresence = null; }
+		if (server) {
+			try { server.close(); } catch { /* ignore */ }
+			server = null;
+		}
+		if (monitorBridge) { try { await monitorBridge.cancelAllWaitOnly(); } catch { /* ignore */ } }
+		if (monitorLifecycle) {
+			try { await monitorLifecycle.stop(); } catch { /* ignore */ }
+			monitorLifecycle = null;
+		}
+		monitorBridge?.reset();
+		monitorBridge?.stop();
+		monitorBridge = null;
+		if (identity) {
+			if (process.platform !== "win32") {
+				try { fs.unlinkSync(identity.endpoint); } catch { /* ignore */ }
+			}
+			try { removeRegistryEntry(identity.project, identity.name); } catch { /* ignore */ }
+			try {
+				pi.appendEntry("coms-log", { event: "shutdown", session_id: identity.session_id });
+			} catch { /* best-effort */ }
+		}
+		if (exemptionsFile) {
+			// Session-scoped by definition — remove so grants never leak into the next session.
+			try { fs.unlinkSync(exemptionsFile); } catch { /* ignore */ }
+			exemptionsFile = null;
+		}
+		for (const st of agentStates.values()) {
+			if (st.proc && st.status === "running") { try { st.killedByOperator = true; st.proc.kill("SIGTERM"); } catch { /* ignore */ } }
+		}
+		for (const st of researchStates.values()) {
+			if (st.proc && st.status === "running") { try { st.killedByOperator = true; st.proc.kill("SIGTERM"); } catch { /* ignore */ } }
+		}
+		if (currentCtx?.hasUI) {
+			try { currentCtx.ui.setWidget("coms-pool", undefined); } catch { /* ignore */ }
+		}
+	}
+
+	pi.on("session_shutdown", async () => { await cleanShutdown(); });
+	process.on("SIGINT", () => { void cleanShutdown(); });
+	process.on("SIGTERM", () => { void cleanShutdown(); });
+}
