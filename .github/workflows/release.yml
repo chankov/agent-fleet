@@ -25,8 +25,22 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Verify npm Trusted Publishing support
+        run: |
+          npm_version="$(npm --version)"
+          node - "$npm_version" <<'NODE'
+          const version = process.argv[2];
+          const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+          if (!match) throw new Error(`npm version must be stable semver; got ${version}`);
+          const [major, minor, patch] = match.slice(1).map(BigInt);
+          if (major < 11n || (major === 11n && (minor < 5n || (minor === 5n && patch < 1n)))) {
+            throw new Error(`npm ${version} is below the Trusted Publishing minimum of 11.5.1`);
+          }
+          console.log(`npm ${version} supports Trusted Publishing`);
+          NODE
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -50,4 +64,3 @@ jobs:
           title: "chore: release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

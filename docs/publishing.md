@@ -22,19 +22,24 @@ ships is `agent-fleet` — both names are intentional.
    Scoped packages are bound to the user / org that owns the scope — nobody
    else can publish to `@chankov/*` once it's yours.
 
-2. **Provision the npm token.**
+2. **Configure npm Trusted Publishing.** In the npm settings for
+   `@chankov/agent-fleet`, add a GitHub Actions Trusted Publisher with exactly:
+   - Organization or user: `chankov`
+   - Repository: `agent-fleet`
+   - Workflow filename: `release.yml`
+   - Environment: leave blank
+   - Allowed actions: `npm publish`
 
-   ```bash
-   npm login                    # one-time, locally
-   npm token create --automation  # creates a CI token
-   ```
+   This binds npm publishing to `.github/workflows/release.yml`. The workflow
+   uses GitHub OIDC and does not use `NPM_TOKEN`, `NODE_AUTH_TOKEN`, or any
+   other CI npm token. Keep an existing `NPM_TOKEN` secret until the first
+   successful OIDC release, then remove it.
 
-   Store the resulting token in the GitHub repository secrets as `NPM_TOKEN`.
-   The release workflow (`.github/workflows/release.yml`) reads it.
-
-3. **Confirm GitHub Actions has write permissions.** Settings → Actions →
-   General → Workflow permissions → "Read and write permissions" + "Allow
-   GitHub Actions to create and approve pull requests."
+3. **Confirm GitHub Actions can create the release PR.** Settings → Actions →
+   General → Workflow permissions → keep the default permission as "Read
+   repository contents permission" and enable "Allow GitHub Actions to create
+   and approve pull requests." The workflow requests its required write
+   permissions explicitly.
 
 ## Cutting a release
 
