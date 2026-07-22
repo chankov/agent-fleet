@@ -8,6 +8,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { raceAskUser } from "./race-core.js";
 
@@ -281,8 +282,17 @@ export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions 
 	}
 }
 
+export function resolveStockAskUserModule(moduleUrl: string = import.meta.url): string {
+	// Pi's jiti loader preserves the workspace-facing path of a symlinked
+	// harness. Canonicalize this module first so the bundled dependency is
+	// resolved beside the actual Agent Fleet package, not at workspace root.
+	const realModulePath = fs.realpathSync(fileURLToPath(moduleUrl));
+	const stockModulePath = path.resolve(path.dirname(realModulePath), "../../../node_modules/pi-ask-user/index.ts");
+	return pathToFileURL(stockModulePath).href;
+}
+
 async function loadStockFactory(): Promise<(pi: ExtensionLike) => void> {
-	const mod = await import("../../../node_modules/pi-ask-user/index.ts");
+	const mod = await import(resolveStockAskUserModule());
 	return mod.default as (pi: ExtensionLike) => void;
 }
 

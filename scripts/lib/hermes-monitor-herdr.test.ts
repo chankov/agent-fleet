@@ -72,7 +72,7 @@ test("watchHubMonitor resynchronizes output cursors after reconnect without dupl
 });
 
 test("monitor uses the existing Herdr client and never shells out", () => {
-	const source = readFileSync(new URL("./hermes-monitor-herdr.ts", import.meta.url), "utf8");
-	assert.match(source, /from "\.\.\/\.\.\/\.pi\/harnesses\/lib\/herdr-client\.ts"/);
+	const source = readFileSync(new URL("../../.pi/harnesses/lib/hermes-monitor-herdr.ts", import.meta.url), "utf8");
+	assert.match(source, /from "\.\/herdr-client\.ts"/);
 	assert.doesNotMatch(source, /child_process|exec(?:File)?\(|spawn\(/);
 });

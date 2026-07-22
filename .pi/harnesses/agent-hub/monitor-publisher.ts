@@ -2,9 +2,9 @@ import {
 	type CreateChildTaskInput,
 	type CreateParentTaskInput,
 	type MonitorTask,
-} from "../../../scripts/lib/hermes-monitor-model.ts";
-import { MonitorStore, type MonitorOutput } from "../../../scripts/lib/hermes-monitor-store.ts";
-import { correlateHubPane } from "../../../scripts/lib/hermes-monitor-herdr.ts";
+} from "../lib/hermes-monitor-model.ts";
+import { MonitorStore, type MonitorOutput } from "../lib/hermes-monitor-store.ts";
+import { correlateHubPane } from "../lib/hermes-monitor-herdr.ts";
 
 export interface ViewerGatedMonitor {
 	setViewers(count: number): void;

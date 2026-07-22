@@ -206,6 +206,9 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
       assert.ok(paths.has(`.pi/harnesses/${harness}/${file}`), `${harness}/${file}`);
     }
   }
+  for (const module of ["model", "store", "registry", "socket", "herdr"]) {
+    assert.ok(paths.has(`.pi/harnesses/lib/hermes-monitor-${module}.ts`), `shared monitor module: ${module}`);
+  }
   assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/damage-control/")), false);
   assert.equal([...paths].some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
 });

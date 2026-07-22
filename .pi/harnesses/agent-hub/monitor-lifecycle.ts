@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { MonitorSocketServer } from "../../../scripts/lib/hermes-monitor-socket.ts";
+import { MonitorSocketServer } from "../lib/hermes-monitor-socket.ts";
 import { createOwnedHandleRegistry, recordWaitOnlyCancellation } from "./monitor-control.ts";
 export interface MonitorLifecycleConfig { runtimeDir:string; profileId:string; profilePath:string; }
 export function monitorLifecycleConfig(env:NodeJS.ProcessEnv):MonitorLifecycleConfig|null{const profileId=env.AGENT_FLEET_PROFILE_ID,runtimeDir=env.AGENT_FLEET_MONITOR_RUNTIME_DIR;if(!profileId||!runtimeDir||!path.isAbsolute(runtimeDir)||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(profileId)||profileId.includes(".."))return null;return{runtimeDir,profileId,profilePath:path.join(runtimeDir,"profiles",profileId)};}
