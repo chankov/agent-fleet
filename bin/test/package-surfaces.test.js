@@ -133,7 +133,8 @@ function removeClosure(source, workspace, owned) {
 
 test("manifest contains the complete Codex/Hermes/systemd runtime closure", () => {
   const paths = validateManifest(root);
-  assert.deepEqual(paths.directories, ["codex", "hermes", "systemd"]);
+  assert.deepEqual(paths.directories, ["codex", "hermes/skills", "systemd"]);
+  assert.equal([...paths.directories, ...paths.files].some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
   for (const required of [
     "justfile",
     "docs/codex-remote-conductor.md",
@@ -182,6 +183,8 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
       assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /conductor-codex team=/);
       assert.equal(lstatSync(join(workspace, "codex")).isSymbolicLink(), method === "symlink");
       assert.equal(lstatSync(join(workspace, "scripts", "codex-remote-control.ts")).isSymbolicLink(), method === "symlink");
+      assert.equal(existsSync(join(workspace, "hermes", "desktop-plugins")), false, `${method}: desktop plugins must not install`);
+      assert.equal(existsSync(join(workspace, "hermes", "plugins")), false, `${method}: generic plugins must not install`);
 
       if (method === "copy") writeFileSync(join(workspace, "systemd", "user-owned.service"), "[Unit]\n");
       removeClosure(root, workspace, owned);
@@ -204,13 +207,16 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
     }
   }
   assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/damage-control/")), false);
+  assert.equal([...paths].some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
 });
 
 test("package, snapshot, and guided manifest surfaces stay aligned", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  for (const required of ["codex/", "hermes/", "systemd/", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md"]) {
+  for (const required of ["codex/", "hermes/README.md", "hermes/skills/", "systemd/", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md"]) {
     assert.ok(pkg.files.includes(required), `package files missing ${required}`);
   }
+  assert.equal(pkg.files.includes("hermes/"), false);
+  assert.equal(pkg.files.some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
   assert.match(pkg.scripts.test, /scripts\/coms-cli\.test\.ts/);
   assert.match(pkg.scripts.test, /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");

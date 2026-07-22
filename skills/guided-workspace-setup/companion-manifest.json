@@ -3,7 +3,7 @@
   "description": "Runtime closure refreshed with any pi harness selection. Paths are repository-relative and contain no user configuration or credentials.",
   "directories": [
     "codex",
-    "hermes",
+    "hermes/skills",
     "systemd"
   ],
   "files": [
