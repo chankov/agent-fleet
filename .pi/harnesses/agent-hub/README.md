@@ -140,7 +140,11 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   from `.pi/agents/model-profiles.yaml` — a macro over the same declared candidates, validated at
   session start (a profile with any entry outside a persona's candidates is dropped whole, with an
   error); profiles never touch sub-role models — only `/af-agent-model` reaches those. Nothing
-  outside the declared lists is ever selectable. Per project,
+  outside the declared lists is ever selectable. When an effective project or session override
+  cannot start a model run, the hub retries once with the model originally declared in the persona
+  frontmatter. This is pre-work only: no fallback occurs after text output, a tool call,
+  cancellation, timeout, drift stop, or a Pi process-spawn failure, avoiding duplicate writes. The
+  failed attempt is removed from the child session before retry. Per project,
   `model.<persona>:` / `models.<persona>:` keys under `## agent-hub` in
   `.ai/agent-fleet-overrides.md` replace a persona's default model / candidate list.
   Research personas (`researcher` / `deep-researcher`, `kind: research`) are switchable the same
@@ -184,8 +188,10 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `/af-agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
   it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
   `subagents.<persona>.<role>:` and `delegate-depth.<persona>:` keys under `## agent-hub` in
-  `.ai/agent-fleet-overrides.md` replace individual sub-roles / the depth budget. Six personas
-  ship with declared sub-roles, on a three-tier OpenAI model ladder — `gpt-5.3-codex-spark` for
+  `.ai/agent-fleet-overrides.md` replace individual sub-roles / the depth budget. An overridden
+  role retains its frontmatter model as a one-shot fallback under the same pre-work-only safety
+  rule; delegate cards and results show the model that ultimately ran. Six personas ship with
+  declared sub-roles, on a three-tier OpenAI model ladder — `gpt-5.3-codex-spark` for
   recon/grep sweeps, `gpt-5.4` for analysis sweeps, the `gpt-5.5` (or opus) parent reserved for
   synthesis and verdicts:
   - `code-reviewer` — `preflight`+`docs` (spark), `quality`+`perf` (gpt-5.4); its first delegate

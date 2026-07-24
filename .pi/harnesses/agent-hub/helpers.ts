@@ -6,6 +6,28 @@ export const READ_ONLY_TOOLS = "read,grep,find,ls";
 
 const SAFE_AGENT_KEY_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+export interface ModelOverrideConfig {
+	model?: string;
+	fallbackModel?: string;
+}
+
+// Preserve the persona/frontmatter model across any number of project/session
+// overrides. The first declared model is the only automatic fallback target.
+export function applyModelOverride<T extends ModelOverrideConfig>(current: T, override: string): T {
+	if (!override || override === current.model) return current;
+	const original = current.fallbackModel ?? current.model;
+	return {
+		...current,
+		model: override,
+		...(original && original !== override ? { fallbackModel: original } : {}),
+	};
+}
+
+export function fallbackModelFor(config: ModelOverrideConfig, effectiveModel?: string): string | undefined {
+	const original = config.fallbackModel ?? config.model;
+	return original && effectiveModel && original !== effectiveModel ? original : undefined;
+}
+
 export function parseTeamsYaml(raw: string): Record<string, string[]> {
 	const teams: Record<string, string[]> = {};
 	let current: string | null = null;

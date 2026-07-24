@@ -35,7 +35,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
-import { spawnPiAgent, killPiTree } from "./spawn.ts";
+import { spawnPiAgentWithModelFallback, killPiTree } from "./spawn.ts";
 import {
 	delegateBudgetRefusal,
 	DELEGATE_TREE_SPAWN_BUDGET,
@@ -59,7 +59,7 @@ const TIMELINE_FLUSH_MS = 700;
 export interface DelegateConfig {
 	persona: string;
 	tag: string;
-	roles: Record<string, { model: string; tools?: string }>;
+	roles: Record<string, { model: string; tools?: string; fallbackModel?: string }>;
 	depth: number;
 	callBudget: number;
 	remainingSpawns?: number;
@@ -295,7 +295,7 @@ export default function (pi: ExtensionAPI) {
 			let res;
 			liveCount++;
 			try {
-				res = await spawnPiAgent({
+				res = await spawnPiAgentWithModelFallback({
 					model: roleDef.model,
 					tools: childTools,
 					thinking: "off",
@@ -315,8 +315,19 @@ export default function (pi: ExtensionAPI) {
 					// Whole-run bound from the hub's mode budget: a hung delegate (the
 					// 92-minute conventions scout) must not hold its parent hostage.
 					turnDeadlineMs: config.turnDeadlineMs === undefined ? null : config.turnDeadlineMs,
-				}, {
-					onProcess: (p) => { childProc = p; liveChildren.add(p); },
+				}, roleDef.fallbackModel, {
+					onProcess: (p) => {
+						if (childProc) liveChildren.delete(childProc);
+						childProc = p;
+						liveChildren.add(p);
+					},
+					onModelFallback: (notice) => {
+						emit({ t: "model_fallback", id: childId, ...notice, ts: Date.now() });
+						onUpdate?.({
+							content: [{ type: "text", text: `Override ${notice.from} failed before work began; retrying ${roleKey} with ${notice.to}...` }],
+							details: { id: childId, role: roleKey, model: notice.to, fallback: notice, status: "running" },
+						});
+					},
 					onTextDelta: (delta) => queueDelta("text", delta),
 					onThinkingDelta: (delta) => queueDelta("thinking", delta),
 					onToolStart: (toolName, argStr) => {
@@ -375,11 +386,14 @@ export default function (pi: ExtensionAPI) {
 			if (mode === "fork") notes.push("context: fork is not supported in v1 — the child started fresh from your instruction");
 			const noteBlock = notes.length > 0 ? `\n[note: ${notes.join("; ")}]` : "";
 
+			const fallbackNote = res.modelFallback
+				? `\n[note: overridden model ${res.modelFallback.from} failed before work; retried once with original ${res.modelFallback.to}]`
+				: "";
 			return {
 				content: [{ type: "text" as const, text:
-					`[delegate ${childId} · ${roleDef.model} · ${effectiveTools}] ${res.termination ? res.termination.reason : code === 0 ? "done" : "error"} ` +
-					`in ${Math.round(elapsed / 1000)}s${noteBlock}\n\n${digest.text}` }],
-				details: { id: childId, role: roleKey, model: roleDef.model, status: res.termination ? res.termination.reason : code === 0 ? "done" : "error", elapsed, resultPath: childResultFile, digestFound: digest.hasDigest, termination: res.termination },
+					`[delegate ${childId} · ${res.modelUsed} · ${effectiveTools}] ${res.termination ? res.termination.reason : code === 0 ? "done" : "error"} ` +
+					`in ${Math.round(elapsed / 1000)}s${noteBlock}${fallbackNote}\n\n${digest.text}` }],
+				details: { id: childId, role: roleKey, model: res.modelUsed, fallback: res.modelFallback, status: res.termination ? res.termination.reason : code === 0 ? "done" : "error", elapsed, resultPath: childResultFile, digestFound: digest.hasDigest, termination: res.termination },
 			};
 		},
 	});

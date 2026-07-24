@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,9 +9,17 @@ import registerDelegate from '../.pi/harnesses/agent-hub/delegate.ts';
 function createFakePi(tmp) {
   const path = join(tmp, 'pi');
   writeFileSync(path, `#!/usr/bin/env node
+const fs = require('node:fs');
 const mode = process.env.FAKE_PI_MODE;
 const event = e => process.stdout.write(JSON.stringify(e) + '\\n');
-if (mode === 'hang') {
+const modelIndex = process.argv.indexOf('--model');
+const model = modelIndex >= 0 ? process.argv[modelIndex + 1] : '';
+if (process.env.FAKE_PI_ATTEMPTS) fs.appendFileSync(process.env.FAKE_PI_ATTEMPTS, model + '\\n');
+if (mode === 'model-fallback' && model === 'fake/override') {
+  event({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'override unavailable', usage: { input: 0, output: 0 } } });
+} else if (mode === 'model-fallback') {
+  event({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'DIGEST:\\nfallback worked' } });
+} else if (mode === 'hang') {
   event({ type: 'tool_execution_start', toolCallId: 'nested-read', toolName: 'read', args: { path: '/disk/nested' } });
   setInterval(() => {}, 1000);
 } else if (mode === 'finish') {
@@ -91,6 +99,32 @@ test('nested delegate propagates caller cancellation distinctly from tool_timeou
       assert.equal(result.details.status, 'cancelled');
       assert.equal(result.details.termination.reason, 'cancelled');
       assert.match(result.content[0].text, /cancelled/);
+    });
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('nested delegate retries an overridden role on its original persona model', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-delegate-fallback-'));
+  try {
+    createFakePi(tmp);
+    const attempts = join(tmp, 'attempts.txt');
+    await withEnv({
+      PATH: `${tmp}:${process.env.PATH ?? ''}`,
+      FAKE_PI_MODE: 'model-fallback',
+      FAKE_PI_ATTEMPTS: attempts,
+    }, async () => {
+      const tool = delegateTool(tmp, null, {
+        roles: { recon: { model: 'fake/override', fallbackModel: 'fake/original' } },
+      });
+      const result = await tool.execute('call-fallback', { role: 'recon', instruction: 'search' }, undefined, () => {});
+
+      assert.equal(result.details.status, 'done');
+      assert.equal(result.details.model, 'fake/original');
+      assert.deepEqual(result.details.fallback, {
+        from: 'fake/override', to: 'fake/original', reason: 'override unavailable',
+      });
+      assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override', 'fake/original']);
+      assert.match(result.content[0].text, /retried once with original fake\/original/);
     });
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });

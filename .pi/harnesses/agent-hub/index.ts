@@ -70,7 +70,7 @@ import {
 	type AutocompleteItem, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
-import { spawnPiAgent, killPiTree, type PiRunControl, type Termination } from "./spawn.ts";
+import { spawnPiAgent, spawnPiAgentWithModelFallback, killPiTree, type PiRunControl, type Termination } from "./spawn.ts";
 import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "./research-watchdog.ts";
 import { renderHubFooterLeft } from "./footer.ts";
 import { HARNESS_VERSION, registerVersionStatus } from "./version.ts";
@@ -85,7 +85,7 @@ import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
-import { clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
 import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_TIERS, budgetStatusLine, checkTurnBudget, normalizeHubMode, normalizeTaskTier, resolveTurnBudget, shouldRecycleSession } from "./run-budget.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
 import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "./artifacts.js";
@@ -123,6 +123,8 @@ interface AgentDef {
 	description: string;
 	tools: string;
 	model?: string;
+	// Original frontmatter model retained when project/session overrides apply.
+	fallbackModel?: string;
 	// Allowed switch targets for /af-agent-model and model profiles (frontmatter
 	// `models:` list). The default `model:` is implicitly a candidate too.
 	models?: string[];
@@ -642,6 +644,8 @@ function parseModelProfilesYaml(raw: string): Record<string, Record<string, stri
 interface SubagentRole {
 	model: string;
 	tools?: string;
+	// Original role model retained across project/session overrides.
+	fallbackModel?: string;
 }
 
 // Inline forms of a subagents role value: `role: <model-spec>` shorthand or
@@ -2923,6 +2927,16 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				}
 			}
 			child.zoomRender?.();
+		} else if (e.t === "model_fallback") {
+			child.model = e.to || child.model;
+			child.lastWork = `model fallback: ${e.from || "override"} → ${e.to || "original"}`;
+			child.timeline.push({
+				kind: "text",
+				title: "Model fallback",
+				content: `${e.from || "override"} failed before work began; retrying with ${e.to || "original"}. ${e.reason || ""}`.trim(),
+				timestamp: Date.now(),
+			});
+			child.zoomRender?.();
 		} else if (e.t === "tool") {
 			child.toolCount++;
 			child.timeline.push({
@@ -3291,6 +3305,7 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			?? (ctx.model
 				? `${ctx.model.provider}/${ctx.model.id}`
 				: "openrouter/google/gemini-3-flash-preview");
+		const originalModelFallback = fallbackModelFor(state.def, model);
 
 		// Session file for this agent
 		const agentSessionFile = safePathWithin(sessionDir, `${agentKey}.json`);
@@ -3360,7 +3375,7 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 		const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
 			? Object.fromEntries(Object.entries(state.def.subagents).map(([role, r]) => {
 				const override = subagentModelOverrides.get(`${personaKey}.${role.toLowerCase()}`);
-				return [role, override ? { ...r, model: override } : r];
+				return [role, override ? applyModelOverride(r, override) : r];
 			}))
 			: null;
 		// Fast mode is a single-specialist path: no nested delegation trees.
@@ -3453,7 +3468,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		let fullText = "";
 		let runBilled = 0;
 		let runOut = 0;
-		const res = await spawnPiAgent({
+		const res = await spawnPiAgentWithModelFallback({
 			model,
 			tools: effectiveTools,
 			thinking: thinkingLevel,
@@ -3469,8 +3484,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			...(RESEARCHER_PERSONAS.has(personaKey) ? { toolWatchdog: { timeoutMs: reconSearchTimeoutMs } } : {}),
 			// Whole-run deadline from the active mode's budget (null in strict mode).
 			turnDeadlineMs: turnBudget.agentTurnMs,
-		}, {
+		}, originalModelFallback, {
 			onProcess: (p) => { state.proc = p; void monitorStart?.then(task => monitorBridge?.registerOwnedProcessFor(task, p)); },
+			onModelFallback: ({ from, to, reason }) => {
+				state.lastWork = `model fallback: ${shortModel(from)} → ${shortModel(to)}`;
+				ctx.ui.notify(`${displayName(state.def.name)}: overridden model ${from} failed before work began; retrying with persona model ${to} (${reason})`, "warning");
+				updateWidget();
+			},
 			...(driftMonitor ? { onControl: (c: PiRunControl) => { driftControl = c; } } : {}),
 			onTextDelta: (delta) => {
 				void monitorStart?.then(task => monitorBridge?.appendOutputFor(task, delta));
@@ -3651,6 +3671,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		// (e.g. a bad --model spec or a provider whose API key isn't configured)
 		// reach the dispatcher as a readable message instead of an empty result.
 		let output = full;
+		if (res.modelFallback) {
+			output = `(ℹ model fallback: ${res.modelFallback.from} failed before work began; retried once with original persona model ${res.modelFallback.to}.)\n\n${output}`;
+		}
 		if (code !== 0) {
 			const errText = res.stderr.trim();
 			const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
@@ -3785,7 +3808,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 		// READ-ONLY by construction: RESEARCH_TOOLS only, regardless of persona frontmatter.
 		let fullText = "";
-		const res = await spawnPiAgent({
+		const res = await spawnPiAgentWithModelFallback({
 			model: state.model,
 			tools: RESEARCH_TOOLS,
 			thinking: thinkingLevel,
@@ -3804,8 +3827,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			...researchWatchdogSpawnOptions(reconSearchTimeoutMs, signal),
 			// Whole-run deadline from the active mode's budget (null in strict mode).
 			turnDeadlineMs: currentBudget().agentTurnMs,
-		}, {
+		}, fallbackModelFor(state.def, state.model), {
 			onProcess: (p) => { state.proc = p; },
+			onModelFallback: ({ from, to, reason }) => {
+				state.lastWork = `model fallback: ${shortModel(from)} → ${shortModel(to)}`;
+				ctx.ui.notify(`Research r${state.id}: overridden model ${from} failed before work began; retrying with persona model ${to} (${reason})`, "warning");
+				updateResearchWidget();
+			},
 			onTextDelta: (delta) => {
 				fullText += delta;
 				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
@@ -3913,6 +3941,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		);
 
 		let output = full;
+		if (res.modelFallback) {
+			output = `(ℹ model fallback: ${res.modelFallback.from} failed before work began; retried once with original persona model ${res.modelFallback.to}.)\n\n${output}`;
+		}
 		if (code !== 0) {
 			const errText = res.stderr.trim();
 			const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
@@ -7713,7 +7744,7 @@ ${researchCatalog}`;
 		thinkingOverrides.clear();
 		for (const def of allAgentDefs) {
 			const lower = def.name.toLowerCase();
-			if (overrides.personaModels[lower]) def.model = overrides.personaModels[lower];
+			if (overrides.personaModels[lower]) Object.assign(def, applyModelOverride(def, overrides.personaModels[lower]));
 			if (overrides.personaModelLists[lower]) def.models = overrides.personaModelLists[lower];
 			if (overrides.personaThinking[lower]) def.thinking = overrides.personaThinking[lower];
 			// Delegation overrides: replace/add individual sub-roles (other declared
@@ -7721,7 +7752,15 @@ ${researchCatalog}`;
 			const subOv = overrides.personaSubagents[lower];
 			if (subOv) {
 				def.subagents = { ...(def.subagents || {}) };
-				for (const [role, r] of Object.entries(subOv)) def.subagents[role] = r;
+				for (const [role, r] of Object.entries(subOv)) {
+					const declared = def.subagents[role];
+					// A model-only override keeps the declared tool cap; an explicit
+					// tools= value replaces it. Either way the frontmatter model is
+					// retained as the one-shot runtime fallback.
+					def.subagents[role] = declared
+						? applyModelOverride({ ...declared, ...(r.tools ? { tools: r.tools } : {}) }, r.model)
+						: r;
+				}
 			}
 			if (overrides.personaDelegateDepth[lower] !== undefined) {
 				def.delegateDepth = overrides.personaDelegateDepth[lower];

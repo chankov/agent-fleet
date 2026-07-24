@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { spawnPiAgent } from '../.pi/harnesses/agent-hub/spawn.ts';
+import { spawnPiAgent, spawnPiAgentWithModelFallback } from '../.pi/harnesses/agent-hub/spawn.ts';
 
 function createFakePi(tmp, capturePath) {
   const fakePiPath = join(tmp, 'pi');
@@ -13,6 +13,9 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const mode = process.env.FAKE_PI_MODE || 'normal';
 const emit = event => process.stdout.write(JSON.stringify(event) + '\\n');
+const modelIndex = process.argv.indexOf('--model');
+const model = modelIndex >= 0 ? process.argv[modelIndex + 1] : '';
+if (process.env.FAKE_PI_ATTEMPTS) fs.appendFileSync(process.env.FAKE_PI_ATTEMPTS, model + '\\n');
 const start = (id, toolName = 'read') => emit({ type: 'tool_execution_start', toolCallId: id, toolName, args: { path: '/disk/' + id } });
 const end = (id, toolName = 'read') => emit({ type: 'tool_execution_end', toolCallId: id, toolName });
 const done = () => { emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'FAKE OK' } }); emit({ type: 'agent_end', messages: [{ role: 'assistant', usage: { input: 1, output: 2 } }] }); };
@@ -52,6 +55,14 @@ if (mode === 'normal') {
   start('e2', 'bash'); emit({ type: 'tool_execution_end', toolCallId: 'e2', toolName: 'bash', result: { isError: false } });
   start('e3', 'bash'); end('e3', 'bash');
   done();
+} else if (mode === 'model-fallback') {
+  if (model === 'fake/override') emit({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'provider unavailable', usage: { input: 0, output: 0 } } });
+  else done();
+} else if (mode === 'model-failure-after-tool') {
+  if (model === 'fake/override') {
+    start('already-worked', 'edit');
+    emit({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'provider unavailable', usage: { input: 1, output: 0 } } });
+  } else done();
 }
 `);
   chmodSync(fakePiPath, 0o755);
@@ -89,6 +100,48 @@ test('spawnPiAgent sends the prompt through stdin instead of an unsupported -- s
     assert.ok(!capture.argv.includes('--'), 'pi does not accept a standalone -- option separator');
     assert.ok(!capture.argv.includes(prompt), 'prompt should not be passed as an argv option/positional');
     assert.deepEqual(capture.argv, ['--mode', 'json', '-p', '--no-extensions', '-e', 'damage-control.ts', '-e', 'delegate.ts', '--model', 'fake/model', '--tools', 'read,grep', '--thinking', 'off', '--append-system-prompt', 'fake system', '--session', join(tmp, 'session.jsonl'), '-c']);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('overridden model falls back once on a pre-work assistant error', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-model-fallback-'));
+  try {
+    createFakePi(tmp);
+    const attempts = join(tmp, 'attempts.txt');
+    const notices = [];
+    const result = await spawnPiAgentWithModelFallback(
+      { ...options(tmp, { FAKE_PI_MODE: 'model-fallback', FAKE_PI_ATTEMPTS: attempts }), model: 'fake/override' },
+      'fake/original',
+      { onModelFallback: notice => notices.push(notice) },
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.output, 'FAKE OK');
+    assert.equal(result.modelUsed, 'fake/original');
+    assert.deepEqual(result.modelFallback, {
+      from: 'fake/override', to: 'fake/original', reason: 'provider unavailable',
+    });
+    assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override', 'fake/original']);
+    assert.deepEqual(notices, [result.modelFallback]);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('overridden model does not fall back after any tool call has started', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-model-no-fallback-'));
+  try {
+    createFakePi(tmp);
+    const attempts = join(tmp, 'attempts.txt');
+    const result = await spawnPiAgentWithModelFallback(
+      { ...options(tmp, { FAKE_PI_MODE: 'model-failure-after-tool', FAKE_PI_ATTEMPTS: attempts }), model: 'fake/override' },
+      'fake/original',
+    );
+
+    assert.equal(result.exitCode, 1, 'assistant stopReason:error is a failed run even when Pi exits 0');
+    assert.equal(result.modelUsed, 'fake/override');
+    assert.equal(result.modelFallback, undefined);
+    assert.equal(result.assistantError, 'provider unavailable');
+    assert.equal(result.toolCallsStarted, 1);
+    assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override']);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 

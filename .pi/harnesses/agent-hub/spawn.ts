@@ -5,6 +5,7 @@
  */
 
 import { spawn, type ChildProcess } from "child_process";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 
 export interface PiUsage {
 	input?: number;
@@ -69,8 +70,15 @@ export interface SpawnPiAgentOptions {
 	turnDeadlineMs?: number | null;
 }
 
+export interface ModelFallbackNotice {
+	from: string;
+	to: string;
+	reason: string;
+}
+
 export interface SpawnPiAgentCallbacks {
 	onProcess?(proc: ChildProcess): void;
+	onModelFallback?(notice: ModelFallbackNotice): void;
 	/** Receives a terminate handle for parent-side classified stops (drift watchdog). */
 	onControl?(control: PiRunControl): void;
 	onTextDelta?(delta: string): void;
@@ -86,6 +94,11 @@ export interface SpawnPiAgentResult {
 	exitCode: number | null;
 	stderr: string;
 	spawnError?: string;
+	/** Assistant-level provider/model failure reported in Pi's JSON stream. */
+	assistantError?: string;
+	toolCallsStarted: number;
+	modelUsed: string;
+	modelFallback?: ModelFallbackNotice;
 	/** Present only when parent-side bounded termination was requested. */
 	termination?: Termination;
 }
@@ -160,6 +173,8 @@ export function spawnPiAgent(
 			if (deadlineTimer) clearTimeout(deadlineTimer);
 			opts.signal?.removeEventListener("abort", onAbort);
 		};
+		let assistantError: string | undefined;
+		let toolCallsStarted = 0;
 		const settle = (code: number | null, spawnError?: string) => {
 			if (settled) return;
 			settled = true;
@@ -169,7 +184,19 @@ export function spawnPiAgent(
 			try { proc.stdin?.destroy(); } catch {}
 			try { proc.stdout?.destroy(); } catch {}
 			try { proc.stderr?.destroy(); } catch {}
-			resolve({ output: textChunks.join(""), exitCode: code, stderr: stderrChunks.join(""), ...(spawnError ? { spawnError } : {}), ...(termination ? { termination } : {}) });
+			resolve({
+				output: textChunks.join(""),
+				// Pi's headless process can exit 0 while the assistant message itself
+				// reports stopReason:error. Normalize that to a failed run so callers
+				// never mark a provider/model error as successful.
+				exitCode: assistantError && code === 0 ? 1 : code,
+				stderr: stderrChunks.join(""),
+				toolCallsStarted,
+				modelUsed: opts.model,
+				...(spawnError ? { spawnError } : {}),
+				...(assistantError ? { assistantError } : {}),
+				...(termination ? { termination } : {}),
+			});
 		};
 		const terminate = (reason: Termination["reason"], tool?: ToolTimeout) => {
 			// The first classification wins; later cancellation/exit events keep it.
@@ -201,6 +228,7 @@ export function spawnPiAgent(
 				if (delta?.type === "text_delta") { textChunks.push(delta.delta || ""); cbs.onTextDelta?.(delta.delta || ""); }
 				else if (delta?.type === "thinking_delta") cbs.onThinkingDelta?.(delta.delta || "");
 			} else if (event.type === "tool_execution_start") {
+				toolCallsStarted++;
 				let argStr = "";
 				try { argStr = event.args != null ? JSON.stringify(event.args) : ""; } catch {}
 				const id = toolId(event);
@@ -220,6 +248,9 @@ export function spawnPiAgent(
 				const rawIsError = event.isError ?? event.is_error ?? event.result?.isError ?? event.result?.is_error;
 				cbs.onToolEnd?.(event.toolName || "tool", id || undefined, typeof rawIsError === "boolean" ? rawIsError : undefined);
 			} else if (event.type === "message_end") {
+				if (event.message?.role === "assistant" && event.message?.stopReason === "error") {
+					assistantError = String(event.message.errorMessage || "assistant model run failed");
+				}
 				if (event.message?.usage) cbs.onUsage?.(event.message.usage, "message_end");
 			} else if (event.type === "agent_end") {
 				const last = [...(event.messages || [])].reverse().find((m: any) => m.role === "assistant");
@@ -243,4 +274,52 @@ export function spawnPiAgent(
 		});
 		proc.on("error", (err) => settle(1, err.message));
 	});
+}
+
+function modelFallbackReason(result: SpawnPiAgentResult): string | null {
+	if (result.spawnError || result.termination || result.toolCallsStarted > 0 || result.output.trim()) return null;
+	if (result.assistantError) return result.assistantError.slice(-500);
+	if (result.exitCode !== 0) {
+		const stderr = result.stderr.trim();
+		return stderr ? stderr.slice(-500) : `pi exited with code ${result.exitCode ?? "unknown"}`;
+	}
+	return null;
+}
+
+/**
+ * Run an overridden model and retry once on the original persona model only
+ * when the first attempt failed before producing text or starting a tool. The
+ * session file is restored before retry so the failed turn never enters the
+ * resumable conversation.
+ */
+export async function spawnPiAgentWithModelFallback(
+	opts: SpawnPiAgentOptions,
+	fallbackModel?: string,
+	cbs: SpawnPiAgentCallbacks = {},
+): Promise<SpawnPiAgentResult> {
+	if (!fallbackModel || fallbackModel === opts.model) return spawnPiAgent(opts, cbs);
+
+	const sessionExisted = existsSync(opts.sessionFile);
+	let sessionSnapshot: Buffer | undefined;
+	if (sessionExisted) {
+		try { sessionSnapshot = readFileSync(opts.sessionFile); } catch {}
+	}
+
+	const primary = await spawnPiAgent(opts, cbs);
+	const reason = modelFallbackReason(primary);
+	// If an existing resumable session could not be snapshotted, fail closed:
+	// retrying would preserve the failed turn and could duplicate the prompt.
+	if (!reason || (sessionExisted && !sessionSnapshot)) return primary;
+
+	try {
+		if (sessionExisted && sessionSnapshot) writeFileSync(opts.sessionFile, sessionSnapshot);
+		else unlinkSync(opts.sessionFile);
+	} catch (error: any) {
+		if (error?.code !== "ENOENT") return primary;
+	}
+
+	const notice: ModelFallbackNotice = { from: opts.model, to: fallbackModel, reason };
+	cbs.onModelFallback?.(notice);
+	const fallback = await spawnPiAgent({ ...opts, model: fallbackModel }, cbs);
+	return { ...fallback, modelFallback: notice };
 }

@@ -7,6 +7,8 @@ import {
   delegateBudgetRefusal,
   DELEGATE_TREE_SPAWN_BUDGET,
   MAX_DELEGATE_DEPTH,
+  applyModelOverride,
+  fallbackModelFor,
   normalizeDelegateRuntimeBudgets,
   parseTeamsYaml,
   planDelegateSpawn,
@@ -60,6 +62,22 @@ test('safePathWithin refuses traversal outside the base directory', () => {
 test('package files include all harness TypeScript files', async () => {
   const pkg = JSON.parse(await readFile('package.json', 'utf-8'));
   assert.ok(pkg.files.includes('.pi/harnesses/*/*.ts'));
+});
+
+test('model overrides preserve the original model across repeated project and session switches', () => {
+  const persona = { model: 'openai/original', tools: 'read' };
+  const projectOverride = applyModelOverride(persona, 'custom/project');
+  const sessionOverride = applyModelOverride(projectOverride, 'custom/session');
+
+  assert.deepEqual(projectOverride, {
+    model: 'custom/project', tools: 'read', fallbackModel: 'openai/original',
+  });
+  assert.deepEqual(sessionOverride, {
+    model: 'custom/session', tools: 'read', fallbackModel: 'openai/original',
+  });
+  assert.equal(fallbackModelFor(sessionOverride, sessionOverride.model), 'openai/original');
+  assert.equal(fallbackModelFor(sessionOverride, 'openai/original'), undefined);
+  assert.equal(fallbackModelFor(persona, persona.model), undefined);
 });
 
 test('delegate budgets clamp depth and refuse exhausted depth or spawn budgets', () => {
