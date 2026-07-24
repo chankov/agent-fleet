@@ -93,7 +93,7 @@ async function captureSnapshot(client: Client, team: string, project = DEFAULT_P
 	if (!fs.existsSync(PEERS_YAML)) die(`peers.yaml not found at ${PEERS_YAML}`);
 	const teams = parsePeersYaml(fs.readFileSync(PEERS_YAML, "utf-8"));
 	const peers = teams[team];
-	if (!peers || peers.length === 0) die(`Team "${team}" not found in peers.yaml.`);
+	if (!peers) die(`Team "${team}" not found in peers.yaml.`);
 
 	const { panes } = await client.herdr.paneList({ workspace_id: ws.workspace_id });
 	const { agents } = await client.herdr.agentList();
