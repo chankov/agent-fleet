@@ -26,7 +26,7 @@ Agent Fleet is layered on purpose. Work flows **down** (delegate); evidence and 
 flowchart TD
     You(["You · Hermes inbound relay · Codex outbound conductor on your phone"])
 
-    subgraph HUBL["HUB — thin dispatcher  (just hub · just hub-team)"]
+    subgraph HUBL["HUB — thin dispatcher  (just fleet hub · just fleet team)"]
         Hub["agent-hub harness + orchestrator persona<br/>routes tasks · owns the Verification Contract on disk<br/>never swallows research dumps into its own context"]
     end
 
@@ -136,8 +136,8 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 
 | Dependency | Role | Required? |
 | --- | --- | --- |
-| **[pi](https://github.com/badlogic/pi-mono)** (or your pi install) | Primary coding-agent runtime; loads harnesses, extensions, prompts, and personas | Yes for full fleet mode (`just hub`) |
-| **[herdr](https://herdr.dev)** | Workspace control plane: tiled peer panes, presence push events, team snapshot/resume | Yes for fleet recipes (`just team-up`, `just hub-team`, …); optional for solo hub |
+| **[pi](https://github.com/badlogic/pi-mono)** (or your pi install) | Primary coding-agent runtime; loads harnesses, extensions, prompts, and personas | Yes for full fleet mode (`just fleet hub`) |
+| **[herdr](https://herdr.dev)** | Workspace control plane: tiled peer panes, presence push events, team snapshot/resume | Yes for team mode (`just fleet team`); optional for `just fleet hub` |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | First-class peer via the [coms bridge](claude-code-coms-bridge.md); also a supported install target for skills/personas | Optional peer / alternate harness |
 | **[OpenCode](https://opencode.ai)** | Skill-driven execution target (`AGENTS.md` + `skill` tool); `af-*` slash commands | Optional alternate harness |
 | **Hermes** | Remote human-in-the-loop (Telegram relay for hub questions) — [coms-hermes-bridge](coms-hermes-bridge.md) | Optional |

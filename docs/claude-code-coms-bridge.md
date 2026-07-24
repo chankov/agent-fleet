@@ -20,7 +20,7 @@ Claude Code ── Bash: coms-cli send/await ──▶ any pi peer            (o
 | Envelope CLI | `scripts/coms-cli.ts` | `list` / `send` / `await` / `reply` — any process becomes a coms participant. `send --await` is a blocking round trip; plain `send` prints a `msg_id` and a detached waiter holds the reply for `await`. |
 | Stop hook | `hooks/coms-stop-hook.mjs` | PRIMARY completion path: writes each turn's final assistant message to `~/.pi/coms/claude-bridge/<pane>/last-message.json` (keyed by `HERDR_PANE_ID`). Exact text, no scraping. |
 | Skill | `skills/peer-coms/SKILL.md` | Teaches Claude Code its peer role: discover with `coms-cli list`, ask with `send --await`, answer inbound prompts normally, never drive panes itself. |
-| Runner | `runner: claude-code` in `.pi/agents/peers.yaml` | `just team-up` spawns the Claude CLI + its bridge in one pane (`_claude-peer` recipe); `model:` maps to `claude --model`, team-resume maps the herdr-captured session id to `claude --resume`. |
+| Runner | `runner: claude-code` in `.pi/agents/peers.yaml` | `just fleet team` spawns the Claude CLI + its bridge in one pane (`_claude-peer` internally); `model:` maps to `claude --model`, and `just fleet resume` maps the Herdr-captured session id to `claude --resume`. |
 
 ## Setup
 
@@ -43,7 +43,7 @@ Claude Code ── Bash: coms-cli send/await ──▶ any pi peer            (o
    is a peer and how to use `coms-cli`.
 
 3. **Spawn:** either add a `runner: claude-code` peer to a peers.yaml team and
-   `just team-up <team>`, or attach a bridge to an existing herdr Claude pane:
+   `just fleet team <team> --no-hub`, or attach a bridge to an existing Herdr Claude pane:
 
    ```bash
    node --experimental-strip-types scripts/coms-claude-bridge.ts --name claude-main
@@ -53,9 +53,9 @@ Claude Code ── Bash: coms-cli send/await ──▶ any pi peer            (o
 ## Demo scenario (verified live)
 
 ```bash
-just team-up docs                      # pi peers up
+just fleet team docs --no-hub         # Pi peers up
 # pane with: bridge (claude-main) + claude
-just hub                               # in another pane: the orchestrator
+just fleet hub                         # in another pane: the orchestrator
 # from the hub (or any shell):
 node --experimental-strip-types scripts/coms-cli.ts send claude-main \
   "Summarize the failing test output in artifacts/test.log" --await --timeout 300000

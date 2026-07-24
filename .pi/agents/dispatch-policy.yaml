@@ -1,6 +1,6 @@
 # Backend routing for the agent-hub dispatcher (dispatch_agent). Decided at
 # DISPATCH time, never at team activation — the hub and its peers boot in
-# parallel (`just hub-team <team>`), so a member's coms peer may register
+# parallel (`just fleet team <team>`), so a member's coms peer may register
 # after the session starts.
 #
 #   default: native | coms   — coms substitutes ANY active-team member that has

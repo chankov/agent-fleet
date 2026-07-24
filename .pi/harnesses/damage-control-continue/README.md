@@ -69,9 +69,9 @@ outcomes) is logged to the `damage-control-log` session entries.
 
 ## When it's used (this repo)
 
-`just hub` / `just hub-solo` load this harness for the **orchestrator/dispatcher
-main session**, and Agent Hub re-loads it into every native **specialist, research
-helper, and nested delegate**. If the harness cannot be resolved, Agent Hub
+Every `just fleet` Pi mode loads this harness: the default interactive session,
+standalone peers, Hub, and Herdr Pi peers. Agent Hub additionally re-loads it into
+every native **specialist, research helper, and nested delegate**. If the harness cannot be resolved, Agent Hub
 refuses guarded child dispatch rather than launching an unprotected process.
 
 ## Commands & tools
@@ -94,12 +94,12 @@ Blocking itself runs passively on the `tool_call` event.
 
 ```bash
 # standalone continue-mode guardrail session
-just ext-damage-control-continue
+just fleet
 pi -e .pi/harnesses/damage-control-continue/index.ts
 
-# the hub recipes load this variant for the main agent by default
-just hub
-just hub-solo
+# Hub variants
+just fleet hub
+just fleet hub --solo
 
 # direct continue-guarded hub launch
 pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts

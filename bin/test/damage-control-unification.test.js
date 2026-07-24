@@ -17,7 +17,8 @@ const setupContracts = [
 test("only damage-control-continue remains in the active harness inventory", () => {
 	assert.equal(existsSync(join(root, ".pi/harnesses/damage-control")), false);
 	const skill = read(setupContracts[0]);
-	assert.match(skill, /agent-hub` ⇒ `damage-control-continue` \+ `ask-user-remote`/);
+	assert.match(skill, /Mandatory Fleet Core closure/);
+	assert.match(skill, /`damage-control-continue`, `ask-user-remote`, `pi-voice-stt`/);
 	assert.doesNotMatch(skill, /\*safety\*.*`damage-control`,/);
 	assert.doesNotMatch(skill, /both damage-control variants/i);
 });

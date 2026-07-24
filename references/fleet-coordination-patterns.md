@@ -113,7 +113,7 @@ artifacts only where the digest warrants it. Raw dumps never travel upward.
   previews + paths, never inlined full content.
 - The delegate `DIGEST:` contract — children return ≤30 digest lines with `path:line`
   citations plus the result-file path; over-long returns are truncated with a warning.
-- `just team-up <team>` is the fleet-level shard step: one pane per peer, each an
+- `just fleet team <team> --no-hub` is the fleet-level shard step: one pane per peer, each an
   addressable worker.
 
 **Failure modes:** digest inflation (cap lines, require citations); merger re-reading

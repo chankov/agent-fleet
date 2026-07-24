@@ -1,8 +1,7 @@
 // scripts/team-snapshot.ts
 //
 // Fleet resume (B5): snapshot / tear down / rebuild a running peer team.
-// Backs the `just team-snapshot`, `just team-down`, `just team-resume`
-// recipes. herdr is a hard dependency (requireHerdr refuses readably).
+// Backs `just fleet snapshot`, `just fleet down`, and `just fleet resume`. herdr is a hard dependency (requireHerdr refuses readably).
 //
 //   snapshot <team>  — capture peers + per-peer session refs to
 //                      ~/.pi/team-snapshots/<team>.json (team keeps running)
@@ -88,7 +87,7 @@ async function captureSnapshot(client: Client, team: string, project = DEFAULT_P
 		const projectArgs = project === DEFAULT_PROJECT ? "" : ` --project ${project}`;
 		die(
 			`No running workspace "${peersLabel}" or "${hubLabel}" found.\n` +
-				`Start one with: just team-up ${team}${projectArgs}   (or just hub-team ${team}${projectArgs})`,
+				`Start one with: just fleet team ${team}${projectArgs}   (or add --no-hub for peers only)`,
 		);
 	}
 	if (!fs.existsSync(PEERS_YAML)) die(`peers.yaml not found at ${PEERS_YAML}`);
@@ -129,7 +128,7 @@ async function cmdDown(team: string, project = DEFAULT_PROJECT): Promise<void> {
 	if (ws) {
 		await client.herdr.workspaceClose(ws.workspace_id);
 		const projectArgs = project === DEFAULT_PROJECT ? "" : ` --project ${project}`;
-		console.log(`Closed workspace ${ws.workspace_id} ("${ws.label}"). Resume with: just team-resume ${team}${projectArgs}`);
+		console.log(`Closed workspace ${ws.workspace_id} ("${ws.label}"). Resume with: just fleet resume ${team}${projectArgs}`);
 	}
 }
 
@@ -137,7 +136,7 @@ async function cmdResume(team: string, project = DEFAULT_PROJECT): Promise<void>
 	const file = snapshotPath(team, project);
 	if (!fs.existsSync(file)) {
 		const projectArgs = project === DEFAULT_PROJECT ? "" : ` --project ${project}`;
-		die(`No snapshot at ${file}.\nTake one while the team runs: just team-snapshot ${team}${projectArgs} (or just team-down ${team}${projectArgs}).`);
+		die(`No snapshot at ${file}.\nTake one while the team runs: just fleet snapshot ${team}${projectArgs} (or just fleet down ${team}${projectArgs}).`);
 	}
 	const snap = parseSnapshot(fs.readFileSync(file, "utf-8"));
 	try {

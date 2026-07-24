@@ -181,24 +181,29 @@ This repo ships **3 supported session harnesses** ported or consolidated from [d
 
 - **Orchestration** — `agent-hub` (dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms)
 - **Safety** — `damage-control-continue` (fail-closed blocks feed back so the agent can report or safely adapt)
-- **Pi-to-Pi messaging** — `coms` (launched guarded via `just safe-coms <name>`, and embedded in `agent-hub`)
+- **Pi-to-Pi messaging** — `coms` (launched guarded via `just fleet peer <name>`, and embedded in `just fleet hub`)
 
 Unlike the utilities above, each harness reshapes the entire pi session, and most are loaded one per session rather than all at once. The supported stack loads `damage-control-continue` and `ask-user-remote` before `agent-hub`; the hub then re-loads continue into every native specialist, research helper, and nested delegate. Protected-path blocks can escalate for explicit approval, while dangerous command patterns remain non-exemptible. Missing child safety refuses dispatch. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all harnesses aborts startup (harnesses that register the same CLI flags clash). Load a harness recipe explicitly instead — there is nothing to symlink:
 
 ```bash
 # from the agent-fleet clone, via the bundled justfile
-just --list                       # list every harness recipe
-just hub                          # launch the guarded consolidated multi-agent hub
+just fleet help                   # unified runtime grammar
+just fleet                        # guarded Pi + STT and core utilities
+just fleet hub                    # guarded consolidated multi-agent hub
+just fleet team docs              # hub + guarded Herdr peer team
+just --list                       # confirms the single public Fleet entry point
 
 # or directly, from anywhere — point pi -e at the guarded harness stack
+# Advanced/manual equivalent of only the harness part; `just fleet hub` also
+# loads STT, Compact & Continue, BTW, and update-check as Fleet Core utilities.
 pi -e /path/to/agent-fleet/.pi/harnesses/damage-control-continue/index.ts -e /path/to/agent-fleet/.pi/harnesses/ask-user-remote/index.ts -e /path/to/agent-fleet/.pi/harnesses/agent-hub/index.ts
 ```
 
 **Upgrading from the retired hard-stop harness:** `.pi/harnesses/damage-control/` and
-`just ext-damage-control` are no longer shipped. Re-run guided setup to remove only an
-unchanged setup-owned copy (or source symlink) and refresh the managed `justfile` region;
-user-modified and unowned copies are preserved. Use `just ext-damage-control-continue` for
-a standalone safety session.
+the old standalone damage-control recipes are no longer shipped. Re-run guided setup to
+remove only an unchanged setup-owned copy (or source symlink) and refresh the managed
+`justfile` region; user-modified and unowned copies are preserved. Use `just fleet` for a
+standalone guarded session.
 
 The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. Install both at once with `just install` from the clone, or run `npm ci` in `.pi/harnesses/` as well. The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `chrome-devtools-mcp`), and what changed from upstream.
 

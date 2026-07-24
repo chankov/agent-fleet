@@ -2,8 +2,8 @@
 //
 // Spawn a team of reusable coms peers (from .pi/agents/peers.yaml) into a
 // herdr workspace — one pane per peer in a tiled BSP layout, each running the
-// hidden `just _peer …` helper. Backs the `just team-up <name>` and
-// `just hub-team <name>` recipes (see the justfile). herdr is a hard
+// hidden `just _peer …` helper. Public use is through `just fleet team` and
+// `just fleet conductor`; all backing recipes remain private. Herdr is a hard
 // dependency for fleet spawning: without a running server the recipes refuse
 // with an actionable message.
 //
@@ -207,6 +207,11 @@ async function main(): Promise<void> {
 	}
 	const dryRun = argv.includes("--dry-run");
 	const hub = argv.includes("--hub");
+	const hubBrowser = argv.includes("--browser");
+	const hubAllExtensions = argv.includes("--all-extensions");
+	if (!hub && (hubBrowser || hubAllExtensions)) {
+		die("--browser/--all-extensions apply to the hub pane and therefore require --hub");
+	}
 	let conductor: ConductorBackend | null;
 	try {
 		conductor = parseConductorBackend(argv);
@@ -245,7 +250,11 @@ async function main(): Promise<void> {
 		die(err instanceof Error ? err.message : String(err));
 	}
 	const rootPane = hub
-		? { command: hubCommand(project), label: "hub", ratio: HUB_RATIO }
+		? {
+			command: hubCommand(project, { browser: hubBrowser, allExtensions: hubAllExtensions }),
+			label: "hub",
+			ratio: HUB_RATIO,
+		}
 		: spec
 			? { command: spec.command, label: spec.paneLabel, ratio: spec.ratio, cwd: spec.cwd, env: spec.env }
 			: undefined;
@@ -281,8 +290,15 @@ async function main(): Promise<void> {
 	} catch (err) {
 		if (err instanceof HerdrUnavailableError) {
 			console.error(err.message);
-			const dryRecipe = mode === "hub" ? "hub-team-dry" : spec?.backend === "codex" ? "conductor-codex-dry" : mode === "conductor" ? "conductor-dry" : "team-up-dry";
-			console.error(`(dry run still works: just ${dryRecipe} ${team}${project === DEFAULT_PROJECT ? "" : ` --project ${project}`})`);
+			const projectArgs = project === DEFAULT_PROJECT ? "" : ` --project ${project}`;
+			const dryCommand = mode === "hub"
+				? `just fleet team ${team} --dry-run${projectArgs}`
+				: spec?.backend === "codex"
+					? `just fleet conductor codex ${team} --dry-run${projectArgs}`
+					: mode === "conductor"
+						? `just fleet conductor hermes ${team} --dry-run${projectArgs}`
+						: `just fleet team ${team} --no-hub --dry-run${projectArgs}`;
+			console.error(`(dry run still works: ${dryCommand})`);
 			process.exit(1);
 		}
 		throw err;
@@ -315,7 +331,9 @@ async function main(): Promise<void> {
 	console.log(
 		`Launched ${launchedPrefix}${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`,
 	);
-	if (mode === "hub") console.log(`  • hub (${hubCommand(project).join(" ")} — guarded dispatcher)`);
+	if (mode === "hub") {
+		console.log(`  • hub (${hubCommand(project, { browser: hubBrowser, allExtensions: hubAllExtensions }).join(" ")} — guarded dispatcher)`);
+	}
 	if (spec) console.log(`  • ${spec.paneLabel} (${spec.command.join(" ")} — ${spec.displayText})`);
 	if (spec?.backend === "codex") console.log("  • Closing this workspace does not stop the enabled Codex user service; stop it explicitly.");
 	for (const p of peers) console.log(`  • ${p.name}`);

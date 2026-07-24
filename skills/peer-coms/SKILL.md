@@ -8,7 +8,7 @@ description: Makes Claude Code a first-class peer in the local coms agent pool â
 ## Overview
 
 You may be running next to other live coding agents on this machine: pi peers spawned by
-`just team-up`, an agent-hub orchestrator, other bridged Claude Code panes. They form a
+`just fleet team`, an Agent Hub orchestrator, or other bridged Claude Code panes. They form a
 **coms pool** â€” addressable peers exchanging structured prompt/response envelopes. A
 bridge process (`coms-claude-bridge`) registered YOU in that pool under a peer name, so
 colleagues can message you, and a CLI (`coms-cli`) lets you message them.

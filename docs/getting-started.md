@@ -24,10 +24,10 @@ Linux/pi fleet users can pair Codex Remote Control with ChatGPT Android and dele
 
 ```bash
 cd /path/to/agent-fleet
-just conductor-codex-setup docs --project af
-just conductor-codex-pair
-just conductor-codex-start
-just hub-team docs --project af
+just fleet conductor codex setup docs --project af
+just fleet conductor codex pair
+just fleet conductor codex start
+just fleet team docs --project af
 ```
 
 The runtime contract is generated under `$HOME/.local/state/agent-fleet/codex-conductor/`, outside the checkout. Pairing is interactive secret-bearing output and must never be captured. Read the complete [Codex conductor runbook](codex-remote-conductor.md) before enabling the service.

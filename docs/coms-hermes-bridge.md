@@ -95,8 +95,8 @@ Hermes can also act as the conductor without this daemon: use `coms-cli list` to
 Launch a visible conductor workspace with:
 
 ```bash
-just conductor docs          # live herdr workspace: conductor pane + docs team panes
-just conductor-dry docs      # no herdr calls; prints the planned layout JSON
+just fleet conductor hermes docs            # live conductor + team workspace
+just fleet conductor hermes docs --dry-run  # preview; no Herdr calls
 ```
 
 The live recipe reuses `scripts/team-up.ts --conductor`: it creates a normal herdr workspace labeled `<worktree-tag>-conductor-<team>` (the tag is the last dot-segment of the checkout's basename, so the same team from a different worktree gets its own workspace), places a `conductor` pane running `hermes -p dev`, and tiles the chosen team beside it. Team peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
@@ -152,7 +152,7 @@ node --experimental-strip-types scripts/coms-hermes-bridge.ts \
   --hermes-profile default \
   --timeout 1800000 \
   --to 'telegram:<chat_id>:<thread_id>'
-just hub-team docs --project af
+just fleet team docs --project af
 ```
 
 Repeated value flags such as two `--to` arguments are rejected at startup rather than silently selecting one destination. The `ask-user-remote` wrapper resolves the explicit Pi `--project` flag when the tool executes, so non-default hubs discover `user-remote` in their own pool.

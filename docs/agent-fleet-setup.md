@@ -157,7 +157,7 @@ the environment nor declared in the workspace root `.env`.
 
 ### Per-peer env files (`env_file:` in peers.yaml)
 
-Fleet peers spawned by `just team-up` / `just hub-team` can carry their own
+Fleet peers spawned by `just fleet team` can carry their own
 environment: an `env_file:` entry in `.pi/agents/peers.yaml` names a
 **repo-relative** KEY=VALUE file (same format as `.env`, no shell evaluation)
 that herdr injects into the peer's pane before the command runs — no `source`,

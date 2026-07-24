@@ -178,9 +178,11 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
       const owned = installClosure(root, workspace, method);
       for (const rel of [...manifest.directories, ...manifest.files]) assert.ok(existsSync(join(workspace, rel)), `${method}: ${rel}`);
       assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /user-recipe/);
-      assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /conductor-codex-pilot/);
-      assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /conductor-codex-setup/);
-      assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /conductor-codex team=/);
+      const installedJustfile = readFileSync(join(workspace, "justfile"), "utf8");
+      assert.match(installedJustfile, /\nfleet \*args:/);
+      assert.match(installedJustfile, /_fleet-conductor-codex-setup/);
+      assert.match(installedJustfile, /_fleet-conductor-codex team=/);
+      assert.doesNotMatch(installedJustfile, /\n(?:hub|hub-team|team-up|safe-coms|conductor-codex)(?: |:)/);
       assert.equal(lstatSync(join(workspace, "codex")).isSymbolicLink(), method === "symlink");
       assert.equal(lstatSync(join(workspace, "scripts", "codex-remote-control.ts")).isSymbolicLink(), method === "symlink");
       assert.equal(existsSync(join(workspace, "hermes", "desktop-plugins")), false, `${method}: desktop plugins must not install`);

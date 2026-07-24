@@ -58,7 +58,7 @@
  *
  * Identity flags (coms): --name --purpose --project --color --explicit
  *
- * Usage: just hub
+ * Usage: just fleet hub
  * Direct guarded launch: pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts
  */
 
@@ -1755,7 +1755,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag("project", { description: "Coms: project namespace for peer discovery", type: "string", default: "default" });
 	pi.registerFlag("color", { description: "Coms: hex color #RRGGBB (else frontmatter or palette fallback)", type: "string", default: undefined });
 	pi.registerFlag("explicit", { description: "Coms: hide from auto-discovery; addressable only by exact name", type: "boolean", default: false });
-	pi.registerFlag("solo", { description: "Run without the coms layer (fixed specialists + research only — `just hub-solo`)", type: "boolean", default: false });
+	pi.registerFlag("solo", { description: "Run without the coms layer (fixed specialists + research only — `just fleet hub --solo`)", type: "boolean", default: false });
 
 	// ── Embedded coms: peer state ──
 	let identity: {
@@ -3220,7 +3220,7 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 
 		// ── Backend routing (dispatch-policy.yaml) ──
 		// Decided per dispatch, never at team activation: the hub and its peers
-		// boot in parallel (`just hub-team`), so a member's coms peer may register
+		// boot in parallel (`just fleet team`), so a member's coms peer may register
 		// at any point. A coms-preferring member with a live same-name pool peer
 		// is served by that peer; everything downstream (return contract, ASK_USER,
 		// research pipe, history) consumes the same result shape either way.
@@ -7544,7 +7544,7 @@ ${researchCatalog}`;
 				// pi's built-in `--name` (session display name) shadows the `--name` flag
 				// the embedded coms layer registers, so `flags.name` (getFlag) stays empty
 				// when a user passes `--name`. Recover it via getSessionName() — it ranks
-				// like the CLI flag (above frontmatter), so `just hub --name foo` is honored.
+				// like the CLI flag (above frontmatter), so `just fleet hub --name foo` is honored.
 				const sessionName = typeof pi.getSessionName === "function" ? (pi.getSessionName() || undefined) : undefined;
 				const desiredName = flags.name || sessionName || fm.name || defaultName;
 				const name = resolveUniqueName(project, desiredName);

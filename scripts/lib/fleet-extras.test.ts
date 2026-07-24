@@ -71,7 +71,7 @@ test("dry run: hub mode labels the workspace <tag>-hub-* and includes the hub pa
 	assert.equal(parsed.layout.type, "split");
 	assert.equal(parsed.layout.ratio, 0.4);
 	assert.equal(parsed.layout.first.label, "hub");
-	assert.deepEqual(parsed.layout.first.command, ["just", "hub"]);
+	assert.deepEqual(parsed.layout.first.command, ["just", "fleet", "hub"]);
 });
 
 test("dry run: hub project labels workspace and sends the project to hub plus every peer", () => {
@@ -84,7 +84,7 @@ test("dry run: hub project labels workspace and sends the project to hub plus ev
 	assert.match(r.stdout, /project "acme"/);
 	const parsed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{")));
 	assert.equal(parsed.label, `${TAG}-hub-t--project.acme`);
-	assert.deepEqual(parsed.layout.first.command, ["just", "hub", "--project", "acme"]);
+	assert.deepEqual(parsed.layout.first.command, ["just", "fleet", "hub", "--project", "acme"]);
 	const paneJson = JSON.stringify(parsed.layout.second);
 	assert.match(paneJson, /"acme"/);
 	assert.deepEqual(parsed.layout.second.first.command, ["just", "_peer", "researcher", "a", "", "", "acme"]);

@@ -65,8 +65,11 @@ test("workspace labels embed the worktree tag + mode and distinguish projects", 
 	assert.notEqual(teamWorkspaceLabel("hub", "docs--project-acme"), teamWorkspaceLabel("hub", "docs", "acme"));
 	assert.notEqual(teamWorkspaceLabel("conductor-hermes", "docs--project-acme"), teamWorkspaceLabel("conductor-hermes", "docs", "acme"));
 	assert.notEqual(teamWorkspaceLabel("conductor-codex", "docs--project-acme"), teamWorkspaceLabel("conductor-codex", "docs", "acme"));
-	assert.deepEqual(hubCommand(), ["just", "hub"]);
-	assert.deepEqual(hubCommand("acme"), ["just", "hub", "--project", "acme"]);
+	assert.deepEqual(hubCommand(), ["just", "fleet", "hub"]);
+	assert.deepEqual(hubCommand("acme"), ["just", "fleet", "hub", "--project", "acme"]);
+	assert.deepEqual(hubCommand("acme", { browser: true, allExtensions: true }), [
+		"just", "fleet", "hub", "--browser", "--all-extensions", "--project", "acme",
+	]);
 	assert.deepEqual(conductorCommand(), ["hermes", "-p", "dev"]);
 	assert.equal(teamSnapshotPath("/snap", "docs"), join("/snap", "docs.json"));
 	assert.equal(teamSnapshotPath("/snap", "docs", "acme"), join("/snap", "projects", "acme", "docs.json"));
@@ -125,15 +128,18 @@ test("Codex launch gate consumes typed requested state rather than presentation 
 	assert.doesNotMatch(teamUp, /status\(\) !== "requested systemd state:/);
 });
 
-test("justfile public team recipes forward trailing args and hidden peer recipes pass --project", () => {
+test("justfile exposes one Fleet entry point while hidden runtime recipes forward arguments", () => {
 	const justfile = readFileSync(join(REPO_ROOT, "justfile"), "utf-8");
-	for (const recipe of ["team-up", "team-up-dry", "hub-team", "hub-team-dry", "conductor", "conductor-dry", "conductor-codex", "conductor-codex-dry", "conductor-codex-setup", "conductor-codex-reconfigure", "conductor-codex-pilot", "conductor-codex-pilot-dry", "conductor-codex-pilot-setup", "conductor-codex-pilot-reconfigure", "team-snapshot", "team-down", "team-resume"]) {
-		assert.match(justfile, new RegExp(`\\n${recipe} team=\\"full\\" \\*args:`), recipe);
+	assert.match(justfile, /\nfleet \*args:/);
+	for (const recipe of ["team-up", "team-up-dry", "hub-team", "hub-team-dry", "conductor", "conductor-dry", "conductor-codex", "conductor-codex-dry", "conductor-codex-setup", "conductor-codex-reconfigure", "team-snapshot", "team-down", "team-resume"]) {
+		assert.match(justfile, new RegExp(`\\n_fleet-${recipe} team=\\"full\\" \\*args:`), recipe);
+		assert.doesNotMatch(justfile, new RegExp(`\\n${recipe}(?: |:)`), `legacy public ${recipe}`);
 	}
 	for (const recipe of ["pair", "start", "status", "stop", "recover", "uninstall"]) {
-		assert.match(justfile, new RegExp(`\\nconductor-codex-${recipe}:`), `public ${recipe}`);
-		assert.match(justfile, new RegExp(`\\nconductor-codex-pilot-${recipe}:`), `pilot alias ${recipe}`);
+		assert.match(justfile, new RegExp(`\\n_fleet-conductor-codex-${recipe}:`), recipe);
+		assert.doesNotMatch(justfile, new RegExp(`\\nconductor-codex-${recipe}:`), `legacy public ${recipe}`);
 	}
+	assert.doesNotMatch(justfile, /\n(?:hub|hub-solo|safe-coms|ext-damage-control-continue|pi)(?: |:)/);
 	for (const command of [
 		"scripts/team-up.ts --team {{team}} {{args}}",
 		"scripts/team-up.ts --team {{team}} --hub {{args}}",
@@ -143,8 +149,6 @@ test("justfile public team recipes forward trailing args and hidden peer recipes
 		"scripts/team-up.ts --team {{team}} --conductor codex --dry-run {{args}}",
 		"scripts/codex-remote-control.ts setup-conductor --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
 		"scripts/codex-remote-control.ts reconfigure-conductor --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
-		"scripts/codex-remote-control.ts setup-pilot --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
-		"scripts/codex-remote-control.ts reconfigure-pilot --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
 		"scripts/codex-remote-control.ts pair",
 		"scripts/codex-remote-control.ts start",
 		"scripts/codex-remote-control.ts status",
@@ -162,5 +166,4 @@ test("justfile public team recipes forward trailing args and hidden peer recipes
 	assert.match(justfile, /_claude-peer name model="" session="" project="default":/);
 	assert.match(justfile, /coms\/index\.ts .*--project \{\{project\}\}/);
 	assert.match(justfile, /coms-claude-bridge\.ts --name \{\{name\}\} --project \{\{project\}\}/);
-	assert.match(justfile, /\nconductor-codex team=/, "Gate-P-proven public Codex recipe is promoted");
 });

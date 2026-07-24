@@ -45,7 +45,7 @@ The loading mechanism uses a managed runtime contract at `$HOME/.local/state/age
 Run these recipes from the repository root. The helper rejects unsafe scope, invalid paths, unsupported Codex versions, and mismatched singleton configuration.
 
 ```bash
-just conductor-codex-setup docs --project af
+just fleet conductor codex setup docs --project af
 ```
 
 The recipe resolves `codex`, the real repository root, and `$HOME/.pi/coms`, derives the isolated identity `codex-docs-conductor`, creates `$HOME/.local/state/agent-fleet/codex-conductor/workspace` outside the checkout and refreshes its owned contract copy with the absolute validated wrapper path. The lower-level `scripts/codex-remote-control.ts setup` command remains available for explicit integrations.
@@ -63,7 +63,7 @@ The unit is `Type=oneshot` with `RemainAfterExit=yes`, has no `Restart=` policy,
 Pair the mobile client manually in an interactive operator TTY, after setup. Any displayed pairing code is short-lived secret material:
 
 ```bash
-just conductor-codex-pair
+just fleet conductor codex pair
 ```
 
 Do not pipe, tee, capture, transcribe, screenshot, or commit the output. Never put pairing material or Codex credentials in the unit or config.
@@ -71,22 +71,22 @@ Do not pipe, tee, capture, transcribe, screenshot, or commit the output. Never p
 ### Start, status, and conductor launch
 
 ```bash
-just conductor-codex-start
-just conductor-codex-status
-just conductor-codex docs --project af
+just fleet conductor codex start
+just fleet conductor codex status
+just fleet conductor codex docs --project af
 ```
 
 `status` reports only requested systemd state. Actual usability must be checked from the paired client, without inventing a network probe. The control pane similarly reports requested state only. Legacy `conductor-codex-pilot*` aliases remain available for the initial 0.144.x rollout.
 
-### Use with `hub-team` and Android
+### Use with `just fleet team` and Android
 
 The service does not start peers. Launch a hub/team in the exact project stored by setup:
 
 ```bash
-just hub-team docs --project af
+just fleet team docs --project af
 ```
 
-Do not also run `just conductor-codex docs --project af` for the same team unless a second peer set is intentional. `conductor-codex` is the alternative control-pane-plus-team layout when no hub is needed.
+Do not also run `just fleet conductor codex docs --project af` for the same team unless a second peer set is intentional. The conductor mode is the alternative control-pane-plus-team layout when no Hub is needed.
 
 In ChatGPT Android, open the paired Remote Control host and create a fresh thread using:
 
@@ -107,8 +107,8 @@ After confirmation, request approval for the exact wrapper send once.
 ### Stop, recovery, and reconfiguration
 
 ```bash
-just conductor-codex-stop
-just conductor-codex-recover
+just fleet conductor codex stop
+just fleet conductor codex recover
 ```
 
 Use recovery when the unit says `active (exited)` but the paired client is unavailable, or when an `ExecStart` failure left the unit in `failed`. It is an explicit operator-confirmed systemd stop/reset/preflight/start path, not a health probe. Plain `start` still refuses `failed` and directs the operator to recovery or uninstall. Stop and emergency stop safely clear a confirmed `failed` state; other ambiguous states refuse rather than guessing.
@@ -116,7 +116,7 @@ Use recovery when the unit says `active (exited)` but the paired client is unava
 To change the configured scope—or to upgrade an earlier in-checkout pilot runtime to the external user-state boundary—use `reconfigure` with the complete validated setup arguments, then explicitly stop/start as required. Do not edit the unit or config by hand:
 
 ```bash
-just conductor-codex-reconfigure docs --project af
+just fleet conductor codex reconfigure docs --project af
 ```
 
 ### Stale Codex send lock
@@ -145,7 +145,7 @@ If that capability is absent, restore a supported `0.144.x` CLI before stopping 
 Uninstall is explicit, operates only on the owned unit/config, accepts and clears a confirmed `failed` state, resets the loaded unit before deleting it, disables the service, reloads user systemd, and leaves Codex authentication and pairing state untouched:
 
 ```bash
-just conductor-codex-uninstall
+just fleet conductor codex uninstall
 # After version drift, use the lower-level helper only if the exact current
 # stop capability is proved:
 node --experimental-strip-types scripts/codex-remote-control.ts uninstall \

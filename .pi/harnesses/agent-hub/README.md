@@ -1,10 +1,11 @@
 # agent-hub
 
 A multi-agent dispatcher with [`coms`](../coms/README.md) **embedded** — so the dispatcher is
-*also* a peer-to-peer node. The bundled `just hub` recipes load
-[`damage-control-continue`](../damage-control-continue/README.md) first, then
-[`ask-user-remote`](../ask-user-remote/README.md), so the dispatcher has guardrails and an
-`ask_user` handoff tool before `agent-hub` starts. It combines local specialist
+*also* a peer-to-peer node. The recommended `just fleet hub` mode loads Fleet Core
+first: [`damage-control-continue`](../damage-control-continue/README.md),
+[`ask-user-remote`](../ask-user-remote/README.md), STT, Compact & Continue, BTW, and the
+update checker. The dispatcher therefore has guardrails and an `ask_user` handoff tool
+before `agent-hub` starts. It combines local specialist
 orchestration (fixed specialist grid, read-only research helpers, `/zoom`, kill/restart, per-agent
 model, dispatcher persona gate) with peer-to-peer collaboration: it can **hand a session off to
 another main agent** and **use a coms peer as a subagent**.
@@ -15,7 +16,7 @@ another main agent** and **use a coms peer as a subagent**.
 > [extension catalog](../../../docs/pi-extensions.md) and the
 > [design plan](../../../docs/plans/agent-hub/).
 
-**Optional phone control:** `just hub-team <team> --project <name>` can supply the live peers for the experimental [Codex Android conductor](../../../docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch a second `conductor-codex <team>` peer workspace. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
+**Optional phone control:** `just fleet team <team> --project <name>` can supply the live peers for the experimental [Codex Android conductor](../../../docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch `just fleet conductor codex <team>` for the same peers. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
 
 ## What it does
 
@@ -207,7 +208,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
     test writing is never delegated.
 - **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
   session start; by default the dispatcher starts without the gate.
-- **Default damage-control guardrails** — `just hub` and `just hub-solo` load the
+- **Default damage-control guardrails** — `just fleet hub` and `just fleet hub --solo` load the
   `damage-control-continue` harness before `agent-hub`, so dispatcher tool calls are checked against
   `.pi/damage-control-rules.yaml` and a blocked call feeds back instead of aborting the turn. A
   guardrail is also re-loaded into every native specialist, research helper, and nested delegate
@@ -583,7 +584,7 @@ onward, hops accumulating up to `MAX_HOPS` (5).
 
 ### Coms-backed dispatch (dispatch-policy.yaml)
 
-`just hub-team <team>` boots the hub next to standing peers from `.pi/agents/peers.yaml` — and some
+`just fleet team <team>` boots the Hub next to standing peers from `.pi/agents/peers.yaml` — and some
 of them (e.g. `code-reviewer`, `plan-reviewer` with `runner: claude-code`) intentionally share a name
 with a team member. `.pi/agents/dispatch-policy.yaml` tells the dispatcher to serve such members
 **through the peer** instead of spawning a native subagent:
@@ -695,7 +696,7 @@ export AGENT_FLEET_MONITOR_RUNTIME_DIR="/absolute/owner-only/runtime-root"
 Both are required for monitor startup; the runtime root must be absolute and owner-only, and the
 profile ID must be a safe identifier. The monitor also starts only for a Herdr-backed hub with
 `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`; retain those values and `HERDR_SOCKET_PATH` in the
-standard `just hub-team <team>` flow. Workspace labels are display metadata, not monitor identity.
+standard `just fleet team <team>` flow. Workspace labels are display metadata, not monitor identity.
 
 The live contract exposes three authenticated newline-delimited JSON requests: `snapshot`, cursor-
 based `output`, and exact-generation `cancel`. The monitor is local-only and fails closed when its
@@ -710,7 +711,7 @@ monitor_runtime="${XDG_RUNTIME_DIR:?}/agent-fleet-monitor"
 install -d -m 700 "$monitor_runtime"
 AGENT_FLEET_PROFILE_ID=dev \
 AGENT_FLEET_MONITOR_RUNTIME_DIR="$monitor_runtime" \
-just hub-team default
+just fleet team default
 ```
 
 No Desktop/backend plugin installation is required or provided. Consumers must re-discover after
@@ -720,16 +721,16 @@ lease or socket loss and must never persist or log the token.
 
 - `.pi/agents/teams.yaml` for fixed specialist teams, the referenced persona `.md` files, and
   (strongly recommended) [`pi-ask-user`](https://github.com/edlsh/pi-ask-user).
-- `.pi/damage-control-rules.yaml` for the default guarded `just hub` / `just hub-solo` recipes.
+- `.pi/damage-control-rules.yaml` for every guarded `just fleet` Pi mode.
 - Nothing extra in-repo for coms — the peer registry lives at `~/.pi/coms/` and is created at
   runtime.
 
 ## Usage
 
 ```bash
-# via the justfile (loads damage-control-continue first; accepts coms identity flags)
-just hub
-just hub --name architect --purpose "owns the migration design" --project myrepo
+# Unified Fleet interface (Fleet Core is loaded first)
+just fleet hub
+just fleet hub --name architect --purpose "owns the migration design" --project myrepo
 
 # equivalent direct guarded launch
 pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts
@@ -743,7 +744,7 @@ Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
 
 ### Safety scope
 
-`just hub` and `just hub-solo` load `damage-control-continue` and `ask-user-remote` before `agent-hub`, so guardrails and `ask_user` apply
+`just fleet hub` and `just fleet hub --solo` load Fleet Core before `agent-hub`, so guardrails and `ask_user` apply
 to hub/dispatcher tool calls in that parent pi process — and because it is the *continue* variant, a
 blocked dispatcher call feeds back and the turn keeps going rather than aborting. Specialist and
 research agents are spawned as separate pi subprocesses with `--no-extensions` — but `agent-hub`
@@ -761,21 +762,20 @@ additionally read-only by construction. Guided setup enforces `agent-hub` ⇒
 ### Related recipes
 
 ```bash
-# the hub without the coms layer (fixed specialists + research only — lighter)
-just hub-solo
+# Hub without coms (fixed specialists + research only)
+just fleet hub --solo
 
-# spawn every peer of a team from .pi/agents/peers.yaml into a tiled herdr workspace
-# (requires a running herdr server — https://herdr.dev)
-just team-up full        # launch
-just team-up-dry full    # print the resolved layout + peer-launch commands without herdr
+# Guarded peers only in a tiled Herdr workspace
+just fleet team full --no-hub
+just fleet team full --no-hub --dry-run
 
-# hub + team in ONE workspace: guarded hub in a larger main pane, peers tiled beside it
-just hub-team docs
+# Guarded Hub + peers in one workspace
+just fleet team docs
 
-# fleet resume: snapshot session refs / close cleanly / rebuild with conversations restored
-just team-snapshot docs  # proactive snapshot while the team runs (crash insurance)
-just team-down docs      # snapshot + close the workspace (peers get SIGTERM)
-just team-resume docs    # rebuild the grid; pi peers continue via `pi --session <ref>`
+# Snapshot refs / close cleanly / restore conversations
+just fleet snapshot docs
+just fleet down docs
+just fleet resume docs
 ```
 
 `peers.yaml` groups reusable peers into named teams; each entry is `name` / `persona`

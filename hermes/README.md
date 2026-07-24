@@ -69,7 +69,7 @@ install -d -m 700 "$monitor_runtime"
 export AGENT_FLEET_PROFILE_ID="dev"
 export AGENT_FLEET_MONITOR_RUNTIME_DIR="$monitor_runtime"
 
-just hub-team default
+just fleet team default
 ```
 
 If either monitor variable is missing or invalid, or if the hub lacks stable Herdr identity, the
@@ -216,7 +216,7 @@ For `hub-conductor`, either start the pi team/pool outside Hermes first, or use 
 
 ```bash
 just conductor docs      # conductor pane (`hermes -p dev`) + docs team panes
-just conductor-dry docs  # dry-run layout, no herdr calls
+just fleet conductor hermes docs --dry-run  # preview, no Herdr calls
 ```
 
 Inside Hermes, discover and delegate only through coms:

@@ -39,8 +39,9 @@ pi install -l npm:@chankov/agent-fleet   # project-scoped package: skills, promp
 # then, inside pi:
 #   /setup-agent-fleet                    # guided install of harnesses, personas, extensions
 # and once set up:
-just hub          # guarded multi-agent dispatcher
-just hub-team docs  # hub + a whole peer team in one tiled herdr workspace
+just fleet                    # guarded Pi + STT and core utilities
+just fleet hub                # guarded multi-agent dispatcher
+just fleet team docs          # hub + guarded peers in one tiled herdr workspace
 ```
 
 ### Claude Code / OpenCode
@@ -94,13 +95,13 @@ The optional Codex Remote-Control conductor is verified on Linux with Codex CLI 
 
 ```bash
 cd /path/to/agent-fleet
-just conductor-codex-setup docs --project af   # once per configured context
-just conductor-codex-pair                       # interactive; never capture the code
-just conductor-codex-start
-just hub-team docs --project af                 # hub + peers Codex can reach
+just fleet conductor codex setup docs --project af  # once per configured context
+just fleet conductor codex pair                     # interactive; never capture the code
+just fleet conductor codex start
+just fleet team docs --project af                   # hub + peers Codex can reach
 ```
 
-In ChatGPT Android, open the paired Remote Control host and use the managed external workspace at `$HOME/.local/state/agent-fleet/codex-conductor/workspace`. Do not start a local `codex` process for the Android flow, and do not also launch `conductor-codex docs` when `hub-team docs` already owns the same peers.
+In ChatGPT Android, open the paired Remote Control host and use the managed external workspace at `$HOME/.local/state/agent-fleet/codex-conductor/workspace`. Do not start a local `codex` process for the Android flow, and do not also launch `just fleet conductor codex docs` when `just fleet team docs` already owns the same peers.
 
 Lifecycle, approval flow, examples, recovery, and security boundaries: **[Codex Remote-Control conductor runbook](docs/codex-remote-conductor.md)**.
 
@@ -123,14 +124,14 @@ What makes it different is what it **doesn't** put in front of the dispatcher LL
 Personas don't hardcode one frontier model — each declares a default plus a switch list on a three-tier policy (deep reasoning / workhorse / fast recon), switchable at runtime per persona (`/agent-model`) or fleet-wide (`/models <profile>`). `plan-reviewer` and `code-reviewer` can run as **Claude Code peers** for cross-model review.
 
 ```bash
-just hub              # guarded dispatcher + research + coms + orchestrator persona
-just hub-solo         # same, without the coms layer
+just fleet hub                # guarded dispatcher + research + coms + orchestrator persona
+just fleet hub --solo         # same, without the coms layer
 
 # fleet recipes (need a running herdr server — https://herdr.dev)
-just team-up full     # spawn addressable peers into a tiled herdr workspace
-just hub-team docs    # hub + a whole team in ONE workspace
-just team-down docs   # snapshot + close cleanly
-just team-resume docs # rebuild the grid; pi peers continue their conversations
+just fleet team full --no-hub # guarded addressable peers in a tiled workspace
+just fleet team docs          # hub + guarded peers in ONE workspace
+just fleet down docs          # snapshot + close cleanly
+just fleet resume docs        # rebuild the grid; pi peers continue their conversations
 ```
 
 Deep dive: [agent-hub harness README](.pi/harnesses/agent-hub/README.md) (the full dispatch loop, coms layer, configuration) · [fleet hierarchy](docs/ARCHITECTURE.md#fleet-hierarchy) · [pi extension catalog](docs/pi-extensions.md) · [Claude Code coms bridge](docs/claude-code-coms-bridge.md) · [Hermes bridge](docs/coms-hermes-bridge.md) · [Hermes integration screenshots](hermes/README.md#integration-in-action).

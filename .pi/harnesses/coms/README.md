@@ -80,11 +80,11 @@ Nothing in-repo — the peer registry lives at `~/.pi/coms/` and is created at r
 pi -e .pi/harnesses/coms/index.ts
 ```
 
-For a guarded coms node that also keeps every auto-discovered local extension (MCP bridges,
-project-specific extensions) and command, use the `just safe-coms <name>` recipe — it loads
-`damage-control-continue` + `coms` *on top of* normal extension discovery (no `--no-extensions`), so the
-local-only tools stay scoped to that dispatcher process and never leak into the `--no-extensions`
-specialists an `agent-hub` session spawns.
+For a guarded coms node, use `just fleet peer <name>`. It loads Fleet Core plus `coms`
+with deterministic extension discovery. Add `--browser` for Chrome DevTools or
+`--all-extensions` when the peer intentionally needs arbitrary project/global extensions;
+those tools stay scoped to that process and never leak into Agent Hub's
+`--no-extensions` specialists.
 
 ## Upstream changes
 

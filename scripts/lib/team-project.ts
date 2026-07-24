@@ -93,7 +93,7 @@ export function parseProjectFlag(argv: string[]): string {
 
 // Workspace label = <worktree-tag>-<mode>-<team>, with a `--project.<name>`
 // suffix when the coms project is non-default. The worktree tag keys the label
-// to the checkout, so `just hub-team <team>` from two repos/worktrees yields
+// to the checkout, so `just fleet team <team>` from two repos/worktrees yields
 // distinct labels (e.g. `wt2-hub-plan` vs `end2-hub-plan`) instead of colliding
 // on a shared `pi-hub-<team>`. Pass `tag` from worktreeTag(REPO_ROOT); it
 // defaults to "repo" only for callers that have no checkout in hand.
@@ -109,9 +109,16 @@ export function teamWorkspaceLabel(
 	return project === DEFAULT_PROJECT ? base : `${base}--project.${project}`;
 }
 
-export function hubCommand(project = DEFAULT_PROJECT): string[] {
+export function hubCommand(
+	project = DEFAULT_PROJECT,
+	capabilities: { browser?: boolean; allExtensions?: boolean } = {},
+): string[] {
 	validateProject(project);
-	return project === DEFAULT_PROJECT ? ["just", "hub"] : ["just", "hub", "--project", project];
+	const command = ["just", "fleet", "hub"];
+	if (capabilities.browser) command.push("--browser");
+	if (capabilities.allExtensions) command.push("--all-extensions");
+	if (project !== DEFAULT_PROJECT) command.push("--project", project);
+	return command;
 }
 
 export function conductorCommand(): string[] {
