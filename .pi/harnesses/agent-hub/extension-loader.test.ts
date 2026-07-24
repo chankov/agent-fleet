@@ -58,7 +58,11 @@ test("Pi loads a symlinked hub after a package-only update", () => {
 			mkdirSync(dirname(target), { recursive: true });
 			symlinkSync(join(repoRoot, ".pi", "harnesses", harness), target, "dir");
 		}
-		symlinkSync(join(repoRoot, ".pi", "harnesses", "node_modules"), join(workspace, ".pi", "harnesses", "node_modules"), "dir");
+		// A package-only install hoists agent-fleet's production dependencies into
+		// the consuming workspace's node_modules; it does not install the nested
+		// .pi/harnesses/package.json. Mirror that layout so this regression test
+		// cannot pass only because a developer ran `just fleet install` locally.
+		symlinkSync(join(repoRoot, "node_modules"), join(workspace, "node_modules"), "dir");
 
 		const manifest = JSON.parse(readFileSync(join(repoRoot, "skills", "guided-workspace-setup", "companion-manifest.json"), "utf8"));
 		for (const relativePath of manifest.files.filter((value: string) => value.startsWith("scripts/"))) {

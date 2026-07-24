@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -8,14 +9,34 @@ import { parseFleetCommand } from "./fleet-command.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-test("bare just prints the complete Fleet guide instead of launching Pi", () => {
-	const result = spawnSync("just", [], { cwd: REPO_ROOT, encoding: "utf8" });
-	assert.equal(result.status, 0, result.stderr);
+function assertCompleteFleetGuide(output: string): void {
 	for (const section of ["QUICK START", "SESSION MODES", "TEAM MODES", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "SETUP"]) {
-		assert.match(result.stdout, new RegExp(section));
+		assert.match(output, new RegExp(section));
 	}
-	assert.match(result.stdout, /just fleet team frontend --project af/);
-	assert.match(result.stdout, /Full docs:\s+docs\/pi-extensions\.md/);
+	assert.match(output, /just fleet team frontend --project af/);
+	assert.match(output, /Full docs:\s+docs\/pi-extensions\.md/);
+}
+
+test("Fleet help is complete without requiring the external just binary", () => {
+	const result = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/fleet.ts", "help"], {
+		cwd: REPO_ROOT,
+		encoding: "utf8",
+	});
+	assert.equal(result.status, 0, result.stderr);
+	assertCompleteFleetGuide(result.stdout);
+});
+
+test("bare just routes to the complete Fleet guide", (context) => {
+	assert.match(readFileSync(resolve(REPO_ROOT, "justfile"), "utf8"), /default:\n\s+@just fleet help/);
+
+	const result = spawnSync("just", [], { cwd: REPO_ROOT, encoding: "utf8" });
+	if (result.error && "code" in result.error && result.error.code === "ENOENT") {
+		context.skip("just is an external runtime dependency and is not installed");
+		return;
+	}
+	assert.ifError(result.error);
+	assert.equal(result.status, 0, result.stderr);
+	assertCompleteFleetGuide(result.stdout);
 });
 
 test("fleet defaults to the guarded core runtime", () => {
