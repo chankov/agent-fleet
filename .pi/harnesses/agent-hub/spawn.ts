@@ -248,8 +248,10 @@ export function spawnPiAgent(
 				const rawIsError = event.isError ?? event.is_error ?? event.result?.isError ?? event.result?.is_error;
 				cbs.onToolEnd?.(event.toolName || "tool", id || undefined, typeof rawIsError === "boolean" ? rawIsError : undefined);
 			} else if (event.type === "message_end") {
-				if (event.message?.role === "assistant" && event.message?.stopReason === "error") {
-					assistantError = String(event.message.errorMessage || "assistant model run failed");
+				if (event.message?.role === "assistant"
+					&& (event.message.stopReason === "error" || event.message.stopReason === "aborted")) {
+					assistantError = String(event.message.errorMessage
+						|| (event.message.stopReason === "aborted" ? "assistant model request aborted" : "assistant model run failed"));
 				}
 				if (event.message?.usage) cbs.onUsage?.(event.message.usage, "message_end");
 			} else if (event.type === "agent_end") {

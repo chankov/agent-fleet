@@ -58,6 +58,9 @@ if (mode === 'normal') {
 } else if (mode === 'model-fallback') {
   if (model === 'fake/override') emit({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'provider unavailable', usage: { input: 0, output: 0 } } });
   else done();
+} else if (mode === 'model-aborted') {
+  if (model === 'fake/override') emit({ type: 'message_end', message: { role: 'assistant', stopReason: 'aborted', errorMessage: 'Request aborted: process memory limit exceeded (hard watermark)', usage: { input: 0, output: 0 } } });
+  else done();
 } else if (mode === 'model-failure-after-tool') {
   if (model === 'fake/override') {
     start('already-worked', 'edit');
@@ -123,6 +126,28 @@ test('overridden model falls back once on a pre-work assistant error', async () 
     });
     assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override', 'fake/original']);
     assert.deepEqual(notices, [result.modelFallback]);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('overridden model falls back once on a pre-work aborted request', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-model-aborted-fallback-'));
+  try {
+    createFakePi(tmp);
+    const attempts = join(tmp, 'attempts.txt');
+    const result = await spawnPiAgentWithModelFallback(
+      { ...options(tmp, { FAKE_PI_MODE: 'model-aborted', FAKE_PI_ATTEMPTS: attempts }), model: 'fake/override' },
+      'fake/original',
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.output, 'FAKE OK');
+    assert.equal(result.modelUsed, 'fake/original');
+    assert.deepEqual(result.modelFallback, {
+      from: 'fake/override',
+      to: 'fake/original',
+      reason: 'Request aborted: process memory limit exceeded (hard watermark)',
+    });
+    assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override', 'fake/original']);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 

@@ -141,7 +141,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   session start (a profile with any entry outside a persona's candidates is dropped whole, with an
   error); profiles never touch sub-role models — only `/af-agent-model` reaches those. Nothing
   outside the declared lists is ever selectable. When an effective project or session override
-  cannot start a model run, the hub retries once with the model originally declared in the persona
+  fails with a model/provider error or aborted request before work begins (including local-model
+  memory-limit failures), the hub retries once with the model originally declared in the persona
   frontmatter. This is pre-work only: no fallback occurs after text output, a tool call,
   cancellation, timeout, drift stop, or a Pi process-spawn failure, avoiding duplicate writes. The
   failed attempt is removed from the child session before retry. Per project,
