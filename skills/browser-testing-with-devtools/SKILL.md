@@ -75,7 +75,7 @@ ln -s /path/to/agent-fleet/.pi/extensions/mcp-bridge          .pi/extensions/mcp
 ln -s /path/to/agent-fleet/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
 ```
 
-After install, run `/chrome_devtools-status` inside pi to confirm the bridge connected.
+After install, run `/af-chrome-devtools-status` inside pi to confirm the bridge connected.
 
 ### Available Tools
 

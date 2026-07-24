@@ -1,6 +1,6 @@
 ---
 name: compound-learning
-description: Captures a finished session's lessons into the project's own rules and docs — extracts candidate lessons from session evidence, dedupes them against the existing rule tree, and lands them as minimal diffs on existing files. Use when a session ends with user corrections, recurring review findings, or debugging root causes worth keeping, when the user says "compound" or "capture the lessons", or as the documenter's process for a /compound dispatch.
+description: Captures a finished session's lessons into the project's own rules and docs — extracts candidate lessons from session evidence, dedupes them against the existing rule tree, and lands them as minimal diffs on existing files. Use when a session ends with user corrections, recurring review findings, or debugging root causes worth keeping, when the user says "compound" or "capture the lessons", or as the documenter's process for a /compound or /af-compound dispatch.
 ---
 
 # Compound Learning
@@ -16,7 +16,7 @@ The enemy is not missing lessons — it is **bloat**. A rule tree that grows by 
 ## When to Use
 
 - A session is wrapping up and it contained at least one correction, recurring finding, or hard-won discovery.
-- The user says "compound", "capture the lessons", "update the rules from this session", or runs a `/compound` command.
+- The user says "compound", "capture the lessons", "update the rules from this session", or runs a `/compound` or `/af-compound` command.
 - You are the `documenter` persona dispatched with a compound task by the agent-hub dispatcher.
 - Periodically, as a **consolidation pass** over a rule tree that has accumulated additions (see Step 8).
 
@@ -32,7 +32,7 @@ The enemy is not missing lessons — it is **bloat**. A rule tree that grows by 
 | Session diff | `git diff` / `git log` for the session's commits |
 | agent-hub artifacts | `.pi/agent-sessions/artifacts/{returns,reviews,plans,inventories,evidence}/` — specialist returns and review findings |
 | agent-hub assertion ledger | `.pi/agent-sessions/assertions.json` — which assertions failed first and why |
-| Dispatch brief | A `/compound` dispatch carries a candidate-lessons brief composed by the dispatcher — treat it as *candidates*, not conclusions |
+| Dispatch brief | A `/compound` or `/af-compound` dispatch carries a candidate-lessons brief composed by the dispatcher — treat it as *candidates*, not conclusions |
 
 **Targets** — from `.ai/agent-fleet-overrides.md`, section `## agent-hub` (legacy `## agent-team`):
 
