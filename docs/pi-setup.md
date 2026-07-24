@@ -396,12 +396,16 @@ If skill autocomplete is empty, check that `.agents/skills` points to a director
 
 If lifecycle command autocomplete is empty, check that `.pi/prompts` points to a directory containing the command Markdown files and run `/reload` or restart pi.
 
-If extension loading reports `Cannot find module '@modelcontextprotocol/sdk/client/index.js'`, the extension runtime dependencies are not installed. Run:
+If `/chrome_devtools-status` reports `Cannot find module '@modelcontextprotocol/sdk/client/index.js'`, the MCP extension loaded but its runtime initialization failed. An `[Extensions]` startup entry alone does not prove its tools registered.
+
+For a cloned or copied install, run:
 
 ```bash
 cd /path/to/agent-fleet/.pi/extensions
 npm ci
 ```
+
+For extensions symlinked into a published `@chankov/agent-fleet` package, update to a package version that declares the extension dependencies at its root, then restart/reload pi. Do not rely on installing only the target workspace's `.pi/extensions/node_modules`: Node may resolve the symlink to the package's real path. Verify the repair with `/chrome_devtools-status`; it must report `connected` and a non-zero registered tool count.
 
 The harnesses install separately — if a harness reports `Cannot find module 'yaml'` or `'@sinclair/typebox'`, run `npm ci` in `.pi/harnesses/` as well (or `just install` from the clone, which does both).
 

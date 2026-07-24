@@ -30,6 +30,7 @@ interface InstallOptions {
 	warn?: (message: string) => void;
 	createAbortController?: () => AbortController;
 	settingsPaths?: string[];
+	remoteProject?: string | (() => string);
 }
 
 // A stock `pi-ask-user` package listed in pi settings is loaded by pi core
@@ -100,6 +101,20 @@ function warn(pi: ExtensionLike, options: InstallOptions, message: string): void
 	console.warn(message);
 }
 
+export function resolveRemoteProject(pi: ExtensionLike, argv: string[] = process.argv): string {
+	for (let i = argv.length - 2; i >= 0; i--) {
+		if (argv[i] === "--project" && typeof argv[i + 1] === "string" && argv[i + 1].trim()) {
+			return argv[i + 1].trim();
+		}
+	}
+	const inlineProject = [...argv].reverse().find((arg) => arg.startsWith("--project="))?.slice("--project=".length).trim();
+	if (inlineProject) return inlineProject;
+	const cliProject = typeof pi.getFlag === "function" ? pi.getFlag("project") : undefined;
+	if (typeof cliProject === "string" && cliProject.trim()) return cliProject.trim();
+	const envProject = process.env.PI_COMS_PROJECT;
+	return envProject?.trim() || "default";
+}
+
 function linkAbortSignal(parent: AbortSignal | undefined, child: AbortController): void {
 	if (!parent) return;
 	if (parent.aborted) {
@@ -152,9 +167,8 @@ export function activeRemoteCount(): number {
 	return activeRemote.size;
 }
 
-async function defaultStartRemote(params: any): Promise<{ qid: string; result: Promise<any> } | null> {
+async function defaultStartRemote(params: any, project: string): Promise<{ qid: string; result: Promise<any> } | null> {
 	const coms = await import("../../../scripts/lib/coms-envelope.ts");
-	const project = process.env.PI_COMS_PROJECT || "default";
 	const peerName = process.env.PI_ASK_USER_REMOTE_PEER || "user-remote";
 	const peer = coms.pruneDeadEntries(project).find((entry: any) => entry.name === peerName);
 	if (!peer) return null;
@@ -210,10 +224,9 @@ async function defaultStartRemote(params: any): Promise<{ qid: string; result: P
 	return { qid: env.msg_id, result };
 }
 
-async function defaultCancelRemote(qid: string, reason: string): Promise<void> {
+async function defaultCancelRemote(qid: string, reason: string, project: string): Promise<void> {
 	try {
 		const coms = await import("../../../scripts/lib/coms-envelope.ts");
-		const project = process.env.PI_COMS_PROJECT || "default";
 		const peerName = process.env.PI_ASK_USER_REMOTE_PEER || "user-remote";
 		const peer = coms.pruneDeadEntries(project).find((entry: any) => entry.name === peerName);
 		if (peer) {
@@ -234,7 +247,9 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 	return {
 		...stockTool,
 		async execute(toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: any, ctx?: any) {
-			const startRemote = options.startRemote ?? defaultStartRemote;
+			const configuredProject = typeof options.remoteProject === "function" ? options.remoteProject() : options.remoteProject;
+			const remoteProject = configuredProject ?? process.env.PI_COMS_PROJECT?.trim() ?? "default";
+			const startRemote = options.startRemote ?? ((remoteParams: any) => defaultStartRemote(remoteParams, remoteProject));
 			let remoteStart: { qid: string; result: Promise<any> } | null = null;
 			try {
 				remoteStart = await startRemote(params, ctx);
@@ -249,7 +264,7 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 			return await raceAskUser({
 				runLocal: (localSignal: AbortSignal) => stockTool.execute?.(toolCallId, params, localSignal, onUpdate, ctx),
 				startRemote: () => remoteStart,
-				cancelRemote: options.cancelRemote ?? defaultCancelRemote,
+				cancelRemote: options.cancelRemote ?? ((qid: string, reason: string) => defaultCancelRemote(qid, reason, remoteProject)),
 				createAbortController: () => {
 					const controller = options.createAbortController?.() ?? new AbortController();
 					linkAbortSignal(signal, controller);
@@ -271,7 +286,10 @@ export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions 
 	}
 	if (!options.stockFactory) throw new Error("ask-user-remote: stockFactory is required for synchronous install");
 	const stockTool = captureAskUserTool(options.stockFactory, pi);
-	const wrapped = wrapAskUserTool(stockTool, options);
+	const wrapped = wrapAskUserTool(stockTool, {
+		...options,
+		remoteProject: options.remoteProject ?? (() => resolveRemoteProject(pi)),
+	});
 	try {
 		pi.registerTool(wrapped);
 		return { registered: true, tool: wrapped };

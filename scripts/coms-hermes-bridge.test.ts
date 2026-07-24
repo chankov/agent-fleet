@@ -166,6 +166,24 @@ function runProcess(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: num
 	return new Promise((resolve) => child.once("exit", (code) => resolve({ code, stdout, stderr })));
 }
 
+async function runProcessWithin(args: string[], env: NodeJS.ProcessEnv, timeoutMs = 1_000): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
+	const child = spawn(process.execPath, ["--experimental-strip-types", ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+	let stdout = "";
+	let stderr = "";
+	child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf-8"); });
+	child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf-8"); });
+	return await new Promise((resolve) => {
+		const timer = setTimeout(() => {
+			child.kill("SIGTERM");
+			resolve({ code: child.exitCode, stdout, stderr, timedOut: true });
+		}, timeoutMs);
+		child.once("exit", (code) => {
+			clearTimeout(timer);
+			resolve({ code, stdout, stderr, timedOut: false });
+		});
+	});
+}
+
 async function loadEnvelope(comsDir: string): Promise<typeof import("./lib/coms-envelope.ts")> {
 	process.env.PI_COMS_DIR = comsDir;
 	return await import(`./lib/coms-envelope.ts?case=${Date.now()}-${Math.random()}`) as typeof import("./lib/coms-envelope.ts");
@@ -214,6 +232,34 @@ async function directPrompt(f: Fixture, promptText: string): Promise<{
 		},
 	};
 }
+
+test("duplicate --to flags fail closed instead of silently selecting one target", async (t) => {
+	const f = makeFixture();
+	t.after(() => fs.rmSync(f.root, { recursive: true, force: true }));
+	const result = await runProcessWithin([
+		BRIDGE,
+		"--project", PROJECT,
+		"--to", "telegram",
+		"--to", "telegram:123:456",
+	], f.env);
+
+	assert.equal(result.timedOut, false, "bridge must reject ambiguous duplicate targets at startup");
+	assert.equal(result.code, 1);
+	assert.match(result.stderr, /--to may only be specified once/);
+});
+
+test("explicit Telegram topic target is forwarded to hermes send unchanged", async (t) => {
+	const f = makeFixture();
+	const target = "telegram:123456789:1735";
+	startBridge(t, f, { args: ["--to", target] });
+	const client = await directPrompt(f, "Target forwarding check");
+	t.after(client.close);
+	const call = await waitFor(() => readHermesCalls(f)[0]);
+	assert.deepEqual(call.args.slice(0, 3), ["send", "--to", target]);
+	assert.match(call.message, new RegExp(`📁 Project: ${PROJECT}`));
+	writeAnswer(f, client.prompt.msg_id);
+	await client.response;
+});
 
 test("user-remote daemon round-trips coms-cli send --await via a hand-written answer file", async (t) => {
 	const f = makeFixture();

@@ -33,6 +33,7 @@ export interface QuestionOption {
 
 export interface HermesBridgeQuestion {
 	qid: string;
+	project: string;
 	question: string;
 	context?: string;
 	options?: QuestionOption[];
@@ -117,13 +118,15 @@ export function formatTelegramQuestion(input: HermesBridgeQuestion, limit = TELE
 	if (!isValidQid(input.qid)) throw new Error("qid must be a 26-character Crockford ULID");
 	const options = input.options ?? [];
 	const header = `❓ [${HUB_Q_PREFIX}:${input.qid}] ${input.question}`;
+	const project = truncateUtf16(input.project.replace(/\s+/g, " ").trim() || "default", 128);
+	const projectBlock = `\n\n📁 Project: ${project}`;
 	const optionsBlock = options.length > 0 ? `\n\nOptions:\n${formatOptions(options)}` : "";
 	const instruction = `\n\n↩ Reply to this message, or type: ${HUB_Q_PREFIX}:${input.qid}: <answer>`;
 	const contextPrefix = input.context ? "\n\nContext: " : "";
-	const fixedLength = header.length + contextPrefix.length + optionsBlock.length + instruction.length;
+	const fixedLength = header.length + projectBlock.length + contextPrefix.length + optionsBlock.length + instruction.length;
 	const contextBudget = Math.max(0, limit - fixedLength);
 	const context = input.context ? truncateUtf16(input.context, contextBudget) : "";
-	return truncateUtf16(`${header}${contextPrefix}${context}${optionsBlock}${instruction}`, limit);
+	return truncateUtf16(`${header}${projectBlock}${contextPrefix}${context}${optionsBlock}${instruction}`, limit);
 }
 
 export function mapAnswerToAskResponse(answer: string, options: QuestionOption[] = []): AskResponse {

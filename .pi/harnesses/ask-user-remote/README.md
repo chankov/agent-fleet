@@ -6,6 +6,7 @@ The experimental Codex Remote-Control conductor is **not** an inbound `ask_user`
 
 - The stock `pi-ask-user` extension is loaded through a capture proxy; its `ask_user` tool is not registered directly.
 - If no live `user-remote` peer is present at call time, the wrapper calls stock `execute` with the original arguments and signal unchanged.
+- Remote lookup follows the explicit Pi `--project <name>` flag at tool-execution time (then `pi.getFlag`, `PI_COMS_PROJECT`, and finally `default`), so a hub and bridge in the same non-default pool can race correctly even though Pi finishes CLI parsing after extension factories load.
 - If `user-remote` is present, the wrapper races local stock UI against the remote coms request using `race-core.js`; first answer wins and local-first emits one best-effort cancel.
 - If another extension already registered `ask_user`, registration failure is caught and logged as a warning instead of crashing the session.
 

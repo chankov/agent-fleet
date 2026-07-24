@@ -39,7 +39,7 @@ ln -s /path/to/agent-fleet/.pi/extensions/mcp-bridge          .pi/extensions/mcp
 ln -s /path/to/agent-fleet/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
 ```
 
-`mcp-bridge` is a sibling library; `chrome-devtools-mcp` imports it via the relative path. Runtime dependencies are hoisted to `.pi/extensions/package.json` — run `npm ci` there once after cloning `agent-fleet` (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)).
+`mcp-bridge` is a sibling library; `chrome-devtools-mcp` imports it via the relative path. Runtime dependencies live in `.pi/extensions/package.json` for cloned/copy installs and are also root production dependencies of the published package so npm-package symlink installs resolve them from the real package path. Run `npm ci` in `.pi/extensions/` once after cloning `agent-fleet` (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)); a normal `@chankov/agent-fleet` package install needs no nested install.
 
 ## Verify
 

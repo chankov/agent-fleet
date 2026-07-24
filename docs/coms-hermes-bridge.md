@@ -15,7 +15,7 @@ Protocol contract for the Hermes ⇄ pi `coms` bridge. The first implemented dae
 ## user-remote topology
 
 1. A pi peer sends a coms `prompt` envelope to `user-remote`.
-2. The bridge derives `qid` from `prompt.msg_id`, formats the question, and runs `hermes send --to <target> <message>` (`<target>` defaults to `telegram`).
+2. The bridge derives `qid` from `prompt.msg_id`, formats the question, and runs `hermes send --to <target> <message>` (`<target>` defaults to `telegram`). For a topic, copy the target accepted by `hermes send --list telegram`; depending on the Hermes output format, its `id` may already contain the `:<thread_id>` suffix, so do not append the thread twice.
 3. The human replies in Telegram; the Hermes gateway/liaison writes the answer file.
 4. The bridge polls the questions directory, validates the file, maps the answer, sends a coms `response` envelope, and removes the answer file.
 
@@ -32,6 +32,8 @@ Protocol contract for the Hermes ⇄ pi `coms` bridge. The first implemented dae
 ```text
 ❓ [HUB-Q:<qid>] <question>
 
+📁 Project: <coms-project>
+
 Context: <context, truncated if needed>
 
 Options:
@@ -41,7 +43,7 @@ Options:
 ↩ Reply to this message, or type: HUB-Q:<qid>: <answer>
 ```
 
-`Context:` is omitted when absent. `Options:` is omitted when no options are supplied. Context receives the remaining budget after the header, options, and reply instruction.
+`Project:` is always present and comes from the bridge's validated `--project` scope, making simultaneous questions from different pools distinguishable. `Context:` is omitted when absent. `Options:` is omitted when no options are supplied. Context receives the remaining budget after the header, project, options, and reply instruction.
 
 ### Answer-file path, schema, and validation
 
@@ -98,6 +100,18 @@ just conductor-dry docs      # no herdr calls; prints the planned layout JSON
 ```
 
 The live recipe reuses `scripts/team-up.ts --conductor`: it creates a normal herdr workspace labeled `<worktree-tag>-conductor-<team>` (the tag is the last dot-segment of the checkout's basename, so the same team from a different worktree gets its own workspace), places a `conductor` pane running `hermes -p dev`, and tiles the chosen team beside it. Team peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
+
+For inbound `ask_user`, start the bridge with the same project as the hub and specify each singleton option once:
+
+```bash
+node --experimental-strip-types scripts/coms-hermes-bridge.ts \
+  --project af \
+  --timeout 1800000 \
+  --to 'telegram:<chat_id>:<thread_id>'
+just hub-team docs --project af
+```
+
+Repeated value flags such as two `--to` arguments are rejected at startup rather than silently selecting one destination. The `ask-user-remote` wrapper resolves the explicit Pi `--project` flag when the tool executes, so non-default hubs discover `user-remote` in their own pool.
 
 Hard boundary: the Hermes conductor must not run `herdr` commands, drive panes, create/kill workspaces, or manage fleet lifecycle. Herdr driving stays with the human/orchestrator so the damage-control model remains intact; see `.pi/damage-control-rules.yaml` for the authoritative no-herdr boundary. Hermes may only operate inside the project coms pool through the documented coms CLI commands.
 

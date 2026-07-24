@@ -11,6 +11,7 @@ import {
 	defaultSettingsPaths,
 	findStockAskUserPackageEntry,
 	installAskUserRemote,
+	resolveRemoteProject,
 	wrapAskUserTool,
 } from "./index.ts";
 
@@ -129,6 +130,21 @@ test("duplicate ask_user registration logs a readable warning and does not crash
 	assert.match(warnings[0], /Tool ask_user is already registered/);
 });
 
+test("remote project follows pi --project before environment fallback", () => {
+	const previous = process.env.PI_COMS_PROJECT;
+	process.env.PI_COMS_PROJECT = "environment-project";
+	try {
+		assert.equal(resolveRemoteProject({ getFlag: (name: string) => name === "project" ? "af" : undefined } as any), "af");
+		assert.equal(resolveRemoteProject({ getFlag: () => "default" } as any, ["pi", "--project", "af"]), "af");
+		assert.equal(resolveRemoteProject({ getFlag: () => undefined } as any), "environment-project");
+		delete process.env.PI_COMS_PROJECT;
+		assert.equal(resolveRemoteProject({ getFlag: () => undefined } as any), "default");
+	} finally {
+		if (previous === undefined) delete process.env.PI_COMS_PROJECT;
+		else process.env.PI_COMS_PROJECT = previous;
+	}
+});
+
 test("successful install registers exactly one wrapped ask_user tool", async () => {
 	const registered: any[] = [];
 	const pi = { registerTool: (tool: any) => registered.push(tool) };
@@ -170,7 +186,7 @@ test("a locally-won race settles and closes the per-question remote endpoint (no
 	t.after(() => fs.rmSync(comsDir, { recursive: true, force: true }));
 
 	const coms = await import("../../../scripts/lib/coms-envelope.ts");
-	coms.ensureComsDirs("default");
+	coms.ensureComsDirs("af");
 	const peerSession = coms.ulid();
 	const peerEndpoint = coms.makeEndpoint(peerSession);
 	const seen: string[] = [];
@@ -194,10 +210,12 @@ test("a locally-won race settles and closes the per-question remote endpoint (no
 		started_at: coms.nowIso(),
 		explicit: false,
 		version: 1,
-	}, "default");
+	}, "af");
 
 	const expected = stockResult("local-wins");
-	const wrapped = wrapAskUserTool(stockTool({ execute: async () => expected }));
+	let runtimeProject = "default";
+	const wrapped = wrapAskUserTool(stockTool({ execute: async () => expected }), { remoteProject: () => runtimeProject });
+	runtimeProject = "af";
 	const result = await wrapped.execute("tool-call-leak", { question: "Q?" }, undefined, undefined, {});
 	assert.equal(result, expected);
 

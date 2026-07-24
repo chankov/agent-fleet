@@ -213,6 +213,19 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
   assert.equal([...paths].some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
 });
 
+test("published package hoists extension runtime dependencies for symlink installs", () => {
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const extensionPkg = JSON.parse(readFileSync(join(root, ".pi", "extensions", "package.json"), "utf8"));
+
+  for (const [name, version] of Object.entries(extensionPkg.dependencies)) {
+    assert.equal(
+      pkg.dependencies?.[name],
+      version,
+      `${name} must be a root production dependency because npm does not install nested .pi/extensions/package.json dependencies`,
+    );
+  }
+});
+
 test("package, snapshot, and guided manifest surfaces stay aligned", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   for (const required of ["codex/", "hermes/README.md", "hermes/skills/", "systemd/", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md"]) {

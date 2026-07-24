@@ -109,8 +109,10 @@
     "@changesets/cli": "^2.27.1"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@sinclair/typebox": "^0.34.49",
     "pi-ask-user": "^0.11.1",
+    "typebox": "^1.1.33",
     "yaml": "^2.9.0"
   },
   "bundledDependencies": [

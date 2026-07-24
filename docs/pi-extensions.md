@@ -78,8 +78,10 @@ just --list             # see every recipe
 
 `just install` runs `npm install` for both dependency roots: `.pi/extensions/` for the
 utilities (`@modelcontextprotocol/sdk`, `typebox`) and `.pi/harnesses/` for the harnesses
-(`@sinclair/typebox`, `yaml`). The `@mariozechner/pi-*` packages are provided by the pi
-runtime itself.
+(`@sinclair/typebox`, `yaml`). The extension dependencies are also root production dependencies
+of the published `@chankov/agent-fleet` package. This is intentional: npm does not install a
+nested `.pi/extensions/package.json`, and Node resolves symlinked extensions from their real path
+inside the package. The `@mariozechner/pi-*` packages are provided by the pi runtime itself.
 
 ---
 

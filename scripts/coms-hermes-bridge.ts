@@ -67,7 +67,9 @@ interface ParsedPrompt {
 }
 
 function flagValue(argv: string[], flag: string): string | null {
-	const i = argv.indexOf(flag);
+	const positions = argv.flatMap((arg, index) => arg === flag ? [index] : []);
+	if (positions.length > 1) die(`${flag} may only be specified once`);
+	const i = positions[0] ?? -1;
 	return i >= 0 && i + 1 < argv.length ? argv[i + 1] : null;
 }
 
@@ -239,6 +241,7 @@ async function main(): Promise<void> {
 		try {
 			await hermesSend(to, formatTelegramQuestion({
 				qid,
+				project,
 				question: parsed.question,
 				context: parsed.context,
 				options: parsed.options,

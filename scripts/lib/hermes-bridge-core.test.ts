@@ -54,23 +54,27 @@ test("qid correlation uses only the prompt msg_id and requires a 26-character Cr
 test("Telegram question text contains the contract fields and is capped to 4096 UTF-16 code units", () => {
 	const msg = formatTelegramQuestion({
 		qid: QID,
+		project: "af",
 		question: "Can we ship Phase 1?",
 		context: "Build is green.",
 		options: OPTIONS,
 	});
 	assert.match(msg, new RegExp(`❓ \\[HUB-Q:${QID}\\] Can we ship Phase 1\\?`));
+	assert.match(msg, /Project: af/);
 	assert.match(msg, /Context: Build is green\./);
 	assert.match(msg, /Options:\n1\. Approve — Ship it\n2\. Revise — Request changes\n3\. Stop/);
 	assert.match(msg, new RegExp(`↩ Reply to this message, or type: HUB-Q:${QID}: <answer>`));
 
 	const capped = formatTelegramQuestion({
 		qid: QID,
+		project: "af",
 		question: "Long context?",
 		context: "x".repeat(10_000),
 		options: OPTIONS,
 	});
 	assert.equal(capped.length, 4096);
 	assert.match(capped, new RegExp(`\\[HUB-Q:${QID}\\]`));
+	assert.match(capped, /Project: af/);
 	assert.match(capped, /Context: /);
 	assert.match(capped, /Options:/);
 	assert.match(capped, new RegExp(`HUB-Q:${QID}: <answer>`));
