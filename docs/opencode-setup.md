@@ -101,6 +101,7 @@ This repo ships OpenCode-native commands with an `af-` prefix so they are easy t
 - `/af-prime`
 - `/af-setup-agent-fleet`
 - `/af-doctor-agent-fleet`
+- `/af-set-hermes-telegram install|status|on|off …` — profile-aware Hermes liaison setup and bridge control
 
 These commands are optional shortcuts. The agent can still invoke the correct skills automatically from plain natural-language requests.
 

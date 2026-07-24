@@ -52,6 +52,7 @@ const DEFAULT_POLL_MS = 1_000;
 const COLOR = "#38BDF8";
 const DEFAULT_NAME = "user-remote";
 const DEFAULT_PURPOSE = "Remote human via Hermes/Telegram";
+const HERMES_PROFILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 interface PendingQuestion {
 	env: PromptEnvelope;
@@ -118,9 +119,10 @@ function appendAnswerRejectLog(logFile: string, qid: string, detail: unknown): v
 	fs.appendFileSync(logFile, JSON.stringify({ at: nowIso(), qid, event: "answer_rejected", detail }) + "\n");
 }
 
-function hermesSend(to: string, text: string): Promise<void> {
+function hermesSend(to: string, text: string, profile: string | null): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = spawn("hermes", ["send", "--to", to, text], { stdio: ["ignore", "pipe", "pipe"] });
+		const args = [...(profile ? ["--profile", profile] : []), "send", "--to", to, text];
+		const child = spawn("hermes", args, { stdio: ["ignore", "pipe", "pipe"] });
 		let stderr = "";
 		let stdout = "";
 		child.stdout?.on("data", (chunk) => { stdout += chunk.toString("utf-8"); });
@@ -142,11 +144,13 @@ async function main(): Promise<void> {
 	const requestedName = flagValue(argv, "--name") ?? DEFAULT_NAME;
 	const project = flagValue(argv, "--project") ?? "default";
 	const to = flagValue(argv, "--to") ?? "telegram";
+	const hermesProfile = flagValue(argv, "--hermes-profile");
 	const timeoutMs = Number(flagValue(argv, "--timeout") ?? timeoutMsFromEnv());
 	const pollMs = Number(flagValue(argv, "--poll-ms") ?? DEFAULT_POLL_MS);
 	const qDir = flagValue(argv, "--questions-dir") ?? defaultQuestionsDir();
 	const logFile = path.join(path.dirname(qDir), path.basename(defaultLogPath()));
 
+	if (hermesProfile && (!HERMES_PROFILE_RE.test(hermesProfile) || hermesProfile === "." || hermesProfile.includes(".."))) die("--hermes-profile must be a safe profile name");
 	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) die("--timeout must be a positive number");
 	if (!Number.isFinite(pollMs) || pollMs <= 0) die("--poll-ms must be a positive number");
 
@@ -213,7 +217,7 @@ async function main(): Promise<void> {
 		markClosed(qid, "timeout");
 		appendLogFile(logFile, qid, "timeout", { timeout_ms: timeoutMs });
 		const outcome = timeoutOutcome(qid, timeoutMs);
-		await hermesSend(to, outcome.telegramNote).catch((err) => {
+		await hermesSend(to, outcome.telegramNote, hermesProfile).catch((err) => {
 			appendLogFile(logFile, qid, "delivery_error", { phase: "timeout_note", error: err instanceof Error ? err.message : String(err) });
 		});
 		await sendResponse(item.env, outcome.response, outcome.error).catch((err) => {
@@ -245,7 +249,7 @@ async function main(): Promise<void> {
 				question: parsed.question,
 				context: parsed.context,
 				options: parsed.options,
-			}));
+			}), hermesProfile);
 			const item = pending.get(qid);
 			if (!item) return;
 			item.state = "delivered";
@@ -272,14 +276,14 @@ async function main(): Promise<void> {
 		pending.delete(refMsgId);
 		markClosed(refMsgId, "cancelled");
 		appendLogFile(logFile, refMsgId, "cancelled", { reason: "cancel envelope" });
-		await hermesSend(to, `✖ [HUB-Q:${refMsgId}] The question was cancelled — it was answered from the console.`).catch((err) => {
+		await hermesSend(to, `✖ [HUB-Q:${refMsgId}] The question was cancelled — it was answered from the console.`, hermesProfile).catch((err) => {
 			appendLogFile(logFile, refMsgId, "delivery_error", { phase: "cancel_note", error: err instanceof Error ? err.message : String(err) });
 		});
 	}
 
 	async function handleLateAnswer(qid: string): Promise<void> {
 		appendLogFile(logFile, qid, "late_answer", { state: closed.get(qid) ?? "unknown" });
-		await hermesSend(to, `ℹ [HUB-Q:${qid}] This question is already closed; the late answer was ignored.`).catch((err) => {
+		await hermesSend(to, `ℹ [HUB-Q:${qid}] This question is already closed; the late answer was ignored.`, hermesProfile).catch((err) => {
 			appendLogFile(logFile, qid, "delivery_error", { phase: "late_note", error: err instanceof Error ? err.message : String(err) });
 		});
 	}

@@ -9,21 +9,24 @@ This directory contains in-repository Hermes skills for the coms Hermes bridge p
 
 ## Install
 
-Install a skill into the desired Hermes profile with either option supported by your Hermes setup:
+For `hub-liaison`, use Agent Fleet's deterministic profile-aware installer rather than a raw copy:
 
 ```bash
-hermes skills install hermes/skills/hub-liaison
-hermes skills install hermes/skills/hub-conductor
+agent-fleet set-hermes-telegram status --profile default
+agent-fleet set-hermes-telegram install --profile default
+# Only when status reports a differing local tree:
+agent-fleet set-hermes-telegram install --profile default --force
+# Restart a currently running gateway only by explicit request:
+agent-fleet set-hermes-telegram install --profile default --force --restart
 ```
 
-Or copy the skill directories into the profile's skills directory:
+The corresponding Pi/Claude slash command is `/set-hermes-telegram`; OpenCode uses `/af-set-hermes-telegram`. The installer resolves the real profile path via `hermes profile show`, refuses drift without `--force`, backs up forced replacements, copies atomically, and verifies skill/tool/gateway readiness. It never sends a test Telegram message and never starts a stopped gateway. See [the bridge runbook](../docs/coms-hermes-bridge.md#set-hermes-telegram-bridge-control).
 
-```bash
-cp -R hermes/skills/hub-liaison ~/.hermes/<profile>/skills/
-cp -R hermes/skills/hub-conductor ~/.hermes/<profile>/skills/
-```
+The current `hermes skills install` CLI documents registry identifiers and direct HTTP(S) `SKILL.md` URLs, not local directories, so `hermes skills install hermes/skills/hub-liaison` is not the supported local installation path.
 
-Use `hub-liaison` in the gateway-owning Telegram profile and `hub-conductor` in the human's dev/conductor profile. Verify availability with your normal Hermes skill listing command before relying on them.
+`hub-conductor` remains a source artifact for the human's dev/conductor profile. Install it by a reviewed local copy into the path reported by `hermes profile show <profile>`, or publish/install it through a pinned Hermes skill source; it is intentionally not managed by the Telegram bridge command.
+
+Use `hub-liaison` in the gateway-owning Telegram profile and `hub-conductor` in the human's dev/conductor profile. Verify availability with `hermes --profile <profile> skills list --enabled-only` before relying on them.
 
 ## Local agent-hub monitor integration
 

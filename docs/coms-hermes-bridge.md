@@ -101,11 +101,55 @@ just conductor-dry docs      # no herdr calls; prints the planned layout JSON
 
 The live recipe reuses `scripts/team-up.ts --conductor`: it creates a normal herdr workspace labeled `<worktree-tag>-conductor-<team>` (the tag is the last dot-segment of the checkout's basename, so the same team from a different worktree gets its own workspace), places a `conductor` pane running `hermes -p dev`, and tiles the chosen team beside it. Team peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
 
-For inbound `ask_user`, start the bridge with the same project as the hub and specify each singleton option once:
+### `/set-hermes-telegram` bridge control
+
+The outbound `hermes send` path needs a configured Telegram channel but no skill. Full reply round-trip additionally needs Agent Fleet's `hub-liaison` skill in the profile that owns the running Telegram gateway. From Pi or Claude Code use:
+
+```text
+/set-hermes-telegram status --profile default
+/set-hermes-telegram install --profile default
+/set-hermes-telegram install --profile default --force --restart
+/set-hermes-telegram on 7883056502:1735 --profile default
+/set-hermes-telegram off 7883056502:1735
+```
+
+OpenCode exposes `/af-set-hermes-telegram`; the arguments and backend are identical. The deterministic CLI can also be called directly with `agent-fleet set-hermes-telegram ...`.
+
+#### `status` and profile resolution
+
+`status` is read-only. It verifies the Hermes executable/profile, compares the complete installed `hub-liaison` tree to the version packaged with Agent Fleet, asks Hermes whether the skill is enabled, checks `terminal` and `file` toolsets for the `telegram` platform, and reports gateway state. `--profile <name>` is recommended. Without it the controller selects a profile only when `hermes gateway list` reports exactly one running gateway; zero or multiple running gateways fail closed and require an explicit profile.
+
+#### `install`
+
+`install` writes to `<Hermes-profile-path>/skills/hub-liaison`, where the profile path comes from `hermes profile show <name>` (important because the `default` profile is normally `~/.hermes`, while named profiles normally live below `~/.hermes/profiles/`). Installation behavior is:
+
+- missing skill: copied atomically from the packaged Agent Fleet source;
+- byte-identical tree: no-op;
+- differing tree: refused unless `--force` is explicit;
+- forced replacement: the previous tree is moved first to `<profile>/backups/agent-fleet/hub-liaison-<timestamp>`;
+- symlinks or unsupported filesystem entries in either skill tree are refused;
+- the installed tree is fingerprinted again, then `hermes --profile <name> skills list --enabled-only` and `tools list --platform telegram` are run for verification.
+
+The command does not silently broaden Telegram tool permissions. If `terminal` or `file` is disabled, it prints the explicit remediation:
+
+```bash
+hermes --profile <name> tools enable --platform telegram terminal file
+```
+
+If the skill itself is disabled, use `hermes --profile <name> skills config`. A running gateway is restarted only with explicit `--restart`; otherwise the command prints the required restart command. A stopped gateway is never started as a side effect. No install/status/on/off action sends a test Telegram message.
+
+#### `on` and `off`
+
+`on` fails before touching Herdr unless the selected gateway is running, `hub-liaison` is current and enabled, and both required Telegram toolsets are enabled. It then closes any existing pane labeled `hermes-bridge` in the current workspace, creates a new right-hand pane in that **same Herdr workspace**, labels it `hermes-bridge`, and starts the daemon with `telegram:<id>` as its exact target. The selected profile is forwarded as `--hermes-profile`, so every question, timeout, cancel, and late-answer send executes as `hermes --profile <name> send ...` rather than silently falling back to Hermes' sticky default. `off` remains available even when Hermes readiness is broken, closes the bridge pane, creates nothing, and is idempotent.
+
+The Telegram destination must contain digits only (`<chat_id>`) or two digit groups separated by one colon (`<chat_id>:<topic_id>`). Values such as `telegram:123`, `123:`, `123:456:789`, spaces, signs, and letters are rejected. The controller infers the coms project independently from the current hub process's explicit `--project`, then `PI_COMS_PROJECT`, then `default`.
+
+The manual equivalent is:
 
 ```bash
 node --experimental-strip-types scripts/coms-hermes-bridge.ts \
   --project af \
+  --hermes-profile default \
   --timeout 1800000 \
   --to 'telegram:<chat_id>:<thread_id>'
 just hub-team docs --project af

@@ -6,6 +6,7 @@
 //   doctor             deterministic preflight scan (broken symlinks, stale persona refs)
 //   update             refresh the package, then hand off to /setup-agent-fleet for the version-diff
 //   transform-persona  generate per-agent subagent files from the canonical agents/*.md
+//   set-hermes-telegram install/inspect the liaison and start/stop its bridge
 //
 // The CLI itself never decides which skills to install or what to overwrite —
 // that is the job of the guided-workspace-setup skill, run by the user's
@@ -25,6 +26,7 @@ import { listPersonas, transformPersona } from "./lib/transform-persona.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
 import { bootstrap, cleanupInstaller, readBootstrapMarker } from "./lib/bootstrap.js";
+import { setHermesTelegram } from "./lib/set-hermes-telegram.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
@@ -54,6 +56,9 @@ const parsed = (() => {
         method:    { type: "string" },
         workspace: { type: "string" },
         yes:       { type: "boolean", short: "y" },
+        profile:   { type: "string" },
+        force:     { type: "boolean" },
+        restart:   { type: "boolean" },
         "dry-run": { type: "boolean" },
         launch:    { type: "boolean" },
         all:       { type: "boolean" },
@@ -91,10 +96,57 @@ switch (sub) {
   case "check-update":      await cmdCheckUpdate();      break;
   case "cleanup-installer":  await cmdCleanupInstaller();  break;
   case "transform-persona":  await cmdTransformPersona();  break;
-  default:                  fail(`unknown command: ${sub}\n\nRun "agent-fleet --help" for usage.`);
+  case "set-hermes-telegram": await cmdSetHermesTelegram(); break;
+  default:                    fail(`unknown command: ${sub}\n\nRun "agent-fleet --help" for usage.`);
 }
 
 // ── commands ──────────────────────────────────────────────────────────────
+
+async function cmdSetHermesTelegram() {
+  try {
+    const result = await setHermesTelegram({
+      positionals: parsed.positionals,
+      profile: opts.profile,
+      force: opts.force,
+      restart: opts.restart,
+      currentPaneId: process.env.HERDR_PANE_ID,
+      packageRoot: pkgRoot,
+      env: process.env,
+    });
+    if (result.action === "status") {
+      console.log(`Hermes Telegram status (${result.profile})`);
+      console.log(`  profile: ${result.profilePath}`);
+      console.log(`  gateway: ${result.gatewayRunning ? "running" : "stopped"}`);
+      console.log(`  hub-liaison: ${result.skillState}, ${result.skillEnabled ? "enabled" : "disabled"}`);
+      console.log(`  Telegram tools: terminal=${result.tools.terminal ? "enabled" : "disabled"}, file=${result.tools.file ? "enabled" : "disabled"}`);
+      console.log(`  ready: ${result.ready ? "yes" : "no"}`);
+    } else if (result.action === "install") {
+      console.log(`✓ hub-liaison is ${result.skillState} in Hermes profile ${result.profile}.`);
+      console.log(`  ${result.changed ? "installed packaged Agent Fleet copy" : "no skill files changed"}`);
+      if (result.backupDir) console.log(`  backup: ${result.backupDir}`);
+      console.log(`  gateway: ${result.gatewayRunning ? "running" : "stopped"}`);
+      console.log(`  Telegram tools: terminal=${result.tools.terminal ? "enabled" : "disabled"}, file=${result.tools.file ? "enabled" : "disabled"}`);
+      if (!result.skillEnabled) console.log(`  action required: enable hub-liaison with: hermes --profile ${result.profile} skills config`);
+      if (!result.tools.terminal || !result.tools.file) console.log(`  action required: hermes --profile ${result.profile} tools enable --platform telegram terminal file`);
+      if (!result.gatewayRunning) console.log(`  action required: hermes --profile ${result.profile} gateway start`);
+      if (result.restarted) console.log("  gateway restarted by explicit --restart");
+      else if (result.restartRequired) console.log(`  restart required: hermes --profile ${result.profile} gateway restart`);
+      console.log(`  ready: ${result.ready && (!result.restartRequired || result.restarted) ? "yes" : "pending actions above"}`);
+    } else if (result.action === "on") {
+      console.log(`✓ Hermes Telegram bridge is on: ${result.target}`);
+      console.log(`  project: ${result.project}`);
+      console.log(`  Hermes profile: ${result.hermesProfile}`);
+      console.log(`  workspace: ${result.workspaceId}`);
+      console.log(`  pane: ${result.paneId} (hermes-bridge)`);
+    } else if (result.closedPaneIds.length > 0) {
+      console.log(`✓ Hermes Telegram bridge is off in ${result.workspaceId} (closed ${result.closedPaneIds.join(", ")}).`);
+    } else {
+      console.log(`✓ Hermes Telegram bridge is already off in ${result.workspaceId}.`);
+    }
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
+}
 
 async function cmdInit() {
   await mustBeDirectory(workspace, "workspace");
@@ -577,6 +629,34 @@ Examples:
 `);
     return;
   }
+  if (sub === "set-hermes-telegram") {
+    console.log(`agent-fleet set-hermes-telegram <action> [arguments] [options]
+
+Actions:
+  install                Atomically install/reconcile the packaged hub-liaison skill
+  status                 Inspect gateway, skill drift/enabled state, and Telegram tools
+  on <id[:topic]>        Start a ready bridge in a new pane in this Herdr workspace
+  off <id[:topic]>       Stop bridge panes in this Herdr workspace
+
+Options:
+  --profile <name>       Hermes gateway profile; auto-detect only when exactly one runs
+  --force                Back up and replace a drifted installed skill
+  --restart              Explicitly restart a running gateway after install
+  -h, --help             Show this help
+
+The on action fails closed unless hub-liaison is current and enabled, the
+profile gateway is running, and Telegram terminal/file tools are enabled.
+No action sends a test Telegram message.
+
+Examples:
+  agent-fleet set-hermes-telegram status --profile default
+  agent-fleet set-hermes-telegram install --profile default
+  agent-fleet set-hermes-telegram install --profile default --force --restart
+  agent-fleet set-hermes-telegram on 7883056502:1735 --profile default
+  agent-fleet set-hermes-telegram off 7883056502:1735
+`);
+    return;
+  }
   if (sub === "update") {
     console.log(`agent-fleet update [options]
 
@@ -612,6 +692,7 @@ Commands:
                       by the skill at end of setup; safe to run by hand)
   transform-persona   Generate per-agent subagent files from the canonical
                       agents/*.md personas (used by the setup skill during apply)
+  set-hermes-telegram Install/status the liaison and start/stop its Herdr bridge
 
 Options:
   -v, --version    Print the package version
@@ -622,6 +703,7 @@ Examples:
   npx agent-fleet init --agent claude-code --method copy
   npx agent-fleet doctor --workspace ~/projects/foo
   npx agent-fleet update
+  npx agent-fleet set-hermes-telegram on 7883056502:1735
 
 Environment:
   AGENT_SKILLS_NO_UPDATE_CHECK=1   Disable the background update check

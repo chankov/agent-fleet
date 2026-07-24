@@ -261,6 +261,18 @@ test("explicit Telegram topic target is forwarded to hermes send unchanged", asy
 	await client.response;
 });
 
+test("explicit Hermes profile scopes the actual send command", async (t) => {
+	const f = makeFixture();
+	const target = "telegram:123456789:1735";
+	startBridge(t, f, { args: ["--hermes-profile", "gateway-prod", "--to", target] });
+	const client = await directPrompt(f, "Profile forwarding check");
+	t.after(client.close);
+	const call = await waitFor(() => readHermesCalls(f)[0]);
+	assert.deepEqual(call.args.slice(0, 5), ["--profile", "gateway-prod", "send", "--to", target]);
+	writeAnswer(f, client.prompt.msg_id);
+	await client.response;
+});
+
 test("user-remote daemon round-trips coms-cli send --await via a hand-written answer file", async (t) => {
 	const f = makeFixture();
 	startBridge(t, f);
@@ -268,6 +280,7 @@ test("user-remote daemon round-trips coms-cli send --await via a hand-written an
 
 	const cli = runProcess([CLI, "send", "user-remote", "Can you answer?", "--await", "--project", PROJECT, "--timeout", "5000"], f.env);
 	const qid = await waitFor(() => extractQid(readHermesCalls(f)));
+	await waitFor(() => readJsonLines(bridgeLogFile(f)).some((record) => record.qid === qid && record.event === "delivered"));
 	writeAnswer(f, qid, "Yes from Telegram");
 	const result = await cli;
 
