@@ -16,13 +16,13 @@ This keeps the user in control: compaction never interrupts a tool call mid-flig
 | `reason` | string | no | Short explanation recorded in tool details. |
 | `continuationPrompt` | string | no | Self-contained summary of the remaining plan. If provided, pi auto-resumes from this message after compaction. **Do not copy the original prompt verbatim** — restate the next concrete actions. |
 
-The tool does not ask for confirmation. Workflows that need confirmation (e.g. `/build`) must ask the user **before** calling it.
+The tool does not ask for confirmation. Workflows that need confirmation (e.g. `/af-build`) must ask the user **before** calling it.
 
 ## When to use
 
 Use only when explicitly requested by the user, a skill, or a prompt template. Do not call it pre-emptively or on a hunch that context is "getting long" — pi has its own autocompaction for that.
 
-The canonical usage point in this repo is `/build`: at slice-approval time, the user can pick "Compact & continue" to compact between slices and resume from a summarized remaining plan. See `.pi/prompts/build.md` and `skills/incremental-implementation/SKILL.md`.
+The canonical usage point in this repo is `/af-build`: at slice-approval time, the user can pick "Compact & continue" to compact between slices and resume from a summarized remaining plan. See `.pi/prompts/af-build.md` and `skills/incremental-implementation/SKILL.md`.
 
 ## Install
 

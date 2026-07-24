@@ -28,7 +28,7 @@ Personas are the *who*, skills are the *how*. Each working persona carries a con
 
 ## Installing personas
 
-`/setup-agent-fleet` offers every persona available for the chosen agent and installs it to the right place, transforming the frontmatter deterministically (via `npx @chankov/agent-fleet transform-persona`):
+The runtime's Agent Fleet setup command offers every persona available for the chosen agent and installs it to the right place, transforming the frontmatter deterministically (via `npx @chankov/agent-fleet transform-persona`):
 
 | Agent | Installed to | Transformation |
 |---|---|---|

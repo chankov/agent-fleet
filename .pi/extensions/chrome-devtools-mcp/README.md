@@ -6,7 +6,7 @@ Built on top of `../mcp-bridge/` — this file is a thin wrapper that supplies C
 
 ## What you get
 
-After installing, pi exposes the full Chrome DevTools MCP toolset under the `chrome_devtools__` prefix (e.g. `chrome_devtools__navigate`, `chrome_devtools__click`, etc.). A status command `/chrome_devtools-status` reports whether the bridge connected.
+After installing, pi exposes the full Chrome DevTools MCP toolset under the `chrome_devtools__` prefix (e.g. `chrome_devtools__navigate`, `chrome_devtools__click`, etc.). A status command `/af-chrome-devtools-status` reports whether the bridge connected.
 
 This unlocks the workflow described in `skills/browser-testing-with-devtools/` for pi users.
 
@@ -46,7 +46,7 @@ ln -s /path/to/agent-fleet/.pi/extensions/chrome-devtools-mcp .pi/extensions/chr
 Run `pi` from the project, then:
 
 ```
-/chrome_devtools-status
+/af-chrome-devtools-status
 ```
 
 Expect: `Chrome DevTools MCP connected. Registered N tool(s).`

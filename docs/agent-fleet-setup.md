@@ -38,7 +38,7 @@ it here, and the reader picks it up.
   built-in default.
 - **Validation.** Because an unknown section or key silently falls back to the
   default, typos are invisible at runtime. `agent-fleet doctor` (and the
-  `/doctor-agent-fleet` command) validates the file — unknown sections,
+  runtime's Agent Fleet doctor command) validates the file — unknown sections,
   unknown keys in known sections, invalid values for the mechanically parsed
   `agent-hub` keys, missing `rules:` folders, and unset `## env` vars — as
   **advisory, warn-only findings**; it never edits the file.
@@ -91,7 +91,7 @@ override files keep working unchanged. When both sections are present their keys
 with later lines winning.
 
 The `rules:` and `docs:` keys are also read outside the harness: the `compound-learning`
-skill (and the `/compound` claude-code/opencode commands built on it) resolves them as the
+skill (and the `/compound` Claude Code / `/af-compound` OpenCode commands built on it) resolves them as the
 targets an end-of-session compound pass writes lessons to.
 
 | Key | Default | Meaning |
@@ -99,21 +99,21 @@ targets an end-of-session compound pass writes lessons to.
 | `language` | `English` | User-facing language the dispatcher uses for every `ask_user` question, every `context` field, and every summary. Specialist task strings always stay in English regardless. |
 | `persona-gate` | `off` | When `on`, blocks input at session start until an orchestrator persona is picked. |
 | `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). |
-| `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/agent-model` and `/models` profiles (comma-separated pi model specs). |
-| `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |
+| `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/af-agent-model` and `/af-models` profiles (comma-separated pi model specs). |
+| `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/af-agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |
 | `subagents.<persona>.<role>` | persona frontmatter `subagents:` | Replaces or adds one delegate sub-role for this project: `<model>[, tools=<caps>]`. Other declared roles keep their frontmatter values. |
 | `delegate-depth.<persona>` | persona frontmatter `delegate_depth:` (default/max 1) | Replaces the persona's delegation depth budget: `0` makes its delegate tool refuse (delegation off for this project), `1` lets it spawn terminal children. Values above 1 are clamped to 1; children at remaining depth 0 do not receive delegate tooling. |
 | `rules` | none | Comma-separated repo-relative folders holding the project's own rule files (HOW — implementation patterns the work must comply with). Resolution is **index-first**: when a folder has a top-level `README.md`/`index.md`, personas read it first and follow its loading manifest (session bundles, conditional-load lists) instead of bulk-reading the tree; a folder without an index is searched **recursively** through all subfolders. The harness tells every dispatched specialist where the rules live and how to resolve them; the planner and code-reviewer personas read the relevant rules, validate their subject against them, and pass them on (cited in plan acceptance criteria / handed to delegate sub-reviewers). Missing folders produce a session-start warning. |
 | `docs` | none | Comma-separated repo-relative documentation **entry points** (WHAT/WHY — architecture, standards, decisions): canonical files (e.g. `Docs/AGENTS.md`) or doc folders (personas start from a folder's `README.md`/index). Unlike `rules`, docs orient rather than bind: every dispatched specialist and research helper is told to read the entry points relevant to its task and follow their links instead of bulk-reading doc trees; the code-reviewer flags changes that alter documented behavior without a doc update; the documenter treats the entry points and the trees they link as the docs it maintains. Missing paths produce a session-start warning. |
-| `research-keep` | `4` | How many **finished** manual/persona research helpers the hub retains (LRU by finish time) so they stay resumable via `/agents-cont rN`; older ones are pruned along with their session files. `all` disables the cap. Auto-research pipe helpers (spawned for `NEEDS_RESEARCH:` pauses) are always pruned as soon as they finish — their findings persist as files under `.pi/agent-sessions/findings/`. Running helpers are never pruned. An invalid value is ignored with a session-start warning. |
+| `research-keep` | `4` | How many **finished** manual/persona research helpers the hub retains (LRU by finish time) so they stay resumable via `/af-agents-cont rN`; older ones are pruned along with their session files. `all` disables the cap. Auto-research pipe helpers (spawned for `NEEDS_RESEARCH:` pauses) are always pruned as soon as they finish — their findings persist as files under `.pi/agent-sessions/findings/`. Running helpers are never pruned. An invalid value is ignored with a session-start warning. |
 | `recon-search-timeout-s` | `120` | Parent-side deadline, in seconds, for each `read`, `grep`, `find`, or `ls` call made by a native research helper or nested delegate child. Accepts an integer `1`–`3600` or `off`; invalid input warns and falls back to `120`. This is **not** an agent/turn deadline: non-tool work can run indefinitely. On timeout the hub returns `tool_timeout` with call metadata, sends SIGTERM to its owned process group, escalates to SIGKILL after a finite grace period, and settles even if the child never closes or a descendant holds a pipe. If that bounded cleanup cannot confirm child/process-group death, the metadata reports `terminationConfirmed: false`; this prevents a parent hang but may indicate an uninterruptible OS-level process needing operator attention. |
-| `mode` | `standard` | Execution mode for the hub's per-turn budgets: `fast` (single-specialist path, no nested delegation, assertion ledger optional), `standard` (batched execution with moderate budgets), or `strict` (full Verification Contract with wide budgets). Budgets are per **user turn** — exhausted budgets make `dispatch_agent`/`spawn_research` refuse with "summarize and ask the user"; the next user message opens a fresh window. Switchable live with `/hub-mode`. |
+| `mode` | `standard` | Execution mode for the hub's per-turn budgets: `fast` (single-specialist path, no nested delegation, assertion ledger optional), `standard` (batched execution with moderate budgets), or `strict` (full Verification Contract with wide budgets). Budgets are per **user turn** — exhausted budgets make `dispatch_agent`/`spawn_research` refuse with "summarize and ask the user"; the next user message opens a fresh window. Switchable live with `/af-hub-mode`. |
 | `max-dispatches-per-turn` | mode default (2/8/24) | `dispatch_agent` calls allowed per user turn. Positive integer or `off` (unlimited). |
-| `max-research-per-turn` | mode default (1/4/12) | `spawn_research` calls allowed per user turn (the auto-research pipe and the `/research` command are exempt). Positive integer or `off`. |
+| `max-research-per-turn` | mode default (1/4/12) | `spawn_research` calls allowed per user turn (the auto-research pipe and the `/af-research` command are exempt). Positive integer or `off`. |
 | `turn-wall-time-s` | mode default (900/3600/14400) | Wall-clock budget, in seconds, per user turn; once exceeded, further dispatch/research calls refuse. Positive integer or `off`. |
 | `agent-turn-timeout-s` | mode default (600/1800/off) | Whole-run deadline, in seconds, for each spawned specialist, research helper, and nested delegate child (unlike `recon-search-timeout-s`, this bounds the entire run). On expiry the run terminates as `turn_timeout` (exit 124) with partial output preserved. Positive integer or `off`. |
 | `session-recycle-runs` | mode default (3/5/5) | Recycle a specialist's accumulated session (fresh spawn instead of `-c` resume) after this many resumed runs. Context is also always recycled at ≥60% measured context (input + cacheRead + cacheWrite). Positive integer or `off` (context threshold still applies). |
-| `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Overridable live per hub (`/watchdog on\|off\|auto`), per agent (`/watchdog <agent> on\|off\|clear`), and per dispatch (the `watchdog` param). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
+| `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Overridable live per hub (`/af-watchdog on\|off\|auto`), per agent (`/af-watchdog <agent> on\|off\|clear`), and per dispatch (the `watchdog` param). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
 | `watchdog-judge-model` | researcher persona's model | pi model spec for the one-shot drift judge (e.g. `openai-codex/gpt-5.3-codex-spark`). Falls back to the researcher persona's resolved model, then the dispatcher's. |
 
 Example — switch the dispatcher to Bulgarian, pin the builder to sonnet, raise the
@@ -152,7 +152,7 @@ required: APP_TEST_ADMIN_USER, APP_TEST_ADMIN_PASS, AZURE_SPEECH_KEY
 ```
 
 No skill or harness loads this section. Its only reader is `agent-fleet doctor`
-(and `/doctor-agent-fleet`), which warns when a declared name is neither set in
+(and the runtime's Agent Fleet doctor command), which warns when a declared name is neither set in
 the environment nor declared in the workspace root `.env`.
 
 ### Per-peer env files (`env_file:` in peers.yaml)
@@ -243,12 +243,12 @@ available). The reader differs by runtime: pi's harness parses its YAML, while
 | pi | `.pi/agents/teams.yaml` | via the `agent-hub` harness (no `/orchestrate`) |
 
 Switch teams at runtime with `/orchestrate <team> "<task>"` (parallel of pi's
-`/agents-team`); use `/orchestrate team=<name> <task>` to disambiguate when the
+`/af-agents-team`); use `/orchestrate team=<name> <task>` to disambiguate when the
 task text starts with a word that collides with a team key.
 
 **Guided-setup behaviour.** `guided-workspace-setup` offers `/orchestrate`
 **`★`-recommended** for claude-code + opencode (hidden for pi via the existing
-source-availability filter — there is no `.pi/prompts/orchestrate.md`), and
+source-availability filter — there is no `.pi/prompts/af-orchestrate.md`), and
 installs the agent's `orchestrate-teams.yaml` as a **companion** of the command
 (a user-edited config is preserved on uninstall, never silently clobbered).
 Two artifacts stay **claude-only**: the lifecycle **hooks** (they register into

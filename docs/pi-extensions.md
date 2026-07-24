@@ -26,7 +26,7 @@ conventions. Runtime design specs for the imported harnesses live in `docs/pi-sp
 `chrome-devtools-mcp`, `compact-and-continue`, `agent-fleet-update-check`, `btw`, and
 `pi-voice-stt`. pi
 auto-discovers that directory, so they layer onto every session. `btw` adds a
-`/btw <task>` prompt command (plus an `Alt+'` shortcut) that forks the current session
+`/af-btw <task>` prompt command (plus an `Alt+'` shortcut) that forks the current session
 into an in-process sub-session and opens a live modal over it — full context, same
 cwd, follow-up composer, with a compact result card landing in the main transcript at
 idle. See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
@@ -37,7 +37,7 @@ Azure Speech (REST short-audio, with optional per-phrase language identification
 OpenAI Whisper (Azure AI Foundry). Alt+S toggles record→insert; Enter-while-recording
 transcribes and sends; Esc cancels. It is **gated**: the hotkey binds only once a provider is
 configured (project-local `.ai/stt.json`, the global `~/.pi/agent/stt.json`, or `PI_STT_CONFIG`),
-so an unconfigured session is a no-op. `/stt doctor`
+so an unconfigured session is a no-op. `/af-stt doctor`
 checks the setup. A simplified port of [`cgarrot/pi-voice-stt`](https://github.com/cgarrot/pi-voice-stt);
 see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).
 
@@ -92,7 +92,7 @@ inside the package. The `@mariozechner/pi-*` packages are provided by the pi run
 
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
-| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: Fleet Core guardrails, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/handoff`, peer-as-subagent, and footer `v<version> · <model><thinking> · <team>` — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just fleet hub` |
+| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: Fleet Core guardrails, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/af-handoff`, peer-as-subagent, and footer `v<version> · <model><thinking> · <team>` — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just fleet hub` |
 | [ask-user-remote](../.pi/harnesses/ask-user-remote/README.md) | Orchestration | Captures stock `pi-ask-user` and registers the default `ask_user`; with `user-remote` live it races local UI against the Hermes bridge, otherwise it is stock local behavior | Fleet Core (`just fleet`) |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Fleet Core safety harness; guards default Pi, Hub, native children, and Herdr Pi peers. Blocks feed back without aborting the turn; protected paths support explicit approval, while dangerous command patterns remain non-exemptible | `just fleet` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between agents on one machine, composed with Fleet Core safety and utilities | `just fleet peer <name>` |
@@ -139,7 +139,7 @@ harnesses:
 - **Dispatcher grid** — fixed specialists from `.pi/agents/teams.yaml`, shown in a live dashboard
   with compact/full view toggling.
 - **Specialist delegation** — `dispatch_agent` for writable child-agent work and
-  `spawn_research` / `/research` for read-only investigation.
+  `spawn_research` / `/af-research` for read-only investigation.
 - **Verification Contract** — the dispatcher owns a ledger of checkable acceptance assertions
   built before any builder runs, via the `set_assertions` / `update_assertion` tools. Each
   assertion is tagged (`test` | `runtime-ui` | `code-grep` | `manual`) and advanced only on
@@ -152,20 +152,20 @@ harnesses:
   dispatch refusal).
 - **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
-- **Operator controls** — `/zoom` timeline inspection plus child-agent kill/restart controls.
+- **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls.
 - **Damage-control + ask_user by default** — `just fleet hub` and `just fleet hub --solo` load the
   `damage-control-continue` safety harness and `ask-user-remote` before `agent-hub`, so the
   dispatcher's tool calls are checked against the rules file and the `askUserAvailable` probe sees
   `ask_user`. A blocked call feeds back and the turn keeps going rather than aborting. `agent-hub` also
   re-loads `damage-control-continue` into every native specialist, research helper, and nested
   delegate (via an explicit `-e` that survives `--no-extensions`). Protected-path access can be
-  granted at runtime: `/allow <pattern> [turn|session]` in the hub pre-authorizes, a parent-session
+  granted at runtime: `/af-allow <pattern> [turn|session]` in the hub pre-authorizes, a parent-session
   block opens an approval dialog, and a headless child escalates to the hub. Protected deletion
   offers only deny/once; other protected paths may be scoped to an agent or session. Denial and
   timeout fail closed without aborting the child turn. Destructive bash patterns are never exemptible,
   and a missing continue harness refuses child dispatch.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
-  `/handoff`, and peer-as-subagent flows.
+  `/af-handoff`, and peer-as-subagent flows.
 - **Solo mode** — `just fleet hub --solo` keeps the dispatcher grid, delegation, research helpers, persona
   gate, and controls, but starts without the embedded coms layer.
 - **Optional Hermes local monitor transport** — uses `AGENT_FLEET_PROFILE_ID`, the absolute

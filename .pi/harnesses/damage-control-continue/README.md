@@ -37,10 +37,10 @@ They apply to the **path categories only** — `zeroAccessPaths`, `readOnlyPaths
 **Pre-authorize** (when you know the agent will need it):
 
 ```
-/allow .env            # exempt for the rest of the session (default)
-/allow .env turn       # exempt until the end of the current/next turn
-/allowed               # list active exemptions
-/revoke .env           # remove an exemption
+/af-allow .env            # exempt for the rest of the session (default)
+/af-allow .env turn       # exempt until the end of the current/next turn
+/af-allowed               # list active exemptions
+/af-revoke .env           # remove an exemption
 ```
 
 **Block-time dialog** (when you forgot): in an interactive session a path block
@@ -60,7 +60,7 @@ timeout. At most 3 escalations per child run; denials are cached.
 
 **Shared exemptions file**: agent-hub keeps one session-scoped file
 (`~/.pi/coms/exemptions/<session>.json`, deleted on shutdown) and passes it to
-every spawned child via `AGENT_HUB_EXEMPTIONS_FILE`. `/allow <pattern> session`
+every spawned child via `AGENT_HUB_EXEMPTIONS_FILE`. `/af-allow <pattern> session`
 in the hub lands there, so it covers the whole team. Every native specialist,
 research helper, and nested delegate uses this harness and re-reads the file on
 every block, so mid-session grants reach already-running children. Everything
@@ -76,9 +76,9 @@ refuses guarded child dispatch rather than launching an unprotected process.
 
 ## Commands & tools
 
-- `/allow <pattern> [turn|session]` — exempt a protected path pattern
-- `/allowed` — list active exemptions
-- `/revoke <pattern>` — remove an exemption
+- `/af-allow <pattern> [turn|session]` — exempt a protected path pattern
+- `/af-allowed` — list active exemptions
+- `/af-revoke <pattern>` — remove an exemption
 
 Blocking itself runs passively on the `tool_call` event.
 
@@ -111,7 +111,7 @@ pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/
   call were stripped (this repo does not ship pi themes).
 - The `find` tool's `pattern` is matched against `zeroAccessPaths`, closing a gap
   where `find` could still locate secret files.
-- Exemption layer added (not in upstream): `/allow`/`/allowed`/`/revoke`,
+- Exemption layer added (not in upstream): `/af-allow`/`/af-allowed`/`/af-revoke`,
   block-time approval dialog, and escalation from headless agent-hub children to
   the dispatcher — see the Exemptions section above. Shared plumbing lives in
   [`../lib/damage-control-shared.ts`](../lib/damage-control-shared.ts).

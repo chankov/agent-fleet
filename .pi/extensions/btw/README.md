@@ -1,12 +1,12 @@
 # btw
 
-A pi extension that adds a single prompt command, `/btw`, plus an `Alt+'`
+A pi extension that adds a single prompt command, `/af-btw`, plus an `Alt+'`
 shortcut, for spinning off a **side task** that inherits the full context of the
 current session and streams into a live modal — modeled on Claude Code's `/btw`.
 
 ## What it does
 
-`/btw <task>` forks the current session into an **in-process sub-session** and
+`/af-btw <task>` forks the current session into an **in-process sub-session** and
 opens a modal over it:
 
 1. **Forks the session** — `SessionManager.forkFrom` writes the current
@@ -28,13 +28,13 @@ opens a modal over it:
 
 ## Command & shortcut
 
-- **`/btw <task>`** — start a side task and open its modal.
-- **`/btw`** (no args) — reopen the modal on the last-viewed (or most recent) thread.
+- **`/af-btw <task>`** — start a side task and open its modal.
+- **`/af-btw`** (no args) — reopen the modal on the last-viewed (or most recent) thread.
 - **`Alt+'`** — reopen the modal. (Chosen because it doesn't collide with a pi
   composer motion the way `Alt+B` does — that's the editor's cursor-word-left. Pick
   another binding in `index.ts` if your terminal swallows `Alt+'`.)
 
-Once any `/btw` command or `Alt+'` has run in a session, the **agent-hub** harness
+Once any `/af-btw` command or `Alt+'` has run in a session, the **agent-hub** harness
 footer surfaces an `Alt+' btw` hint next to its `Alt+A view:` hint (via a
 `globalThis.__btwActivated` flag).
 
@@ -43,13 +43,13 @@ footer surfaces an `Alt+' btw` hint next to its `Alt+A view:` hint (via a
 - **Type + Enter** — send a follow-up. Mid-run it *steers* the active turn; when the
   task is idle it starts a fresh turn.
 - **Esc** — hide the modal. The task keeps running; you are returned to the main
-  session. Reopen with `Alt+'` or `/btw`.
+  session. Reopen with `Alt+'` or `/af-btw`.
 - **↑ / ↓** — scroll the transcript (the selected entry expands; tail-follows the
   newest until you scroll up).
 - **← / →** — switch between concurrent threads (when more than one is running).
 - **Ctrl+C** — copy the selected transcript entry.
 
-`/btw` and `Alt+'` are the entire surface — no model-callable tool, no subcommands.
+`/af-btw` and `Alt+'` are the entire surface — no model-callable tool, no subcommands.
 The agent cannot trigger it; only you can.
 
 ## Design constraints (intentional)
@@ -63,7 +63,7 @@ The agent cannot trigger it; only you can.
   or any other extension. No recursion, no double-bound MCP servers — the same
   guarantee the old `--no-extensions` child gave.
 - **Available even while the main agent is streaming.** pi executes extension
-  commands immediately in `prompt()`, *before* the streaming queue, so `/btw` never
+  commands immediately in `prompt()`, *before* the streaming queue, so `/af-btw` never
   waits for the current turn to finish, and the modal opens right away.
 - **Never steals the main session's focus.** The modal is a non-capturing overlay
   that you focus on open and release on `Esc`. Task completion only fires a toast — it
@@ -104,14 +104,14 @@ packages, so no additional `npm install` is needed.
   `error` toast; the transcript shows the error inline.
 - **Shutdown.** Running threads are `abort()`ed when the main pi session shuts down —
   side tasks do not outlive their parent.
-- **Concurrency.** Multiple `/btw` runs can be in flight at once; the footer shows
+- **Concurrency.** Multiple `/af-btw` runs can be in flight at once; the footer shows
   `btw: N running` and `← / →` switches the modal between them.
 - **Shared process group.** In-process bash from a side task competes with the main
   session for CPU — heavy side tasks will be felt by the main turn.
 
 ## Focused smoke checklist
 
-- Start `/btw <task>`, confirm the modal opens immediately and elapsed time counts the current turn.
+- Start `/af-btw <task>`, confirm the modal opens immediately and elapsed time counts the current turn.
 - Send a mid-run follow-up, confirm it steers the same turn and produces only one card.
 - After completion, send an idle follow-up, confirm elapsed time resets and a new card is produced.
 - Complete more than 12 side-task threads, confirm only terminal history is evicted and running threads remain.

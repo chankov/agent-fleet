@@ -1,10 +1,10 @@
 // bootstrap.js — drop the minimum installer artifacts a coding agent needs
-// to recognize `/setup-agent-fleet` and `/doctor-agent-fleet`.
+// to recognize Agent Fleet's setup and doctor slash commands.
 //
 // The CLI's `init` calls this before the handoff message. Without it, a
-// fresh workspace has no `.claude/commands/setup-agent-fleet.md`, `.pi/prompts/setup-agent-fleet.md`,
-// etc., so the agent has no idea what `/setup-agent-fleet` is and the whole hand-off
-// breaks silently.
+// fresh workspace has no `.claude/commands/setup-agent-fleet.md`,
+// `.pi/prompts/af-setup-agent-fleet.md`, etc., so the agent has no setup
+// entrypoint and the whole hand-off breaks silently.
 //
 // What we bootstrap (per agent):
 //   - The `setup` slash command (so the user can invoke it)
@@ -16,7 +16,7 @@
 // What we do NOT bootstrap:
 //   - Any of the user-facing skills (spec-driven-development,
 //     test-driven-development, …). Those are picked by the user inside
-//     /setup-agent-fleet, by design. The CLI never decides the workspace's catalogue
+//     through the runtime's setup command, by design. The CLI never decides the workspace's catalogue
 //     for the user.
 //
 // Method:
@@ -93,10 +93,10 @@ function plan({ agent, sourceRoot, workspace }) {
 
     case "pi":
       return [
-        { kind: "prompt", src: join(sourceRoot, ".pi/prompts/setup-agent-fleet.md"),
-          dest: join(workspace, ".pi/prompts/setup-agent-fleet.md") },
-        { kind: "prompt", src: join(sourceRoot, ".pi/prompts/doctor-agent-fleet.md"),
-          dest: join(workspace, ".pi/prompts/doctor-agent-fleet.md") },
+        { kind: "prompt", src: join(sourceRoot, ".pi/prompts/af-setup-agent-fleet.md"),
+          dest: join(workspace, ".pi/prompts/af-setup-agent-fleet.md") },
+        { kind: "prompt", src: join(sourceRoot, ".pi/prompts/af-doctor-agent-fleet.md"),
+          dest: join(workspace, ".pi/prompts/af-doctor-agent-fleet.md") },
         // pi auto-discovers skills from .pi/skills/ and .agents/skills/ —
         // we use .pi/skills/ to avoid polluting a shared .agents/ dir if
         // the user has other tools there.
@@ -124,9 +124,8 @@ function plan({ agent, sourceRoot, workspace }) {
   }
 }
 
-// Files that were the bootstrap targets in 0.2.0 and earlier (pre-rename).
-// Removed during bootstrap so a workspace upgraded from 0.2.0 doesn't end
-// up with both the old and new slash commands.
+// Previous bootstrap targets. Removed during bootstrap so upgrades do not
+// leave both unprefixed and current slash commands in the workspace.
 function legacyPaths({ agent, workspace }) {
   switch (agent) {
     case "claude-code":
@@ -138,6 +137,8 @@ function legacyPaths({ agent, workspace }) {
       return [
         join(workspace, ".pi/prompts/setup.md"),
         join(workspace, ".pi/prompts/doctor.md"),
+        join(workspace, ".pi/prompts/setup-agent-fleet.md"),
+        join(workspace, ".pi/prompts/doctor-agent-fleet.md"),
       ];
     case "opencode":
       return [
@@ -173,8 +174,7 @@ export function bootstrap({ agent, sourceRoot, workspace, method, dryRun = false
     );
   }
 
-  // Clean up pre-0.3.0 file names if present — they were renamed to
-  // *-agent-fleet so they don't collide with other slash commands.
+  // Clean up superseded file names so old and current commands never coexist.
   for (const oldPath of legacyPaths({ agent, workspace })) {
     if (!existsSync(oldPath) && !isSymlink(oldPath)) continue;
     if (dryRun) {
@@ -205,7 +205,7 @@ export function bootstrap({ agent, sourceRoot, workspace, method, dryRun = false
 
       // Always replace — the bootstrap is installer scaffolding, not user
       // data. If we left it stale, an upgraded package would still hand off
-      // to the old /setup-agent-fleet command. Step 6 of guided-workspace-setup explicitly
+      // to an old setup command. Step 6 of guided-workspace-setup explicitly
       // never offers these files in the install menu, so we are the only
       // mechanism that refreshes them.
       if (existsSync(item.dest) || isSymlink(item.dest)) {
@@ -248,7 +248,7 @@ export function bootstrap({ agent, sourceRoot, workspace, method, dryRun = false
  * Remove every bootstrap artifact this module knows how to write. Called
  * by guided-workspace-setup at the end of Step 10 unless the user chose
  * to keep the installer commands. After cleanup, the only way back to
- * /setup-agent-fleet is to re-run `npx @chankov/agent-fleet init`.
+ * the setup command is to re-run `npx @chankov/agent-fleet init`.
  *
  * The same `agent` value must be supplied that was used at bootstrap time —
  * we don't have a tracking file, so we delete based on the plan map.

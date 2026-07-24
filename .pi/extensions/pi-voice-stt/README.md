@@ -19,15 +19,15 @@ dependency and no build step — pi loads the TypeScript directly.
 | **Alt+S** | Start recording; press again to **transcribe and insert** into the prompt |
 | **Enter** (while recording) | Transcribe and **send** immediately |
 | **Esc** (while recording) | Cancel — discard the recording |
-| `/stt status` | Show config + current state |
-| `/stt doctor` | Check `ffmpeg`, provider, and API key |
-| `/stt start` · `stop` · `send` · `cancel` | Drive the state machine without the hotkey |
+| `/af-stt status` | Show config + current state |
+| `/af-stt doctor` | Check `ffmpeg`, provider, and API key |
+| `/af-stt start` · `stop` · `send` · `cancel` | Drive the state machine without the hotkey |
 
 While recording, a `● REC m:ss` indicator animates in the status bar; during transcription
 it shows a moving `transcribing…` dot.
 
 > The hotkey is bound **only when a provider is configured**. Until then the extension is a
-> silent no-op — `/stt doctor` still works to guide setup.
+> silent no-op — `/af-stt doctor` still works to guide setup.
 
 ## Requirements
 
@@ -48,7 +48,7 @@ key is read from the process environment — a gitignored `.env` at the repo roo
 the `justfile`'s `dotenv-load`. See [`examples/stt.json`](examples/stt.json).
 
 > **Guided setup** can write the `.ai/stt.json` + `.env` for you — pick `pi-voice-stt` in
-> `/setup-agent-fleet` and answer the provider prompts. See
+> `/af-setup-agent-fleet` and answer the provider prompts. See
 > [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md).
 
 ### Option 1 — Generic OpenAI-compatible endpoint
@@ -97,7 +97,7 @@ export AZURE_SPEECH_KEY="<your-resource-key>"
 ```
 
 The request posts the WAV to
-`{endpoint}/stt/speech/recognition/conversation/cognitiveservices/v1?language=<lang>&format=<format>`
+`{endpoint}/af-stt/speech/recognition/conversation/cognitiveservices/v1?language=<lang>&format=<format>`
 with the `Ocp-Apim-Subscription-Key` header. `format: "detailed"` returns the best
 `NBest[0].Display`; `"simple"` returns `DisplayText`.
 
@@ -178,7 +178,7 @@ can be raised.
 
 ## Troubleshooting
 
-- **`/stt doctor` says ffmpeg not found** — install ffmpeg or set `capture.ffmpegPath`.
+- **`/af-stt doctor` says ffmpeg not found** — install ffmpeg or set `capture.ffmpegPath`.
 - **Linux: no audio** — ensure PulseAudio/PipeWire is running; try `capture.input` of a
   specific source name from `pactl list sources short`.
 - **Azure `NoMatch`** — the spoken language doesn't match `language`; fix the locale.

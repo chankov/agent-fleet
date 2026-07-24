@@ -12,8 +12,8 @@
  * On top of the rule engine this variant supports runtime EXEMPTIONS for the
  * path categories (zeroAccessPaths / readOnlyPaths / noDeletePaths) — never
  * for the destructive bashToolPatterns:
- *   - /allow <pattern> [turn|session] pre-authorizes a protected pattern
- *     (/allowed lists, /revoke removes). Session grants are mirrored into the
+ *   - /af-allow <pattern> [turn|session] pre-authorizes a protected pattern
+ *     (/af-allowed lists, /af-revoke removes). Session grants are mirrored into the
  *     shared exemptions file when agent-hub provides one, so spawned children
  *     inherit them.
  *   - In interactive sessions a path block opens a dialog (keep blocked /
@@ -191,8 +191,8 @@ export default function (pi: ExtensionAPI) {
 			: `🛡️ Damage-Control (continue): ${total} Rules`;
 	}
 
-	pi.registerCommand("allow", {
-		description: "Damage-control: exempt a protected path pattern — /allow <pattern> [turn|session]",
+	pi.registerCommand("af-allow", {
+		description: "Damage-control: exempt a protected path pattern — /af-allow <pattern> [turn|session]",
 		handler: async (args, ctx) => {
 			const parts = args.trim().split(/\s+/).filter(Boolean);
 			let scope: ExemptionScope = "session";
@@ -203,7 +203,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			const pattern = parts.join(" ");
 			if (!pattern) {
-				ctx.ui.notify("Usage: /allow <pattern> [turn|session] — e.g. /allow .env turn", "warning");
+				ctx.ui.notify("Usage: /af-allow <pattern> [turn|session] — e.g. /af-allow .env turn", "warning");
 				return;
 			}
 			const already = activeExemptions().some((e) => e.pattern === pattern && (e.scope === scope || e.scope === "session"));
@@ -217,7 +217,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("allowed", {
+	pi.registerCommand("af-allowed", {
 		description: "Damage-control: list active exemptions",
 		handler: async (_args, ctx) => {
 			const lines: string[] = [];
@@ -230,12 +230,12 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("revoke", {
-		description: "Damage-control: revoke an exemption — /revoke <pattern>",
+	pi.registerCommand("af-revoke", {
+		description: "Damage-control: revoke an exemption — /af-revoke <pattern>",
 		handler: async (args, ctx) => {
 			const pattern = args.trim();
 			if (!pattern) {
-				ctx.ui.notify("Usage: /revoke <pattern>", "warning");
+				ctx.ui.notify("Usage: /af-revoke <pattern>", "warning");
 				return;
 			}
 			let removed = false;
@@ -458,7 +458,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					const note = choice === KEEP
 						? `The user reviewed this call and kept the block in place.`
-						: `The user did not answer the approval dialog in time (auto-kept blocked). They can pre-authorize with /allow ${matchedPattern} [turn|session].`;
+						: `The user did not answer the approval dialog in time (auto-kept blocked). They can pre-authorize with /af-allow ${matchedPattern} [turn|session].`;
 					if (choice === KEEP) deniedThisTurn.add(matchedPattern);
 					ctx.ui.setStatus("damage-control", `⚠️ Last Violation: ${violationReason.slice(0, 30)}...`);
 					pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: choice === KEEP ? "blocked_by_user" : "blocked_prompt_timeout" });
@@ -525,7 +525,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		} else {
 			const note = matchedPattern
-				? `The user can pre-authorize this path with /allow ${matchedPattern} [turn|session] in a damage-control-continue session.`
+				? `The user can pre-authorize this path with /af-allow ${matchedPattern} [turn|session] in a damage-control-continue session.`
 				: undefined;
 			ctx.ui.notify(`🛑 Damage-Control: Blocked ${event.toolName} (${violationReason}) — agent will adapt and continue.`);
 			ctx.ui.setStatus("damage-control", `⚠️ Last Violation: ${violationReason.slice(0, 30)}...`);

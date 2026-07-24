@@ -20,7 +20,7 @@ agent-fleet set-hermes-telegram install --profile default --force
 agent-fleet set-hermes-telegram install --profile default --force --restart
 ```
 
-The corresponding Pi/Claude slash command is `/set-hermes-telegram`; OpenCode uses `/af-set-hermes-telegram`. The installer resolves the real profile path via `hermes profile show`, refuses drift without `--force`, backs up forced replacements, copies atomically, and verifies skill/tool/gateway readiness. It never sends a test Telegram message and never starts a stopped gateway. See [the bridge runbook](../docs/coms-hermes-bridge.md#set-hermes-telegram-bridge-control).
+Pi and OpenCode use `/af-set-hermes-telegram`; Claude Code uses `/set-hermes-telegram`. The installer resolves the real profile path via `hermes profile show`, refuses drift without `--force`, backs up forced replacements, copies atomically, and verifies skill/tool/gateway readiness. It never sends a test Telegram message and never starts a stopped gateway. See [the bridge runbook](../docs/coms-hermes-bridge.md#set-hermes-telegram-bridge-control).
 
 The current `hermes skills install` CLI documents registry identifiers and direct HTTP(S) `SKILL.md` URLs, not local directories, so `hermes skills install hermes/skills/hub-liaison` is not the supported local installation path.
 

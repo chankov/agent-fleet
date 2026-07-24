@@ -100,7 +100,7 @@ function refusalTail(mode) {
 	return "Do NOT retry this call in this turn. Summarize progress so far (including " +
 		"unproven assertions and artifact paths), then ask the user whether to continue — " +
 		"the next user message starts a fresh budget window. The user can widen budgets " +
-		`with /hub-mode (current: ${mode}) or the max-*-per-turn / turn-wall-time-s keys ` +
+		`with /af-hub-mode (current: ${mode}) or the max-*-per-turn / turn-wall-time-s keys ` +
 		"in .ai/agent-fleet-overrides.md.";
 }
 

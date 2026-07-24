@@ -2,9 +2,9 @@
 // agent-fleet — thin dispatcher into the LLM-driven guided setup.
 //
 // Main commands:
-//   init               materialize the package, detect the coding agent, hand off to /setup-agent-fleet
+//   init               materialize the package, detect the coding agent, hand off to its setup command
 //   doctor             deterministic preflight scan (broken symlinks, stale persona refs)
-//   update             refresh the package, then hand off to /setup-agent-fleet for the version-diff
+//   update             refresh the package, then hand off to the setup workflow for the version-diff
 //   transform-persona  generate per-agent subagent files from the canonical agents/*.md
 //   set-hermes-telegram install/inspect the liaison and start/stop its bridge
 //
@@ -165,10 +165,9 @@ async function cmdInit() {
   }
 
   // Bootstrap the installer artifacts (setup + doctor + the skill they invoke).
-  // Without this, the agent has no /setup-agent-fleet command to hand off to — the
-  // /setup-agent-fleet command is itself one of the files this writes. The rest of the
-  // catalogue (skills, personas, etc.) is the job of /setup-agent-fleet running inside
-  // the agent; we only drop the plumbing it needs to exist.
+  // Without this, the agent has no setup command to hand off to. The command itself
+  // is one of the files this writes; the rest of the catalogue (skills, personas,
+  // etc.) is the setup workflow's job inside the agent.
   printSection("Bootstrap installer");
   const { written, skipped, removed, warnings } = bootstrap({
     agent,
@@ -256,7 +255,7 @@ async function cmdDoctor() {
     `\n✓ Doctor finished — repaired ${repaired}, deleted ${deleted}, skipped ${skipped}.`,
   );
   console.log(
-    "Re-run /setup-agent-fleet inside your coding agent if you also want to add or remove artifacts.",
+    "Re-run Agent Fleet's setup command inside your coding agent if you also want to add or remove artifacts.",
   );
 }
 
@@ -269,7 +268,7 @@ async function cmdUpdate() {
 
   // npm itself does the package upgrade. The CLI's job here is to read the
   // workspace's install record, surface the version delta, re-install the
-  // /setup-agent-fleet command, and hand off to the skill for the diff-aware
+  // setup command, and hand off to the skill for the diff-aware
   // refresh.
   const recordPath = join(workspace, ".ai", "agent-fleet-setup.md");
   if (!existsSync(recordPath)) {
@@ -285,11 +284,11 @@ async function cmdUpdate() {
   console.log(`Installed package:     v${current}`);
   console.log();
 
-  // Re-bootstrap the installer artifacts so /setup-agent-fleet is present
+  // Re-bootstrap the installer artifacts so the runtime's setup command is present
   // after the update. guided-workspace-setup removes these at the end of a
   // run by default (Step 10b / cleanupInstaller), so a workspace that has
   // completed setup once no longer has the command — and `update` used to
-  // only print "run /setup-agent-fleet" while pointing at a command that no
+  // only print a stale setup instruction while pointing at a command that no
   // longer existed. The marker recovers the agent/method from init time; if
   // it was cleaned up too, fall back to detection (and prompt if ambiguous).
   const marker = readBootstrapMarker(workspace);
@@ -324,7 +323,7 @@ async function cmdUpdate() {
     console.log(`  ✗ skipped: ${relative(workspace, f.dest)} — ${f.error}`);
   }
 
-  const setupCmd = agent === "opencode" ? "/af-setup-agent-fleet" : "/setup-agent-fleet";
+  const setupCmd = agent === "claude-code" ? "/setup-agent-fleet" : "/af-setup-agent-fleet";
 
   printSection("Next step");
   if (recorded === current) {
@@ -470,7 +469,7 @@ async function chooseAgent(supplied) {
 function printHandoff({ agent, method, workspace, source, version }) {
   const rel = relative(process.cwd(), workspace) || ".";
   const setupCmd =
-    agent === "opencode" ? "/af-setup-agent-fleet" : "/setup-agent-fleet";
+    agent === "claude-code" ? "/setup-agent-fleet" : "/af-setup-agent-fleet";
   const lines = [
     `agent-fleet v${version} is ready.`,
     "",
@@ -517,7 +516,8 @@ function tryLaunch(agent, cwd) {
   const r = spawnSync(cmd, [], { cwd, stdio: "inherit" });
   if (r.error) {
     console.log(`(could not launch ${cmd}: ${r.error.message})`);
-    console.log(`Open ${cmd} manually and run /setup-agent-fleet.`);
+    const setupCmd = agent === "claude-code" ? "/setup-agent-fleet" : "/af-setup-agent-fleet";
+    console.log(`Open ${cmd} manually and run ${setupCmd}.`);
   }
 }
 
@@ -582,7 +582,7 @@ function printHelp(sub) {
   if (sub === "init") {
     console.log(`agent-fleet init [options]
 
-  Materialize the package and hand off to the LLM-driven /setup-agent-fleet skill.
+  Materialize the package and hand off to the runtime's Agent Fleet setup command.
 
 Options:
   --agent <claude-code|opencode|pi>   Skip the agent auto-detection
@@ -660,10 +660,10 @@ Examples:
   if (sub === "update") {
     console.log(`agent-fleet update [options]
 
-  Surface the version delta and re-install the /setup-agent-fleet command so
-  it is always present after an update (guided-workspace-setup removes it at
-  the end of a run by default). The actual diff-aware refresh then runs inside
-  your coding agent via /setup-agent-fleet.
+  Surface the version delta and re-install the runtime's Agent Fleet setup
+  command so it is always present after an update (guided-workspace-setup
+  removes it at the end of a run by default). The actual diff-aware refresh
+  then runs inside your coding agent via that command.
 
 Options:
   --agent <claude-code|opencode|pi>   Override the agent (default: marker → auto-detect)
@@ -684,9 +684,9 @@ Usage:
   npx agent-fleet <command> [options]
 
 Commands:
-  init                Bootstrap installer files + hand off to /setup-agent-fleet
+  init                Bootstrap installer files + hand off to the setup workflow
   doctor              Scan for broken symlinks and stale persona references
-  update              Surface the version delta + hand off to /setup-agent-fleet
+  update              Surface the version delta + hand off to the setup workflow
   check-update        One-line registry check (used by session hooks; safe to script)
   cleanup-installer   Remove the installer slash commands from a workspace (used
                       by the skill at end of setup; safe to run by hand)

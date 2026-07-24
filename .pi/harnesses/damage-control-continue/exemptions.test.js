@@ -112,20 +112,20 @@ test("continue: blocks a zero-access read by default (headless, no hub)", async 
 	assert.match(res.reason, /zero-access/);
 });
 
-test("continue: /allow <pattern> turn exempts until agent_end", async () => {
+test("continue: /af-allow <pattern> turn exempts until agent_end", async () => {
 	const h = await boot(continueExt, fixtureCwd());
-	await h.commands.allow.handler(".env turn", h.ctx);
+	await h.commands["af-allow"].handler(".env turn", h.ctx);
 	assert.equal((await h.toolCall(readEnv)).block, false);
 	await h.agentEnd();
 	assert.equal((await h.toolCall(readEnv)).block, true);
 });
 
-test("continue: /allow session persists across turns and mirrors to the shared file", async () => {
+test("continue: /af-allow session persists across turns and mirrors to the shared file", async () => {
 	const file = join(mkdtempSync(join(tmpdir(), "dc-exemptions-")), "exemptions.json");
 	process.env.AGENT_HUB_EXEMPTIONS_FILE = file;
 	const cwd = fixtureCwd();
 	const h = await boot(continueExt, cwd);
-	await h.commands.allow.handler(".env", h.ctx); // default scope: session
+	await h.commands["af-allow"].handler(".env", h.ctx); // default scope: session
 	assert.equal((await h.toolCall(readEnv)).block, false);
 	await h.agentEnd();
 	assert.equal((await h.toolCall(readEnv)).block, false);
@@ -134,8 +134,8 @@ test("continue: /allow session persists across turns and mirrors to the shared f
 	const child = await boot(continueExt, cwd);
 	assert.equal((await child.toolCall(readEnv)).block, false);
 
-	// /revoke removes it everywhere
-	await h.commands.revoke.handler(".env", h.ctx);
+	// /af-revoke removes it everywhere
+	await h.commands["af-revoke"].handler(".env", h.ctx);
 	assert.equal((await h.toolCall(readEnv)).block, true);
 	const child2 = await boot(continueExt, cwd);
 	assert.equal((await child2.toolCall(readEnv)).block, true);
@@ -173,7 +173,7 @@ test("continue: interactive 'Keep blocked' is remembered for the turn", async ()
 
 test("continue: destructive bash patterns are never exemptible or prompted", async () => {
 	const h = await boot(continueExt, fixtureCwd(), { hasUI: true, select: () => "Allow for this session" });
-	await h.commands.allow.handler("rm", h.ctx);
+	await h.commands["af-allow"].handler("rm", h.ctx);
 	const res = await h.toolCall({ type: "tool_call", toolName: "bash", input: { command: "rm -rf /tmp/x" } });
 	assert.equal(res.block, true);
 	assert.equal(h.state.selectCalls, 0);
@@ -303,10 +303,10 @@ test("version status persists while continue safety status changes", async () =>
 	const versionKey = "00-agent-fleet-version";
 	const version = continued.state.statuses.get(versionKey);
 	assert.match(version, /^v\d+\.\d+\.\d+/);
-	await continued.commands.allow.handler(".env turn", continued.ctx);
+	await continued.commands["af-allow"].handler(".env turn", continued.ctx);
 	assert.equal(continued.state.statuses.get(versionKey), version);
 	assert.match(continued.state.statuses.get("damage-control"), /1 exemption/);
-	await continued.commands.revoke.handler(".env", continued.ctx);
+	await continued.commands["af-revoke"].handler(".env", continued.ctx);
 	assert.equal(continued.state.statuses.get(versionKey), version);
 	assert.match(continued.state.statuses.get("damage-control"), /Damage-Control \(continue\): \d+ Rules$/);
 });

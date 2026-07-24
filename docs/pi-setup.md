@@ -2,9 +2,9 @@
 
 This guide explains how to use Agent Fleet with [pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) — the terminal coding agent from `pi-mono`. Unlike some harnesses, pi has a **native Agent Fleet implementation**, so no prompt hacks are needed for skills: this repo drops in directly. Optional `pi-codex-image-gen` support is credited to <https://github.com/jvm/pi-mono>.
 
-This repo also ships pi-native **prompt templates** for the lifecycle slash commands (`/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, `/ship`). These commands add workflow orchestration on top of the underlying skills.
+This repo also ships pi-native **prompt templates** for the lifecycle slash commands (`/af-spec`, `/af-plan`, `/af-build`, `/af-test`, `/af-review`, `/af-code-simplify`, `/af-ship`). These commands add workflow orchestration on top of the underlying skills.
 
-The specialist **personas** in `agents/` — including `web-performance-auditor` — are available to pi as well and are invoked directly as subagents. Note that `/webperf` is a Claude Code / OpenCode slash command, not a `.pi/prompts` command; on pi you run the same audit by invoking the `web-performance-auditor` persona.
+The specialist **personas** in `agents/` — including `web-performance-auditor` — are available to pi as well and are invoked directly as subagents. Note that `/webperf` on Claude Code (`/af-webperf` on OpenCode) does not have a Pi `.pi/prompts` equivalent; on pi you run the same audit by invoking the `web-performance-auditor` persona.
 
 ## Overview
 
@@ -21,9 +21,13 @@ This means you get near-parity with Claude Code:
 - Skills are selected automatically based on intent
 - Workflows are enforced via `AGENTS.md`
 - Users can explicitly trigger any skill with `/skill:<name>`
-- Users can start lifecycle workflows with `/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, and `/ship`
+- Users can start lifecycle workflows with `/af-spec`, `/af-plan`, `/af-build`, `/af-test`, `/af-review`, `/af-code-simplify`, and `/af-ship`
 
 No plugin, wrapper, or custom system prompt is required for the core workflow.
+
+### Slash-command namespace
+
+Agent Fleet owns the lowercase `/af-*` namespace on Pi. This keeps its prompt-template and harness commands distinct from Pi built-ins such as `/model` and `/settings`, skill invocations under `/skill:<name>`, and commands contributed by other installed packages. Examples: `/af-spec`, `/af-agents-list`, and `/af-allow`.
 
 **Recommended companion packages:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-fleet` as a pi package; clone/symlink setups should install it separately. `pi-codex-image-gen` is an optional suggested npm/pi extension for image generation; guided setup can offer it when package installation is available, but it is not bundled or required.
 
@@ -84,25 +88,25 @@ ln -s /path/to/agent-fleet/.pi/prompts .pi/prompts
 This exposes:
 
 ```text
-/spec
-/plan
-/build
-/test
-/review
-/code-simplify
-/ship
+/af-spec
+/af-plan
+/af-build
+/af-test
+/af-review
+/af-code-simplify
+/af-ship
 ```
 
 If `.pi/prompts` already exists as a real directory, keep it and symlink the individual command files instead:
 
 ```bash
-ln -s /path/to/agent-fleet/.pi/prompts/spec.md .pi/prompts/spec.md
-ln -s /path/to/agent-fleet/.pi/prompts/plan.md .pi/prompts/plan.md
-ln -s /path/to/agent-fleet/.pi/prompts/build.md .pi/prompts/build.md
-ln -s /path/to/agent-fleet/.pi/prompts/test.md .pi/prompts/test.md
-ln -s /path/to/agent-fleet/.pi/prompts/review.md .pi/prompts/review.md
-ln -s /path/to/agent-fleet/.pi/prompts/code-simplify.md .pi/prompts/code-simplify.md
-ln -s /path/to/agent-fleet/.pi/prompts/ship.md .pi/prompts/ship.md
+ln -s /path/to/agent-fleet/.pi/prompts/af-spec.md .pi/prompts/af-spec.md
+ln -s /path/to/agent-fleet/.pi/prompts/af-plan.md .pi/prompts/af-plan.md
+ln -s /path/to/agent-fleet/.pi/prompts/af-build.md .pi/prompts/af-build.md
+ln -s /path/to/agent-fleet/.pi/prompts/af-test.md .pi/prompts/af-test.md
+ln -s /path/to/agent-fleet/.pi/prompts/af-review.md .pi/prompts/af-review.md
+ln -s /path/to/agent-fleet/.pi/prompts/af-code-simplify.md .pi/prompts/af-code-simplify.md
+ln -s /path/to/agent-fleet/.pi/prompts/af-ship.md .pi/prompts/af-ship.md
 ```
 
 4. Install the recommended `pi-ask-user` pi package separately (clone/symlink setup only):
@@ -135,7 +139,7 @@ pi
 
 # then type:
 /
-# pi should autocomplete /spec, /plan, /build, /test, /review, /code-simplify, and /ship
+# pi should autocomplete /af-spec, /af-plan, /af-build, /af-test, /af-review, /af-code-simplify, and /af-ship
 ```
 
 That's it. `AGENTS.md` is already at the repo root and is auto-loaded when pi starts.
@@ -148,9 +152,9 @@ The always-on utilities:
 
 - `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library consumed by wrapper extensions. Symlink it alongside wrappers so relative imports resolve; when pi discovers it directly, it intentionally registers no tools or commands by itself.
 - `chrome-devtools-mcp/` — bridges the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) server into pi as native tools, unlocking the `browser-testing-with-devtools` skill on pi.
-- `compact-and-continue/` — registers the `request_compaction` tool that queues pi context compaction to run after the current agent turn ends, optionally resuming work from a self-contained continuation prompt. Used by `/build` to offer a "Compact & continue" option at slice-approval time.
+- `compact-and-continue/` — registers the `request_compaction` tool that queues pi context compaction to run after the current agent turn ends, optionally resuming work from a self-contained continuation prompt. Used by `/af-build` to offer a "Compact & continue" option at slice-approval time.
 - `agent-fleet-update-check/` — surfaces an "update available" banner once per session when `@chankov/agent-fleet` has a newer published version than the one recorded in `.ai/agent-fleet-setup.md`. Never blocks startup (soft 3s check); honors `AGENT_SKILLS_NO_UPDATE_CHECK` / `NO_UPDATE_NOTIFIER` / `CI` opt-outs.
-- `btw/` — adds the `/btw <task>` prompt command (and `Alt+'` shortcut): forks the current session into an in-process sub-session that inherits the full conversation as context, runs in the same cwd, and streams into a live modal with a follow-up composer. A compact result card lands in the main transcript at idle (kept out of the main agent's LLM context). See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
+- `btw/` — adds the `/af-btw <task>` prompt command (and `Alt+'` shortcut): forks the current session into an in-process sub-session that inherits the full conversation as context, runs in the same cwd, and streams into a live modal with a follow-up composer. A compact result card lands in the main transcript at idle (kept out of the main agent's LLM context). See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
 
 To install, symlink the directories into your project's `.pi/extensions/`:
 
@@ -173,7 +177,7 @@ npm ci
 
 Because the project extensions are symlinks into the clone, these dependencies are reused by every project that links the same extension directories.
 
-Verify by starting `pi` and running `/chrome_devtools-status` — expect `Chrome DevTools MCP connected. Registered N tool(s).`
+Verify by starting `pi` and running `/af-chrome_devtools-status` — expect `Chrome DevTools MCP connected. Registered N tool(s).`
 
 #### Extension harnesses — orchestration, safety, messaging
 
@@ -284,8 +288,8 @@ pi also searches for prompt templates in:
 Each Markdown file becomes a slash command by filename. For example:
 
 ```
-.pi/prompts/spec.md          → /spec
-.pi/prompts/code-simplify.md → /code-simplify
+.pi/prompts/af-spec.md          → /af-spec
+.pi/prompts/af-code-simplify.md → /af-code-simplify
 ```
 
 These lifecycle commands are not replacements for skills. They are workflow entry points that add orchestration and tell the agent which skills to load and follow for the current phase.
@@ -295,20 +299,20 @@ These lifecycle commands are not replacements for skills. They are workflow entr
 Three ways to trigger the workflow:
 
 - **Explicit skill:** type `/skill:<name>` (e.g. `/skill:spec-driven-development`)
-- **Lifecycle command:** type `/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, or `/ship`
+- **Lifecycle command:** type `/af-spec`, `/af-plan`, `/af-build`, `/af-test`, `/af-review`, `/af-code-simplify`, or `/af-ship`
 - **Automatic:** describe intent in natural language — the model reads `AGENTS.md` and loads the matching skill
 
 ### 5. Lifecycle Mapping
 
 The development lifecycle is encoded in both `AGENTS.md` and the pi prompt templates:
 
-- DEFINE → `/spec` → `spec-driven-development`
-- PLAN → `/plan` → `planning-and-task-breakdown`
-- BUILD → `/build` → `incremental-implementation` + `test-driven-development`
-- VERIFY → `/test` → `test-driven-development`; use `debugging-and-error-recovery` when tests or builds fail
-- REVIEW → `/review` → `code-review-and-quality`
-- SIMPLIFY → `/code-simplify` → `code-simplification`
-- SHIP → `/ship` → `shipping-and-launch`
+- DEFINE → `/af-spec` → `spec-driven-development`
+- PLAN → `/af-plan` → `planning-and-task-breakdown`
+- BUILD → `/af-build` → `incremental-implementation` + `test-driven-development`
+- VERIFY → `/af-test` → `test-driven-development`; use `debugging-and-error-recovery` when tests or builds fail
+- REVIEW → `/af-review` → `code-review-and-quality`
+- SIMPLIFY → `/af-code-simplify` → `code-simplification`
+- SHIP → `/af-ship` → `shipping-and-launch`
 
 ---
 
@@ -329,7 +333,7 @@ pi behavior:
 
 Equivalent explicit forms:
 ```
-/spec Add authentication to this app
+/af-spec Add authentication to this app
 /skill:spec-driven-development
 ```
 
@@ -348,7 +352,7 @@ pi behavior:
 
 Equivalent explicit forms:
 ```
-/test This endpoint is returning 500 errors
+/af-test This endpoint is returning 500 errors
 /skill:debugging-and-error-recovery
 ```
 
@@ -367,7 +371,7 @@ pi behavior:
 
 Equivalent explicit forms:
 ```
-/review
+/af-review
 /skill:code-review-and-quality
 ```
 
@@ -392,16 +396,16 @@ After installing, confirm the integration works:
 
 1. Run `pi` from inside the repo (or any subdirectory).
 2. Type `/skill:` and confirm the skill list autocompletes with entries like `spec-driven-development`, `incremental-implementation`, `code-review-and-quality`, and `ask-user`.
-3. Type `/` and confirm the lifecycle commands autocomplete: `/spec`, `/plan`, `/build`, `/test`, `/review`, `/code-simplify`, and `/ship`.
-4. Run `/spec design a new feature for X` — confirm pi expands the command and invokes `spec-driven-development`.
-5. Ask: *"fix this bug"* — confirm pi invokes `debugging-and-error-recovery`, or run `/test` to start a TDD/debugging workflow explicitly.
+3. Type `/` and confirm the lifecycle commands autocomplete: `/af-spec`, `/af-plan`, `/af-build`, `/af-test`, `/af-review`, `/af-code-simplify`, and `/af-ship`.
+4. Run `/af-spec design a new feature for X` — confirm pi expands the command and invokes `spec-driven-development`.
+5. Ask: *"fix this bug"* — confirm pi invokes `debugging-and-error-recovery`, or run `/af-test` to start a TDD/debugging workflow explicitly.
 6. Give pi an ambiguous or high-stakes request and confirm it can use the `ask_user` tool / `ask-user` skill to request an explicit decision.
 
 If skill autocomplete is empty, check that `.agents/skills` points to a directory containing `<skill-name>/SKILL.md` files and that pi was not started with `--no-skills`.
 
 If lifecycle command autocomplete is empty, check that `.pi/prompts` points to a directory containing the command Markdown files and run `/reload` or restart pi.
 
-If `/chrome_devtools-status` reports `Cannot find module '@modelcontextprotocol/sdk/client/index.js'`, the MCP extension loaded but its runtime initialization failed. An `[Extensions]` startup entry alone does not prove its tools registered.
+If `/af-chrome_devtools-status` reports `Cannot find module '@modelcontextprotocol/sdk/client/index.js'`, the MCP extension loaded but its runtime initialization failed. An `[Extensions]` startup entry alone does not prove its tools registered.
 
 For a cloned or copied install, run:
 
@@ -410,7 +414,7 @@ cd /path/to/agent-fleet/.pi/extensions
 npm ci
 ```
 
-For extensions symlinked into a published `@chankov/agent-fleet` package, update to a package version that declares the extension dependencies at its root, then restart/reload pi. Do not rely on installing only the target workspace's `.pi/extensions/node_modules`: Node may resolve the symlink to the package's real path. Verify the repair with `/chrome_devtools-status`; it must report `connected` and a non-zero registered tool count.
+For extensions symlinked into a published `@chankov/agent-fleet` package, update to a package version that declares the extension dependencies at its root, then restart/reload pi. Do not rely on installing only the target workspace's `.pi/extensions/node_modules`: Node may resolve the symlink to the package's real path. Verify the repair with `/af-chrome_devtools-status`; it must report `connected` and a non-zero registered tool count.
 
 The harnesses install separately — if a harness reports `Cannot find module 'yaml'` or `'@sinclair/typebox'`, run `npm ci` in `.pi/harnesses/` as well (or `just install` from the clone, which does both).
 
@@ -439,13 +443,13 @@ Just use natural language:
 
 Or invoke lifecycle commands when you want the full workflow prompt:
 
-- `/spec`
-- `/plan`
-- `/build`
-- `/test`
-- `/review`
-- `/code-simplify`
-- `/ship`
+- `/af-spec`
+- `/af-plan`
+- `/af-build`
+- `/af-test`
+- `/af-review`
+- `/af-code-simplify`
+- `/af-ship`
 
 Or invoke individual skills directly when you want precise control:
 
@@ -465,7 +469,7 @@ pi integration works by leveraging pi's **native** Agent Fleet and prompt-templa
 - Symlink `.pi/prompts/` into the target project's `.pi/prompts/`
 - Install `@chankov/agent-fleet` as a pi package for bundled `ask_user`, or install `pi-ask-user` separately for clone/symlink setup
 - Let pi auto-load `AGENTS.md` from the repo root
-- Use `/skill:<name>`, lifecycle commands like `/spec`, or natural language to trigger workflows
+- Use `/skill:<name>`, lifecycle commands like `/af-spec`, or natural language to trigger workflows
 
 Guided setup can additionally offer the optional `pi-codex-image-gen` package when pi package installation is available, but it is not part of the minimal path.
 

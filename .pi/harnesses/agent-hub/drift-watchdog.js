@@ -19,7 +19,7 @@ export function normalizeWatchdogSetting(value) {
 
 /**
  * Is the watchdog armed for one dispatch? Precedence: the dispatch_agent
- * `watchdog` param (boolean) > the per-agent /watchdog override ("on"/"off")
+ * `watchdog` param (boolean) > the per-agent /af-watchdog override ("on"/"off")
  * > the hub-wide setting ("on"/"auto" arm, "off" disarms).
  */
 export function resolveWatchdogActive(dispatchParam, agentOverride, hubSetting) {

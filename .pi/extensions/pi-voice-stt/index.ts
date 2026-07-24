@@ -3,7 +3,7 @@
 // Press Alt+S to start recording, Alt+S again to transcribe and insert the text
 // into the prompt. While recording, Enter transcribes and sends immediately, and
 // Esc cancels. The extension is a silent no-op until a provider is configured —
-// see README.md and `/stt doctor`.
+// see README.md and `/af-stt doctor`.
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { matchesKey } from "@mariozechner/pi-tui";
@@ -67,7 +67,7 @@ export default function voiceSttExtension(pi: ExtensionAPI): void {
 	function startRecording(ctx: ExtensionContext): void {
 		if (state !== "idle") return;
 		if (!isConfigured(config)) {
-			ctx.ui.notify("Voice STT is not configured — run /stt doctor for setup help.", "warning");
+			ctx.ui.notify("Voice STT is not configured — run /af-stt doctor for setup help.", "warning");
 			return;
 		}
 
@@ -142,7 +142,7 @@ export default function voiceSttExtension(pi: ExtensionAPI): void {
 
 	// ---- commands ----------------------------------------------------------
 
-	pi.registerCommand("stt", {
+	pi.registerCommand("af-stt", {
 		description: "Voice dictation: status | doctor | start | stop | send | cancel",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const sub = args.trim().split(/\s+/)[0]?.toLowerCase() || "status";
@@ -167,7 +167,7 @@ export default function voiceSttExtension(pi: ExtensionAPI): void {
 					else cancel(ctx);
 					return;
 				default:
-					ctx.ui.notify(`Unknown /stt subcommand: ${sub}`, "warning");
+					ctx.ui.notify(`Unknown /af-stt subcommand: ${sub}`, "warning");
 			}
 		},
 	});

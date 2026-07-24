@@ -11,7 +11,7 @@ const setupContracts = [
 	"skills/guided-workspace-setup/SKILL.md",
 	".claude/commands/setup-agent-fleet.md",
 	".opencode/commands/af-setup-agent-fleet.md",
-	".pi/prompts/setup-agent-fleet.md",
+	".pi/prompts/af-setup-agent-fleet.md",
 ];
 
 test("only damage-control-continue remains in the active harness inventory", () => {

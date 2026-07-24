@@ -1,6 +1,6 @@
 // Doctor scan — deterministic preflight extracted from
 // guided-workspace-setup Step 5. Both `agent-fleet doctor` (CLI) and the
-// `/doctor-agent-fleet` slash command call into this so behaviour cannot drift.
+// Runtime-specific Agent Fleet doctor slash commands call into this so behaviour cannot drift.
 //
 // Three classes of findings:
 //   1. Broken symlinks — links whose source has been moved, renamed, or deleted

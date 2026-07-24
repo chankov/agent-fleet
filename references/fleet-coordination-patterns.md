@@ -87,7 +87,7 @@ defined behavior on partial arrival.
   blocks on the `msg_id`, the receiver's `agent_end` response capture releases it.
 - The agent-hub dispatcher awaiting parallel dispatches before the Verification
   Contract's gate — no verdict until every specialist's structured return is in.
-- `/handoff` — a full-session barrier: the dispatcher composes a brief, sends it, and
+- `/af-handoff` — a full-session barrier: the dispatcher composes a brief, sends it, and
   awaits the peer's acknowledgment before ceding.
 
 **Failure modes:** deadlock by mutual await (A awaits B while B awaits A — the coms hop
@@ -132,7 +132,7 @@ validation; every other runner is torn down immediately. Requires real kill sema
 and a validation step *before* declaring a winner (first ≠ correct).
 
 **In this repo:** **not implemented as a first-class mechanism.** The pieces exist —
-herdr `pane.close` / `workspace.close` (and the agent-hub `/agents-kill` command) can
+herdr `pane.close` / `workspace.close` (and the agent-hub `/af-agents-kill` command) can
 tear down runners, and `coms_get` can poll multiple pending `msg_id`s — but **coms has no
 cancel envelope**: a losing peer keeps working (and burning tokens) until its turn ends;
 its late response is dropped as an orphan. Racing today means paying for every lane.

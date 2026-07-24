@@ -32,12 +32,13 @@ So:
 ```bash
 # In the workspace you want to configure:
 npx @chankov/agent-fleet init
-# Then open your coding agent in this directory and run:
-#   /setup-agent-fleet
+# Then open your coding agent in this directory and run the command it prints:
+#   Claude Code: /setup-agent-fleet
+#   Pi/OpenCode: /af-setup-agent-fleet
 ```
 
 That's it. `npx` fetches the package, the CLI detects your coding agent and
-prints the next-step command, and `/setup-agent-fleet` runs the full guided install
+prints the runtime-appropriate command, which runs the full guided install
 inside your agent.
 
 ### First-class pi package
@@ -63,27 +64,28 @@ The package also ships assets for the **experimental Linux Codex Remote-Control 
 ### `npx @chankov/agent-fleet init`
 
 Materializes the package, **bootstraps the installer artifacts** into the
-workspace (so the agent has a `/setup-agent-fleet` and `/doctor-agent-fleet` command to invoke),
-and hands off to `/setup-agent-fleet`.
+workspace, and hands off to the runtime's Agent Fleet setup command. Claude Code
+uses unprefixed installer commands; Pi and OpenCode use `/af-setup-agent-fleet`
+and `/af-doctor-agent-fleet`.
 
 What `init` writes per agent:
 
 | Agent | Files written to the workspace |
 |---|---|
 | `claude-code` | `.claude/commands/setup-agent-fleet.md`, `.claude/commands/doctor-agent-fleet.md`, `.claude/skills/guided-workspace-setup/SKILL.md` |
-| `pi` | `.pi/prompts/setup-agent-fleet.md`, `.pi/prompts/doctor-agent-fleet.md`, `.pi/skills/guided-workspace-setup/SKILL.md` |
+| `pi` | `.pi/prompts/af-setup-agent-fleet.md`, `.pi/prompts/af-doctor-agent-fleet.md`, `.pi/skills/guided-workspace-setup/SKILL.md` |
 | `opencode` | `.opencode/commands/af-setup-agent-fleet.md`, `.opencode/commands/af-doctor-agent-fleet.md`, `.opencode/skills/guided-workspace-setup/SKILL.md` |
 
 These are **just the plumbing** — the slash commands, plus the skill they
 invoke. The actual catalogue (spec-driven-development, code-reviewer,
-test-engineer, pi extensions, …) is picked by you inside `/setup-agent-fleet`. Re-run
+test-engineer, pi extensions, …) is picked by you inside the setup workflow. Re-run
 `init` to refresh the plumbing after a package upgrade; bootstrap files
 are always overwritten because they're scaffolding, not user data.
 
-After `/setup-agent-fleet` finishes its install pass, **the bootstrap files
+After the setup workflow finishes its install pass, **the bootstrap files
 are removed by default** so they don't clutter your agent's slash-command
-list. Re-run `npx @chankov/agent-fleet init` whenever you want
-`/setup-agent-fleet` back. To keep them in place across runs, reply `keep`
+list. Re-run `npx @chankov/agent-fleet init` whenever you want the runtime's
+setup command back. To keep them in place across runs, reply `keep`
 to the Step 9 confirmation prompt — the skill will record
 `keep-installer: true` in `.ai/agent-fleet-setup.md`.
 
@@ -102,7 +104,7 @@ This is the **authoritative** record of where the npm package lives:
 }
 ```
 
-When `/setup-agent-fleet` runs inside your agent, it reads this marker
+When the Agent Fleet setup command runs inside your agent, it reads this marker
 *first* to find the source package. This matters on dev machines where you
 may also have a git clone of `agent-fleet` elsewhere — the marker prevents
 the skill from accidentally using that clone instead of the version the
@@ -133,7 +135,7 @@ npx @chankov/agent-fleet init --workspace ~/projects/foo --method symlink
 
 Deterministic preflight scan — walks every install-target directory, lists
 broken symlinks and stale persona references, and offers fixes. Same scan
-that `/doctor-agent-fleet` runs inside the agent.
+that the runtime's Agent Fleet doctor command runs inside the agent.
 
 | Flag | Default | Purpose |
 |------|---------|---------|
@@ -150,11 +152,11 @@ npx @chankov/agent-fleet doctor -y
 
 Reads the workspace's `.ai/agent-fleet-setup.md`, compares the recorded
 package version against the installed package version, and **re-installs the
-`/setup-agent-fleet` command** so it is always available after an update.
+runtime's setup command** so it is always available after an update.
 `guided-workspace-setup` removes the installer command at the end of a run by
 default (Step 10b), so a workspace that has completed setup once would
 otherwise have no command to hand off to. The actual diff-aware refresh then
-runs inside the coding agent via `/setup-agent-fleet`.
+runs inside the coding agent via that command.
 
 The agent and install method are recovered from the bootstrap marker written
 at init time; if that marker was cleaned up too, `update` auto-detects the
@@ -165,8 +167,7 @@ Override with `--agent` / `--method`, or preview with `--dry-run`.
 # Upgrade the package itself first, then check the delta:
 npm install -g @chankov/agent-fleet@latest
 npx agent-fleet update --workspace .
-# /setup-agent-fleet is now back in your workspace — open your agent and run
-# it to review per-artifact diffs.
+# The setup command is now back — run the command printed by update to review diffs.
 ```
 
 ### `npx @chankov/agent-fleet transform-persona`
@@ -177,8 +178,7 @@ Generates per-agent subagent definitions from the canonical personas in
 vocabulary (`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …; `mode:
 subagent` + tool denials for OpenCode), agent-hub-only frontmatter dropped,
 body untouched. pi-only personas (`bowser`, `orchestrator`) are refused for
-other agents. This is what
-`/setup-agent-fleet` runs during apply; transformed installs are always
+other agents. This is what the Agent Fleet setup workflow runs during apply; transformed installs are always
 copies (never symlinks), recorded with `transformed: true`.
 
 | Flag | Default | Purpose |
@@ -245,7 +245,7 @@ npm is the recommended path for most users. The other two stay supported:
 - **[Claude Code plugin marketplace](../README.md#quick-start)** — best UX
   inside Claude Code. Same skills, marketplace-managed updates.
 - **Git clone + symlinks** — best for skill authors and contributors. Clone
-  the repo, run `/setup-agent-fleet` from there, choose `symlink` in Step 8. Updates
+  the repo, run the setup command for your runtime, and choose `symlink` in Step 8. Updates
   flow through `git pull`. Symlinks need Developer Mode on Windows.
 
 All three paths converge on the same `guided-workspace-setup` skill — the
@@ -261,7 +261,7 @@ npx --yes @chankov/agent-fleet@latest init --agent claude-code --method copy --w
 ```
 
 `doctor` accepts `--yes` for non-interactive repair. Note that the
-LLM-driven `/setup-agent-fleet` flow is not CI-runnable by design — confirmation gates
+LLM-driven setup flow is not CI-runnable by design — confirmation gates
 exist precisely so a human approves every write.
 
 ## Receiving update notifications
@@ -298,7 +298,7 @@ is available; want me to apply it via `/setup-agent-fleet`?"*
 
 ### 3. pi extension (`agent-fleet-update-check`)
 
-When installed (offered in Group 10 of `/setup-agent-fleet`), the extension fires on the
+When installed from the Pi setup flow, the extension fires on the
 first `agent_start` event of each pi session and emits a `ctx.ui.notify`
 message in the pi UI if a newer version is published. Reads the same cache
 as the CLI — no double-fetching.

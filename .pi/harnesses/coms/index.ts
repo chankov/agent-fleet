@@ -7,7 +7,7 @@
  *
  * Phase A (foundation): identity resolution, registry I/O, transport bind/send,
  * connection handlers. Phase B: tools (coms_list/send/get/await), agent_end
- * response capture. Phase C: live pool widget, ping + keepalive cycles, /coms
+ * response capture. Phase C: live pool widget, ping + keepalive cycles, /af-coms
  * slash command, clean shutdown lifecycle.
  *
  * Usage: pi -e extensions/coms.ts
@@ -1279,7 +1279,7 @@ export default function (pi: ExtensionAPI) {
 		// Scoped to the connected pool only (peersInScope): you can reach exactly the
 		// peers the widget shows. Match by name first (preferred, human-facing), then by
 		// session_id. A peer outside the current scope is intentionally NOT resolved — the
-		// human must widen scope via /coms --project / --all first. This closes the old
+		// human must widen scope via /af-coms --project / --all first. This closes the old
 		// cross-project leak where a name match fell through to scanning every project.
 		const scope = peersInScope();
 		const byName = scope.find((e) => e.name === target);
@@ -1295,10 +1295,10 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
 			"names, models, and live context-window usage. Discovery is scoped to what the human displays " +
-			"via /coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
+			"via /af-coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
 		parameters: Type.Object({
-			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /coms displays — a widening request is ignored." })),
-			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /coms --all." })),
+			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /af-coms displays — a widening request is ignored." })),
+			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /af-coms --all." })),
 		}),
 		async execute(_callId, params) {
 			if (!identity) {
@@ -1308,9 +1308,9 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			// Clamp discovery to the human-set pool scope (displayProject + includeExplicit,
-			// driven by /coms). The LLM's project/include_explicit may NARROW within that
+			// driven by /af-coms). The LLM's project/include_explicit may NARROW within that
 			// scope but can never widen it — cross-project or explicit discovery requires a
-			// deliberate /coms --project / --all from the human. So coms_list returns exactly
+			// deliberate /af-coms --project / --all from the human. So coms_list returns exactly
 			// the pool, the same boundary coms_send enforces.
 			const scopeProject = displayProject ?? identity.project;
 			let projects: string[];
@@ -1322,7 +1322,7 @@ export default function (pi: ExtensionAPI) {
 				if (params.project && params.project !== scopeProject) widened = true;
 			}
 			// include_explicit may only narrow (turn OFF); it cannot reveal explicit peers
-			// unless the human already did via /coms --all.
+			// unless the human already did via /af-coms --all.
 			const includeExp = includeExplicit && params.include_explicit !== false;
 			if (params.include_explicit === true && !includeExplicit) widened = true;
 
@@ -1357,7 +1357,7 @@ export default function (pi: ExtensionAPI) {
 			const notice = widened
 				? `\n\n(Discovery is scoped to "${scopeProject}"${includeExplicit ? "" : ", explicit peers hidden"}. ` +
 				  `Widening to other projects or revealing --explicit peers is a human action via ` +
-				  `/coms --project <name> or /coms --all.)`
+				  `/af-coms --project <name> or /af-coms --all.)`
 				: "";
 
 			const lines = agents.length === 0
@@ -1405,7 +1405,7 @@ export default function (pi: ExtensionAPI) {
 			"Use coms_get (non-blocking) or coms_await (blocking) with the msg_id to retrieve the response. " +
 			"Throws if the receiver is unreachable or rejects the envelope.",
 		parameters: Type.Object({
-			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /coms --project or /coms --all." }),
+			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /af-coms --project or /af-coms --all." }),
 			prompt: Type.String({ description: "The prompt to send." }),
 			conversation_id: Type.Optional(Type.String()),
 			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
@@ -1423,7 +1423,7 @@ export default function (pi: ExtensionAPI) {
 				throw new Error(
 					`coms: no connected peer "${params.target}" in your pool (project ${scope}). ` +
 					`Only peers shown in the coms pool are reachable. If you expected this peer, ask the ` +
-					`human to widen scope with /coms --project <name> or /coms --all, then retry.`,
+					`human to widen scope with /af-coms --project <name> or /af-coms --all, then retry.`,
 				);
 			}
 			const hops = currentInbound ? currentInbound.hops + 1 : 0;
@@ -1690,8 +1690,8 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	// ━━ /coms slash command ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-	pi.registerCommand("coms", {
+	// ━━ /af-coms slash command ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	pi.registerCommand("af-coms", {
 		description: "Force-refresh the coms pool widget (or filter with --all / --project <name>)",
 		handler: async (args, ctx) => {
 			const trimmed = (args ?? "").trim();

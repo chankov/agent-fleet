@@ -25,9 +25,9 @@
  *
  * Observability: every spawn/timeline/usage/exit is appended as JSONL to
  * `<eventDir>/events.jsonl`. The hub watches that file and renders children as
- * nested rows under the parent's grid card (openable via /zoom). Kill cascade:
+ * nested rows under the parent's grid card (openable via /af-zoom). Kill cascade:
  * children are spawned in THIS process's group (the hub spawns specialists
- * detached), so `/agents-kill` on the parent SIGTERMs the whole tree; a
+ * detached), so `/af-agents-kill` on the parent SIGTERMs the whole tree; a
  * SIGTERM trap forwards to live children as a fallback.
  */
 
@@ -269,7 +269,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Buffered timeline streaming: coalesce text/thinking deltas and flush
 			// them into the event file on an interval (and on tool/exit), so the
-			// hub can render a live /zoom timeline without an event per token.
+			// hub can render a live /af-zoom timeline without an event per token.
 			let pendingKind: "text" | "thinking" | null = null;
 			let pendingDelta = "";
 			const flushTimeline = () => {

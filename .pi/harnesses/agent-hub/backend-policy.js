@@ -147,7 +147,7 @@ export function comsRequiredRefusal(agentName, graceS) {
 	return (
 		`"${agentName}" is configured as coms-required (fallback: none) but no live peer named ` +
 		`"${String(agentName).toLowerCase()}" appeared in the pool within ${graceS}s. ` +
-		"Start it with `just hub-team <team>` / `just team-up <team>`, widen the pool with /coms, " +
+		"Start it with `just hub-team <team>` / `just team-up <team>`, widen the pool with /af-coms, " +
 		"or set `fallback: native` in .pi/agents/dispatch-policy.yaml."
 	);
 }

@@ -6,7 +6,7 @@ first: [`damage-control-continue`](../damage-control-continue/README.md),
 [`ask-user-remote`](../ask-user-remote/README.md), STT, Compact & Continue, BTW, and the
 update checker. The dispatcher therefore has guardrails and an `ask_user` handoff tool
 before `agent-hub` starts. It combines local specialist
-orchestration (fixed specialist grid, read-only research helpers, `/zoom`, kill/restart, per-agent
+orchestration (fixed specialist grid, read-only research helpers, `/af-zoom`, kill/restart, per-agent
 model, dispatcher persona gate) with peer-to-peer collaboration: it can **hand a session off to
 another main agent** and **use a coms peer as a subagent**.
 
@@ -50,14 +50,14 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 
 - **Dispatcher grid** — a live dashboard of fixed specialists from `.pi/agents/teams.yaml`.
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
-- **Research helpers** — `spawn_research` and `/research` launch read-only helper agents. Two
+- **Research helpers** — `spawn_research` and `/af-research` launch read-only helper agents. Two
   `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple
   reads and `deep-researcher` (`gpt-5.5` / xhigh) for hard, cross-cutting investigation. The
   orchestrator routes by persona; each persona's model + thinking level is shown in its catalog.
   Finished helpers are **auto-pruned** so the research row doesn't grow without bound: auto-research
   pipe helpers disappear as soon as they finish (their findings persist as `findings/*.md` files and
   their handles are never resumed), while manual/persona helpers keep only the `research-keep` most
-  recently finished (default 4 — resumable via `/agents-cont rN`; older cards, and their session
+  recently finished (default 4 — resumable via `/af-agents-cont rN`; older cards, and their session
   files, are dropped oldest-first). Set `research-keep: <n>|all` in the overrides file to change
   the cap. Running helpers are never pruned and `rN` handles are never reused.
 - **Human handoff path** — `ask_user` is exposed by the `ask-user-remote` wrapper (capturing stock
@@ -87,7 +87,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   to `.pi/agent-sessions/artifacts/returns/<agentKey>-run<N>.md`, surfaces only a compact
   `details.structuredReturn` digest plus `details.returnPath`, and marks contract notices such as
   missing assertion ids or evidence-less `assertions_proven` entries (demoted to unproven in the
-  tool text). `details.fullOutput` remains for `/zoom`/compatibility, but dispatcher-visible text is
+  tool text). `details.fullOutput` remains for `/af-zoom`/compatibility, but dispatcher-visible text is
   digest + path oriented. `update_assertion(status: "proven")` validates evidence by assertion tag:
   test evidence needs a command/test and outcome, `code-grep` needs pattern plus result sample,
   manual needs user/`ask_user` confirmation, and `runtime-ui` needs an existing artifact path under
@@ -114,49 +114,49 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   notice. This is advisory only: the hub never blocks completion, reverts files, or escalates
   automatically. Known limitation: concurrent writable dispatches can only be attributed
   approximately, so overlapping runs are flagged in the notice.
-- **Agent controls** — `/zoom` inspects a live agent timeline; `/agents-history` replays the run as a
+- **Agent controls** — `/af-zoom` inspects a live agent timeline; `/af-agents-history` replays the run as a
   timeline (orchestrator turns, dispatches, research helpers) with per-agent durations, parallel-run
   markers, and a grand total; kill/restart controls manage running child agents; per-agent `model:`
   fields select models from team config. The `agents-*` commands address **both target kinds** —
-  team specialists by persona name, research helpers by `rN` handle (mirroring `/zoom`):
-  `/agents-kill <name|rN|all>` SIGTERMs a specialist (keeping its standing card), while on a
+  team specialists by persona name, research helpers by `rN` handle (mirroring `/af-zoom`):
+  `/af-agents-kill <name|rN|all>` SIGTERMs a specialist (keeping its standing card), while on a
   research helper it kills **and removes** the card + session — helpers are disposable by design
-  (`all` clears every helper); `/agents-restart <name|rN>` re-runs the last task fresh (a research
-  helper must be finished first); `/agents-cont rN <prompt>` resumes a finished helper's session.
-  The old `/research-rm` and `/research-clear` spellings remain as aliases of the kill semantics,
-  `/research-cont` of `/agents-cont`.
+  (`all` clears every helper); `/af-agents-restart <name|rN>` re-runs the last task fresh (a research
+  helper must be finished first); `/af-agents-cont rN <prompt>` resumes a finished helper's session.
+  The old `/af-research-rm` and `/af-research-clear` spellings remain as aliases of the kill semantics,
+  `/af-research-cont` of `/af-agents-cont`.
   Restartable team specialists at or above 70% context render
   their context percentage with a warning marker/color in dashboard and compact views, and their next
-  `dispatch_agent` result adds a `/agents-restart <persona>` hint. Research helpers are not warned,
+  `dispatch_agent` result adds a `/af-agents-restart <persona>` hint. Research helpers are not warned,
   and the hub never restarts specialists automatically.
 - **Model switching** — a persona's frontmatter `models:` list declares the models it may switch to
-  (the default `model:` is implicitly a candidate). `/agent-model <persona>` picks from that list;
+  (the default `model:` is implicitly a candidate). `/af-agent-model <persona>` picks from that list;
   the choice lasts for the session and takes effect on the persona's next dispatch
-  (`/agents-restart <persona>` applies it immediately). The dot form
-  `/agent-model <persona>.<role>` switches a delegate sub-role's model instead — its candidates are
+  (`/af-agents-restart <persona>` applies it immediately). The dot form
+  `/af-agent-model <persona>.<role>` switches a delegate sub-role's model instead — its candidates are
   the role's declared default plus the parent persona's own candidate list; the switch is applied
   when the parent is next dispatched (it lands in the serialized delegate config, so nested
-  children inherit it). `/models [profile]` applies a named profile
+  children inherit it). `/af-models [profile]` applies a named profile
   from `.pi/agents/model-profiles.yaml` — a macro over the same declared candidates, validated at
   session start (a profile with any entry outside a persona's candidates is dropped whole, with an
-  error); profiles never touch sub-role models — only `/agent-model` reaches those. Nothing
+  error); profiles never touch sub-role models — only `/af-agent-model` reaches those. Nothing
   outside the declared lists is ever selectable. Per project,
   `model.<persona>:` / `models.<persona>:` keys under `## agent-hub` in
   `.ai/agent-fleet-overrides.md` replace a persona's default model / candidate list.
   Research personas (`researcher` / `deep-researcher`, `kind: research`) are switchable the same
-  way — `/agent-model <persona>` and `/agent-model-thinking <persona>` accept them alongside team
-  members. Since research helpers are spawned fresh on each `/research` / `spawn_research`, the
-  switch lands on their next spawn (there is no running instance to `/agents-restart`).
-  `/agent-models-substitute <source> <target>` is the global one-shot form: walks every loaded
+  way — `/af-agent-model <persona>` and `/af-agent-model-thinking <persona>` accept them alongside team
+  members. Since research helpers are spawned fresh on each `/af-research` / `spawn_research`, the
+  switch lands on their next spawn (there is no running instance to `/af-agents-restart`).
+  `/af-agent-models-substitute <source> <target>` is the global one-shot form: walks every loaded
   persona (team + research + orchestrator), and for each whose **current effective model** is
   `<source>` and whose declared candidates include `<target>`, sets the session override to
   `<target>`. One-step flow — the dry-run summary (affected vs skipped, with reasons) is shown
   inline, then the swap is applied immediately and takes effect on each persona's next dispatch
-  (`/agents-restart` to apply now). It never touches the dispatcher or delegate sub-roles.
+  (`/af-agents-restart` to apply now). It never touches the dispatcher or delegate sub-roles.
 - **Thinking levels** — each persona's frontmatter `thinking:` sets its pi `--thinking`
-  reasoning effort (`off` · `minimal` · `low` · `medium` · `high` · `xhigh`). `/agent-model-thinking
+  reasoning effort (`off` · `minimal` · `low` · `medium` · `high` · `xhigh`). `/af-agent-model-thinking
   <persona>` switches it among those six levels for the session; like a model switch it takes effect
-  on the persona's next dispatch (`/agents-restart <persona>` applies it now), and selecting the
+  on the persona's next dispatch (`/af-agents-restart <persona>` applies it now), and selecting the
   frontmatter default clears the override. The level shows as a short badge after the model
   everywhere a model is rendered — `gpt-5.5 (xh)` in the dashboard cards and the compact below-editor
   view (`min`/`low`/`med`/`hi`/`xh`; `off` shows no badge). Per project, a `thinking.<persona>:` key
@@ -175,13 +175,13 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   Concurrent children are always forced read-only. Children stream timeline events through
   `.pi/agent-sessions/delegations/<persona>/events.jsonl`; the hub tails it and renders nested rows
   under the parent's card (child id, model, tokens, status),
-  each openable with `/zoom <child-id>`. Each child also writes its full final output to
+  each openable with `/af-zoom <child-id>`. Each child also writes its full final output to
   `.pi/agent-sessions/delegations/<persona>/results/<childId>.md`; the parent receives only status,
   a required final `DIGEST:` section (≤30 lines with path:line citations), and the result-file path.
   If a child omits `DIGEST:`, the parent gets the first ~30 lines plus a no-DIGEST warning and the
   result path. Spend rolls up: every child row and the parent's subtree
   total show tokens, and a session-wide `Δ delegated` counter sits in the status line.
-  `/agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
+  `/af-agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
   it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
   `subagents.<persona>.<role>:` and `delegate-depth.<persona>:` keys under `## agent-hub` in
   `.ai/agent-fleet-overrides.md` replace individual sub-roles / the depth budget. Six personas
@@ -217,14 +217,14 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `agent-hub` (or plain `coms`) sessions on the same box find each other through per-project registry
   files and exchange messages over a unix socket (named pipe on Windows).
 
-Inherited `/zoom` behavior in this harness expands the latest event by default. Use `Space` or
+Inherited `/af-zoom` behavior in this harness expands the latest event by default. Use `Space` or
 `Ctrl+C` to copy the selected row content, and `Q` or `Esc` to close the overlay. The overlay sizes
 to the terminal and keeps the selected (and last) entry fully visible while you navigate with
 `↑/↓`.
 
-### `/agents-history`
+### `/af-agents-history`
 
-`/agents-history` opens a read-only overlay (same chrome as `/zoom`) that replays the session as an
+`/af-agents-history` opens a read-only overlay (same chrome as `/af-zoom`) that replays the session as an
 execution **tree**:
 
 - **Orchestrator turns** — each dispatcher turn that actually dispatched something is a depth-0 row
@@ -286,11 +286,11 @@ the single model line. Press **`Alt+S`** to start/stop dictation as in a normal 
 
 In **compact view**, the running-subagents list below the input doubles as a switcher. **`Alt+]`**
 and **`Alt+[`** move a marker (`›` + highlight) to the next/previous running subagent; **`Alt+\`**
-opens the read-only `/zoom` overlay on the marked one (`Q`/`Esc` to close). This only changes what
+opens the read-only `/af-zoom` overlay on the marked one (`Q`/`Esc` to close). This only changes what
 you *view* — **the input box always prompts the main session**, and `main` is never a marker target
 (it is the session under the input, not a subagent). There is no transcript takeover: a subagent's
 stream is surfaced through the modal zoom overlay, never by replacing the main scrollback. The keys
-are inert in dashboard mode (use `/zoom <name>` there).
+are inert in dashboard mode (use `/af-zoom <name>` there).
 
 > Terminal note: `Alt+[` emits `ESC [` (a CSI prefix) and may be swallowed by some terminals'
 > escape parsers; `Alt+]` and `Alt+\` are the reliable pair. `Alt+↑/↓/←/→` are reserved by the pi
@@ -400,7 +400,7 @@ task, most of it re-billed stale specialist context).
 
 When a budget is exhausted, `dispatch_agent`/`spawn_research` **refuse** with instructions
 to summarize and ask the user; the next user message opens a fresh window. Switch modes
-live with `/hub-mode fast|standard|strict` (no argument shows the current mode and usage);
+live with `/af-hub-mode fast|standard|strict` (no argument shows the current mode and usage);
 set the project default and per-axis overrides in the overrides file:
 
 ```markdown
@@ -437,7 +437,7 @@ The system prompt ties the tier to the anti-over-engineering rules: a provided p
 spec (no re-planning), assertions stay ≤3 for trivial/small asks, and "using every persona"
 is called out as a smell. Two hygiene guards are enforced in code, not prose: a
 **duplicate-dispatch guard** refuses re-dispatching the same agent with a near-identical
-task inside one turn, and every budget/duplicate refusal is counted in `/hub-report`.
+task inside one turn, and every budget/duplicate refusal is counted in `/af-hub-report`.
 
 ### Drift watchdog (in-flight observation)
 
@@ -456,8 +456,8 @@ drives the cards — not post-hoc:
   corrected, narrowed task — never the same task unchanged.
 
 Enablement is dynamic, precedence top to bottom: the `watchdog: true|false` param on a
-single `dispatch_agent` call → a per-agent override (`/watchdog builder on|off|clear`) →
-the hub-wide setting (`/watchdog on|off|auto`, default `auto`, project default via the
+single `dispatch_agent` call → a per-agent override (`/af-watchdog builder on|off|clear`) →
+the hub-wide setting (`/af-watchdog on|off|auto`, default `auto`, project default via the
 `watchdog:` overrides key). Read-only research helpers are not monitored — they already
 run under the per-tool watchdog + turn deadline and cannot write.
 
@@ -465,15 +465,15 @@ run under the per-tool watchdog + turn deadline and cannot write.
 
 Rosters start from `.pi/agents/teams.yaml` but are not frozen there:
 
-- `/agents-add <persona>…` / `/agents-drop <persona>…` — restructure the ACTIVE team
+- `/af-agents-add <persona>…` / `/af-agents-drop <persona>…` — restructure the ACTIVE team
   live (drop refuses running or last members; session files are kept for re-adding).
-- `/agents-save <name>` — persist the current roster as a named team back into
+- `/af-agents-save <name>` — persist the current roster as a named team back into
   `teams.yaml` (targeted block upsert; comments and other teams untouched).
 - `team_adjust` — the dispatcher itself may add/drop a persona **with a stated reason**;
   disabled in fast mode, capped at 8 roster members, and every change is notified to the
   human. The system prompt is rebuilt each turn, so changes take effect immediately.
 
-### `/hub-report`
+### `/af-hub-report`
 
 Per-turn cost accounting: dispatches (agent, status, elapsed, billed/output tokens),
 research runs, session recycles, drift stops, and budget/duplicate refusals — for the
@@ -529,19 +529,19 @@ Each session registers a coms identity at start-up, resolved in this precedence 
 
 Names are de-duplicated per project (`resolveUniqueName`), so two hubs that both want `architect`
 become `architect` and `architect-2`. `--explicit` marks a **private** peer — kept out of every
-pool by default, so it is neither listed nor reachable until a human opts in with `/coms --all`
+pool by default, so it is neither listed nor reachable until a human opts in with `/af-coms --all`
 (see [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)). The registry lives
 under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runtime.
 
 ### Commands & tools (local dispatcher plus coms)
 
-- `/coms` — coms control surface (peer list / status)
-- `/handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
-- `/compound [focus]` — end-of-session **compound-learning pass**: the dispatcher composes a
+- `/af-coms` — coms control surface (peer list / status)
+- `/af-handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
+- `/af-compound [focus]` — end-of-session **compound-learning pass**: the dispatcher composes a
   candidate-lessons brief from the session (corrections, recurring findings, root causes),
   confirms it with the user, then dispatches the `documenter` to land the approved lessons as
   minimal diffs on the project's `rules:`/`docs:` targets per `skills/compound-learning/SKILL.md`.
-  Requires the `documenter` persona in the active team; run it before `/handoff` or session end.
+  Requires the `documenter` persona in the active team; run it before `/af-handoff` or session end.
 - `coms_list` — discover the peers in your pool: names, models, live context usage, purpose. Scoped
   to your project and excluding private peers; the LLM cannot widen it (see
   [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)).
@@ -550,19 +550,19 @@ under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runti
   `PI_COMS_TIMEOUT_MS`)
 - `coms_get` — **non-blocking** poll of a `msg_id` (status `pending|complete|error`)
 
-`/coms` and `/handoff` tab-complete live peer names **in your pool**.
+`/af-coms` and `/af-handoff` tab-complete live peer names **in your pool**.
 
 ### Pool scope is the reach boundary
 
 The set of peers shown in the pool widget is the security boundary: **a peer is reachable only if it
-is in your pool.** `coms_list`, `coms_send`, and `/handoff` all resolve targets through the same
+is in your pool.** `coms_list`, `coms_send`, and `/af-handoff` all resolve targets through the same
 `peersInScope()` helper, so the dispatcher can never message a peer it cannot see. Two knobs define
 the pool, and **both are human-only** — the LLM cannot widen scope to reach more peers:
 
-- **Project** — defaults to your own `identity.project`. A human can retarget with `/coms --project
-  <name>` (one project) or `/coms --all` (every project). `coms_list`'s own parameters cannot
+- **Project** — defaults to your own `identity.project`. A human can retarget with `/af-coms --project
+  <name>` (one project) or `/af-coms --all` (every project). `coms_list`'s own parameters cannot
   override this; an LLM request for a wider project is clamped back to the current pool and flagged.
-- **Explicit (private) peers** — excluded from every pool by default. `/coms --all` opts them in.
+- **Explicit (private) peers** — excluded from every pool by default. `/af-coms --all` opts them in.
 
 This closes a cross-project leak where a peer reachable through the mesh was *not* shown in the
 default project-scoped pool — so it could be messaged without being "connected." Now the reachable
@@ -614,12 +614,12 @@ Semantics:
 - **Standing context is the point.** Re-dispatches (ASK_USER answers, research resumes) go back to
   the same peer session, so a Claude Code reviewer keeps its review context across rounds.
 - **Visibility.** The member's grid card shows a `⇄coms <peer-model>` badge, history entries are
-  annotated `(coms)`, and `/dispatch-policy` prints the resolved routing per member with live-peer
+  annotated `(coms)`, and `/af-dispatch-policy` prints the resolved routing per member with live-peer
   status.
-- **Limitations.** `/agents-kill` on a coms-backed run only abandons the wait — the peer keeps
-  running in its own pane and cannot be killed from the hub (`/agents-restart` abandons, then
-  re-dispatches). `/zoom` shows only the final reply (there is no stream), tool counts stay 0, and
-  context% is a registry snapshot. `/agent-model` overrides apply only to native(-fallback) runs —
+- **Limitations.** `/af-agents-kill` on a coms-backed run only abandons the wait — the peer keeps
+  running in its own pane and cannot be killed from the hub (`/af-agents-restart` abandons, then
+  re-dispatches). `/af-zoom` shows only the final reply (there is no stream), tool counts stay 0, and
+  context% is a registry snapshot. `/af-agent-model` overrides apply only to native(-fallback) runs —
   the peer's model is set in `peers.yaml`.
 
 Missing file = everything native. HOW a peer runs (persona, model, `runner: claude-code`, env) stays
@@ -627,7 +627,7 @@ in `peers.yaml`; this file only decides WHEN the hub prefers a peer over a nativ
 
 ### Handoff
 
-`/handoff <peer>` transfers the session to another **main** agent. Following the plan's
+`/af-handoff <peer>` transfers the session to another **main** agent. Following the plan's
 **decision G1**, it does *not* try to extract a compaction summary; instead it asks the dispatcher
 LLM to compose a **self-contained brief** ("everything the target needs, assume no shared history"),
 then `coms_send`s that brief to the peer, `coms_await`s the reply, and relays it back — in the
@@ -636,7 +636,7 @@ sections after the LLM brief: `## Verification ledger (verbatim, machine-appende
 assertion in canonical ledger form, and `## Artifact index` with artifact paths plus first headings.
 The target peer must treat the machine-appended ledger as the contract, not the paraphrased brief.
 The target peer takes over; the source relays the result. There is no raw session copy (pi sessions
-aren't portable between live agents). The target must be a peer in your pool — `/handoff` resolves
+aren't portable between live agents). The target must be a peer in your pool — `/af-handoff` resolves
 through the same [scope boundary](#pool-scope-is-the-reach-boundary) as `coms_send`, so you cannot
 hand a session to a peer you cannot see.
 
@@ -652,13 +652,13 @@ The dispatcher persona gate fires *after* coms init, so the identity's `purpose`
 flag/frontmatter/default and is then reconciled to the chosen persona: `syncComsPurpose()` maps the
 selected `kind: orchestrator` persona to `"<Name> — <description>"` and re-writes the live registry
 entry — **unless** `--purpose` was passed explicitly (an explicit flag always wins). Switching or
-resetting the persona via `/persona` re-syncs.
+resetting the persona via `/af-persona` re-syncs.
 
 ### Graceful degradation
 
 If the coms socket can't bind at start-up (`comsReady` stays `false`), the session degrades to a
 local dispatcher without coms: the `coms_*` tools are withheld from `setActiveTools`, the
-`/handoff` command refuses with a notice, and the "Peer agents (coms)" prompt section is omitted.
+`/af-handoff` command refuses with a notice, and the "Peer agents (coms)" prompt section is omitted.
 Orchestration, research helpers, and the grid keep working.
 
 ### Tool surface
@@ -793,6 +793,6 @@ coms purpose/color.
   `spawn_research` (+ `ask_user`); the system prompt gains a "Peer agents (coms)" section when coms
   is ready. The persona's `description` drives the coms `purpose` (decision 6 / Phase 6 peer
   mapping) instead of a static `--purpose`.
-- **`/handoff` uses an LLM-composed brief**, not a compaction-summary extraction (decision G1).
+- **`/af-handoff` uses an LLM-composed brief**, not a compaction-summary extraction (decision G1).
 - **Clean shutdown** SIGTERMs any running specialist/research children, clears the coms pool
   widget, and removes the registry entry on `session_shutdown` / SIGINT / SIGTERM.

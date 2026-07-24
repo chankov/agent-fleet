@@ -2,46 +2,46 @@
  * Agent Hub — Dispatcher orchestrator + embedded coms peer-to-peer layer
  *
  * The merged harness (plan: docs/plans/agent-hub-multi-agent-harness.md). It is
- * `agent-team` (dispatcher grid + per-agent model + kill/restart + /zoom +
+ * `agent-team` (dispatcher grid + per-agent model + kill/restart + /af-zoom +
  * read-only research helpers + dispatcher persona gate) with the `coms` P2P layer
  * EMBEDDED in the same extension — not stacked as a second `-e`, which would
  * double-register the --name/--purpose/... CLI flags and abort startup.
  *
  * So the dispatcher is ALSO a coms peer: it can use another long-lived peer as a
  * subagent (coms_send + coms_await), hand the whole session off to a peer
- * (/handoff), and be addressed by other peers as a subagent itself. If the coms
+ * (/af-handoff), and be addressed by other peers as a subagent itself. If the coms
  * endpoint fails to bind, the harness degrades to a coms-less dispatcher
  * (comsReady=false withholds the coms_* tools).
  *
  * Commands:
- *   /agents-team          — switch active team
- *   /agents-list          — list loaded agents
- *   /agents-history       — timeline of agent execution (durations + grand total)
- *   /agent-model <persona>[.<role>] — switch a team or research persona's (or
+ *   /af-agents-team          — switch active team
+ *   /af-agents-list          — list loaded agents
+ *   /af-agents-history       — timeline of agent execution (durations + grand total)
+ *   /af-agent-model <persona>[.<role>] — switch a team or research persona's (or
  *                           delegate sub-role's) model from its declared candidates
- *   /agent-model-thinking <persona> — switch a team or research persona's thinking
+ *   /af-agent-model-thinking <persona> — switch a team or research persona's thinking
  *                           level (off|minimal|low|medium|high|xhigh)
- *   /models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
- *   /agent-models-substitute <source> <target> — swap one model across all personas
- *   /dispatch-policy      — show which members route to coms peers (.pi/agents/dispatch-policy.yaml)
- *   /agents-kill <name|rN|all> — SIGTERM a frozen specialist (and its delegation
+ *   /af-models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
+ *   /af-agent-models-substitute <source> <target> — swap one model across all personas
+ *   /af-dispatch-policy      — show which members route to coms peers (.pi/agents/dispatch-policy.yaml)
+ *   /af-agents-kill <name|rN|all> — SIGTERM a frozen specialist (and its delegation
  *                           tree); on a research helper it kills AND removes the
  *                           card + session ("all" clears every research helper)
- *                           (aliases: /research-rm rN, /research-clear)
- *   /agents-restart <name|rN> — kill + re-run its last task fresh (research: must
+ *                           (aliases: /af-research-rm rN, /af-research-clear)
+ *   /af-agents-restart <name|rN> — kill + re-run its last task fresh (research: must
  *                           be finished; runs on a fresh session)
- *   /zoom <name|rN|child> — scrollable read-only view of an agent's stream
+ *   /af-zoom <name|rN|child> — scrollable read-only view of an agent's stream
  *                           (team member, research helper rN, or delegate child id)
- *   /research <task>      — spawn a read-only research helper (@persona, --model)
- *   /agents-cont rN ...   — resume a finished research helper (alias: /research-cont)
+ *   /af-research <task>      — spawn a read-only research helper (@persona, --model)
+ *   /af-agents-cont rN ...   — resume a finished research helper (alias: /af-research-cont)
  *
  * Finished research helpers are auto-pruned: auto-research pipe helpers as soon
  * as they finish (findings persist as files under findings/), manual/persona
  * helpers beyond the `research-keep` most recent (default 4, overrides file).
- *   /persona              — select/reset the dispatcher persona
- *   /handoff <peer>       — hand the session off to a coms peer (summarized brief)
- *   /coms                 — refresh the coms peer pool (--all / --project <name>)
- *   /compound [focus]     — end-of-session compound-learning pass: confirm this
+ *   /af-persona              — select/reset the dispatcher persona
+ *   /af-handoff <peer>       — hand the session off to a coms peer (summarized brief)
+ *   /af-coms                 — refresh the coms peer pool (--all / --project <name>)
+ *   /af-compound [focus]     — end-of-session compound-learning pass: confirm this
  *                           session's lessons with the user, then dispatch the
  *                           documenter to land them in the project's rules/docs
  *
@@ -123,7 +123,7 @@ interface AgentDef {
 	description: string;
 	tools: string;
 	model?: string;
-	// Allowed switch targets for /agent-model and model profiles (frontmatter
+	// Allowed switch targets for /af-agent-model and model profiles (frontmatter
 	// `models:` list). The default `model:` is implicitly a candidate too.
 	models?: string[];
 	// Mid-turn delegation (injected delegate tool): the sub-roles this persona
@@ -137,7 +137,7 @@ interface AgentDef {
 	// surfaced once at session start.
 	warnings?: string[];
 	kind?: string;
-	// Per-agent thinking level for `/zoom` debugging. A pi --thinking level
+	// Per-agent thinking level for `/af-zoom` debugging. A pi --thinking level
 	// (off|minimal|low|medium|high|xhigh), default off. When non-off, thinking
 	// deltas are captured into the zoom timeline.
 	thinking?: string;
@@ -157,7 +157,7 @@ interface TimelineEntry {
 
 // A delegate child (or grandchild) of a dispatched specialist, reconstructed
 // from the JSONL events delegate.ts appends to the dispatch's delegation dir.
-// Satisfies Zoomable (def/status/timeline/zoomRender) so /zoom <child-id>
+// Satisfies Zoomable (def/status/timeline/zoomRender) so /af-zoom <child-id>
 // opens the same overlay specialists get; `parent` is "root" for direct
 // children or another child's id for sub-sub-agents.
 interface DelegationChild {
@@ -175,7 +175,7 @@ interface DelegationChild {
 	elapsed: number;
 	timeline: TimelineEntry[];
 	zoomRender?: (force?: boolean) => void;
-	// The /agents-history node for this delegate child, set on its spawn event so
+	// The /af-agents-history node for this delegate child, set on its spawn event so
 	// the exit event can close it. Lets a delegating specialist's row subtract the
 	// time it spent awaiting its own sub-sub-agents.
 	histEntry?: HistoryEntry;
@@ -204,32 +204,32 @@ interface AgentState {
 	timer?: ReturnType<typeof setInterval>;
 	// Mid-turn delegation (delegate tool). Children parsed live from the event
 	// file, keyed by child id; rendered as nested rows under the card and kept
-	// after completion for post-hoc /zoom. Reset on each dispatch.
+	// after completion for post-hoc /af-zoom. Reset on each dispatch.
 	delegations?: Map<string, DelegationChild>;
 	delegationsWatcher?: { close(): void };
 	// Kill / restart (Phase 2). The live child is stored so a frozen specialist
 	// can be SIGTERM'd. `killedByOperator` tells the close handler the exit was an
 	// operator kill (so it returns a "do not auto-retry" message instead of a
 	// normal error); `restarting` distinguishes a kill-for-restart from a plain
-	// kill; `onTerminate` lets /agents-restart await the kill before re-dispatching.
+	// kill; `onTerminate` lets /af-agents-restart await the kill before re-dispatching.
 	proc?: ChildProcess;
 	killedByOperator?: boolean;
 	restarting?: boolean;
 	onTerminate?: () => void;
 	// Zoom timeline (Phase 3). A structured, persisted record of the specialist's
 	// stream — coalesced assistant text, tool calls (name + args), and thinking
-	// deltas when the persona opts in. `/zoom` renders this; it survives completion
+	// deltas when the persona opts in. `/af-zoom` renders this; it survives completion
 	// so post-hoc zoom works without reading the session file. `zoomRender` is set
-	// while a `/zoom` overlay is open so the stream parser can refresh it live
+	// while a `/af-zoom` overlay is open so the stream parser can refresh it live
 	// (throttled; pass force=true for the final frame).
 	timeline: TimelineEntry[];
 	zoomRender?: (force?: boolean) => void;
-	// The /agents-history node for the current dispatch, so delegate children parsed
+	// The /af-agents-history node for the current dispatch, so delegate children parsed
 	// from the event file can attach to it as the root parent of their subtree.
 	histEntry?: HistoryEntry;
 	// Coms-backed dispatch (dispatch-policy.yaml): which backend served the last
-	// run, the peer's model for the card badge, and the abandon hook /agents-kill
-	// and /agents-restart use instead of a SIGTERM — the standing peer itself
+	// run, the peer's model for the card badge, and the abandon hook /af-agents-kill
+	// and /af-agents-restart use instead of a SIGTERM — the standing peer itself
 	// cannot be killed from the hub, only the wait can be released.
 	lastBackend?: "native" | "coms";
 	comsPeerModel?: string;
@@ -242,8 +242,8 @@ interface AgentState {
 // construction: session files live under the same dir as team sessions and are wiped
 // on session_start; finished helpers are auto-pruned per the retention policy
 // (research-retention.js — auto-pipe helpers immediately, older manual ones beyond
-// the `research-keep` cap); `/agents-kill rN` (alias `/research-rm`) kills AND
-// removes one by hand. Resumable via `/agents-cont` (alias `/research-cont`,
+// the `research-keep` cap); `/af-agents-kill rN` (alias `/af-research-rm`) kills AND
+// removes one by hand. Resumable via `/af-agents-cont` (alias `/af-research-cont`,
 // subcont-style, bumping turnCount) while retained.
 interface ResearchState {
 	id: number;
@@ -267,7 +267,7 @@ interface ResearchState {
 	zoomRender?: (force?: boolean) => void;
 }
 
-// The subset of state `/zoom` needs. Both AgentState (standing team) and ResearchState
+// The subset of state `/af-zoom` needs. Both AgentState (standing team) and ResearchState
 // (read-only helpers) satisfy it, so the same ZoomUI overlay renders either one.
 interface Zoomable {
 	def: { name: string };
@@ -276,10 +276,10 @@ interface Zoomable {
 	zoomRender?: (force?: boolean) => void;
 }
 
-// One node in the /agents-history tree: an orchestrator (dispatcher) turn, a
+// One node in the /af-agents-history tree: an orchestrator (dispatcher) turn, a
 // dispatched specialist, a research helper, or a delegate sub-sub-agent. `parent`
 // links a node to the one that launched it (null = top level — an orchestrator
-// turn, or a turn-less manual /research). `endedAt` is null while the node is still
+// turn, or a turn-less manual /af-research). `endedAt` is null while the node is still
 // running, so the overlay can tick its duration live. Parallelism is derived at
 // render time from overlapping [startedAt, endedAt] ranges among siblings.
 type HistoryKind = "orchestrator" | "agent" | "research" | "delegate";
@@ -296,7 +296,7 @@ interface HistoryEntry {
 	awaitIntervals?: Array<[number, number]>;
 }
 
-// Format a millisecond duration the way /agents-history shows it: plain seconds
+// Format a millisecond duration the way /af-agents-history shows it: plain seconds
 // under a minute ("42sec"), m:ss above it ("10:20min" for 620s). Used for every
 // per-agent row and the footer total.
 function fmtDuration(ms: number): string {
@@ -398,7 +398,7 @@ function extractNeedsResearch(output: string): string[] {
 //                              doc folders. Specialists and research helpers read the
 //                              ones relevant to their task; context, not compliance.
 //   research-keep: <n>|all     — how many finished manual/persona research helpers
-//                              to retain for /agents-cont resume (LRU, default 4);
+//                              to retain for /af-agents-cont resume (LRU, default 4);
 //                              "all" disables pruning. Auto-research pipe helpers
 //                              are always pruned as soon as they finish.
 //   recon-search-timeout-s: <1..3600>|off — parent-side deadline for each
@@ -768,7 +768,7 @@ function parseAgentFile(filePath: string): AgentDef | null {
 // ── Thinking level + timeline helpers (Phase 3) ──
 
 // pi --thinking levels, off→xhigh. Single source of truth for the validator, the
-// /agent-model-thinking picker, and the display badge.
+// /af-agent-model-thinking picker, and the display badge.
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const VALID_THINKING_LEVELS = new Set<string>(THINKING_LEVELS);
 
@@ -1010,7 +1010,7 @@ class ZoomUI {
 	}
 }
 
-// Read-only scrollable overlay for /agents-history. Renders the execution log as a
+// Read-only scrollable overlay for /af-agents-history. Renders the execution log as a
 // timeline: orchestrator (dispatcher) turns at depth 0, the specialists they
 // dispatched indented beneath, and parallel siblings deeper still with a "│→"
 // connector. Every row shows a live duration; the footer carries the grand total.
@@ -1800,7 +1800,7 @@ export default function (pi: ExtensionAPI) {
 	let comsPurposeExplicit = false;
 
 	// ── Damage-control exemptions + access escalation state ──
-	// exemptionsFile is the session-scoped shared exemptions file: /allow
+	// exemptionsFile is the session-scoped shared exemptions file: /af-allow
 	// session grants (via the co-loaded damage-control-continue) and approved
 	// escalations land here, and spawned children read it through the
 	// AGENT_HUB_EXEMPTIONS_FILE env plumbing.
@@ -1822,7 +1822,7 @@ export default function (pi: ExtensionAPI) {
 	// for "all"). Ephemeral auto-pipe helpers ignore the cap: pruned on finish.
 	let researchKeep = DEFAULT_RESEARCH_KEEP;
 
-	// ── Execution history (/agents-history) ──────────
+	// ── Execution history (/af-agents-history) ──────────
 	// A tree of every dispatch: orchestrator (dispatcher) turns, the specialists they
 	// dispatch, research helpers, and delegate sub-sub-agents. Orchestrator entries
 	// are created lazily — only when a turn actually dispatches something — so
@@ -1850,7 +1850,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// Lazily open (and return) the orchestrator entry for the active turn. Returns
-	// null outside a turn (e.g. a manual /research), so that helper renders as a
+	// null outside a turn (e.g. a manual /af-research), so that helper renders as a
 	// top-level, turn-less row instead of attaching to a stale dispatcher entry.
 	function ensureOrchestratorEntry(): HistoryEntry | null {
 		if (!turnActive) return null;
@@ -1905,7 +1905,7 @@ export default function (pi: ExtensionAPI) {
 	let teams: Record<string, string[]> = {};
 	// Named model profiles from .pi/agents/model-profiles.yaml (validated at
 	// session start) and the session-lifetime per-persona model overrides set by
-	// /agent-model and /models (lowercase persona name → pi model spec). Overrides
+	// /af-agent-model and /af-models (lowercase persona name → pi model spec). Overrides
 	// reset on session_start; profiles make re-applying cheap.
 	let modelProfiles: Record<string, Record<string, string>> = {};
 	// Backend routing policy (.pi/agents/dispatch-policy.yaml): per dispatch, a
@@ -1921,14 +1921,14 @@ export default function (pi: ExtensionAPI) {
 	const comsMissNotified = new Set<string>();
 	const modelOverrides = new Map<string, string>();
 	// Session-lifetime per-persona thinking-level overrides set by
-	// /agent-model-thinking (lowercase persona name → pi --thinking level). Wins
+	// /af-agent-model-thinking (lowercase persona name → pi --thinking level). Wins
 	// over the persona's frontmatter `thinking:`; resets on session_start; takes
-	// effect on the persona's next dispatch (/agents-restart applies it now).
+	// effect on the persona's next dispatch (/af-agents-restart applies it now).
 	const thinkingOverrides = new Map<string, string>();
 	// Session-lifetime model overrides for delegate sub-roles, set by
-	// /agent-model <persona>.<role>. Keyed "<persona>.<role>" (lowercase); applied
+	// /af-agent-model <persona>.<role>. Keyed "<persona>.<role>" (lowercase); applied
 	// when the dispatch serializes AGENT_HUB_DELEGATE_CONFIG, so nested children
-	// inherit them. Resets on session_start. /models profiles never touch these.
+	// inherit them. Resets on session_start. /af-models profiles never touch these.
 	const subagentModelOverrides = new Map<string, string>();
 	let activeTeamName = "";
 	let gridCols = 2;
@@ -1938,7 +1938,7 @@ export default function (pi: ExtensionAPI) {
 	// in compact mode, so an idle session shows nothing but the prompt + footer.
 	let viewMode: "dashboard" | "compact" = "dashboard";
 	// Compact-view agent switcher: the key of the marked subagent (lowercase persona
-	// name for team specialists, `rN` for research helpers — matching /zoom
+	// name for team specialists, `rN` for research helpers — matching /af-zoom
 	// resolution), or null when nothing is marked. main is never listed (it is the
 	// session under the input box). Alt+]/Alt+[ move it; Alt+\ zooms it.
 	let markedAgent: string | null = null;
@@ -2005,7 +2005,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// whole-run bound is separate: the turn budget's agentTurnMs (run-budget.js).
 	let reconSearchTimeoutMs: number | null = 120_000;
 	// ── Execution mode & per-turn budgets (run-budget.js) ──
-	// hubMode: overrides-file default, switchable live via /hub-mode (session-
+	// hubMode: overrides-file default, switchable live via /af-hub-mode (session-
 	// lifetime). Budgets are per USER TURN: counters reset in before_agent_start,
 	// so exhaustion means "stop, summarize, ask" and the next user message opens
 	// a fresh window. currentTurnStartedAt (above) doubles as the wall-clock base.
@@ -2018,11 +2018,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// assumes DEFAULT_TASK_TIER outside strict mode. Caps = min(mode, tier).
 	let turnTaskTier: string | null = null;
 	// Duplicate-dispatch guard: fingerprints of (agent, task) already dispatched
-	// THIS turn. Auto-research resumes and /agents-restart call dispatchAgent
+	// THIS turn. Auto-research resumes and /af-agents-restart call dispatchAgent
 	// directly, so only real dispatcher tool calls are guarded.
 	const turnDispatchFingerprints = new Set<string>();
 	// ── Drift watchdog (drift-watchdog.js) ──
-	// Hub-wide setting from the overrides file, live-switchable via /watchdog;
+	// Hub-wide setting from the overrides file, live-switchable via /af-watchdog;
 	// per-agent overrides ("on"/"off") win over it; a dispatch_agent `watchdog`
 	// param wins over both.
 	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
@@ -2036,7 +2036,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			widgetCtx?.ui?.setStatus("hub-mode", budgetStatusLine(hubMode, { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnTaskTier));
 		} catch {}
 	}
-	// ── Per-turn cost report (/hub-report) ──
+	// ── Per-turn cost report (/af-hub-report) ──
 	interface TurnReport {
 		startedAt: number;
 		tier: string | null;
@@ -2140,7 +2140,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	}
 
 	// The raw thinking value a persona would dispatch with right now: session
-	// override (/agent-model-thinking) → frontmatter `thinking:`. Pass through
+	// override (/af-agent-model-thinking) → frontmatter `thinking:`. Pass through
 	// resolveThinkingLevel before use to get a valid pi --thinking level.
 	function resolvedThinking(def: AgentDef): string | undefined {
 		return thinkingOverrides.get(def.name.toLowerCase()) ?? def.thinking;
@@ -2148,7 +2148,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 
 	// Resolve a model/thinking-switchable persona def by its (lowercased) name:
 	// a live team member's def first, then a research persona (researcher /
-	// deep-researcher). Lets /agent-model and /agent-model-thinking target
+	// deep-researcher). Lets /af-agent-model and /af-agent-model-thinking target
 	// research helpers exactly like standard team members — the override maps
 	// are keyed by name, so the switch is honored on the helper's next spawn.
 	function switchablePersonaDef(name: string): AgentDef | undefined {
@@ -2415,7 +2415,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		recomputeGrid();
 	}
 
-	// ── Dynamic roster (add/drop/save; /agents-add, /agents-drop, team_adjust) ──
+	// ── Dynamic roster (add/drop/save; /af-agents-add, /af-agents-drop, team_adjust) ──
 	// The system prompt is rebuilt every turn from agentStates, so a roster
 	// change takes effect on the dispatcher's next turn with no restart.
 
@@ -2442,7 +2442,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			return { ok: false, message: `"${name}" is not in the active team (${Array.from(agentStates.values()).map(s => s.def.name).join(", ") || "empty"})` };
 		}
 		if (state.status === "running") {
-			return { ok: false, message: `${displayName(state.def.name)} is running — wait for it to finish or /agents-kill it first` };
+			return { ok: false, message: `${displayName(state.def.name)} is running — wait for it to finish or /af-agents-kill it first` };
 		}
 		if (agentStates.size <= 1) {
 			return { ok: false, message: `${displayName(state.def.name)} is the last team member — add a replacement before dropping it` };
@@ -2813,7 +2813,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// one line each — idle/done agents are omitted.
 	// Ordered list of switchable subagents for the compact-view marker: running team
 	// specialists then running research helpers. main is the session under the input
-	// box, so it is never listed. Each entry's `key` matches /zoom resolution
+	// box, so it is never listed. Each entry's `key` matches /af-zoom resolution
 	// (lowercase persona name for team, `rN` for research), so Alt+\ can resolve it.
 	function switchableAgents(): { key: string; name: string; ctx: number; ctxWarn: boolean; model: string; status: { color: string; text: string } }[] {
 		return [
@@ -2869,7 +2869,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// delegate.ts (running inside the specialist) appends JSONL events to
 	// <sessionDir>/delegations/<agentKey>/events.jsonl. The hub tails that file
 	// (fs.watch for responsiveness + a 1s poll fallback) and rebuilds child
-	// states for the nested card rows, /zoom, and the spend rollup.
+	// states for the nested card rows, /af-zoom, and the spend rollup.
 
 	function formatTokens(n: number): string {
 		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -2887,7 +2887,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		if (e.t === "spawn") {
 			const startedAt = e.ts || Date.now();
 			const parentId = typeof e.parent === "string" ? e.parent : "root";
-			// Attach to the /agents-history tree: a "root" child hangs off the
+			// Attach to the /af-agents-history tree: a "root" child hangs off the
 			// specialist's own dispatch node; a deeper grandchild hangs off the
 			// already-recorded parent child. Falls back to the specialist node.
 			const parentEntry = parentId !== "root"
@@ -3085,7 +3085,7 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			// best-effort
 		}
 
-		// /agents-kill and /agents-restart on a coms-backed run only abandon the
+		// /af-agents-kill and /af-agents-restart on a coms-backed run only abandon the
 		// wait — the standing peer keeps running its turn in its own pane.
 		let abandoned = false;
 		const abortPromise = new Promise<{ error: string }>(res => {
@@ -3284,7 +3284,7 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		state.lastBackend = "native";
 		state.comsPeerModel = undefined;
 
-		// Per-agent model: a session override (/agent-model, /models) wins;
+		// Per-agent model: a session override (/af-agent-model, /af-models) wins;
 		// otherwise the persona's frontmatter `model:` (a full pi spec, e.g.
 		// anthropic/claude-opus-4-7). Falls back to the dispatcher's model.
 		const model = resolvedModel(state.def)
@@ -3354,7 +3354,7 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 		// declared roles/budgets serialized into AGENT_HUB_DELEGATE_CONFIG. The
 		// hub pre-creates and tails the dispatch's delegation event dir for the
 		// nested card rows. Personas without `subagents:` spawn exactly as before.
-		// Effective roles: each role's model replaced by its /agent-model
+		// Effective roles: each role's model replaced by its /af-agent-model
 		// "<persona>.<role>" session override when one exists. Serialized into the
 		// delegate config, so nested children inherit the switch for free.
 		const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
@@ -3416,14 +3416,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + docsProtocol + delegationProtocol + deliverableProtocol;
 
 		// Per-agent thinking: the persona's `thinking:` frontmatter (or a
-		// /agent-model-thinking session override) sets the pi --thinking reasoning
-		// level. Non-off also enables thinking deltas in the JSON stream so `/zoom`
+		// /af-agent-model-thinking session override) sets the pi --thinking reasoning
+		// level. Non-off also enables thinking deltas in the JSON stream so `/af-zoom`
 		// can show the reasoning.
 		const thinkingLevel = resolveThinkingLevel(resolvedThinking(state.def));
 		const wantThinking = thinkingLevel !== "off";
 
 		// ── Drift watchdog: layer-1 rules on the live stream, judge on escalation ──
-		// Precedence: dispatch param > per-agent /watchdog override > hub setting.
+		// Precedence: dispatch param > per-agent /af-watchdog override > hub setting.
 		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting);
 		const driftMonitor = watchdogArmed ? createDriftMonitor({ scopeGlobs }) : null;
 		let driftControl: PiRunControl | undefined;
@@ -3448,7 +3448,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 		// Spawn via the shared helper — first run creates the session, subsequent
 		// runs resume it (-c). Stream events drive the card + zoom timeline.
-		// `detached` puts the specialist in its own process group so /agents-kill
+		// `detached` puts the specialist in its own process group so /af-agents-kill
 		// can SIGTERM the whole delegation tree (killPiTree).
 		let fullText = "";
 		let runBilled = 0;
@@ -3523,7 +3523,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		state.elapsed = Date.now() - startTime;
 		state.proc = undefined;
 		// Stop tailing the delegation event file (one final drain inside close,
-		// so trailing exit/usage events land). Child states stay for /zoom.
+		// so trailing exit/usage events land). Child states stay for /af-zoom.
 		state.delegationsWatcher?.close();
 		state.delegationsWatcher = undefined;
 
@@ -3580,7 +3580,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 						? `was stopped by the drift watchdog. Rule "${driftStop?.rule || "unknown"}" fired (${driftStop?.detail || "no detail"}); ` +
 							`judge verdict ${(driftStop?.verdict || "drifting").toUpperCase()}: ${driftStop?.reason || "(no reason given)"}. ` +
 							`Re-dispatch ONCE with a corrected, NARROWED task that addresses this verdict — never repeat the same task unchanged. ` +
-							`If you believe the watchdog is wrong, tell the user; they can disable it with /watchdog ${key} off`
+							`If you believe the watchdog is wrong, tell the user; they can disable it with /af-watchdog ${key} off`
 						: "was cancelled by its caller";
 			return {
 				output: `${reason}: agent ${displayName(state.def.name)} ${explanation}; terminationConfirmed=${res.termination.confirmed}.` +
@@ -3592,14 +3592,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			};
 		}
 
-		// Operator kill (Phase 2). The exit was a SIGTERM from /agents-kill or
-		// /agents-restart, not a real completion: free the card (status → idle),
+		// Operator kill (Phase 2). The exit was a SIGTERM from /af-agents-kill or
+		// /af-agents-restart, not a real completion: free the card (status → idle),
 		// fire any restart waiter, and return a message that tells the dispatcher
-		// LLM not to auto-retry. /agents-restart handles the fresh re-dispatch.
+		// LLM not to auto-retry. /af-agents-restart handles the fresh re-dispatch.
 		if (state.killedByOperator) {
 			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, "operator killed run", "cancelled"));
 			// !! (not `=== true`): TS otherwise narrows the field to the `false`
-			// assigned during setup — the concurrent /agents-restart mutation that
+			// assigned during setup — the concurrent /af-agents-restart mutation that
 			// makes this true is invisible to the checker across the await.
 			const wasRestart = !!state.restarting;
 			state.killedByOperator = false;
@@ -3642,7 +3642,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		);
 
 		// Let a restart waiter proceed even when the agent finished naturally
-		// between the operator's /agents-restart and the kill landing.
+		// between the operator's /af-agents-restart and the kill landing.
 		const onTerminate = state.onTerminate;
 		state.onTerminate = undefined;
 		onTerminate?.();
@@ -3690,7 +3690,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	}
 
 	// Resolve the model for a research helper: an explicit --model wins, then the
-	// persona's resolved model (session override via /agent-model → frontmatter
+	// persona's resolved model (session override via /af-agent-model → frontmatter
 	// default), then the dispatcher's model (the default for anon helpers).
 	function resolveResearchModel(def: AgentDef, explicit: string | undefined, ctx: any): string {
 		if (explicit) return explicit;
@@ -3726,7 +3726,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// handles are never resumed) and finished durable helpers beyond the
 	// `research-keep` most recent — so the research row doesn't grow without
 	// bound. Running helpers are untouched; ids stay monotonic (no handle reuse).
-	// /agents-history is unaffected: the timeline holds its own entries.
+	// /af-agents-history is unaffected: the timeline holds its own entries.
 	function pruneResearch() {
 		const ids = selectResearchPrunable(Array.from(researchStates.values()), researchKeep);
 		if (ids.length === 0) return;
@@ -3751,7 +3751,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// Spawn (or resume) a read-only research helper. Mirrors dispatchAgent's stream
 	// handling but is forced read-only (RESEARCH_TOOLS), drives the research widget, and
 	// resolves with the findings — the CALLER decides what to do with them (the
-	// spawn_research tool returns them inline; the /research command delivers a follow-up).
+	// spawn_research tool returns them inline; the /af-research command delivers a follow-up).
 	async function spawnResearch(
 		state: ResearchState,
 		prompt: string,
@@ -3879,7 +3879,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			};
 		}
 
-		// Operator kill (via /agents-kill rN|all or its research-* aliases).
+		// Operator kill (via /af-agents-kill rN|all or its research-* aliases).
 		// Resolve gracefully so a spawn_research tool call awaiting this helper
 		// doesn't hang.
 		if (state.killedByOperator) {
@@ -3925,7 +3925,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return { output, exitCode: code ?? 1, elapsed: state.elapsed };
 	}
 
-	// Deliver a /research result back to the dispatcher as a follow-up turn (the human
+	// Deliver a /af-research result back to the dispatcher as a follow-up turn (the human
 	// kicked it off via slash command, so there is no awaiting tool call to return to).
 	function deliverResearchFollowUp(state: ResearchState, result: { output: string; exitCode: number; elapsed: number }) {
 		const truncated = result.output.length > 8000
@@ -4403,10 +4403,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 	// The peers currently in scope — exactly what the coms pool widget shows: live
 	// (pruned) registry entries in the displayed project (displayProject, or the home
-	// project; "*" only when the human widened via /coms --project *), excluding self
-	// and — unless /coms --all set includeExplicit — explicit peers. This is the
+	// project; "*" only when the human widened via /af-coms --project *), excluding self
+	// and — unless /af-coms --all set includeExplicit — explicit peers. This is the
 	// SECURITY BOUNDARY for every coms op: list, send, and handoff resolve only within
-	// it. Widening it is a deliberate human action via /coms, never something the LLM
+	// it. Widening it is a deliberate human action via /af-coms, never something the LLM
 	// can do on its own. Single source of truth — reused by the widget refresh, the
 	// handoff completions, coms_list, and resolveTarget so they can never diverge.
 	function peersInScope(): RegistryEntry[] {
@@ -4467,7 +4467,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		// Scoped to the connected pool only (peersInScope): you can reach exactly the
 		// peers the widget shows. Match by name first (preferred, human-facing), then by
 		// session_id. A peer outside the current scope is intentionally NOT resolved — the
-		// human must widen scope via /coms --project / --all first. This closes the old
+		// human must widen scope via /af-coms --project / --all first. This closes the old
 		// cross-project leak where a name match fell through to scanning every project.
 		const scope = peersInScope();
 		const byName = scope.find((e) => e.name === target);
@@ -4486,7 +4486,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			task: Type.String({ description: "Task description for the agent to execute" }),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the specialist must read the file itself." }))),
 			scope: Type.Optional(Type.Array(Type.String({ description: "Optional advisory file scope globs for writable agents. Changes outside are reported in details.scopeViolations; nothing is auto-reverted. Also arms the drift watchdog's live out-of-scope rule." }))),
-			watchdog: Type.Optional(Type.Boolean({ description: "Force the drift watchdog on/off for THIS dispatch (default: per-agent /watchdog override, then the hub-wide setting)." })),
+			watchdog: Type.Optional(Type.Boolean({ description: "Force the drift watchdog on/off for THIS dispatch (default: per-agent /af-watchdog override, then the hub-wide setting)." })),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
@@ -4669,7 +4669,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 				const returnPathNotice = returnPath ? `\n\nFull specialist output: ${returnPath}` : "";
 				const contextNotice = state && contextPressure(state.contextPct)
-					? `\n\n⚠ ${displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`
+					? `\n\n⚠ ${displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /af-agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`
 					: "";
 				const scopeNotice = scopeNoticeText(scopeViolations);
 				const contractNotice = contractNoticeText(contractNotices);
@@ -4777,7 +4777,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const { task, persona, model, artifacts } = params as { task: string; persona?: string; model?: string; artifacts?: string[] };
 
 			// Turn-budget gate (dispatcher-initiated research only — the auto-research
-			// pipe and the /research command are exempt).
+			// pipe and the /af-research command are exempt).
 			const budgetRefusal = checkTurnBudget(
 				"research",
 				{ dispatches: turnDispatchCount, research: turnResearchCount },
@@ -4952,7 +4952,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		name: "team_adjust",
 		label: "Team Adjust",
 		description:
-			"Add or drop a specialist persona in the ACTIVE team (the roster you can dispatch to). Use sparingly, when the current roster genuinely cannot serve the task (e.g. add security-auditor for a security-sensitive change, drop an unused specialist). Not available in fast mode. The human sees every change and can revert with /agents-add //agents-drop.",
+			"Add or drop a specialist persona in the ACTIVE team (the roster you can dispatch to). Use sparingly, when the current roster genuinely cannot serve the task (e.g. add security-auditor for a security-sensitive change, drop an unused specialist). Not available in fast mode. The human sees every change and can revert with /af-agents-add /af-agents-drop.",
 		parameters: Type.Object({
 			action: Type.String({ description: "add | drop" }),
 			agent: Type.String({ description: "Persona name (case-insensitive), e.g. security-auditor" }),
@@ -4963,7 +4963,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const act = String(action || "").trim().toLowerCase();
 			if (hubMode === "fast") {
 				return {
-					content: [{ type: "text" as const, text: "team_adjust is disabled in fast mode — a single-specialist path never needs roster changes. Ask the user to /hub-mode standard if the task outgrew fast mode." }],
+					content: [{ type: "text" as const, text: "team_adjust is disabled in fast mode — a single-specialist path never needs roster changes. Ask the user to /af-hub-mode standard if the task outgrew fast mode." }],
 					details: { status: "refused" },
 				};
 			}
@@ -4972,7 +4972,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			}
 			if (act === "add" && agentStates.size >= TEAM_ADJUST_ROSTER_CAP) {
 				return {
-					content: [{ type: "text" as const, text: `Roster cap reached (${TEAM_ADJUST_ROSTER_CAP}) — drop an unused member first, or ask the user to /agents-add manually.` }],
+					content: [{ type: "text" as const, text: `Roster cap reached (${TEAM_ADJUST_ROSTER_CAP}) — drop an unused member first, or ask the user to /af-agents-add manually.` }],
 					details: { status: "refused" },
 				};
 			}
@@ -5142,10 +5142,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		description:
 			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
 			"names, models, and live context-window usage. Discovery is scoped to what the human displays " +
-			"via /coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
+			"via /af-coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
 		parameters: Type.Object({
-			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /coms displays — a widening request is ignored." })),
-			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /coms --all." })),
+			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /af-coms displays — a widening request is ignored." })),
+			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /af-coms --all." })),
 		}),
 		async execute(_callId, params) {
 			if (!identity) {
@@ -5155,9 +5155,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				};
 			}
 			// Clamp discovery to the human-set pool scope (displayProject + includeExplicit,
-			// driven by /coms). The LLM's project/include_explicit may NARROW within that
+			// driven by /af-coms). The LLM's project/include_explicit may NARROW within that
 			// scope but can never widen it — cross-project or explicit discovery requires a
-			// deliberate /coms --project / --all from the human. So coms_list returns exactly
+			// deliberate /af-coms --project / --all from the human. So coms_list returns exactly
 			// the pool, the same boundary coms_send enforces.
 			const scopeProject = displayProject ?? identity.project;
 			let projects: string[];
@@ -5169,7 +5169,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				if (params.project && params.project !== scopeProject) widened = true;
 			}
 			// include_explicit may only narrow (turn OFF); it cannot reveal explicit peers
-			// unless the human already did via /coms --all.
+			// unless the human already did via /af-coms --all.
 			const includeExp = includeExplicit && params.include_explicit !== false;
 			if (params.include_explicit === true && !includeExplicit) widened = true;
 
@@ -5204,7 +5204,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const notice = widened
 				? `\n\n(Discovery is scoped to "${scopeProject}"${includeExplicit ? "" : ", explicit peers hidden"}. ` +
 				  `Widening to other projects or revealing --explicit peers is a human action via ` +
-				  `/coms --project <name> or /coms --all.)`
+				  `/af-coms --project <name> or /af-coms --all.)`
 				: "";
 
 			const lines = agents.length === 0
@@ -5252,9 +5252,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			"Use coms_get (non-blocking) or coms_await (blocking) with the msg_id to retrieve the response. " +
 			"Throws if the receiver is unreachable or rejects the envelope.",
 		parameters: Type.Object({
-			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /coms --project or /coms --all." }),
+			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /af-coms --project or /af-coms --all." }),
 			prompt: Type.String({ description: "The prompt to send." }),
-			handoff_token: Type.Optional(Type.String({ description: "Internal /handoff token. Only include when the /handoff follow-up explicitly gives you one; it authorizes the machine-appended ledger/artifact appendix." })),
+			handoff_token: Type.Optional(Type.String({ description: "Internal /af-handoff token. Only include when the /af-handoff follow-up explicitly gives you one; it authorizes the machine-appended ledger/artifact appendix." })),
 			conversation_id: Type.Optional(Type.String()),
 			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
 		}),
@@ -5271,7 +5271,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				throw new Error(
 					`coms: no connected peer "${params.target}" in your pool (project ${scope}). ` +
 					`Only peers shown in the coms pool are reachable. If you expected this peer, ask the ` +
-					`human to widen scope with /coms --project <name> or /coms --all, then retry.`,
+					`human to widen scope with /af-coms --project <name> or /af-coms --all, then retry.`,
 				);
 			}
 			const hops = currentInbound ? currentInbound.hops + 1 : 0;
@@ -5700,7 +5700,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 	// ── Commands ─────────────────────────────────
 
-	pi.registerCommand("agents-team", {
+	pi.registerCommand("af-agents-team", {
 		description: "Select a team to work with",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
@@ -5727,7 +5727,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	pi.registerCommand("agents-list", {
+	pi.registerCommand("af-agents-list", {
 		description: "List all loaded agents",
 		handler: async (_args, _ctx) => {
 			widgetCtx = _ctx;
@@ -5753,7 +5753,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	// Open the read-only /agents-history overlay. Mirrors openZoom's chrome and adds
+	// Open the read-only /af-agents-history overlay. Mirrors openZoom's chrome and adds
 	// a 1s tick so running durations advance live; `historyRender` lets a new
 	// dispatch refresh the panel the instant it starts/ends.
 	async function openHistory(ctx: any): Promise<void> {
@@ -5779,7 +5779,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		historyRender = null;
 	}
 
-	pi.registerCommand("agents-history", {
+	pi.registerCommand("af-agents-history", {
 		description: "Timeline of agent execution — orchestrator turns, dispatches, research helpers, durations, and a grand total",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
@@ -5787,11 +5787,11 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	// ── /hub-mode: execution mode (fast|standard|strict) ──
+	// ── /af-hub-mode: execution mode (fast|standard|strict) ──
 	// Session-lifetime switch over the overrides-file default. Budgets bind on
 	// the NEXT tool call (counters are per user turn and keep running); the
 	// dispatcher prompt rebuilds with the new mode on the next turn.
-	pi.registerCommand("hub-mode", {
+	pi.registerCommand("af-hub-mode", {
 		description: "Show or set the execution mode: fast (single specialist) | standard (batched, default) | strict (full Verification Contract)",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -5801,7 +5801,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				const cap = (n: number | null) => (n == null ? "∞" : String(n));
 				ctx.ui.notify(
 					`Execution mode: ${hubMode}\nThis turn: ${turnDispatchCount}/${cap(b.maxDispatches)} dispatches, ` +
-					`${turnResearchCount}/${cap(b.maxResearch)} research\nSwitch with /hub-mode ${HUB_MODES.join("|")}`,
+					`${turnResearchCount}/${cap(b.maxResearch)} research\nSwitch with /af-hub-mode ${HUB_MODES.join("|")}`,
 					"info",
 				);
 				return;
@@ -5817,8 +5817,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	pi.registerCommand("watchdog", {
-		description: "Drift watchdog: /watchdog [on|off|auto] hub-wide, /watchdog <agent> [on|off|clear] per agent, no args to show",
+	pi.registerCommand("af-watchdog", {
+		description: "Drift watchdog: /af-watchdog [on|off|auto] hub-wide, /af-watchdog <agent> [on|off|clear] per agent, no args to show",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const parts = (args || "").trim().split(/\s+/).filter(Boolean);
@@ -5829,7 +5829,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				ctx.ui.notify(
 					`Drift watchdog: ${watchdogSetting} (hub-wide)\nPer-agent overrides: ${perAgent}\n` +
 					`Judge model: ${watchdogJudgeModel || "(researcher persona's, else dispatcher's)"}\n` +
-					`Usage: /watchdog on|off|auto — or /watchdog <agent> on|off|clear`,
+					`Usage: /af-watchdog on|off|auto — or /af-watchdog <agent> on|off|clear`,
 					"info",
 				);
 				return;
@@ -5837,7 +5837,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			if (parts.length === 1) {
 				const setting = normalizeWatchdogSetting(parts[0]);
 				if (!setting) {
-					ctx.ui.notify(`Unknown setting "${parts[0]}" — expected one of: ${WATCHDOG_SETTINGS.join(", ")} (or /watchdog <agent> on|off|clear)`, "error");
+					ctx.ui.notify(`Unknown setting "${parts[0]}" — expected one of: ${WATCHDOG_SETTINGS.join(", ")} (or /af-watchdog <agent> on|off|clear)`, "error");
 					return;
 				}
 				watchdogSetting = setting;
@@ -5864,8 +5864,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	pi.registerCommand("agents-add", {
-		description: "Add persona(s) to the active team without switching teams: /agents-add <name> [<name>…]",
+	pi.registerCommand("af-agents-add", {
+		description: "Add persona(s) to the active team without switching teams: /af-agents-add <name> [<name>…]",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const names = (args || "").trim().split(/\s+/).filter(Boolean);
@@ -5873,7 +5873,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				const available = allAgentDefs
 					.filter(d => !agentStates.has(d.name.toLowerCase()))
 					.map(d => d.name).sort().join(", ") || "(all personas are already in the team)";
-				ctx.ui.notify(`Usage: /agents-add <persona> [<persona>…]\nNot in the team yet: ${available}`, "info");
+				ctx.ui.notify(`Usage: /af-agents-add <persona> [<persona>…]\nNot in the team yet: ${available}`, "info");
 				return;
 			}
 			const results = names.map(n => rosterAdd(n));
@@ -5883,13 +5883,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	pi.registerCommand("agents-drop", {
-		description: "Drop persona(s) from the active team: /agents-drop <name> [<name>…]",
+	pi.registerCommand("af-agents-drop", {
+		description: "Drop persona(s) from the active team: /af-agents-drop <name> [<name>…]",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const names = (args || "").trim().split(/\s+/).filter(Boolean);
 			if (names.length === 0) {
-				ctx.ui.notify(`Usage: /agents-drop <persona> [<persona>…]\nActive team: ${Array.from(agentStates.values()).map(s => s.def.name).join(", ")}`, "info");
+				ctx.ui.notify(`Usage: /af-agents-drop <persona> [<persona>…]\nActive team: ${Array.from(agentStates.values()).map(s => s.def.name).join(", ")}`, "info");
 				return;
 			}
 			const results = names.map(n => rosterDrop(n));
@@ -5899,13 +5899,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	pi.registerCommand("agents-save", {
-		description: "Persist the CURRENT roster as a named team in .pi/agents/teams.yaml: /agents-save <team-name>",
+	pi.registerCommand("af-agents-save", {
+		description: "Persist the CURRENT roster as a named team in .pi/agents/teams.yaml: /af-agents-save <team-name>",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const name = (args || "").trim();
 			if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
-				ctx.ui.notify("Usage: /agents-save <team-name> (letters, digits, hyphens, underscores)", "error");
+				ctx.ui.notify("Usage: /af-agents-save <team-name> (letters, digits, hyphens, underscores)", "error");
 				return;
 			}
 			const members = Array.from(agentStates.values()).map(s => s.def.name);
@@ -5930,7 +5930,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	pi.registerCommand("hub-report", {
+	pi.registerCommand("af-hub-report", {
 		description: "Per-turn cost report: dispatches, research, tokens, recycles, drift stops (last turn + session totals)",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
@@ -5976,7 +5976,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	});
 
 	// Compact-view agent switcher. Alt+] / Alt+[ move the marker through the running
-	// subagents; Alt+\ zooms the marked one (same overlay as /zoom). main is never a
+	// subagents; Alt+\ zooms the marked one (same overlay as /af-zoom). main is never a
 	// target — it is the session under the input, which always takes typed prompts.
 	// Keys verified free of pi's reserved editor bindings (keybindings.d.ts): alt+up/
 	// down/left/right and ctrl+] / ctrl+alt+] are reserved, but alt+[ / alt+] / alt+\
@@ -6054,7 +6054,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return null;
 	}
 
-	// Completions for /zoom: team member names, research handles (rN), and
+	// Completions for /af-zoom: team member names, research handles (rN), and
 	// delegate child ids nested under their parent specialist.
 	const zoomCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const teamItems = Array.from(agentStates.values()).map(s => ({
@@ -6077,7 +6077,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// Open the read-only zoom overlay over a live timeline. Shared by /zoom and the
+	// Open the read-only zoom overlay over a live timeline. Shared by /af-zoom and the
 	// compact-view Alt+\ switcher. While open, `target.zoomRender` lets the stream
 	// parser refresh it on new events (throttled to ~12fps; force=true pushes the
 	// final frame on completion).
@@ -6106,8 +6106,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		target.zoomRender = undefined;
 	}
 
-	pi.registerCommand("zoom", {
-		description: "Scrollable read-only view of an agent's stream: /zoom <name|rN>",
+	pi.registerCommand("af-zoom", {
+		description: "Scrollable read-only view of an agent's stream: /af-zoom <name|rN>",
 		getArgumentCompletions: zoomCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -6127,14 +6127,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				const childKnown = Array.from(agentStates.values())
 					.flatMap(s => Array.from(s.delegations?.keys() || [])).join(", ");
 				const known = [teamKnown, researchKnown, childKnown].filter(Boolean).join(", ");
-				ctx.ui.notify(`Usage: /zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
+				ctx.ui.notify(`Usage: /af-zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
 				return;
 			}
 			await openZoom(target, ctx);
 		},
 	});
 
-	// Completions for /agent-model: persona names plus a `persona.role` entry per
+	// Completions for /af-agent-model: persona names plus a `persona.role` entry per
 	// declared delegate sub-role, labeled with the model currently in effect.
 	const agentModelCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const personaItems = Array.from(agentStates.values()).map(s => ({
@@ -6162,14 +6162,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// /agent-model <persona>[.<role>] — switch a persona's model among its
+	// /af-agent-model <persona>[.<role>] — switch a persona's model among its
 	// declared candidates (frontmatter `model:` + `models:`), or a delegate
 	// sub-role's model among its declared default + the parent persona's
 	// candidates. Session-lifetime: the choice resets on session_start and takes
-	// effect on the persona's NEXT dispatch (/agents-restart applies it
+	// effect on the persona's NEXT dispatch (/af-agents-restart applies it
 	// immediately). Nothing outside the declared lists is ever selectable.
-	pi.registerCommand("agent-model", {
-		description: "Switch a persona's or sub-role's model from its declared candidates: /agent-model <persona>[.<role>]",
+	pi.registerCommand("af-agent-model", {
+		description: "Switch a persona's or sub-role's model from its declared candidates: /af-agent-model <persona>[.<role>]",
 		getArgumentCompletions: agentModelCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -6233,7 +6233,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					...Array.from(agentStates.values()).map(s => s.def.name),
 					...researchPersonas.map(d => d.name),
 				].join(", ");
-				ctx.ui.notify(`Usage: /agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
+				ctx.ui.notify(`Usage: /af-agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
 				return;
 			}
 			if (!def.models || def.models.length === 0) {
@@ -6272,8 +6272,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// Research helpers spawn fresh each time, so the switch lands on their
 			// next spawn; team members apply on next dispatch (restartable now).
 			const applyHint = (def.kind || "").toLowerCase() === "research"
-				? "applies on next /research or spawn_research"
-				: `applies on next dispatch; /agents-restart ${def.name} to apply now`;
+				? "applies on next /af-research or spawn_research"
+				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
 			ctx.ui.notify(`${displayName(def.name)} → ${picked} (${applyHint})`, "success");
 			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
 				ctx.ui.notify(
@@ -6284,7 +6284,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	// Completions for /agent-model-thinking: persona names labeled with the
+	// Completions for /af-agent-model-thinking: persona names labeled with the
 	// thinking level currently in effect.
 	const agentThinkingCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = [
@@ -6302,13 +6302,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// /agent-model-thinking <persona> — switch a persona's reasoning effort among
+	// /af-agent-model-thinking <persona> — switch a persona's reasoning effort among
 	// pi's --thinking levels (off|minimal|low|medium|high|xhigh). Session-lifetime:
 	// the choice resets on session_start and takes effect on the persona's NEXT
-	// dispatch (/agents-restart applies it immediately). Selecting the frontmatter
+	// dispatch (/af-agents-restart applies it immediately). Selecting the frontmatter
 	// default clears the override.
-	pi.registerCommand("agent-model-thinking", {
-		description: "Switch a persona's thinking level from pi's --thinking levels: /agent-model-thinking <persona>",
+	pi.registerCommand("af-agent-model-thinking", {
+		description: "Switch a persona's thinking level from pi's --thinking levels: /af-agent-model-thinking <persona>",
 		getArgumentCompletions: agentThinkingCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -6320,7 +6320,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					...Array.from(agentStates.values()).map(s => s.def.name),
 					...researchPersonas.map(d => d.name),
 				].join(", ");
-				ctx.ui.notify(`Usage: /agent-model-thinking <persona>. Known: ${known || "none"}`, "error");
+				ctx.ui.notify(`Usage: /af-agent-model-thinking <persona>. Known: ${known || "none"}`, "error");
 				return;
 			}
 			const defaultLevel = resolveThinkingLevel(def.thinking);
@@ -6346,13 +6346,13 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// Research helpers spawn fresh each time, so the switch lands on their
 			// next spawn; team members apply on next dispatch (restartable now).
 			const applyHint = (def.kind || "").toLowerCase() === "research"
-				? "applies on next /research or spawn_research"
-				: `applies on next dispatch; /agents-restart ${def.name} to apply now`;
+				? "applies on next /af-research or spawn_research"
+				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
 			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "success");
 		},
 	});
 
-	// Completions for /models: profile names with their persona → model summary.
+	// Completions for /af-models: profile names with their persona → model summary.
 	const modelProfileCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = Object.entries(modelProfiles).map(([name, entries]) => ({
 			value: name,
@@ -6363,10 +6363,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// /models [profile] — apply a named model profile (a validated macro over the
-	// personas' declared candidates). Bare /models opens a picker.
-	pi.registerCommand("models", {
-		description: "Apply a model profile to the team: /models [profile]",
+	// /af-models [profile] — apply a named model profile (a validated macro over the
+	// personas' declared candidates). Bare /af-models opens a picker.
+	pi.registerCommand("af-models", {
+		description: "Apply a model profile to the team: /af-models [profile]",
 		getArgumentCompletions: modelProfileCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -6403,7 +6403,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	});
 
 	// All known model strings across every persona (allowedModels union), deduped
-	// preserving first-seen order. Used for /agent-models-substitute autocomplete.
+	// preserving first-seen order. Used for /af-agent-models-substitute autocomplete.
 	function allKnownModels(): string[] {
 		const seen = new Set<string>();
 		const out: string[] = [];
@@ -6415,7 +6415,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return out;
 	}
 
-	// Completions for /agent-models-substitute: a flat list of known models.
+	// Completions for /af-agent-models-substitute: a flat list of known models.
 	// Free text allowed too — we just suggest, never restrict, so ad-hoc targets
 	// (e.g. a model a persona does not declare) still produce a clean "skipped"
 	// report at apply time.
@@ -6427,22 +6427,22 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// /agent-models-substitute <source> <target> — replace one model across all
+	// /af-agent-models-substitute <source> <target> — replace one model across all
 	// personas (team members + research + orchestrator; never the dispatcher).
 	// Per-persona validity: target must be in that persona's allowedModels.
-	// Applies session-lifetime (same lifetime as /agent-model); takes effect on
-	// the persona's NEXT dispatch (/agents-restart applies it immediately).
+	// Applies session-lifetime (same lifetime as /af-agent-model); takes effect on
+	// the persona's NEXT dispatch (/af-agents-restart applies it immediately).
 	// One-step flow: dry-run summary is shown up front, then the swap is
 	// applied unconditionally — the operator runs the command to commit.
-	pi.registerCommand("agent-models-substitute", {
-		description: "Replace one model across all personas: /agent-models-substitute <source> <target>",
+	pi.registerCommand("af-agent-models-substitute", {
+		description: "Replace one model across all personas: /af-agent-models-substitute <source> <target>",
 		getArgumentCompletions: substituteCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
 			if (tokens.length !== 2) {
 				ctx.ui.notify(
-					`Usage: /agent-models-substitute <source> <target>. ` +
+					`Usage: /af-agent-models-substitute <source> <target>. ` +
 					`Both must be model specs (e.g. openai-codex/gpt-5.3-codex-spark).`,
 					"error",
 				);
@@ -6468,7 +6468,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					continue;
 				}
 				if (!allowedModels(def).includes(target)) {
-					skipped.push({ def, reason: `target ${target} not in declared candidates (model:/models: in ${def.file})` });
+					skipped.push({ def, reason: `target ${target} not in declared candidates (model:/af-models: in ${def.file})` });
 					continue;
 				}
 				matches.push({ def, current });
@@ -6488,7 +6488,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// Apply: for every match, if the persona's frontmatter default IS the
 			// target, clear any existing override (so it tracks frontmatter
 			// updates); otherwise record target in modelOverrides. Mirrors
-			// /agent-model and /models.
+			// /af-agent-model and /af-models.
 			const applied: string[] = [];
 			for (const { def } of matches) {
 				const key = def.name.toLowerCase();
@@ -6505,14 +6505,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				`Substitution ${source} → ${target}:`,
 				`  Affected: ${applied.length}${applied.length ? ` (${applied.join(", ")})` : ""}`,
 				`  Skipped: ${skipped.length}${skipped.length ? ` (${skipDetails.join("; ")})` : ""}`,
-				`  Applies on next dispatch (/agents-restart to apply now).`,
+				`  Applies on next dispatch (/af-agents-restart to apply now).`,
 			].join("\n");
 			updateWidget();
 			ctx.ui.notify(summary, applied.length > 0 ? "success" : "info");
 		},
 	});
 
-	// Completions for /research: research-persona names prefixed with @.
+	// Completions for /af-research: research-persona names prefixed with @.
 	const researchPersonaCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = researchPersonas.map(d => ({
 			value: `@${d.name}`,
@@ -6524,10 +6524,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// /research [@persona] [--model <spec>] <task> — spawn a read-only helper. Fire-and-
+	// /af-research [@persona] [--model <spec>] <task> — spawn a read-only helper. Fire-and-
 	// forget: the result is delivered to the dispatcher as a follow-up turn.
-	pi.registerCommand("research", {
-		description: "Spawn a read-only research helper: /research [@persona] [--model <spec>] <task>",
+	pi.registerCommand("af-research", {
+		description: "Spawn a read-only research helper: /af-research [@persona] [--model <spec>] <task>",
 		getArgumentCompletions: researchPersonaCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -6557,7 +6557,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 			const task = rest;
 			if (!task) {
-				ctx.ui.notify("Usage: /research [@persona] [--model <spec>] <task>", "error");
+				ctx.ui.notify("Usage: /af-research [@persona] [--model <spec>] <task>", "error");
 				return;
 			}
 
@@ -6599,28 +6599,28 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 	// ── Unified subagent commands ────────────────
 	// Team specialists are addressed by persona name, research helpers by their rN
-	// handle — one command family covers both (mirroring /zoom's target resolution).
+	// handle — one command family covers both (mirroring /af-zoom's target resolution).
 	// The research-* commands remain as aliases of their agents-* counterparts.
 
-	// Resume a finished helper on its existing session. Shared by /agents-cont and
-	// its /research-cont alias.
+	// Resume a finished helper on its existing session. Shared by /af-agents-cont and
+	// its /af-research-cont alias.
 	const researchContHandler = async (args: string | undefined, ctx: any) => {
 		widgetCtx = ctx;
 		const trimmed = (args ?? "").trim();
 		const sp = trimmed.indexOf(" ");
 		if (sp === -1) {
-			ctx.ui.notify("Usage: /agents-cont rN <prompt>", "error");
+			ctx.ui.notify("Usage: /af-agents-cont rN <prompt>", "error");
 			return;
 		}
 		const rid = parseResearchHandle(trimmed.slice(0, sp));
 		const prompt = trimmed.slice(sp + 1).trim();
 		const state = rid != null ? researchStates.get(rid) : undefined;
 		if (!state) {
-			ctx.ui.notify(`No research helper "${trimmed.slice(0, sp)}". Use /research to start one.`, "error");
+			ctx.ui.notify(`No research helper "${trimmed.slice(0, sp)}". Use /af-research to start one.`, "error");
 			return;
 		}
 		if (!prompt) {
-			ctx.ui.notify("Usage: /agents-cont rN <prompt>", "error");
+			ctx.ui.notify("Usage: /af-agents-cont rN <prompt>", "error");
 			return;
 		}
 		if (state.status === "running") {
@@ -6633,14 +6633,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		spawnResearch(state, prompt, ctx).then(result => deliverResearchFollowUp(state, result));
 	};
 
-	pi.registerCommand("agents-cont", {
-		description: "Continue a finished research helper: /agents-cont rN <prompt>",
+	pi.registerCommand("af-agents-cont", {
+		description: "Continue a finished research helper: /af-agents-cont rN <prompt>",
 		getArgumentCompletions: researchHandleCompletions,
 		handler: researchContHandler,
 	});
 
-	pi.registerCommand("research-cont", {
-		description: "Continue a finished research helper (alias of /agents-cont): /research-cont rN <prompt>",
+	pi.registerCommand("af-research-cont", {
+		description: "Continue a finished research helper (alias of /af-agents-cont): /af-research-cont rN <prompt>",
 		getArgumentCompletions: researchHandleCompletions,
 		handler: researchContHandler,
 	});
@@ -6660,7 +6660,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		updateResearchWidget();
 	}
 
-	// Remove all helpers (SIGTERM any running). Shared by /agents-kill all and /research-clear.
+	// Remove all helpers (SIGTERM any running). Shared by /af-agents-kill all and /af-research-clear.
 	function clearResearchHelpers(ctx: any) {
 		let killed = 0;
 		const total = researchStates.size;
@@ -6681,32 +6681,32 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		ctx.ui.notify(msg, total === 0 ? "info" : "success");
 	}
 
-	// /research-rm — alias of /agents-kill rN (kill on a research handle removes).
-	pi.registerCommand("research-rm", {
-		description: "Remove a research helper (alias of /agents-kill rN): /research-rm rN",
+	// /af-research-rm — alias of /af-agents-kill rN (kill on a research handle removes).
+	pi.registerCommand("af-research-rm", {
+		description: "Remove a research helper (alias of /af-agents-kill rN): /af-research-rm rN",
 		getArgumentCompletions: researchHandleCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const rid = parseResearchHandle((args ?? "").trim());
 			const state = rid != null ? researchStates.get(rid) : undefined;
 			if (!state) {
-				ctx.ui.notify(`Usage: /research-rm rN. Known: ${Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ") || "none"}`, "error");
+				ctx.ui.notify(`Usage: /af-research-rm rN. Known: ${Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ") || "none"}`, "error");
 				return;
 			}
 			removeResearchHelper(state, ctx);
 		},
 	});
 
-	// /research-clear — alias of /agents-kill all.
-	pi.registerCommand("research-clear", {
-		description: "Remove all research helpers (alias of /agents-kill all)",
+	// /af-research-clear — alias of /af-agents-kill all.
+	pi.registerCommand("af-research-clear", {
+		description: "Remove all research helpers (alias of /af-agents-kill all)",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			clearResearchHelpers(ctx);
 		},
 	});
 
-	pi.registerCommand("dispatch-policy", {
+	pi.registerCommand("af-dispatch-policy", {
 		description: "Show dispatch backend routing (dispatch-policy.yaml) for the active team",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
@@ -6723,15 +6723,15 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const src = existsSync(policyPath) ? ".pi/agents/dispatch-policy.yaml" : "(no dispatch-policy.yaml — all native)";
 			ctx.ui.notify(
 				`Dispatch backends — ${src}, default: ${dispatchPolicy.default}\n${lines.join("\n") || "(no active team)"}\n` +
-				`Routing is decided per dispatch against the live coms pool (/coms to refresh).`,
+				`Routing is decided per dispatch against the live coms pool (/af-coms to refresh).`,
 				"info",
 			);
 		},
 	});
 
 	// Completions over both target kinds: team persona names + research handles
-	// (rN), each annotated with status — for the unified /agents-kill and
-	// /agents-restart.
+	// (rN), each annotated with status — for the unified /af-agents-kill and
+	// /af-agents-restart.
 	const subagentTargetCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = [...(agentNameCompletions("") ?? []), ...(researchHandleCompletions("") ?? [])];
 		if (items.length === 0) return null;
@@ -6739,7 +6739,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// /agents-kill completions additionally offer "all" (research helpers only).
+	// /af-agents-kill completions additionally offer "all" (research helpers only).
 	const agentsKillCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const targets = subagentTargetCompletions("") ?? [];
 		const items = researchStates.size > 0
@@ -6750,8 +6750,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	pi.registerCommand("agents-kill", {
-		description: "Kill a running specialist, or kill & remove research helper(s): /agents-kill <name|rN|all>",
+	pi.registerCommand("af-agents-kill", {
+		description: "Kill a running specialist, or kill & remove research helper(s): /af-agents-kill <name|rN|all>",
 		getArgumentCompletions: agentsKillCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -6782,7 +6782,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
 					...Array.from(researchStates.values()).map(s => `r${s.id}`),
 				].join(", ");
-				ctx.ui.notify(`Usage: /agents-kill <name|rN|all>. Known: ${known || "none"}`, "error");
+				ctx.ui.notify(`Usage: /af-agents-kill <name|rN|all>. Known: ${known || "none"}`, "error");
 				return;
 			}
 			if (state.status !== "running" || (!state.proc && !state.comsAbort)) {
@@ -6805,16 +6805,16 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	pi.registerCommand("agents-restart", {
-		description: "Kill and re-run a specialist's (or re-run a finished research helper's) last task fresh: /agents-restart <name|rN>",
+	pi.registerCommand("af-agents-restart", {
+		description: "Kill and re-run a specialist's (or re-run a finished research helper's) last task fresh: /af-agents-restart <name|rN>",
 		getArgumentCompletions: subagentTargetCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const name = args?.trim();
 			// An rN handle re-runs a finished helper's last task on a fresh session
-			// (unlike /agents-cont, which resumes the existing one). A running helper
+			// (unlike /af-agents-cont, which resumes the existing one). A running helper
 			// can't be restarted mid-flight — spawnResearch's promise is held by its
-			// original caller, and /agents-kill removes the helper outright.
+			// original caller, and /af-agents-kill removes the helper outright.
 			const rid = name ? parseResearchHandle(name) : null;
 			if (rid != null) {
 				const rState = researchStates.get(rid);
@@ -6824,7 +6824,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					return;
 				}
 				if (rState.status === "running") {
-					ctx.ui.notify(`Research r${rState.id} is still running — wait for it to finish (or /agents-kill r${rState.id} to discard it and /research the task again).`, "warning");
+					ctx.ui.notify(`Research r${rState.id} is still running — wait for it to finish (or /af-agents-kill r${rState.id} to discard it and /af-research the task again).`, "warning");
 					return;
 				}
 				if (!rState.task) {
@@ -6844,7 +6844,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
 					...Array.from(researchStates.values()).map(s => `r${s.id}`),
 				].join(", ");
-				ctx.ui.notify(`Usage: /agents-restart <name|rN>. Known: ${known || "none"}`, "error");
+				ctx.ui.notify(`Usage: /af-agents-restart <name|rN>. Known: ${known || "none"}`, "error");
 				return;
 			}
 			const task = state.task;
@@ -6886,7 +6886,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	pi.registerCommand("persona", {
+	pi.registerCommand("af-persona", {
 		description: "Select or reset the dispatcher persona (orchestrator flavor)",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
@@ -6919,9 +6919,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	// ── Embedded coms: /coms + /handoff ──
+	// ── Embedded coms: /af-coms + /af-handoff ──
 
-	// Completions over live peer names for /handoff.
+	// Completions over live peer names for /af-handoff.
 	const comsPeerCompletions = (prefix: string): AutocompleteItem[] | null => {
 		// Same pool scope as coms_send/handoff resolution — only offer peers you can reach.
 		const entries = peersInScope();
@@ -6932,7 +6932,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	pi.registerCommand("coms", {
+	pi.registerCommand("af-coms", {
 		description: "Force-refresh the coms pool widget (or filter with --all / --project <name>)",
 		handler: async (args, ctx) => {
 			if (!comsReady) { ctx.ui.notify("coms is not active in this session.", "warning"); return; }
@@ -6972,22 +6972,22 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		}
 	});
 
-	// /handoff <peer> — hand the session off to a coms peer. Per decision G1 we do NOT
+	// /af-handoff <peer> — hand the session off to a coms peer. Per decision G1 we do NOT
 	// extract the compaction summary; instead we ask the dispatcher LLM (next turn) to
 	// compose a SELF-CONTAINED brief and coms_send it, then await + relay the reply.
-	pi.registerCommand("handoff", {
-		description: "Hand the session off to a coms peer (the dispatcher composes a self-contained brief): /handoff <peer>",
+	pi.registerCommand("af-handoff", {
+		description: "Hand the session off to a coms peer (the dispatcher composes a self-contained brief): /af-handoff <peer>",
 		getArgumentCompletions: comsPeerCompletions,
 		handler: async (args, ctx) => {
-			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /handoff unavailable.", "warning"); return; }
+			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /af-handoff unavailable.", "warning"); return; }
 			const target = (args ?? "").trim();
 			if (!target) {
-				ctx.ui.notify("Usage: /handoff <peer>. See the coms pool for live peer names.", "error");
+				ctx.ui.notify("Usage: /af-handoff <peer>. See the coms pool for live peer names.", "error");
 				return;
 			}
 			const peer = resolveTarget(target);
 			if (!peer) {
-				ctx.ui.notify(`coms: no live peer "${target}". Use /coms to refresh the pool.`, "error");
+				ctx.ui.notify(`coms: no live peer "${target}". Use /af-coms to refresh the pool.`, "error");
 				return;
 			}
 			const handoffToken = crypto.randomBytes(8).toString("hex");
@@ -7007,18 +7007,18 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	// /compound [focus] — end-of-session compound-learning pass. Mirrors /handoff's
+	// /af-compound [focus] — end-of-session compound-learning pass. Mirrors /af-handoff's
 	// shape: the dispatcher LLM (which saw the whole session) composes the
 	// candidate-lessons brief itself, gates it on the user, then dispatches the
 	// documenter to land the approved lessons per skills/compound-learning/SKILL.md.
 	// The rules/docs targets come from the overrides file; artifacts travel as
 	// paths through the dispatch's `artifacts` array, never as pasted bodies.
-	pi.registerCommand("compound", {
-		description: "Capture this session's lessons into the project's rules/docs via the documenter: /compound [focus]",
+	pi.registerCommand("af-compound", {
+		description: "Capture this session's lessons into the project's rules/docs via the documenter: /af-compound [focus]",
 		handler: async (args, ctx) => {
 			if (!agentStates.has("documenter")) {
 				ctx.ui.notify(
-					"compound: the documenter persona is not in the active team — switch with /agents-team (e.g. default or release), then re-run /compound.",
+					"compound: the documenter persona is not in the active team — switch with /af-agents-team (e.g. default or release), then re-run /af-compound.",
 					"warning",
 				);
 				return;
@@ -7053,9 +7053,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
-	// ── ask_user wait tracking (for /agents-history real-work) ──
+	// ── ask_user wait tracking (for /af-agents-history real-work) ──
 	// pi-ask-user blocks the dispatcher turn while the human answers. Bracket each
-	// ask_user call with its tool_execution start/end so /agents-history can subtract
+	// ask_user call with its tool_execution start/end so /af-agents-history can subtract
 	// that "away from keyboard" time from the dispatcher's real work.
 	pi.on("tool_execution_start", async (event) => {
 		if (event.toolName === "ask_user") askUserStarts.set(event.toolCallId, Date.now());
@@ -7075,7 +7075,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// ── System Prompt Override ───────────────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
-		// Open a fresh dispatcher turn for /agents-history. The orchestrator entry is
+		// Open a fresh dispatcher turn for /af-agents-history. The orchestrator entry is
 		// created lazily (only if this turn actually dispatches), so chat-only turns
 		// add no history rows. Defensively close any entry a prior turn left open
 		// (e.g. an aborted turn where agent_end never fired).
@@ -7220,7 +7220,7 @@ to how interesting the work is.
 
 ## Execution mode: ${hubMode}${turnTaskTier ? ` · tier: ${turnTaskTier}` : ""}
 Budgets for THIS user turn (enforced by the hub — exhausted budgets make dispatch_agent/
-spawn_research refuse; a new user message opens a fresh window; /hub-mode switches mode):
+spawn_research refuse; a new user message opens a fresh window; /af-hub-mode switches mode):
 - dispatch_agent calls: ${cap(budget.maxDispatches)} · spawn_research calls: ${cap(budget.maxResearch)}
 - turn wall clock: ${capMin(budget.wallMs)} · per-run deadline: ${capMin(budget.agentTurnMs)}
 Plan within the budget: batch related work into ONE dispatch (a coherent slice of 4–6
@@ -7238,7 +7238,7 @@ ${hubMode === "fast"
   verification and report back.
 - Nested delegation is disabled; do not commission inventories or parity audits.
 - If the task turns out to be larger than fast mode fits, say so and ask the user to
-  switch modes (/hub-mode standard) instead of burning the budget.`
+  switch modes (/af-hub-mode standard) instead of burning the budget.`
 	: hubMode === "standard"
 		? `STANDARD mode rules: rigor where it pays, batching everywhere else.
 - At most ONE reconnaissance pass before building (skip it for familiar code); prefer the
@@ -7303,12 +7303,12 @@ You are ALSO a peer on the coms mesh — project "${identity.project}", name "${
 your own team you can talk to the peers in your coms POOL — the agents shown in the pool widget:
 - \`coms_list\` — discover the peers in your pool (names, models, live context usage). The pool is
   scoped to YOUR project and excludes private (explicit) peers. You CANNOT widen this — only the human
-  can, with \`/coms --project <name>\` or \`/coms --all\`. Do not ask coms_list for other projects.
+  can, with \`/af-coms --project <name>\` or \`/af-coms --all\`. Do not ask coms_list for other projects.
 - \`coms_send\` returns a msg_id; then \`coms_await\` (blocking) or \`coms_get\` (poll) reads the reply.
   This lets you use a peer as an on-demand subagent: send a SELF-CONTAINED task, await it, and fold the
   result into your plan. A peer does NOT share your context — spell out everything it needs.
-- Only peers in your pool are reachable. \`coms_send\`/\`/handoff\` to anyone outside it is refused. If
-  you need a peer that is not in the pool, ASK THE HUMAN to widen scope (\`/coms --project\`/\`--all\`),
+- Only peers in your pool are reachable. \`coms_send\`/\`/af-handoff\` to anyone outside it is refused. If
+  you need a peer that is not in the pool, ASK THE HUMAN to widen scope (\`/af-coms --project\`/\`--all\`),
   then retry. Do not pass cross-project context to a peer unless the human approved that reach.
 - Prefer \`dispatch_agent\`/\`spawn_research\` for in-team work; reach for coms when a task needs another
   STANDING agent already in your pool (a human-driven peer, a specialist outside this team).
@@ -7328,8 +7328,8 @@ ${languageLines}
 ## Active Team: ${activeTeamName}
 Members: ${teamMembers}
 You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents
-outside this team. The roster CAN change mid-session: the human via /agents-add,
-/agents-drop, /agents-team — or you via \`team_adjust\` (add/drop with a reason)
+outside this team. The roster CAN change mid-session: the human via /af-agents-add,
+/af-agents-drop, /af-agents-team — or you via \`team_adjust\` (add/drop with a reason)
 when the current roster genuinely cannot serve the task. Use it sparingly; more
 personas is usually the wrong answer.
 
@@ -7419,7 +7419,7 @@ ${researchCatalog}`;
 		}
 		researchStates.clear();
 		nextResearchId = 1;
-		// Wipe the /agents-history log from any previous session.
+		// Wipe the /af-agents-history log from any previous session.
 		executionHistory.length = 0;
 		currentOrchestratorEntry = null;
 		turnActive = false;
@@ -7640,7 +7640,7 @@ ${researchCatalog}`;
 
 		// ── Damage-control shared exemptions file ──
 		// One per hub session (solo mode included). Exporting the path on our own
-		// process.env lets the co-loaded damage-control-continue mirror /allow
+		// process.env lets the co-loaded damage-control-continue mirror /af-allow
 		// session grants into the same file the spawned children read.
 		if (!exemptionsFile) {
 			exemptionsFile = exemptionsFilePath(identity?.session_id ?? `hub-solo-${process.pid}`);
@@ -7737,7 +7737,7 @@ ${researchCatalog}`;
 				if (!def) {
 					profileErrors.push(`profile "${profileName}": unknown persona "${persona}"`);
 				} else if (!allowedModels(def).includes(model)) {
-					profileErrors.push(`profile "${profileName}": ${persona} does not declare ${model} (model:/models: in ${def.file})`);
+					profileErrors.push(`profile "${profileName}": ${persona} does not declare ${model} (model:/af-models: in ${def.file})`);
 				}
 			}
 		}
@@ -7763,13 +7763,13 @@ ${researchCatalog}`;
 		// least one orchestrator persona exists, so it never blocks with nothing to pick.
 		orchestratorPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "orchestrator");
 		// Research personas (kind: research) — spawnable read-only via spawn_research and
-		// the /research command, independent of team membership.
+		// the /af-research command, independent of team membership.
 		researchPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "research");
 		dispatcherPersona = null;
 		personaGateEnabled = overrides.personaGate && orchestratorPersonas.length > 0;
 		personaGateSatisfied = !personaGateEnabled;
 
-		// Default to first team — use /agents-team to switch
+		// Default to first team — use /af-agents-team to switch
 		const teamNames = Object.keys(teams);
 		if (teamNames.length > 0) {
 			activateTeam(teamNames[0]);
@@ -7807,7 +7807,7 @@ ${researchCatalog}`;
 				? "off (no `kind: orchestrator` personas found)"
 				: "off (set `persona-gate: on` to enable)";
 		const comsLabel = comsReady && identity
-			? `📡 ${identity.name}@${identity.project} — peers via coms_list; /handoff <peer> to delegate`
+			? `📡 ${identity.name}@${identity.project} — peers via coms_list; /af-handoff <peer> to delegate`
 			: soloMode
 				? "off (--solo: fixed specialists + research only)"
 				: "off (endpoint bind failed — coms tools disabled)";
@@ -7818,9 +7818,9 @@ ${researchCatalog}`;
 			.filter(([, s]) => s.prefer === "coms")
 			.map(([n]) => n);
 		const dispatchLabel = dispatchPolicy.default === "coms"
-			? "coms default — any member with a live same-name pool peer is served by it (/dispatch-policy)"
+			? "coms default — any member with a live same-name pool peer is served by it (/af-dispatch-policy)"
 			: comsPreferred.length > 0
-				? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /dispatch-policy for status)`
+				? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /af-dispatch-policy for status)`
 				: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)";
 		_ctx.ui.notify(
 			`Team: ${activeTeamName} (${members})\n` +
@@ -7831,25 +7831,25 @@ ${researchCatalog}`;
 			`Persona gate: ${personaGateLabel}\n` +
 			`Coms: ${comsLabel}\n` +
 			`Fleet: ${fleetLabel}\n\n` +
-			`/agents-team          Select a team\n` +
-			`/agents-list          List active agents and status\n` +
-			`/agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
-			`/agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
-			`/agent-model-thinking <persona> Switch a persona's thinking level\n` +
-			`/models [profile]     Apply a named model profile to the team\n` +
-			`/agent-models-substitute <src> <tgt> Swap one model across all personas\n` +
-			`/dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)\n` +
-			`/agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
-			`/agents-restart <name> Kill + re-run its last task fresh\n` +
-			`/zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream\n` +
-			`/research <task>      Spawn a read-only research helper (@persona, --model)\n` +
-			`/research-cont rN ... Resume a finished research helper\n` +
-			`/research-rm rN       Remove a research helper (kill if running)\n` +
-			`/research-clear       Remove all research helpers\n` +
-			`/persona              Select/reset the dispatcher persona\n` +
-			`/coms [--all|--project N] Refresh the coms peer pool\n` +
-			`/handoff <peer>       Hand the session off to a coms peer\n` +
-			`/compound [focus]     Capture session lessons into the project rules/docs`,
+			`/af-agents-team          Select a team\n` +
+			`/af-agents-list          List active agents and status\n` +
+			`/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
+			`/af-agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
+			`/af-agent-model-thinking <persona> Switch a persona's thinking level\n` +
+			`/af-models [profile]     Apply a named model profile to the team\n` +
+			`/af-agent-models-substitute <src> <tgt> Swap one model across all personas\n` +
+			`/af-dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)\n` +
+			`/af-agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
+			`/af-agents-restart <name> Kill + re-run its last task fresh\n` +
+			`/af-zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream\n` +
+			`/af-research <task>      Spawn a read-only research helper (@persona, --model)\n` +
+			`/af-research-cont rN ... Resume a finished research helper\n` +
+			`/af-research-rm rN       Remove a research helper (kill if running)\n` +
+			`/af-research-clear       Remove all research helpers\n` +
+			`/af-persona              Select/reset the dispatcher persona\n` +
+			`/af-coms [--all|--project N] Refresh the coms peer pool\n` +
+			`/af-handoff <peer>       Hand the session off to a coms peer\n` +
+			`/af-compound [focus]     Capture session lessons into the project rules/docs`,
 			"info",
 		);
 		_ctx.ui.setStatus("dispatcher-persona", personaGateEnabled ? "Persona: (pick one)" : "Persona: Default");
@@ -7878,7 +7878,7 @@ ${researchCatalog}`;
 
 				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think, activeTeamName);
 				const hint = theme.fg("muted", "Alt+A ") + theme.fg("dim", `view:${viewMode}`);
-				// The btw extension flips this global the first time a /btw command or
+				// The btw extension flips this global the first time a /af-btw command or
 				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.
 				const btwHint = (globalThis as { __btwActivated?: boolean }).__btwActivated
 					? theme.fg("muted", "  ·  Alt+' ") + theme.fg("dim", "btw")
@@ -7910,7 +7910,7 @@ ${researchCatalog}`;
 	// When this agent was addressed by a peer (an inbound prompt in the queue), the
 	// turn's final assistant text becomes the response we ship back to the sender.
 	pi.on("agent_end", async (_event, ctx) => {
-		// Close the /agents-history dispatcher turn (if this turn opened one). The
+		// Close the /af-agents-history dispatcher turn (if this turn opened one). The
 		// orchestrator entry's span covers all of its dispatches plus the wrap-up.
 		turnActive = false;
 		if (currentOrchestratorEntry) {

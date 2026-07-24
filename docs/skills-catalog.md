@@ -1,6 +1,6 @@
 # Skills Catalog
 
-All 29 skills, grouped by lifecycle phase. Each one is a structured workflow with steps, verification gates, and anti-rationalization tables — see [skill-anatomy.md](skill-anatomy.md) for the format. The lifecycle commands (`/spec`, `/plan`, `/build`, …) are the entry points; these skills are what they activate, and every skill can also be referenced directly.
+All 29 skills, grouped by lifecycle phase. Each one is a structured workflow with steps, verification gates, and anti-rationalization tables — see [skill-anatomy.md](skill-anatomy.md) for the format. The lifecycle commands (unprefixed on Claude Code, `/af-spec`, `/af-plan`, `/af-build`, … on Pi/OpenCode) are the entry points; these skills are what they activate, and every skill can also be referenced directly.
 
 Skills live in **two roots**: fleet-native and customized skills in [`skills/`](../skills/), and the pristine upstream import in [`vendor/agent-skills-upstream/skills/`](../vendor/agent-skills-upstream/). When a name exists in both, the native copy wins — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md).
 
@@ -77,15 +77,15 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [compound-learning](../skills/compound-learning/SKILL.md) | End-of-session compound pass — extracts lessons from session evidence (corrections, recurring findings, root causes), dedupes them index-first against the project's rule tree, and lands them as minimal, capped diffs on existing rules/docs files | A session ends with something worth keeping, the user says "compound", or the `documenter` persona receives a `/compound` dispatch |
+| [compound-learning](../skills/compound-learning/SKILL.md) | End-of-session compound pass — extracts lessons from session evidence (corrections, recurring findings, root causes), dedupes them index-first against the project's rule tree, and lands them as minimal, capped diffs on existing rules/docs files | A session ends with something worth keeping, the user says "compound", or the `documenter` persona receives a `/compound` or `/af-compound` dispatch |
 
-This is the compound-engineering loop: the `/compound` command (claude-code, opencode, and the agent-hub harness on pi) runs this skill against the `rules:`/`docs:` targets from `.ai/agent-fleet-overrides.md`, with an approval gate and hard caps so the rule tree gets sharper instead of longer.
+This is the compound-engineering loop: the `/compound` command on Claude Code, `/af-compound` on OpenCode and the Pi agent-hub harness runs this skill against the `rules:`/`docs:` targets from `.ai/agent-fleet-overrides.md`, with an approval gate and hard caps so the rule tree gets sharper instead of longer.
 
 ## Onboard - Get a workspace set up
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [guided-workspace-setup](../skills/guided-workspace-setup/SKILL.md) | The LLM-driven installer behind `/setup-agent-fleet` — workspace analysis, grouped install menus, version-aware three-way diffs, per-project overrides, doctor repairs | Installing, upgrading, or repairing an Agent Fleet workspace |
+| [guided-workspace-setup](../skills/guided-workspace-setup/SKILL.md) | The LLM-driven installer behind `/setup-agent-fleet` (Claude Code) or `/af-setup-agent-fleet` (Pi/OpenCode) — workspace analysis, grouped install menus, version-aware three-way diffs, per-project overrides, doctor repairs | Installing, upgrading, or repairing an Agent Fleet workspace |
 
 ## How skills work
 

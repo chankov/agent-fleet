@@ -37,7 +37,7 @@ Agent Fleet is a **multi-agent orchestration system for AI coding agents**, buil
 ```bash
 pi install -l npm:@chankov/agent-fleet   # project-scoped package: skills, prompts, ask-user
 # then, inside pi:
-#   /setup-agent-fleet                    # guided install of harnesses, personas, extensions
+#   /af-setup-agent-fleet                 # guided install of harnesses, personas, extensions
 # and once set up:
 just fleet                    # guarded Pi + STT and core utilities
 just fleet hub                # guarded multi-agent dispatcher
@@ -48,17 +48,18 @@ just fleet team docs          # hub + guarded peers in one tiled herdr workspace
 
 ```bash
 npx @chankov/agent-fleet init
-# then open your coding agent in this directory and run:
-#   /setup-agent-fleet
+# then open your coding agent in this directory and run the command it prints:
+#   Claude Code: /setup-agent-fleet
+#   OpenCode:    /af-setup-agent-fleet
 ```
 
-The CLI detects your coding agent and `/setup-agent-fleet` runs the full guided install — analysing the workspace, showing grouped menus, and confirming everything before writing a single file.
+The CLI detects your coding agent and prints the correct setup command. It runs the full guided install — analysing the workspace, showing grouped menus, and confirming everything before writing a single file.
 
 | CLI command | What it does |
 |---|---|
-| `npx @chankov/agent-fleet init` | Materialize the package + hand off to `/setup-agent-fleet` |
+| `npx @chankov/agent-fleet init` | Materialize the package + hand off to the runtime's setup command |
 | `npx @chankov/agent-fleet doctor` | Scan for broken symlinks and stale persona refs |
-| `npx @chankov/agent-fleet update` | Surface the version delta + hand off to `/setup-agent-fleet` for the per-artifact diff |
+| `npx @chankov/agent-fleet update` | Surface the version delta + hand off to the runtime's setup command for the per-artifact diff |
 | `npx @chankov/agent-fleet transform-persona` | Generate per-agent subagent files from the canonical personas |
 
 <details>
@@ -121,7 +122,7 @@ What makes it different is what it **doesn't** put in front of the dispatcher LL
 
 ![agent-hub compact view with the btw side-session](docs/assets/agent-hub-compact.png)
 
-Personas don't hardcode one frontier model — each declares a default plus a switch list on a three-tier policy (deep reasoning / workhorse / fast recon), switchable at runtime per persona (`/agent-model`) or fleet-wide (`/models <profile>`). `plan-reviewer` and `code-reviewer` can run as **Claude Code peers** for cross-model review.
+Personas don't hardcode one frontier model — each declares a default plus a switch list on a three-tier policy (deep reasoning / workhorse / fast recon), switchable at runtime per persona (`/af-agent-model`) or fleet-wide (`/af-models <profile>`). `plan-reviewer` and `code-reviewer` can run as **Claude Code peers** for cross-model review.
 
 ```bash
 just fleet hub                # guarded dispatcher + research + coms + orchestrator persona
@@ -146,23 +147,23 @@ Deep dive: [agent-hub harness README](.pi/harnesses/agent-hub/README.md) (the fu
  │ Idea │ ───▶ │ Spec │ ───▶ │ Code │ ───▶ │ Test │ ───▶ │  QA  │ ───▶ │  Go  │
  │Refine│      │  PRD │      │ Impl │      │Debug │      │ Gate │      │ Live │
  └──────┘      └──────┘      └──────┘      └──────┘      └──────┘      └──────┘
-  /spec          /plan          /build        /test         /review       /ship
+  spec           plan           build         test          review        ship
 ```
 
-10 slash commands map to the development lifecycle; each activates the right skills automatically:
+10 slash commands map to the development lifecycle; each activates the right skills automatically. **Claude Code uses the unprefixed form; Pi and OpenCode use `/af-*`.**
 
-| What you're doing | Command | Key principle |
-|-------------------|---------|---------------|
-| Define what to build | `/spec` | Spec before code |
-| Plan how to build it | `/plan` | Small, atomic tasks |
-| Build incrementally | `/build` | One slice at a time (`/build auto` runs the whole plan in one approved pass) |
-| Prove it works | `/test` | Tests are proof |
-| Review before merge | `/review` | Improve code health |
-| Audit web performance | `/webperf` | Measure before you optimize |
-| Simplify the code | `/code-simplify` | Clarity over cleverness |
-| Ship to production | `/ship` | Faster is safer |
-| Orchestrate a team | `/orchestrate` | Main session drives a config-defined subagent roster (claude-code/opencode; pi uses agent-hub) |
-| Capture session lessons | `/compound` | Every session improves the next — lessons land as minimal diffs on your rule tree |
+| What you're doing | Claude Code | Pi / OpenCode | Key principle |
+|-------------------|-------------|---------------|---------------|
+| Define what to build | `/spec` | `/af-spec` | Spec before code |
+| Plan how to build it | `/plan` | `/af-plan` | Small, atomic tasks |
+| Build incrementally | `/build` | `/af-build` | One slice at a time (`auto` runs the whole plan in one approved pass) |
+| Prove it works | `/test` | `/af-test` | Tests are proof |
+| Review before merge | `/review` | `/af-review` | Improve code health |
+| Audit web performance | `/webperf` | `/af-webperf` *(OpenCode)* | Measure before you optimize |
+| Simplify the code | `/code-simplify` | `/af-code-simplify` | Clarity over cleverness |
+| Ship to production | `/ship` | `/af-ship` | Faster is safer |
+| Orchestrate a team | `/orchestrate` | `/af-orchestrate` *(OpenCode; Pi uses agent-hub)* | Main session drives a config-defined roster |
+| Capture session lessons | `/compound` | `/af-compound` | Every session improves the next |
 
 Under the hood are **29 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
 
@@ -183,7 +184,7 @@ Full catalog with descriptions and triggers: **[docs/skills-catalog.md](docs/ski
 
 15 pre-configured specialist personas live in [`agents/`](agents/) — reusable subagent definitions your coding agent delegates work to: `planner`, `plan-reviewer`, `builder`, `code-reviewer`, `test-engineer`, `security-auditor`, `web-performance-auditor`, `documenter`, `architect`, `releaser`, `researcher`, `deep-researcher`, plus the pi-only `bowser`, `web-debugger`, and `orchestrator`.
 
-Each persona is one Markdown file; the canonical format is pi-flavored and `/setup-agent-fleet` transforms it per target agent on install (Claude Code subagents, OpenCode `mode: subagent`, pi as-is). Personas are the *who*, skills are the *how* — each carries a conditional hook to its primary skill, and they compose into teams under the hub or via `/orchestrate`.
+Each persona is one Markdown file; the canonical format is pi-flavored and the runtime's Agent Fleet setup command transforms it per target agent on install (Claude Code subagents, OpenCode `mode: subagent`, pi as-is). Personas are the *who*, skills are the *how* — each carries a conditional hook to its primary skill, and they compose into teams under the hub or via `/orchestrate`.
 
 Full roster, skill hooks, install matrix, and team composition: **[docs/agents.md](docs/agents.md)**.
 

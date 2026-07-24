@@ -101,7 +101,7 @@ sessions are recycled (fresh spawn instead of `-c` resume) after `session-recycl
 or ≥60% measured context — resumed sessions otherwise re-bill their accumulated context on
 every model call. Configured under `## agent-hub` (`mode`, `max-dispatches-per-turn`,
 `max-research-per-turn`, `turn-wall-time-s`, `agent-turn-timeout-s`, `session-recycle-runs`);
-switched live with `/hub-mode`.
+switched live with `/af-hub-mode`.
 
 On top of the mode sit three qualitative guardrails. **Task triage**: the dispatcher
 classifies each turn via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)
@@ -111,10 +111,10 @@ observed in-flight from the JSON event stream — deterministic rules (out-of-sc
 against the declared `scope` globs, tool-call loops, consecutive failures, tool-call cap)
 escalate to a one-shot cheap LLM judge whose DRIFTING/STUCK verdict terminates the run as
 `drift_stop` (exit 125, partial output preserved); enabled per hub/agent/dispatch
-(`watchdog` key, `/watchdog`, `watchdog` param). **Dynamic teams**: `/agents-add`,
-`/agents-drop`, `/agents-save` restructure the roster live (the system prompt rebuilds
+(`watchdog` key, `/af-watchdog`, `watchdog` param). **Dynamic teams**: `/af-agents-add`,
+`/af-agents-drop`, `/af-agents-save` restructure the roster live (the system prompt rebuilds
 every turn), and the gated `team_adjust` tool lets the dispatcher itself adjust the roster
-outside fast mode, with user notification. `/hub-report` accounts each turn's dispatches,
+outside fast mode, with user notification. `/af-hub-report` accounts each turn's dispatches,
 tokens (billed = input + cacheRead + cacheWrite), recycles, drift stops, and refusals.
 
 ## Runtime stack (tools the fleet sits on)

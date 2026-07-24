@@ -1,15 +1,15 @@
 /**
- * btw — in-process side tasks for pi with a live modal, modeled on Claude Code's `/btw`.
+ * btw — in-process side tasks for pi with a live modal, modeled on Claude Code's `/af-btw`.
  *
- * `/btw <task>` forks the CURRENT session into an in-process sub-session
+ * `/af-btw <task>` forks the CURRENT session into an in-process sub-session
  * (`createAgentSession`) that inherits the full conversation as context, works the
  * side task in the same cwd, and streams into a modal overlay with its own
  * transcript + follow-up composer. A compact result card lands in the main
  * transcript when the session next goes idle.
  *
  * Design constraints (all intentional — see .pi/extensions/btw/README.md):
- *   - Command-only surface. No model-callable tool, no subcommands. `/btw <task>`
- *     starts a task and opens the modal; `/btw` (no args) or `Alt+'` reopens it.
+ *   - Command-only surface. No model-callable tool, no subcommands. `/af-btw <task>`
+ *     starts a task and opens the modal; `/af-btw` (no args) or `Alt+'` reopens it.
  *   - In-process sub-session, NOT a child `pi` process. The fork is a real
  *     `AgentSession` with fixed built-in tools and NO extensions/custom tools (the
  *     sub-session loads no extension runtime → no recursion, mirroring the old
@@ -149,7 +149,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 	// the modal always have a live handle after the original command returned.
 	let latestCtx: ExtensionContext | undefined;
 	// Modal lifecycle: guard against double-open, remember last-viewed thread, and
-	// expose a handle so a fresh /btw can retarget an already-open modal.
+	// expose a handle so a fresh /af-btw can retarget an already-open modal.
 	let modalOpen = false;
 	let lastViewedId: string | undefined;
 	let currentModal: CurrentModalHandle | undefined;
@@ -725,7 +725,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 		}
 		const initial = resolveThreadId(startId, order) ?? mostRecentId();
 		if (!initial) {
-			ctx.ui.notify("No btw side tasks yet — /btw <task> to start one.", "info");
+			ctx.ui.notify("No btw side tasks yet — /af-btw <task> to start one.", "info");
 			return;
 		}
 		modalOpen = true;
@@ -758,7 +758,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 					};
 					bindRender();
 
-					// Let a fresh /btw retarget this open modal and keep selection valid when
+					// Let a fresh /af-btw retarget this open modal and keep selection valid when
 					// retention/pruning changes the backing thread list.
 					currentModal = {
 						show: (id: string) => {
@@ -811,8 +811,8 @@ export default function btwExtension(pi: ExtensionAPI) {
 		}
 	}
 
-	pi.registerCommand("btw", {
-		description: "Start a side task in a live modal (full session context), or reopen the modal. Usage: /btw [task]",
+	pi.registerCommand("af-btw", {
+		description: "Start a side task in a live modal (full session context), or reopen the modal. Usage: /af-btw [task]",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			latestCtx = ctx;
 			markBtwActivated();
@@ -821,7 +821,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 				if (threads.size > 0) {
 					await openModal(ctx, lastViewedId);
 				} else {
-					ctx.ui.notify("Usage: /btw <task> — runs a side task with this session's full context.", "warning");
+					ctx.ui.notify("Usage: /af-btw <task> — runs a side task with this session's full context.", "warning");
 				}
 				return;
 			}
@@ -838,7 +838,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 			latestCtx = ctx;
 			markBtwActivated();
 			if (threads.size === 0) {
-				ctx.ui.notify("No btw side tasks yet — /btw <task> to start one.", "info");
+				ctx.ui.notify("No btw side tasks yet — /af-btw <task> to start one.", "info");
 				return;
 			}
 			await openModal(ctx, lastViewedId);

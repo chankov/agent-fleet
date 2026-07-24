@@ -92,7 +92,7 @@ test("checkTurnBudget refuses on dispatch cap with actionable guidance", () => {
 	assert.equal(r.reason, "dispatches");
 	assert.match(r.message, /Do NOT retry/);
 	assert.match(r.message, /ask the user/);
-	assert.match(r.message, /\/hub-mode/);
+	assert.match(r.message, /\/af-hub-mode/);
 });
 
 test("checkTurnBudget refuses on research cap only for research calls", () => {

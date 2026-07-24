@@ -89,4 +89,5 @@ export default createMcpBridgeExtension({
 	env: buildChromeDevToolsEnv(),
 	stderr: "pipe",
 	labelPrefix: "Chrome DevTools",
+	statusCommandName: "af-chrome-devtools-status",
 });
