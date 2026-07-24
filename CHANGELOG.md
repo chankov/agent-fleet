@@ -1,5 +1,14 @@
 # Agent Fleet changelog
 
+## 0.0.5
+
+### Patch Changes
+
+- fb50bef: Add `/set-hermes-telegram` (`/af-set-hermes-telegram` on OpenCode) and the deterministic `agent-fleet set-hermes-telegram` CLI. It installs/status-checks the profile-scoped `hub-liaison` skill with drift protection, atomic backup/replacement, tool and gateway verification, and explicit restart control, then starts or stops the Telegram `ask_user` bridge in a dedicated pane in the current Herdr workspace. Bridge sends are pinned to the verified Hermes profile instead of relying on the sticky default.
+- fb50bef: Add `just fleet` as the unified Pi runtime entry point. Fleet Core now guarantees Damage Control Continue, local/remote `ask_user`, Speech-to-Text, Compact & Continue, BTW, and update checks across the default session, Hub, standalone coms peers, and Herdr Pi peers. Add composable `peer`, `hub`, `team`, conductor, lifecycle, browser, and extension-discovery modes behind a single public Just recipe; the former Hub, team, coms, and conductor recipe aliases are removed.
+- aa5630c: Fix symlinked Agent Hub launches after package-only updates. The hub monitor runtime now ships atomically under the shared harness library, and `ask-user-remote` canonicalizes its own package path before loading the bundled `pi-ask-user` dependency.
+- d0e1914: Hoist MCP extension runtime dependencies into the published package so symlinked `chrome-devtools-mcp` peers can resolve the SDK from their real npm package path. Add package-surface regression coverage and strengthen setup/runtime verification guidance.
+
 ## 0.0.4
 
 ### Patch Changes

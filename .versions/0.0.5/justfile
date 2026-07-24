@@ -1,0 +1,245 @@
+# Justfile — pi extension harnesses
+#
+# Recipes to launch pi with the harness extensions under .pi/harnesses/.
+# Ported and adapted from disler/pi-vs-claude-code (MIT) — https://github.com/disler/pi-vs-claude-code
+# See docs/pi-extensions.md for the full catalog and the selective-load model.
+#
+# Why .pi/harnesses/ and not .pi/extensions/: pi auto-discovers EVERY directory
+# under .pi/extensions/, so anything placed there loads on every plain `pi` run.
+# Most harnesses are mutually exclusive — they live in .pi/harnesses/ (which pi
+# does NOT auto-discover) and are loaded via `pi -e` below. The supported stack
+# loads damage-control-continue before agent-hub, so hub sessions and all native
+# children run with guardrails by default.
+#
+# Everything between the two `agent-fleet:harnesses` sentinels below is a
+# MANAGED REGION: guided-workspace-setup regenerates it from the installed
+# package whenever pi harnesses are installed, refreshed, or retired — so edits
+# inside it are overwritten on upgrade. Put your own recipes OUTSIDE the
+# sentinels (above the opening marker or below the closing one) to keep them.
+
+# >>> agent-fleet:harnesses — managed region (regenerated on upgrade; edits inside are overwritten) >>>
+set dotenv-load := true
+
+# How recipes run the fleet TS scripts. The preserve-symlinks flags matter for
+# symlink installs (guided-workspace-setup's `symlink` method): there
+# scripts/*.ts are links whose realpath sits under .pi/npm/node_modules/, and
+# Node refuses --experimental-strip-types for anything under node_modules once
+# paths are realpath'd. Keeping symlink paths avoids that; copy installs are
+# unaffected (the fleet scripts import only relative paths + node builtins).
+node_ts := "node --experimental-strip-types --preserve-symlinks --preserve-symlinks-main"
+
+# Fleet Core is the invariant Pi runtime used by every new `just fleet` mode and
+# every Pi peer spawned into Herdr. `--no-extensions` makes the baseline
+# deterministic; these modules are then loaded explicitly:
+#   • damage-control-continue — fail-closed safety with actionable feedback
+#   • ask-user-remote         — stock local ask_user, optionally raced with Hermes
+#   • pi-voice-stt            — Alt+S dictation (silent no-op until configured)
+#   • compact-and-continue    — request_compaction at explicit workflow checkpoints
+#   • btw                     — /btw and Alt+' side sessions
+#   • update check            — bounded, non-blocking package update notification
+# `--browser` additionally loads chrome-devtools-mcp. `--all-extensions` removes
+# `--no-extensions`, so project/global auto-discovered extensions also load; use
+# it only when a session intentionally needs extensions outside Fleet Core.
+fleet_core_extensions := "-e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/extensions/pi-voice-stt/index.ts -e .pi/extensions/compact-and-continue/index.ts -e .pi/extensions/btw/index.ts -e .pi/extensions/agent-fleet-update-check/index.ts"
+fleet_browser_extension := "-e .pi/extensions/chrome-devtools-mcp/index.ts"
+
+# Show the complete Fleet command guide, descriptions, and runnable examples.
+default:
+    @just fleet help
+
+# ---------------------------------------------------------------- unified Fleet interface
+
+# Agent Fleet — one guarded entry point, additive capabilities, and lifecycle verbs.
+#
+# SAFE INTERACTIVE PI (recommended default)
+#   just fleet
+#   just fleet --model openai-codex/gpt-5.6-terra
+#   just fleet --browser                    # add live Chrome DevTools tools
+#   just fleet --all-extensions             # also auto-load project/global extensions
+#
+# ADDRESSABLE COMS PEER
+#   just fleet peer nick --project af
+#   just fleet peer web-debugger --browser --project af
+#
+# AGENT HUB
+#   just fleet hub --project af             # dispatcher + embedded coms
+#   just fleet hub --solo                   # dispatcher + local children, no coms
+#   just fleet hub --browser --project af   # browser tools in the hub/main process
+#
+# HERDR TEAMS (preset names come from .pi/agents/peers.yaml)
+#   just fleet team frontend --project af   # guarded hub + guarded peer grid
+#   just fleet team frontend --no-hub       # guarded peer grid only
+#   just fleet team review --dry-run        # print layout; do not touch Herdr
+#   just fleet team web --browser           # browser in hub; peer extras still come from YAML
+#
+# TEAM LIFECYCLE
+#   just fleet snapshot frontend --project af
+#   just fleet down frontend --project af
+#   just fleet resume frontend --project af
+#
+# REMOTE CONDUCTORS
+#   just fleet conductor hermes docs --project af
+#   just fleet conductor codex setup docs --project af
+#   just fleet conductor codex pair
+#   just fleet conductor codex start
+#   just fleet conductor codex docs --project af
+#   just fleet conductor codex status
+#   just fleet conductor codex stop
+#
+# BOOTSTRAP / HELP
+#   just fleet install                       # npm runtime deps only; starts no harness
+#   just fleet help
+#
+# Unified guarded Pi, Hub, peers, teams, lifecycle, and conductor entry point.
+fleet *args:
+    @{{node_ts}} scripts/fleet.ts {{args}}
+
+# Hidden Fleet Core launcher. Positional booleans are emitted only by fleet.ts.
+_fleet-core browser="false" all_extensions="false" *args:
+    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; pi $discovery {{fleet_core_extensions}} $browser_ext {{args}}
+
+# Hidden guarded peer launcher for an interactive, addressable Fleet node.
+_fleet-peer name browser="false" all_extensions="false" *args:
+    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; pi $discovery {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts $browser_ext --name {{name}} {{args}}
+
+# Hidden Hub launcher. Agent Hub re-loads Damage Control into every native
+# specialist, researcher, and nested delegate even though children use
+# --no-extensions. `solo=true` disables only the embedded coms layer.
+_fleet-hub solo="false" browser="false" all_extensions="false" *args:
+    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; solo_flag=""; if [ "{{solo}}" = "true" ]; then solo_flag="--solo"; fi; persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi $discovery {{fleet_core_extensions}} -e .pi/harnesses/agent-hub/index.ts $browser_ext $solo_flag $persona {{args}}
+
+# Hidden dependency bootstrap used by `just fleet install`.
+# It installs only Node runtime dependencies. It does NOT launch Pi, activate a
+# harness, configure STT, install ffmpeg/Herdr, or pair a remote conductor.
+_fleet-install:
+    npm install --prefix .pi/extensions
+    npm install --prefix .pi/harnesses
+
+
+# Internal helper for `fleet team`: launch a reusable GUARDED Pi peer.
+# Every peer gets Fleet Core + coms + its persona. This closes the historical
+# gap where Hub children and standalone peers were protected but Herdr Pi peers were
+# not. `--no-extensions` keeps peer capabilities deterministic; declare extras
+# such as chrome-devtools-mcp in .pi/agents/peers.yaml.
+# AGENT_FLEET_SPAWN_DELAY lets one pane refresh a stale shared OAuth token before
+# sibling Pi processes start. Hidden recipes (`_...`) do not appear in --list.
+_peer persona name="" model="" session="" project="default":
+    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; pi --no-extensions {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
+
+# Guarded peer plus comma-separated explicit extras from .pi/extensions/.
+# Example peers.yaml entry:
+#   extensions: chrome-devtools-mcp
+# The extra tools stay in this reusable peer; Hub's headless specialists still
+# run --no-extensions and therefore cannot accidentally inherit them.
+_peer-plus extensions persona name="" model="" session="" project="default":
+    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi --no-extensions {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts $extra --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
+
+# Internal team helper for a `runner: claude-code` peer — interactive
+# Claude Code plus its coms bridge (scripts/coms-claude-bridge.ts) in ONE pane.
+# The bridge registers the pane as coms peer <name>; the trailing session
+# positional maps to `claude --resume <id>` for `just fleet resume`.
+_claude-peer name model="" session="" project="default":
+    {{node_ts}} scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
+
+# The hidden team implementations take the team as a positional arg (default "full")
+# and pass everything after it straight to the script.
+#
+# Herdr workspace labels are auto-scoped to the CHECKOUT: <worktree-tag>-<mode>-<team>
+# where the tag is the last dot-segment of this directory's basename (main.wt2 →
+# wt2, ringithub.end2 → end2, plain agent-fleet → agent-fleet). So the same team
+# launched from different repos/worktrees gets its own workspace (wt2-hub-plan vs
+# end2-hub-plan) instead of colliding on a shared label. This is not global
+# uniqueness: unrelated checkouts with the same basename/final dot-segment can
+# still collide. Existing-workspace refusal prevents clobbering; it does not
+# prove the labels are unique.
+#
+# `--project <name>` is a SEPARATE axis: it scopes the coms peer POOL. Without it
+# every peer lands in the shared "default" pool, where teams launched from OTHER
+# repos collide (name suffixing like code-reviewer2, dispatches routed to the
+# wrong repo's pane). IMPORTANT: the flag form is `--project af`; `project=af` is
+# NOT a flag — just treats bare key=value args as variable overrides, so it is
+# silently ignored and the team still joins the "default" pool.
+
+# Peers-only implementation for:
+#   just fleet team full --no-hub
+#   just fleet team review --no-hub --project af
+_fleet-team-up team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} {{args}}
+
+# Peers-only dry run:
+#   just fleet team review --no-hub --dry-run --project af
+_fleet-team-up-dry team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --dry-run {{args}}
+
+# Default team mode: guarded Fleet Hub in the main pane plus guarded peers.
+#   just fleet team docs
+#   just fleet team review --project af
+_fleet-hub-team team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --hub {{args}}
+
+# Hub + team preview without touching Herdr:
+#   just fleet team review --dry-run --project af
+_fleet-hub-team-dry team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --hub --dry-run {{args}}
+
+# Hermes conductor + team:
+#   just fleet conductor hermes docs --project af
+_fleet-conductor team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor {{args}}
+
+# Hermes conductor preview:
+#   just fleet conductor hermes docs --dry-run --project af
+_fleet-conductor-dry team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
+
+# Experimental Codex remote-control conductor lifecycle (verified with CLI
+# 0.144.x). Pairing stays interactive and its short-lived code must never be
+# captured. The user service is singleton across repos/projects.
+#   just fleet conductor codex setup docs --project af
+_fleet-conductor-codex-setup team="full" *args:
+    {{node_ts}} scripts/codex-remote-control.ts setup-conductor --codex-bin "$(command -v codex)" --repo-root "$(pwd -P)" --coms-dir "$HOME/.pi/coms" --team "{{team}}" --timeout 300000 {{args}}
+
+_fleet-conductor-codex-reconfigure team="full" *args:
+    {{node_ts}} scripts/codex-remote-control.ts reconfigure-conductor --codex-bin "$(command -v codex)" --repo-root "$(pwd -P)" --coms-dir "$HOME/.pi/coms" --team "{{team}}" --timeout 300000 {{args}}
+
+_fleet-conductor-codex-pair:
+    {{node_ts}} scripts/codex-remote-control.ts pair
+
+_fleet-conductor-codex-start:
+    {{node_ts}} scripts/codex-remote-control.ts start
+
+_fleet-conductor-codex-status:
+    {{node_ts}} scripts/codex-remote-control.ts status
+
+_fleet-conductor-codex-stop:
+    {{node_ts}} scripts/codex-remote-control.ts stop
+
+_fleet-conductor-codex-recover:
+    {{node_ts}} scripts/codex-remote-control.ts recover --confirm operator-confirmed
+
+_fleet-conductor-codex-uninstall:
+    {{node_ts}} scripts/codex-remote-control.ts uninstall --confirm operator-confirmed
+
+# Codex conductor + team; systemd owns the remote-control daemon:
+#   just fleet conductor codex docs --project af
+_fleet-conductor-codex team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor codex {{args}}
+
+_fleet-conductor-codex-dry team="full" *args:
+    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor codex --dry-run {{args}}
+
+# Save session refs while the team keeps running:
+#   just fleet snapshot review --project af
+_fleet-team-snapshot team="full" *args:
+    {{node_ts}} scripts/team-snapshot.ts snapshot {{team}} {{args}}
+
+# Snapshot and close cleanly:
+#   just fleet down review --project af
+_fleet-team-down team="full" *args:
+    {{node_ts}} scripts/team-snapshot.ts down {{team}} {{args}}
+
+# Rebuild from snapshot; missing session refs start fresh:
+#   just fleet resume review --project af
+_fleet-team-resume team="full" *args:
+    {{node_ts}} scripts/team-snapshot.ts resume {{team}} {{args}}
+# <<< agent-fleet:harnesses <<<
