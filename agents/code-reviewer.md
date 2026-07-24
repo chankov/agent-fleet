@@ -20,10 +20,10 @@ subagents:
     model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   quality:
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   perf:
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   docs:
     model: openai-codex/gpt-5.6-luna

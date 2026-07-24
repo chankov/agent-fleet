@@ -12,7 +12,7 @@ thinking: medium
 delegate_depth: 1
 subagents:
   feasibility:
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   deps:
     model: openai-codex/gpt-5.6-luna

@@ -15,7 +15,7 @@ subagents:
     model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   input-sweep:
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   secrets-sweep:
     model: openai-codex/gpt-5.6-luna
