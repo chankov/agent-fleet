@@ -250,12 +250,12 @@ execution **tree**:
 Navigate with `↑/↓`, press `G` to jump back to the live tail, and `Q`/`Esc` to close. The log resets
 on each session start.
 
-Press **`Alt+A`** to toggle the agent view between the full **dashboard** (bordered card grid drawn
-*above* the input box) and a **compact** view that shows one line per *running* agent —
-`name · context% · state` — rendered *below* the input box, just above pi's status bar. Idle and
-done agents are hidden in compact mode, and the coms pool widget collapses too, so an idle session
-collapses to just the prompt and footer. The current mode and binding are shown in the footer
-(`Alt+A view:dashboard` / `Alt+A view:compact`).
+The agent view starts in **compact** mode, showing one line per *running* agent —
+`name · context% · state` — *below* the input box, just above pi's status bar. Idle and done agents
+are hidden, and the coms pool widget collapses too, so an idle session collapses to just the prompt
+and footer. Press **`Alt+A`** to toggle to the full **dashboard** (bordered card grid drawn *above*
+the input box) and back. The current mode and binding are shown in the footer
+(`Alt+A view:compact` / `Alt+A view:dashboard`).
 
 ### Version footer
 

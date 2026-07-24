@@ -1934,9 +1934,9 @@ export default function (pi: ExtensionAPI) {
 	let gridCols = 2;
 	// View mode toggled by Alt+A: "dashboard" = full bordered card grid above the
 	// editor; "compact" = one line per *running* agent (name · context · state)
-	// rendered BELOW the editor, just above the footer. Idle/done agents are hidden
-	// in compact mode, so an idle session shows nothing but the prompt + footer.
-	let viewMode: "dashboard" | "compact" = "dashboard";
+	// rendered BELOW the editor, just above the footer. Compact is the default;
+	// idle/done agents are hidden so an idle session shows only the prompt + footer.
+	let viewMode: "dashboard" | "compact" = "compact";
 	// Compact-view agent switcher: the key of the marked subagent (lowercase persona
 	// name for team specialists, `rN` for research helpers — matching /af-zoom
 	// resolution), or null when nothing is marked. main is never listed (it is the
