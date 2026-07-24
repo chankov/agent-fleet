@@ -1,0 +1,6 @@
+{
+  "name": "agent-fleet-pi-chrome-devtools-mcp",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}
