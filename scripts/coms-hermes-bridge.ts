@@ -318,8 +318,11 @@ async function main(): Promise<void> {
 			}
 			invalidJsonSeen.delete(file);
 			const logQid = validation.qid && isValidQid(validation.qid) ? validation.qid : (isValidQid(qidFromName) ? qidFromName : "00000000000000000000000000");
-			appendAnswerRejectLog(logFile, logQid, { reason: validation.reason, file });
+			// Remove the rejected file before publishing the event. Consumers use the
+			// log as the completion signal and may immediately write a corrected file
+			// at the same path; logging first lets this scan delete that replacement.
 			try { fs.unlinkSync(full); } catch { /* ignore */ }
+			appendAnswerRejectLog(logFile, logQid, { reason: validation.reason, file });
 			return;
 		}
 
