@@ -1,5 +1,11 @@
 # Agent Fleet changelog
 
+## 0.0.6
+
+### Patch Changes
+
+- 9b81430: Namespace every Agent Fleet Pi slash command under `/af-*`, including lifecycle prompt templates, harness controls, utility-extension commands, and installer entrypoints. Pi bootstrap and guided setup migrate owned legacy prompt targets while preserving modified or unowned files.
+
 ## 0.0.5
 
 ### Patch Changes
