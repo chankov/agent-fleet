@@ -56,8 +56,12 @@ import {
 	formatPanePrompt,
 	idleWaitBudgetMs,
 	idleWaitDelayMs,
+	isReplyPendingError,
 	parseHookRecord,
 	PromptQueue,
+	REPLY_TIMEOUT_HARD_CAP_MS,
+	ReplyPendingError,
+	replyDeadlineAt,
 	resolveReplyTimeoutMs,
 } from "./lib/claude-bridge-core.ts";
 import { herdr, requireHerdr, HerdrUnavailableError } from "../.pi/harnesses/lib/herdr-client.ts";
@@ -216,10 +220,16 @@ async function main(): Promise<void> {
 			await sendEnvelope(env.sender_endpoint, makeResponseEnvelope(id, env.msg_id, reply));
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			try {
-				await sendEnvelope(env.sender_endpoint, makeResponseEnvelope(id, env.msg_id, null, message));
-			} catch {
-				console.error(`coms-claude-bridge: could not deliver error for ${env.msg_id}: ${message}`);
+			if (isReplyPendingError(err)) {
+				// No response envelope: the sender's wait expires as `pending`, and may
+				// await/get again without treating unfinished work as a failed result.
+				console.error(`coms-claude-bridge: ${env.msg_id} remains pending: ${message}`);
+			} else {
+				try {
+					await sendEnvelope(env.sender_endpoint, makeResponseEnvelope(id, env.msg_id, null, message));
+				} catch {
+					console.error(`coms-claude-bridge: could not deliver error for ${env.msg_id}: ${message}`);
+				}
 			}
 		} finally {
 			queue.done();
@@ -243,13 +253,17 @@ async function main(): Promise<void> {
 		const sentinelMode = !hookSeen;
 		const hookMtimeBefore = fs.existsSync(hookFile) ? fs.statSync(hookFile).mtimeMs : 0;
 		// The caller's declared deadline wins over the bridge default (clamped).
+		// One absolute deadline covers BOTH idle waiting and the reply; otherwise a
+		// two-minute busy wait silently extends the caller's budget.
 		const effectiveTimeoutMs = resolveReplyTimeoutMs(env.reply_timeout_ms, replyTimeoutMs);
+		const startedAt = Date.now();
+		const replyDeadline = replyDeadlineAt(startedAt, effectiveTimeoutMs);
 
 		// Claude Code must be idle-ish before we type into its input box — but a busy
 		// pane is a wait, not a failure. Throwing here made every mid-turn moment a
 		// hard error and pushed callers into hot-retry loops.
-		const waitDeadline = Date.now() + idleWaitBudgetMs(effectiveTimeoutMs);
-		const waitStarted = Date.now();
+		const waitDeadline = Math.min(replyDeadline, startedAt + idleWaitBudgetMs(effectiveTimeoutMs));
+		const waitStarted = startedAt;
 		for (let attempt = 0; ; attempt++) {
 			if (await paneStatus() !== "working") break;
 			const remaining = waitDeadline - Date.now();
@@ -266,10 +280,18 @@ async function main(): Promise<void> {
 		await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
 		await herdr.paneSendKeys(paneId, ["enter"]);
 
-		const deadline = Date.now() + effectiveTimeoutMs;
+		// The sender's local await returns `pending` at replyDeadline, but the
+		// bridge keeps watching the already-running turn up to the hard cap so a
+		// late completion can still resolve the original msg_id.
+		const monitorDeadline = replyDeadlineAt(startedAt, REPLY_TIMEOUT_HARD_CAP_MS);
+		let pendingLogged = false;
 		let sawWorking = false;
-		while (Date.now() < deadline) {
+		while (Date.now() < monitorDeadline) {
 			await new Promise((r) => setTimeout(r, POLL_MS));
+			if (!pendingLogged && Date.now() >= replyDeadline) {
+				pendingLogged = true;
+				console.error(`coms-claude-bridge: ${env.msg_id} exceeded its reply budget and remains pending`);
+			}
 
 			// primary: Stop hook wrote a new record
 			if (fs.existsSync(hookFile)) {
@@ -298,8 +320,8 @@ async function main(): Promise<void> {
 				// sentinel not visible yet — keep polling until deadline
 			}
 		}
-		throw new Error(
-			`no reply from Claude Code within ${effectiveTimeoutMs}ms` +
+		throw new ReplyPendingError(
+			`no reply from Claude Code before the ${REPLY_TIMEOUT_HARD_CAP_MS}ms hard monitoring cap (requested ${effectiveTimeoutMs}ms)` +
 				(sentinelMode ? " (Stop hook not installed? see hooks/coms-stop-hook.mjs)" : ""),
 		);
 	}

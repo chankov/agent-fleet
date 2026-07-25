@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return-contract.js";
+import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn, parseStructuredReturn } from "./return-contract.js";
 
 test("extractAssertionIds dedupes assertion ids in first-seen order", () => {
 	assert.deepEqual(extractAssertionIds("A1 then A3, A1 again, not BA2 or A2b, then A2"), ["A1", "A3", "A2"]);
@@ -142,6 +142,23 @@ test("parseStructuredReturn keeps bullet non-assertion entries as line entries",
 
 test("parseStructuredReturn returns null for prose-only output", () => {
 	assert.equal(parseStructuredReturn("Looks good. I checked the thing and it passed."), null);
+});
+
+test("deliveryDisposition keeps pending work out of both return and failure artifacts", () => {
+	assert.deepEqual(deliveryDisposition(0, false), { delivered: true, pending: false, status: "done", artifactKind: "returns" });
+	assert.deepEqual(deliveryDisposition(1, false), { delivered: false, pending: false, status: "error", artifactKind: "failures" });
+	assert.deepEqual(deliveryDisposition(1, true), { delivered: false, pending: true, status: "pending", artifactKind: null });
+});
+
+test("parseDeliveredReturn discards structured evidence from a failed delivery", () => {
+	const output = "assertions_proven: [A1: done — evidence: npm test → pass]";
+	const failed = parseDeliveredReturn(output, ["A1"], false);
+	assert.equal(failed.parsed, null);
+	assert.deepEqual(failed.notices, [{ type: "no_structured_return", ids: ["A1"] }]);
+
+	const delivered = parseDeliveredReturn(output, ["A1"], true);
+	assert.equal(delivered.parsed.assertions_proven[0].id, "A1");
+	assert.deepEqual(delivered.notices, []);
 });
 
 test("crossCheck reports missing dispatched ids", () => {

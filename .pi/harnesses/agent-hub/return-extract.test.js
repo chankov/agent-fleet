@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { EXTRACTION_DEADLINE_MS, buildExtractionPrompt, shouldExtractReturn } from "./return-extract.js";
+import {
+	EXTRACTION_DEADLINE_MS,
+	EXTRACTION_MODEL,
+	buildExtractionPrompt,
+	extractionSessionName,
+	shouldExtractReturn,
+} from "./return-extract.js";
 import { parseStructuredReturn } from "./return-contract.js";
 
 test("shouldExtractReturn fires only when nothing parsed and assertions were tracked", () => {
@@ -46,6 +52,16 @@ requires_user_decision: []`;
 	assert.equal(parsed.assertions_proven[0].id, "A1");
 	assert.equal(parsed.assertions_proven[0].evidence, "npm test → 42 passing");
 	assert.equal(parsed.assertions_unproven[0].id, "A2");
+});
+
+test("the extraction pass uses the dedicated cheap model and a per-return session", () => {
+	assert.equal(EXTRACTION_MODEL, "openai-codex/gpt-5.6-luna");
+	assert.equal(extractionSessionName("/s/artifacts/returns/planner-run1.md"), "return-extract-planner-run1.json");
+	assert.equal(extractionSessionName("/s/artifacts/returns/test-engineer-run2.md"), "return-extract-test-engineer-run2.json");
+	assert.notEqual(
+		extractionSessionName("/s/artifacts/returns/planner-run1.md"),
+		extractionSessionName("/s/artifacts/returns/planner-run2.md"),
+	);
 });
 
 test("the extraction pass is bounded", () => {

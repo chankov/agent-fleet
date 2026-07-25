@@ -12,7 +12,7 @@ Turn budget: input artifacts resolve before a dispatch is counted, and `spawn_re
 
 Return contract: `ASSERTION A1: PASS — <evidence>` and the bare `A1: PASS` line forms are parsed, with a declared block always winning and an id the schema already classified never re-stated from a loose line. When nothing parses and assertions were tracked, one bounded read-only pass extracts the block from the report already on disk rather than declaring every assertion unproven; extracted returns are labelled as weaker evidence.
 
-coms bridge: a Claude Code pane that is mid-turn is now waited on with bounded backoff instead of failing immediately, and `coms_send` accepts `reply_timeout_ms`, which the bridge honours (clamped to one hour) instead of always applying its own default. That default rises from 10 to 30 minutes, matching `coms_await`.
+coms bridge: a Claude Code pane that is mid-turn is now waited on with bounded backoff instead of failing immediately, and `coms_send` accepts `reply_timeout_ms`, which the bridge honours (clamped to one hour) instead of always applying its own default. That default rises from 10 to 30 minutes, matching `coms_await`. Wait-budget exhaustion returns `pending` rather than an error, writes no failure/return artifact, and preserves the original correlation so a late reply can still be collected without re-sending the task.
 
 Assertion ledger: every assertion must name its `source` (the plan line, user request, or finding it encodes) — a sourceless batch is refused by id, because a specialist told to prove `A9` previously had to spend a dispatch and an ASK_USER cycle asking where `A9` came from. Batches over 8 open assertions are accepted with a warning suggesting the split. The orchestrator persona documents both rules.
 

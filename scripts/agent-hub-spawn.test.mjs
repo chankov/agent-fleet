@@ -66,6 +66,11 @@ if (mode === 'normal') {
     start('already-worked', 'edit');
     emit({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'provider unavailable', usage: { input: 1, output: 0 } } });
   } else done();
+} else if (mode === 'deterministic-failure-after-tool') {
+  if (model === 'fake/override') {
+    start('already-read', 'read');
+    emit({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'invalid session configuration', usage: { input: 1, output: 0 } } });
+  } else done();
 }
 `);
   chmodSync(fakePiPath, 0o755);
@@ -191,6 +196,25 @@ test('a read-only child falls back once on a provider failure that hit mid-run',
     });
     assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override', 'fake/original']);
     assert.deepEqual(notices, [result.modelFallback]);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('a read-only child does not fallback for a deterministic mid-run failure', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-midrun-deterministic-'));
+  try {
+    createFakePi(tmp);
+    const attempts = join(tmp, 'attempts.txt');
+    const result = await spawnPiAgentWithModelFallback(
+      { ...options(tmp, { FAKE_PI_MODE: 'deterministic-failure-after-tool', FAKE_PI_ATTEMPTS: attempts }), model: 'fake/override' },
+      'fake/original',
+      {},
+      { midRun: true },
+    );
+
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.modelFallback, undefined);
+    assert.equal(result.assistantError, 'invalid session configuration');
+    assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override']);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 

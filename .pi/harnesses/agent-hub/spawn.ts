@@ -278,21 +278,26 @@ export function spawnPiAgent(
 	});
 }
 
+const PROVIDER_FAILURE_RE = /\b(provider unavailable|service unavailable|overloaded|rate limit|too many requests|out of memory|oom|memory limit|resource exhausted|econn(?:reset|refused)|connection (?:reset|refused)|fetch failed|network error|gateway timeout|http\s*5\d\d|\b429\b)\b/i;
+
 function modelFallbackReason(result: SpawnPiAgentResult, midRun = false): string | null {
 	// A terminated run (watchdog, deadline, cancellation) is a verdict on the
 	// work, not a provider outage — never retry it. A spawn failure never
 	// reached a provider at all.
 	if (result.spawnError || result.termination) return null;
-	// Work already produced normally blocks the retry: re-running could repeat
-	// side effects. `midRun` lifts that for children that hold no write-capable
-	// tools, where repeating the run cannot change anything but the report.
-	if (!midRun && (result.toolCallsStarted > 0 || result.output.trim())) return null;
-	if (result.assistantError) return result.assistantError.slice(-500);
-	if (result.exitCode !== 0) {
-		const stderr = result.stderr.trim();
-		return stderr ? stderr.slice(-500) : `pi exited with code ${result.exitCode ?? "unknown"}`;
-	}
-	return null;
+	const workStarted = result.toolCallsStarted > 0 || Boolean(result.output.trim());
+	if (!midRun && workStarted) return null;
+	const reason = result.assistantError
+		? result.assistantError.slice(-500)
+		: result.exitCode !== 0
+			? (result.stderr.trim().slice(-500) || `pi exited with code ${result.exitCode ?? "unknown"}`)
+			: null;
+	if (!reason) return null;
+	// Once work began, only a recognizable provider/transport failure is safe to
+	// route to another model. Deterministic session/configuration/harness errors
+	// must remain visible instead of being masked by an expensive second run.
+	if (midRun && workStarted && !PROVIDER_FAILURE_RE.test(reason)) return null;
+	return reason;
 }
 
 export interface ModelFallbackOptions {

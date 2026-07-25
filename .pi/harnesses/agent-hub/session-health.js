@@ -61,6 +61,27 @@ export function isCorruptSessionExit({ code, output, stderr } = {}) {
 }
 
 /**
+ * Unconditionally quarantine a file that pi itself rejected. This is distinct
+ * from `quarantineIfUnusable`: the local header check may consider the file
+ * healthy even though pi applies a stricter invariant. A clean retry is allowed
+ * only after the rejected path has actually been moved aside.
+ */
+export function forceQuarantineSession(file, io) {
+	if (!io.existsSync(file)) return { ok: true, quarantined: null, error: null };
+	const target = quarantineName(file, io.now ? io.now() : new Date());
+	try {
+		io.renameSync(file, target);
+		return { ok: true, quarantined: target, error: null };
+	} catch (err) {
+		return {
+			ok: false,
+			quarantined: null,
+			error: `could not quarantine pi-rejected session: ${err instanceof Error ? err.message : String(err)}`,
+		};
+	}
+}
+
+/**
  * Check `file` and move it aside when pi would reject it. `io` supplies the fs
  * calls (`existsSync`, `readFileSync`, `renameSync`) and an optional `now`.
  * Returns `{ usable, quarantined, reason }` — `quarantined` is the path the bad

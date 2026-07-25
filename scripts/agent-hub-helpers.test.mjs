@@ -65,6 +65,14 @@ test('package files include all harness TypeScript files', async () => {
   assert.ok(pkg.files.includes('.pi/harnesses/*/*.ts'));
 });
 
+test('agent-hub exposes the same coms status and timeout contract as the standalone harness', async () => {
+  const source = await readFile('.pi/harnesses/agent-hub/index.ts', 'utf-8');
+  assert.match(source, /reply_timeout_ms:\s*params\.reply_timeout_ms \?\? null/);
+  assert.match(source, /pane_id:\s*pong\?\.pane_id \?\? null/);
+  assert.match(source, /status:\s*pong\?\.status \?\? null/);
+  assert.match(source, /details:\s*\{ status: "pending" \}/);
+});
+
 test('model overrides preserve the original model across repeated project and session switches', () => {
   const persona = { model: 'openai/original', tools: 'read' };
   const projectOverride = applyModelOverride(persona, 'custom/project');

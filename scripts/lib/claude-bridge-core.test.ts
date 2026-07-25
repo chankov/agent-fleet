@@ -16,6 +16,9 @@ import {
 	parseHookRecord,
 	PromptQueue,
 	REPLY_TIMEOUT_HARD_CAP_MS,
+	ReplyPendingError,
+	isReplyPendingError,
+	replyDeadlineAt,
 	resolveReplyTimeoutMs,
 } from "./claude-bridge-core.ts";
 import { peerCommand } from "./herdr-layout.ts";
@@ -117,6 +120,17 @@ test("resolveReplyTimeoutMs lets the caller's deadline win, clamped to the hard 
 	// Nobody holds a pane forever.
 	assert.equal(resolveReplyTimeoutMs(99_999_999, 600_000), REPLY_TIMEOUT_HARD_CAP_MS);
 	assert.equal(resolveReplyTimeoutMs(null, 99_999_999), REPLY_TIMEOUT_HARD_CAP_MS);
+});
+
+test("one absolute reply deadline includes the idle wait", () => {
+	assert.equal(replyDeadlineAt(1_000, 60_000), 61_000);
+	assert.equal(replyDeadlineAt(1_000, -1), 1_000);
+});
+
+test("reply deadline exhaustion is a pending outcome, not an error response", () => {
+	const pending = new ReplyPendingError("still running");
+	assert.equal(isReplyPendingError(pending), true);
+	assert.equal(isReplyPendingError(new Error("permission denied")), false);
 });
 
 test("idle-wait backoff climbs and then holds", () => {

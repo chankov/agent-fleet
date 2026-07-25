@@ -12,8 +12,22 @@
 // The caller labels the result as extracted, so recovered evidence is always
 // visibly weaker than evidence the specialist declared itself.
 
+/** The dedicated cheap model required by the recovery contract. */
+export const EXTRACTION_MODEL = "openai-codex/gpt-5.6-luna";
+
 /** Two minutes: the pass must read a file, but it may never become a real run. */
 export const EXTRACTION_DEADLINE_MS = 120_000;
+
+/** A unique throwaway session per return artifact, safe under parallel dispatches. */
+export function extractionSessionName(returnPath) {
+	const base = String(returnPath ?? "return")
+		.replace(/\\/g, "/")
+		.split("/")
+		.pop()
+		.replace(/\.md$/i, "")
+		.replace(/[^a-zA-Z0-9._-]+/g, "-") || "return";
+	return `return-extract-${base}.json`;
+}
 
 /**
  * Is a second chance warranted? Only when nothing parsed AND the dispatcher was

@@ -95,10 +95,10 @@ import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits }
 import { PEER_READY_TIMEOUT_MS, peerReadyDelayMs, peerReadyVerdict, unaddressedPeerSweep } from "./spawned-peers.js";
 import { contextPct, estimatePromptTokens, overWindowDiagnostic, resolveContextWindow, shouldRecycleBeforeSpawn } from "./context-window.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, hubOwnedScopeGlobs, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
-import { isCorruptSessionExit, quarantineIfUnusable } from "./session-health.js";
-import { EXTRACTION_DEADLINE_MS, buildExtractionPrompt, shouldExtractReturn } from "./return-extract.js";
+import { forceQuarantineSession, isCorruptSessionExit, quarantineIfUnusable } from "./session-health.js";
+import { EXTRACTION_DEADLINE_MS, EXTRACTION_MODEL, buildExtractionPrompt, extractionSessionName, shouldExtractReturn } from "./return-extract.js";
 import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "./artifacts.js";
-import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return-contract.js";
+import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn, parseStructuredReturn } from "./return-contract.js";
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
@@ -1305,6 +1305,7 @@ interface PromptEnvelope extends Envelope {
 	sender_cwd: string;
 	conversation_id?: string | null;
 	response_schema?: object | null;
+	reply_timeout_ms?: number | null;
 }
 
 interface ResponseEnvelope extends Envelope {
@@ -1324,6 +1325,8 @@ interface AgentCard {
 	color: string;
 	context_used_pct: number;
 	queue_depth: number;
+	pane_id?: string | null;
+	status?: "idle" | "working" | "booting";
 }
 
 interface Pong {
@@ -3124,7 +3127,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		ctx: any,
 		inputArtifacts: InputArtifactPreview[],
 		scopeGlobs: string[],
-	): Promise<{ output: string; exitCode: number; elapsed: number; abandoned?: boolean } | null> {
+	): Promise<{ output: string; exitCode: number; elapsed: number; abandoned?: boolean; pending?: boolean } | null> {
 		const peer = resolveTarget(peerName);
 		if (!peer || !identity) {
 			if (allowNativeFallback) return null;
@@ -3165,6 +3168,7 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			prompt,
 			conversation_id: null,
 			response_schema: null,
+			reply_timeout_ms: timeoutMs,
 		};
 		try {
 			await sendEnvelope(peer.endpoint, env);
@@ -3185,12 +3189,10 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			rejectFn = rej;
 		});
 		const entry: PendingReply = { resolve: resolveFn, reject: rejectFn, timer: null, promise, target_name: peer.name, created_at: nowIso() };
-		entry.timer = setTimeout(() => {
-			if (entry.result) return;
-			entry.result = { error: "timeout" };
-			try { entry.resolve(entry.result); } catch { /* ignore */ }
-		}, timeoutMs);
-		try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
+		const timeoutPromise = new Promise<{ error: string }>((resolve) => {
+			entry.timer = setTimeout(() => resolve({ error: "timeout" }), timeoutMs);
+			try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
+		});
 		pendingReplies.set(msg_id, entry);
 		try {
 			pi.appendEntry("coms-log", { event: "outbound_prompt", msg_id, target: peer.name, hops: env.hops, dispatched_as: state.def.name });
@@ -3207,13 +3209,15 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 				res({ error: "abandoned" });
 			};
 		});
-		const outcome = await Promise.race([entry.promise, abortPromise]);
+		const outcome = await Promise.race([entry.promise, abortPromise, timeoutPromise]);
 		state.comsAbort = undefined;
 		if (entry.timer) {
 			try { clearTimeout(entry.timer); } catch { /* ignore */ }
 			entry.timer = null;
 		}
-		pendingReplies.delete(msg_id);
+		// A timeout leaves the correlation entry live: the peer may still finish,
+		// and coms_get/coms_await must be able to collect that late response.
+		if (outcome.error !== "timeout") pendingReplies.delete(msg_id);
 
 		// Refresh the context badge from the peer's registry heartbeat.
 		const after = resolveTarget(peer.name);
@@ -3228,11 +3232,17 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			};
 		}
 		const err = outcome.error;
+		if (err === "timeout") {
+			return {
+				output: `coms dispatch pending after ${Math.round(timeoutMs / 1000)}s (msg_id ${msg_id}). The peer may still complete; use coms_get/coms_await with this msg_id instead of re-dispatching.`,
+				exitCode: 1,
+				elapsed: 0,
+				pending: true,
+			};
+		}
 		if (err) {
 			return {
-				output: err === "timeout"
-					? `coms peer "${peer.name}" did not reply within ${Math.round(timeoutMs / 1000)}s. The peer may still be working in its pane — check it before re-dispatching.`
-					: `coms peer "${peer.name}" returned an error: ${err}`,
+				output: `coms peer "${peer.name}" returned an error: ${err}`,
 				exitCode: 1,
 				elapsed: 0,
 			};
@@ -3300,16 +3310,12 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 	// over a formatting miss. Bounded — one attempt, own deadline, own throwaway
 	// session, never counted against the turn budget — and the caller labels the
 	// result so extracted evidence never passes for declared evidence.
-	async function runReturnExtraction(returnPath: string, assertionIds: string[], ctx: any): Promise<any | null> {
-		const researcherDef = allAgentDefs.find(d => d.name.toLowerCase() === "researcher");
-		const model = watchdogJudgeModel
-			?? (researcherDef ? resolvedModel(researcherDef) : null)
-			?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
-		const extractSession = safePathWithin(sessionDir, "return-extract.json");
+	async function runReturnExtraction(returnPath: string, assertionIds: string[], _ctx: any): Promise<any | null> {
+		const extractSession = safePathWithin(sessionDir, extractionSessionName(returnPath));
 		try { unlinkSync(extractSession); } catch {}
 		try {
 			const res = await spawnPiAgent({
-				model,
+				model: EXTRACTION_MODEL,
 				tools: "read",
 				thinking: "off",
 				appendSystemPrompt: "You restate an existing report in a fixed format. You never judge the work and never invent evidence.",
@@ -3341,6 +3347,7 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		billed?: number;
 		out?: number;
 		sessionReset?: { reason: string; quarantined: string | null; retried: boolean } | null;
+		pending?: boolean;
 	}> {
 		const key = normalizeAgentInput(agentName);
 		const state = agentStates.get(key);
@@ -3394,8 +3401,12 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		// at any point. A coms-preferring member with a live same-name pool peer
 		// is served by that peer; everything downstream (return contract, ASK_USER,
 		// research pipe, history) consumes the same result shape either way.
-		const finishRun = async (output: string, exitCode: number, opts?: { idle?: boolean; notice?: string }) => {
-			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, output, exitCode === 0 ? "completed" : "failed"));
+		const finishRun = async (output: string, exitCode: number, opts?: { idle?: boolean; pending?: boolean; notice?: string }) => {
+			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(
+				task,
+				output,
+				opts?.pending ? "blocked" : exitCode === 0 ? "completed" : "failed",
+			));
 			clearInterval(state.timer);
 			state.elapsed = Date.now() - startTime;
 			state.status = opts?.idle ? "idle" : exitCode === 0 ? "done" : "error";
@@ -3410,7 +3421,7 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			const onTerminate = state.onTerminate;
 			state.onTerminate = undefined;
 			onTerminate?.();
-			return { output, exitCode, elapsed: state.elapsed };
+			return { output, exitCode, elapsed: state.elapsed, ...(opts?.pending ? { pending: true } : {}) };
 		};
 
 		const personaKey = state.def.name.toLowerCase();
@@ -3443,10 +3454,13 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			if (comsRes) {
 				histEntry.name = `${displayName(state.def.name)} (coms)`;
 				return finishRun(comsRes.output, comsRes.exitCode, {
-					idle: comsRes.abandoned,
+					idle: comsRes.abandoned || comsRes.pending,
+					pending: comsRes.pending,
 					notice: comsRes.abandoned
 						? `${displayName(state.def.name)} coms dispatch abandoned (the peer pane keeps running)`
-						: `${displayName(state.def.name)} ${comsRes.exitCode === 0 ? "done" : "error"} in ${Math.round((Date.now() - startTime) / 1000)}s (coms peer)`,
+						: comsRes.pending
+							? `${displayName(state.def.name)} coms dispatch is pending (the peer pane keeps running)`
+							: `${displayName(state.def.name)} ${comsRes.exitCode === 0 ? "done" : "error"} in ${Math.round((Date.now() - startTime) / 1000)}s (coms peer)`,
 				});
 			}
 			// Envelope undeliverable + fallback allowed — continue as a plain native dispatch.
@@ -3802,21 +3816,28 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			// started, so exactly one retry on a clean session is safe and cannot
 			// duplicate work. Any other failure stays a failure.
 			if (!r.spawnError && isCorruptSessionExit({ code: r.exitCode, output: r.output, stderr: r.stderr })) {
-				const health = quarantineIfUnusable(agentSessionFile, sessionHealthIo);
+				const quarantine = forceQuarantineSession(agentSessionFile, sessionHealthIo);
 				state.sessionFile = null;
 				state.runsSinceFresh = 0;
 				state.contextPct = 0;
 				state.contextTokens = 0;
 				sessionReset = {
-					reason: health.reason || "pi rejected the session file",
-					quarantined: health.quarantined,
-					retried: true,
+					reason: quarantine.ok ? "pi rejected the session file" : quarantine.error!,
+					quarantined: quarantine.quarantined,
+					retried: quarantine.ok,
 				};
-				ctx.ui.notify(
-					`${displayName(state.def.name)}: pi rejected the session file — quarantined, retrying once from a clean session`,
-					"warning",
-				);
-				r = await spawnPiAgentWithModelFallback({ ...spawnOptions, resume: false }, originalModelFallback, spawnCallbacks);
+				if (quarantine.ok) {
+					ctx.ui.notify(
+						`${displayName(state.def.name)}: pi rejected the session file — quarantined, retrying once from a clean session`,
+						"warning",
+					);
+					r = await spawnPiAgentWithModelFallback({ ...spawnOptions, resume: false }, originalModelFallback, spawnCallbacks);
+				} else {
+					ctx.ui.notify(
+						`${displayName(state.def.name)}: pi rejected the session file, but it could not be quarantined — clean retry refused (${quarantine.error})`,
+						"error",
+					);
+				}
 			}
 			return r;
 		});
@@ -3975,10 +3996,12 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		if (sessionReset) {
 			// Named explicitly so a reset never reads as "the specialist failed" —
 			// that misreading is what turned a broken file into a dropped persona.
-			output = `(⚠ ${displayName(state.def.name)}'s session file was unusable and has been quarantined` +
-				`${sessionReset.quarantined ? ` to ${sessionReset.quarantined}` : ""} (${sessionReset.reason}). ` +
-				`This run started from a clean session${sessionReset.retried ? " after one automatic retry" : ""} — the agent has no ` +
-				`memory of earlier dispatches, and this is NOT a reason to drop it from the team.)\n\n${output}`;
+			const resetSummary = sessionReset.retried
+				? `was unusable and was quarantined${sessionReset.quarantined ? ` to ${sessionReset.quarantined}` : ""} (${sessionReset.reason}). This run started from a clean session after one automatic retry — the agent has no memory of earlier dispatches, and this is NOT a reason to drop it from the team.`
+				: sessionReset.quarantined
+					? `was unusable and was quarantined to ${sessionReset.quarantined} (${sessionReset.reason}) before the run. This run started from a clean session — the agent has no memory of earlier dispatches.`
+					: `was rejected by pi but could not be quarantined (${sessionReset.reason}). No clean retry was attempted; fix the file permissions/path before retrying.`;
+			output = `(⚠ ${displayName(state.def.name)}'s session file ${resetSummary})\n\n${output}`;
 		}
 
 		return {
@@ -4388,6 +4411,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			color: ident?.color ?? "#36F9F6",
 			context_used_pct: pct,
 			queue_depth: inboundQueue.size,
+			pane_id: herdrPaneId() ?? null,
+			status: turnState === "working" || inboundQueue.size > 0 ? "working" : "idle",
 		};
 		const pong: Pong = { type: "pong", msg_id: env.msg_id, agent_card: card };
 		try {
@@ -4974,8 +4999,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					}
 				}
 
-				let parsedReturn = parseStructuredReturn(result.output);
-				let contractNotices = crossCheck(parsedReturn, dispatchedAssertionIds);
+				const disposition = deliveryDisposition(result.exitCode, result.pending === true);
+				const pendingDelivery = disposition.pending;
+				const delivered = disposition.delivered;
+				let { parsed: parsedReturn, notices: contractNotices } = parseDeliveredReturn(
+					result.output,
+					dispatchedAssertionIds,
+					delivered,
+				);
 				const shouldUseDigest = dispatchedAssertionIds.length > 0 || !!parsedReturn;
 				const state = agentStates.get(agent.toLowerCase());
 				const agentKey = safeAgentKey(state?.def.name ?? agent);
@@ -4984,9 +5015,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				// a return path is read as "the specialist answered", and one 142-byte
 				// error stub filed as a return cost a 103s dispatch investigating a
 				// review that had actually succeeded.
-				const delivered = result.exitCode === 0;
-				const runArtifactPath = shouldUseDigest || !delivered
-					? writeRunArtifact(agentKey, state?.runCount ?? 0, result.output, delivered ? "returns" : "failures")
+				const runArtifactPath = disposition.artifactKind && (shouldUseDigest || !delivered)
+					? writeRunArtifact(agentKey, state?.runCount ?? 0, result.output, disposition.artifactKind)
 					: null;
 				const returnPath = delivered ? runArtifactPath : null;
 				const failurePath = delivered ? null : runArtifactPath;
@@ -5017,7 +5047,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				// Extract bubble-up questions emitted via the clarification protocol.
 				const questions = extractAskUserQuestions(result.output);
 
-				const status = result.exitCode === 0 ? "done" : "error";
+				const status = disposition.status;
 				// Record the fingerprint only for completed or watchdog/deadline-stopped
 				// runs — those must not be repeated unchanged. A failed spawn or plain
 				// error stays retryable (the failure may be transient).
@@ -5050,6 +5080,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				// Whether the work itself succeeded is unknown from here — a lost coms
 				// reply looks identical to a crash, and treating the stub as a verdict
 				// is what turned a successful review into a re-investigation.
+				const pendingNotice = pendingDelivery
+					? `\n\n⏳ DELIVERY PENDING — no result or assertion evidence is available yet, and no return/failure artifact was written. Use the msg_id above with coms_get/coms_await; do not re-dispatch.`
+					: "";
 				const failurePathNotice = failurePath
 					? `\n\n⚠ DELIVERY FAILURE (exit ${result.exitCode}) — no specialist result was returned. ` +
 						`The error output is at ${failurePath}; it is NOT a return and carries no assertion evidence. ` +
@@ -5079,7 +5112,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					: truncated;
 
 				return {
-					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}${returnPathNotice}${failurePathNotice}${artifactKindNotice}${contextNotice}${scopeNotice}\n\n${digest}` }],
+					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}${returnPathNotice}${pendingNotice}${failurePathNotice}${artifactKindNotice}${contextNotice}${scopeNotice}\n\n${digest}` }],
 					details: {
 						agent,
 						task,
@@ -5089,6 +5122,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 						fullOutput: result.output,
 						structuredReturn: parsedReturn,
 						returnExtracted,
+						pending: pendingDelivery,
 						returnPath,
 						failurePath,
 						contractNotices,
@@ -5566,8 +5600,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		label: "Coms List",
 		description:
 			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
-			"names, models, and live context-window usage. Discovery is scoped to what the human displays " +
-			"via /af-coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
+			"names, models, live context-window usage, pane_id, and status (idle | working | booting). " +
+			"Check status before sending instead of polling the pane. Discovery is scoped to what the human " +
+			"displays via /af-coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
 		parameters: Type.Object({
 			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /af-coms displays — a widening request is ignored." })),
 			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /af-coms --all." })),
@@ -5622,6 +5657,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					project: c.project,
 					alive: pong != null,
 					context_used_pct: pong ? pong.context_used_pct : null,
+					pane_id: pong?.pane_id ?? null,
+					status: pong?.status ?? null,
+					queue_depth: pong ? pong.queue_depth : null,
 					color: c.entry.color,
 				};
 			});
@@ -5637,7 +5675,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				: agents.map((a) => {
 					const ctxStr = a.context_used_pct != null ? ` ${a.context_used_pct}%` : " ?%";
 					const live = a.alive ? "●" : "✗";
-					return `${live} ${a.name} (${a.model})${ctxStr}${a.purpose ? ` — ${a.purpose}` : ""}`;
+					const state = a.alive ? (a.status ?? "unknown") : "unreachable";
+					return `${live} ${a.name} (${a.model})${ctxStr} [${state}${a.pane_id ? ` pane ${a.pane_id}` : ""}]${a.purpose ? ` — ${a.purpose}` : ""}`;
 				}).join("\n");
 
 			return {
@@ -5663,7 +5702,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const rows = agents.map((a) => {
 				const dot = a.alive ? theme.fg("success", "●") : theme.fg("error", "✗");
 				const pct = a.context_used_pct != null ? `${a.context_used_pct}%` : "?%";
-				return `${dot} ${theme.fg("accent", a.name)} ${theme.fg("dim", a.model)} ${theme.fg("warning", pct)}`;
+				const state = a.alive ? (a.status ?? "unknown") : "unreachable";
+				const stateFg = state === "idle" ? "success" : state === "working" ? "warning" : "dim";
+				return `${dot} ${theme.fg("accent", a.name)} ${theme.fg("dim", a.model)} ${theme.fg("warning", pct)} ` +
+					`${theme.fg(stateFg as any, state)}${a.pane_id ? theme.fg("dim", ` ${a.pane_id}`) : ""}`;
 			}).join("\n");
 			return new Text(header + "\n" + rows, 0, 0);
 		},
@@ -5682,6 +5724,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			handoff_token: Type.Optional(Type.String({ description: "Internal /af-handoff token. Only include when the /af-handoff follow-up explicitly gives you one; it authorizes the machine-appended ledger/artifact appendix." })),
 			conversation_id: Type.Optional(Type.String()),
 			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
+			reply_timeout_ms: Type.Optional(Type.Number({ description: "Receiver-side reply deadline in ms; pass the same budget used for coms_await. Clamped by the receiver." })),
 		}),
 		async execute(_callId, params) {
 			if (!identity) {
@@ -5726,6 +5769,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				prompt: outboundPrompt,
 				conversation_id: params.conversation_id ?? null,
 				response_schema: (params.response_schema as object | undefined) ?? null,
+				reply_timeout_ms: params.reply_timeout_ms ?? null,
 			};
 
 			// Send the envelope synchronously and wait for the receiver's ack.
@@ -5749,13 +5793,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				target_name: target.name,
 				created_at: nowIso(),
 			};
-			entry.timer = setTimeout(() => {
-				if (entry.result) return;
-				entry.result = { error: "timeout" };
-				try { entry.resolve(entry.result); } catch { /* ignore */ }
-			}, TIMEOUT_MS);
-			// Don't keep the event loop alive solely for this timer.
-			try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
+			// A local wait deadline does not convert unfinished remote work into an
+			// error. Keep the entry pending so a later await can collect the response.
 			pendingReplies.set(msg_id, entry);
 
 			try {
@@ -5875,10 +5914,16 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			});
 
 			const winner = await Promise.race([entry.promise, timed]);
+			if ((winner as any).error === "timeout") {
+				return {
+					content: [{ type: "text" as const, text: "coms_await: pending — wait budget exhausted; the peer may still complete" }],
+					details: { status: "pending" },
+				};
+			}
 			if ((winner as any).error) {
 				return {
 					content: [{ type: "text" as const, text: `coms_await: error — ${(winner as any).error}` }],
-					details: { error: (winner as any).error },
+					details: { status: "error", error: (winner as any).error },
 				};
 			}
 			const resp = (winner as any).response;
@@ -5897,6 +5942,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		renderResult(result, _options, theme) {
 			const d = result.details as any;
 			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			if (d?.status === "pending") return new Text(theme.fg("warning", "⏳ pending"), 0, 0);
 			return new Text(theme.fg("success", "✓ response received"), 0, 0);
 		},
 	});
@@ -7788,6 +7834,9 @@ your own team you can talk to the peers in your coms POOL — the agents shown i
   scoped to YOUR project and excludes private (explicit) peers. You CANNOT widen this — only the human
   can, with \`/af-coms --project <name>\` or \`/af-coms --all\`. Do not ask coms_list for other projects.
 - \`coms_send\` returns a msg_id; then \`coms_await\` (blocking) or \`coms_get\` (poll) reads the reply.
+  For long work put the SAME budget on both calls: \`coms_send(reply_timeout_ms: N, ...)\`, then
+  \`coms_await(timeout_ms: N, ...)\`. The send controls the receiver; await controls only your local
+  wait. A timeout returns pending — await/get the same msg_id again, never re-send the task.
   This lets you use a peer as an on-demand subagent: send a SELF-CONTAINED task, await it, and fold the
   result into your plan. A peer does NOT share your context — spell out everything it needs.
 - Only peers in your pool are reachable. \`coms_send\`/\`/af-handoff\` to anyone outside it is refused. If

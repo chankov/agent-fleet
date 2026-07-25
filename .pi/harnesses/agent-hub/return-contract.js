@@ -61,6 +61,23 @@ export function parseStructuredReturn(finalText) {
 	return best;
 }
 
+/** Decide whether output is a return, a failure diagnostic, or still pending. */
+export function deliveryDisposition(exitCode, pending = false) {
+	if (pending) return { delivered: false, pending: true, status: "pending", artifactKind: null };
+	if (exitCode === 0) return { delivered: true, pending: false, status: "done", artifactKind: "returns" };
+	return { delivered: false, pending: false, status: "error", artifactKind: "failures" };
+}
+
+/**
+ * Parse only a successfully delivered specialist result. A failed process may
+ * have emitted a partial structured block before crashing, but that output is
+ * diagnostic data, never assertion evidence.
+ */
+export function parseDeliveredReturn(finalText, dispatchedIds, delivered) {
+	const parsed = delivered ? parseStructuredReturn(finalText) : null;
+	return { parsed, notices: crossCheck(parsed, dispatchedIds) };
+}
+
 export function crossCheck(parsed, dispatchedIds) {
 	const ids = Array.from(new Set(dispatchedIds || []));
 	if (!parsed) {

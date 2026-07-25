@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { isCorruptSessionExit, isUsablePiSession, quarantineIfUnusable, quarantineName } from "./session-health.js";
+import { forceQuarantineSession, isCorruptSessionExit, isUsablePiSession, quarantineIfUnusable, quarantineName } from "./session-health.js";
 
 // Shapes taken verbatim from real files: a healthy session opens with the
 // header record, the two pi rejected in the field open with a message record.
@@ -87,6 +87,36 @@ test("quarantineIfUnusable reports a missing file as unusable without quarantini
 		const result = quarantineIfUnusable(join(dir, "absent.json"), io);
 		assert.deepEqual(result, { usable: false, quarantined: null, reason: null });
 	});
+});
+
+test("forceQuarantineSession moves a pi-rejected file even when its header looks usable", () => {
+	withTmpDir((dir) => {
+		const file = join(dir, "builder.json");
+		writeFileSync(file, VALID_SESSION, "utf-8");
+
+		const result = forceQuarantineSession(file, {
+			...io,
+			now: () => new Date("2026-07-25T09:14:02.123Z"),
+		});
+		assert.deepEqual(result, {
+			ok: true,
+			quarantined: `${file}.corrupt-2026-07-25T09-14-02-123Z`,
+			error: null,
+		});
+		assert.equal(existsSync(file), false);
+		assert.equal(readFileSync(result.quarantined, "utf-8"), VALID_SESSION);
+	});
+});
+
+test("forceQuarantineSession fails closed when the rejected file cannot be moved", () => {
+	const result = forceQuarantineSession("/s/builder.json", {
+		existsSync: () => true,
+		renameSync: () => { throw new Error("permission denied"); },
+		now: () => new Date("2026-07-25T09:14:02.123Z"),
+	});
+	assert.equal(result.ok, false);
+	assert.equal(result.quarantined, null);
+	assert.match(result.error, /permission denied/);
 });
 
 test("isCorruptSessionExit matches only the observed signature", () => {

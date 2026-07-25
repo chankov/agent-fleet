@@ -36,6 +36,27 @@ export function resolveReplyTimeoutMs(requested: unknown, fallbackMs: number, ca
 	return Math.max(1, Math.min(base, capMs));
 }
 
+/** One absolute deadline shared by idle waiting and reply collection. */
+export function replyDeadlineAt(startedAtMs: number, timeoutMs: number): number {
+	return Number(startedAtMs) + Math.max(0, Number(timeoutMs) || 0);
+}
+
+/**
+ * The pane accepted the prompt but did not finish inside the caller's budget.
+ * This is deliberately not a response error: the work may still complete.
+ */
+export class ReplyPendingError extends Error {
+	readonly pending = true;
+	constructor(message: string) {
+		super(message);
+		this.name = "ReplyPendingError";
+	}
+}
+
+export function isReplyPendingError(error: unknown): error is ReplyPendingError {
+	return error instanceof ReplyPendingError || Boolean((error as { pending?: unknown } | null)?.pending);
+}
+
 /** Backoff delay for the nth idle-wait attempt (0-based); the last step repeats. */
 export function idleWaitDelayMs(attempt: number): number {
 	const i = Math.max(0, Math.min(Math.floor(attempt), IDLE_WAIT_BACKOFF_MS.length - 1));

@@ -1492,13 +1492,8 @@ export default function (pi: ExtensionAPI) {
 				target_name: target.name,
 				created_at: nowIso(),
 			};
-			entry.timer = setTimeout(() => {
-				if (entry.result) return;
-				entry.result = { error: "timeout" };
-				try { entry.resolve(entry.result); } catch { /* ignore */ }
-			}, TIMEOUT_MS);
-			// Don't keep the event loop alive solely for this timer.
-			try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
+			// A local wait deadline does not convert unfinished remote work into an
+			// error. Keep the entry pending so a later await can collect the response.
 			pendingReplies.set(msg_id, entry);
 
 			try {
@@ -1618,10 +1613,16 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			const winner = await Promise.race([entry.promise, timed]);
+			if ((winner as any).error === "timeout") {
+				return {
+					content: [{ type: "text" as const, text: "coms_await: pending — wait budget exhausted; the peer may still complete" }],
+					details: { status: "pending" },
+				};
+			}
 			if ((winner as any).error) {
 				return {
 					content: [{ type: "text" as const, text: `coms_await: error — ${(winner as any).error}` }],
-					details: { error: (winner as any).error },
+					details: { status: "error", error: (winner as any).error },
 				};
 			}
 			const resp = (winner as any).response;
@@ -1640,6 +1641,7 @@ export default function (pi: ExtensionAPI) {
 		renderResult(result, _options, theme) {
 			const d = result.details as any;
 			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			if (d?.status === "pending") return new Text(theme.fg("warning", "⏳ pending"), 0, 0);
 			return new Text(theme.fg("success", "✓ response received"), 0, 0);
 		},
 	});
