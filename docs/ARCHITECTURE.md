@@ -13,7 +13,7 @@ the runtime responsibilities and where each module lives in the repository.
 | **coms** | Peer communication protocol/data plane — envelope-based P2P messaging between agents | `.pi/harnesses/coms/`, `scripts/lib/coms-envelope.ts`, `scripts/coms-cli.ts` |
 | **Claude Code bridge** | Makes an interactive Claude Code pane a bidirectional coms peer | `scripts/coms-claude-bridge.ts`, `hooks/coms-stop-hook.mjs`, `skills/peer-coms/` — see [claude-code-coms-bridge.md](claude-code-coms-bridge.md) |
 | **Hermes bridge** | Remote human control — relays hub questions to Telegram, races phone vs. local answers, conductor/liaison skills | `scripts/coms-hermes-bridge.ts`, `.pi/harnesses/ask-user-remote/`, `hermes/skills/` — see [coms-hermes-bridge.md](coms-hermes-bridge.md) |
-| **Hermes local monitor transport** | Local, authenticated visibility/control contract for hub-owned task generations; presentation is supplied by an external consumer | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `scripts/lib/`) — see [Hermes artifacts](../hermes/README.md#local-agent-hub-monitor-integration) |
+| **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `scripts/lib/`) — see [Hermes artifacts](../hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Codex remote-control conductor** | Experimental outbound-only, user-systemd-managed Android conductor; verified on Codex CLI 0.144.x | `scripts/codex-remote-control.ts`, `scripts/codex-conductor.ts`, `codex/CONDUCTOR.md`, `systemd/user/`; runtime under `~/.local/state/agent-fleet/codex-conductor/` — see [codex-remote-conductor.md](codex-remote-conductor.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, transformed per harness | `agents/`, `bin/lib/transform-persona.js` |
@@ -187,10 +187,23 @@ packages/hermes-bridge/       # future Hermes integration package
   the fleet core stays agent-agnostic. Hermes remains the inbound `ask_user`/
   Telegram route; the experimental Codex conductor is outbound-initiated only,
   approval-gated, and restricted to listed peers through the validated wrapper.
-- **Hermes monitor presentation is outside the fleet core.** Agent Fleet owns task state,
-  bounded output, leases, and generation-safe cancellation, and exposes them only through
-  owner-only discovery and a local Unix socket. A Hermes-facing consumer owns its UI and
-  reconnect behavior; no Hermes backend/Desktop plugin is bundled or installed.
+- **Hermes monitor presentation is outside the fleet core.** Agent Fleet exposes owner-only
+  local monitor operations for Hub-owned state; a consumer owns its UI and lifecycle. The
+  worktree contains additive monitor/event/invoke code, but that implementation and its local
+  tests are not proof of a durable external identity or live delivery contract. `invoke`, where
+  available, is Hub-owned and queues dispatcher work rather than exposing tools directly.
+- **Packaged Hermes source is opt-in, never auto-installed.** The npm tarball carries the
+  `hub-watchdog` skill (`hermes/skills/`) plus the backend and Desktop monitor plugin source
+  (`hermes/plugins/`, `hermes/desktop-plugins/`) as runtime-only source. Shipping that source
+  makes it available to an operator; installing it into a Hermes profile is always an explicit
+  action through `agent-fleet set-hermes-watchdog` (skill) or the consumer's own flow (plugins).
+  Nothing is enabled, launched, or configured by installing the package.
+- **Watchdog delivery is capability-gated and currently unproven.** No checked-in
+  Gate O live artifact proves Hermes origin identity, updates, reconnect, or two-chat isolation,
+  so its supported posture is journal-only/dormant: no delivery, steering, or surgical use. It
+  never manages services, gateways, Herdr, or shell commands. Local runtime evidence — including
+  a real foreground watcher against a disposable Hub UDS — is `synthetic-local` and proves none of
+  those capabilities; see [the watchdog runbook](hermes-watchdog-supervisor.md).
 - **External conductor contracts are advisory.** Pi damage-control wraps Pi
   tool calls, not Hermes or Codex processes; human approvals and their
   contracts reduce risk but do not provide an OS command allowlist.

@@ -2,6 +2,8 @@
 
 This directory contains in-repository Hermes skills for the coms Hermes bridge plan. They are source artifacts only; this pass does not modify `~/.hermes`.
 
+`skills/hub-watchdog/` is an optional foreground, fail-closed monitor consumer. It is packaged source, not an installed or enabled profile skill. Its profile-aware lifecycle is documented in [the watchdog runbook](../docs/hermes-watchdog-supervisor.md): no installer starts/stops a gateway or changes tools, and Gate O has no checked-in live origin proof. The supported posture is journal-only/dormant; it must not deliver, steer, cancel, recover, wake a chat, or choose a fallback route.
+
 ## Skills
 
 - `skills/hub-liaison/` — gateway-side Telegram liaison. It writes `~/.pi/coms/hermes-bridge/questions/<qid>.answer.json` answer files for `[HUB-Q:<qid>]` questions consumed by `scripts/coms-hermes-bridge.ts`.
@@ -37,10 +39,11 @@ separate from the Telegram/coms bridge:
 - The monitor transport exposes dispatcher and specialist state through owner-only discovery,
   a token file, and a Unix domain socket (UDS).
 
-The repository does **not** ship or install a Hermes backend or Desktop plugin. A Hermes UI,
-operator tool, or other local client may consume the transport contract described below, but it
-owns its own presentation and lifecycle. The hub remains the source of truth for task state,
-output cursors, leases, and generation-safe cancellation.
+A Hermes UI, operator tool, or other local client may consume the transport contract described
+below, but it owns its own presentation and lifecycle. The hub remains the source of truth for
+task state and cancellation. Source artifacts being present in this repository or its package do
+not install, enable, or prove a live Hermes client. In particular, monitor cursor/discovery
+fields and local tests are not proof of a Hermes origin identity or watcher delivery route.
 
 ### Integration in action
 
@@ -192,8 +195,59 @@ const cancelled = await monitorRequest(socketPath, {
 
 A native specialist cancellation targets only the hub-owned process generation and validates its
 process identity before signalling it. Cancelling a coms-backed run abandons the hub's local wait;
-the remote peer may continue. Neither operation creates, focuses, closes, or otherwise controls a
+the remote peer may continue, so it is never an automatic recovery target and the watchdog must not
+retry or re-dispatch it. Neither operation creates, focuses, closes, or otherwise controls a
 Herdr pane or workspace.
+
+### Additive `events` and `invoke` requests
+
+Two request types extend the same socket. A hub that does not implement them answers `unsupported`,
+so a snapshot/output/cancel consumer keeps working unchanged.
+
+`events` replays a bounded journal from a cursor the consumer holds. Set a read timeout that covers
+the `waitMs` window you ask the hub to hold, or every quiet poll expires locally and looks like an
+outage:
+
+```js
+const batch = await monitorRequest(socketPath, {
+  type: "events",
+  token,
+  afterSequence: 0,
+  limit: 50,      // 1–100
+  waitMs: 2000    // 0–25000 long-poll window
+});
+// { ok: true, events: { firstAvailableSequence, latestSequence, items: [...], timedOut } }
+```
+
+A cursor older than the retained window is refused rather than silently skipped. Reconcile from a
+fresh snapshot and resume from sequence 0:
+
+```json
+{"ok": false, "error": "cursor_too_old", "snapshotRequired": true, "firstAvailableSequence": 9, "latestSequence": 12}
+```
+
+`invoke` submits one typed request and returns an admission status — never a result of work:
+
+```js
+const admitted = await monitorRequest(socketPath, {
+  type: "invoke",
+  token,
+  requestId: "request-a",
+  taskId: "builder:1",
+  generation: 1,
+  action: "request_status",
+  parameters: { assertionIds: [], evidenceEventIds: ["hub:1"] },
+  basis: { deviation: "stalled_progress", judgment: "confirmed" }
+});
+// { ok: true, result: { status: "accepted" } }
+```
+
+`status` is one of `accepted`, `duplicate`, `queue_full`, `stale_generation`, `owner_changed`,
+`already_terminal`, `idempotency_conflict`, `unsupported`, or `rejected`. `accepted` means the hub
+queued a visible follow-up for its operator; it does not mean anything ran. Reusing a `requestId`
+returns `duplicate` and adds no second follow-up; reusing it with different parameters returns
+`idempotency_conflict`. The action set is closed — there is no shell, tool, Herdr, or free-text
+surface.
 
 ### Failure and reconnect behavior
 

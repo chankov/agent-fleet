@@ -80,6 +80,9 @@ import { MonitorRegistry } from "../lib/hermes-monitor-registry.ts";
 import { MonitorStore } from "../lib/hermes-monitor-store.ts";
 import { createMonitorSessionBridge } from "./monitor-session-bridge.ts";
 import { MonitorRuntime } from "./monitor-runtime.ts";
+import { MonitorEventJournal } from "../lib/hermes-monitor-events.ts";
+import { MonitorInvokeJournal } from "./monitor-invoke-journal.ts";
+import { createMonitorInvokeAdmission, createWatchdogFollowUpEnqueue } from "./monitor-invoke.ts";
 import { monitorReconcileEvidence, stableMonitorHubId } from "./monitor-recovery.ts";
 import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
@@ -1780,7 +1783,9 @@ export default function (pi: ExtensionAPI) {
 	let server: net.Server | null = null;
 	let monitorLifecycle: ReturnType<typeof createMonitorLifecycle> | null = null;
 	let monitorHubId: string | null = null;
+	let monitorTurnId: string | null = null;
 	let monitorBridge: ReturnType<typeof createMonitorSessionBridge> | null = null;
+	let monitorOwnerId: string | undefined;
 	let pingTimer: NodeJS.Timeout | null = null;
 	let keepaliveTimer: NodeJS.Timeout | null = null;
 	// herdr presence backend (active when this session runs inside a herdr
@@ -3225,7 +3230,9 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		const agentKey = safeAgentKey(state.def.name);
 		const runNumber = state.runCount;
 		const monitorKey = monitorKeyForAgent(state.def.name, state.runCount);
-		const monitorStart = monitorBridge?.startChild({ key: monitorKey, id: `run-${agentKey}-${state.runCount}`, generation: 1, parentId: `hub-turn-${monitorHubId}`, specialist: agentKey }, process.env);
+		const monitorStart = monitorTurnId
+			? monitorBridge?.startChild({ key: monitorKey, id: `run-${agentKey}-${state.runCount}`, generation: 1, parentId: monitorTurnId, specialist: agentKey }, process.env)
+			: undefined;
 		const startTime = Date.now();
 		state.timer = setInterval(() => {
 			state.elapsed = Date.now() - startTime;
@@ -6990,6 +6997,11 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// context % rides the keepalive refresh.
 	pi.on("before_agent_start", async () => {
 		turnState = "working";
+		if (monitorBridge && monitorTurnId) monitorBridge.finishParent(monitorTurnId, "completed");
+		if (monitorBridge && monitorHubId) {
+			monitorTurnId = `hub-turn-${monitorHubId}-${crypto.randomUUID()}`;
+			monitorBridge.startParent({ id: monitorTurnId, hubInstanceId: monitorHubId, checkoutId: currentCtx?.cwd || process.cwd() });
+		} else monitorTurnId = null;
 		if (herdrPresence && identity) {
 			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
 			void herdrPresence.report("working", formatPeerStatus(identity.name, pct, inboundQueue.size));
@@ -6997,6 +7009,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	});
 	pi.on("agent_end", async () => {
 		turnState = "idle";
+		if (monitorBridge && monitorTurnId) {
+			monitorBridge.finishParent(monitorTurnId, "completed");
+			monitorTurnId = null;
+		}
 		if (herdrPresence && identity) {
 			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
 			void herdrPresence.report("idle", formatPeerStatus(identity.name, pct, inboundQueue.size));
@@ -7533,7 +7549,12 @@ ${researchCatalog}`;
 						});
 					},
 				});
+				const eventJournal = new MonitorEventJournal({ file: path.join(monitorConfig.runtimeDir, `monitor-events-${stableHubId}.ndjson`) });
+				const invokeJournal = new MonitorInvokeJournal(path.join(monitorConfig.runtimeDir, `monitor-invokes-${stableHubId}.ndjson`));
 				monitorBridge = createMonitorSessionBridge({
+					events: eventJournal,
+					hubInstanceId: stableHubId,
+					onEventJournalError: (error: unknown) => _ctx.ui.notify(`Agent Fleet monitor event journal unavailable: ${error instanceof Error ? error.message : String(error)}`, "warning"),
 					runtime: new MonitorRuntime({
 						runtimeDir: monitorConfig.runtimeDir,
 						profileId: monitorConfig.profileId,
@@ -7549,8 +7570,20 @@ ${researchCatalog}`;
 						reason: "unsupported",
 					},
 				});
-				if (!monitorBridge.snapshot().tasks.some((task: any) => task.kind === "parent")) monitorBridge.startParent({ id: `hub-turn-${stableHubId}`, hubInstanceId: stableHubId, checkoutId: _ctx.cwd || process.cwd() });
-				await monitorLifecycle.startBridge(monitorBridge, { profilePath: monitorConfig.profilePath, profileId: monitorConfig.profileId, hubInstanceId: stableHubId });
+				const invoke = createMonitorInvokeAdmission({
+					journal: invokeJournal,
+					task: (id: string, generation: number) => monitorBridge?.snapshot().tasks.find((task: any) => task.id === id && task.generation === generation),
+					owner: () => monitorOwnerId,
+					queueDepth: () => inboundQueue.size,
+					queueLimit: 64,
+					enqueue: createWatchdogFollowUpEnqueue((message, options) => pi.sendMessage(message, options)),
+					publish: (kind: "action.requested" | "action.accepted" | "action.rejected" | "action.completed" | "hub.queue_depth_changed", task: any, extra?: any) => monitorBridge?.publishEvent(kind, task, extra),
+				});
+				const registration = await monitorLifecycle.startBridge(monitorBridge, {
+					profilePath: monitorConfig.profilePath, profileId: monitorConfig.profileId, hubInstanceId: stableHubId,
+					events: (request: any) => eventJournal.replay(request.afterSequence, request.limit, request.waitMs, request.signal), invoke,
+				});
+				monitorOwnerId = registration?.ownerId;
 			} catch (error) {
 				monitorLifecycle = null;
 				_ctx.ui.notify(`Agent Fleet monitor disabled: ${error instanceof Error ? error.message : String(error)}`, "warning");

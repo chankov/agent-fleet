@@ -14,6 +14,8 @@ export const MAX_TASK_ID_LENGTH = 128;
 export const MAX_AFTER_SEQUENCE = 1_000_000_000;
 /** 2 MiB covers the 256 KiB retained UTF-8 output after worst-case JSON escaping plus its envelope. */
 export const MAX_OUTPUT_RESPONSE_BYTES = 2 * 1024 * 1024;
+export const MAX_EVENT_WAITERS = 8;
+export const MAX_EVENT_WAIT_MS = 25_000;
 
 interface SnapshotRequest {
 	type: "snapshot";
@@ -42,13 +44,20 @@ export class MonitorSocketServer {
 	private readonly registration: MonitorRegistration;
 	private readonly server: net.Server;
 	private connections = 0;
+	private eventWaiters = 0;
+	private readonly sockets = new Set<net.Socket>();
 
 	constructor(registration: MonitorRegistration) {
 		this.registration = registration;
-		this.server = net.createServer((socket) => {
+		// Consumers are documented to half-close after writing their single frame.
+		// Without allowHalfOpen the runtime would end our writable side on that FIN,
+		// silently dropping any response that settles later than the current turn —
+		// every long-poll `events` reply, and any cancel that waits on a real exit.
+		this.server = net.createServer({ allowHalfOpen: true }, (socket) => {
 			if (this.connections >= MAX_SOCKET_CONNECTIONS) { socket.destroy(); return; }
 			this.connections += 1;
-			socket.once("close", () => { this.connections -= 1; });
+			this.sockets.add(socket);
+			socket.once("close", () => { this.connections -= 1; this.sockets.delete(socket); });
 			this.handle(socket);
 		});
 	}
@@ -68,6 +77,7 @@ export class MonitorSocketServer {
 	}
 
 	async close(): Promise<void> {
+		for (const socket of this.sockets) socket.destroy();
 		await new Promise<void>((resolve, reject) => this.server.close((error) => error ? reject(error) : resolve()));
 		this.assertOwnedSocketPath(); try { fs.unlinkSync(this.registration.socketPath); } catch (error: any) { if (error?.code !== "ENOENT") throw error; }
 	}
@@ -77,6 +87,9 @@ export class MonitorSocketServer {
 	}
 
 	private handle(socket: net.Socket): void {
+		// A long-poll callback may settle after its peer disconnects. Keep that
+		// late write local to this connection instead of emitting an unhandled error.
+		socket.on("error", () => {});
 		let buffer = "";
 		let handled = false;
 		const deadline = setTimeout(() => { if (!handled) socket.destroy(); }, PARTIAL_FRAME_TIMEOUT_MS);
@@ -94,6 +107,38 @@ export class MonitorSocketServer {
 			clearTimeout(deadline);
 			let value: { type?: string; token?: string; taskId?: string; generation?: number };
 			try { value = JSON.parse(buffer.slice(0, newline)) as typeof value; } catch { socket.destroy(); return; }
+			if (value.type === "events") {
+				if (!authorized(String(value.token ?? ""), this.registration.token)) { socket.end(JSON.stringify({ ok: false, error: "unauthorized" }) + "\n"); return; }
+				const afterSequence=(value as any).afterSequence, limit=(value as any).limit, waitMs=(value as any).waitMs;
+				if (!this.registration.events || !Number.isInteger(afterSequence) || afterSequence < 0 || afterSequence > MAX_AFTER_SEQUENCE || !Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(waitMs) || waitMs < 0 || waitMs > MAX_EVENT_WAIT_MS) { socket.destroy(); return; }
+				if (waitMs > 0 && this.eventWaiters >= MAX_EVENT_WAITERS) { socket.end(JSON.stringify({ ok: false, error: "too_many_waiters" }) + "\n"); return; }
+				let waiterReleased = false;
+				const releaseWaiter = () => {
+					if (waitMs > 0 && !waiterReleased) { waiterReleased = true; this.eventWaiters--; }
+				};
+				const abort = new AbortController();
+				if (waitMs > 0) {
+					this.eventWaiters++;
+					// Release on FIN as well as close: with allowHalfOpen a gone peer is
+					// otherwise indistinguishable from a live one, and a parked waiter
+					// would hold a slot for the full wait window. A client that wants to
+					// park on a long poll keeps its write side open (as the watcher does);
+					// one that half-closes gets an immediate bounded reply instead.
+					const release = () => { abort.abort(); releaseWaiter(); };
+					socket.once("close", release);
+					socket.once("end", release);
+				}
+				Promise.resolve().then(()=>this.registration.events!({afterSequence,limit,waitMs,signal:abort.signal})).then((events:any)=>{
+					if (events?.error === "cursor_too_old") socket.end(JSON.stringify({ ok: false, error: "cursor_too_old", snapshotRequired: true, firstAvailableSequence: events.firstAvailableSequence, latestSequence: events.latestSequence }) + "\n");
+					else socket.end(JSON.stringify({ok:true,events})+"\n");
+				}).catch(()=>socket.end(JSON.stringify({ok:false,error:"monitor_unavailable"})+"\n")).finally(releaseWaiter); return;
+			}
+			if (value.type === "invoke") {
+				if (!authorized(String(value.token ?? ""), this.registration.token)) { socket.end(JSON.stringify({ ok: false, error: "unauthorized" }) + "\n"); return; }
+				if (!this.registration.invoke) { socket.end(JSON.stringify({ ok: false, error: "unsupported" }) + "\n"); return; }
+				const request={...(value as any)}; delete (request as any).token; delete (request as any).type;
+				Promise.resolve().then(()=>this.registration.invoke!(request)).then(result=>socket.end(JSON.stringify({ok:true,result})+"\n")).catch(()=>socket.end(JSON.stringify({ok:false,error:"monitor_unavailable"})+"\n")); return;
+			}
 			if (value.type === "output") {
 				if (!authorized(String(value.token ?? ""), this.registration.token)) { socket.end(JSON.stringify({ ok: false, error: "unauthorized" }) + "\n"); return; }
 				if (!this.registration.output || (value as any).afterSequence === undefined || !validTaskRequest(value.taskId, value.generation, (value as any).afterSequence)) { socket.destroy(); return; }

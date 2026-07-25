@@ -63,3 +63,42 @@ test("malformed, oversized, and non-snapshot frames fail closed", async (t) => {
 		assert.equal(response, "");
 	}
 });
+
+test("owner-authenticated events replay through the existing bounded UDS", async (t) => {
+ const root=fixtureRoot(), profile=join(root,"profile"); mkdirSync(profile); const registration:any=new MonitorRegistry({runtimeDir:join(root,"runtime")}).register({profilePath:profile,hubInstanceId:"hub",snapshot:()=>({})}); registration.events=({afterSequence,limit,waitMs}:any)=>({firstAvailableSequence:1,latestSequence:2,items:[{eventSequence:2}],timedOut:waitMs===0&&afterSequence===2}); const socket=new MonitorSocketServer(registration); await socket.listen(); t.after(()=>socket.close());
+ const denied=await request(registration.socketPath,JSON.stringify({type:"events",token:"wrong",afterSequence:0,limit:1,waitMs:0})+"\n"); assert.deepEqual(JSON.parse(denied),{ok:false,error:"unauthorized"});
+ const allowed=await request(registration.socketPath,JSON.stringify({type:"events",token:registration.token,afterSequence:0,limit:1,waitMs:0})+"\n"); assert.equal(JSON.parse(allowed).events.items[0].eventSequence,2);
+});
+
+test("events refuse the ninth concurrent long-poll and abort the callback when its client disconnects", async (t) => {
+ const root=fixtureRoot(), profile=join(root,"profile"); mkdirSync(profile); let aborted=0;
+ const registration:any=new MonitorRegistry({runtimeDir:join(root,"runtime")}).register({profilePath:profile,hubInstanceId:"hub",snapshot:()=>({})});
+ registration.events=(request:any)=>new Promise(()=>{request.signal?.addEventListener("abort",()=>{aborted++;});}); const socket=new MonitorSocketServer(registration); await socket.listen(); t.after(()=>socket.close());
+ const clients=Array.from({length:8},()=>net.createConnection(registration.socketPath));
+ await Promise.all(clients.map(client=>new Promise<void>((resolve,reject)=>{client.once("connect",()=>{client.write(JSON.stringify({type:"events",token:registration.token,afterSequence:2,limit:1,waitMs:25_000})+"\n");resolve();});client.once("error",reject);})));
+ const ninth=net.createConnection(registration.socketPath); const response=await new Promise<string>((resolve,reject)=>{let body="";ninth.once("connect",()=>ninth.write(JSON.stringify({type:"events",token:registration.token,afterSequence:2,limit:1,waitMs:25_000})+"\n"));ninth.on("data",chunk=>body+=chunk);ninth.once("error",reject);ninth.once("close",()=>resolve(body));});
+ assert.deepEqual(JSON.parse(response),{ok:false,error:"too_many_waiters"});
+ clients[0].destroy(); await new Promise(resolve=>setTimeout(resolve,20));
+ for(const client of clients.slice(1)) client.destroy();
+ assert.equal(aborted,1, "disconnect cancels the detached long-poll callback");
+});
+
+test("a half-closing consumer still receives a response that settles after its FIN", async (t) => {
+	const root = fixtureRoot();
+	const profile = join(root, "profile");
+	mkdirSync(profile);
+	const registration: any = new MonitorRegistry({ runtimeDir: join(root, "runtime") }).register({ profilePath: profile, hubInstanceId: "hub", snapshot: () => ({}) });
+	// A handler that waits on real work — a process exit or a long poll — settles
+	// in a later event-loop turn than the client's half-close.
+	registration.cancel = async () => { await new Promise(resolve => setTimeout(resolve, 25)); return { cancelled: true, state: "cancelled" }; };
+	registration.events = async ({ waitMs }: any) => { await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 25))); return { firstAvailableSequence: 1, latestSequence: 1, items: [{ eventSequence: 1 }] }; };
+	const socket = new MonitorSocketServer(registration);
+	await socket.listen();
+	t.after(() => socket.close());
+
+	const cancelled = await request(registration.socketPath, JSON.stringify({ type: "cancel", token: registration.token, taskId: "task-a", generation: 1 }) + "\n");
+	assert.deepEqual(JSON.parse(cancelled), { ok: true, result: { cancelled: true, state: "cancelled" } });
+
+	const events = await request(registration.socketPath, JSON.stringify({ type: "events", token: registration.token, afterSequence: 0, limit: 1, waitMs: 5_000 }) + "\n");
+	assert.equal(JSON.parse(events).events.items[0].eventSequence, 1);
+});

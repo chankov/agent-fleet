@@ -17,17 +17,81 @@ function request(socketPath: string, value: unknown): Promise<unknown> {
 	});
 }
 
+/**
+ * Wiring `index.ts` must contain. Each entry is asserted on its own so a single
+ * broken seam names itself instead of hiding inside one collapsed chain.
+ */
+const REQUIRED_INDEX_WIRING: ReadonlyArray<readonly [string, RegExp]> = [
+	["lifecycle reads the validated environment", /monitorLifecycleConfig\(process\.env\)/],
+	["turn id starts null", /let monitorTurnId: string \| null = null/],
+	["turn id is minted per hub turn", /monitorTurnId = `hub-turn-\$\{monitorHubId\}-\$\{crypto\.randomUUID\(\)\}`/],
+	["turn start is captured before use", /const monitorStart = monitorTurnId/],
+	["parent turn is finished explicitly", /monitorBridge\.finishParent\(monitorTurnId, "completed"\)/],
+	["bridge is started through the lifecycle", /await monitorLifecycle\.startBridge\(monitorBridge/],
+	["children are started on the bridge", /monitorBridge\?\.startChild/],
+	["children are finalized by task", /finalizeChildFor\(task/],
+	["output is appended by task", /appendOutputFor\(task/],
+	["owned processes are registered by task", /registerOwnedProcessFor\(task/],
+	["coms runs register a wait-only cancel", /registerWaitOnly\(monitorKey, \(\) => state\.comsAbort\?\.\(\)\)/],
+	["recovery evidence is owner-scoped", /getRecoveryEvidence: async \(task: any\)/],
+	["recovery evidence comes from the registry", /monitorRegistry\.evidenceForOwner\(task\.ownerSessionId/],
+	["event journal is constructed", /new MonitorEventJournal\(/],
+	["typed invoke admission is constructed", /createMonitorInvokeAdmission\(/],
+	["the follow-up enqueue uses the shared production seam", /enqueue: createWatchdogFollowUpEnqueue\(/],
+	["the session bridge is constructed", /monitorBridge = createMonitorSessionBridge/],
+	["local owned-process cancellation passes the monitor key", /cancelLocalOwnedProcess\(\{ process: state\.proc, monitorBridge, monitorKey:/],
+];
+
+/** Wiring `index.ts` must NOT contain, because it bypasses a task-scoped seam. */
+const FORBIDDEN_INDEX_WIRING: ReadonlyArray<readonly [string, RegExp]> = [
+	["non-null assertion on the turn id", /parentId: monitorTurnId!/],
+	["key-scoped output append", /monitorBridge\?\.appendOutput\(monitorKey/],
+	["key-scoped child finalization", /monitorBridge\?\.finalizeChild\(monitorKey/],
+	["key-scoped process registration", /monitorBridge\?\.registerOwnedProcess\(monitorKey/],
+	["inline follow-up rendering outside the shared seam", /customType: "hermes-watchdog-invoke"/],
+];
+
 test("agent-hub index initializes monitor lifecycle only from explicit valid fail-closed environment", () => {
 	const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-	assert.match(source, /monitorLifecycleConfig\(process\.env\)/);
-	assert.match(source, /await monitorLifecycle\.startBridge\(monitorBridge/); assert.match(source, /const monitorStart = monitorBridge\?\.startChild/); assert.match(source, /finalizeChildFor\(task/); assert.match(source, /appendOutputFor\(task/); assert.match(source, /registerOwnedProcessFor\(task/); assert.doesNotMatch(source, /monitorBridge\?\.appendOutput\(monitorKey/); assert.doesNotMatch(source, /monitorBridge\?\.finalizeChild\(monitorKey/); assert.doesNotMatch(source, /monitorBridge\?\.registerOwnedProcess\(monitorKey/); assert.match(source, /registerWaitOnly\(monitorKey, \(\) => state\.comsAbort\?\.\(\)\)/); assert.match(source, /getRecoveryEvidence: async \(task: any\)/); assert.match(source, /monitorRegistry\.evidenceForOwner\(task\.ownerSessionId/); assert.match(source, /oldOwner: evidence\.owner,[\s\S]*oldSocket: evidence\.socket,[\s\S]*oldSession: evidence\.session,[\s\S]*oldHerdr: herdr\.herdr/); assert.match(source, /\n\t\t\t\t}\);\n\t\t\t\tmonitorBridge = createMonitorSessionBridge/);
-	assert.match(source, /cancelLocalOwnedProcess\(\{ process: state\.proc, monitorBridge, monitorKey:/);
-	assert.ok((source.match(/monitorKeyForAgent\(state\.def\.name, state\.runCount\)/g) ?? []).length >= 3, "dispatch, kill, and restart must derive the same canonical monitor key");
-	assert.ok((source.match(/cancelLocalWaitOnly\(\{/g) ?? []).length >= 2, "kill and restart must preserve local wait cancellation");
-	assert.equal(monitorLifecycleConfig({}), null);
-	assert.equal(monitorLifecycleConfig({ AGENT_FLEET_PROFILE_ID: "../real", AGENT_FLEET_MONITOR_RUNTIME_DIR: "/tmp/runtime" }), null);
-	assert.equal(monitorLifecycleConfig({ AGENT_FLEET_PROFILE_ID: "profile-a", AGENT_FLEET_MONITOR_RUNTIME_DIR: "relative" }), null);
-	assert.deepEqual(monitorLifecycleConfig({ AGENT_FLEET_PROFILE_ID: "profile-a", AGENT_FLEET_MONITOR_RUNTIME_DIR: "/tmp/runtime" }), { runtimeDir: "/tmp/runtime", profileId: "profile-a", profilePath: "/tmp/runtime/profiles/profile-a" });
+
+	for (const [label, pattern] of REQUIRED_INDEX_WIRING) {
+		assert.match(source, pattern, label);
+	}
+	for (const [label, pattern] of FORBIDDEN_INDEX_WIRING) {
+		assert.doesNotMatch(source, pattern, label);
+	}
+
+	assert.match(
+		source,
+		/oldOwner: evidence\.owner,[\s\S]*oldSocket: evidence\.socket,[\s\S]*oldSession: evidence\.session,[\s\S]*oldHerdr: herdr\.herdr/,
+		"rollover evidence keeps owner, socket, session, and Herdr identity together",
+	);
+	assert.ok(
+		(source.match(/monitorKeyForAgent\(state\.def\.name, state\.runCount\)/g) ?? []).length >= 3,
+		"dispatch, kill, and restart must derive the same canonical monitor key",
+	);
+	assert.ok(
+		(source.match(/cancelLocalWaitOnly\(\{/g) ?? []).length >= 2,
+		"kill and restart must preserve local wait cancellation",
+	);
+});
+
+test("monitor lifecycle configuration fails closed on missing or unsafe environment", () => {
+	assert.equal(monitorLifecycleConfig({}), null, "absent environment disables the monitor");
+	assert.equal(
+		monitorLifecycleConfig({ AGENT_FLEET_PROFILE_ID: "../real", AGENT_FLEET_MONITOR_RUNTIME_DIR: "/tmp/runtime" }),
+		null,
+		"a traversing profile id is refused",
+	);
+	assert.equal(
+		monitorLifecycleConfig({ AGENT_FLEET_PROFILE_ID: "profile-a", AGENT_FLEET_MONITOR_RUNTIME_DIR: "relative" }),
+		null,
+		"a relative runtime directory is refused",
+	);
+	assert.deepEqual(
+		monitorLifecycleConfig({ AGENT_FLEET_PROFILE_ID: "profile-a", AGENT_FLEET_MONITOR_RUNTIME_DIR: "/tmp/runtime" }),
+		{ runtimeDir: "/tmp/runtime", profileId: "profile-a", profilePath: "/tmp/runtime/profiles/profile-a" },
+	);
 });
 
 test("agent-hub index owns registered handles and exposes an authenticated UDS cancel lifecycle without workspace control", async (t) => {

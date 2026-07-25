@@ -212,7 +212,18 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
     assert.ok(paths.has(`.pi/harnesses/lib/hermes-monitor-${module}.ts`), `shared monitor module: ${module}`);
   }
   assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/damage-control/")), false);
-  assert.equal([...paths].some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
+  assert.equal([...paths].some((path) => path.startsWith("hermes/desktop-plugins/")), true, "desktop monitor runtime is packaged");
+  assert.equal([...paths].some((path) => path.startsWith("hermes/plugins/")), true, "backend monitor runtime is packaged");
+});
+
+// The full watchdog release surface — runtime modules, lifecycle commands,
+// exclusions, and content leak checks — lives in package-hermes-watchdog.test.js.
+test("the watchdog changeset stays honest about Gate O", () => {
+  const changeset = readFileSync(join(root, ".changeset", "hermes-watchdog-supervisor.md"), "utf8");
+
+  assert.match(changeset, /minor/);
+  assert.match(changeset, /disabled until genuine live Hermes capability evidence/i);
+  assert.doesNotMatch(changeset, /Gate O.*(?:passed|proven)|live delivery.*enabled/i);
 });
 
 test("published package hoists extension runtime dependencies for symlink installs", () => {
@@ -234,7 +245,10 @@ test("package, snapshot, and guided manifest surfaces stay aligned", () => {
     assert.ok(pkg.files.includes(required), `package files missing ${required}`);
   }
   assert.equal(pkg.files.includes("hermes/"), false);
-  assert.equal(pkg.files.some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
+  assert.ok(pkg.files.includes("hermes/plugins/"));
+  assert.ok(pkg.files.includes("hermes/desktop-plugins/"));
+  assert.ok(pkg.files.includes("!hermes/watchdog-tests/"));
+  assert.ok(pkg.files.includes("!hermes/**/__pycache__/"));
   assert.match(pkg.scripts.test, /scripts\/coms-cli\.test\.ts/);
   assert.match(pkg.scripts.test, /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");

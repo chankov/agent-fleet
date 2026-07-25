@@ -1,5 +1,13 @@
 # coms Hermes bridge
 
+> The optional `hub-watchdog` is not this bridge and is not a coms conductor. It has no
+> Herdr, shell, direct-tool, peer-delegation, service, or gateway authority. `hermes send --to`
+> is an explicit destination mechanism, never origin-route evidence. Gate O has no checked-in
+> live proof, so the supported watchdog posture is journal-only/dormant: no delivery,
+> steering, cancellation, or recovery. It must not send an out-of-turn update, wake a chat, or
+> fall back to another route. See [the watchdog runbook](hermes-watchdog-supervisor.md).
+
+
 Protocol contract for the Hermes ⇄ pi `coms` bridge. The first implemented daemon is `scripts/coms-hermes-bridge.ts`, which registers a `user-remote` peer and turns coms prompt envelopes into Hermes/Telegram questions.
 
 ## Pieces
@@ -75,6 +83,8 @@ If options exist and the trimmed answer is a 1-based number for an option, the r
 `cancel` is an additive coms envelope with shape `{ "type": "cancel", "msg_id", "from", "to", "created_at", "ref_msg_id" }`; `ref_msg_id` is the target `qid`. The bridge acks well-formed cancel envelopes before handling them.
 
 For a pending qid, cancel clears the timeout, removes the pending question, records terminal state `cancelled`, appends a `cancelled` log event, and sends a Telegram note: `✖ [HUB-Q:<qid>] The question was cancelled — it was answered from the console.` Cancel for a non-pending or invalid qid is a no-op after the envelope ack. A later answer file for a closed qid is treated as `late_answer`: logged, removed, and answered in Telegram with a polite ignored note; no response envelope is sent.
+
+**Cancellation is local wait abandonment.** Cancelling a coms-backed run ends only this side's wait. The remote peer is not signalled and may keep working, so a `cancelled` state here is a statement about the local wait, never about the remote task. It follows that watchdog auto-recovery is forbidden for coms runs: no automatic retry, re-dispatch, retarget, or recovery invoke may follow a coms cancellation, and a cancelled coms run is never a recovery target. An explicit `hermes send --to <destination>` remains a destination-only mechanism chosen by a human; it is not evidence of an origin route and must not be used to "reply" to a cancelled run.
 
 ### Timeouts
 

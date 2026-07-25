@@ -26,7 +26,8 @@ import { listPersonas, transformPersona } from "./lib/transform-persona.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
 import { bootstrap, cleanupInstaller, readBootstrapMarker } from "./lib/bootstrap.js";
-import { setHermesTelegram } from "./lib/set-hermes-telegram.js";
+import { setHermesTelegram, runHermesCommand } from "./lib/set-hermes-telegram.js";
+import { setHermesWatchdog } from "./lib/set-hermes-watchdog.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
@@ -97,10 +98,27 @@ switch (sub) {
   case "cleanup-installer":  await cmdCleanupInstaller();  break;
   case "transform-persona":  await cmdTransformPersona();  break;
   case "set-hermes-telegram": await cmdSetHermesTelegram(); break;
+  case "set-hermes-watchdog": await cmdSetHermesWatchdog(); break;
   default:                    fail(`unknown command: ${sub}\n\nRun "agent-fleet --help" for usage.`);
 }
 
 // ── commands ──────────────────────────────────────────────────────────────
+
+async function cmdSetHermesWatchdog() {
+  try {
+    const result = await setHermesWatchdog({
+      positionals: parsed.positionals,
+      profile: opts.profile,
+      force: opts.force,
+      dryRun: opts["dry-run"],
+      packageRoot: pkgRoot,
+      hermes: runHermesCommand,
+    });
+    console.log(JSON.stringify(result, null, 2));
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
+}
 
 async function cmdSetHermesTelegram() {
   try {
@@ -629,6 +647,25 @@ Examples:
 `);
     return;
   }
+  if (sub === "set-hermes-watchdog") {
+    console.log(`agent-fleet set-hermes-watchdog <status|install|update|uninstall> [options]
+
+Actions:
+  status                 Inspect profile, packaged-skill drift, receipt, and active-lock state
+  install | update       Atomically install/reconcile the optional foreground watchdog skill
+  uninstall              Remove only a managed unchanged skill tree; preserve config and journals
+
+Options:
+  --profile <name>       Hermes profile; required unless exactly one gateway is running
+  --force                Back up a drifted tree before replacement/removal
+  --dry-run              Report the write that would occur without changing files
+  -h, --help             Show this help
+
+No action starts/stops/restarts a gateway, changes tools, kills a watcher, or enables delivery.
+Gate O remains fail-closed: without genuine live origin proof the installed watcher is local-journal-only.
+`);
+    return;
+  }
   if (sub === "set-hermes-telegram") {
     console.log(`agent-fleet set-hermes-telegram <action> [arguments] [options]
 
@@ -693,6 +730,7 @@ Commands:
   transform-persona   Generate per-agent subagent files from the canonical
                       agents/*.md personas (used by the setup skill during apply)
   set-hermes-telegram Install/status the liaison and start/stop its Herdr bridge
+  set-hermes-watchdog Install/status/update/uninstall the fail-closed watchdog skill
 
 Options:
   -v, --version    Print the package version
@@ -704,6 +742,7 @@ Examples:
   npx agent-fleet doctor --workspace ~/projects/foo
   npx agent-fleet update
   npx agent-fleet set-hermes-telegram on 7883056502:1735
+  npx agent-fleet set-hermes-watchdog status --profile default
 
 Environment:
   AGENT_SKILLS_NO_UPDATE_CHECK=1   Disable the background update check
