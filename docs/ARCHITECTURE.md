@@ -96,10 +96,18 @@ The hub enforces per-user-turn budgets in code (`run-budget.js`): `fast`/`standa
 modes cap `dispatch_agent` calls, `spawn_research` calls, and wall clock per turn, set the
 per-run deadline above, and control nested delegation. Exhausted budgets make the dispatch
 tools refuse with "summarize and ask the user"; a new user message opens a fresh window.
-Specialist context pressure is measured over input + cacheRead + cacheWrite, and specialist
-sessions are recycled (fresh spawn instead of `-c` resume) after `session-recycle-runs` runs
-or ≥60% measured context — resumed sessions otherwise re-bill their accumulated context on
-every model call. Configured under `## agent-hub` (`mode`, `max-dispatches-per-turn`,
+Specialist context pressure is measured over input + cacheRead + cacheWrite against **that
+agent's own** model window, resolved from pi's model registry with the source recorded
+(`context-window.js`) — measuring a 49k local model against the dispatcher's window is what
+made readings like "315%" unactionable; anything over 100% now emits a one-time diagnostic
+naming the window and where it came from. Specialist sessions are recycled (fresh spawn
+instead of `-c` resume) after `session-recycle-runs` runs, at ≥60% measured context, and
+unconditionally at a full window; a resumed session whose *projected* prompt would overflow
+is recycled before the spawn rather than after the run. Requests to one provider are capped
+per process (`provider-semaphore.js`: 2 in flight for `custom/*` by default, unlimited
+elsewhere, `AGENT_HUB_PROVIDER_LIMITS` to override) — the cap is per level of the delegation
+tree, and a nested spawn reuses its parent's permit so it can never wait on its own ancestor.
+Configured under `## agent-hub` (`mode`, `max-dispatches-per-turn`,
 `max-research-per-turn`, `turn-wall-time-s`, `agent-turn-timeout-s`, `session-recycle-runs`);
 switched live with `/af-hub-mode`.
 
@@ -111,7 +119,11 @@ observed in-flight from the JSON event stream — deterministic rules (out-of-sc
 against the declared `scope` globs, tool-call loops, consecutive failures, tool-call cap)
 escalate to a one-shot cheap LLM judge whose DRIFTING/STUCK verdict terminates the run as
 `drift_stop` (exit 125, partial output preserved); enabled per hub/agent/dispatch
-(`watchdog` key, `/af-watchdog`, `watchdog` param). **Dynamic teams**: `/af-agents-add`,
+(`watchdog` key, `/af-watchdog`, `watchdog` param). Two rules about scope: the session's
+own `artifacts/`, `findings/`, and `delegations/` subtrees are implicitly in scope (the
+deliverable protocol *orders* specialists to write there, and the judge is told so), and the
+`scope` rule is non-terminal — it reports a drift advisory on the result and never stops a
+run by itself, matching the post-run scope gate, which reverts nothing. **Dynamic teams**: `/af-agents-add`,
 `/af-agents-drop`, `/af-agents-save` restructure the roster live (the system prompt rebuilds
 every turn), and the gated `team_adjust` tool lets the dispatcher itself adjust the roster
 outside fast mode, with user notification. `/af-hub-report` accounts each turn's dispatches,
@@ -179,6 +191,32 @@ packages/hermes-bridge/       # future Hermes integration package
 - **Thin dispatcher context.** Nothing lands persistently in the dispatcher's
   context if it can live on disk or in a one-line status. Research findings,
   the Verification Contract ledger, and team snapshots are all disk-first.
+- **A harness fault must never look like a specialist fault.** The hub passes
+  `--session <file>` on every run, so one corrupt session file used to fail a
+  persona in ~1s with no output — indistinguishable from a bad agent, and
+  unrecoverable by drop + re-add. Unusable session files are now validated and
+  quarantined (`session-health.js`) with the reset named in the result. Same rule
+  for the return contract: a report the parser cannot read gets one cheap
+  read-only extraction pass (`return-extract.js`) before its assertions are
+  written off as unproven, and extracted evidence is always labelled as weaker
+  than declared evidence. The converse also holds: a run that errored or timed
+  out writes to `artifacts/failures/`, never `returns/` — an error stub filed
+  as a return reads as a specialist verdict and gets acted on as one.
+- **A pool status field beats reading the screen.** `coms_list` publishes each
+  peer's `pane_id` and `status` (`idle`/`working`/`booting`), and
+  `herdr_spawn_peer` waits for the peer to register and returns `peer_ready`
+  rather than a bare pane id. A spawned peer boots idle and does nothing until
+  addressed, so peers spawned and never sent to are named at turn end and in
+  `/af-hub-report` (`spawned-peers.js`); closing stays the human's call.
+- **A declared requirement carries its origin.** Every assertion in the ledger
+  names its source (`assertion-ledger.js`), and the open ledger is soft-capped
+  at 8 — an id nobody can trace back to a plan line costs a dispatch and an
+  ASK_USER cycle to re-derive.
+- **Pre-flight validation is free.** Anything the hub can reject before spawning
+  — an unresolvable artifact path, an unknown research persona — is refused
+  without spending a turn-budget slot. Artifact paths also resolve across
+  artifact kinds when the name is unique, since the hub writes every auto-return
+  under `returns/` while dispatchers reasonably guess `reviews/`.
 - **Herdr owns panes, presence, and lifecycle; coms owns messages.** Fleet
   recipes hard-require a running herdr server and refuse with an actionable
   message otherwise; non-fleet recipes never touch herdr.

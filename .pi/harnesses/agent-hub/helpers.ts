@@ -172,6 +172,18 @@ export function intersectToolLists(base: string, cap: string): string {
 	return cap.split(",").map(s => s.trim()).filter(t => t && baseSet.has(t)).join(",");
 }
 
+/**
+ * True only when EVERY tool in the list is one of READ_ONLY_TOOLS. Conservative
+ * by construction: an unknown tool name makes the answer false, because the
+ * caller uses this to decide whether re-running is safe (a mid-run model
+ * fallback) and a wrong "yes" duplicates side effects.
+ */
+export function isReadOnlyToolList(tools: string): boolean {
+	const allowed = new Set(READ_ONLY_TOOLS.split(",").map(s => s.trim()));
+	const named = String(tools ?? "").split(",").map(s => s.trim()).filter(Boolean);
+	return named.length > 0 && named.every(t => allowed.has(t));
+}
+
 export interface DelegateToolResolution {
 	baseTools: string;
 	effectiveTools: string;

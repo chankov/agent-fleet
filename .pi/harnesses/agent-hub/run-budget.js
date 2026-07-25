@@ -34,6 +34,12 @@ export function normalizeTaskTier(value) {
 // stale context, so a fresh session is cheaper than the memory is worth.
 export const RECYCLE_CONTEXT_PCT = 60;
 
+// Hard ceiling: at or past a full window the accumulated session no longer
+// fits, so no threshold override may keep it alive. Session 1 of the
+// post-mortem logged 315% → 176% → 100% while the configured threshold was
+// still being consulted as if it were advisory.
+export const HARD_RECYCLE_CONTEXT_PCT = 100;
+
 export const MODE_BUDGETS = {
 	fast: {
 		maxDispatches: 2,
@@ -136,14 +142,34 @@ export function checkTurnBudget(kind, counters, budget, elapsedWallMs, mode = DE
 
 /**
  * Recycle the specialist's accumulated session before this run? True when the
- * session already served `recycleRuns` runs, or its (correctly measured)
- * context passed RECYCLE_CONTEXT_PCT — resuming past either point mostly
- * re-bills stale context on every subsequent model call.
+ * session already served `recycleRuns` runs, its context reached a full window
+ * (HARD_RECYCLE_CONTEXT_PCT, not overridable), or it passed the configured
+ * RECYCLE_CONTEXT_PCT — resuming past any of those mostly re-bills stale
+ * context on every subsequent model call.
  */
 export function shouldRecycleSession(runsSinceFresh, contextPct, budget, thresholdPct = RECYCLE_CONTEXT_PCT) {
 	if (runsSinceFresh <= 0) return false;
+	if (contextPct >= HARD_RECYCLE_CONTEXT_PCT) return true;
 	if (budget.recycleRuns != null && runsSinceFresh >= budget.recycleRuns) return true;
 	return contextPct >= thresholdPct;
+}
+
+/**
+ * The one case recycling cannot fix: a *fresh* session already measured over a
+ * full window means a single run overflowed on its own, so there is no
+ * accumulated history to drop. Either `contextWindow` is wrong for that
+ * provider or the run genuinely ran over — both need a human, not a retry.
+ * Returns the diagnostic line, or null when recycling covers the situation.
+ */
+export function contextOverflowDiagnostic(runsSinceFresh, contextPct, { agent = "agent", model = "unknown model" } = {}) {
+	if (runsSinceFresh > 0) return null;
+	if (!(contextPct >= HARD_RECYCLE_CONTEXT_PCT)) return null;
+	return (
+		`⚠ ${agent} measured ${Math.round(contextPct)}% context on a fresh session (${model}) — ` +
+		"recycling cannot help, one run overflowed the window on its own. Either the resolved " +
+		"contextWindow is wrong for this provider or the run genuinely ran over: check the model's " +
+		"declared window and narrow the task's inputs."
+	);
 }
 
 /** One-line status chip: "Mode: standard·small · 1/2 disp · 0/2 res". */

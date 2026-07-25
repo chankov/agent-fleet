@@ -7,6 +7,50 @@
 
 export const SENTINEL_PREFIX = "<<COMS_DONE:";
 
+// ── reply-timeout and idle-wait policy ──
+//
+// Two field failures live here. First, the bridge only ever read its own
+// --reply-timeout: a caller that asked for 1_800_000ms was still told "no reply
+// within 600000ms", so a review that honestly takes more than ten minutes could
+// not succeed at all. Second, a pane that was mid-turn threw instantly, which
+// turned every busy moment into a hard error — ten of eighteen coms_await calls
+// in one session died that way, the caller hot-retried every few seconds, and
+// then fell back to reading the pane 127 times to watch progress by hand.
+
+/** No caller may hold a pane hostage indefinitely. */
+export const REPLY_TIMEOUT_HARD_CAP_MS = 3_600_000;
+
+/** Backoff while waiting for a busy pane, in ms; the last step repeats. */
+export const IDLE_WAIT_BACKOFF_MS = [2_000, 4_000, 8_000, 15_000, 30_000];
+
+/** Longest we will ever wait for a pane to go idle before giving up. */
+export const IDLE_WAIT_CAP_MS = 120_000;
+
+/**
+ * The caller's own deadline wins — it knows how long the work takes — falling
+ * back to the bridge's configured timeout and always clamped to the hard cap.
+ */
+export function resolveReplyTimeoutMs(requested: unknown, fallbackMs: number, capMs = REPLY_TIMEOUT_HARD_CAP_MS): number {
+	const asked = Number(requested);
+	const base = Number.isFinite(asked) && asked > 0 ? asked : fallbackMs;
+	return Math.max(1, Math.min(base, capMs));
+}
+
+/** Backoff delay for the nth idle-wait attempt (0-based); the last step repeats. */
+export function idleWaitDelayMs(attempt: number): number {
+	const i = Math.max(0, Math.min(Math.floor(attempt), IDLE_WAIT_BACKOFF_MS.length - 1));
+	return IDLE_WAIT_BACKOFF_MS[i];
+}
+
+/**
+ * How long to wait for a busy pane. Never more than half the caller's reply
+ * budget — waiting to start must not consume the time meant for the answer.
+ */
+export function idleWaitBudgetMs(replyTimeoutMs: number, capMs = IDLE_WAIT_CAP_MS): number {
+	const half = Math.floor((Number(replyTimeoutMs) || 0) / 2);
+	return Math.max(0, Math.min(capMs, half));
+}
+
 export function completionSentinel(msgId: string): string {
 	return `${SENTINEL_PREFIX}${msgId}>>`;
 }

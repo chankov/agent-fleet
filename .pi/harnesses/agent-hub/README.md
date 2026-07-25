@@ -72,7 +72,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 - **Verification Contract (assertion ledger)** — the dispatcher owns a ledger of checkable
   acceptance assertions built from the request *before* any builder runs, so a clearly stated
   requirement is never silently dropped. `set_assertions` records the numbered, tagged assertions
-  (`test` | `runtime-ui` | `code-grep` | `manual`, one pass condition each) and rebuilds the whole
+  (`test` | `runtime-ui` | `code-grep` | `manual`, one pass condition each, plus a required
+  `source` naming where the requirement comes from) and rebuilds the whole
   ledger on a "wrong again" regression reset; `update_assertion` marks each one proven (named
   evidence required), unproven, or failed after a verification gate; `get_assertions` reads the
   full ledger (ids, tags, pass conditions, evidence) back. The hub persists the ledger to
@@ -93,10 +94,19 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   manual needs user/`ask_user` confirmation, and `runtime-ui` needs an existing artifact path under
   `.pi/agent-sessions/artifacts/evidence/`. **Advisory by design** (PRD open question 2): status is
   surfaced and "proven" requires named evidence, but a dispatch is never hard-refused on an unproven
-  assertion — code-enforcement is the Checkpoint A decision.
+  assertion — code-enforcement is the Checkpoint A decision. Two contract rules ARE enforced at the
+  tool: a batch with any sourceless assertion is refused with the offending ids named (a specialist
+  told to prove `A9` must be able to read its origin instead of spending a dispatch and an ASK_USER
+  cycle asking where `A9` was defined), and a batch over **8** open assertions is accepted with a
+  warning suggesting the split — declare the batch the next dispatches actually prove, and
+  `set_assertions` the next one when it starts.
 - **Artifact bus** — session handoffs live under `.pi/agent-sessions/artifacts/` with conventional
-  `returns/`, `plans/`, `reviews/`, `inventories/`, and `evidence/` subdirectories, all wiped and
-  recreated at session start like `findings/`. `dispatch_agent` and `spawn_research` accept optional
+  `returns/`, `failures/`, `plans/`, `reviews/`, `inventories/`, and `evidence/` subdirectories, all
+  wiped and recreated at session start like `findings/`. `failures/` is separate on purpose: a run
+  that errored or timed out produced no specialist result, so its output goes there and the dispatch
+  result names it a **delivery failure** carrying no assertion evidence. Filing a 142-byte coms error
+  stub as `returns/code-reviewer-run4.md` once cost a 103-second dispatch investigating a review that
+  had in fact succeeded — only its reply was lost. `dispatch_agent` and `spawn_research` accept optional
   `artifacts: string[]` paths (repo-relative or session-artifact-relative); the hub validates that
   they stay inside the repo/session roots and injects only the path plus first heading/one-line
   preview, never file bodies. Document-producing specialists are instructed to write plans, reviews,
@@ -143,9 +153,14 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   outside the declared lists is ever selectable. When an effective project or session override
   fails with a model/provider error or aborted request before work begins (including local-model
   memory-limit failures), the hub retries once with the model originally declared in the persona
-  frontmatter. This is pre-work only: no fallback occurs after text output, a tool call,
-  cancellation, timeout, drift stop, or a Pi process-spawn failure, avoiding duplicate writes. The
-  failed attempt is removed from the child session before retry. Per project,
+  frontmatter. For **write-capable** runs this is pre-work only: no fallback occurs after text
+  output, a tool call, cancellation, timeout, drift stop, or a Pi process-spawn failure, avoiding
+  duplicate writes. **Read-only children and research helpers** (tools limited to
+  `read,grep,find,ls`) also retry once when the provider fails *mid-run* — re-running a reader
+  repeats nothing, and those are exactly the children that exist to protect their parent's context,
+  so losing one to a local-endpoint OOM halfway through discards work for no safety gain. A
+  terminated run (watchdog, deadline, cancellation) never retries either way: that is a verdict on
+  the work, not a provider outage. The failed attempt is removed from the child session before retry. Per project,
   `model.<persona>:` / `models.<persona>:` keys under `## agent-hub` in
   `.ai/agent-fleet-overrides.md` replace a persona's default model / candidate list.
   Research personas (`researcher` / `deep-researcher`, `kind: research`) are switchable the same
@@ -428,6 +443,36 @@ or its measured context passes 60%. The dispatch result notes the recycle so the
 knows the specialist starts without session memory — task text and `artifacts:` paths must
 carry the state, which the deliverable-to-file protocol already ensures.
 
+Context is measured against **that agent's own** model window, resolved from pi's model
+registry (`ctx.modelRegistry.find`) with the source recorded on every resolution. Dividing a
+49k local model's usage by the dispatcher's window is what produced unactionable readings
+like `⚠ Planner context at 315%`; a reading above 100% now emits a one-time diagnostic that
+names the window and where the number came from, so a mis-resolved window is distinguishable
+from a genuine overflow. Two recycle rules follow from it: a session at or past a **full**
+window is recycled unconditionally (no threshold override keeps it alive), and a resumed
+session whose *projected* prompt — prior tokens plus this task — would overflow is recycled
+**before** the spawn instead of after the run.
+
+#### Per-provider concurrency
+
+A dispatch may fan out to four delegate children at once and several specialists can be
+mid-run, with nothing bounding how many requests land on one provider. That is fine against
+a hosted endpoint and not against a local one. Requests are capped per process — **2 in
+flight for `custom/*` by default, unlimited elsewhere**:
+
+```bash
+AGENT_HUB_PROVIDER_LIMITS="custom=4"        # raise the local cap
+AGENT_HUB_PROVIDER_LIMITS="custom=off"      # disable it
+AGENT_HUB_PROVIDER_LIMITS="custom=2,ollama=1"
+```
+
+Queued runs still execute — they wait for a permit, and the wait is announced rather than
+looking like a hang. The cap applies per **level** of the delegation tree (each pi process
+runs its own semaphore over the children it spawns), and a nested spawn reuses its parent's
+permit, so a child can never wait on its own ancestor. The drift judge and the return
+extractor are deliberately ungated: both run while a specialist holds a permit, so queueing
+them behind it would stall the watchdog meant to stop it.
+
 The per-run deadline lands as `turn_timeout` (exit 124) with partial output preserved, for
 dispatched specialists, research helpers, and nested delegate children alike — a hung child
 can no longer hold its parent for hours.
@@ -503,9 +548,13 @@ Inside a [herdr](https://herdr.dev) pane with a live server, the dispatcher's to
 surface additionally gets (absent otherwise, like coms):
 
 - `herdr_spawn_peer` — stand up a persona peer (joins the coms pool via `just _peer`) or a
-  raw command pane in the current workspace
+  raw command pane in the current workspace. A persona peer **boots idle** and does nothing until
+  a `coms_send` reaches it, so the call waits (bounded, ~45s) for it to register and returns
+  `peer_ready` plus its coms name instead of a bare pane id. Peers spawned but never addressed are
+  named at turn end and in `/af-hub-report` with a close suggestion — closing stays the human's call
 - `herdr_read_pane` — bounded `pane.read` (≤200 lines), read-to-decide on workers/tools;
-  messaging still goes through coms
+  messaging still goes through coms, and peer busy state comes from `coms_list`, not from
+  reading the screen
 - `herdr_close_pane` — kills a pane; **asks the human to confirm every call**; the
   bash-level `herdr pane close`/`workspace close`/`server stop` verbs are hard-blocked
   for spawned specialists by `.pi/damage-control-rules.yaml`
@@ -549,7 +598,10 @@ under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runti
   confirms it with the user, then dispatches the `documenter` to land the approved lessons as
   minimal diffs on the project's `rules:`/`docs:` targets per `skills/compound-learning/SKILL.md`.
   Requires the `documenter` persona in the active team; run it before `/af-handoff` or session end.
-- `coms_list` — discover the peers in your pool: names, models, live context usage, purpose. Scoped
+- `coms_list` — discover the peers in your pool: names, models, live context usage, purpose,
+  `pane_id`, and `status` (`idle` | `working` | `booting`). Check status before sending: `working`
+  means your send waits behind the peer's current turn, `booting` means it is not addressable yet.
+  This is the field whose absence drove 127 `herdr_read_pane` calls in one session. Scoped
   to your project and excluding private peers; the LLM cannot widen it (see
   [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)).
 - `coms_send` — send a prompt to a peer **in your pool**; returns a `msg_id`

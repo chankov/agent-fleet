@@ -278,8 +278,15 @@ export function spawnPiAgent(
 	});
 }
 
-function modelFallbackReason(result: SpawnPiAgentResult): string | null {
-	if (result.spawnError || result.termination || result.toolCallsStarted > 0 || result.output.trim()) return null;
+function modelFallbackReason(result: SpawnPiAgentResult, midRun = false): string | null {
+	// A terminated run (watchdog, deadline, cancellation) is a verdict on the
+	// work, not a provider outage — never retry it. A spawn failure never
+	// reached a provider at all.
+	if (result.spawnError || result.termination) return null;
+	// Work already produced normally blocks the retry: re-running could repeat
+	// side effects. `midRun` lifts that for children that hold no write-capable
+	// tools, where repeating the run cannot change anything but the report.
+	if (!midRun && (result.toolCallsStarted > 0 || result.output.trim())) return null;
 	if (result.assistantError) return result.assistantError.slice(-500);
 	if (result.exitCode !== 0) {
 		const stderr = result.stderr.trim();
@@ -288,16 +295,31 @@ function modelFallbackReason(result: SpawnPiAgentResult): string | null {
 	return null;
 }
 
+export interface ModelFallbackOptions {
+	/**
+	 * Retry even when the failed attempt had already started tools or emitted
+	 * text. Only pass this for a run that holds NO write-capable tools: the
+	 * retry re-executes whatever the first attempt did, which is harmless for a
+	 * reader and duplicates edits for a writer. Use `isReadOnlyToolList` on the
+	 * effective tool list rather than assuming.
+	 */
+	midRun?: boolean;
+}
+
 /**
- * Run an overridden model and retry once on the original persona model only
- * when the first attempt failed before producing text or starting a tool. The
- * session file is restored before retry so the failed turn never enters the
- * resumable conversation.
+ * Run an overridden model and retry once on the original persona model when the
+ * first attempt failed for a provider-level reason. By default that means
+ * "failed before producing text or starting a tool"; `midRun` extends it to
+ * read-only runs, where a provider dying halfway through would otherwise throw
+ * the whole run away — and those are exactly the children that exist to protect
+ * their parent's context. The session file is restored before the retry so the
+ * failed turn never enters the resumable conversation.
  */
 export async function spawnPiAgentWithModelFallback(
 	opts: SpawnPiAgentOptions,
 	fallbackModel?: string,
 	cbs: SpawnPiAgentCallbacks = {},
+	fallbackOptions: ModelFallbackOptions = {},
 ): Promise<SpawnPiAgentResult> {
 	if (!fallbackModel || fallbackModel === opts.model) return spawnPiAgent(opts, cbs);
 
@@ -308,7 +330,7 @@ export async function spawnPiAgentWithModelFallback(
 	}
 
 	const primary = await spawnPiAgent(opts, cbs);
-	const reason = modelFallbackReason(primary);
+	const reason = modelFallbackReason(primary, fallbackOptions.midRun === true);
 	// If an existing resumable session could not be snapshotted, fail closed:
 	// retrying would preserve the failed turn and could duplicate the prompt.
 	if (!reason || (sessionExisted && !sessionSnapshot)) return primary;

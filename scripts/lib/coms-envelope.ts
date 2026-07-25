@@ -63,6 +63,12 @@ export interface PromptEnvelope {
 	sender_cwd: string;
 	conversation_id?: string | null;
 	response_schema?: object | null;
+	/**
+	 * How long the sender is prepared to wait, in ms. A receiver that drives an
+	 * interactive agent uses this instead of its own default — otherwise a caller
+	 * asking for 30 minutes is still failed at the bridge's 10-minute default.
+	 */
+	reply_timeout_ms?: number | null;
 }
 
 export interface ResponseEnvelope {
@@ -85,6 +91,38 @@ export interface CancelEnvelope {
 	ref_msg_id: string;
 }
 
+/**
+ * How addressable a peer is right now.
+ *   idle    — will pick up a `coms_send` immediately
+ *   working — mid-turn (or blocked on its own permission prompt); a send waits
+ *   booting — registered, but nothing has reported a live state yet
+ *
+ * Published so a sender can check before sending instead of screen-scraping the
+ * pane: the session behind this change issued 127 `herdr_read_pane` calls
+ * substituting for this one missing field.
+ */
+export type PeerStatus = "idle" | "working" | "booting";
+
+const PANE_STATUS_WORKING = new Set(["working", "blocked"]);
+const PANE_STATUS_IDLE = new Set(["idle", "done", "ready"]);
+
+/**
+ * Map a herdr pane's `agent_status` onto a peer status. Anything unrecognised —
+ * including the "unknown" herdr reports for a pane whose agent has not checked
+ * in — is `booting`: not addressable yet, but not a failure either.
+ */
+export function paneAgentStatusToPeerStatus(agentStatus: string | null | undefined): PeerStatus {
+	const s = String(agentStatus ?? "").trim().toLowerCase();
+	if (PANE_STATUS_WORKING.has(s)) return "working";
+	if (PANE_STATUS_IDLE.has(s)) return "idle";
+	return "booting";
+}
+
+/** Display form; a peer that never answered the ping has no status of its own. */
+export function peerStatusLabel(status: PeerStatus | null | undefined): string {
+	return status ?? "unreachable";
+}
+
 export interface AgentCard {
 	name: string;
 	purpose: string;
@@ -92,6 +130,10 @@ export interface AgentCard {
 	color: string;
 	context_used_pct: number;
 	queue_depth: number;
+	/** herdr pane hosting this peer, when it runs in one. */
+	pane_id?: string | null;
+	/** Addressability right now — see PeerStatus. Absent on pre-status peers. */
+	status?: PeerStatus;
 }
 
 export interface RegistryEntry {
@@ -161,7 +203,7 @@ export interface SenderIdentity {
 export function makePromptEnvelope(
 	from: SenderIdentity,
 	prompt: string,
-	opts: { hops?: number; response_schema?: object | null } = {},
+	opts: { hops?: number; response_schema?: object | null; reply_timeout_ms?: number | null } = {},
 ): PromptEnvelope {
 	return {
 		type: "prompt",
@@ -175,6 +217,7 @@ export function makePromptEnvelope(
 		sender_cwd: from.cwd,
 		conversation_id: null,
 		response_schema: opts.response_schema ?? null,
+		reply_timeout_ms: opts.reply_timeout_ms ?? null,
 	};
 }
 

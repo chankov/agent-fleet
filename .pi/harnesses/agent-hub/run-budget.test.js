@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import {
 	HUB_MODES,
 	DEFAULT_HUB_MODE,
+	HARD_RECYCLE_CONTEXT_PCT,
 	MODE_BUDGETS,
 	RECYCLE_CONTEXT_PCT,
+	contextOverflowDiagnostic,
 	TASK_TIERS,
 	TIER_CAPS,
 	normalizeHubMode,
@@ -126,6 +128,30 @@ test("shouldRecycleSession with recycleRuns off still respects context threshold
 	const budget = resolveTurnBudget("standard", { recycleRuns: null });
 	assert.equal(shouldRecycleSession(50, 10, budget), false);
 	assert.equal(shouldRecycleSession(50, 75, budget), true);
+});
+
+test("shouldRecycleSession hard-recycles at or above a full context window", () => {
+	// A raised threshold must not defeat the hard limit: past 100% the session
+	// no longer fits, so resuming it cannot be the cheaper option.
+	const budget = resolveTurnBudget("standard", { recycleRuns: null });
+	assert.equal(shouldRecycleSession(1, HARD_RECYCLE_CONTEXT_PCT, budget, 999), true);
+	assert.equal(shouldRecycleSession(1, 315, budget, 999), true);
+	assert.equal(shouldRecycleSession(1, 99, budget, 999), false);
+	// Nothing to recycle on a fresh session, whatever the reading says.
+	assert.equal(shouldRecycleSession(0, 315, budget), false);
+});
+
+test("contextOverflowDiagnostic fires only for a fresh session over the window", () => {
+	assert.equal(contextOverflowDiagnostic(1, 315), null); // recycling handles it
+	assert.equal(contextOverflowDiagnostic(0, 99), null);
+	const diag = contextOverflowDiagnostic(0, 315, { agent: "planner", model: "custom/Qwen3.6-35B-A3B-4bit" });
+	assert.ok(diag);
+	assert.match(diag, /planner/);
+	assert.match(diag, /315%/);
+	assert.match(diag, /custom\/Qwen3\.6-35B-A3B-4bit/);
+	// Names the actual cause: one run cannot be split by recycling.
+	assert.match(diag, /contextWindow/);
+	assert.equal(contextOverflowDiagnostic(0, 100), contextOverflowDiagnostic(0, 100));
 });
 
 test("budgetStatusLine renders caps and infinities", () => {

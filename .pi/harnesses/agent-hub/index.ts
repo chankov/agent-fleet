@@ -70,7 +70,7 @@ import {
 	type AutocompleteItem, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
-import { spawnPiAgent, spawnPiAgentWithModelFallback, killPiTree, type PiRunControl, type Termination } from "./spawn.ts";
+import { spawnPiAgent, spawnPiAgentWithModelFallback, killPiTree, type PiRunControl, type SpawnPiAgentCallbacks, type SpawnPiAgentOptions, type Termination } from "./spawn.ts";
 import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "./research-watchdog.ts";
 import { renderHubFooterLeft } from "./footer.ts";
 import { HARNESS_VERSION, registerVersionStatus } from "./version.ts";
@@ -88,9 +88,15 @@ import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
-import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
-import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_TIERS, budgetStatusLine, checkTurnBudget, normalizeHubMode, normalizeTaskTier, resolveTurnBudget, shouldRecycleSession } from "./run-budget.js";
-import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
+import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_TIERS, budgetStatusLine, checkTurnBudget, contextOverflowDiagnostic, normalizeHubMode, normalizeTaskTier, resolveTurnBudget, shouldRecycleSession } from "./run-budget.js";
+import { MAX_OPEN_ASSERTIONS, validateAssertionBatch } from "./assertion-ledger.js";
+import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
+import { PEER_READY_TIMEOUT_MS, peerReadyDelayMs, peerReadyVerdict, unaddressedPeerSweep } from "./spawned-peers.js";
+import { contextPct, estimatePromptTokens, overWindowDiagnostic, resolveContextWindow, shouldRecycleBeforeSpawn } from "./context-window.js";
+import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, hubOwnedScopeGlobs, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
+import { isCorruptSessionExit, quarantineIfUnusable } from "./session-health.js";
+import { EXTRACTION_DEADLINE_MS, buildExtractionPrompt, shouldExtractReturn } from "./return-extract.js";
 import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "./artifacts.js";
 import { crossCheck, extractAssertionIds, parseStructuredReturn } from "./return-contract.js";
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
@@ -99,7 +105,7 @@ import { comsRequiredRefusal, parseDispatchPolicy, resolveDispatchBackend } from
 import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from "./research-retention.js";
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
 import { createAccessApprovalRouter } from "./access-approval.ts";
-import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
+import { readdirSync, readFileSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import {
 	formatPeerStatus,
 	HerdrAgentWatch,
@@ -191,6 +197,8 @@ interface InputArtifactPreview {
 	path: string;
 	displayPath: string;
 	preview: string;
+	/** Set when the file was found under a different artifact kind than requested. */
+	resolvedFromKind?: string | null;
 }
 
 interface AgentState {
@@ -201,6 +209,10 @@ interface AgentState {
 	elapsed: number;
 	lastWork: string;
 	contextPct: number;
+	// Last measured prompt size in tokens (input + cache reads + writes). Kept
+	// alongside contextPct because the pre-spawn guard needs the absolute number:
+	// a percentage cannot be compared against a window it was not divided by.
+	contextTokens: number;
 	sessionFile: string | null;
 	runCount: number;
 	// Runs served by the CURRENT accumulated session (-c resume chain). Reset on
@@ -1955,6 +1967,36 @@ export default function (pi: ExtensionAPI) {
 	let widgetCtx: any;
 	let sessionDir = "";
 	let contextWindow = 0;
+	// Per-provider in-flight cap for the hub's OWN spawns (specialists and
+	// research helpers, which the dispatcher can start in parallel). Delegate
+	// children are gated by the same policy inside their parent's process. The
+	// drift judge and the return extractor are deliberately NOT gated: both run
+	// while a specialist holds a permit, so queueing them behind that specialist
+	// would stall the very watchdog that is supposed to stop it.
+	const providerSemaphore = createProviderSemaphore({
+		...DEFAULT_PROVIDER_LIMITS,
+		...parseProviderLimits(process.env.AGENT_HUB_PROVIDER_LIMITS),
+	});
+	/**
+	 * pi's model registry as a plain lookup — the documented source for every
+	 * model's window, and the same one the dispatcher's own window comes from.
+	 */
+	function modelWindowLookup(ctx: any): (provider: string, modelId: string) => any {
+		return (provider, modelId) => ctx?.modelRegistry?.find?.(provider, modelId);
+	}
+
+	/** Say so when a run is about to wait on a provider permit, not just hang. */
+	function notifyProviderQueue(model: string, label: string, ctx: any): void {
+		const cap = providerSemaphore.limitFor(model);
+		if (cap == null || providerSemaphore.inFlight(model) < cap) return;
+		const ahead = providerSemaphore.queued(model) + 1;
+		ctx?.ui?.notify(
+			`${label}: queued — ${cap} requests already in flight on this provider (${ahead} waiting). ` +
+			"Raise or disable the cap with AGENT_HUB_PROVIDER_LIMITS (e.g. custom=4, custom=off).",
+			"info",
+		);
+	}
+
 	let activeWritableDispatches = 0;
 	let writableOverlapCounter = 0;
 	let pendingHandoff: { target: string; token: string } | null = null;
@@ -2078,6 +2120,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		id: string;        // A1, A2, …
 		tag: string;       // test | runtime-ui | code-grep | manual
 		text: string;      // one checkable pass condition
+		source: string;    // where it came from — plan/spec line, user request, finding id
 		status: AssertionStatus;
 		evidence?: string; // named evidence for proven / failed
 	}
@@ -2104,7 +2147,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	function renderAssertionLedgerLines(): string[] {
 		return assertions.map(a => {
 			const ev = a.evidence ? ` — evidence: ${a.evidence}` : "";
-			return `${a.id} [${a.tag}] ${a.status.toUpperCase()}: ${a.text}${ev}`;
+			const src = a.source ? ` ⇐ ${a.source}` : "";
+			return `${a.id} [${a.tag}] ${a.status.toUpperCase()}: ${a.text}${src}${ev}`;
 		});
 	}
 
@@ -2221,11 +2265,16 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		return `\n\n⚠ Scope advisory: changed outside declared scope: ${scopeViolations.outOfScope.join(", ")}. Review these paths and decide whether to accept them or explicitly order cleanup; the hub did not revert anything.${overlap}`;
 	}
 
-	function writeReturnArtifact(agentKey: string, runCount: number, output: string): string {
+	/**
+	 * Persist a run's output. `kind` is "returns" for a run that completed and
+	 * "failures" for one that errored or timed out — an error stub filed as a
+	 * return reads as a specialist verdict and is acted on as one.
+	 */
+	function writeRunArtifact(agentKey: string, runCount: number, output: string, kind: "returns" | "failures" = "returns"): string {
 		const root = ensureArtifactsLayout();
-		const returnsDir = safePathWithin(root, "returns");
-		mkdirSync(returnsDir, { recursive: true });
-		const file = safePathWithin(returnsDir, `${agentKey}-run${runCount}.md`);
+		const dir = safePathWithin(root, kind);
+		mkdirSync(dir, { recursive: true });
+		const file = safePathWithin(dir, `${agentKey}-run${runCount}.md`);
 		writeFileSync(file, output, "utf-8");
 		return file;
 	}
@@ -2294,7 +2343,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			lines.push(`${key}:`);
 			for (const entry of entries) {
 				const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : "";
-				lines.push(`- ${entry.id}: ${entry.note || "(no note)"}${evidence}`);
+				// Line-form verdicts carry evidence and no separate note; printing
+				// "(no note)" next to real evidence is noise, not information.
+				const note = entry.note || (entry.evidence ? "" : "(no note)");
+				lines.push(`- ${entry.id}${note ? `: ${note}` : ""}${evidence}`);
 			}
 		}
 		for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) {
@@ -2385,9 +2437,33 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		}
 	}
 
-	function freshAgentState(def: AgentDef): AgentState {
-		const key = safeAgentKey(def.name);
-		const sessionFile = safePathWithin(sessionDir, `${key}.json`);
+	// Only the first record decides whether pi will accept a session file, and these
+	// files reach megabytes (one observed at 2.1 MB) — so read a head slice, not the
+	// whole thing. This check runs on every dispatch and every team activation.
+	const SESSION_HEAD_BYTES = 64 * 1024;
+	function readSessionHead(file: string): string {
+		const fd = fs.openSync(file, "r");
+		try {
+			const buf = Buffer.alloc(SESSION_HEAD_BYTES);
+			const read = fs.readSync(fd, buf, 0, SESSION_HEAD_BYTES, 0);
+			return buf.subarray(0, read).toString("utf-8");
+		} finally {
+			fs.closeSync(fd);
+		}
+	}
+	const sessionHealthIo = { existsSync, readFileSync: readSessionHead, renameSync };
+
+	// Would the persona's on-disk session file survive contact with pi? A corrupt
+	// one must never be adopted: doing so is what made every `builder` dispatch
+	// fail in ~1s, and re-adding the agent re-adopted the same bad file, so
+	// drop + add looked like a recovery that could not work.
+	function adoptableSessionFile(def: AgentDef): { file: string | null; quarantined: string | null; reason: string | null } {
+		const sessionFile = safePathWithin(sessionDir, `${safeAgentKey(def.name)}.json`);
+		const health = quarantineIfUnusable(sessionFile, sessionHealthIo);
+		return { file: health.usable ? sessionFile : null, quarantined: health.quarantined, reason: health.reason };
+	}
+
+	function freshAgentState(def: AgentDef, adoption = adoptableSessionFile(def)): AgentState {
 		return {
 			def,
 			status: "idle",
@@ -2396,7 +2472,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			elapsed: 0,
 			lastWork: "",
 			contextPct: 0,
-			sessionFile: existsSync(sessionFile) ? sessionFile : null,
+			contextTokens: 0,
+			sessionFile: adoption.file,
 			runCount: 0,
 			runsSinceFresh: 0,
 			timeline: [],
@@ -2438,10 +2515,14 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		if (agentStates.has(def.name.toLowerCase())) {
 			return { ok: false, message: `${displayName(def.name)} is already in the active team` };
 		}
-		agentStates.set(def.name.toLowerCase(), freshAgentState(def));
+		const adoption = adoptableSessionFile(def);
+		agentStates.set(def.name.toLowerCase(), freshAgentState(def, adoption));
 		recomputeGrid();
 		updateWidget();
-		return { ok: true, message: `${displayName(def.name)} added to the active team` };
+		const quarantineNote = adoption.quarantined
+			? ` — its previous session file was unusable (${adoption.reason}) and was quarantined to ${adoption.quarantined}; it starts clean`
+			: "";
+		return { ok: true, message: `${displayName(def.name)} added to the active team${quarantineNote}` };
 	}
 
 	function rosterDrop(name: string): { ok: boolean; message: string } {
@@ -2459,7 +2540,20 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		agentStates.delete(key);
 		recomputeGrid();
 		updateWidget();
-		return { ok: true, message: `${displayName(state.def.name)} dropped from the active team (its session file is kept for re-adding)` };
+		// Promise a reusable session file only when pi would actually accept it.
+		// The old unconditional "kept for re-adding" is what made a corrupt file
+		// look re-addable: the dispatcher dropped the agent, added it back, and got
+		// the same instant failures.
+		const health = quarantineIfUnusable(
+			safePathWithin(sessionDir, `${safeAgentKey(state.def.name)}.json`),
+			sessionHealthIo,
+		);
+		const fileNote = health.usable
+			? " (its session file is kept for re-adding)"
+			: health.quarantined
+				? ` (its session file was unusable — ${health.reason} — and was quarantined to ${health.quarantined}; re-adding starts clean)`
+				: " (it has no session file; re-adding starts clean)";
+		return { ok: true, message: `${displayName(state.def.name)} dropped from the active team${fileNote}` };
 	}
 
 	// ── Grid Rendering ───────────────────────────
@@ -3156,7 +3250,15 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 	// runs WHILE the specialist keeps working; only a negative verdict stops the
 	// run. Judge failures fail open — a broken judge must never kill good work.
 	async function runDriftJudge(
-		input: { agentLabel: string; agentKey: string; task: string; scopeGlobs: string[]; trail: string[]; violation: { rule: string; detail: string } },
+		input: {
+			agentLabel: string;
+			agentKey: string;
+			task: string;
+			scopeGlobs: string[];
+			hubOwnedGlobs: string[];
+			trail: string[];
+			violation: { rule: string; terminal?: boolean; detail: string };
+		},
 		ctx: any,
 	): Promise<{ verdict: string; reason: string } | null> {
 		const researcherDef = allAgentDefs.find(d => d.name.toLowerCase() === "researcher");
@@ -3172,7 +3274,14 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 				thinking: "off",
 				appendSystemPrompt: "You are a strict, terse runtime watchdog. Answer with exactly one VERDICT line.",
 				sessionFile: judgeSession,
-				prompt: buildJudgePrompt({ agent: input.agentLabel, task: input.task, scopeGlobs: input.scopeGlobs, trail: input.trail, violation: input.violation }),
+				prompt: buildJudgePrompt({
+					agent: input.agentLabel,
+					task: input.task,
+					scopeGlobs: input.scopeGlobs,
+					hubOwnedGlobs: input.hubOwnedGlobs,
+					trail: input.trail,
+					violation: input.violation,
+				}),
 				detached: true,
 				turnDeadlineMs: 60_000,
 			});
@@ -3185,6 +3294,39 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		}
 	}
 
+	// One cheap read-only pass that restates an already-written report in the
+	// structured schema. Runs only when nothing parsed and assertions were tracked
+	// (shouldExtractReturn): the alternative is discarding a whole run's evidence
+	// over a formatting miss. Bounded — one attempt, own deadline, own throwaway
+	// session, never counted against the turn budget — and the caller labels the
+	// result so extracted evidence never passes for declared evidence.
+	async function runReturnExtraction(returnPath: string, assertionIds: string[], ctx: any): Promise<any | null> {
+		const researcherDef = allAgentDefs.find(d => d.name.toLowerCase() === "researcher");
+		const model = watchdogJudgeModel
+			?? (researcherDef ? resolvedModel(researcherDef) : null)
+			?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
+		const extractSession = safePathWithin(sessionDir, "return-extract.json");
+		try { unlinkSync(extractSession); } catch {}
+		try {
+			const res = await spawnPiAgent({
+				model,
+				tools: "read",
+				thinking: "off",
+				appendSystemPrompt: "You restate an existing report in a fixed format. You never judge the work and never invent evidence.",
+				sessionFile: extractSession,
+				prompt: buildExtractionPrompt({ returnPath, assertionIds }),
+				detached: true,
+				turnDeadlineMs: EXTRACTION_DEADLINE_MS,
+			});
+			if (res.spawnError || res.exitCode !== 0) return null;
+			return parseStructuredReturn(res.output);
+		} catch {
+			return null;
+		} finally {
+			try { unlinkSync(extractSession); } catch {}
+		}
+	}
+
 	async function dispatchAgent(
 		agentName: string,
 		task: string,
@@ -3192,7 +3334,14 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 		inputArtifacts: InputArtifactPreview[] = [],
 		scopeGlobs: string[] = [],
 		watchdogParam?: boolean,
-	): Promise<{ output: string; exitCode: number; elapsed: number; billed?: number; out?: number }> {
+	): Promise<{
+		output: string;
+		exitCode: number;
+		elapsed: number;
+		billed?: number;
+		out?: number;
+		sessionReset?: { reason: string; quarantined: string | null; retried: boolean } | null;
+	}> {
 		const key = normalizeAgentInput(agentName);
 		const state = agentStates.get(key);
 		if (!state) {
@@ -3314,6 +3463,11 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 				: "openrouter/google/gemini-3-flash-preview");
 		const originalModelFallback = fallbackModelFor(state.def, model);
 
+		// THIS specialist's window, not the dispatcher's. Measuring a 49k local
+		// model against a hosted model's window is what produced readings like
+		// "315%" that nobody could act on.
+		const agentWindow = resolveContextWindow(model, { lookup: modelWindowLookup(ctx), fallbackWindow: contextWindow });
+
 		// Session file for this agent
 		const agentSessionFile = safePathWithin(sessionDir, `${agentKey}.json`);
 
@@ -3329,10 +3483,42 @@ You are serving a dispatched task as a standing peer; the dispatcher only receiv
 			state.sessionFile = null;
 			state.runsSinceFresh = 0;
 			state.contextPct = 0;
+			state.contextTokens = 0;
 			sessionRecycled = true;
 			turnReport.recycles++;
 			sessionTotals.recycles++;
 			ctx.ui.notify(`${displayName(state.def.name)}: session recycled (stale context) — starting fresh`, "info");
+		} else {
+			// The reading recycling cannot act on: a fresh session already over a
+			// full window. Surfaced so a mis-resolved contextWindow stays
+			// distinguishable from a genuine single-run overflow.
+			const overflow = contextOverflowDiagnostic(state.runsSinceFresh, state.contextPct, {
+				agent: displayName(state.def.name),
+				model: resolvedModel(state.def) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unknown model"),
+			});
+			if (overflow) ctx.ui.notify(overflow, "warning");
+		}
+
+		// Session health preflight: `--session <file>` is passed on EVERY run, resume
+		// or not, so a single corrupt file bricks the persona — later dispatches die
+		// in ~1s with no output. Neither drop + re-add nor /af-agents-restart could
+		// recover it: both only clear the in-memory pointer while the bad file stays
+		// on disk and keeps reaching pi. So this check is unconditional, not gated on
+		// an intended resume — move the file aside and let the run start clean.
+		let sessionReset: { reason: string; quarantined: string | null; retried: boolean } | null = null;
+		{
+			const health = quarantineIfUnusable(agentSessionFile, sessionHealthIo);
+			if (!health.usable && health.reason) {
+				sessionReset = { reason: health.reason, quarantined: health.quarantined, retried: false };
+				state.sessionFile = null;
+				state.runsSinceFresh = 0;
+				state.contextPct = 0;
+				state.contextTokens = 0;
+				ctx.ui.notify(
+					`${displayName(state.def.name)}: unusable session file quarantined (${health.reason}) — starting fresh`,
+					"warning",
+				);
+			}
 		}
 
 		// Clarification protocol — every specialist learns to bubble up questions
@@ -3447,24 +3633,35 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		// ── Drift watchdog: layer-1 rules on the live stream, judge on escalation ──
 		// Precedence: dispatch param > per-agent /af-watchdog override > hub setting.
 		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting);
-		const driftMonitor = watchdogArmed ? createDriftMonitor({ scopeGlobs }) : null;
+		// The hub ORDERS every specialist to write its deliverable under the session
+		// artifacts tree, which no dispatcher `scope:` ever lists — so those paths are
+		// implicitly in scope. Both path forms: the specialist may use either.
+		const hubOwnedGlobs = hubOwnedScopeGlobs(sessionDir, path.relative(ctx.cwd || process.cwd(), sessionDir));
+		const driftMonitor = watchdogArmed ? createDriftMonitor({ scopeGlobs, allowGlobs: hubOwnedGlobs }) : null;
 		let driftControl: PiRunControl | undefined;
 		let driftStop: { rule: string; detail: string; verdict: string; reason: string } | null = null;
+		// Advisory signals (scope) that the judge called drift: reported to the
+		// dispatcher, never fatal. The post-run scope gate reverts nothing, so the
+		// live rule watching the same thing must not kill either.
+		const driftAdvisories: { rule: string; detail: string; verdict: string; reason: string }[] = [];
 		let judgeBusy = false;
 		let judgeCooldownUntil = 0;
-		const escalateDrift = (violation: { rule: string; detail: string }) => {
+		const escalateDrift = (violation: { rule: string; terminal?: boolean; detail: string }) => {
 			if (!driftMonitor || judgeBusy || driftStop || Date.now() < judgeCooldownUntil) return;
 			judgeBusy = true;
 			void runDriftJudge(
-				{ agentLabel: displayName(state.def.name), agentKey, task, scopeGlobs, trail: driftMonitor.trail(), violation },
+				{ agentLabel: displayName(state.def.name), agentKey, task, scopeGlobs, hubOwnedGlobs, trail: driftMonitor.trail(), violation },
 				ctx,
 			).then(v => {
 				judgeBusy = false;
 				judgeCooldownUntil = Date.now() + 90_000;
-				if (v && (v.verdict === "drifting" || v.verdict === "stuck")) {
-					driftStop = { ...violation, verdict: v.verdict, reason: v.reason };
-					driftControl?.terminate("drift_stop");
+				if (!v || (v.verdict !== "drifting" && v.verdict !== "stuck")) return;
+				if (violation.terminal === false) {
+					driftAdvisories.push({ rule: violation.rule, detail: violation.detail, verdict: v.verdict, reason: v.reason });
+					return;
 				}
+				driftStop = { rule: violation.rule, detail: violation.detail, verdict: v.verdict, reason: v.reason };
+				driftControl?.terminate("drift_stop");
 			}).catch(() => { judgeBusy = false; });
 		};
 
@@ -3475,14 +3672,44 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		let fullText = "";
 		let runBilled = 0;
 		let runOut = 0;
-		const res = await spawnPiAgentWithModelFallback({
+		let overWindowWarned = false;
+		const runPrompt = appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs);
+
+		// Pre-spawn overflow guard. The threshold check above runs on the PREVIOUS
+		// run's percentage; this one asks whether THIS prompt still fits before we
+		// pay for it. Recycling after the run is what made the post-mortem's
+		// warnings land 985s of billed work too late.
+		if (state.sessionFile && !sessionRecycled) {
+			const overflow = shouldRecycleBeforeSpawn({
+				priorTokens: state.contextTokens,
+				promptTokens: estimatePromptTokens(runPrompt) + estimatePromptTokens(appendedSystemPrompt),
+				window: agentWindow.window,
+			});
+			if (overflow) {
+				try { unlinkSync(agentSessionFile); } catch {}
+				state.sessionFile = null;
+				state.runsSinceFresh = 0;
+				state.contextPct = 0;
+				state.contextTokens = 0;
+				sessionRecycled = true;
+				turnReport.recycles++;
+				sessionTotals.recycles++;
+				ctx.ui.notify(
+					`${displayName(state.def.name)}: session recycled before spawn — ${overflow.message}. ` +
+					"Resuming would have overflowed the window mid-run; the task text and artifact paths carry the state.",
+					"info",
+				);
+			}
+		}
+
+		const spawnOptions: SpawnPiAgentOptions = {
 			model,
 			tools: effectiveTools,
 			thinking: thinkingLevel,
 			appendSystemPrompt: appendedSystemPrompt,
 			sessionFile: agentSessionFile,
 			resume: !!state.sessionFile,
-			prompt: appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs),
+			prompt: runPrompt,
 			extensions,
 			env: { ...guardrailEnv(agentKey), ...(delegateEnv || {}) },
 			detached: true,
@@ -3491,7 +3718,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			...(RESEARCHER_PERSONAS.has(personaKey) ? { toolWatchdog: { timeoutMs: reconSearchTimeoutMs } } : {}),
 			// Whole-run deadline from the active mode's budget (null in strict mode).
 			turnDeadlineMs: turnBudget.agentTurnMs,
-		}, originalModelFallback, {
+		};
+		const spawnCallbacks: SpawnPiAgentCallbacks = {
 			onProcess: (p) => { state.proc = p; void monitorStart?.then(task => monitorBridge?.registerOwnedProcessFor(task, p)); },
 			onModelFallback: ({ from, to, reason }) => {
 				state.lastWork = `model fallback: ${shortModel(from)} → ${shortModel(to)}`;
@@ -3536,14 +3764,61 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					runBilled += (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
 					runOut += usage.output || 0;
 				}
-				if (contextWindow > 0) {
+				if (agentWindow.window > 0) {
 					// Real context = fresh input + cache reads + cache writes. Counting
 					// usage.input alone showed 1–20% while tens of thousands of cached
 					// tokens were re-sent per step, so the restart advice never fired.
-					state.contextPct = (((usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0)) / contextWindow) * 100;
+					state.contextTokens = (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
+					state.contextPct = contextPct(usage, agentWindow.window);
+					// Once per run: a reading over a full window is either a wrong
+					// window or a real overflow, and the source line is what tells
+					// them apart. Silent 315% readings are how this went unfixed.
+					if (state.contextPct >= 100 && !overWindowWarned) {
+						overWindowWarned = true;
+						ctx.ui.notify(
+							overWindowDiagnostic({
+								agent: displayName(state.def.name),
+								model,
+								pct: state.contextPct,
+								window: agentWindow.window,
+								source: agentWindow.source,
+							}),
+							"warning",
+						);
+					}
 					updateWidget();
 				}
 			},
+		};
+		notifyProviderQueue(model, displayName(state.def.name), ctx);
+		// One permit for the whole dispatch, corrupt-session retry included: the
+		// retry is the same run starting over, not a second request to schedule.
+		const res = await providerSemaphore.run(model, async () => {
+			let r = await spawnPiAgentWithModelFallback(spawnOptions, originalModelFallback, spawnCallbacks);
+
+			// Post-hoc corrupt-session detection: the preflight cannot model every
+			// reason pi refuses a session file. This signature — non-zero exit, no
+			// output at all, "not a valid pi session" on stderr — means the run never
+			// started, so exactly one retry on a clean session is safe and cannot
+			// duplicate work. Any other failure stays a failure.
+			if (!r.spawnError && isCorruptSessionExit({ code: r.exitCode, output: r.output, stderr: r.stderr })) {
+				const health = quarantineIfUnusable(agentSessionFile, sessionHealthIo);
+				state.sessionFile = null;
+				state.runsSinceFresh = 0;
+				state.contextPct = 0;
+				state.contextTokens = 0;
+				sessionReset = {
+					reason: health.reason || "pi rejected the session file",
+					quarantined: health.quarantined,
+					retried: true,
+				};
+				ctx.ui.notify(
+					`${displayName(state.def.name)}: pi rejected the session file — quarantined, retrying once from a clean session`,
+					"warning",
+				);
+				r = await spawnPiAgentWithModelFallback({ ...spawnOptions, resume: false }, originalModelFallback, spawnCallbacks);
+			}
+			return r;
 		});
 
 		clearInterval(state.timer);
@@ -3692,6 +3967,19 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		if (sessionRecycled) {
 			output = `(ℹ ${displayName(state.def.name)}'s session was recycled before this run — it has no memory of earlier dispatches; state must travel via task text/artifacts.)\n\n${output}`;
 		}
+		if (driftAdvisories.length > 0) {
+			output += `\n\n⚠ Drift advisory (run NOT stopped): ` +
+				driftAdvisories.map(a => `rule "${a.rule}" — ${a.detail}; judge said ${a.verdict.toUpperCase()}: ${a.reason || "(no reason)"}`).join(" | ") +
+				`\nReview whether the work still serves the task; nothing was reverted and nothing was killed.`;
+		}
+		if (sessionReset) {
+			// Named explicitly so a reset never reads as "the specialist failed" —
+			// that misreading is what turned a broken file into a dropped persona.
+			output = `(⚠ ${displayName(state.def.name)}'s session file was unusable and has been quarantined` +
+				`${sessionReset.quarantined ? ` to ${sessionReset.quarantined}` : ""} (${sessionReset.reason}). ` +
+				`This run started from a clean session${sessionReset.retried ? " after one automatic retry" : ""} — the agent has no ` +
+				`memory of earlier dispatches, and this is NOT a reason to drop it from the team.)\n\n${output}`;
+		}
 
 		return {
 			output,
@@ -3699,6 +3987,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			elapsed: state.elapsed,
 			billed: runBilled,
 			out: runOut,
+			sessionReset,
 		};
 	}
 
@@ -3815,7 +4104,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 		// READ-ONLY by construction: RESEARCH_TOOLS only, regardless of persona frontmatter.
 		let fullText = "";
-		const res = await spawnPiAgentWithModelFallback({
+		const researchWindow = resolveContextWindow(state.model, { lookup: modelWindowLookup(ctx), fallbackWindow: contextWindow });
+		notifyProviderQueue(state.model, `Research r${state.id}`, ctx);
+		const res = await providerSemaphore.run(state.model, () => spawnPiAgentWithModelFallback({
 			model: state.model,
 			tools: RESEARCH_TOOLS,
 			thinking: thinkingLevel,
@@ -3865,13 +4156,18 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				state.zoomRender?.();
 			},
 			onUsage: (usage) => {
-				if (contextWindow > 0) {
-					// Same context truth as dispatchAgent: include cache reads/writes.
-					state.contextPct = (((usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0)) / contextWindow) * 100;
+				if (researchWindow.window > 0) {
+					// Same context truth as dispatchAgent: include cache reads/writes,
+					// measured against THIS helper's window rather than the dispatcher's.
+					state.contextPct = contextPct(usage, researchWindow.window);
 					updateResearchWidget();
 				}
 			},
-		});
+		}, {
+			// Read-only by construction (RESEARCH_TOOLS), so a provider failure
+			// mid-run is recoverable: re-running a reader repeats nothing.
+			midRun: isReadOnlyToolList(RESEARCH_TOOLS),
+		}));
 
 		clearInterval(state.timer);
 		state.elapsed = Date.now() - startTime;
@@ -4568,6 +4864,24 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					details: { agent, task, status: "duplicate_refused", elapsed: 0, exitCode: 1, fullOutput: "" },
 				};
 			}
+			// Input artifacts resolve BEFORE the dispatch is counted. Validation used to
+			// run after the increment, so four "Artifact not found" typos each burned a
+			// real budget slot — and the turn budget was exhausted three times in the
+			// same session. A path the hub cannot resolve is a pre-flight error: nothing
+			// was spawned, so nothing should be charged.
+			let inputArtifacts: InputArtifactPreview[];
+			try {
+				inputArtifacts = loadInputArtifacts(artifacts, ctx);
+			} catch (err: any) {
+				return {
+					content: [{
+						type: "text",
+						text: `⚠ Dispatch NOT sent and NOT counted against the turn budget — input artifact could not be resolved:\n` +
+							`${err?.message || err}\n\nFix the path and dispatch again.`,
+					}],
+					details: { agent, task, status: "artifact_preflight_failed", elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
+			}
 			turnDispatchCount++;
 			sessionTotals.dispatches++;
 			updateModeStatus();
@@ -4585,7 +4899,6 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				}
 
 				const dispatchedAssertionIds = extractAssertionIds(task);
-				const inputArtifacts = loadInputArtifacts(artifacts, ctx);
 				const scopeGlobs = (scope || []).map(s => String(s).trim()).filter(Boolean);
 				const stateForScope = agentStates.get(agent.toLowerCase());
 				const agentCanWrite = !!stateForScope && hasWriteCapability(stateForScope.def.tools);
@@ -4661,14 +4974,41 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					}
 				}
 
-				const parsedReturn = parseStructuredReturn(result.output);
-				const contractNotices = crossCheck(parsedReturn, dispatchedAssertionIds);
+				let parsedReturn = parseStructuredReturn(result.output);
+				let contractNotices = crossCheck(parsedReturn, dispatchedAssertionIds);
 				const shouldUseDigest = dispatchedAssertionIds.length > 0 || !!parsedReturn;
 				const state = agentStates.get(agent.toLowerCase());
 				const agentKey = safeAgentKey(state?.def.name ?? agent);
-				const returnPath = shouldUseDigest
-					? writeReturnArtifact(agentKey, state?.runCount ?? 0, result.output)
+				// A failed run delivered no result. Its output — a coms error, a
+				// timeout stub, a truncated crash — goes to failures/, never returns/:
+				// a return path is read as "the specialist answered", and one 142-byte
+				// error stub filed as a return cost a 103s dispatch investigating a
+				// review that had actually succeeded.
+				const delivered = result.exitCode === 0;
+				const runArtifactPath = shouldUseDigest || !delivered
+					? writeRunArtifact(agentKey, state?.runCount ?? 0, result.output, delivered ? "returns" : "failures")
 					: null;
+				const returnPath = delivered ? runArtifactPath : null;
+				const failurePath = delivered ? null : runArtifactPath;
+
+				// Nothing parsed but assertions were tracked: give the report one cheap
+				// read-only pass before writing the whole run off as unproven. Never on
+				// a failure — there is no report to extract from.
+				let returnExtracted = false;
+				if (returnPath && shouldExtractReturn(parsedReturn, dispatchedAssertionIds)) {
+					if (onUpdate) {
+						onUpdate({
+							content: [{ type: "text", text: `${agent} returned no structured block — extracting it from the report...` }],
+							details: { agent, task, status: "extracting_return" },
+						});
+					}
+					const recovered = await runReturnExtraction(returnPath, dispatchedAssertionIds, ctx);
+					if (recovered) {
+						parsedReturn = recovered;
+						contractNotices = crossCheck(recovered, dispatchedAssertionIds);
+						returnExtracted = true;
+					}
+				}
 
 				const truncated = result.output.length > 8000
 					? result.output.slice(0, 8000) + "\n\n... [truncated]"
@@ -4706,17 +5046,40 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					: "";
 
 				const returnPathNotice = returnPath ? `\n\nFull specialist output: ${returnPath}` : "";
+				// Named as a delivery failure, not a result: the run did not answer.
+				// Whether the work itself succeeded is unknown from here — a lost coms
+				// reply looks identical to a crash, and treating the stub as a verdict
+				// is what turned a successful review into a re-investigation.
+				const failurePathNotice = failurePath
+					? `\n\n⚠ DELIVERY FAILURE (exit ${result.exitCode}) — no specialist result was returned. ` +
+						`The error output is at ${failurePath}; it is NOT a return and carries no assertion evidence. ` +
+						"The work may or may not have happened — check the artifacts the task was supposed to produce before re-dispatching."
+					: "";
+				// Tell the dispatcher which path actually held the file, so the next
+				// dispatch names it directly instead of guessing the kind again.
+				const corrected = inputArtifacts.filter(a => a.resolvedFromKind);
+				const artifactKindNotice = corrected.length > 0
+					? `\n\nℹ Artifact path corrected: ${corrected.map(a => `"${a.input}" → ${a.displayPath}`).join("; ")}. ` +
+						`Use the corrected path from now on.`
+					: "";
 				const contextNotice = state && contextPressure(state.contextPct)
 					? `\n\n⚠ ${displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /af-agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`
 					: "";
 				const scopeNotice = scopeNoticeText(scopeViolations);
 				const contractNotice = contractNoticeText(contractNotices);
+				// An extracted block is labelled every time it is shown: it was restated
+				// by a cheap pass, not declared by the specialist, and it must never be
+				// mistaken for first-hand evidence when gating on it.
+				const extractionNotice = returnExtracted
+					? `ℹ The specialist declared no structured return. The block below was EXTRACTED from its report ` +
+						`by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it.`
+					: "";
 				const digest = shouldUseDigest
-					? [structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contractNotice].filter(Boolean).join("\n\n")
+					? [extractionNotice, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contractNotice].filter(Boolean).join("\n\n")
 					: truncated;
 
 				return {
-					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}${returnPathNotice}${contextNotice}${scopeNotice}\n\n${digest}` }],
+					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}${returnPathNotice}${failurePathNotice}${artifactKindNotice}${contextNotice}${scopeNotice}\n\n${digest}` }],
 					details: {
 						agent,
 						task,
@@ -4725,12 +5088,15 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 						exitCode: result.exitCode,
 						fullOutput: result.output,
 						structuredReturn: parsedReturn,
+						returnExtracted,
 						returnPath,
+						failurePath,
 						contractNotices,
 						questions,
 						researchRounds,
 						scopeViolations,
-						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview })),
+						sessionReset: result.sessionReset ?? null,
+						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })),
 					},
 				};
 			} catch (err: any) {
@@ -4831,11 +5197,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					details: { status: "budget_refused", reason: budgetRefusal.reason },
 				};
 			}
-			turnResearchCount++;
-			turnReport.research++;
-			sessionTotals.research++;
-			updateModeStatus();
-
+			// Pre-flight BEFORE the research slot is spent — same rule as dispatch_agent:
+			// an unknown persona or an unresolvable artifact path never reached a helper,
+			// so it must not be charged against the turn budget.
 			let def: AgentDef;
 			let isPersona = false;
 			if (persona) {
@@ -4843,7 +5207,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				if (!found) {
 					const available = researchPersonas.map(d => d.name).join(", ") || "(none defined)";
 					return {
-						content: [{ type: "text", text: `No research persona "${persona}". Available: ${available}. Omit \`persona\` for an ad-hoc helper.` }],
+						content: [{ type: "text", text: `No research persona "${persona}". Available: ${available}. Omit \`persona\` for an ad-hoc helper. (Not counted against the turn budget.)` }],
 						details: { status: "error" },
 					};
 				}
@@ -4854,7 +5218,25 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			}
 
 			const resolvedModel = resolveResearchModel(def, isPersona ? undefined : model, ctx);
-			const inputArtifacts = loadInputArtifacts(artifacts, ctx);
+			let inputArtifacts: InputArtifactPreview[];
+			try {
+				inputArtifacts = loadInputArtifacts(artifacts, ctx);
+			} catch (err: any) {
+				return {
+					content: [{
+						type: "text",
+						text: `⚠ Research NOT spawned and NOT counted against the turn budget — input artifact could not be resolved:\n` +
+							`${err?.message || err}\n\nFix the path and try again.`,
+					}],
+					details: { status: "artifact_preflight_failed" },
+				};
+			}
+
+			turnResearchCount++;
+			turnReport.research++;
+			sessionTotals.research++;
+			updateModeStatus();
+
 			const state = createResearchState(def, isPersona, resolvedModel);
 			updateResearchWidget();
 
@@ -4886,7 +5268,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 						exitCode: result.exitCode,
 						fullOutput: result.output,
 						termination: result.termination,
-						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview })),
+						artifacts: inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })),
 					},
 				};
 			} catch (err: any) {
@@ -5043,31 +5425,36 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		name: "set_assertions",
 		label: "Set Assertions",
 		description:
-			"Record the acceptance-assertion ledger for the current task (the Verification Contract). Call this BEFORE dispatching a builder, with one checkable assertion per requirement, and again to REBUILD the whole ledger on a 'wrong again' regression reset (it replaces any existing list). Each assertion needs an id (A1, A2, …), a verification tag (test | runtime-ui | code-grep | manual), and one pass condition. See skills/orchestration-verification/SKILL.md for the format. The ledger is persisted and its status is shown to the human; it does not block dispatch.",
+			`Record the acceptance-assertion ledger for the current task (the Verification Contract). Call this BEFORE dispatching a builder, with one checkable assertion per requirement, and again to REBUILD the whole ledger on a 'wrong again' regression reset (it replaces any existing list). Each assertion needs an id (A1, A2, …), a verification tag (test | runtime-ui | code-grep | manual), one pass condition, and a source naming where the requirement comes from. Keep at most ${MAX_OPEN_ASSERTIONS} open at a time — declare later batches when they start. See skills/orchestration-verification/SKILL.md for the format. The ledger is persisted and its status is shown to the human; it does not block dispatch.`,
 		parameters: Type.Object({
 			assertions: Type.Array(
 				Type.Object({
 					id: Type.String({ description: "Stable id, e.g. A1, A2 — referenced verbatim in dispatches and returns." }),
 					tag: Type.String({ description: "How it will be proven: test | runtime-ui | code-grep | manual." }),
 					text: Type.String({ description: "One checkable pass condition (split compound requirements into separate assertions)." }),
+					source: Type.String({ description: "Where this requirement comes from — \"PLAN-x.md:585-595\", \"user request\", \"review finding F3\". Required: a specialist asked to prove the assertion must be able to read its origin instead of asking." }),
 				}),
-				{ description: "The full assertion list — replaces any existing ledger." },
+				{ description: `The full assertion list — replaces any existing ledger. Soft cap ${MAX_OPEN_ASSERTIONS} per batch.` },
 			),
 		}),
-		async execute(_callId, params, _signal, _onUpdate, _ctx) {
-			const input = (params as { assertions: Array<{ id: string; tag: string; text: string }> }).assertions || [];
-			assertions = input.map(a => ({
-				id: String(a.id).trim(),
-				tag: String(a.tag).trim(),
-				text: String(a.text).trim(),
-				status: "open" as AssertionStatus,
-			}));
+		async execute(_callId, params, _signal, _onUpdate, ctx) {
+			const input = (params as { assertions: Array<{ id: string; tag: string; text: string; source?: string }> }).assertions;
+			const verdict = validateAssertionBatch(input);
+			if (!verdict.ok) {
+				return {
+					content: [{ type: "text" as const, text: verdict.refusal! }],
+					details: { status: "rejected", reason: "missing-source" },
+				};
+			}
+			assertions = verdict.assertions.map(a => ({ ...a, status: "open" as AssertionStatus }));
 			persistAssertions();
 			updateAssertionStatus();
+			if (verdict.warning) ctx.ui.notify(verdict.warning, "warning");
 			const ids = assertions.map(a => a.id).join(", ") || "(none)";
+			const head = `Ledger set: ${assertions.length} assertion(s) open — ${ids}. Pass the relevant ones verbatim into each dispatch and advance only on proven.`;
 			return {
-				content: [{ type: "text" as const, text: `Ledger set: ${assertions.length} assertion(s) open — ${ids}. Pass the relevant ones verbatim into each dispatch and advance only on proven.` }],
-				details: { count: assertions.length },
+				content: [{ type: "text" as const, text: verdict.warning ? `${head}\n\n${verdict.warning}` : head }],
+				details: { count: assertions.length, capWarning: Boolean(verdict.warning) },
 			};
 		},
 		renderCall(args, theme) {
@@ -5343,6 +5730,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 			// Send the envelope synchronously and wait for the receiver's ack.
 			await sendEnvelope(target.endpoint, env);
+			markPeerAddressed(target.name);
 			if (handoffAppendAuthorized) pendingHandoff = null;
 
 			// Register a pending entry whose promise the receiver-side handleResponse
@@ -5526,11 +5914,35 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 	let herdrFleetReady = false;
 
+	// Peers this hub spawned, and whether anyone ever sent to them. A spawned
+	// coms peer boots idle and waits — spawning it delivers no work, so an
+	// unaddressed one is an empty pane holding a model session.
+	const hubSpawnedPeers = new Map<string, { name: string; paneId: string | null; addressed: boolean }>();
+	const markPeerAddressed = (name: string) => {
+		const entry = hubSpawnedPeers.get(String(name || "").toLowerCase());
+		if (entry) entry.addressed = true;
+	};
+
+	/** Bounded wait for a spawned peer to register in the coms pool. */
+	async function waitForPeerRegistration(name: string, timeoutMs = PEER_READY_TIMEOUT_MS): Promise<{ found: boolean; waitedMs: number }> {
+		const wanted = String(name).toLowerCase();
+		const started = Date.now();
+		for (let attempt = 0; ; attempt++) {
+			const live = comsReady && identity ? peersInScope() : [];
+			if (live.some(e => e.name.toLowerCase() === wanted)) {
+				return { found: true, waitedMs: Date.now() - started };
+			}
+			const remaining = timeoutMs - (Date.now() - started);
+			if (remaining <= 0) return { found: false, waitedMs: Date.now() - started };
+			await new Promise(r => setTimeout(r, Math.min(peerReadyDelayMs(attempt), remaining)));
+		}
+	}
+
 	pi.registerTool({
 		name: "herdr_spawn_peer",
 		label: "Herdr Spawn Peer",
 		description:
-			"Spawn a pane in the CURRENT herdr workspace: either a peers.yaml-style coms peer (persona [+ name/model], launched via `just _peer`) or a raw command pane. Returns the new pane_id. Use for standing up an extra worker/watcher next to this session; peers become addressable via coms_send once booted.",
+			"Spawn a pane in the CURRENT herdr workspace: either a peers.yaml-style coms peer (persona [+ name/model], launched via `just _peer`) or a raw command pane. A persona peer boots IDLE and does nothing until you coms_send to it — spawning delivers no work. The call waits (bounded) for the peer to register and returns `peer_ready` plus its coms name, or `peer_ready: false` with the wait stated. Spawn one only immediately before the first message you will send it; a peer that receives no work is named in the session digest.",
 		parameters: Type.Object({
 			persona: Type.Optional(Type.String({ description: "Persona under agents/ (e.g. researcher). Omit for a raw command pane." })),
 			name: Type.String({ description: "Pane label; for persona peers also the coms peer name." }),
@@ -5563,9 +5975,21 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					focus: false,
 				});
 				try { await herdrApi.paneRename(pane.pane_id, params.name); } catch { /* cosmetic */ }
+				// A raw command pane is not a coms peer — nothing to wait for and
+				// nothing to sweep. A persona peer is only useful once addressable,
+				// so report that verdict instead of a bare pane id.
+				if (!params.persona) {
+					return {
+						content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}` }],
+						details: { pane_id: pane.pane_id, name: params.name },
+					};
+				}
+				hubSpawnedPeers.set(params.name.toLowerCase(), { name: params.name, paneId: pane.pane_id, addressed: false });
+				const { found, waitedMs } = await waitForPeerRegistration(params.name);
+				const verdict = peerReadyVerdict({ name: params.name, paneId: pane.pane_id, found, waitedMs });
 				return {
-					content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}` }],
-					details: { pane_id: pane.pane_id, name: params.name },
+					content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}\n\n${verdict.message}` }],
+					details: { pane_id: pane.pane_id, name: params.name, ...verdict },
 				};
 			} catch (err) {
 				const m = err instanceof Error ? err.message : String(err);
@@ -5993,6 +6417,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				`${fmtTok(sessionTotals.billed)} billed / ${fmtTok(sessionTotals.out)} out · ${sessionTotals.recycles} recycle(s) · ` +
 				`${sessionTotals.driftStops} drift stop(s) · ${sessionTotals.refusals} refusal(s)`,
 			);
+			// A spawned peer that never received work is a running pane nobody is
+			// using — the digest is where it stops being invisible.
+			const sweep = unaddressedPeerSweep(Array.from(hubSpawnedPeers.values()));
+			if (sweep) lines.push(sweep.message);
 			ctx.ui.notify(lines.join("\n\n"), "info");
 		},
 	});
@@ -6907,6 +7335,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				await terminated;
 			}
 			// Re-run fresh: a frozen session file may be inconsistent, so drop it (no -c).
+			// The file itself still reaches pi via --session, so an unusable one is
+			// quarantined by dispatchAgent's session preflight, not here.
 			state.sessionFile = null;
 			ctx.ui.notify(`Restarting ${displayName(state.def.name)} (fresh)...`, "info");
 			const result = await dispatchAgent(state.def.name, task, ctx);
@@ -7308,6 +7738,12 @@ acceptance assertions; build it before you dispatch, and refuse "done" until eac
   assertions and record them with \`set_assertions\` — one pass condition each, tagged
   test | runtime-ui | code-grep | manual (see skills/orchestration-verification/SKILL.md).
   Pass the relevant assertions VERBATIM into each dispatch.
+- Every assertion NAMES ITS SOURCE (\`source: "PLAN-x.md:585-595"\`, \`"user request"\`,
+  \`"review finding F3"\`). The hub refuses a sourceless batch by id: a specialist told to
+  prove A9 must be able to read where A9 came from instead of asking you.
+- Keep at most ${MAX_OPEN_ASSERTIONS} assertions OPEN at once. A large task still has many
+  assertions — declare the batch the next dispatches actually prove, and \`set_assertions\`
+  the next batch when it starts. Over the cap the hub accepts the call but warns.
 - Keep assertions NARROW: one subsystem / one behavior each. Never bundle several
   subsystems into one giant assertion — a compound assertion forces a full re-audit after
   every small fix. After a fix, re-verify the touched assertions only.
@@ -7412,9 +7848,17 @@ This session runs inside a herdr workspace and can drive panes:
 - \`herdr_spawn_peer\` stands up an extra worker next to you — a persona peer (joins the coms
   pool, then talk to it via \`coms_send\`) or a raw command pane (a build watcher, a server).
   Spawn deliberately; every pane is a process the human sees. Tear down what you spawned.
+- A spawned persona peer BOOTS IDLE and waits for \`coms_send\`: the spawn hands it no task.
+  The call waits for it to register and returns \`peer_ready\` with its coms name. Spawn one
+  only immediately before the first message you will send it — a peer spawned "to have it
+  ready" and never addressed is an empty pane named like a worker. If you sent it no work
+  by the end of the turn, say so and offer to close it; the hub names unaddressed
+  hub-spawned peers in the session digest.
 - \`herdr_read_pane\` is read-to-decide: peek at a worker/tool pane's recent output before
-  acting on it. It is NOT a messaging channel — prefer \`coms_send\`/\`coms_await\` for pi and
-  bridged peers; reading screens is the last resort for unbridged tools.
+  acting on it. It is NOT a messaging channel and NOT a status poll — \`coms_list\` already
+  reports each peer's \`pane_id\` and \`status\` (idle | working | booting), so check that
+  before sending. Prefer \`coms_send\`/\`coms_await\` for pi and bridged peers; reading screens
+  is the last resort for unbridged tools and post-mortems.
 - \`herdr_close_pane\` kills a pane and asks the HUMAN to confirm first. Close only panes you
   spawned, when their job is done or they are stuck.
 - \`herdr_notify\` reaches the human via desktop notification when they are away — use it when
@@ -7482,6 +7926,7 @@ ${researchCatalog}`;
 			st.delegationsWatcher = undefined;
 		}
 		delegatedTokens = 0;
+		hubSpawnedPeers.clear();
 		widgetCtx = _ctx;
 		contextWindow = _ctx.model?.contextWindow || 0;
 		safetyHarnessPath = resolveSafetyHarness(_ctx.cwd);
@@ -7991,6 +8436,12 @@ ${researchCatalog}`;
 			currentOrchestratorEntry = null;
 			historyRender?.();
 		}
+
+		// End-of-turn sweep: a peer spawned this turn and never sent to is still
+		// running. Named once per turn it stays unaddressed; the close itself is
+		// the human's call (herdr_close_pane keeps its confirmation).
+		const peerSweep = unaddressedPeerSweep(Array.from(hubSpawnedPeers.values()));
+		if (peerSweep) ctx.ui.notify(peerSweep.message, "warning");
 
 		const inbound = [...inboundQueue.values()].reverse().find((i) => !i.fulfilled);
 		if (!inbound || !identity) return;

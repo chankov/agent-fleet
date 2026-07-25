@@ -37,6 +37,7 @@ import {
 	makeEndpoint,
 	makeResponseEnvelope,
 	nowIso,
+	paneAgentStatusToPeerStatus,
 	removeRegistryEntry,
 	resolveUniqueName,
 	sendEnvelope,
@@ -45,6 +46,7 @@ import {
 	writeNack,
 	writeRegistryAtomic,
 	type AgentCard,
+	type PeerStatus,
 	type PromptEnvelope,
 	type RegistryEntry,
 	type SenderIdentity,
@@ -52,15 +54,21 @@ import {
 import {
 	extractSentinelReply,
 	formatPanePrompt,
+	idleWaitBudgetMs,
+	idleWaitDelayMs,
 	parseHookRecord,
 	PromptQueue,
+	resolveReplyTimeoutMs,
 } from "./lib/claude-bridge-core.ts";
 import { herdr, requireHerdr, HerdrUnavailableError } from "../.pi/harnesses/lib/herdr-client.ts";
 
 const KEEPALIVE_MS = 30_000;
 const ENTER_DELAY_MS = 1_500;
 const POLL_MS = 1_000;
-const DEFAULT_REPLY_TIMEOUT_MS = 600_000;
+// 30 minutes, matching coms_await's own default (PI_COMS_TIMEOUT_MS). The old
+// 10-minute default silently truncated every longer request: a caller asking for
+// 1_800_000ms was still failed at 600_000ms.
+const DEFAULT_REPLY_TIMEOUT_MS = 1_800_000;
 const COLOR = "#FF8B39";
 
 function flagValue(argv: string[], flag: string): string | null {
@@ -130,6 +138,14 @@ async function main(): Promise<void> {
 	// this pane; until then prompts carry the sentinel instruction.
 	let hookSeen = fs.existsSync(hookFile);
 
+	// Latest known pane state. The ping handler is synchronous — a pool refresh
+	// must not block on a herdr round trip per peer — so it answers from this
+	// cache, which `paneStatus()` refreshes on the keepalive and on every poll
+	// during a turn. Starts at "booting": registered, nothing observed yet.
+	let lastPaneState: PeerStatus = "booting";
+	/** What this bridge reports to a sender: a queued prompt already means busy. */
+	const peerStatus = (): PeerStatus => (queue.depth > 0 ? "working" : lastPaneState);
+
 	// ── envelope server ──
 	const server = await bindEndpoint(
 		id.endpoint,
@@ -150,6 +166,8 @@ async function main(): Promise<void> {
 					color: COLOR,
 					context_used_pct: 0,
 					queue_depth: queue.depth,
+					pane_id: paneId,
+					status: peerStatus(),
 				};
 				try {
 					socket.write(JSON.stringify({ type: "pong", msg_id: (env as { msg_id?: string }).msg_id ?? "", agent_card: card }) + "\n");
@@ -180,9 +198,13 @@ async function main(): Promise<void> {
 			writeRegistryAtomic(registryEntry(), project);
 		} catch { /* best-effort */ }
 		void reportPresence();
+		// Keep the ping cache warm between turns, so an idle pane is reported as
+		// idle rather than staying "booting" until someone sends to it.
+		void paneStatus();
 	}, KEEPALIVE_MS);
 	keepalive.unref?.();
 	void reportPresence();
+	void paneStatus();
 
 	// ── prompt processing (strictly serial) ──
 	async function pump(): Promise<void> {
@@ -209,7 +231,9 @@ async function main(): Promise<void> {
 	async function paneStatus(): Promise<string> {
 		try {
 			const { pane } = await herdr.paneGet(paneId);
-			return (pane.agent_status as string) ?? "unknown";
+			const status = (pane.agent_status as string) ?? "unknown";
+			lastPaneState = paneAgentStatusToPeerStatus(status);
+			return status;
 		} catch {
 			return "unknown";
 		}
@@ -218,18 +242,31 @@ async function main(): Promise<void> {
 	async function driveClaude(env: PromptEnvelope): Promise<string> {
 		const sentinelMode = !hookSeen;
 		const hookMtimeBefore = fs.existsSync(hookFile) ? fs.statSync(hookFile).mtimeMs : 0;
+		// The caller's declared deadline wins over the bridge default (clamped).
+		const effectiveTimeoutMs = resolveReplyTimeoutMs(env.reply_timeout_ms, replyTimeoutMs);
 
-		// Claude Code must be idle-ish before we type into its input box.
-		const before = await paneStatus();
-		if (before === "working") {
-			throw new Error(`Claude Code in pane ${paneId} is mid-turn (working) — try again shortly`);
+		// Claude Code must be idle-ish before we type into its input box — but a busy
+		// pane is a wait, not a failure. Throwing here made every mid-turn moment a
+		// hard error and pushed callers into hot-retry loops.
+		const waitDeadline = Date.now() + idleWaitBudgetMs(effectiveTimeoutMs);
+		const waitStarted = Date.now();
+		for (let attempt = 0; ; attempt++) {
+			if (await paneStatus() !== "working") break;
+			const remaining = waitDeadline - Date.now();
+			if (remaining <= 0) {
+				throw new Error(
+					`Claude Code in pane ${paneId} is still mid-turn after waiting ` +
+					`${Math.round((Date.now() - waitStarted) / 1000)}s — try again shortly`,
+				);
+			}
+			await new Promise((r) => setTimeout(r, Math.min(idleWaitDelayMs(attempt), remaining)));
 		}
 
 		await herdr.paneSendText(paneId, formatPanePrompt(env, sentinelMode));
 		await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
 		await herdr.paneSendKeys(paneId, ["enter"]);
 
-		const deadline = Date.now() + replyTimeoutMs;
+		const deadline = Date.now() + effectiveTimeoutMs;
 		let sawWorking = false;
 		while (Date.now() < deadline) {
 			await new Promise((r) => setTimeout(r, POLL_MS));
@@ -262,7 +299,7 @@ async function main(): Promise<void> {
 			}
 		}
 		throw new Error(
-			`no reply from Claude Code within ${replyTimeoutMs}ms` +
+			`no reply from Claude Code within ${effectiveTimeoutMs}ms` +
 				(sentinelMode ? " (Stop hook not installed? see hooks/coms-stop-hook.mjs)" : ""),
 		);
 	}

@@ -36,9 +36,11 @@ import { Type } from "@sinclair/typebox";
 import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
 import { spawnPiAgentWithModelFallback, killPiTree } from "./spawn.ts";
+import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
 import {
 	delegateBudgetRefusal,
 	DELEGATE_TREE_SPAWN_BUDGET,
+	isReadOnlyToolList,
 	normalizeDelegateRuntimeBudgets,
 	planDelegateSpawn,
 	resolveDelegateTools,
@@ -138,6 +140,15 @@ export default function (pi: ExtensionAPI) {
 	// which only grows once the child process actually spawns.
 	let liveCount = 0;
 	const liveChildren = new Set<ChildProcess>();
+
+	// Per-provider concurrency. Four read-only children fanning out at once is a
+	// feature against a hosted provider and a mid-run OOM against the local one,
+	// so `custom/*` queues past 2 in flight. Queued children still run — they
+	// just wait for a permit instead of racing for the same GPU.
+	const providerSemaphore = createProviderSemaphore({
+		...DEFAULT_PROVIDER_LIMITS,
+		...parseProviderLimits(process.env.AGENT_HUB_PROVIDER_LIMITS),
+	});
 
 	// Fallback cascade: the primary kill path is the process group (the hub
 	// signals the specialist's negative PID), but if only this process is
@@ -285,6 +296,10 @@ export default function (pi: ExtensionAPI) {
 			const flushTimer = setInterval(flushTimeline, TIMELINE_FLUSH_MS);
 
 			const startTime = Date.now();
+			// Time spent waiting for a provider permit, reported alongside `elapsed`
+			// so a queued child is never mistaken for a slow one (the run deadline is
+			// measured from the spawn, not from here).
+			let queuedMs = 0;
 			let childProc: ChildProcess | null = null;
 			const mode = context?.trim().toLowerCase();
 			const brief = context && mode !== "summary" && mode !== "fork" ? context : undefined;
@@ -295,7 +310,18 @@ export default function (pi: ExtensionAPI) {
 			let res;
 			liveCount++;
 			try {
-				res = await spawnPiAgentWithModelFallback({
+				const providerCap = providerSemaphore.limitFor(roleDef.model);
+				if (providerCap != null && providerSemaphore.inFlight(roleDef.model) >= providerCap) {
+					const ahead = providerSemaphore.queued(roleDef.model) + 1;
+					emit({ t: "queued", id: childId, model: roleDef.model, ahead, ts: Date.now() });
+					onUpdate?.({
+						content: [{ type: "text", text: `${roleKey} queued — ${providerCap} requests already in flight on this provider (${ahead} waiting)...` }],
+						details: { id: childId, role: roleKey, model: roleDef.model, status: "queued" },
+					});
+				}
+				res = await providerSemaphore.run(roleDef.model, () => {
+					queuedMs = Date.now() - startTime;
+					return spawnPiAgentWithModelFallback({
 					model: roleDef.model,
 					tools: childTools,
 					thinking: "off",
@@ -339,6 +365,15 @@ export default function (pi: ExtensionAPI) {
 							emit({ t: "usage", id: childId, input: usage.input || 0, output: usage.output || 0 });
 						}
 					},
+					}, {
+						// A child holding only read tools can be re-run safely, so a
+						// provider dying halfway through is recoverable rather than a
+						// discarded run. A write-capable child keeps the strict rule:
+						// a retry there could duplicate edits. A child that can delegate
+						// carries `delegate` in its tool list and so reads as non-read-only
+						// here — deliberately: retrying it would re-spawn its grandchildren.
+						midRun: isReadOnlyToolList(childTools),
+					});
 				});
 			} finally {
 				liveCount--;
@@ -349,7 +384,7 @@ export default function (pi: ExtensionAPI) {
 			flushTimeline();
 			const elapsed = Date.now() - startTime;
 			const code = res.spawnError ? 1 : (res.termination ? (res.termination.reason === "cancelled" ? 130 : res.termination.reason === "drift_stop" ? 125 : 124) : (res.exitCode ?? 1));
-			emit({ t: "exit", id: childId, code, elapsed, termination: res.termination, ts: Date.now() });
+			emit({ t: "exit", id: childId, code, elapsed, ...(queuedMs > 0 ? { queuedMs } : {}), termination: res.termination, ts: Date.now() });
 
 			if (res.spawnError) {
 				const spawnFailure = `Delegate ${childId} failed to spawn: ${res.spawnError}`;

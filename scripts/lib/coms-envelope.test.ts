@@ -22,6 +22,8 @@ import {
 	makeConnHandler,
 	makePromptEnvelope,
 	makeResponseEnvelope,
+	paneAgentStatusToPeerStatus,
+	peerStatusLabel,
 	pruneDeadEntries,
 	readAllRegistryEntries,
 	registryFilePath,
@@ -51,6 +53,9 @@ test("prompt envelopes carry the coms wire fields and validate", () => {
 	assert.equal(env.hops, 0);
 	assert.equal(env.msg_id.length, 26);
 	assert.deepEqual(env.response_schema, { type: "object" });
+	// Absent unless the sender declares one, so receivers keep their own default.
+	assert.equal(env.reply_timeout_ms, null);
+	assert.equal(makePromptEnvelope(ID, "hi", { reply_timeout_ms: 1_800_000 }).reply_timeout_ms, 1_800_000);
 	assert.equal(isPromptEnvelope(env), true);
 	assert.equal(isPromptEnvelope({ type: "prompt" }), false);
 	assert.equal(isPromptEnvelope(null), false);
@@ -173,4 +178,30 @@ test("bindEndpoint replaces a stale socket file and refuses a live one", async (
 	const server = await bindEndpoint(sockPath, () => {});
 	await assert.rejects(bindEndpoint(sockPath, () => {}), /already in use/);
 	server.close();
+});
+
+test("pane agent status maps to the three peer states", () => {
+	// Mid-turn — not addressable.
+	assert.equal(paneAgentStatusToPeerStatus("working"), "working");
+	// Blocked on a permission prompt is still mid-turn from a sender's view.
+	assert.equal(paneAgentStatusToPeerStatus("blocked"), "working");
+	assert.equal(paneAgentStatusToPeerStatus("idle"), "idle");
+	assert.equal(paneAgentStatusToPeerStatus("done"), "idle");
+	assert.equal(paneAgentStatusToPeerStatus("ready"), "idle");
+	assert.equal(paneAgentStatusToPeerStatus(" IDLE "), "idle");
+	// Registered but nothing has reported yet — the empty-pane case.
+	assert.equal(paneAgentStatusToPeerStatus("unknown"), "booting");
+	assert.equal(paneAgentStatusToPeerStatus(""), "booting");
+	assert.equal(paneAgentStatusToPeerStatus(undefined), "booting");
+	assert.equal(paneAgentStatusToPeerStatus(null), "booting");
+	assert.equal(paneAgentStatusToPeerStatus("something-new"), "booting");
+});
+
+test("peerStatusLabel renders a peer's addressability at a glance", () => {
+	assert.equal(peerStatusLabel("idle"), "idle");
+	assert.equal(peerStatusLabel("working"), "working");
+	assert.equal(peerStatusLabel("booting"), "booting");
+	// A peer that did not answer the ping has no status of its own.
+	assert.equal(peerStatusLabel(null), "unreachable");
+	assert.equal(peerStatusLabel(undefined), "unreachable");
 });

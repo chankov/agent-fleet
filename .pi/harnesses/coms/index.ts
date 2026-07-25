@@ -69,6 +69,8 @@ interface PromptEnvelope extends Envelope {
 	sender_cwd: string;
 	conversation_id?: string | null;
 	response_schema?: object | null;
+	/** How long the sender will wait; receivers driving an interactive agent use it. */
+	reply_timeout_ms?: number | null;
 }
 
 interface ResponseEnvelope extends Envelope {
@@ -81,6 +83,9 @@ interface PingEnvelope extends Envelope {
 	type: "ping";
 }
 
+/** Addressability of a peer right now — see scripts/lib/coms-envelope.ts. */
+type PeerStatus = "idle" | "working" | "booting";
+
 interface AgentCard {
 	name: string;
 	purpose: string;
@@ -88,6 +93,10 @@ interface AgentCard {
 	color: string;
 	context_used_pct: number;
 	queue_depth: number;
+	/** herdr pane hosting this peer, when it runs in one. */
+	pane_id?: string | null;
+	/** idle | working | booting. Absent from peers older than this field. */
+	status?: PeerStatus;
 }
 
 interface Pong {
@@ -711,6 +720,10 @@ export default function (pi: ExtensionAPI) {
 			color: ident?.color ?? "#36F9F6",
 			context_used_pct: pct,
 			queue_depth: inboundQueue.size,
+			pane_id: herdrPaneId() ?? null,
+			// A queued inbound prompt counts as busy even between turns: the peer
+			// owes someone an answer before it can take another.
+			status: (turnState === "working" || inboundQueue.size > 0 ? "working" : "idle") as PeerStatus,
 		};
 		const pong: Pong = { type: "pong", msg_id: env.msg_id, agent_card: card };
 		try {
@@ -1294,8 +1307,11 @@ export default function (pi: ExtensionAPI) {
 		label: "Coms List",
 		description:
 			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
-			"names, models, and live context-window usage. Discovery is scoped to what the human displays " +
-			"via /af-coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
+			"names, models, live context-window usage, the herdr pane_id, and status (idle | working | " +
+			"booting). CHECK STATUS BEFORE SENDING: `working` means the peer is mid-turn and your send " +
+			"will wait for it; `booting` means it registered but is not addressable yet. Use this instead " +
+			"of reading the peer's pane to guess whether it is busy. Discovery is scoped to what the human " +
+			"displays via /af-coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
 		parameters: Type.Object({
 			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /af-coms displays — a widening request is ignored." })),
 			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /af-coms --all." })),
@@ -1350,6 +1366,12 @@ export default function (pi: ExtensionAPI) {
 					project: c.project,
 					alive: pong != null,
 					context_used_pct: pong ? pong.context_used_pct : null,
+					// Check these BEFORE sending: a `working` peer will make the send
+					// wait, and a `booting` one is not addressable yet. Reading the
+					// pane to find this out is the thing they replace.
+					pane_id: pong?.pane_id ?? null,
+					status: pong?.status ?? null,
+					queue_depth: pong ? pong.queue_depth : null,
 					color: c.entry.color,
 				};
 			});
@@ -1365,7 +1387,8 @@ export default function (pi: ExtensionAPI) {
 				: agents.map((a) => {
 					const ctxStr = a.context_used_pct != null ? ` ${a.context_used_pct}%` : " ?%";
 					const live = a.alive ? "●" : "✗";
-					return `${live} ${a.name} (${a.model})${ctxStr}${a.purpose ? ` — ${a.purpose}` : ""}`;
+					const state = ` [${a.alive ? (a.status ?? "unknown") : "unreachable"}${a.pane_id ? ` pane ${a.pane_id}` : ""}]`;
+					return `${live} ${a.name} (${a.model})${ctxStr}${state}${a.purpose ? ` — ${a.purpose}` : ""}`;
 				}).join("\n");
 
 			return {
@@ -1391,7 +1414,10 @@ export default function (pi: ExtensionAPI) {
 			const rows = agents.map((a) => {
 				const dot = a.alive ? theme.fg("success", "●") : theme.fg("error", "✗");
 				const pct = a.context_used_pct != null ? `${a.context_used_pct}%` : "?%";
-				return `${dot} ${theme.fg("accent", a.name)} ${theme.fg("dim", a.model)} ${theme.fg("warning", pct)}`;
+				const state = a.alive ? (a.status ?? "unknown") : "unreachable";
+				const stateFg = state === "idle" ? "success" : state === "working" ? "warning" : "dim";
+				return `${dot} ${theme.fg("accent", a.name)} ${theme.fg("dim", a.model)} ${theme.fg("warning", pct)} ` +
+					`${theme.fg(stateFg as any, state)}${a.pane_id ? theme.fg("dim", ` ${a.pane_id}`) : ""}`;
 			}).join("\n");
 			return new Text(header + "\n" + rows, 0, 0);
 		},
@@ -1409,6 +1435,7 @@ export default function (pi: ExtensionAPI) {
 			prompt: Type.String({ description: "The prompt to send." }),
 			conversation_id: Type.Optional(Type.String()),
 			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
+			reply_timeout_ms: Type.Optional(Type.Number({ description: "How long you will wait for the reply (ms). Pass the same value you intend to give coms_await: a receiver that drives an interactive agent (e.g. a Claude Code pane) uses this instead of its own default, so long reviews are not cut short. Clamped to 1 hour." })),
 		}),
 		async execute(_callId, params) {
 			if (!identity) {
@@ -1443,6 +1470,7 @@ export default function (pi: ExtensionAPI) {
 				prompt: params.prompt,
 				conversation_id: params.conversation_id ?? null,
 				response_schema: (params.response_schema as object | undefined) ?? null,
+				reply_timeout_ms: params.reply_timeout_ms ?? null,
 			};
 
 			// Send the envelope synchronously and wait for the receiver's ack.

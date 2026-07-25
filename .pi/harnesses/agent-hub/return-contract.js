@@ -10,6 +10,29 @@ const STRUCTURED_KEYS = [
 
 const ASSERTION_KEYS = new Set(["assertions_proven", "assertions_unproven", "assertions_failed"]);
 
+// Line-form verdicts. Specialists routinely report
+//   ASSERTION A1: PASS — Conventional Hermes plan path ... are present
+//   - **A2: FAIL** — the gate never fires
+// instead of the declared schema, and the parser used to see none of it: 16 of 46
+// dispatches in one session were scored "no structured return" and every assertion
+// treated as unproven, including runs that had reported a complete verdict.
+//
+// The status must be the whole token right after the id, and any explanation must
+// be introduced by a separator — so ordinary prose mentioning an id never matches.
+const LINE_FORM_STATUS = {
+	pass: "assertions_proven",
+	passed: "assertions_proven",
+	proven: "assertions_proven",
+	fail: "assertions_failed",
+	failed: "assertions_failed",
+	blocked: "assertions_failed",
+	unproven: "assertions_unproven",
+	unverified: "assertions_unproven",
+};
+
+const LINE_FORM_RE =
+	/^\s*(?:[-*]\s+|\d+[.)]\s+)?\**(?:ASSERTION\s+)?(A\d+)\**\s*[:\-–—]\s*\**(PASS|PASSED|PROVEN|FAIL|FAILED|BLOCKED|UNPROVEN|UNVERIFIED)\**\s*(?:[:\-–—]\s*(.*))?$/i;
+
 export function extractAssertionIds(taskText) {
 	const ids = [];
 	const seen = new Set();
@@ -88,6 +111,24 @@ function parseCandidate(text) {
 		}
 	}
 
+	// Lowest-precedence source: a specialist that follows the schema is never
+	// second-guessed. A declared bucket wins outright, and an id the schema already
+	// classified is never re-stated from a loose line — otherwise a stale summary
+	// line could land the same id in two buckets at once.
+	const declaredIds = new Set();
+	for (const key of ASSERTION_KEYS) {
+		for (const entry of result[key] || []) {
+			if (entry && entry.id) declaredIds.add(entry.id);
+		}
+	}
+	for (const [key, entries] of collectLineFormAssertions(text)) {
+		if (keyBlocks.has(key) || sectionBlocks.has(key)) continue;
+		const fresh = entries.filter((entry) => !declaredIds.has(entry.id));
+		if (fresh.length === 0) continue;
+		result[key] = fresh;
+		score += fresh.length;
+	}
+
 	if (score === 0) return null;
 	result.__score = score;
 	return result;
@@ -134,6 +175,26 @@ function collectMarkdownSections(text) {
 			block.push(lines[j]);
 		}
 		found.set(key, block.join("\n"));
+	}
+	return found;
+}
+
+function collectLineFormAssertions(text) {
+	const found = new Map();
+	const seen = new Set();
+	for (const line of String(text || "").split(/\r?\n/)) {
+		const match = line.match(LINE_FORM_RE);
+		if (!match) continue;
+		const id = match[1].toUpperCase();
+		const key = LINE_FORM_STATUS[match[2].toLowerCase()];
+		// First verdict per id wins: a later restatement is a summary, not a change.
+		if (!key || seen.has(id)) continue;
+		seen.add(id);
+		// The text after the separator IS the named evidence in this form. Left null
+		// for a bare verdict, so crossCheck still demotes it to unproven.
+		const evidence = String(match[3] || "").trim().replace(/\*+$/, "").trim() || null;
+		if (!found.has(key)) found.set(key, []);
+		found.get(key).push({ id, note: "", evidence });
 	}
 	return found;
 }

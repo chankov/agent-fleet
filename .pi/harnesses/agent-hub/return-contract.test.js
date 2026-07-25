@@ -21,6 +21,53 @@ requires_user_decision: []`);
 	assert.equal(parsed.assertions_unproven[0].id, "A2");
 });
 
+test("parseStructuredReturn accepts the ASSERTION line form specialists actually emit", () => {
+	// Verbatim from a plan-reviewer return that the old parser scored as
+	// "no structured return", so all of its assertions were treated as unproven.
+	const parsed = parseStructuredReturn(
+		"Reviewed the plan against the repo.\n\n" +
+		"ASSERTION A1: PASS — Conventional Hermes plan path and required opening sections are present\n" +
+		"ASSERTION A2: FAIL — Task 4 touches 9 files, over the ~5 file ceiling\n" +
+		"A3: UNPROVEN — could not verify the CI job name\n",
+	);
+
+	assert.equal(parsed.assertions_proven.length, 1);
+	assert.equal(parsed.assertions_proven[0].id, "A1");
+	assert.equal(parsed.assertions_proven[0].evidence, "Conventional Hermes plan path and required opening sections are present");
+	assert.equal(parsed.assertions_failed[0].id, "A2");
+	assert.equal(parsed.assertions_unproven[0].id, "A3");
+});
+
+test("parseStructuredReturn reads bullet, bold, and bare line forms", () => {
+	const parsed = parseStructuredReturn(
+		"- **A1: PASS** — npm test → 42 passing\n" +
+		"2) A2 — PASSED: scripts/x.test.ts:88\n" +
+		"A3: PASS\n" +
+		"* A4: BLOCKED — needs a decision\n",
+	);
+
+	assert.deepEqual(parsed.assertions_proven.map(e => e.id), ["A1", "A2", "A3"]);
+	assert.equal(parsed.assertions_proven[0].evidence, "npm test → 42 passing");
+	assert.equal(parsed.assertions_proven[1].evidence, "scripts/x.test.ts:88");
+	// A bare verdict names no evidence, so it must stay demotable.
+	assert.equal(parsed.assertions_proven[2].evidence, null);
+	assert.deepEqual(crossCheck(parsed, ["A3"]), [{ type: "proven_without_evidence", id: "A3", note: "" }]);
+	assert.equal(parsed.assertions_failed[0].id, "A4");
+});
+
+test("line-form parsing never fires on prose or overrides a declared block", () => {
+	// No separator after the status → prose, not a verdict.
+	assert.equal(parseStructuredReturn("A1: PASS is not achievable without a rewrite"), null);
+	assert.equal(parseStructuredReturn("We think A1 passes and A2 fails."), null);
+
+	// A declared block wins; the stray line form is ignored for that key.
+	const parsed = parseStructuredReturn(
+		"assertions_proven:\n- A1: real note — evidence: npm test\n\nASSERTION A1: FAIL — stale summary\n",
+	);
+	assert.equal(parsed.assertions_proven[0].evidence, "npm test");
+	assert.equal(parsed.assertions_failed.length, 0);
+});
+
 test("parseStructuredReturn accepts fenced structured blocks", () => {
 	const parsed = parseStructuredReturn(`Summary above.
 

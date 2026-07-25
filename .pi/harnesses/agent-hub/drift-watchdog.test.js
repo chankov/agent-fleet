@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import {
 	DEFAULT_WATCHDOG_SETTING,
 	DRIFT_DEFAULTS,
+	HUB_OWNED_SUBDIRS,
 	buildJudgePrompt,
 	createDriftMonitor,
+	hubOwnedScopeGlobs,
 	normalizeWatchdogSetting,
 	parseJudgeVerdict,
 	resolveWatchdogActive,
@@ -39,6 +41,48 @@ test("scope rule fires only for write tools outside the declared scope", () => {
 	const v = m.onToolStart("write", JSON.stringify({ path: "scripts/rogue.sh" }));
 	assert.equal(v.rule, "scope");
 	assert.match(v.detail, /scripts\/rogue\.sh/);
+});
+
+test("scope rule never terminates a run by itself", () => {
+	const m = createDriftMonitor({ scopeGlobs: ["src/**"] });
+	const v = m.onToolStart("write", JSON.stringify({ path: "scripts/rogue.sh" }));
+	assert.equal(v.terminal, false);
+	// The rules that mean "no forward progress" stay terminal.
+	const loop = createDriftMonitor({ maxRepeats: 2 });
+	loop.onToolStart("grep", "{}");
+	assert.equal(loop.onToolStart("grep", "{}").terminal, true);
+	const caps = createDriftMonitor({ maxToolCalls: 1, maxRepeats: 100 });
+	assert.equal(caps.onToolStart("read", "{}").terminal, true);
+	const fails = createDriftMonitor({ maxConsecutiveFailures: 1 });
+	assert.equal(fails.onToolEnd("bash", true).terminal, true);
+});
+
+test("hubOwnedScopeGlobs covers every session path form", () => {
+	const globs = hubOwnedScopeGlobs("/repo/.pi/agent-sessions", ".pi/agent-sessions/");
+	assert.equal(globs.length, HUB_OWNED_SUBDIRS.length * 2);
+	assert.ok(globs.includes("/repo/.pi/agent-sessions/artifacts/**"));
+	assert.ok(globs.includes(".pi/agent-sessions/findings/**"));
+	assert.ok(globs.includes(".pi/agent-sessions/delegations/**"));
+	// Empty / duplicate inputs contribute nothing.
+	assert.deepEqual(hubOwnedScopeGlobs("", null, undefined), []);
+	assert.equal(hubOwnedScopeGlobs("/a", "/a").length, HUB_OWNED_SUBDIRS.length);
+});
+
+test("writes to hub-owned artifact paths never fire the scope rule", () => {
+	// The regression that killed `planner` after 1088s: the deliverable protocol
+	// tells the specialist to write here, the dispatcher's scope never lists it.
+	const allowGlobs = hubOwnedScopeGlobs("/repo/.pi/agent-sessions", ".pi/agent-sessions");
+	const m = createDriftMonitor({ scopeGlobs: ["bin/**", "docs/**"], allowGlobs });
+
+	assert.equal(m.onToolStart("write", JSON.stringify({ path: ".pi/agent-sessions/artifacts/plans/planner-run1.md" })), null);
+	assert.equal(m.onToolStart("write", JSON.stringify({ path: "/repo/.pi/agent-sessions/artifacts/returns/x-run2.md" })), null);
+	assert.equal(m.onToolStart("write", JSON.stringify({ path: ".pi/agent-sessions/findings/x-r1.md" })), null);
+	// A genuinely rogue write still fires.
+	assert.equal(m.onToolStart("write", JSON.stringify({ path: "src/rogue.ts" })).rule, "scope");
+	// The allowlist does not silently widen the reported scope.
+	const v = m.onToolStart("edit", JSON.stringify({ path: "other/x.ts" }));
+	assert.match(v.detail, /bin\/\*\*, docs\/\*\*/);
+	assert.equal(v.detail.includes("agent-sessions"), false);
 });
 
 test("scope rule stays inert without declared scope globs", () => {
@@ -104,6 +148,28 @@ test("buildJudgePrompt embeds task, scope, signal, and trail", () => {
 	assert.match(prompt, /src\/auth\/\*\*/);
 	assert.match(prompt, /Rule "loop" fired/);
 	assert.match(prompt, /VERDICT: ON_TRACK/);
+});
+
+test("buildJudgePrompt tells the judge hub-owned writes are on-task", () => {
+	const prompt = buildJudgePrompt({
+		agent: "planner",
+		task: "Write the plan",
+		scopeGlobs: ["bin/**"],
+		hubOwnedGlobs: [".pi/agent-sessions/artifacts/**"],
+		violation: { rule: "scope", terminal: false, detail: "write touched .pi/agent-sessions/artifacts/plans/p.md" },
+	});
+	assert.match(prompt, /Hub-owned paths \(writing here is REQUIRED/);
+	assert.match(prompt, /\.pi\/agent-sessions\/artifacts\/\*\*/);
+	assert.match(prompt, /ADVISORY: it cannot stop the run by itself/);
+
+	// A terminal rule carries no advisory disclaimer.
+	const terminal = buildJudgePrompt({
+		agent: "builder",
+		task: "Fix it",
+		violation: { rule: "loop", terminal: true, detail: "edit called 4x" },
+	});
+	assert.equal(terminal.includes("ADVISORY"), false);
+	assert.equal(terminal.includes("Hub-owned paths"), false);
 });
 
 test("parseJudgeVerdict reads the last verdict line and tolerates garbage", () => {

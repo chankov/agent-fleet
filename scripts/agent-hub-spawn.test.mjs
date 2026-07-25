@@ -170,6 +170,52 @@ test('overridden model does not fall back after any tool call has started', asyn
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
+test('a read-only child falls back once on a provider failure that hit mid-run', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-midrun-fallback-'));
+  try {
+    createFakePi(tmp);
+    const attempts = join(tmp, 'attempts.txt');
+    const notices = [];
+    const result = await spawnPiAgentWithModelFallback(
+      { ...options(tmp, { FAKE_PI_MODE: 'model-failure-after-tool', FAKE_PI_ATTEMPTS: attempts }), model: 'fake/override' },
+      'fake/original',
+      { onModelFallback: notice => notices.push(notice) },
+      { midRun: true },
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.output, 'FAKE OK');
+    assert.equal(result.modelUsed, 'fake/original');
+    assert.deepEqual(result.modelFallback, {
+      from: 'fake/override', to: 'fake/original', reason: 'provider unavailable',
+    });
+    assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override', 'fake/original']);
+    assert.deepEqual(notices, [result.modelFallback]);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('a mid-run fallback still refuses to retry a terminated run', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-midrun-terminated-'));
+  try {
+    createFakePi(tmp);
+    const attempts = join(tmp, 'attempts.txt');
+    const result = await spawnPiAgentWithModelFallback(
+      {
+        ...options(tmp, { FAKE_PI_MODE: 'each-read-only-tool', FAKE_PI_TOOL_NAME: 'read', FAKE_PI_ATTEMPTS: attempts }, { timeoutMs: 20, termGraceMs: 10, settleGraceMs: 20 }),
+        model: 'fake/override',
+      },
+      'fake/original',
+      {},
+      { midRun: true },
+    );
+
+    // A watchdog kill is a verdict on the work, not a provider outage.
+    assert.equal(result.termination?.reason, 'tool_timeout');
+    assert.equal(result.modelFallback, undefined);
+    assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'), ['fake/override']);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 test('watchdog supervises every read-only research tool name', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-all-tools-'));
   try {

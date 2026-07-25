@@ -13,6 +13,7 @@ import {
   parseTeamsYaml,
   planDelegateSpawn,
   READ_ONLY_TOOLS,
+  isReadOnlyToolList,
   resolveDelegateTools,
   safeAgentKey,
   safePathWithin,
@@ -129,6 +130,19 @@ test('delegate tool caps fail closed when they do not intersect available tools'
 
   assert.equal(writable.effectiveTools, 'bash,edit');
   assert.equal(writable.refused, false);
+});
+
+test('isReadOnlyToolList answers false for anything it cannot vouch for', () => {
+  assert.equal(isReadOnlyToolList(READ_ONLY_TOOLS), true);
+  assert.equal(isReadOnlyToolList('read,grep'), true);
+  assert.equal(isReadOnlyToolList(' read , ls '), true);
+  assert.equal(isReadOnlyToolList('read,bash'), false);
+  assert.equal(isReadOnlyToolList('edit'), false);
+  // An unknown tool could write; a mid-run retry must not assume otherwise.
+  assert.equal(isReadOnlyToolList('read,some_mcp_tool'), false);
+  // An empty allowlist is not a read-only run, it is no run at all.
+  assert.equal(isReadOnlyToolList(''), false);
+  assert.equal(isReadOnlyToolList(undefined), false);
 });
 
 test('delegate spawn planning decrements tree budget and withholds delegate config at depth 0', () => {
