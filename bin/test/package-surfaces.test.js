@@ -218,12 +218,21 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
 
 // The full watchdog release surface — runtime modules, lifecycle commands,
 // exclusions, and content leak checks — lives in package-hermes-watchdog.test.js.
-test("the watchdog changeset stays honest about Gate O", () => {
-  const changeset = readFileSync(join(root, ".changeset", "hermes-watchdog-supervisor.md"), "utf8");
+test("the watchdog release note stays honest about Gate O", () => {
+  // The note starts life as a pending changeset and is folded verbatim into
+  // CHANGELOG.md by `changeset version`, which deletes the changeset file.
+  // Assert against whichever surface currently carries it so the guarantee
+  // survives release instead of ENOENT-ing the publish run on main.
+  const changesetPath = join(root, ".changeset", "hermes-watchdog-supervisor.md");
+  const pending = existsSync(changesetPath);
+  const notes = readFileSync(pending ? changesetPath : join(root, "CHANGELOG.md"), "utf8");
 
-  assert.match(changeset, /minor/);
-  assert.match(changeset, /disabled until genuine live Hermes capability evidence/i);
-  assert.doesNotMatch(changeset, /Gate O.*(?:passed|proven)|live delivery.*enabled/i);
+  assert.match(
+    notes,
+    /disabled until genuine live Hermes capability evidence/i,
+    pending ? "pending changeset" : "CHANGELOG.md must retain the consumed watchdog note",
+  );
+  assert.doesNotMatch(notes, /Gate O.*(?:passed|proven)|live delivery.*enabled/i);
 });
 
 test("published package hoists extension runtime dependencies for symlink installs", () => {
