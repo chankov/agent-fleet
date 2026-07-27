@@ -1,0 +1,35 @@
+{
+  "keybind": "alt+s",
+  "language": "en-US",
+  "capture": {
+    "maxSeconds": 60
+  },
+  "provider": {
+    "type": "openai",
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "whisper-1",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  },
+
+  "_azureExample": {
+    "type": "azure",
+    "endpoint": "https://fd-ai-credits.cognitiveservices.azure.com",
+    "apiKeyEnv": "AZURE_SPEECH_KEY",
+    "format": "detailed"
+  },
+
+  "_azureLanguageIdExample": {
+    "type": "azure",
+    "apiKeyEnv": "AZURE_SPEECH_KEY",
+    "locales": ["bg-BG", "en-US"],
+    "apiVersion": "2024-11-15"
+  },
+
+  "_azureOpenAIExample": {
+    "type": "azure-openai",
+    "endpoint": "https://<resource>.openai.azure.com",
+    "deployment": "gpt-4o-transcribe",
+    "apiVersion": "2025-03-01-preview",
+    "apiKeyEnv": "AZURE_SPEECH_KEY"
+  }
+}

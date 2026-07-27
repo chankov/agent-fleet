@@ -1,5 +1,11 @@
 # Agent Fleet changelog
 
+## 0.0.8
+
+### Patch Changes
+
+- d04411a: Include `scripts/lib/monitor-env.ts` in the guided workspace setup companion manifest so copy and symlink installs can load the unified `just fleet` entrypoint.
+
 ## 0.0.7
 
 ### Patch Changes
