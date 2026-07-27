@@ -11,11 +11,21 @@
 //     pane (herdr has no wildcard for that topic — spike finding). When the
 //     tracked pane set changes, the stream is torn down and resubscribed.
 //
-// Wire constraint baked in (measured live, herdr 0.7.1): `custom_status` is
-// truncated to 32 chars by the server — no JSON fits. formatPeerStatus()
-// therefore emits `<name> <pct>% q<depth>` with the coms peer NAME FIRST, so
-// watchers can join a herdr pane back to the registry entry that carries the
-// full agent card. parsePeerName() is the inverse.
+// Two wire dialects for the same idea — "this pane is coms peer X":
+//
+//   tokens (herdr >= 0.7.4)   `tokens: { coms, proj, ctx, q }` on
+//                             pane.report_metadata. Values are uncapped, so the
+//                             peer name arrives whole and the PROJECT travels
+//                             with it — which is what makes the join a real key
+//                             (two projects may each run an `orchestrator`).
+//   custom_status (<= 0.7.3)  a single 32-char-capped string,
+//                             `<name> <pct>% q<depth>`, name FIRST so a
+//                             truncated tail still leaves the identity readable.
+//
+// herdr 0.7.4 dropped `custom_status` from PaneReportMetadataParams entirely,
+// which made every report fail — silently, because report() swallows errors.
+// So: tokens first, one latched fallback to the legacy string, and an onError
+// hook so a dialect mismatch is never invisible again.
 //
 // Pure module: no pi imports; erasable-TS; testable under node --test.
 
@@ -46,7 +56,32 @@ export async function herdrPresenceAvailable(
 	return (await herdrAvailable(opts)) !== null;
 }
 
-// `<name> <pct>% q<depth>` truncated to the 32-char server cap, name first.
+// What a pane advertises about the coms peer occupying it.
+export interface PeerPresence {
+	name: string;
+	// The coms project. Optional only because the legacy dialect cannot carry
+	// it; always pass it when you have it — without it, two projects running a
+	// peer of the same name are indistinguishable to any watcher.
+	project?: string | null;
+	contextUsedPct: number;
+	queueDepth: number;
+}
+
+// Token keys must match herdr's `^[A-Za-z0-9_-]{1,32}$`; at most 16 per pane.
+// `ctx`/`q` are for human eyes in the sidebar — the registry entry carries the
+// authoritative numbers — so they are formatted, not raw.
+export function peerTokens(presence: PeerPresence): Record<string, string> {
+	const tokens: Record<string, string> = {
+		coms: presence.name,
+		ctx: `${Math.round(presence.contextUsedPct)}%`,
+		q: `q${presence.queueDepth}`,
+	};
+	if (presence.project) tokens.proj = presence.project;
+	return tokens;
+}
+
+// Legacy dialect: `<name> <pct>% q<depth>` truncated to the 32-char server cap,
+// name first. The project does not fit and is therefore not carried.
 export function formatPeerStatus(name: string, contextUsedPct: number, queueDepth: number): string {
 	const s = `${name} ${Math.round(contextUsedPct)}% q${queueDepth}`;
 	return s.length <= CUSTOM_STATUS_MAX ? s : s.slice(0, CUSTOM_STATUS_MAX);
@@ -61,6 +96,27 @@ export function parsePeerName(customStatus: string | undefined | null): string |
 	return name || null;
 }
 
+// The one place that knows how to read a peer identity off a herdr pane,
+// whichever dialect wrote it. `agent.rename` also puts a name on a pane, but
+// that one is human-assigned and not necessarily a coms peer, so it is the last
+// resort rather than the first.
+export function peerNameFrom(agent: HerdrAgentInfo | undefined | null): string | null {
+	if (!agent) return null;
+	const token = agent.tokens?.coms;
+	if (typeof token === "string" && token.trim()) return token.trim();
+	const legacy = parsePeerName(agent.custom_status);
+	if (legacy) return legacy;
+	const named = agent.name;
+	return typeof named === "string" && named.trim() ? named.trim() : null;
+}
+
+// The coms project a pane advertises, or null when the writer could not carry
+// one (legacy dialect). Null means "unscoped", never "the default project".
+export function peerProjectFrom(agent: HerdrAgentInfo | undefined | null): string | null {
+	const token = agent?.tokens?.proj;
+	return typeof token === "string" && token.trim() ? token.trim() : null;
+}
+
 export type PresenceState = "idle" | "working" | "blocked" | "unknown";
 
 export interface HerdrPresenceOptions extends HerdrClientOptions {
@@ -70,7 +126,13 @@ export interface HerdrPresenceOptions extends HerdrClientOptions {
 	source: string;
 	// Detected-agent label shown in the sidebar; pi peers report "pi".
 	agentLabel?: string;
+	// Called the first time an annotation dialect is rejected, and again if the
+	// fallback is rejected too. Presence stays best-effort, but a herdr that no
+	// longer speaks our wire format must not be able to hide.
+	onError?: (err: Error, dialect: AnnotationDialect) => void;
 }
+
+export type AnnotationDialect = "tokens" | "custom_status";
 
 // Reports this agent's state into its herdr pane. All calls are best-effort:
 // presence must never break the session, so errors resolve false.
@@ -79,46 +141,91 @@ export interface HerdrPresenceOptions extends HerdrClientOptions {
 // state and covers panes herdr's built-in detection does NOT recognize; for
 // recognized panes (pi has a detection manifest) that call is accepted but
 // IGNORED — detection holds agent authority — so pane.report_metadata carries
-// the custom_status annotation that detection cannot provide. Measured live
-// on herdr 0.7.1; see docs/plans/herdr/spike-notes.md.
+// the peer annotation that detection cannot provide.
+//
+// The annotation dialect is negotiated by trying and latching, not by version
+// sniffing: `herdr --version` is a string we would have to keep a table for,
+// while a rejected request is the actual answer to the actual question.
 export class HerdrPresence {
 	private opts: HerdrPresenceOptions;
+	private dialect: AnnotationDialect | null = null;
+	private reported = new Set<AnnotationDialect>();
 
 	constructor(opts: HerdrPresenceOptions) {
 		this.opts = opts;
 	}
 
-	async report(state: PresenceState, customStatus: string): Promise<boolean> {
-		const status = customStatus.slice(0, CUSTOM_STATUS_MAX);
+	// Which dialect this pane's herdr accepted, once known. Exposed for
+	// diagnostics (the coms audit log records it) — never a branch condition
+	// anywhere but here.
+	acceptedDialect(): AnnotationDialect | null {
+		return this.dialect;
+	}
+
+	private noteError(err: Error, dialect: AnnotationDialect): void {
+		if (this.reported.has(dialect)) return;
+		this.reported.add(dialect);
+		try {
+			this.opts.onError?.(err, dialect);
+		} catch {
+			// a broken reporter must not break presence
+		}
+	}
+
+	private async writeAnnotation(presence: PeerPresence, agent: string, dialect: AnnotationDialect): Promise<boolean> {
+		const base = {
+			pane_id: this.opts.paneId,
+			source: this.opts.source,
+			agent,
+			// Expire if this reporter dies without releasing: a bit over two
+			// keepalive cycles keeps the annotation fresh-or-gone.
+			ttl_ms: 90_000,
+		};
+		const params =
+			dialect === "tokens"
+				? { ...base, tokens: peerTokens(presence) }
+				: {
+						...base,
+						custom_status: formatPeerStatus(presence.name, presence.contextUsedPct, presence.queueDepth),
+					};
+		try {
+			await herdr.paneReportMetadata(params, this.opts);
+			this.dialect = dialect;
+			return true;
+		} catch (err) {
+			this.noteError(err as Error, dialect);
+			return false;
+		}
+	}
+
+	// The identity half of presence on its own: "this pane is coms peer X",
+	// with no claim about what the agent is doing. Callers whose pane state is
+	// owned by someone else use this instead of report() — the Claude bridge
+	// reads `agent_status` back as its own turn-completion signal, so a state
+	// it reported itself would poison the loop that polls it.
+	async annotate(presence: PeerPresence): Promise<boolean> {
 		const agent = this.opts.agentLabel ?? "pi";
+		// Once a dialect has worked, stop probing: a retry per report would put
+		// a guaranteed-failing request on the wire every 30s forever.
+		const order: AnnotationDialect[] = this.dialect ? [this.dialect] : ["tokens", "custom_status"];
+		for (const dialect of order) {
+			if (await this.writeAnnotation(presence, agent, dialect)) return true;
+		}
+		return false;
+	}
+
+	async report(state: PresenceState, presence: PeerPresence): Promise<boolean> {
 		let ok = false;
 		try {
 			await herdr.paneReportAgent(
-				{ pane_id: this.opts.paneId, source: this.opts.source, agent, state, custom_status: status },
+				{ pane_id: this.opts.paneId, source: this.opts.source, agent: this.opts.agentLabel ?? "pi", state },
 				this.opts,
 			);
 			ok = true;
 		} catch {
-			// fall through — metadata may still land
+			// fall through — the annotation may still land
 		}
-		try {
-			await herdr.paneReportMetadata(
-				{
-					pane_id: this.opts.paneId,
-					source: this.opts.source,
-					agent,
-					custom_status: status,
-					// Expire if this reporter dies without releasing: a bit over
-					// two keepalive cycles keeps the annotation fresh-or-gone.
-					ttl_ms: 90_000,
-				},
-				this.opts,
-			);
-			ok = true;
-		} catch {
-			// best-effort
-		}
-		return ok;
+		return (await this.annotate(presence)) || ok;
 	}
 
 	async release(): Promise<void> {
@@ -137,6 +244,10 @@ export interface HerdrAgentInfo {
 	pane_id: string;
 	agent?: string;
 	agent_status?: string;
+	// herdr >= 0.7.4
+	tokens?: Record<string, string>;
+	name?: string;
+	// herdr <= 0.7.3
 	custom_status?: string;
 	workspace_id?: string;
 	[key: string]: unknown;

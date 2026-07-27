@@ -1,6 +1,8 @@
 // Tests for the herdr presence backend against a mock server speaking the
 // observed wire dialect (one request per connection; long-lived subscribe
-// streams; 32-char custom_status cap).
+// streams). The mock defaults to the herdr >= 0.7.4 schema, where
+// `custom_status` was REMOVED from pane.report_metadata — set
+// `mock.dialect = "custom_status"` to get a 0.7.3 server back.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -17,6 +19,10 @@ import {
 	herdrPaneId,
 	herdrPresenceAvailable,
 	parsePeerName,
+	peerNameFrom,
+	peerProjectFrom,
+	peerTokens,
+	type AnnotationDialect,
 	type HerdrAgentInfo,
 } from "./herdr-presence.ts";
 
@@ -24,6 +30,9 @@ interface MockState {
 	agents: Array<Record<string, unknown>>;
 	reports: Array<Record<string, unknown>>;
 	streams: net.Socket[];
+	// Which annotation field pane.report_metadata accepts. The real 0.7.4
+	// rejects the whole request when the other one is sent.
+	dialect: AnnotationDialect;
 	// Total events.subscribe requests ever received — churn detector: a
 	// healthy watcher opens ONE stream and keeps it.
 	subscribes: number;
@@ -36,6 +45,7 @@ function mockServer(): MockState & { socketPath: string; close: () => Promise<vo
 		agents: [],
 		reports: [],
 		streams: [],
+		dialect: "tokens",
 		subscribes: 0,
 		emit(event, data) {
 			for (const s of state.streams) {
@@ -70,15 +80,28 @@ function mockServer(): MockState & { socketPath: string; close: () => Promise<vo
 						sock.end(JSON.stringify({ id: msg.id, result: { type: "agent_list", agents: state.agents } }) + "\n");
 						break;
 					case "pane.report_agent": {
-						// mimic the server-side 32-char truncation
+						// 0.7.4 has no custom_status here either; it is dropped
+						// rather than rejected, which is why this call kept
+						// succeeding while the annotation silently vanished.
 						const p = { ...msg.params };
-						if (typeof p.custom_status === "string") p.custom_status = p.custom_status.slice(0, 32);
+						delete p.custom_status;
 						state.reports.push(p);
 						sock.end(JSON.stringify({ id: msg.id, result: { type: "ok" } }) + "\n");
 						break;
 					}
 					case "pane.report_metadata": {
 						const p = { ...msg.params, metadata: true };
+						const sent: AnnotationDialect = p.tokens !== undefined ? "tokens" : "custom_status";
+						if (sent !== state.dialect) {
+							sock.end(
+								JSON.stringify({
+									id: msg.id,
+									error: { code: "invalid_request", message: `unknown field: ${sent}` },
+								}) + "\n",
+							);
+							break;
+						}
+						// mimic the server-side 32-char cap of the legacy field
 						if (typeof p.custom_status === "string") p.custom_status = p.custom_status.slice(0, 32);
 						state.reports.push(p);
 						sock.end(JSON.stringify({ id: msg.id, result: { type: "ok" } }) + "\n");
@@ -135,27 +158,133 @@ test("formatPeerStatus stays within the 32-char cap; parsePeerName inverts it", 
 	assert.equal(parsePeerName(undefined), null);
 });
 
-test("HerdrPresence reports agent state + metadata custom_status and releases", async () => {
+test("peerTokens carries the project and never truncates the name", () => {
+	const tokens = peerTokens({
+		name: "a-very-long-peer-name-indeed-yes-and-then-some",
+		project: "test-project",
+		contextUsedPct: 42.4,
+		queueDepth: 3,
+	});
+	assert.deepEqual(tokens, {
+		coms: "a-very-long-peer-name-indeed-yes-and-then-some",
+		proj: "test-project",
+		ctx: "42%",
+		q: "q3",
+	});
+	// Every key must satisfy herdr's token-name pattern, or the request fails.
+	for (const key of Object.keys(tokens)) assert.match(key, /^[A-Za-z0-9_-]{1,32}$/);
+	// No project: the key is absent, not empty — "unscoped" is a real answer.
+	assert.equal("proj" in peerTokens({ name: "solo", contextUsedPct: 0, queueDepth: 0 }), false);
+});
+
+test("peerNameFrom/peerProjectFrom read both dialects, tokens first", () => {
+	assert.equal(peerNameFrom({ pane_id: "w1:p1", tokens: { coms: "orchestrator", proj: "af" } }), "orchestrator");
+	assert.equal(peerProjectFrom({ pane_id: "w1:p1", tokens: { coms: "orchestrator", proj: "af" } }), "af");
+	// legacy pane: name recovered, project genuinely unknown
+	assert.equal(peerNameFrom({ pane_id: "w1:p1", custom_status: "reviewer 3% q1" }), "reviewer");
+	assert.equal(peerProjectFrom({ pane_id: "w1:p1", custom_status: "reviewer 3% q1" }), null);
+	// `agent rename` is a human label, so it loses to both peer annotations
+	assert.equal(peerNameFrom({ pane_id: "w1:p1", name: "scratch", tokens: { coms: "builder" } }), "builder");
+	assert.equal(peerNameFrom({ pane_id: "w1:p1", name: "scratch" }), "scratch");
+	// an unannotated pane is not a coms peer
+	assert.equal(peerNameFrom({ pane_id: "w1:p1" }), null);
+	assert.equal(peerNameFrom(null), null);
+});
+
+test("HerdrPresence reports agent state + metadata tokens and releases", async () => {
 	const mock = mockServer();
 	const presence = new HerdrPresence({
 		paneId: "w1:p1",
 		source: "coms:SESSION1",
 		socketPath: mock.socketPath,
 	});
-	assert.equal(await presence.report("working", "x".repeat(50)), true);
+	const peer = { name: "documenter", project: "af", contextUsedPct: 12, queueDepth: 0 };
+	assert.equal(await presence.report("working", peer), true);
 	await presence.release();
 	// one report() = report_agent (state, for undetected panes) +
-	// report_metadata (custom_status, for detection-owned panes)
+	// report_metadata (the peer annotation, for detection-owned panes)
 	assert.equal(mock.reports.length, 3);
 	assert.equal(mock.reports[0].pane_id, "w1:p1");
 	assert.equal(mock.reports[0].source, "coms:SESSION1");
 	assert.equal(mock.reports[0].agent, "pi");
 	assert.equal(mock.reports[0].state, "working");
-	assert.equal((mock.reports[0].custom_status as string).length, 32);
 	assert.equal(mock.reports[1].metadata, true);
-	assert.equal((mock.reports[1].custom_status as string).length, 32);
+	assert.deepEqual(mock.reports[1].tokens, { coms: "documenter", proj: "af", ctx: "12%", q: "q0" });
 	assert.equal(typeof mock.reports[1].ttl_ms, "number");
 	assert.equal(mock.reports[2].released, true);
+	assert.equal(presence.acceptedDialect(), "tokens");
+	await mock.close();
+});
+
+test("HerdrPresence falls back to custom_status on an older herdr, once", async () => {
+	const mock = mockServer();
+	mock.dialect = "custom_status";
+	const errors: AnnotationDialect[] = [];
+	const presence = new HerdrPresence({
+		paneId: "w1:p1",
+		source: "coms:S",
+		socketPath: mock.socketPath,
+		onError: (_err, dialect) => errors.push(dialect),
+	});
+	const peer = { name: "documenter", project: "af", contextUsedPct: 12, queueDepth: 0 };
+
+	assert.equal(await presence.report("idle", peer), true);
+	assert.equal(presence.acceptedDialect(), "custom_status");
+	// The rejected dialect is surfaced exactly once, not swallowed.
+	assert.deepEqual(errors, ["tokens"]);
+	const first = mock.reports.filter((r) => r.metadata);
+	assert.equal(first.length, 1);
+	assert.equal(first[0].custom_status, "documenter 12% q0");
+
+	// Second report must not re-probe: one request on the wire, no new error.
+	mock.reports.length = 0;
+	assert.equal(await presence.report("working", peer), true);
+	assert.equal(mock.reports.filter((r) => r.metadata).length, 1);
+	assert.deepEqual(errors, ["tokens"]);
+	await mock.close();
+});
+
+test("HerdrPresence.annotate writes the peer identity and claims no state", async () => {
+	const mock = mockServer();
+	const presence = new HerdrPresence({
+		paneId: "w29:p3",
+		source: "coms-bridge:SESSION1",
+		agentLabel: "claude",
+		socketPath: mock.socketPath,
+	});
+	const peer = { name: "plan-reviewer", project: "test-project", contextUsedPct: 0, queueDepth: 2 };
+
+	assert.equal(await presence.annotate(peer), true);
+	// The whole point for the Claude bridge: NO pane.report_agent, because it
+	// polls that same agent_status back to decide a turn is over.
+	assert.equal(mock.reports.length, 1);
+	assert.equal(mock.reports[0].metadata, true);
+	assert.equal(mock.reports[0].agent, "claude");
+	assert.deepEqual(mock.reports[0].tokens, { coms: "plan-reviewer", proj: "test-project", ctx: "0%", q: "q2" });
+	await mock.close();
+});
+
+test("HerdrPresence.annotate shares the dialect latch with report()", async () => {
+	const mock = mockServer();
+	mock.dialect = "custom_status";
+	const errors: AnnotationDialect[] = [];
+	const presence = new HerdrPresence({
+		paneId: "w29:p3",
+		source: "coms-bridge:S",
+		agentLabel: "claude",
+		socketPath: mock.socketPath,
+		onError: (_err, dialect) => errors.push(dialect),
+	});
+	const peer = { name: "plan-reviewer", project: "test-project", contextUsedPct: 0, queueDepth: 0 };
+
+	assert.equal(await presence.annotate(peer), true);
+	assert.equal(presence.acceptedDialect(), "custom_status");
+	assert.equal(mock.reports.at(-1)?.custom_status, "plan-reviewer 0% q0");
+
+	mock.reports.length = 0;
+	assert.equal(await presence.annotate(peer), true);
+	assert.equal(mock.reports.length, 1);
+	assert.deepEqual(errors, ["tokens"], "the rejected dialect is probed once, not once per keepalive");
 	await mock.close();
 });
 
@@ -166,7 +295,7 @@ test("HerdrPresence.report resolves false when the server is gone (never throws)
 		socketPath: path.join(os.tmpdir(), "definitely-not-a-herdr.sock"),
 		timeoutMs: 200,
 	});
-	assert.equal(await presence.report("idle", "x"), false);
+	assert.equal(await presence.report("idle", { name: "x", contextUsedPct: 0, queueDepth: 0 }), false);
 });
 
 test("HerdrAgentWatch: snapshot, status push, exit prune, created resync", async () => {

@@ -1,6 +1,6 @@
 // Tests for the pure Claude-bridge logic (sentinels, prompt framing, hook
-// records, reply extraction, serial queue) and the runner: claude-code
-// command construction.
+// records, reply extraction, serial queue), the bridge's registry record, and
+// the runner: claude-code command construction.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -22,6 +22,7 @@ import {
 	resolveReplyTimeoutMs,
 } from "./claude-bridge-core.ts";
 import { peerCommand } from "./herdr-layout.ts";
+import { bridgeRegistryEntry, bridgeRegistryIdentity } from "../coms-claude-bridge.ts";
 
 const ENV = {
 	prompt: "What is the answer?",
@@ -75,6 +76,55 @@ test("PromptQueue serializes strictly and reports depth", () => {
 	q.done();
 	assert.equal(q.take(), null);
 	assert.equal(q.depth, 0);
+});
+
+// ━━ registry record ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// The bridge rebuilt its whole registry record inline on every 30s keepalive,
+// `started_at: nowIso()` included — so the field was always "about 30 seconds
+// ago" and every bridged Claude peer showed a ~30s uptime in the fleet panel
+// no matter how long it had been running. Same regression the pi harnesses
+// fixed; same test shape: two writes, one session, two hours apart.
+
+const REGISTRATION = {
+	sessionId: "01KYFW92KPDGDYT3MAAM6JA6JN",
+	name: "claude-main",
+	purpose: "Claude Code (bridged pane)",
+	endpoint: "/home/nchankov/.pi/coms/sockets/01KYFW92KPDGDYT3MAAM6JA6JN.sock",
+	cwd: "/home/nchankov/repos/agent-fleet",
+	startedAt: "2026-07-26T18:00:00.000Z",
+};
+
+test("the keepalive carries started_at forward and only moves heartbeat_at", () => {
+	const identity = bridgeRegistryIdentity(REGISTRATION);
+	const first = bridgeRegistryEntry(identity, { now: "2026-07-26T18:00:30.000Z", pid: 4242, queueDepth: 0 });
+	const later = bridgeRegistryEntry(identity, { now: "2026-07-26T20:00:00.000Z", pid: 4242, queueDepth: 2 });
+
+	assert.equal(first.started_at, REGISTRATION.startedAt);
+	assert.equal(later.started_at, REGISTRATION.startedAt, "two hours of keepalives must not reset the start");
+	assert.equal(first.heartbeat_at, "2026-07-26T18:00:30.000Z");
+	assert.equal(later.heartbeat_at, "2026-07-26T20:00:00.000Z");
+	assert.equal(later.queue_depth, 2, "queue depth is live, unlike started_at");
+});
+
+test("the bridge entry carries the fields the fleet panel reads", () => {
+	const entry = bridgeRegistryEntry(bridgeRegistryIdentity(REGISTRATION), {
+		now: "2026-07-26T18:00:30.000Z",
+		pid: 4242,
+		queueDepth: 0,
+	});
+
+	assert.equal(entry.session_id, REGISTRATION.sessionId);
+	assert.equal(entry.name, "claude-main");
+	assert.equal(entry.model, "claude-code");
+	assert.equal(entry.endpoint, REGISTRATION.endpoint);
+	assert.equal(entry.cwd, REGISTRATION.cwd);
+	assert.equal(entry.pid, 4242, "the pid comes from the live process, not from registration");
+	assert.equal(entry.explicit, false);
+	assert.equal(entry.version, 1);
+	// Not observable from outside a Claude pane — must still be present, and 0,
+	// so the card and the herdr annotation agree.
+	assert.equal(entry.context_used_pct, 0);
 });
 
 test("runner: claude-code peers build a _claude-peer command; misuse rejected", () => {

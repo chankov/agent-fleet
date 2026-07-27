@@ -30,8 +30,9 @@ tools, and pool-scope boundary are identical in both**:
 
 - **herdr** — active automatically when the session runs inside a [herdr](https://herdr.dev)
   pane (`HERDR_ENV=1`) and the server answers ping. Presence goes push: this peer reports
-  itself via `pane.report_agent` + `pane.report_metadata` (`custom_status` =
-  `<name> <pct>% q<depth>`, capped at 32 chars by herdr), and the pool widget populates
+  itself via `pane.report_agent` + `pane.report_metadata` (`tokens` = `coms`/`proj`/
+  `ctx`/`q` on herdr >= 0.7.4, one latched fallback to the legacy 32-char
+  `custom_status` = `<name> <pct>% q<depth>`), and the pool widget populates
   from `agent.list` + `events.subscribe` — **no periodic ping traffic**; peer state
   changes arrive within ~1s and dead panes disappear on `pane.exited`. Turn state
   (idle/working) in the herdr sidebar comes from herdr's own pi integration when
@@ -40,7 +41,7 @@ tools, and pool-scope boundary are identical in both**:
   byte-for-byte today's behavior.
 
 The file registry keeps being written in BOTH backends (it carries the full agent card
-that herdr's 32-char `custom_status` cannot, and keeps this peer discoverable to peers
+that a pane annotation cannot, and keeps this peer discoverable to peers
 running outside herdr panes). Peers outside herdr panes appear as dimmed "pending" rows
 when you are on the herdr backend.
 

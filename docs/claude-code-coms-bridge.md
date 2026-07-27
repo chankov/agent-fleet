@@ -91,7 +91,13 @@ Older releases used the ambiguous name-only path `~/.pi/coms/cli/<name>/`. If th
 ## Behavior notes
 
 - **Serialization:** one prompt at a time per pane; queue depth shows in the peer's
-  agent card and the herdr sidebar (`<name> q<depth>`).
+  agent card and the herdr sidebar (`q<depth>`).
+- **Presence:** the bridge annotates its pane through the shared `HerdrPresence`
+  (same dialect negotiation as pi peers — `tokens` on herdr >= 0.7.4, one latched
+  fallback to `custom_status`), so the pane carries `coms`/`proj` and the fleet panel
+  can join it to the registry entry. It writes the annotation ONLY, never
+  `pane.report_agent`: the pane's `agent_status` is herdr's own Claude detection and
+  the bridge polls it back as its turn-completion signal.
 - **Blocked panes:** a Claude waiting on a permission prompt returns a readable error
   envelope ("blocked on a permission prompt — a human must approve it") instead of
   hanging until timeout.

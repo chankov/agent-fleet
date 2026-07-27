@@ -16,7 +16,10 @@ class ReviewLiveWiringRedTest(unittest.TestCase):
         self.assertNotIn("afterSequence", source)
 
     def test_cancel_response_has_an_explicit_bounded_wire_contract(self):
-        source=(ROOT/"scripts/lib/hermes-monitor-socket.ts").read_text()
+        # The server moved to .pi/harnesses/lib/; scripts/lib/ kept a two-line
+        # `export *` shim. Asserting against the shim only proved the shim was
+        # short — the cap has to be read where it is actually enforced.
+        source=(ROOT/".pi/harnesses/lib/hermes-monitor-socket.ts").read_text()
         self.assertRegex(source, r"MAX_CANCEL_RESPONSE_BYTES|cap.*cancel|cancel.*MAX_", "cancel response must be capped")
 
 if __name__ == "__main__": unittest.main()

@@ -4,6 +4,7 @@
 
 import { spawnSync } from "node:child_process";
 import { parseFleetCommand } from "./lib/fleet-command.ts";
+import { resolveMonitorEnv } from "./lib/monitor-env.ts";
 
 const HELP = `Agent Fleet — unified Pi runtime
 
@@ -126,9 +127,16 @@ function main(): void {
 		process.exitCode = 2;
 		return;
 	}
+	// Every mode gets the monitor variables, not just `hub`: a plain `just fleet`
+	// or a `peer` loads no agent-hub and so reads them never, while `hub` and
+	// `team` both reach the hub through a Just recipe that inherits this
+	// environment. Deciding here rather than per recipe keeps it one line of
+	// truth; a null answer (opted out, or no directory we can make private)
+	// leaves the environment untouched and the hub unmonitored, exactly as
+	// before this existed.
 	const result = spawnSync("just", [invocation.recipe, ...invocation.args], {
 		stdio: "inherit",
-		env: process.env,
+		env: { ...process.env, ...(resolveMonitorEnv() ?? {}) },
 	});
 	if (result.error) {
 		console.error(`fleet: could not run just: ${result.error.message}`);

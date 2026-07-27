@@ -34,6 +34,7 @@ import {
 	type LayoutNode,
 	type Peer,
 } from "./lib/herdr-layout.ts";
+import { resolveMonitorEnv } from "./lib/monitor-env.ts";
 import { planSpawnDelays } from "./lib/spawn-stagger.ts";
 import {
 	DEFAULT_PROJECT,
@@ -249,14 +250,22 @@ async function main(): Promise<void> {
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
+	// The hub pane is spawned BY herdr, whose daemon was started at some other
+	// time from some other shell — so unlike `just fleet hub`, it inherits
+	// nothing from this process. The monitor variables have to travel as pane
+	// env or the one launcher most likely to want a task tree is the one that
+	// never gets one. Peers deliberately do not receive them: only agent-hub
+	// reads them, and a peer is not a hub.
+	const monitorEnv = dryRun ? null : resolveMonitorEnv();
 	const rootPane = hub
 		? {
 			command: hubCommand(project, { browser: hubBrowser, allExtensions: hubAllExtensions }),
 			label: "hub",
 			ratio: HUB_RATIO,
+			...(monitorEnv ? { env: monitorEnv } : {}),
 		}
 		: spec
-			? { command: spec.command, label: spec.paneLabel, ratio: spec.ratio, cwd: spec.cwd, env: spec.env }
+			? { command: spec.command, label: spec.paneLabel, ratio: spec.ratio, cwd: spec.cwd, env: { ...spec.env, ...(monitorEnv ?? {}) } }
 			: undefined;
 
 	if (dryRun) {

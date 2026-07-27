@@ -11,7 +11,11 @@ test("standard hub-team child records retain the fake workspace and hub-pane cor
 		const publisher = new MonitorPublisher(new MonitorStore());
 		const parent = publisher.publishParent({ id: "turn-monitor-smoke", generation: 1, hubInstanceId: "hub", checkoutId: "checkout" });
 		const child = await publisher.publishChildForHub(
-			{ id: "child-monitor-smoke", generation: 1, parentId: parent.id, specialist: "builder" },
+			// `parentGeneration` is not optional: MonitorStore.createChild looks the
+			// parent up by (id, generation), so omitting it fails the lookup rather
+			// than defaulting. The real caller supplies it (monitor-session-bridge
+			// startChild: `parentGeneration: v.parentGeneration ?? 1`).
+			{ id: "child-monitor-smoke", generation: 1, parentId: parent.id, parentGeneration: parent.generation, specialist: "builder" },
 			{ HERDR_ENV: "1", HERDR_PANE_ID: "hub-pane-monitor-smoke", HERDR_SOCKET_PATH: fake.socketPath },
 		);
 		assert.equal(child.workspaceId, "workspace-monitor-smoke");

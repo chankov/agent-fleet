@@ -18,6 +18,46 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 
 All three converge on the same `guided-workspace-setup` skill — they only differ in how the source files reach your workspace. None is being deprecated.
 
+## Optional: see the fleet in Hermes Desktop
+
+Once you are running more than one or two agents, `agent-fleet-herdr` gives you
+a live panel of every Agent Fleet session — grouped by project, sorted so the
+agent blocked on a human is at the top, with a toast when one gets stuck or
+dies mid-work.
+
+**You need:** Hermes v0.19.0+ with the Desktop app (`hermes` on `PATH`), this
+repo checked out, and a fleet that has run at least once so
+`~/.pi/coms/projects/` exists. [herdr](https://herdr.dev) is optional; without
+it every row reads `unknown` instead of a live state.
+
+```bash
+# 1. link both halves into the profile and open the enable gate
+scripts/install-hermes-plugin.sh agent-fleet-herdr        # --profile dev / --copy / --dry-run
+
+# 2. restart the HERMES DESKTOP APP
+#    (not `hermes gateway restart` — the pane talks to the gateway Desktop spawns for itself,
+#     and backend routes only mount when that app starts)
+
+# 3. start a fleet and open the "Agent Fleet" tab
+just fleet team default
+```
+
+Nothing about how you launch a fleet changes: the panel reads what the fleet
+already writes (the coms registry, herdr presence, and each agent's own
+transcript). It is read-only apart from `Focus pane` and cancelling a hub's
+subagent. Uninstall with `scripts/install-hermes-plugin.sh agent-fleet-herdr
+--uninstall`.
+
+![The Agent Fleet panel in Hermes Desktop listing seven live sessions in one project](assets/hermes-desktop-agent-fleet-panel.png)
+
+Full runbook — prerequisites, API, join rules, event kinds, the optional
+Telegram fan-out, and the failure modes that all look like an empty panel:
+**[hermes-desktop-plugins.md](hermes-desktop-plugins.md)**.
+
+Separately, the [coms ⇄ Hermes bridge](coms-hermes-bridge.md) relays an agent's
+`ask_user` question to Telegram and races your phone's answer against a local
+one. The two are independent; you can run either without the other.
+
 ## Optional experimental Android conductor
 
 Linux/pi fleet users can pair Codex Remote Control with ChatGPT Android and delegate one approval-gated task at a time to peers already running in a coms project. It is optional, supports only Codex CLI `0.144.x`, requires Node `22.6+` and user systemd, and does not replace Hermes as the inbound `ask_user` route.
@@ -173,6 +213,14 @@ The `/spec` and `/plan` commands create working artifacts (`SPEC.md`, `tasks/pla
 - Keep them in version control during development so the human and the agent have a shared source of truth.
 - Update them when scope or decisions change.
 - If your repo doesn’t want these files long‑term, delete them before merge or add the folder to `.gitignore` — the workflow doesn’t require them to be permanent.
+
+## Contributor verification
+
+The live Agent Fleet hub delegation smoke is intentionally outside the default unit suite. It uses the current checkout's `HEAD` and a deterministic local Pi fixture (no network/model call):
+
+```bash
+node --test scripts/agent-fleet-head-count-smoke.test.mjs
+```
 
 ## Tips
 

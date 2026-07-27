@@ -62,9 +62,20 @@ try {
 	fs.mkdirSync(dir, { recursive: true });
 	const file = path.join(dir, "last-message.json");
 	const tmp = `${file}.tmp-${process.pid}`;
+	// `transcript_path` is written for the Hermes fleet panel, which reads this
+	// file to find which ~/.claude/projects/*.jsonl belongs to a bridged peer.
+	// The bridge mints its own coms session id and has no other link to Claude
+	// Code's, so without this the panel could only guess by cwd — and a cwd
+	// routinely holds several transcripts. The bridge ignores the extra key
+	// (HookRecord carries an index signature).
 	fs.writeFileSync(
 		tmp,
-		JSON.stringify({ text, session_id: input.session_id ?? null, written_at: new Date().toISOString() }),
+		JSON.stringify({
+			text,
+			session_id: input.session_id ?? null,
+			transcript_path: transcriptPath,
+			written_at: new Date().toISOString(),
+		}),
 	);
 	fs.renameSync(tmp, file);
 } catch {

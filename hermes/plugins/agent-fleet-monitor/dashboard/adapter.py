@@ -78,18 +78,6 @@ class MonitorAdapter:
                 if token_path.is_symlink() or stat.S_IMODE(token_path.stat().st_mode) != 0o600: raise ValueError()
                 adapters.append((lease["hub"], cls(str(root / socket_ref.removeprefix("@runtime/")), token_path.read_text().strip())))
             return FleetMonitorAdapter(adapters)
-            discovery_path = candidates[0]
-            if discovery_path.is_symlink() or stat.S_IMODE(discovery_path.stat().st_mode) != 0o600: raise ValueError()
-            discovery = json.loads(discovery_path.read_text())
-            lease = discovery["lease"]
-            if not isinstance(lease, dict) or datetime.fromisoformat(lease["expiresAt"].replace("Z", "+00:00")) <= datetime.now(timezone.utc): raise ValueError()
-            socket_ref, token_ref = discovery["socket"], discovery["token"]
-            if not isinstance(socket_ref, str) or not socket_ref.startswith("@runtime/") or ".." in Path(socket_ref).parts: raise ValueError()
-            if not isinstance(token_ref, str) or not token_ref.startswith("token-") or "/" in token_ref or ".." in token_ref: raise ValueError()
-            socket_path = root / socket_ref.removeprefix("@runtime/")
-            token_path = discovery_path.parent / token_ref
-            if token_path.is_symlink() or stat.S_IMODE(token_path.stat().st_mode) != 0o600: raise ValueError()
-            return cls(str(socket_path), token_path.read_text().strip())
         except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
             raise MonitorUnavailable("monitor profile discovery is unavailable") from error
 

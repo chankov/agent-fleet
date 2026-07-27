@@ -25,13 +25,13 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { registerVersionStatus } from "./version.ts";
 
+import { buildLiveRegistryEntry, type ComsRegistryEntry } from "../lib/coms-registry-entry.ts";
 import {
-	formatPeerStatus,
 	HerdrAgentWatch,
 	HerdrPresence,
 	herdrPaneId,
 	herdrPresenceAvailable,
-	parsePeerName,
+	peerNameFrom,
 	type HerdrAgentInfo,
 } from "../lib/herdr-presence.ts";
 
@@ -105,24 +105,10 @@ interface Pong {
 	agent_card: AgentCard;
 }
 
-interface RegistryEntry {
-	session_id: string;
-	name: string;
-	purpose: string;
-	model: string;
-	color: string;
-	pid: number;
-	endpoint: string;
-	cwd: string;
-	started_at: string;
-	explicit: boolean;
-	version: number;
-	// Live status snapshot — refreshed every KEEPALIVE_INTERVAL_MS by the heartbeat.
-	// Optional so older entries (pre-heartbeat-refresh) still parse cleanly.
-	context_used_pct?: number;
-	queue_depth?: number;
-	heartbeat_at?: string;
-}
+// The registry shape and the heartbeat builder are shared with agent-hub —
+// see ../lib/coms-registry-entry.ts. Both harnesses used to keep their own
+// copy of this literal, and both refreshed `started_at` every 30 seconds.
+type RegistryEntry = ComsRegistryEntry;
 
 interface PendingReply {
 	resolve: (value: any) => void;
@@ -589,6 +575,8 @@ export default function (pi: ExtensionAPI) {
 		model: string;
 		endpoint: string;
 		registryFile: string;
+		// Set once, at registration. The heartbeat reads it; nothing rewrites it.
+		started_at: string;
 	} | null = null;
 	const peerCards: Map<string, AgentCard & { staleCount: number }> = new Map();
 	const pendingReplies: Map<string, PendingReply> = new Map();
@@ -859,6 +847,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// 4. Build + write registry entry atomically.
+		const started_at = nowIso();
 		const entry: RegistryEntry = {
 			session_id,
 			name,
@@ -868,7 +857,7 @@ export default function (pi: ExtensionAPI) {
 			pid: process.pid,
 			endpoint,
 			cwd,
-			started_at: nowIso(),
+			started_at,
 			explicit,
 			version: 1,
 		};
@@ -892,6 +881,7 @@ export default function (pi: ExtensionAPI) {
 			model,
 			endpoint,
 			registryFile,
+			started_at,
 		};
 		includeExplicit = false;
 		displayProject = project;
@@ -918,14 +908,25 @@ export default function (pi: ExtensionAPI) {
 		// 7. Presence backend: herdr (push events, no polling) when this
 		// session runs inside a herdr pane with a live server; the files ping
 		// loop otherwise. The registry keepalive below runs in BOTH backends —
-		// it carries the full agent card (context %, queue depth) that herdr's
-		// 32-char custom_status cannot, and keeps us discoverable to peers
+		// it carries the full agent card (purpose, model, colour) that a pane
+		// annotation is no place for, and keeps us discoverable to peers
 		// running outside herdr panes.
 		const useHerdr = await herdrPresenceAvailable();
 		if (useHerdr) {
 			const paneId = herdrPaneId()!;
-			herdrPresence = new HerdrPresence({ paneId, source: `coms:${session_id}` });
-			void herdrPresence.report("idle", formatPeerStatus(name, 0, 0));
+			herdrPresence = new HerdrPresence({
+				paneId,
+				source: `coms:${session_id}`,
+				// A herdr that rejects our annotation dialect used to be
+				// invisible: presence swallows errors, so the sidebar simply
+				// stayed blank and every watcher saw "detached" forever.
+				onError: (err, dialect) => {
+					try {
+						pi.appendEntry("coms-log", { event: "presence_dialect_rejected", dialect, reason: err?.message ?? String(err) });
+					} catch { /* best-effort */ }
+				},
+			});
+			void herdrPresence.report("idle", { name, project, contextUsedPct: 0, queueDepth: 0 });
 			herdrWatch = new HerdrAgentWatch({
 				ownPaneId: paneId,
 				onChange: (agents) => herdrSyncPeerCards(agents),
@@ -945,22 +946,13 @@ export default function (pi: ExtensionAPI) {
 				// Detect missing-registry BEFORE writing so the self_heal audit only
 				// fires when something actually went wrong (file unlinked under us).
 				const missingBeforeWrite = !fs.existsSync(identity.registryFile);
-				const live: RegistryEntry = {
-					session_id: identity.session_id,
-					name: identity.name,
-					purpose: identity.purpose,
-					model: ctx?.model?.id ?? identity.model,
-					color: identity.color,
+				const live: RegistryEntry = buildLiveRegistryEntry(identity, {
+					now: nowIso(),
 					pid: process.pid,
-					endpoint: identity.endpoint,
-					cwd: identity.cwd,
-					started_at: nowIso(),
-					explicit: identity.explicit,
-					version: 1,
-					context_used_pct: Math.round(ctx?.getContextUsage()?.percent ?? 0),
-					queue_depth: inboundQueue.size,
-					heartbeat_at: nowIso(),
-				};
+					model: ctx?.model?.id,
+					contextUsedPct: ctx?.getContextUsage()?.percent,
+					queueDepth: inboundQueue.size,
+				});
 				// Unconditional atomic write: handles BOTH the live-status refresh
 				// (file present → overwrite with fresh values) AND self-heal (file
 				// missing → re-create entry). The atomic write also bumps mtime, so
@@ -980,7 +972,7 @@ export default function (pi: ExtensionAPI) {
 			// registry heartbeats just written by the other peers.
 			if (herdrPresence && identity) {
 				const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
-				void herdrPresence.report(turnState, formatPeerStatus(identity.name, pct, inboundQueue.size));
+				void herdrPresence.report(turnState, { name: identity.name, project: identity.project, contextUsedPct: pct, queueDepth: inboundQueue.size });
 			}
 			if (herdrWatch) herdrSyncPeerCards(herdrWatch.current());
 		}, KEEPALIVE_INTERVAL_MS);
@@ -998,7 +990,7 @@ export default function (pi: ExtensionAPI) {
 		turnState = "working";
 		if (herdrPresence && identity) {
 			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
-			void herdrPresence.report("working", formatPeerStatus(identity.name, pct, inboundQueue.size));
+			void herdrPresence.report("working", { name: identity.name, project: identity.project, contextUsedPct: pct, queueDepth: inboundQueue.size });
 		}
 	});
 
@@ -1006,13 +998,13 @@ export default function (pi: ExtensionAPI) {
 		turnState = "idle";
 		if (herdrPresence && identity) {
 			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
-			void herdrPresence.report("idle", formatPeerStatus(identity.name, pct, inboundQueue.size));
+			void herdrPresence.report("idle", { name: identity.name, project: identity.project, contextUsedPct: pct, queueDepth: inboundQueue.size });
 		}
 	});
 
 	// Join herdr's live pane states back to the coms registry: a herdr agent
-	// whose custom_status leads with a peer name maps to that peer's registry
-	// entry (which carries the full card the 32-char custom_status cannot).
+	// that advertises a coms peer name maps to that peer's registry entry
+	// (which carries the full card a pane annotation has no room for).
 	// Pool-scope semantics are preserved — only entries from peersInScope()
 	// become cards; peers outside herdr panes stay visible as registry-only
 	// "pending" rows exactly like an unpinged peer in the files backend.
@@ -1020,7 +1012,7 @@ export default function (pi: ExtensionAPI) {
 		if (!identity) return;
 		const liveNames = new Set<string>();
 		for (const a of agents) {
-			const peerName = parsePeerName(a.custom_status as string | undefined);
+			const peerName = peerNameFrom(a);
 			if (peerName) liveNames.add(peerName);
 		}
 		let changed = false;

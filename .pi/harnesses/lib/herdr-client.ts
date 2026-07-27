@@ -411,13 +411,18 @@ export const herdr = {
 	) => request("pane.release_agent", params, opts),
 	// Metadata annotations for a pane whose agent authority is held by herdr's
 	// built-in detection (report_agent is silently ignored there — spike
-	// finding). custom_status set here shows in the sidebar; ttl_ms lets stale
-	// annotations expire if the reporter dies.
+	// finding). What shows in the sidebar is `tokens` on herdr >= 0.7.4 and
+	// `custom_status` on <= 0.7.3; the field was REMOVED from the params in
+	// 0.7.4, so sending it there fails the whole request. herdr-presence.ts
+	// negotiates which one to send. ttl_ms lets stale annotations expire if the
+	// reporter dies.
 	paneReportMetadata: (
 		params: {
 			pane_id: string;
 			source: string;
 			agent?: string;
+			tokens?: Record<string, string>;
+			state_labels?: Record<string, string>;
 			custom_status?: string;
 			title?: string;
 			display_agent?: string;

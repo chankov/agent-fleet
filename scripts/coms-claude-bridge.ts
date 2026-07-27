@@ -18,7 +18,7 @@
 //   (e) a `blocked` agent status returns a readable error envelope instead of
 //       hanging until timeout;
 //   (f) prompts are strictly serialized per pane; queue depth is reported in
-//       the agent card + herdr custom_status.
+//       the agent card + the pane's herdr peer annotation.
 //
 // usage: coms-claude-bridge.ts --name <peer-name> [--pane <pane_id>]
 //        [--project <p>] [--reply-timeout <ms>]
@@ -65,6 +65,8 @@ import {
 	resolveReplyTimeoutMs,
 } from "./lib/claude-bridge-core.ts";
 import { herdr, requireHerdr, HerdrUnavailableError } from "../.pi/harnesses/lib/herdr-client.ts";
+import { HerdrPresence } from "../.pi/harnesses/lib/herdr-presence.ts";
+import { buildLiveRegistryEntry, type ComsIdentity } from "../.pi/harnesses/lib/coms-registry-entry.ts";
 
 const KEEPALIVE_MS = 30_000;
 const ENTER_DELAY_MS = 1_500;
@@ -87,6 +89,53 @@ function die(msg: string): never {
 
 export function hookWatchDir(paneId: string): string {
 	return path.join(os.homedir(), ".pi", "coms", "claude-bridge", paneId.replace(/[^A-Za-z0-9_-]/g, "_"));
+}
+
+// ── registry record ──
+//
+// Split in two on purpose. The identity is built ONCE, at registration, and
+// holds `started_at`; the entry is rebuilt on every 30s keepalive from that
+// same identity. The bridge used to rebuild the whole record inline with
+// `started_at: nowIso()`, so the field never held the start of anything and
+// every bridged Claude peer reported an uptime of at most one tick — the bug
+// the pi harnesses fixed by centralising on buildLiveRegistryEntry. Reusing it
+// here rather than keeping a third copy is the point.
+
+export function bridgeRegistryIdentity(reg: {
+	sessionId: string;
+	name: string;
+	purpose: string;
+	endpoint: string;
+	cwd: string;
+	startedAt: string;
+}): ComsIdentity {
+	return {
+		session_id: reg.sessionId,
+		name: reg.name,
+		purpose: reg.purpose,
+		// A bridged pane is Claude Code by construction — there is no live ctx to
+		// re-read a model from, so the registered one is the only one.
+		model: "claude-code",
+		color: COLOR,
+		endpoint: reg.endpoint,
+		cwd: reg.cwd,
+		explicit: false,
+		started_at: reg.startedAt,
+	};
+}
+
+export function bridgeRegistryEntry(
+	identity: ComsIdentity,
+	live: { now: string; pid: number; queueDepth: number },
+): RegistryEntry {
+	return buildLiveRegistryEntry(identity, {
+		now: live.now,
+		pid: live.pid,
+		// context_used_pct is not observable from outside a Claude pane; 0 is what
+		// the agent card and the herdr annotation carry too, so they all agree.
+		contextUsedPct: 0,
+		queueDepth: live.queueDepth,
+	});
 }
 
 async function main(): Promise<void> {
@@ -116,23 +165,23 @@ async function main(): Promise<void> {
 	const queue = new PromptQueue<PromptEnvelope>();
 	const purpose = "Claude Code (bridged pane)";
 
+	// Built once — `started_at` is registration time and stays put across every
+	// keepalive rebuild below.
+	const registryIdentity = bridgeRegistryIdentity({
+		sessionId,
+		name: uniqueName,
+		purpose,
+		endpoint: id.endpoint,
+		cwd: id.cwd,
+		startedAt: nowIso(),
+	});
+
 	function registryEntry(): RegistryEntry {
-		return {
-			session_id: sessionId,
-			name: uniqueName,
-			purpose,
-			model: "claude-code",
-			color: COLOR,
+		return bridgeRegistryEntry(registryIdentity, {
+			now: nowIso(),
 			pid: process.pid,
-			endpoint: id.endpoint,
-			cwd: id.cwd,
-			started_at: nowIso(),
-			explicit: false,
-			version: 1,
-			context_used_pct: 0,
-			queue_depth: queue.depth,
-			heartbeat_at: nowIso(),
-		};
+			queueDepth: queue.depth,
+		});
 	}
 
 	const hookDir = hookWatchDir(paneId);
@@ -186,16 +235,23 @@ async function main(): Promise<void> {
 	console.error(`coms-claude-bridge: ${uniqueName}@${project} bridging pane ${paneId}`);
 
 	// ── presence ──
+	// Annotation ONLY, never pane.report_agent: this pane's `agent_status` is
+	// herdr's own Claude detection, and driveClaude() polls it back to decide a
+	// turn is over. A state we reported ourselves would be us answering our own
+	// question. Dialect negotiation (tokens on herdr >= 0.7.4, one latched
+	// fallback to custom_status) is HerdrPresence's job — a second copy here is
+	// how the bridge stayed on the removed field while the pi path was fixed.
+	const presence = new HerdrPresence({
+		paneId,
+		source: `coms-bridge:${sessionId}`,
+		agentLabel: "claude",
+		onError: (err, dialect) =>
+			console.error(`coms-claude-bridge: herdr rejected the ${dialect} annotation: ${err.message}`),
+	});
 	async function reportPresence(): Promise<void> {
-		try {
-			await herdr.paneReportMetadata({
-				pane_id: paneId,
-				source: `coms-bridge:${sessionId}`,
-				agent: "claude",
-				custom_status: `${uniqueName} q${queue.depth}`.slice(0, 32),
-				ttl_ms: 90_000,
-			});
-		} catch { /* best-effort */ }
+		// context_used_pct is not observable from outside a Claude pane; 0 is
+		// what the agent card carries too, so the sidebar and the card agree.
+		await presence.annotate({ name: uniqueName, project, contextUsedPct: 0, queueDepth: queue.depth });
 	}
 	const keepalive = setInterval(() => {
 		try {
