@@ -187,6 +187,18 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
       assert.equal(lstatSync(join(workspace, "scripts", "codex-remote-control.ts")).isSymbolicLink(), method === "symlink");
       assert.equal(existsSync(join(workspace, "hermes", "desktop-plugins")), false, `${method}: desktop plugins must not install`);
       assert.equal(existsSync(join(workspace, "hermes", "plugins")), false, `${method}: generic plugins must not install`);
+      const fleetHelp = execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          "--preserve-symlinks",
+          "--preserve-symlinks-main",
+          join(workspace, "scripts", "fleet.ts"),
+          "help",
+        ],
+        { cwd: workspace, encoding: "utf8" },
+      );
+      assert.match(fleetHelp, /Agent Fleet — unified Pi runtime/, `${method}: installed fleet entrypoint must load`);
 
       if (method === "copy") writeFileSync(join(workspace, "systemd", "user-owned.service"), "[Unit]\n");
       removeClosure(root, workspace, owned);

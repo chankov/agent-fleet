@@ -27,6 +27,7 @@
     "scripts/lib/fleet-command.ts",
     "scripts/lib/herdr-layout.ts",
     "scripts/lib/hermes-bridge-core.ts",
+    "scripts/lib/monitor-env.ts",
     "scripts/lib/persona-banner.ts",
     "scripts/lib/spawn-stagger.ts",
     "scripts/lib/team-project.ts",
