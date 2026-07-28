@@ -351,6 +351,16 @@ export const herdr = {
 
 	// NOTE: the target field is `target_pane_id` — `pane_id` would be silently
 	// ignored and the FOCUSED pane split instead (spike finding).
+	//
+	// There is NO `command` param: a split always opens a plain interactive
+	// shell in `cwd`. Verified against herdr 0.7.5 — `PaneSplitParams` is
+	// {target_pane_id, direction, ratio, cwd, env, focus} and `herdr pane split
+	// --help` exposes no command flag. Only `layout.apply` pane nodes carry
+	// `command: [argv…]`. This type used to advertise `command?: string[]`;
+	// because unknown params are silently ignored, callers got a bare shell
+	// pane and a success response. To launch something in a split pane, send
+	// the command line as input once the pane is at its shell prompt
+	// (paneSendText) — see the herdr_spawn_peer tool in agent-hub.
 	paneSplit: (
 		params: {
 			target_pane_id: string;
@@ -359,7 +369,6 @@ export const herdr = {
 			cwd?: string;
 			env?: Record<string, string>;
 			focus?: boolean;
-			command?: string[];
 		},
 		opts?: HerdrClientOptions,
 	) => request<{ pane: PaneInfo }>("pane.split", params, opts),

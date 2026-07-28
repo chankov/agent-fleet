@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import {
 	buildTeamLayout,
+	findPeerByName,
 	parseEnvFile,
 	parsePeersYaml,
 	peerCommand,
@@ -316,6 +317,46 @@ test("parseEnvFile handles comments, quotes, export prefix; rejects garbage", ()
 	});
 	assert.throws(() => parseEnvFile("not a kv line", "peers.env"), /peers\.env:1: not a KEY=VALUE line/);
 	assert.throws(() => parseEnvFile("1BAD=x"), /not a KEY=VALUE line/);
+});
+
+// A one-off spawn (agent-hub's herdr_spawn_peer) is handed only a name, so it
+// looks the peer up here to keep the fleet's own definition of that name.
+test("findPeerByName matches across teams, case-insensitively", () => {
+	const teams = parsePeersYaml(realPeersYaml);
+	const reviewer = findPeerByName(teams, "code-reviewer");
+	assert.ok(reviewer, "code-reviewer should be declared in the shipped peers.yaml");
+	assert.equal(reviewer?.name, "code-reviewer");
+	assert.equal(findPeerByName(teams, "CODE-REVIEWER")?.name, "code-reviewer");
+	assert.equal(findPeerByName(teams, "no-such-peer"), undefined);
+	assert.equal(findPeerByName(teams, ""), undefined);
+	assert.equal(findPeerByName({}, "code-reviewer"), undefined);
+});
+
+// The hub spawns with no resume ref: the project must still land in the
+// project positional, not in the model or session slot.
+test("a hub-style spawn keeps the project positional aligned", () => {
+	assert.deepEqual(
+		peerCommand({ persona: "builder", name: "plan32-builder" }, "hub-spawned", undefined, "ringithub-plan32-prd2"),
+		["just", "_peer", "builder", "plan32-builder", "", "", "ringithub-plan32-prd2"],
+	);
+	assert.deepEqual(
+		peerCommand({ persona: "builder", name: "b", model: "anthropic/sonnet" }, "hub-spawned", undefined, "rin"),
+		["just", "_peer", "builder", "b", "anthropic/sonnet", "", "rin"],
+	);
+	// The default pool stays on the short argv shape the recipes default to.
+	assert.deepEqual(
+		peerCommand({ persona: "builder", name: "b" }, "hub-spawned"),
+		["just", "_peer", "builder", "b"],
+	);
+	// A declared runner/extensions must survive a name-only spawn.
+	assert.deepEqual(
+		peerCommand({ name: "code-reviewer", runner: "claude-code" }, "hub-spawned", undefined, "rin"),
+		["just", "_claude-peer", "code-reviewer", "", "", "rin"],
+	);
+	assert.deepEqual(
+		peerCommand({ persona: "web-debugger", name: "web-debugger", extensions: "chrome-devtools-mcp" }, "hub-spawned", undefined, "rin"),
+		["just", "_peer-plus", "chrome-devtools-mcp", "web-debugger", "web-debugger", "", "", "rin"],
+	);
 });
 
 test("layout trees are deterministic (stable across calls)", () => {

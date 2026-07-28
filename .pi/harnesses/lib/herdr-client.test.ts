@@ -233,6 +233,14 @@ test("typed wrappers send exact wire param names", async () => {
 	assert.equal(seen[0].method, "pane.split");
 	assert.equal(seen[0].params.target_pane_id, "w2:p1");
 	assert.equal("pane_id" in seen[0].params, false, "pane.split must not send pane_id");
+	// herdr 0.7.5 PaneSplitParams — anything else is silently ignored by the
+	// server, so an invented param (`command`) reads as a working spawn while
+	// producing a bare shell pane. Only layout.apply pane nodes carry an argv.
+	assert.deepEqual(
+		Object.keys(seen[0].params).sort(),
+		["direction", "ratio", "target_pane_id"],
+		"pane.split params must stay inside the documented wire shape",
+	);
 	assert.equal(seen[1].method, "pane.report_agent");
 	assert.equal(seen[1].params.source, "coms:web");
 	assert.equal(seen[2].method, "pane.read");

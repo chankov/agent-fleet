@@ -92,7 +92,15 @@ import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fal
 import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_TIERS, budgetStatusLine, checkTurnBudget, contextOverflowDiagnostic, normalizeHubMode, normalizeTaskTier, resolveTurnBudget, shouldRecycleSession } from "./run-budget.js";
 import { MAX_OPEN_ASSERTIONS, validateAssertionBatch } from "./assertion-ledger.js";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
-import { PEER_READY_TIMEOUT_MS, peerReadyDelayMs, peerReadyVerdict, unaddressedPeerSweep } from "./spawned-peers.js";
+import {
+	PANE_PROMPT_TIMEOUT_MS,
+	PEER_READY_TIMEOUT_MS,
+	launchPeerInPane,
+	peerReadyDelayMs,
+	peerReadyVerdict,
+	spawnStaggerSeconds,
+	unaddressedPeerSweep,
+} from "./spawned-peers.js";
 import { contextPct, estimatePromptTokens, overWindowDiagnostic, resolveContextWindow, shouldRecycleBeforeSpawn } from "./context-window.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, hubOwnedScopeGlobs, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
 import { forceQuarantineSession, isCorruptSessionExit, quarantineIfUnusable } from "./session-health.js";
@@ -116,7 +124,9 @@ import {
 } from "../lib/herdr-presence.ts";
 import { herdr as herdrApi, herdrAvailable } from "../lib/herdr-client.ts";
 import { buildLiveRegistryEntry, type ComsRegistryEntry } from "../lib/coms-registry-entry.ts";
-import { peerCommand } from "../../../scripts/lib/herdr-layout.ts";
+import { findPeerByName, parseEnvFile, parsePeersYaml, peerCommand, resolveEnvFilePath } from "../../../scripts/lib/herdr-layout.ts";
+import { DEFAULT_PROJECT } from "../../../scripts/lib/team-project.ts";
+import { STAGGER_ENV_VAR, WARMUP_SECONDS, oauthNeedsWarmup } from "../../../scripts/lib/spawn-stagger.ts";
 import { join, resolve } from "path";
 import * as net from "node:net";
 import * as fs from "node:fs";
@@ -5963,11 +5973,56 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		}
 	}
 
+	/** When the last hub-spawned pi peer was launched — input to the stale-token stagger. */
+	let lastHubPiSpawnAt: number | null = null;
+
+	/** Last lines of a pane, for reporting why a spawn failed. Never throws. */
+	async function paneTail(paneId: string, lines = 12): Promise<string> {
+		try {
+			const { read } = await herdrApi.paneRead({ pane_id: paneId, lines });
+			return read?.text ?? "";
+		} catch {
+			return "";
+		}
+	}
+
+	/**
+	 * The peers.yaml declaration for a peer name, when the repo has one. A hub
+	 * spawn is handed a bare name, but the fleet may define that name as a
+	 * `runner: claude-code` peer or one that needs extra extensions — launching
+	 * a plain pi peer instead would silently produce a different agent.
+	 */
+	function declaredPeer(name: string): ReturnType<typeof findPeerByName> {
+		const cwd = currentCtx?.cwd ?? process.cwd();
+		try {
+			const raw = fs.readFileSync(path.join(cwd, ".pi", "agents", "peers.yaml"), "utf-8");
+			return findPeerByName(parsePeersYaml(raw), name);
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** Seconds this spawn should sleep before launching pi (stale-OAuth lock race). */
+	function spawnDelaySeconds(): number {
+		let authRaw: string | undefined;
+		try {
+			authRaw = fs.readFileSync(path.join(os.homedir(), ".pi", "agent", "auth.json"), "utf-8");
+		} catch {
+			authRaw = undefined;
+		}
+		return spawnStaggerSeconds({
+			needed: oauthNeedsWarmup(authRaw),
+			lastSpawnAt: lastHubPiSpawnAt,
+			now: Date.now(),
+			warmupSeconds: WARMUP_SECONDS,
+		});
+	}
+
 	pi.registerTool({
 		name: "herdr_spawn_peer",
 		label: "Herdr Spawn Peer",
 		description:
-			"Spawn a pane in the CURRENT herdr workspace: either a peers.yaml-style coms peer (persona [+ name/model], launched via `just _peer`) or a raw command pane. A persona peer boots IDLE and does nothing until you coms_send to it — spawning delivers no work. The call waits (bounded) for the peer to register and returns `peer_ready` plus its coms name, or `peer_ready: false` with the wait stated. Spawn one only immediately before the first message you will send it; a peer that receives no work is named in the session digest.",
+			"Spawn a pane in the CURRENT herdr workspace: either a peers.yaml-style coms peer (persona [+ name/model], launched via `just _peer`) or a raw command pane. The peer joins THIS session's coms project pool, and a name declared in .pi/agents/peers.yaml keeps its declared runner/extensions. A persona peer boots IDLE and does nothing until you coms_send to it — spawning delivers no work. The call waits (bounded) for the peer to register and returns `peer_ready` plus its coms name, or `peer_ready: false` with the pane's last output — treat that as a failed start, not a slow one. Spawn one only immediately before the first message you will send it; a peer that receives no work is named in the session digest.",
 		parameters: Type.Object({
 			persona: Type.Optional(Type.String({ description: "Persona under agents/ (e.g. researcher). Omit for a raw command pane." })),
 			name: Type.String({ description: "Pane label; for persona peers also the coms peer name." }),
@@ -5984,37 +6039,72 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				return { content: [{ type: "text" as const, text: "not inside a herdr pane." }], details: { error: "no pane" } };
 			}
 			try {
+				const cwd = currentCtx?.cwd ?? process.cwd();
+				const env: Record<string, string> = {};
 				let argv: string[];
 				if (params.persona) {
-					argv = peerCommand({ persona: params.persona, name: params.name, model: params.model }, "hub-spawned");
+					// The peer joins THIS hub's coms pool. Defaulting to "default"
+					// (as this once did) puts it in a pool the hub cannot see, so it
+					// never registers no matter how long the readiness wait runs.
+					const declared = declaredPeer(params.name);
+					argv = peerCommand(
+						{
+							persona: params.persona,
+							name: params.name,
+							model: params.model ?? declared?.model,
+							extensions: declared?.extensions,
+							runner: declared?.runner,
+						},
+						"hub-spawned",
+						undefined,
+						identity?.project ?? DEFAULT_PROJECT,
+					);
+					if (declared?.env_file) {
+						Object.assign(env, parseEnvFile(fs.readFileSync(resolveEnvFilePath(declared.env_file, cwd), "utf-8"), declared.env_file));
+					}
+					const delay = declared?.runner === "claude-code" ? 0 : spawnDelaySeconds();
+					if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
 				} else if (params.command) {
 					argv = ["bash", "-lc", params.command];
 				} else {
 					return { content: [{ type: "text" as const, text: "pass persona (peer) or command (raw pane)." }], details: { error: "bad args" } };
 				}
+				// pane.split takes no command — it opens a shell in `cwd`.
 				const { pane } = await herdrApi.paneSplit({
 					target_pane_id: ownPane,
 					direction: params.direction ?? "right",
-					command: argv,
-					cwd: currentCtx?.cwd ?? process.cwd(),
+					cwd,
+					...(Object.keys(env).length > 0 ? { env } : {}),
 					focus: false,
 				});
 				try { await herdrApi.paneRename(pane.pane_id, params.name); } catch { /* cosmetic */ }
+				// …so the argv is typed into that shell once it shows a prompt.
+				const launch = await launchPeerInPane(herdrApi, pane.pane_id, argv);
+				if (params.persona) lastHubPiSpawnAt = Date.now();
+				const promptNote = launch.promptSeen
+					? ""
+					: `\n⚠ pane ${pane.pane_id} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
 				// A raw command pane is not a coms peer — nothing to wait for and
 				// nothing to sweep. A persona peer is only useful once addressable,
 				// so report that verdict instead of a bare pane id.
 				if (!params.persona) {
 					return {
-						content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}` }],
-						details: { pane_id: pane.pane_id, name: params.name },
+						content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}${promptNote}` }],
+						details: { pane_id: pane.pane_id, name: params.name, prompt_seen: launch.promptSeen },
 					};
 				}
 				hubSpawnedPeers.set(params.name.toLowerCase(), { name: params.name, paneId: pane.pane_id, addressed: false });
 				const { found, waitedMs } = await waitForPeerRegistration(params.name);
-				const verdict = peerReadyVerdict({ name: params.name, paneId: pane.pane_id, found, waitedMs });
+				const verdict = peerReadyVerdict({
+					name: params.name,
+					paneId: pane.pane_id,
+					found,
+					waitedMs,
+					paneTail: found ? undefined : await paneTail(pane.pane_id),
+				});
 				return {
-					content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}\n\n${verdict.message}` }],
-					details: { pane_id: pane.pane_id, name: params.name, ...verdict },
+					content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}${promptNote}\n\n${verdict.message}` }],
+					details: { pane_id: pane.pane_id, name: params.name, prompt_seen: launch.promptSeen, ...verdict },
 				};
 			} catch (err) {
 				const m = err instanceof Error ? err.message : String(err);
@@ -7882,6 +7972,9 @@ This session runs inside a herdr workspace and can drive panes:
   ready" and never addressed is an empty pane named like a worker. If you sent it no work
   by the end of the turn, say so and offer to close it; the hub names unaddressed
   hub-spawned peers in the session digest.
+- \`peer_ready: false\` is a FAILED start, not a slow one. The result carries the pane's last
+  output — read it, then fix the cause or close the pane and spawn again. Never \`coms_send\`
+  to a name that never registered, and never spawn a second peer to route around the first.
 - \`herdr_read_pane\` is read-to-decide: peek at a worker/tool pane's recent output before
   acting on it. It is NOT a messaging channel and NOT a status poll — \`coms_list\` already
   reports each peer's \`pane_id\` and \`status\` (idle | working | booting), so check that

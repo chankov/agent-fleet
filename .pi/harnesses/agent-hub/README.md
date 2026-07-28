@@ -548,10 +548,18 @@ Inside a [herdr](https://herdr.dev) pane with a live server, the dispatcher's to
 surface additionally gets (absent otherwise, like coms):
 
 - `herdr_spawn_peer` — stand up a persona peer (joins the coms pool via `just _peer`) or a
-  raw command pane in the current workspace. A persona peer **boots idle** and does nothing until
-  a `coms_send` reaches it, so the call waits (bounded, ~45s) for it to register and returns
-  `peer_ready` plus its coms name instead of a bare pane id. Peers spawned but never addressed are
-  named at turn end and in `/af-hub-report` with a close suggestion — closing stays the human's call
+  raw command pane in the current workspace. The peer joins **this session's `--project` pool**, and
+  a name declared in `.pi/agents/peers.yaml` keeps its declared `runner:`/`extensions:`/`env_file:`,
+  so a spawn by name is the same agent a team launch would produce. A persona peer **boots idle**
+  and does nothing until a `coms_send` reaches it, so the call waits (bounded, ~45s) for it to
+  register and returns `peer_ready` plus its coms name instead of a bare pane id; on failure it
+  returns the pane's last output, which means the peer did not start rather than that it is slow.
+  Peers spawned but never addressed are named at turn end and in `/af-hub-report` with a close
+  suggestion — closing stays the human's call.
+  Mechanism: herdr's `pane.split` takes **no command** — it opens a shell — so the spawn splits,
+  waits for the pane's prompt, and types the argv (text and Enter sent separately, because bash
+  bracketed paste would swallow a newline). Only `layout.apply` pane nodes carry an argv, which is
+  why `just fleet team` was never affected by this
 - `herdr_read_pane` — bounded `pane.read` (≤200 lines), read-to-decide on workers/tools;
   messaging still goes through coms, and peer busy state comes from `coms_list`, not from
   reading the screen

@@ -81,6 +81,24 @@ export function parsePeersYaml(raw: string): Record<string, Peer[]> {
 	return teams;
 }
 
+/**
+ * The peers.yaml declaration for a peer name, searched across every team
+ * (first match wins; the same name in two teams is the same peer). Used by
+ * one-off spawns that are handed only a name — without this they would ignore
+ * `runner:`/`extensions:`/`env_file:` and launch a bare pi peer under a name
+ * the fleet defines as something else (e.g. a `runner: claude-code` reviewer).
+ */
+export function findPeerByName(teams: Record<string, Peer[]>, name: string): Peer | undefined {
+	const wanted = String(name ?? "").toLowerCase();
+	if (!wanted) return undefined;
+	for (const peers of Object.values(teams)) {
+		for (const peer of peers) {
+			if (String(peer.name ?? "").toLowerCase() === wanted) return peer;
+		}
+	}
+	return undefined;
+}
+
 // Validate a peer's fields and build its launch argv. `just` recipe params are
 // POSITIONAL (persona name model session) — bare positional args, never
 // key=value. A peer with `extensions:` routes through `_peer-plus
