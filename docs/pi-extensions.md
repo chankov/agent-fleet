@@ -75,6 +75,7 @@ just fleet install      # one-time runtime deps only; starts no Pi/harness
 just fleet              # guarded Pi + STT and core utilities
 just fleet hub          # guarded multi-agent hub
 just fleet team docs    # hub + guarded Herdr peer team
+just fleet peer code-reviewer --project af    # ONE peer in its own Herdr pane, no team
 just fleet help         # unified command grammar
 just --list             # shows the single public `fleet` entry point
 ```
@@ -198,6 +199,59 @@ This repo ships **two** ways to drive a browser from a pi agent. They are comple
 - **Always require runtime evidence** — snapshot + console + network before/after a critical interaction; a screenshot only for visual/layout confirmation.
 
 Why `web-debugger` is a coms peer and not a dispatchable subagent: its `chrome_devtools__*` tools come from the always-on `chrome-devtools-mcp` extension, and agent-hub spawns subagents with `--no-extensions`, so a dispatched child would not have those tools. A coms peer is its own pi process that loads the extension explicitly (via the `extensions:` field in `.pi/agents/peers.yaml`, routed through the `_peer-plus` recipe), and a long-lived peer maps naturally onto one persistent live browser. `bowser` has no such constraint because it only needs Bash + the `playwright-cli` binary on PATH.
+
+## One peer at a time — `just fleet peer`
+
+`just fleet team <preset>` is the right tool for a *known* set of collaborators, but it
+requires every peer to be declared in `.pi/agents/peers.yaml` and it builds a whole
+workspace. When you want **one** more agent — often a Claude Code reviewer — next to
+what you already have:
+
+```bash
+just fleet peer code-reviewer --project af                      # peers.yaml decides the runner
+just fleet peer scratch-reviewer --runner claude-code --model opus --project af
+just fleet peer researcher --model openai-codex/gpt-5.6-luna --project af
+just fleet peer web-debugger --browser --project af             # persona peer + devtools MCP
+just fleet peer nick --here --project af                        # this terminal, not a pane
+just fleet peer anything --runner claude-code --dry-run         # print the plan, touch nothing
+```
+
+**The name decides the shape of the peer** — one verb, three launchers:
+
+| The name… | Peer | Recipe |
+|---|---|---|
+| is declared in `peers.yaml` | whatever it declares (`runner`, `model`, `extensions`, `env_file`) | per declaration |
+| matches `agents/<name>.md` | that guarded persona peer | `_peer` / `_peer-plus` |
+| matches nothing | Fleet Core + coms under that identity, no persona | `_fleet-peer` |
+| `--runner claude-code` | interactive Claude Code + its coms bridge in one pane | `_claude-peer` |
+
+The third row is what this command meant before pane placement existed, and it is the
+only shape that accepts raw pi arguments — everything after `--` goes to pi verbatim
+(`just fleet peer nick --here -- --session /path/to/session.json`). Note that the
+persona-by-name rule can change what an existing invocation means: `agents/architect.md`
+exists, so `just fleet peer architect` is now the architect persona peer. `--no-persona`
+forces the plain Fleet Core shape back.
+
+- **Placement** — by default the peer gets its own pane: run inside a herdr pane and it
+  splits *that* pane (`--direction right|down`); run outside herdr and it creates a
+  single-pane workspace labelled `<worktree-tag>-peer-<name>`, refusing to clobber an
+  existing one. `--here` runs it in the calling terminal instead.
+- **Field resolution** — explicit flag → the `peers.yaml` declaration for that *name*
+  (searched across every team) → a convention default. A name the fleet already defines
+  keeps its declared fields; a name it does not need no manifest entry at all.
+- **Nothing is silently dropped** — a flag that cannot apply to the resolved shape is an
+  error, not a no-op: `--all-extensions` on a persona peer, `--persona` on a Claude Code
+  peer, a mistyped flag, or a pi flag that forgot its `--` separator.
+- **`--project` matters** — same rule as teams: the flag form is `--project af`;
+  `project=af` is a `just` variable override and is silently ignored, leaving the peer
+  in the shared `default` pool.
+- **Readiness** — a pane launch waits (bounded) for the peer to register in the coms pool
+  and exits non-zero with the pane's last output if it never does. A peer that missed
+  the window has failed to start, not started slowly.
+
+Pure logic in `scripts/lib/peer-launch.ts` (under `node --test`); the herdr wiring is
+`scripts/peer-launch.ts`. Inside a hub session the equivalent is the `herdr_spawn_peer`
+tool, which shares the same command builder and readiness policy.
 
 ## Environment variables
 

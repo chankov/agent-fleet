@@ -11,7 +11,7 @@ vendor/agent-skills-upstream/ → Pristine upstream skill import at a pinned SHA
 hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote conduction — see docs/coms-hermes-bridge.md
 agents/       → 13 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code/opencode get generated copies; bowser + orchestrator are pi-only)
 hooks/        → Session lifecycle hooks
-scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; scripts/lib/ pure fleet modules under node --test)
+scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; peer-launch single-peer `just fleet peer` launcher; scripts/lib/ pure fleet modules under node --test)
 justfile      → Recipes to launch pi with each harness
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)

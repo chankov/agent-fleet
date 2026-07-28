@@ -100,7 +100,7 @@ import {
 	peerReadyVerdict,
 	spawnStaggerSeconds,
 	unaddressedPeerSweep,
-} from "./spawned-peers.js";
+} from "../lib/spawned-peers.js";
 import { contextPct, estimatePromptTokens, overWindowDiagnostic, resolveContextWindow, shouldRecycleBeforeSpawn } from "./context-window.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, hubOwnedScopeGlobs, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
 import { forceQuarantineSession, isCorruptSessionExit, quarantineIfUnusable } from "./session-health.js";

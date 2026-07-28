@@ -27,9 +27,25 @@ SESSION MODES
       Safe interactive Pi without Hub or a coms identity.
       Example: just fleet --model openai-codex/gpt-5.6-terra
 
-  just fleet peer <name> [PI_ARGS...]
-      Safe interactive Pi registered as an addressable coms peer.
-      Example: just fleet peer architect --project af
+  just fleet peer <name> [--runner pi|claude-code] [--persona <p>|--no-persona]
+                         [--model <m>] [--project <p>] [--extensions a,b]
+                         [--browser] [--all-extensions] [--direction right|down]
+                         [--here] [--dry-run] [-- PI_ARGS...]
+      ONE addressable coms peer, in a herdr pane of its own. Inside herdr it
+      splits the current pane; outside it creates a single-pane workspace;
+      --here runs it in this terminal instead.
+      The NAME decides the shape: a name declared in .pi/agents/peers.yaml keeps
+      its runner/model/extensions/env_file, a name matching agents/<name>.md
+      becomes that persona peer, and anything else is a plain Fleet Core peer
+      under that identity. --runner claude-code needs no manifest at all, and
+      --no-persona forces the plain shape for a name that matches a persona.
+      Raw pi arguments go after a "--" separator and need the plain shape.
+      Examples:
+        just fleet peer code-reviewer --project af
+        just fleet peer scratch-reviewer --runner claude-code --model opus --project af
+        just fleet peer web-debugger --browser --project af
+        just fleet peer nick --here --project af
+        just fleet peer architect --no-persona --here -- --session /path/to/session.json
 
   just fleet hub [--solo] [PI_ARGS...]
       Agent Hub dispatcher. Embedded coms is on unless --solo is supplied.
@@ -87,10 +103,13 @@ CODEX REMOTE-CONTROL CONDUCTOR
 CAPABILITY FLAGS
   --browser
       Add interactive Chrome DevTools MCP tools to the main Pi/Hub process.
+      On a persona peer it adds the chrome-devtools-mcp extension instead.
       Example: just fleet hub --browser --project af
 
   --all-extensions
       Also auto-load arbitrary project/global extensions outside Fleet Core.
+      Not available to persona peers: reusable peers load a deterministic set,
+      declared per peer via extensions: in .pi/agents/peers.yaml.
       Example: just fleet peer debugger --all-extensions --project af
 
 SETUP

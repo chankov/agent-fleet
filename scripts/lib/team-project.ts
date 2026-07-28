@@ -18,7 +18,9 @@ export const CODEX_CONTRACT_IDENTITY = "agent-fleet-codex-conductor-pilot-v1";
 export const DEFAULT_CODEX_TIMEOUT_MS = 300_000;
 
 export type ConductorBackend = "hermes" | "codex";
-export type WorkspaceMode = "peers" | "hub" | "conductor-hermes" | "conductor-codex";
+// "peer" is the `just fleet peer <name>` workspace: a single pane for
+// a single peer, labelled by the PEER name where the others use a team name.
+export type WorkspaceMode = "peers" | "peer" | "hub" | "conductor-hermes" | "conductor-codex";
 
 export interface ConductorSpec {
 	backend: ConductorBackend;

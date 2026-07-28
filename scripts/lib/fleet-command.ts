@@ -45,10 +45,12 @@ export function parseFleetCommand(argv: string[]): FleetInvocation {
 	const [mode, ...tail] = argv;
 	if (mode === "install") return { recipe: "_fleet-install", args: tail };
 
+	// One addressable peer, in a pane of its own unless --here. peer-launch.ts
+	// owns the whole flag set (including `--` passthrough to pi), so the tail is
+	// forwarded verbatim rather than pre-chewed the way core/hub capabilities are.
 	if (mode === "peer") {
-		const name = requireValue(tail[0], "fleet peer requires a peer name");
-		const c = capabilities(tail.slice(1));
-		return { recipe: "_fleet-peer", args: [name, bool(c.browser), bool(c.allExtensions), ...c.rest] };
+		requireValue(tail[0], "fleet peer requires a peer name");
+		return { recipe: "_fleet-peer-launch", args: tail };
 	}
 
 	if (mode === "hub") {

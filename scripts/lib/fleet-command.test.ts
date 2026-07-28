@@ -53,12 +53,20 @@ test("fleet core capabilities are normalized before Pi arguments", () => {
 	});
 });
 
-test("fleet peer requires an identity and keeps trailing Pi flags", () => {
+test("fleet peer requires an identity and forwards its flag set verbatim", () => {
+	// peer-launch.ts owns every flag, including the `--` passthrough to pi, so
+	// nothing may be swallowed or reordered on the way to the recipe — unlike
+	// core/hub, where --browser/--all-extensions become recipe positionals.
 	assert.deepEqual(parseFleetCommand(["peer", "web-debugger", "--browser", "--project", "af"]), {
-		recipe: "_fleet-peer",
-		args: ["web-debugger", "true", "false", "--project", "af"],
+		recipe: "_fleet-peer-launch",
+		args: ["web-debugger", "--browser", "--project", "af"],
 	});
-	assert.throws(() => parseFleetCommand(["peer"]), /peer requires/);
+	assert.deepEqual(parseFleetCommand(["peer", "architect", "--here", "--", "--session", "/tmp/s.json"]), {
+		recipe: "_fleet-peer-launch",
+		args: ["architect", "--here", "--", "--session", "/tmp/s.json"],
+	});
+	assert.throws(() => parseFleetCommand(["peer"]), /peer requires a peer name/);
+	assert.throws(() => parseFleetCommand(["peer", "--runner", "claude-code"]), /peer requires a peer name/);
 });
 
 test("fleet hub supports solo and optional capabilities", () => {

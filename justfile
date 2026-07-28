@@ -98,7 +98,16 @@ fleet *args:
 _fleet-core browser="false" all_extensions="false" *args:
     discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; pi $discovery {{fleet_core_extensions}} $browser_ext {{args}}
 
-# Hidden guarded peer launcher for an interactive, addressable Fleet node.
+# Hidden entry point for `just fleet peer <name>`: resolves the peer (runner,
+# persona, model, extensions from .pi/agents/peers.yaml or flags) and launches it
+# in a pane of its own — splitting the current pane inside herdr, else creating a
+# one-pane workspace. `--here` runs it in the calling terminal instead.
+_fleet-peer-launch *args:
+    {{node_ts}} scripts/peer-launch.ts {{args}}
+
+# Hidden guarded peer launcher for an interactive, addressable Fleet node with no
+# persona: Fleet Core + coms under `--name`, plus raw pi arguments. Reached via
+# `just fleet peer <name>` when no persona resolves for the name.
 _fleet-peer name browser="false" all_extensions="false" *args:
     discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; pi $discovery {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts $browser_ext --name {{name}} {{args}}
 

@@ -4,6 +4,12 @@
 # (requires a running herdr server — https://herdr.dev),
 # using the hidden `_peer` helper (guarded Fleet Core + coms + the persona).
 #
+# A team is NOT required to launch a single peer: `just fleet peer <name>` puts
+# one peer (pi or `--runner claude-code`) in its own pane — splitting the current
+# pane inside Herdr, else creating a one-pane workspace, or `--here` for the
+# calling terminal. A name declared below keeps its runner/model/extensions/
+# env_file; an undeclared name works too.
+#
 # Each peer entry:
 #   name    — coms identity (the addressable peer name); overrides persona frontmatter
 #   persona — file under agents/ (without .md); its body is the role, its

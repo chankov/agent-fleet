@@ -167,7 +167,7 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 .pi/                          # Pi runtime: harnesses, extensions, agents config, prompts
 skills/                       # Agent Fleet-native skills (shadow vendored names)
 agents/                       # Personas/subagents used by Agent Fleet
-scripts/                      # CLI helpers, bridges, team launchers (pure logic in scripts/lib/)
+scripts/                      # CLI helpers, bridges, team + one-off peer launchers (pure logic in scripts/lib/)
 hermes/                       # Hermes-facing skills/integration assets
 codex/                        # Canonical Codex conductor contract (runtime copy lives outside checkout)
 systemd/user/                 # Owned user-unit template for Codex remote control
