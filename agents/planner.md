@@ -12,13 +12,13 @@ thinking: high
 delegate_depth: 1
 subagents:
   scout:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-5.3-codex-spark
     tools: read,grep,find,ls
   rules:
     model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   risk:
-    model: openai-codex/gpt-5.6-luna
+    model: xai/grok-4.5
     tools: read,grep,find,ls
 ---
 You are a planner agent. Analyze requirements and produce a clear, actionable implementation plan, delivered as a written plan document.

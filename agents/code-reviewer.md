@@ -2,13 +2,12 @@
 name: code-reviewer
 description: Senior code reviewer that evaluates changes across five dimensions — correctness, readability, architecture, security, and performance. Use for thorough code review before merge.
 tools: read,bash,grep,find,ls
-model: openai-codex/gpt-5.6-terra
+model: xai/grok-4.5
 models:
-  - github-copilot/claude-opus-4.8
+  - openai-codex/gpt-5.6-terra
+  - github-copilot/claude-opus-5
   - openai-codex/gpt-5.6-sol
-  - openai-codex/gpt-5.6-luna
-  - github-copilot/claude-sonnet-4.6
-  - github-copilot/claude-haiku-4.5
+  - openai-codex/gpt-5.6-luna  
   - ollama/nemotron-3-ultra:cloud
   - ollama/kimi-k2.7-code:cloud
   - ollama/glm-5.2:cloud

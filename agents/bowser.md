@@ -4,6 +4,7 @@ description: Headless browser automation agent using Playwright CLI. Use when yo
 tools: read,bash
 model: openai-codex/gpt-5.6-luna
 models:
+  - github-copilot/claude-opus-5
   - openai-codex/gpt-5.6-terra
   - ollama/minimax-m3:cloud
   - ollama/nemotron-3-ultra:cloud

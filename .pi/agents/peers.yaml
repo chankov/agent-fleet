@@ -43,10 +43,10 @@ full:
     extensions: chrome-devtools-mcp
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.6-terra    
+    model: openai-codex/gpt-5.6-terra
   - name: researcher
     persona: researcher
-    model: openai-codex/gpt-5.6-luna   
+    model: openai-codex/gpt-5.6-luna
 
 web:
   - name: web-debugger
@@ -64,22 +64,12 @@ docs:
 
 # Mirrored from .pi/agents/teams.yaml for `just fleet team <team>`.
 default:
-  - name: planner
-    persona: planner
-    model: openai-codex/gpt-5.6-sol
-  - name: plan-reviewer
-    runner: claude-code
-  - name: builder
-    persona: builder
-    model: openai-codex/gpt-5.6-terra
-  - name: test-engineer
-    persona: test-engineer
-    model: openai-codex/gpt-5.6-terra
   - name: code-reviewer
     runner: claude-code
-  - name: documenter
-    persona: documenter
+  - name: web-debugger
+    persona: web-debugger
     model: openai-codex/gpt-5.6-terra
+    extensions: chrome-devtools-mcp
 
 debug:
   - name: test-engineer
@@ -149,4 +139,4 @@ plan:
   - name: planner
     runner: claude-code
   - name: code-reviewer
-    runner: claude-code    
+    runner: claude-code

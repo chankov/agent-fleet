@@ -3,6 +3,7 @@ name: web-debugger
 description: Interactive headful Chrome debugging via Chrome DevTools MCP — live DOM snapshots, console, network, and performance traces. Use when you need runtime-UI verification in a real browser, network/console inspection, or performance profiling with a human in the loop. Runs as a coms peer that loads the chrome-devtools-mcp extension. Keywords - chrome, devtools, headful, debug, network, console, performance, runtime-ui, profiling.
 model: openai-codex/gpt-5.6-terra
 models:
+  - github-copilot/claude-opus-5
   - openai-codex/gpt-5.6-sol
   - openai-codex/gpt-5.6-luna
   - ollama/glm-5.2:cloud

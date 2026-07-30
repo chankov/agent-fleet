@@ -2,12 +2,14 @@
 # researcher / deep-researcher are not listed — they are always available through spawn_research.
 
 default:
-  - planner
-  - plan-reviewer
   - builder
   - test-engineer
   - code-reviewer
   - documenter
+
+plan:
+  - planner
+  - plan-reviewer
 
 debug:
   - test-engineer
