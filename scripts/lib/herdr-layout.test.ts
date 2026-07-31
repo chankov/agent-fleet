@@ -47,7 +47,7 @@ test("real peers.yaml parses into the shipped teams", () => {
 	assert.equal(teams.full.length, 3);
 	assert.equal(teams.web.length, 1);
 	assert.equal(teams.docs.length, 2);
-	assert.equal(teams.default.length, 6);
+	assert.equal(teams.default.length, 2);
 	assert.equal(teams.debug.length, 3);
 	assert.equal(teams.frontend.length, 4);
 	assert.equal(teams.security.length, 4);
@@ -118,14 +118,16 @@ test("docs team peers route through plain _peer with their models", () => {
 
 test("review peers in mirrored teams route through Claude Code", () => {
 	const teams = parsePeersYaml(realPeersYaml);
-	const defaultTeam = buildTeamLayout({ team: "default", peers: teams.default, repoRoot: REPO_ROOT });
-	const panes = panesOf(defaultTeam);
-	assert.deepEqual(panes[1].command, ["just", "_claude-peer", "plan-reviewer"]);
-	assert.deepEqual(panes[4].command, ["just", "_claude-peer", "code-reviewer"]);
-	for (const team of ["debug", "frontend", "security", "hotfix", "info"]) {
+	const reviewTeam = buildTeamLayout({ team: "review", peers: teams.review, repoRoot: REPO_ROOT });
+	const panes = panesOf(reviewTeam);
+	assert.deepEqual(panes[0].command, ["just", "_claude-peer", "plan-reviewer"]);
+	assert.deepEqual(panes[1].command, ["just", "_claude-peer", "code-reviewer"]);
+	for (const team of ["default", "debug", "frontend", "security", "hotfix", "info", "plan"]) {
 		const reviewer = teams[team].find((p) => p.name === "code-reviewer");
 		assert.deepEqual(peerCommand(reviewer as Peer, team), ["just", "_claude-peer", "code-reviewer"]);
 	}
+	const planner = teams.plan.find((p) => p.name === "planner");
+	assert.deepEqual(peerCommand(planner as Peer, "plan"), ["just", "_claude-peer", "planner"]);
 });
 
 test("non-default project appends the hidden recipe project positional with placeholders", () => {
