@@ -4,6 +4,7 @@ description: Architecture and implementation planning — produces a written PLA
 tools: read,grep,find,ls,bash,write
 model: openai-codex/gpt-5.6-sol
 models:
+  - github-copilot/claude-fable-5
   - openai-codex/gpt-5.6-terra
   - openai-codex/gpt-5.6-luna
   - ollama/nemotron-3-ultra:cloud

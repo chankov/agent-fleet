@@ -93,7 +93,7 @@ inside the package. The `@mariozechner/pi-*` packages are provided by the pi run
 
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
-| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: Fleet Core guardrails, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/af-handoff`, peer-as-subagent, and footer `v<version> · <model><thinking> · <team>` — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just fleet hub` |
+| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: Fleet Core guardrails, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/af-handoff`, peer-as-subagent, and footer `agent fleet v<version> · <model><thinking> · <team>` — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just fleet hub` |
 | [ask-user-remote](../.pi/harnesses/ask-user-remote/README.md) | Orchestration | Captures stock `pi-ask-user` and registers the default `ask_user`; with `user-remote` live it races local UI against the Hermes bridge, otherwise it is stock local behavior | Fleet Core (`just fleet`) |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Fleet Core safety harness; guards default Pi, Hub, native children, and Herdr Pi peers. Blocks feed back without aborting the turn; protected paths support explicit approval, while dangerous command patterns remain non-exemptible | `just fleet` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between agents on one machine, composed with Fleet Core safety and utilities | `just fleet peer <name>` |
@@ -114,12 +114,21 @@ unguarded.
 ### Harness version footer and provenance
 
 The three persistent-UI harnesses — `agent-hub`, `coms`, and
-`damage-control-continue` — each register `v<version>` on one shared status key. In pi's
+`damage-control-continue` — each register `agent fleet v<version>` on one shared status key. In pi's
 default status footer, that shared key gives a supported stack exactly one version instead of one
 copy per harness. `agent-hub` replaces the default footer: it does **not** consume that status
 key. Its custom footer reads its own adjacent stamped manifest and renders one local version
-first — `v<version> · <model><thinking> · <team>` — so an agent-hub stack also displays the
+first — `agent fleet v<version> · <model><thinking> · <team>` — so an agent-hub stack also displays the
 version exactly once.
+
+The `agent fleet` half of that label is an [OSC 8](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda)
+terminal hyperlink to the project homepage, so a click in a terminal that supports hyperlinks
+(Ghostty, iTerm2, WezTerm, Kitty, VS Code, GNOME Terminal, tmux 3.4+) opens the repository. It is a
+terminal-level link, not a TUI control: pi has no mouse tracking, so a click cannot open an
+in-process overlay — the URL goes to the OS opener. Terminals without OSC 8 support render the
+label unchanged, and pi's `visibleWidth`/`truncateToWidth` strip OSC sequences, so the link costs no
+footer columns. Set `AGENT_FLEET_NO_LINKS=1` to fall back to a plain label on multiplexers that
+mangle unknown OSC sequences (GNU screen, tmux before 3.4).
 
 The shared version status is independent of mutable owner status: for example, a
 Damage-Control violation can replace its own safety message without overwriting the version

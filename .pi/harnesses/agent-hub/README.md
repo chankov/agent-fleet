@@ -282,7 +282,7 @@ the input box) and back. The current mode and binding are shown in the footer
 ### Version footer
 
 `agent-hub` renders its local harness version first in its custom footer:
-`v<version> · <model><thinking> · <team>`. It replaces pi's default footer, so it does **not**
+`agent fleet v<version> · <model><thinking> · <team>`. It replaces pi's default footer, so it does **not**
 consume or render the shared version status; it reads its own adjacent stamped manifest directly.
 The three persistent-UI harnesses (`agent-hub`, `coms`, and
 `damage-control-continue`) still register that one shared key, which gives default footers one
@@ -293,6 +293,13 @@ repository-root `package.json`; the adjacent harness manifest is a synchronized 
 by `bin/sync-harness-versions.js`. Its local `version.ts` reader intentionally stays with the
 harness for copied or symlinked installs, but those installs still need the pre-existing full
 `.pi/harnesses/` dependency installation.
+
+The `agent fleet` half of the label is an OSC 8 terminal hyperlink to the project homepage —
+clickable in terminals that support hyperlinks, ignored (rendered as plain text) elsewhere, and
+free of footer columns because pi strips OSC sequences before measuring width. It opens the
+repository in a browser, not a TUI panel: pi has no mouse tracking, so a click never reaches the
+harness. `AGENT_FLEET_NO_LINKS=1` restores the plain label on multiplexers that mangle OSC 8
+(GNU screen, tmux before 3.4).
 
 ### Voice dictation indicator
 

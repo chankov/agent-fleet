@@ -18,7 +18,7 @@ approval/exemption paths below; inherently dangerous command patterns never can.
 
 ## Version footer and provenance
 
-This persistent-UI harness shows `v<version>` below the prompt. It shares one common-key
+This persistent-UI harness shows `agent fleet v<version>` below the prompt. It shares one common-key
 status with `agent-hub` and `coms`, so a stack renders the version once. Its
 version remains separate from the mutable `damage-control` status: active-rule and
 last-violation feedback never replaces it. The root `package.json` is canonical;
@@ -26,6 +26,13 @@ last-violation feedback never replaces it. The root `package.json` is canonical;
 `version.ts` reader supports copied or symlinked harness directories by resolving that adjacent
 stamp, but those targets still require the pre-existing full `.pi/harnesses/` dependency
 installation.
+
+The `agent fleet` half of the label is an OSC 8 terminal hyperlink to the project homepage —
+clickable in terminals that support hyperlinks, ignored (rendered as plain text) elsewhere, and
+free of footer columns because pi strips OSC sequences before measuring width. It opens the
+repository in a browser, not a TUI panel: pi has no mouse tracking, so a click never reaches the
+harness. `AGENT_FLEET_NO_LINKS=1` restores the plain label on multiplexers that mangle OSC 8
+(GNU screen, tmux before 3.4).
 
 ## Exemptions — allow access per turn or per session
 

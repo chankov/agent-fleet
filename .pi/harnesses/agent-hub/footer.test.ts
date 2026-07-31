@@ -2,10 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { composeHubFooterLeft, renderHubFooterLeft } from "./footer.ts";
 
-test("hub footer places version before model, thinking suffix, and team", () => {
+// The literal OSC 8 sequence the footer must emit — spelled out rather than
+// rebuilt from linkify(), so a change to the link format fails here.
+const LINKED = "\x1b]8;;https://github.com/chankov/agent-fleet\x07agent fleet\x1b]8;;\x07";
+
+test("hub footer places the linked version before model, thinking suffix, and team", () => {
 	assert.equal(
 		composeHubFooterLeft("1.2.3", "gpt-5.5", " (xh)", "full"),
-		"v1.2.3 · gpt-5.5 (xh) · full",
+		`${LINKED} v1.2.3 · gpt-5.5 (xh) · full`,
 	);
 });
 
@@ -24,10 +28,10 @@ test("hub footer keeps the active team accent while dimming the prepended versio
 
 	assert.equal(
 		renderHubFooterLeft(theme, "1.2.3", "gpt-5.5", " (xh)", "full"),
-		"<dim> v1.2.3 · gpt-5.5 (xh)</dim><muted> · </muted><accent>full</accent>",
+		`<dim> ${LINKED} v1.2.3 · gpt-5.5 (xh)</dim><muted> · </muted><accent>full</accent>`,
 	);
 	assert.deepEqual(calls, [
-		["dim", " v1.2.3 · gpt-5.5 (xh)"],
+		["dim", ` ${LINKED} v1.2.3 · gpt-5.5 (xh)`],
 		["muted", " · "],
 		["accent", "full"],
 	]);

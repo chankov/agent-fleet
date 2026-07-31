@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const targets = ["agent-hub", "coms", "damage-control-continue"];
+const LINKED_LABEL = "\u001b]8;;https://github.com/chankov/agent-fleet\u0007agent fleet\u001b]8;;\u0007";
 
 test("all three target entrypoints import and register their local version module at session start", () => {
 	for (const name of targets) {
@@ -27,5 +28,8 @@ test("version registration from stacked owners deduplicates on one common key", 
 		module.registerVersionStatus({ ui: { setStatus: (key, text) => statuses.set(key, text) } });
 	}
 	assert.equal(statuses.size, 1);
-	assert.equal(statuses.get("00-agent-fleet-version"), `v${JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version}`);
+	assert.equal(
+		statuses.get("00-agent-fleet-version"),
+		`${LINKED_LABEL} v${JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version}`,
+	);
 });

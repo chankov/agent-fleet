@@ -302,7 +302,7 @@ test("version status persists while continue safety status changes", async () =>
 	const continued = await boot(continueExt, fixtureCwd());
 	const versionKey = "00-agent-fleet-version";
 	const version = continued.state.statuses.get(versionKey);
-	assert.match(version, /^v\d+\.\d+\.\d+/);
+	assert.match(version, /agent fleet\u001b\]8;;\u0007 v\d+\.\d+\.\d+/);
 	await continued.commands["af-allow"].handler(".env turn", continued.ctx);
 	assert.equal(continued.state.statuses.get(versionKey), version);
 	assert.match(continued.state.statuses.get("damage-control"), /1 exemption/);

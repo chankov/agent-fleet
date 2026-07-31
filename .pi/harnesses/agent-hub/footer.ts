@@ -1,3 +1,5 @@
+import { formatVersionLabel } from "./version.ts";
+
 type FooterTheme = {
 	fg(color: string, text: string): string;
 };
@@ -8,7 +10,7 @@ export function composeHubFooterLeft(
 	thinkingSuffix: string,
 	team: string,
 ): string {
-	return [version ? `v${version}` : "", `${model}${thinkingSuffix}`, team]
+	return [version ? formatVersionLabel(version) : "", `${model}${thinkingSuffix}`, team]
 		.filter(Boolean)
 		.join(" · ");
 }
@@ -20,7 +22,7 @@ export function renderHubFooterLeft(
 	thinkingSuffix: string,
 	team: string,
 ): string {
-	const metadata = [version ? `v${version}` : "", `${model}${thinkingSuffix}`]
+	const metadata = [version ? formatVersionLabel(version) : "", `${model}${thinkingSuffix}`]
 		.filter(Boolean)
 		.join(" · ");
 	const dimMetadata = theme.fg("dim", ` ${metadata}`);

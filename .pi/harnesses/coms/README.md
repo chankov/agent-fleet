@@ -15,13 +15,20 @@ clean shutdown lifecycle.
 
 ## Version footer and provenance
 
-This persistent-UI harness shows `v<version>` below the prompt. It shares one common-key
+This persistent-UI harness shows `agent fleet v<version>` below the prompt. It shares one common-key
 status with `agent-hub` and `damage-control-continue`, so a stack renders the
 version once. The root `package.json` is canonical; `bin/sync-harness-versions.js` synchronizes
 its value into this adjacent manifest. The local `version.ts` reader is retained so a copied or
 symlinked harness resolves its own adjacent stamp, not the launch directory. That provenance
 pair does not carry dependencies: copy/symlink targets still require the existing full
 `.pi/harnesses/` dependency installation.
+
+The `agent fleet` half of the label is an OSC 8 terminal hyperlink to the project homepage —
+clickable in terminals that support hyperlinks, ignored (rendered as plain text) elsewhere, and
+free of footer columns because pi strips OSC sequences before measuring width. It opens the
+repository in a browser, not a TUI panel: pi has no mouse tracking, so a click never reaches the
+harness. `AGENT_FLEET_NO_LINKS=1` restores the plain label on multiplexers that mangle OSC 8
+(GNU screen, tmux before 3.4).
 
 ## Presence backends: herdr vs files
 

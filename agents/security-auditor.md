@@ -4,6 +4,7 @@ description: Security engineer focused on vulnerability detection, threat modeli
 tools: read,bash,grep,find,ls
 model: openai-codex/gpt-5.6-sol
 models:
+  - xai/grok-4.5
   - openai-codex/gpt-5.6-terra
   - openai-codex/gpt-5.6-luna
   - ollama/nemotron-3-ultra:cloud

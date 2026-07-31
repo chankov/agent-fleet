@@ -8,6 +8,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const harnesses = ["agent-hub", "coms", "damage-control-continue"];
 const rootVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+const LINKED_LABEL = "\u001b]8;;https://github.com/chankov/agent-fleet\u0007agent fleet\u001b]8;;\u0007";
 
 async function importFresh(path) {
 	return import(`${pathToFileURL(path).href}?fixture=${Date.now()}-${Math.random()}`);
@@ -33,7 +34,7 @@ test("three local provenance modules read their adjacent root-derived stamps and
 		const statuses = new Map();
 		module.registerVersionStatus({ ui: { setStatus: (key, text) => statuses.set(key, text) } });
 		module.registerVersionStatus({ ui: { setStatus: (key, text) => statuses.set(key, text) } });
-		assert.deepEqual([...statuses], [[module.VERSION_STATUS_KEY, `v${rootVersion}`]], name);
+		assert.deepEqual([...statuses], [[module.VERSION_STATUS_KEY, `${LINKED_LABEL} v${rootVersion}`]], name);
 	}
 	assert.deepEqual([...keys], ["00-agent-fleet-version"]);
 });
