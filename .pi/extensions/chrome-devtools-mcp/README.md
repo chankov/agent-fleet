@@ -31,15 +31,12 @@ PI_CHROME_DEVTOOLS_MODE=headed pi        # interactive (default)
 
 ## Install
 
-Symlink both extensions from this repo into your project's `.pi/extensions/`:
-
 ```bash
-mkdir -p .pi/extensions
-ln -s /path/to/agent-fleet/.pi/extensions/mcp-bridge          .pi/extensions/mcp-bridge
-ln -s /path/to/agent-fleet/.pi/extensions/chrome-devtools-mcp .pi/extensions/chrome-devtools-mcp
+npx @chankov/agent-fleet install --agent pi --allow-exec --yes \
+  --items pi-extension:mcp-bridge,pi-extension:chrome-devtools-mcp
 ```
 
-`mcp-bridge` is a sibling library; `chrome-devtools-mcp` imports it via the relative path. Runtime dependencies live in `.pi/extensions/package.json` for cloned/copy installs and are also root production dependencies of the published package so npm-package symlink installs resolve them from the real package path. Run `npm ci` in `.pi/extensions/` once after cloning `agent-fleet` (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)); a normal `@chankov/agent-fleet` package install needs no nested install.
+Select both: `mcp-bridge` is a sibling library that `chrome-devtools-mcp` imports via a relative path, so it must sit beside it under `.pi/extensions/`. Runtime dependencies live in `.pi/extensions/package.json`, which is copied in with the extensions; `--allow-exec` runs `npm ci --prefix .pi/extensions` as part of the install, and without it that step is printed and left for you (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)). They are also root production dependencies of the published package, so a pi-package install resolves them from the package root.
 
 ## Verify
 

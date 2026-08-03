@@ -60,9 +60,11 @@ same CLI flags would abort startup with duplicate registrations. So the harnesse
 - through the unified `justfile` interface — `just fleet`, `just fleet hub`, `just fleet peer <name>`, `just fleet team <preset>`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts` (advanced use; you must compose safety/utilities yourself)
 
-When you consume this repo from another project, point `pi -e` at the harness file you
-want, or symlink that one directory into *its* `.pi/harnesses/` — never drop the harnesses
-into `.pi/extensions/`, and never load all of them at once. The supported multi-harness
+When you consume this repo from another project, install the harness you want into
+*its* `.pi/harnesses/` (`agent-fleet install --agent pi --items pi-harness:agent-hub`,
+or the `pi-fleet-core` profile for the whole stack) and load it via that project's
+`justfile` region, or point `pi -e` at the harness file directly — never drop the
+harnesses into `.pi/extensions/`, and never load all of them at once. The supported multi-harness
 exception is loading `damage-control-continue` and `ask-user-remote` before `agent-hub` for a guarded hub session (see
 [pi-setup.md](pi-setup.md#optional-pi-extensions)).
 
@@ -82,10 +84,14 @@ just --list             # shows the single public `fleet` entry point
 
 `just install` runs `npm install` for both dependency roots: `.pi/extensions/` for the
 utilities (`@modelcontextprotocol/sdk`, `typebox`) and `.pi/harnesses/` for the harnesses
-(`@sinclair/typebox`, `yaml`). The extension dependencies are also root production dependencies
-of the published `@chankov/agent-fleet` package. This is intentional: npm does not install a
-nested `.pi/extensions/package.json`, and Node resolves symlinked extensions from their real path
-inside the package. The `@mariozechner/pi-*` packages are provided by the pi runtime itself.
+(`@sinclair/typebox`, `yaml`). That is the **clone** path. In a target workspace the
+installer handles it: the manifests are copied in as companions, and `agent-fleet install
+--allow-exec` runs `npm ci --prefix .pi/extensions` and `npm ci --prefix .pi/harnesses`
+for you (without `--allow-exec` those two steps are printed in the plan and skipped, for
+you to run by hand). The extension dependencies are also root production dependencies of
+the published `@chankov/agent-fleet` package, so a pi-package install resolves them from
+the package's real path. The `@mariozechner/pi-*` packages are provided by the pi runtime
+itself.
 
 ---
 
@@ -105,9 +111,10 @@ surface, requirements, and per-extension upstream changes.
 ### Migration: retired hard-stop harness
 
 The former `.pi/harnesses/damage-control/` hard-stop harness and its standalone recipe
-are retired. Refresh pi harnesses with guided setup: it removes only an unchanged,
-setup-recorded copy (or an agent-fleet source symlink), preserves user-modified/unowned copies,
-and refreshes the managed `justfile` region. Use `damage-control-continue` for standalone and
+are retired. Refresh pi harnesses with `agent-fleet upgrade` (or guided setup, which
+calls it): removal is bound by the ownership rule, so only an unchanged, recorded copy
+goes — user-modified and unowned copies are preserved, and the managed `justfile` region
+is refreshed without touching recipes outside the sentinels. Use `damage-control-continue` for standalone and
 Agent Hub safety; missing child safety now fails closed instead of falling back or spawning
 unguarded.
 

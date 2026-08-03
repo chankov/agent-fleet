@@ -87,12 +87,27 @@ npx @chankov/agent-fleet init
 
 The CLI detects your coding agent and prints the correct setup command. It runs the full guided install — analysing the workspace, showing grouped menus, and confirming everything before writing a single file.
 
+The guided flow is a front-end over the CLI — the CLI itself does every write, so a
+complete install needs no coding agent and no model:
+
+```bash
+npx @chankov/agent-fleet install --agent pi --profile recommended --yes
+npx @chankov/agent-fleet verify
+```
+
 | CLI command | What it does |
 |---|---|
 | `npx @chankov/agent-fleet init` | Materialize the package + hand off to the runtime's setup command |
-| `npx @chankov/agent-fleet doctor` | Scan for broken symlinks and stale persona refs |
+| `npx @chankov/agent-fleet install` | Install a profile (`minimal`, `recommended`, `full`, `pi-fleet-core`, `hermes-plugins`, `codex-bridge`) or explicit `--items` |
+| `npx @chankov/agent-fleet upgrade` | Refresh what is installed, three-way merged against your local edits |
+| `npx @chankov/agent-fleet uninstall` | Remove recorded artifacts (`--items` / `--all`), bound by the ownership rule |
+| `npx @chankov/agent-fleet verify` | Read-only report: manifest × install record × disk |
+| `npx @chankov/agent-fleet doctor` | Find and repair breakage (`--fix`); advisory findings listed |
 | `npx @chankov/agent-fleet update` | Surface the version delta + hand off to the runtime's setup command for the per-artifact diff |
 | `npx @chankov/agent-fleet transform-persona` | Generate per-agent subagent files from the canonical personas |
+
+Every verb takes `--dry-run`, `--json`, and `--yes`, and exits `0` ok / `1` error /
+`2` findings / `3` conflicts — scriptable in CI. Full reference: [docs/npm-install.md](docs/npm-install.md).
 
 <details>
 <summary><b>Other install paths</b> — Claude Code marketplace, git clone, OpenCode details</summary>

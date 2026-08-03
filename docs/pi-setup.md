@@ -29,7 +29,7 @@ No plugin, wrapper, or custom system prompt is required for the core workflow.
 
 Agent Fleet owns the lowercase `/af-*` namespace on Pi. This keeps its prompt-template and harness commands distinct from Pi built-ins such as `/model` and `/settings`, skill invocations under `/skill:<name>`, and commands contributed by other installed packages. Examples: `/af-spec`, `/af-agents-list`, and `/af-allow`.
 
-**Recommended companion packages:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-fleet` as a pi package; clone/symlink setups should install it separately. `pi-codex-image-gen` is an optional suggested npm/pi extension for image generation; guided setup can offer it when package installation is available, but it is not bundled or required.
+**Recommended companion packages:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-fleet` as a pi package; clone setups should install it separately. `pi-codex-image-gen` is an optional suggested npm/pi extension for image generation; guided setup can offer it when package installation is available, but it is not bundled or required.
 
 **Experimental phone conductor:** Linux users may pair Codex CLI `0.144.x` with ChatGPT Android to perform human-confirmed outbound delegation to live coms peers. Guided setup installs the repository assets when pi harnesses are selected, but deliberately never changes systemd, Codex auth/config, pairing, or service state. Host setup remains an explicit operator flow; see [Codex Remote-Control Conductor](codex-remote-conductor.md).
 
@@ -37,9 +37,61 @@ Agent Fleet owns the lowercase `/af-*` namespace on Pi. This keeps its prompt-te
 
 ## Installation
 
-There are two supported pi paths.
+There are three pi paths: the CLI installer (everything, per workspace), the
+first-class pi package (skills + prompts, package-native), and a clone for
+contributors. They compose — most pi users run the first two together.
 
-### First-class pi package (recommended for users)
+### The `agent-fleet` CLI (recommended — this is what installs the fleet)
+
+The CLI is the whole installer: it decides the paths, computes per-item state,
+does the three-way merge, and performs every write. A complete install needs no
+coding agent and no model.
+
+```bash
+cd /path/to/your-project
+
+# Guided: bootstraps the installer command, then run /af-setup-agent-fleet in pi
+npx @chankov/agent-fleet init --agent pi
+
+# Or straight to it — no agent, no model, no prompts:
+npx @chankov/agent-fleet install --agent pi --profile recommended --yes
+npx @chankov/agent-fleet install --agent pi --profile pi-fleet-core --yes   # the harness stack
+npx @chankov/agent-fleet verify --agent pi
+```
+
+Where it writes, for pi:
+
+| Artifact | Target | Item id prefix |
+|---|---|---|
+| Skills | `.pi/skills/<name>/` | `skill:` |
+| Lifecycle prompts | `.pi/prompts/af-<name>.md` | `command:` |
+| Personas | `agents/<name>.md` (canonical, copied unchanged) | `persona:` |
+| pi runtime skills | `.pi/skills/<name>/` | `pi-runtime-skill:` |
+| Utility extensions | `.pi/extensions/<name>/` | `pi-extension:` |
+| Session harnesses | `.pi/harnesses/<name>/` + the `justfile` managed region | `pi-harness:` |
+
+Profiles: `minimal`, `recommended`, `full`, `pi-fleet-core` (`agent-hub`,
+`damage-control-continue`, `ask-user-remote`, `coms`, plus the utilities the hub
+expects), `hermes-plugins` and `codex-bridge` (both **operator-applied** — the plan
+prints the exact commands for a human and the engine touches nothing outside the
+workspace). Narrow any of them with `--items pi-harness:agent-hub,pi-extension:btw`,
+and preview with `--dry-run`.
+
+**Artifacts install as copies.** Keep them current with `agent-fleet upgrade`: it
+three-way merges the version recorded in `.ai/agent-fleet-state.json` against the
+installed copy and the current package, so a file you edited is preserved, and a
+file that moved on both sides is a conflict — the incoming version is written as
+`<file>.new`, yours is untouched, and the run exits `3`. `agent-fleet doctor --fix`
+repairs missing or dangling items through the same write path a fresh install uses.
+
+Removing a harness or extension is `agent-fleet uninstall --items pi-harness:coms`;
+it refuses to strip something another installed item depends on (you cannot remove
+`damage-control-continue` while `agent-hub` is installed), and removing the last pi
+harness also strips the `agent-fleet:harnesses` region from the `justfile`.
+
+Full CLI reference — every flag, every exit code, CI usage: [npm-install.md](npm-install.md).
+
+### First-class pi package (skills and prompts, package-native)
 
 Install this package directly with pi:
 
@@ -55,37 +107,43 @@ The npm pi package includes this repo's core skills, pi runtime skills, lifecycl
 
 This package's pi manifest is intentionally conservative: it exposes skills, `.pi/skills`, `.pi/prompts`, and bundled `pi-ask-user` resources. It does **not** auto-expose this repo's `.pi/extensions` or harnesses, because those have their own runtime dependency setup and should still be installed explicitly through guided setup or the manual extension steps below. It also does **not** bundle or require `pi-codex-image-gen`; guided setup may suggest installing that external package with `pi install -l npm:pi-codex-image-gen` only when package installation is available and the user selects it.
 
-### Clone / symlink setup (recommended for contributors)
+### Clone setup (for contributors)
 
-The manual clone install is **project-scoped using symlinks**:
+Clone when you want to **edit** the skills, personas, prompts, and harnesses
+themselves. The clone is both the working tree and the install source: run its
+own CLI and it installs from that checkout instead of from a published tarball.
 
-- `.agents/skills/` exposes the skills.
-- `.pi/prompts/` exposes the lifecycle slash commands.
-
-pi walks upward from the current working directory looking for project configuration, so once the symlinks exist, every pi session started from inside (or below) the repo picks up the skills and commands automatically. The `AGENTS.md` at the repo root is loaded the same way.
-
-1. Clone the repository somewhere stable:
+1. Clone the repository somewhere stable and install its runtime deps:
 
 ```bash
 git clone https://github.com/chankov/agent-fleet.git /path/to/agent-fleet
+cd /path/to/agent-fleet
+just install        # npm install for .pi/extensions/ and .pi/harnesses/
 ```
 
-2. From the project where you want to use the skills, symlink `skills/` into a pi-discoverable path:
+2. Install from the clone into a target project — same engine, same install
+record, just a local source root:
 
 ```bash
-cd /path/to/your-project
-mkdir -p .agents
-ln -s /path/to/agent-fleet/skills .agents/skills
+node /path/to/agent-fleet/bin/cli.js install \
+  --workspace /path/to/your-project --agent pi --profile recommended --yes
 ```
 
-3. From the same project, symlink the pi-native lifecycle commands into pi's prompt-template directory:
+3. After editing the clone (or a `git pull`), push the changes out:
 
 ```bash
-mkdir -p .pi
-ln -s /path/to/agent-fleet/.pi/prompts .pi/prompts
+node /path/to/agent-fleet/bin/cli.js upgrade --workspace /path/to/your-project
 ```
 
-This exposes:
+**Inside the clone itself**, `--method symlink` is available — that is the one
+workspace where editing an installed artifact is *meant* to edit the source.
+Everywhere else it is refused: a link target can never move again, an npx cache
+clean breaks every link at once, a `git pull` silently rewrites artifacts the
+project never agreed to change, and Windows needs Developer Mode. A workspace
+that recorded symlinks before this restriction is re-materialised as real files
+on its next `install` or `upgrade`.
+
+Whichever way you install, the prompts land in `.pi/prompts/` and expose:
 
 ```text
 /af-spec
@@ -97,19 +155,11 @@ This exposes:
 /af-ship
 ```
 
-If `.pi/prompts` already exists as a real directory, keep it and symlink the individual command files instead:
+An existing `.pi/prompts/` directory is not a problem — the installer writes one
+file per selected command and never replaces the directory. Anything it did not
+write is not recorded, and therefore never removed or overwritten.
 
-```bash
-ln -s /path/to/agent-fleet/.pi/prompts/af-spec.md .pi/prompts/af-spec.md
-ln -s /path/to/agent-fleet/.pi/prompts/af-plan.md .pi/prompts/af-plan.md
-ln -s /path/to/agent-fleet/.pi/prompts/af-build.md .pi/prompts/af-build.md
-ln -s /path/to/agent-fleet/.pi/prompts/af-test.md .pi/prompts/af-test.md
-ln -s /path/to/agent-fleet/.pi/prompts/af-review.md .pi/prompts/af-review.md
-ln -s /path/to/agent-fleet/.pi/prompts/af-code-simplify.md .pi/prompts/af-code-simplify.md
-ln -s /path/to/agent-fleet/.pi/prompts/af-ship.md .pi/prompts/af-ship.md
-```
-
-4. Install the recommended `pi-ask-user` pi package separately (clone/symlink setup only):
+4. Install the recommended `pi-ask-user` pi package separately (clone setup only):
 
 ```bash
 # Project-scoped; records the companion package in .pi/settings.json
@@ -119,7 +169,7 @@ pi install -l npm:pi-ask-user
 pi install npm:pi-ask-user
 ```
 
-Skip this step if `pi list` already shows `pi-ask-user`, or if you installed `@chankov/agent-fleet` via `pi install npm:@chankov/agent-fleet` (it bundles `pi-ask-user`). This companion is a pi package, not a file copied from this repo.
+Skip this step if `pi list` already shows `pi-ask-user`, or if you installed `@chankov/agent-fleet` via `pi install npm:@chankov/agent-fleet` (it bundles `pi-ask-user`). This companion is a pi package, not a file copied from this repo — the installer records it under `externalPackages` and tells you to run the command; it never runs a package install for you.
 
 Optional image generation: guided setup can offer `pi-codex-image-gen` as a suggested external pi package when package installation is available, or you can install it manually:
 
@@ -150,32 +200,34 @@ This repo also ships pi **extensions** under `.pi/extensions/`. Extensions are T
 
 The always-on utilities:
 
-- `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library consumed by wrapper extensions. Symlink it alongside wrappers so relative imports resolve; when pi discovers it directly, it intentionally registers no tools or commands by itself.
+- `mcp-bridge/` — a reusable factory that turns any stdio MCP server into a pi extension. This is a library consumed by wrapper extensions; it is installed alongside the wrappers so relative imports resolve, and when pi discovers it directly it intentionally registers no tools or commands by itself.
 - `chrome-devtools-mcp/` — bridges the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) server into pi as native tools, unlocking the `browser-testing-with-devtools` skill on pi.
 - `compact-and-continue/` — registers the `request_compaction` tool that queues pi context compaction to run after the current agent turn ends, optionally resuming work from a self-contained continuation prompt. Used by `/af-build` to offer a "Compact & continue" option at slice-approval time.
 - `agent-fleet-update-check/` — surfaces an "update available" banner once per session when `@chankov/agent-fleet` has a newer published version than the one recorded in `.ai/agent-fleet-setup.md`. Never blocks startup (soft 3s check); honors `AGENT_SKILLS_NO_UPDATE_CHECK` / `NO_UPDATE_NOTIFIER` / `CI` opt-outs.
 - `btw/` — adds the `/af-btw <task>` prompt command (and `Alt+'` shortcut): forks the current session into an in-process sub-session that inherits the full conversation as context, runs in the same cwd, and streams into a live modal with a follow-up composer. A compact result card lands in the main transcript at idle (kept out of the main agent's LLM context). See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
 
-To install, symlink the directories into your project's `.pi/extensions/`:
+Install them with the CLI — each is one item id:
 
 ```bash
-mkdir -p .pi/extensions
-ln -s /path/to/agent-fleet/.pi/extensions/mcp-bridge                .pi/extensions/mcp-bridge
-ln -s /path/to/agent-fleet/.pi/extensions/chrome-devtools-mcp       .pi/extensions/chrome-devtools-mcp
-ln -s /path/to/agent-fleet/.pi/extensions/compact-and-continue      .pi/extensions/compact-and-continue
-ln -s /path/to/agent-fleet/.pi/extensions/agent-fleet-update-check .pi/extensions/agent-fleet-update-check
-ln -s /path/to/agent-fleet/.pi/extensions/btw                       .pi/extensions/btw
+npx @chankov/agent-fleet install --agent pi --allow-exec --yes \
+  --items pi-extension:mcp-bridge,pi-extension:chrome-devtools-mcp,pi-extension:compact-and-continue,pi-extension:btw,pi-extension:agent-fleet-update-check
 ```
 
-Install the shared runtime dependencies used by the symlinked extensions once in the `agent-fleet` clone:
+The extensions are copied into the project's own `.pi/extensions/`. Select
+`mcp-bridge` explicitly whenever you take `chrome-devtools-mcp` — the wrapper
+imports it by relative path, so the bridge has to sit beside it. A companion
+carries the runtime dependencies: `.pi/extensions/package.json` +
+`package-lock.json` are copied in, and `npm ci --prefix .pi/extensions` is run —
+but only with **`--allow-exec`**, because running a command is a separate consent
+class from writing files. Without that flag the plan lists the `npm ci` step and
+skips it; run it yourself afterwards:
 
 ```bash
-cd /path/to/agent-fleet/.pi/extensions
-npm ci
-# If this clone does not have package-lock.json yet, run: npm install
+npm ci --prefix .pi/extensions
 ```
 
-Because the project extensions are symlinks into the clone, these dependencies are reused by every project that links the same extension directories.
+Each project gets its own copy and its own `node_modules`, so a `git pull` in some
+other checkout can no longer change what this project loads.
 
 Verify by starting `pi` and running `/af-chrome_devtools-status` — expect `Chrome DevTools MCP connected. Registered N tool(s).`
 
@@ -187,7 +239,20 @@ This repo ships **3 supported session harnesses** ported or consolidated from [d
 - **Safety** — `damage-control-continue` (fail-closed blocks feed back so the agent can report or safely adapt)
 - **Pi-to-Pi messaging** — `coms` (launched guarded via `just fleet peer <name>`, and embedded in `just fleet hub`)
 
-Unlike the utilities above, each harness reshapes the entire pi session, and most are loaded one per session rather than all at once. The supported stack loads `damage-control-continue` and `ask-user-remote` before `agent-hub`; the hub then re-loads continue into every native specialist, research helper, and nested delegate. Protected-path blocks can escalate for explicit approval, while dangerous command patterns remain non-exemptible. Missing child safety refuses dispatch. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all harnesses aborts startup (harnesses that register the same CLI flags clash). Load a harness recipe explicitly instead — there is nothing to symlink:
+Unlike the utilities above, each harness reshapes the entire pi session, and most are loaded one per session rather than all at once. The supported stack loads `damage-control-continue` and `ask-user-remote` before `agent-hub`; the hub then re-loads continue into every native specialist, research helper, and nested delegate. Protected-path blocks can escalate for explicit approval, while dangerous command patterns remain non-exemptible. Missing child safety refuses dispatch. pi auto-discovers and loads *everything* under `.pi/extensions/`, so the harnesses deliberately live in a separate directory — **`.pi/harnesses/`** — which pi does *not* auto-discover. **Never copy or symlink a harness into `.pi/extensions/`**: that would load it on every plain `pi` run, and stacking all harnesses aborts startup (harnesses that register the same CLI flags clash). The installer already places them correctly:
+
+```bash
+npx @chankov/agent-fleet install --agent pi --profile pi-fleet-core --allow-exec --yes
+```
+
+That one profile pulls in `agent-hub`, its required `damage-control-continue` and
+`ask-user-remote`, `coms`, and the utilities the hub expects — plus the
+`agent-fleet:harnesses` region in the workspace `justfile` and the `.pi/agents/`
+configs (`teams.yaml`, `peers.yaml`, `dispatch-policy.yaml`). Recipes you wrote
+outside those sentinels are never touched. The one thing it does *not* do for you
+is `pi-voice-stt`'s configuration: the extension is installed, and the plan prints
+the operator steps (write `.ai/stt.json`, put the key in a gitignored `.env`) for
+you to perform. Then load a harness explicitly:
 
 ```bash
 # from the agent-fleet clone, via the bundled justfile
@@ -204,12 +269,13 @@ pi -e /path/to/agent-fleet/.pi/harnesses/damage-control-continue/index.ts -e /pa
 ```
 
 **Upgrading from the retired hard-stop harness:** `.pi/harnesses/damage-control/` and
-the old standalone damage-control recipes are no longer shipped. Re-run guided setup to
-remove only an unchanged setup-owned copy (or source symlink) and refresh the managed
-`justfile` region; user-modified and unowned copies are preserved. Use `just fleet` for a
-standalone guarded session.
+the old standalone damage-control recipes are no longer shipped. Run
+`npx @chankov/agent-fleet upgrade` (or re-run guided setup, which calls it): only an
+unchanged, recorded copy is removed and the managed `justfile` region is refreshed —
+user-modified and unowned copies are preserved. Use `just fleet` for a standalone
+guarded session.
 
-The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. Install both at once with `just install` from the clone, or run `npm ci` in `.pi/harnesses/` as well. The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `chrome-devtools-mcp`), and what changed from upstream.
+The harnesses have their own runtime dependencies (`yaml`, `@sinclair/typebox`) declared in `.pi/harnesses/package.json` — separate from the extension deps above. `--allow-exec` runs `npm ci --prefix .pi/harnesses` for you as part of the install; without it, run that yourself (or `just install` from a clone, which does both roots). The [pi extension catalog](pi-extensions.md) has the full list, per-extension `README.md` pointers, required environment variables (for `chrome-devtools-mcp`), and what changed from upstream.
 
 Each extension — utility or harness — has its own `README.md` describing what it provides.
 
@@ -217,16 +283,36 @@ Each extension — utility or harness — has its own `README.md` describing wha
 
 ### Keeping skills up to date
 
-Because `.agents/skills`, `.pi/prompts`, and `.pi/extensions` are symlinks into the cloned `agent-fleet` repo, running `git pull` in that clone updates every skill, lifecycle command, and extension in place — no re-copy required.
+Everything the CLI installs is a copy, so refreshing is a command rather than a
+`git pull` side effect:
+
+```bash
+npx @chankov/agent-fleet upgrade --dry-run   # what would change
+npx @chankov/agent-fleet upgrade --yes
+```
+
+`upgrade` acts only on what the workspace already has — it never widens the
+install. A newly catalogued skill or harness shows up as *available* in `verify`
+and is added only by an explicit `install`. It also never eats a local edit: if
+only the source moved you get a clean refresh, if only your copy moved it is
+kept, and if both moved the incoming version lands as `<file>.new` and the run
+exits `3` for you to resolve. Resolve non-interactively with `--accept-theirs`
+or `--accept-ours`.
+
+From a clone, the same thing with the clone as source root:
+
+```bash
+node /path/to/agent-fleet/bin/cli.js upgrade --workspace /path/to/your-project
+```
 
 ### Alternative scopes
 
-- **Global install** — symlink skills into `~/.pi/agent/skills/` and prompts into `~/.pi/agent/prompts/` to make them available in every pi session on the machine, regardless of cwd. You may also symlink `AGENTS.md` into `~/.pi/agent/AGENTS.md` for global workflow context.
-- **Copy instead of symlink** — use `cp -R /path/to/agent-fleet/skills .agents/skills` and `cp -R /path/to/agent-fleet/.pi/prompts .pi/prompts` if you're on a platform where symlinks are awkward (e.g. plain Windows without developer mode). You'll need to re-copy after updates.
+- **pi package, global** — `pi install npm:@chankov/agent-fleet` exposes the skills, `.pi/skills`, and lifecycle prompts to every pi session on the machine, regardless of cwd. This is the supported global path; the CLI installer is deliberately per-workspace and writes nothing to `~/.pi/`.
+- **Global context file** — copy `AGENTS.md` to `~/.pi/agent/AGENTS.md` for machine-wide workflow context. pi concatenates context files, so this is additive to each project's own.
 
 ### Recommended companion packages
 
-If you use clone/symlink setup, install `pi-ask-user` with `pi install -l npm:pi-ask-user` unless `pi list` already shows it. If you installed `@chankov/agent-fleet` as a pi package, `pi-ask-user` is already bundled and exposed by this package. In both cases, pi discovers its bundled `ask-user` skill from a pi package, not from vendored files in this repo. This is a strong complement to `agent-fleet` because it gives the agent a structured way to stop and ask for an explicit decision before:
+If you use clone setup, install `pi-ask-user` with `pi install -l npm:pi-ask-user` unless `pi list` already shows it. If you installed `@chankov/agent-fleet` as a pi package, `pi-ask-user` is already bundled and exposed by this package. In both cases, pi discovers its bundled `ask-user` skill from a pi package, not from vendored files in this repo. This is a strong complement to `agent-fleet` because it gives the agent a structured way to stop and ask for an explicit decision before:
 
 - architectural or API trade-offs
 - destructive or costly-to-reverse changes
@@ -401,22 +487,30 @@ After installing, confirm the integration works:
 5. Ask: *"fix this bug"* — confirm pi invokes `debugging-and-error-recovery`, or run `/af-test` to start a TDD/debugging workflow explicitly.
 6. Give pi an ambiguous or high-stakes request and confirm it can use the `ask_user` tool / `ask-user` skill to request an explicit decision.
 
-If skill autocomplete is empty, check that `.agents/skills` points to a directory containing `<skill-name>/SKILL.md` files and that pi was not started with `--no-skills`.
+Start any diagnosis with the installer's own read-only report — it compares what
+is recorded, what is on disk, and what the package ships, and exits `2` when
+something is broken:
 
-If lifecycle command autocomplete is empty, check that `.pi/prompts` points to a directory containing the command Markdown files and run `/reload` or restart pi.
+```bash
+npx @chankov/agent-fleet verify --agent pi
+npx @chankov/agent-fleet doctor --fix     # repair missing/dangling items
+```
+
+If skill autocomplete is empty, check that `.pi/skills/` contains `<skill-name>/SKILL.md` directories and that pi was not started with `--no-skills`.
+
+If lifecycle command autocomplete is empty, check that `.pi/prompts/` contains the command Markdown files and run `/reload` or restart pi.
 
 If `/af-chrome_devtools-status` reports `Cannot find module '@modelcontextprotocol/sdk/client/index.js'`, the MCP extension loaded but its runtime initialization failed. An `[Extensions]` startup entry alone does not prove its tools registered.
 
-For a cloned or copied install, run:
+The fix is the dependency install that `--allow-exec` would have run:
 
 ```bash
-cd /path/to/agent-fleet/.pi/extensions
-npm ci
+npm ci --prefix .pi/extensions
 ```
 
-For extensions symlinked into a published `@chankov/agent-fleet` package, update to a package version that declares the extension dependencies at its root, then restart/reload pi. Do not rely on installing only the target workspace's `.pi/extensions/node_modules`: Node may resolve the symlink to the package's real path. Verify the repair with `/af-chrome_devtools-status`; it must report `connected` and a non-zero registered tool count.
+Verify the repair with `/af-chrome_devtools-status`; it must report `connected` and a non-zero registered tool count. An `[Extensions]` startup entry alone does not prove the tools registered.
 
-The harnesses install separately — if a harness reports `Cannot find module 'yaml'` or `'@sinclair/typebox'`, run `npm ci` in `.pi/harnesses/` as well (or `just install` from the clone, which does both).
+The harnesses install separately — if a harness reports `Cannot find module 'yaml'` or `'@sinclair/typebox'`, run `npm ci --prefix .pi/harnesses` as well (or `just install` from a clone, which does both).
 
 Then run `/reload` or restart pi.
 
@@ -426,7 +520,7 @@ Then run `/reload` or restart pi.
 
 - Automatic skill loading depends on the underlying model's compliance with `AGENTS.md` rules.
 - Prompt-template commands expand into instructions; they do not mechanically execute `/skill:<name>`. The pi-specific prompt templates therefore explicitly tell the agent which skills to load and follow.
-- Windows without developer mode may not support symlinks — use the copy variant instead.
+- The CLI installs per workspace only; a machine-wide install means the pi package (`pi install npm:@chankov/agent-fleet`), which carries skills and prompts but not the extensions or harnesses.
 - Global `AGENTS.md` applies to every project when using the global-install alternative; pi concatenates context files, so this is usually additive, not destructive, but be aware of it.
 
 ---
@@ -465,12 +559,13 @@ Or invoke individual skills directly when you want precise control:
 
 pi integration works by leveraging pi's **native** Agent Fleet and prompt-template support:
 
-- Symlink `skills/` into `.agents/skills/`
-- Symlink `.pi/prompts/` into the target project's `.pi/prompts/`
-- Install `@chankov/agent-fleet` as a pi package for bundled `ask_user`, or install `pi-ask-user` separately for clone/symlink setup
-- Let pi auto-load `AGENTS.md` from the repo root
-- Use `/skill:<name>`, lifecycle commands like `/af-spec`, or natural language to trigger workflows
+- `npx @chankov/agent-fleet install --agent pi --profile recommended --yes` writes the skills to `.pi/skills/` and the lifecycle commands to `.pi/prompts/`
+- add `--profile pi-fleet-core --allow-exec` for the harness stack, its `justfile` region, and its runtime dependencies
+- install `@chankov/agent-fleet` as a pi package for bundled `ask_user`, or install `pi-ask-user` separately for clone setup
+- let pi auto-load `AGENTS.md` from the repo root
+- use `/skill:<name>`, lifecycle commands like `/af-spec`, or natural language to trigger workflows
+- keep it current with `agent-fleet upgrade`, check it with `agent-fleet verify`, repair it with `agent-fleet doctor --fix`
 
 Guided setup can additionally offer the optional `pi-codex-image-gen` package when pi package installation is available, but it is not part of the minimal path.
 
-The result is a fully agent-driven, production-grade engineering workflow — with minimal setup: one symlink for this repo's skills, one symlink for lifecycle commands, plus bundled or separately installed `pi-ask-user` for interactive decision gating.
+The result is a fully agent-driven, production-grade engineering workflow — from one CLI command, with no coding agent and no model needed to install it.

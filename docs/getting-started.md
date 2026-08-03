@@ -13,10 +13,27 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 | Audience | Path | Why |
 |---|---|---|
 | **Most users** — you want to use the skills in your projects | `npx @chankov/agent-fleet init` | One command; semver updates; cross-platform; no source dir to babysit. See [docs/npm-install.md](npm-install.md). |
+| **You already know what you want** — or you're scripting a fresh repo | `npx @chankov/agent-fleet install --agent <a> --profile recommended --yes` | The CLI does every write itself: no coding agent, no model, no prompts. |
 | **Claude Code users** — you live in Claude Code and want plugin-managed updates | `/plugin marketplace add chankov/agent-fleet` | Best UX inside Claude Code; marketplace handles the lifecycle. |
-| **Skill authors / contributors** — you want to edit the skills and have changes flow into every connected workspace | `git clone` + `symlink` mode in `/setup-agent-fleet` | Edit-in-place; every connected workspace sees the change instantly. |
+| **Skill authors / contributors** — you want to edit the skills themselves | `git clone` + work in the checkout | Inside an agent-fleet checkout `--method symlink` is available, so editing an installed artifact edits the source. |
 
-All three converge on the same `guided-workspace-setup` skill — they only differ in how the source files reach your workspace. None is being deprecated.
+`init` is the conversational front-end; `install` is the engine underneath it.
+Both end up in the same place — the same manifest, the same install record, the
+same three-way merge on the next `upgrade`. None of the paths is being deprecated.
+
+### Installing without an agent
+
+```bash
+npx @chankov/agent-fleet install --agent pi --profile recommended --yes
+npx @chankov/agent-fleet verify              # read-only report: recorded × on disk × shipped
+npx @chankov/agent-fleet upgrade --dry-run   # what a refresh would change
+```
+
+Profiles: `minimal`, `recommended`, `full`, `pi-fleet-core`, `hermes-plugins`,
+`codex-bridge`. Pick individual artifacts instead with `--items skill:test-driven-development,persona:code-reviewer`.
+Every verb takes `--dry-run` and `--json`. **Artifacts install as copies** —
+refresh them with `agent-fleet upgrade`, which keeps local edits and writes an
+incoming conflict beside your file as `<file>.new`.
 
 ## Optional: see the fleet in Hermes Desktop
 
@@ -74,15 +91,21 @@ The runtime contract is generated under `$HOME/.local/state/agent-fleet/codex-co
 
 ## Quick Start (Any Agent)
 
-### 1. Clone the repository
+The CLI installs into `claude-code`, `opencode`, and `pi` workspaces. For **any
+other** agent it has no target paths to write to, so the skills are loaded by
+hand — that is what this section covers.
+
+### 1. Get the files
 
 ```bash
+npm install --save-dev @chankov/agent-fleet    # or:
 git clone https://github.com/chankov/agent-fleet.git
 ```
 
-> Skip this step if you installed via npm — the package contents are already
-> in `node_modules/agent-fleet/`. Use that path wherever this guide refers to
-> "the agent-fleet repo."
+> The npm path puts the package contents in `node_modules/@chankov/agent-fleet/`.
+> Use whichever of the two you have wherever this guide says "the agent-fleet repo."
+> Don't use `agent-fleet install` here — it writes to `.claude/`, `.opencode/`, or
+> `.pi/`, which an agent outside those three won't read.
 
 ### 2. Choose a skill
 

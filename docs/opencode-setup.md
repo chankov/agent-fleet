@@ -27,6 +27,38 @@ This more closely matches how Claude Code behaves in practice, while still allow
 
 ## Installation
 
+### Recommended — the `agent-fleet` CLI (project-scoped)
+
+The CLI writes OpenCode's targets directly: `.opencode/skills/`, `.opencode/commands/`,
+and `.opencode/agent/` (personas transformed to `mode: subagent` on the way in).
+
+```bash
+cd /path/to/your-project
+
+# Guided: bootstraps the installer command, then run /af-setup-agent-fleet in OpenCode
+npx @chankov/agent-fleet init --agent opencode
+
+# Or straight to it — no agent, no model, no prompts:
+npx @chankov/agent-fleet install --agent opencode --profile recommended --yes
+npx @chankov/agent-fleet verify --agent opencode
+```
+
+Refresh after a package update with `npx @chankov/agent-fleet upgrade` — it
+three-way merges against the version recorded in `.ai/agent-fleet-state.json`,
+so your local edits survive and a genuine conflict lands beside your file as
+`<file>.new` (exit `3`) instead of overwriting it. Artifacts install as **copies**;
+`agent-fleet doctor --fix` repairs anything that goes missing or dangling.
+
+Profiles: `minimal`, `recommended`, `full`. Narrow it with
+`--items skill:code-review-and-quality,command:review,persona:code-reviewer`, and
+preview any verb with `--dry-run`. Full reference: [npm-install.md](npm-install.md).
+
+### Manual global install (advanced)
+
+Use this only when you want the skills available in **every** OpenCode session on
+the machine regardless of project — the CLI installs per workspace and does not
+write to `~/.config/opencode/`.
+
 1. Clone the repository:
 
 ```bash

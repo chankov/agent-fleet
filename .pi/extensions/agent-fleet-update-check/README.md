@@ -33,11 +33,10 @@ Every error path silently aborts. Update checks must never disrupt a session.
 
 ## Install
 
-Installed via `/af-setup-agent-fleet` as part of Group 10 — pi extensions. Or symlink manually:
+Offered by `/af-setup-agent-fleet` with the other pi extensions, and included in the `pi-fleet-core` profile. Directly:
 
 ```bash
-ln -s /path/to/@chankov/agent-fleet/.pi/extensions/agent-fleet-update-check \
-      .pi/extensions/agent-fleet-update-check
+npx @chankov/agent-fleet install --agent pi --items pi-extension:agent-fleet-update-check --yes
 ```
 
 No runtime deps beyond pi's own `@mariozechner/pi-coding-agent` types and Node built-ins (`fs`, `os`, `path`, `https`).

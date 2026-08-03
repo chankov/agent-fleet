@@ -75,11 +75,11 @@ The agent cannot trigger it; only you can.
 
 ## Install
 
-Auto-discovered like the other always-on utilities — drop or symlink it under
+Auto-discovered like the other always-on utilities once it is under
 `.pi/extensions/` (see [docs/pi-setup.md](../../../docs/pi-setup.md)):
 
 ```bash
-ln -s /path/to/agent-fleet/.pi/extensions/btw .pi/extensions/btw
+npx @chankov/agent-fleet install --agent pi --items pi-extension:btw --yes
 ```
 
 No extra dependencies — the extension uses only Node built-ins and the pi runtime

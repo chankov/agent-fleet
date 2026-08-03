@@ -26,13 +26,13 @@ The canonical usage point in this repo is `/af-build`: at slice-approval time, t
 
 ## Install
 
-Symlink alongside the other extensions (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)):
+Installs alongside the other extensions (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)):
 
 ```bash
-ln -s /path/to/agent-fleet/.pi/extensions/compact-and-continue .pi/extensions/compact-and-continue
+npx @chankov/agent-fleet install --agent pi --items pi-extension:compact-and-continue --yes
 ```
 
-The only runtime dep (`typebox`) is already hoisted at `.pi/extensions/package.json` for the other extensions, so no extra `npm ci` is needed if you've already installed.
+It also comes in with the `pi-fleet-core` profile. The only runtime dep (`typebox`) is declared in `.pi/extensions/package.json` alongside the other extensions, so no extra `npm ci` is needed if you have already installed those.
 
 ## Behavior notes
 
