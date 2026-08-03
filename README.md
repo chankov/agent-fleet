@@ -95,7 +95,7 @@ The CLI detects your coding agent and prints the correct setup command. It runs 
 | `npx @chankov/agent-fleet transform-persona` | Generate per-agent subagent files from the canonical personas |
 
 <details>
-<summary><b>Other install paths</b> — Claude Code marketplace, git clone + symlinks, OpenCode details</summary>
+<summary><b>Other install paths</b> — Claude Code marketplace, git clone, OpenCode details</summary>
 
 **Claude Code plugin marketplace** — best UX inside Claude Code:
 
@@ -106,15 +106,17 @@ The CLI detects your coding agent and prints the correct setup command. It runs 
 
 > **SSH errors?** The marketplace clones via SSH; use the HTTPS URL instead: `/plugin marketplace add https://github.com/chankov/agent-fleet.git`
 
-**Git clone + symlinks** — best for skill authors and contributors:
+**Git clone** — best for skill authors and contributors:
 
 ```bash
 git clone https://github.com/chankov/agent-fleet.git && cd agent-fleet
 claude --plugin-dir .    # in Claude Code
-# then run /setup-agent-fleet in your target workspace and pick "symlink"
+# then run /setup-agent-fleet in your target workspace
 ```
 
-Updates flow through `git pull`. Symlinks need Developer Mode on Windows.
+Artifacts install as copies; refresh them after a `git pull` with `npx agent-fleet upgrade`, which
+does a real three-way merge and keeps your local edits. Symlink installs exist only inside an
+agent-fleet checkout, where editing an artifact is meant to edit the source.
 
 **OpenCode** — agent-driven skill execution via `AGENTS.md` + the `skill` tool, plus optional `af-*` slash commands (`/af-spec` … `/af-ship`, `/af-orchestrate`, `/af-compound`). See [docs/opencode-setup.md](docs/opencode-setup.md).
 

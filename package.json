@@ -73,6 +73,8 @@
     "!hermes/**/*.pyc",
     "systemd/",
     "justfile",
+    "install-manifest.json",
+    "manifest-meta.json",
     "references/",
     "hooks/",
     "docs/agent-fleet-setup.md",
@@ -92,6 +94,7 @@
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
+    "!bin/test/",
     "!**/*.test.js",
     "!**/*.test.mjs",
     "!**/*.test.ts",
@@ -111,7 +114,9 @@
     "test:watchdog-py": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s hermes/watchdog-tests -p 'test_*.py'",
     "pack:dry": "npm pack --dry-run",
     "changeset": "changeset",
-    "version:changeset": "node bin/force-patch-changesets.js && changeset version && node bin/sync-harness-versions.js && npm install --package-lock-only --ignore-scripts --no-audit --no-fund && node bin/snapshot-version.js",
+    "build:manifest": "node bin/build-manifest.js",
+    "check:manifest": "node bin/build-manifest.js --check",
+    "version:changeset": "node bin/force-patch-changesets.js && changeset version && node bin/sync-harness-versions.js && npm install --package-lock-only --ignore-scripts --no-audit --no-fund && node bin/build-manifest.js && node bin/snapshot-version.js",
     "release": "changeset publish"
   },
   "devDependencies": {

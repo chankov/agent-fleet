@@ -5,7 +5,9 @@ This is the Agent Fleet project — a Pi-centered multi-agent orchestration syst
 ## Project Structure
 
 ```
-bin/          → npm CLI: cli.js (agent-fleet entrypoint), lib/{doctor,detect-agent,transform-persona}.js, test/ (node --test), snapshot-version.js
+bin/          → npm CLI: cli.js (agent-fleet entrypoint) + the deterministic installer engine in lib/ — manifest.js (catalogue), state.js (record + hashing), verify.js (evaluation), plan.js (decision), apply.js (the ONLY module that writes to a workspace), merge-forms.js (justfile region + settings.json keys); plus doctor/detect-agent/transform-persona, build-manifest.js, snapshot-version.js, test/ (node --test)
+install-manifest.json → GENERATED catalogue of every installable artifact — never hand-edit; run `node bin/build-manifest.js`
+manifest-meta.json    → the hand-edited half: groups, profiles, recommendations, consent classes, companion/requires/pinnedBy wiring, operator steps
 skills/       → Agent Fleet-native + customized skills (SKILL.md per directory); shadows same-named vendored skills
 vendor/agent-skills-upstream/ → Pristine upstream skill import at a pinned SHA — NEVER edit in place; policy + update procedure in docs/UPSTREAM-SKILLS.md
 hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote conduction — see docs/coms-hermes-bridge.md
@@ -58,6 +60,8 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 ## Commands
 
 - `npm test` — CLI smoke test (`--version`, `--help`, `transform-persona --list`) plus the `node --test` unit tests in `bin/test/`
+- `node bin/cli.js <install|upgrade|uninstall|verify|doctor>` — the installer engine; five policies over one `plan() → apply()` core. `--dry-run`/`--json`/`--yes` on every verb; exit `0` ok, `1` error, `2` findings, `3` conflicts. A full install needs no agent and no model
+- `node bin/build-manifest.js [--check]` — regenerate `install-manifest.json` from the tree (`--check` fails on drift; run it after adding any artifact)
 - `node bin/cli.js transform-persona --agent <a> [--list|--all|names…]` — Generate per-agent persona files from `agents/*.md`; the mapping lives in `bin/lib/transform-persona.js`, under test — never transform persona frontmatter by hand
 - `npm run pack:dry` — `npm pack --dry-run` to verify the tarball contents match `package.json`'s `files` allowlist
 - `npx changeset` — Add a changeset for any user-visible change (see CONTRIBUTING.md for bump rules)
@@ -69,3 +73,4 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 - Always: Follow the skill-anatomy.md format for new skills
 - Never: Add skills that are vague advice instead of actionable processes
 - Never: Duplicate content between skills — reference other skills instead
+- Never: Restate an installer rule (paths, item states, merge/ownership rules, the Fleet Core closure) in a skill or slash command — it lives in `bin/lib/` and `manifest-meta.json`, and a second copy always drifts. `guided-workspace-setup` shells out to the CLI; it writes only `.ai/agent-fleet-overrides.md` and `.ai/stt.json`

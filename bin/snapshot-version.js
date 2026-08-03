@@ -64,6 +64,11 @@ const ARTIFACT_PATHS = [
   "docs/pi-setup.md",
   "references",
   "hooks",
+  // The generated catalogue. The upgrade three-way merge needs the *recorded
+  // version's* manifest, not just its files: an item that existed then and is
+  // retired now is only resolvable from the base catalogue.
+  "install-manifest.json",
+  "manifest-meta.json",
 ];
 
 if (existsSync(snapDir)) {

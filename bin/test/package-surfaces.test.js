@@ -9,6 +9,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   rmdirSync,
@@ -20,6 +21,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import { buildPlan } from "../lib/plan.js";
+import { applyPlan } from "../lib/apply.js";
+import { extractRegion } from "../lib/merge-forms.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const manifestPath = join(root, "skills", "guided-workspace-setup", "companion-manifest.json");
@@ -277,7 +282,56 @@ test("package, snapshot, and guided manifest surfaces stay aligned", () => {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);
   }
   assert.doesNotMatch(snapshot, /^\s*"docs",$/m, "snapshot must not include docs omitted from the package root allowlist");
-  const skill = readFileSync(join(root, "skills", "guided-workspace-setup", "SKILL.md"), "utf8");
-  assert.match(skill, /companion-manifest\.json/);
-  assert.match(skill, /last.*pi harness/i);
+});
+
+// The harness runtime closure and the managed-region lifecycle used to be prose
+// in guided-workspace-setup/SKILL.md. Phase 7 of plans/deterministic-installer.md
+// moved both into the manifest and apply(), so these assert the data and the
+// behaviour instead of the sentences that described them.
+test("the harness runtime closure is a manifest companion of every harness", () => {
+  const installManifest = JSON.parse(readFileSync(join(root, "install-manifest.json"), "utf8"));
+  const closure = installManifest.items.find((i) => i.id === "companion:harness-runtime-closure");
+  assert.ok(closure, "the companion-manifest.json closure has no manifest item");
+
+  for (const rel of [...(manifest.files ?? []), ...(manifest.directories ?? [])]) {
+    if (rel === "justfile") continue; // its own companion — managed region, not a whole-file copy
+    assert.ok(
+      closure.agents.pi.source.includes(rel),
+      `companion-manifest.json declares ${rel} but the closure item does not carry it`,
+    );
+  }
+
+  for (const harness of installManifest.items.filter((i) => i.kind === "pi-harness")) {
+    assert.ok(harness.companions?.includes("companion:harness-runtime-closure"), harness.id);
+    assert.ok(harness.companions?.includes("companion:justfile-region"), harness.id);
+  }
+});
+
+test("removing the last harness strips the justfile region and keeps user recipes", () => {
+  const installManifest = JSON.parse(readFileSync(join(root, "install-manifest.json"), "utf8"));
+  const workspace = mkdtempSync(join(tmpdir(), "af-justfile-"));
+
+  const install = buildPlan({
+    workspace, sourceRoot: root, packageVersion: installManifest.packageVersion,
+    manifest: installManifest,
+    verb: "install", agent: "pi", items: ["pi-harness:agent-hub"], platform: "linux",
+  });
+  applyPlan({ plan: install, manifest: installManifest });
+
+  const justfile = join(workspace, "justfile");
+  assert.ok(extractRegion(readFileSync(justfile, "utf8")), "no managed region after install");
+
+  // A recipe the user added outside the sentinels must outlive the uninstall.
+  writeFileSync(justfile, readFileSync(justfile, "utf8") + "\nmine:\n\techo mine\n");
+
+  const removal = buildPlan({
+    workspace, sourceRoot: root, packageVersion: installManifest.packageVersion,
+    manifest: installManifest,
+    verb: "uninstall", agent: "pi", all: true, platform: "linux",
+  });
+  applyPlan({ plan: removal, manifest: installManifest });
+
+  const after = readFileSync(justfile, "utf8");
+  assert.equal(extractRegion(after), null, "the managed region survived the removal");
+  assert.match(after, /^mine:$/m, "the user's recipe was deleted with ours");
 });

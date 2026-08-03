@@ -1,12 +1,13 @@
 # Agent Fleet — Project Files
 
-agent-fleet keeps up to two small files in a project's `.ai/` directory. They
-have different readers and different lifetimes, so they are kept separate.
+agent-fleet keeps a few small files in a project's `.ai/` directory. They have
+different readers and different lifetimes, so they are kept separate.
 
 | File | Read by | When |
 |------|---------|------|
 | `.ai/agent-fleet-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `compound-learning` (the `rules:`/`docs:` keys of `## agent-hub`), `agent-hub` pi harness | Every run of those skills / every session start of the harness |
-| `.ai/agent-fleet-setup.md` | `guided-workspace-setup` | Only when setup is run or re-run |
+| `.ai/agent-fleet-state.json` | the `agent-fleet` CLI (`install`, `upgrade`, `uninstall`, `verify`, `doctor`) | Every plan and every apply |
+| `.ai/agent-fleet-setup.md` | humans — rendered from the state file, never parsed back | Rewritten on every apply |
 | `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
 
 The `.ai/stt.json` file is present only when the optional `pi-voice-stt` voice-dictation
@@ -15,7 +16,8 @@ extension has been configured (by guided setup or by hand). Like the overrides f
 live in a gitignored root `.env`. See [pi-voice-stt config](#ai-sttjson) below.
 
 Keep them split: the overrides file is loaded into context constantly, so it
-must stay minimal; the install record is consulted rarely, so it can be large.
+must stay minimal; the install record is read only by the CLI, so it can be
+large.
 
 ## The overrides file — `.ai/agent-fleet-overrides.md`
 
@@ -166,55 +168,61 @@ otherwise, never mid-run), and its **values never appear in `--dry-run`
 output** — only the path. Keep these files gitignored exactly like the root
 `.env` this section describes.
 
-## The setup file — `.ai/agent-fleet-setup.md`
+## The install record — `.ai/agent-fleet-state.json` and `.ai/agent-fleet-setup.md`
 
-The `guided-workspace-setup` skill writes this file to record what it installed
-into the project — which skills, commands, personas, and extensions, by what
-method, and when. It reads the file on a re-run to add, update, or remove
-artifacts without reinstalling everything. No other skill loads it.
+Two files, one source of truth. `.ai/agent-fleet-state.json` is what the
+installer writes and the only thing it reads back: agent, method, package
+version, source root, and one entry per installed item with a per-file sha256
+(or, in symlink mode, the resolved link target). `.ai/agent-fleet-setup.md` is
+**rendered from it** on every apply and never parsed back, so the two cannot
+disagree — it exists for humans and for older readers that still look for
+`version:` and `agent:`.
 
-| Section | Meaning |
-|---------|---------|
-| `workspace-summary` | Workspace path, coding agent, **agent-fleet version**, project shape, checks discovered |
-| `install-status` | Installed artifacts, their targets, and the method (`copy` or `symlink`) |
-| `doctor-runs` | One line per doctor pass (preflight / postflight, repaired / deleted / skipped counts) |
-| `verification` | Checks confirming the install |
+Ownership is the point of the state file. An entry means "agent-fleet installed
+this"; anything not listed is never removed or overwritten. That lookup is what
+replaced the prose ownership rule the setup skill used to carry.
 
-### The `version:` line
-
-`workspace-summary` carries a `version:` line set to the package version that
-performed the install (e.g. `version: 1.4.2`). It drives the version-aware
-update flow — on every re-run, `guided-workspace-setup` compares this against
-the current package version and:
-
-1. Reads `CHANGELOG.md` between the two versions.
-2. For each installed artifact, runs a three-way diff between
-   *source@recorded*, the installed copy on disk, and *source@current*.
-3. Surfaces the result in the install menu using these `Status` values:
-
-| Status | Meaning |
+| State-file field | Meaning |
 |---|---|
-| `installed · upgrade available` | Source changed upstream; user copy still matches the old source → clean refresh |
-| `installed · conflicting upgrade` | Source changed upstream AND user modified the copy → menu shows the three-way diff before overwriting |
-| `installed · removed upstream` | Artifact gone in the new version → menu proposes deletion (subject to the removal-scope rule) |
-| `not installed · new in this version` | New artifact added in the new version → menu offers it, marked `★` if recommended |
+| `agent`, `method`, `sourceRoot` | How and from where this workspace was installed |
+| `packageVersion` | The version that performed the last apply — the merge base for the next `upgrade` |
+| `items` | One entry per installed artifact: strategy, method, files with hashes, JSON key paths |
+| `externalPackages` | Packages the user was told to install; recorded, never installed for them |
+| `events` | Last few applies (verb, version, action count, conflicts) |
 
-The diff sources at *source@recorded* are read from the package's
-`.versions/<x.y.z>/` snapshot tree, which the release pipeline writes for every
-published version. If the snapshot is missing (e.g. an unpublished local
-build), the skill falls back to "treat installed copy as canonical" and
-prompts for an explicit baseline.
+**No secrets, ever.** Only env-var *names* may appear — for example in the
+`pi-voice-stt` record. A test asserts nothing value-shaped is persisted.
 
-### Pre-versioning workspaces
+### The recorded version and the three-way merge
 
-A workspace whose `agent-fleet-setup.md` predates the `version:` line is
-treated as "pre-versioning". On first re-run, `guided-workspace-setup` prompts
-for a clean baseline: either accept the installed artifacts as matching the
-current source (stamp the current version), or re-run the install from scratch.
+`packageVersion` drives `upgrade`. For each installed artifact the engine
+compares three sides: *source@recorded* from the package's `.versions/<x.y.z>/`
+snapshot tree, the installed copy on disk, and *source@current*.
 
-Commit this file if the team should share install state — keep paths relative
-so it stays portable. A self-referencing checkout (agent-fleet itself) may
-instead `.gitignore` it, since its recorded paths are local to one machine.
+| Outcome | What happens |
+|---|---|
+| Only the source moved | Clean refresh |
+| Only your copy moved | Kept — `upgrade` never eats a local edit |
+| Both moved, to different content | **Conflict**: the incoming version is written as `<file>.new`, your file is untouched, the run exits `3` |
+| Retired upstream | Proposed for removal by name, subject to the ownership rule |
+
+If the snapshot is missing (an unpublished local build, or a version older than
+`.versions/` retention), the comparison degrades to two-way, the installed copy
+is treated as canonical, and `verify` says so as an advisory finding rather than
+pretending a diff exists.
+
+### Pre-engine workspaces
+
+A workspace with only `.ai/agent-fleet-setup.md` and no state file predates the
+installer engine. `verify` reads what it can from the markdown (`agent:`,
+`version:`), reports `stateSource: "legacy-record"`, and `upgrade` says plainly
+that ownership cannot be read back — run `install` once to reconstruct the state
+file first. A workspace with no `version:` at all is pre-versioning: there is no
+recorded baseline, so no three-way merge is attempted.
+
+Commit these files if the team should share install state — keep paths relative
+so they stay portable. A self-referencing checkout (agent-fleet itself) may
+instead `.gitignore` them, since their recorded paths are local to one machine.
 
 ## The `/orchestrate` command and its team config
 
@@ -310,18 +318,20 @@ required: <ENV_VAR_NAME>[, <ANOTHER_NAME>]
 
 ### `.ai/agent-fleet-setup.md`
 
-Written and maintained by `guided-workspace-setup`; shown here for reference.
+Rendered from `.ai/agent-fleet-state.json` by every apply, for humans to read.
+Edit the workspace, not this file — the next apply overwrites it.
 
 ```markdown
 # Agent Fleet — Workspace Setup
 #
-# Maintained by the guided-workspace-setup skill.
+# Generated from .ai/agent-fleet-state.json by `agent-fleet install`.
+# Edit the workspace, not this file: it is rewritten on every apply.
 
 ## workspace-summary
 agent:   claude-code
 method:  copy
 version: 1.4.2
-shape:   <one line on the project shape>
+source:  /home/you/.npm/_npx/<hash>/node_modules/@chankov/agent-fleet
 
 ## install-status
 skills:     [spec-driven-development, test-driven-development, code-review-and-quality]
@@ -329,12 +339,13 @@ commands:   [spec, plan, build]
 personas:   [code-reviewer]
 extensions: []
 harnesses:  []
-harness-support: []   # justfile (managed region) + scripts/agents companions; tracked when any harness is installed
+companions: [skills-internal-grilling]
+external:   []
 updated:    2026-05-22
 
 ## verification
-- Every recorded artifact exists at its target path.
-- No secrets are stored in this file.
+- 21 item(s) recorded; run `agent-fleet verify` to check them against disk.
+- No secrets are stored in this file or in .ai/agent-fleet-state.json.
 ```
 
 ### `.ai/stt.json`

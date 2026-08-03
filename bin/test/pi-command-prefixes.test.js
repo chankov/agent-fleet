@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { bootstrap } from "../lib/bootstrap.js";
+import { loadManifest } from "../lib/manifest.js";
+import { buildPlan } from "../lib/plan.js";
+import { applyPlan } from "../lib/apply.js";
+import { runVerify } from "../lib/verify.js";
 
 const commandSources = [
 	".pi/extensions/btw/index.ts",
@@ -69,9 +73,77 @@ test("pi init handoff names the prefixed setup command", () => {
 	assert.doesNotMatch(result.stdout, /run:\s*\n\s*\/setup-agent-fleet/);
 });
 
-test("guided setup safely migrates recorded legacy pi prompt targets", () => {
-	const skill = readFileSync(resolve("skills/guided-workspace-setup/SKILL.md"), "utf8");
-	assert.match(skill, /Pi `\/af-\*` migration/);
-	assert.match(skill, /recorded in `## install-status` and unchanged/);
-	assert.match(skill, /Preserve user-modified and unowned legacy files/);
+// The `af-` migration used to be prose in guided-workspace-setup/SKILL.md. It
+// is now a declared `legacyTargets` binding that apply() retires under the same
+// ownership rule as any other removal — see plans/deterministic-installer.md
+// phase 7.
+test("every prefixed command declares the unprefixed path it replaced", () => {
+	const manifest = loadManifest(resolve("."));
+	const commands = manifest.items.filter((i) => i.kind === "command");
+	assert.ok(commands.length > 0);
+
+	for (const command of commands) {
+		for (const [agent, binding] of Object.entries(command.agents)) {
+			const prefixed = binding.target.split("/").pop().startsWith("af-");
+			assert.equal(
+				Boolean(binding.legacyTargets?.length), prefixed,
+				`${command.id} (${agent}): legacyTargets should be declared exactly for af- targets`,
+			);
+			if (!prefixed) continue;
+			assert.deepEqual(binding.legacyTargets, [binding.target.replace("/af-", "/")]);
+		}
+	}
+});
+
+test("installing retires an unprefixed prompt we own, and keeps one the user wrote", () => {
+	const sourceRoot = resolve(".");
+	const manifest = loadManifest(sourceRoot);
+	const shipped = readFileSync(join(sourceRoot, ".pi/prompts/af-spec.md"), "utf8");
+
+	const run = (legacyContents) => {
+		const workspace = mkdtempSync(join(tmpdir(), "agent-fleet-af-migrate-"));
+		mkdirSync(join(workspace, ".pi", "prompts"), { recursive: true });
+		writeFileSync(join(workspace, ".pi/prompts/spec.md"), legacyContents);
+
+		const plan = buildPlan({
+			workspace, sourceRoot, packageVersion: manifest.packageVersion, manifest,
+			verb: "install", agent: "pi", items: ["command:spec"], platform: "linux",
+		});
+		const applied = applyPlan({ plan, manifest });
+		return { workspace, applied };
+	};
+
+	// Byte-identical to what we shipped: ours, so it goes.
+	const ours = run(shipped);
+	assert.equal(existsSync(join(ours.workspace, ".pi/prompts/spec.md")), false);
+	assert.equal(existsSync(join(ours.workspace, ".pi/prompts/af-spec.md")), true);
+	assert.match(
+		ours.applied.results.find((r) => r.id === "command:spec").detail,
+		/retired \.pi\/prompts\/spec\.md/,
+	);
+
+	// A same-named prompt the user wrote: never ours to delete.
+	const theirs = run("# my own /spec prompt\n");
+	assert.equal(
+		readFileSync(join(theirs.workspace, ".pi/prompts/spec.md"), "utf8"),
+		"# my own /spec prompt\n",
+	);
+});
+
+test("verify reports a lingering unprefixed prompt instead of staying silent", async () => {
+	const sourceRoot = resolve(".");
+	const manifest = loadManifest(sourceRoot);
+	const workspace = mkdtempSync(join(tmpdir(), "agent-fleet-af-stale-"));
+	mkdirSync(join(workspace, ".pi", "prompts"), { recursive: true });
+	writeFileSync(join(workspace, ".pi/prompts/spec.md"), "stale\n");
+
+	const report = await runVerify({
+		workspace, sourceRoot, packageVersion: manifest.packageVersion, manifest,
+		agent: "pi", platform: "linux", includeDoctor: false,
+	});
+
+	const finding = report.findings.find((f) => f.type === "legacy-target");
+	assert.ok(finding, "no legacy-target finding");
+	assert.equal(finding.path, ".pi/prompts/spec.md");
+	assert.equal(finding.severity, "advisory", "a stale prompt is not a broken workspace");
 });
