@@ -1,5 +1,108 @@
 # Agent Fleet changelog
 
+## 0.0.10
+
+### Patch Changes
+
+- c7a821c: Make `install` and `upgrade` real: the apply engine (Phase 4 of `plans/deterministic-installer.md`, completing Phase 5).
+
+  A brand-new repository can now be set up with one command and no coding agent in the loop:
+
+  ```
+  npx @chankov/agent-fleet@latest install --agent pi --profile recommended --yes
+  ```
+
+  - **`agent-fleet install`** applies a plan: copies, symlinks (`--method symlink`), generates personas through the tested transformer, rewrites the `justfile` managed region, and merges only agent-fleet's own keys into `.claude/settings.json`. Run without a selection in a terminal it asks which profile; piped, it requires the flags rather than guessing. `--yes` skips the single confirmation; `--allow-exec` admits the items that run a command, which are ordered after all file work so they see the finished tree.
+  - **`agent-fleet upgrade`** applies the three-way merge: clean upgrades land, local edits are preserved, and a file changed both locally and upstream is written beside yours as `<file>.new` while your copy is left untouched (exit `3`).
+  - **State and record.** Every pass writes `.ai/agent-fleet-state.json` — per-file hashes, ownership, method, version — and renders `.ai/agent-fleet-setup.md` from it, so the human record can no longer disagree with the machine one. The state file is written even when a pass fails partway, so a workspace never holds files it has no record of.
+  - **Safety is enforced, not documented.** Nothing is written outside the workspace, nothing is deleted that the state file does not record as ours, and nothing you have edited is deleted at all — a removal reports what it kept and why.
+
+  `verify` now compares the two shared-file forms for real (a managed region by its sentinel-bounded block, a JSON merge by its declared key paths) instead of reporting them as unchecked, so your own `justfile` recipes and settings keys never read as drift. Installing twice is a no-op, asserted in tests.
+
+  Unchanged: `init`, `doctor`, `update`, `cleanup-installer`, and the guided setup skill.
+
+- c7a821c: Add the deterministic installer's planner and the upgrade three-way merge (Phases 3 and 5 of `plans/deterministic-installer.md`).
+
+  - **`agent-fleet install --profile <name> --dry-run`** — resolves a selection (profiles ∪ explicit item ids, closed over `requires` and `companions`) against the workspace and prints the exact action list: what would be created, refreshed, repaired, kept, or skipped, in an order where every requirement precedes the item that needs it. A selection never removes anything; a narrower profile keeps what is already installed.
+  - **`agent-fleet upgrade --dry-run`** — plans an upgrade of what the workspace already has, using the `.versions/<recorded>` snapshot as the merge base. An untouched file that moved upstream is refreshed; a locally modified file whose source did not move is preserved; a file changed in both places is reported as a conflict and never resolved by guessing. `--accept-theirs` / `--accept-ours` resolve conflicts non-interactively, and an artifact retired upstream is proposed for removal by name.
+  - **Consent classes are enforced at plan time.** `exec` items are skipped unless `--allow-exec` is passed, and `external` / `operator` items are reported as steps the engine will never perform.
+  - Exit codes: `0` clean, `1` could not plan, `3` conflicts needing a decision.
+
+  `plan()` reads the filesystem and writes nothing; `verify` and both new verbs now share one workspace evaluation (`evaluateWorkspace`), so they cannot disagree about a file's state. Golden plans for a fresh `pi` / `claude-code` / `opencode` workspace are committed, so a change to the recommended set shows up as a reviewed diff.
+
+  Applying a plan lands with the apply engine in Phase 4; until then both verbs require `--dry-run` and refuse to run without it. `init`, `doctor`, `update`, `verify`, and the guided setup skill are unchanged.
+
+- c7a821c: `doctor` repairs through the install engine, and `uninstall` lands (Phase 6 of `plans/deterministic-installer.md`).
+
+  - **`agent-fleet doctor [--fix]`** now has two halves in one report. Recorded items that are missing, dangling, or linked outside the source root are rebuilt through the _same_ `apply()` path `install` writes with — a repaired file is byte-identical to a freshly installed one. The old scan stays for what the install record cannot own: broken links in a pre-engine workspace, and stale persona names in `.pi/agents/*.yaml`. Overrides problems and malformed `peers.yaml` entries remain advisory. Exit `2` when anything repairable is left, `--json` for the machine report, `--dry-run` to look without being asked anything.
+  - **`agent-fleet uninstall --items <id,…> | --all`** removes what the state file records, and only that. A recorded file whose bytes no longer match what we wrote is kept and listed as skipped. A companion travels with its parent unless another installed item still needs it, and an item another installed item pins is refused by name — so removing one pi extension cannot delete the `package.json` five others run from, and removing `damage-control-continue` while `agent-hub` is installed is refused rather than silently leaving the hub without its safety harness. Removing the last pi harness strips the `agent-fleet:harnesses` region from the `justfile` and leaves the rest of the file alone.
+  - **Hermes and Codex are real profiles.** `install --profile hermes-plugins --dry-run` (and `codex-bridge`) prints the exact command list for each artifact and touches nothing. Their targets are a Hermes profile and a user systemd unit — outside the workspace, the one place the engine writes — so they stay `operator`-consent by design. Every operator item now declares its steps in the manifest, and the manifest build fails if one does not.
+
+  Two fixes to the write path, both cases where a filesystem call silently did nothing:
+
+  - A **dangling symlink was never replaced** — `rmSync(path, { force: true })` stats through the link, saw ENOENT, and returned as if the path were already gone, so the replacing `symlinkSync` failed `EEXIST`. Repairing a broken link is exactly the case that hit this.
+  - **Emptied directories were left behind** on removal — the non-recursive `rmSync` throws `EISDIR` on any directory, so the prune walk aborted on its first step.
+
+- c7a821c: `guided-workspace-setup` becomes a front-end over the installer instead of the installer (Phase 7 of `plans/deterministic-installer.md`).
+
+  The skill is 544 lines shorter than it was — 220 down from 544 — because everything it used to describe now runs as code. Gone: the per-agent path table, the item-state table, the merge rules, the removal-ownership rules, the harness companion closure, and the `af-` migration procedure. What remains is what a program cannot do: ask which artifacts a project wants, draft `.ai/agent-fleet-overrides.md` from a scan of the workspace, and run the `pi-voice-stt` provider Q&A.
+
+  - **One command builds the menu.** `verify --json` now carries `groups` (agent-filtered), `profiles`, and per-item `subcategory`, `title`, `summary`, `recommended`, `owned`, and `state` — so the selection screen comes from a single call, and no front-end recomputes an item's state by eye.
+  - **The five setup/doctor slash commands were rewritten the same way.** They had each accumulated their own copy of the same rules.
+
+  Three rules that had only ever existed as prose are now encoded, and tested as behaviour:
+
+  - **Fleet Core** — the set `just fleet` loads into every session — is `requires` plus `pinnedBy` in the manifest. Installing any pi harness pulls the whole closure; uninstalling a member while a harness is installed is refused. A test parses `fleet_core_extensions` out of the `justfile` and fails if the manifest disagrees.
+  - **The `af-` prompt migration.** A workspace set up before the namespace still has `.pi/prompts/spec.md`, and pi keeps offering `/spec` from it. Commands now declare the unprefixed path they replaced; installing retires it under the ownership rule (a same-named prompt you wrote yourself is kept), and `verify` reports a surviving one as an advisory finding.
+  - **Stripping the `justfile` region.** Removing the last pi harness used to leave the managed block behind, so `just --list` kept advertising recipes for deleted harness directories.
+
+  Docs updated: `docs/npm-install.md` (the `doctor`, `uninstall`, and consent-class sections; CI usage is now the no-LLM install), and `docs/agent-fleet-setup.md` (the state file and the three-way merge, replacing the prose status table).
+
+- c7a821c: Add the deterministic installer's catalogue and read-only inspection pass (Phases 0–2 of `plans/deterministic-installer.md`).
+
+  - **`install-manifest.json`** — a generated catalogue of every installable artifact: source candidates, per-agent target and strategy, group, recommendation, consent class, and companion wiring. Built from the repository tree by `node bin/build-manifest.js`; `--check` fails when the committed copy is stale, so an artifact landing without a menu row is a test failure rather than a silent omission. Only judgement (grouping, recommendations, consent, companions) is hand-edited, in `manifest-meta.json`.
+  - **`agent-fleet verify`** — a read-only report of a workspace against the manifest: what the new `.ai/agent-fleet-state.json` records, what is on disk, and what the current package ships, including the three-way comparison against the `.versions/<recorded>` snapshot. Writes nothing. Supports `--agent`, `--workspace`, `--json`, `--no-doctor`, and exits `0`/`1`/`2`. The existing doctor findings are folded into the same report; findings are split into `problem` and `advisory`, and only problems affect the exit code.
+
+  No existing behaviour changes: `init`, `doctor`, `update`, and the guided setup skill are untouched.
+
+- 63cb0eb: Rewrite the setup docs around the deterministic CLI installer.
+
+  `README.md`, `docs/getting-started.md`, `docs/pi-setup.md`, `docs/opencode-setup.md`, and `docs/pi-extensions.md` still described the pre-engine world: `ln -s` chains into `.agents/skills/` and `~/.config/opencode/`, "symlink mode in `/setup-agent-fleet`", and `git pull` as the update mechanism. All of that is replaced by the verbs that actually do the work.
+
+  - **The no-agent path is documented first.** `install --agent <a> --profile <p> --yes` needs no coding agent and no model; `init` is presented as the conversational front-end over the same engine, not as the only way in. Profiles, `--items`, `--dry-run`, `--json`, and the exit codes are named where a reader would look for them.
+  - **Every symlink recipe is gone from the install paths.** Artifacts install as copies; freshness comes from `agent-fleet upgrade` and its three-way merge, not from editing a link target. `--method symlink` appears only where it is still true — inside an agent-fleet checkout.
+  - **pi setup is restructured into three paths** (CLI installer, pi package, clone for contributors) with a table of where each artifact kind lands. The clone path now installs _from_ the checkout (`node /path/to/agent-fleet/bin/cli.js install --workspace <project>`) instead of linking into it.
+  - **`--allow-exec` is explained where it bites**: the `npm ci` steps for `.pi/extensions/` and `.pi/harnesses/` are a separate consent class, printed and skipped without the flag.
+  - **OpenCode gains a project-scoped install section**; the manual `~/.config/opencode/` symlink recipe is kept but labelled as the advanced machine-wide alternative the CLI deliberately does not cover.
+  - Extension READMEs (`btw`, `compact-and-continue`, `agent-fleet-update-check`, `chrome-devtools-mcp`, `mcp-bridge`) and the `browser-testing-with-devtools` skill now give the `--items` command instead of an `ln -s`. `chrome-devtools-mcp` documents that `pi-extension:mcp-bridge` must be selected alongside it — it is not pulled in as a companion.
+
+  Every command added to the docs was verified against the CLI by dry-run.
+
+- 8c64b6b: Make the agent-hub's cost guardrails bind on a TASK rather than on a message, and stop the four escalation paths that turned a one-line change into a two-day run.
+
+  The failure this comes from: a request to add two missing Key Vault permissions produced a 493-line PRD, a 1216-line plan with hash-pinned manifests and a fixture suite, and 47 hours in one workspace — while the same change, made in a narrow workspace with two agents, took 13 minutes. Every existing guardrail was in place and none of them bound, because all of them were scoped to a user message.
+
+  - **Task-scoped budget** (`run-budget.js`) — a second envelope, `3×` the turn envelope, whose counters are **not** reset by a user message. Exhausting it is a hard stop; only `/af-new-task [label]` (or `set_task_tier` with `new_task: true`) opens a new window. Turn budgets refilled on every steering message, so a steered run could never hit one. The task clock charges **active** time only (turns that ran, minus `ask_user` waits): billing human idle would false-stop a normal steered session, and a false stop teaches people to reset the window reflexively. The auto-research pipe stays exempt from the turn budget but **is** charged against the task envelope — at 2 rounds × 4 questions per dispatch it would otherwise smuggle up to 144 research runs past the outer bound.
+  - **Ratcheted, task-scoped tier** — the task tier now survives the user's next message and moves one way cheaply: lowering is free, raising requires a `reason` naming what the ask turned out to contain. Previously the tier reset to null on every message and the next dispatch re-assumed `feature`, so a two-word correction bought six fresh dispatches. A skipped triage now assumes **`small`**, not `feature`: the tier latches for the whole task, and a never-declared tier is precisely the case where proportionality was not being considered — assuming `feature` there granted the whole apparatus for forgetting a tool call. An assumed tier is not a ratchet baseline, so the dispatcher's own first `set_task_tier` still needs no reason.
+  - **Tier persona gate** — at `trivial`/`small`, `dispatch_agent`/`spawn_research` refuse `planner`, `plan-reviewer`, `architect`, `security-auditor` and `deep-researcher`. Each opens a document/finding loop whose output must then be executed and re-reviewed. The refusal costs no budget slot and names the escape hatch (raise the tier, with a reason).
+  - **Review round cap** — review dispatches per task are capped by tier (trivial/small 1, feature 2, project uncapped); the next one is refused without spending a budget slot. This is where the review ratchet is cut, because closing it needs a second round.
+  - **Review finding budget** — review personas are dispatched with a blocking-finding cap tied to the tier (trivial 1, small 2, feature 5, project uncapped), plus the rule that a blocking finding may only enforce an invariant the task, plan, or project rules already state. The hub **counts** the returned findings (`review-findings.js`) and appends a visible over-budget notice, but deliberately never reclassifies one: no rule the hub can evaluate separates "invents a manifest nobody asked for" from "this logs a connection string", and silently demoting the second by position would move a real security finding into the section nobody acts on.
+  - **Docs lane** (`docs-lane.js`) — a dispatch whose whole `scope` is documentation refuses review personas (overridable per dispatch with `review_reason`) and tells the dispatcher not to open a review gate. An absent scope is never the lighter lane.
+  - **External-blocker stop** (`external-blocker.js`) — specialists emit `EXTERNAL_BLOCKED: <what is missing, who owns it>` when they need something outside the fleet's reach; the hub refuses the next dispatch with an owner-escalation packet until the human is addressed. This replaces the observed alternative: substituting internal work — scripts, manifests, fixtures, diagnostic packets — for a missing external fact for hours, with the assertion still ending UNPROVEN.
+  - **Immutable per-run artifact namespaces** (`run-namespace.js`) — session start now archives the previous session's artifacts into `.pi/agent-sessions/runs/<runId>/` with a read-only `meta.json` and an appended `runs/index.json`, instead of deleting them. Retention is the new `run-history-keep:` overrides key (default 10, `off` keeps everything). The old wipe plus per-session `builder-runN.md` naming is what made a post-mortem record eleven specialist returns and two reviews as NOT RECOVERABLE.
+
+  Supporting changes: `orchestrator`, `plan-reviewer` and `code-reviewer` personas carry the matching proportionality rules, and `spec-driven-development` and `planning-and-task-breakdown` gain a proportionality gate so the personas do not fight the code gates.
+
+- c7a821c: Symlink installs are retired for ordinary workspaces — artifacts install as copies.
+
+  `--method symlink` is now accepted only when the target workspace **is** an agent-fleet checkout (its `package.json` names `@chankov/agent-fleet`) — the one place where editing an installed artifact is _meant_ to edit the source. Everywhere else a symlink install is a trap: the link target can never move again, an npx cache clean breaks every link at once, a `git pull` in the source silently rewrites artifacts the workspace never agreed to change, and Windows needs Developer Mode. A copy plus `agent-fleet upgrade` gives the same freshness with a real three-way merge behind it.
+
+  - `--method` is gone from the help text of `init`, `install`, `upgrade`, and `update`. An explicit `--method symlink` outside a checkout is **refused** with an explanation, not silently downgraded — a flag you typed deserves an answer.
+  - **Existing symlink installs migrate automatically.** `verify` reports the workspace with a new advisory `symlink-retired` finding, and the next `install` or `upgrade` re-materialises every linked item as a real file and flips the recorded method to `copy`. Local edits are still preserved by `upgrade`'s merge; nothing is lost in the conversion.
+  - `guided-workspace-setup` and the three setup slash commands no longer ask copy-vs-symlink at all. There is no question left to ask.
+
+  Inside an agent-fleet checkout nothing changes: `--method symlink` still works, and that is the case the mode now exists for.
+
 ## 0.0.9
 
 ### Patch Changes
