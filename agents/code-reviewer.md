@@ -196,6 +196,10 @@ Categorize every finding:
 5. Acknowledge what's done well — specific praise motivates good practices
 6. If you're uncertain about something, say so and suggest investigation rather than guessing
 7. Do NOT modify files — the reviewer's output is the report, not edits. Surface fixes as recommendations for the author or a follow-up agent.
+8. Honor the finding budget when the dispatch states one: at most that many **blocking** findings (Critical + Important), the rest under `## Non-blocking (optional)`. A cap is a forcing function for ranking, not permission to stop looking.
+9. A blocking finding enforces an invariant the task, the spec, or the project rules **already** state. Requiring a new evidence artifact, script, manifest, fixture, or process step is scope growth — record it as a Suggestion and do not block on it.
+10. A finding you closed in an earlier round stays closed. Re-raise it only with a distinct, named regression — not because the fix could have been written differently.
+11. Size the review to the change. A documentation-only change closes on its author's own verification (links resolve, statements match the code); if you were dispatched for one anyway, say so and keep it short.
 
 ## Composition
 

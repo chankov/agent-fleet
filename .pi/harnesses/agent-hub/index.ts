@@ -89,7 +89,11 @@ import {
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
-import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_TIERS, budgetStatusLine, checkTurnBudget, contextOverflowDiagnostic, normalizeHubMode, normalizeTaskTier, resolveTurnBudget, shouldRecycleSession } from "./run-budget.js";
+import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_BUDGET_MULTIPLIER, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, contextOverflowDiagnostic, isReviewPersona, normalizeHubMode, remainingTaskResearch, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, turnActiveMs } from "./run-budget.js";
+import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
+import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
+import { checkExternalBlockerGate, externalBlockedProtocol, extractExternalBlockers } from "./external-blocker.js";
+import { DEFAULT_RUN_HISTORY_KEEP, appendRunIndex, buildRunMeta, makeRunId, normalizeRunHistoryKeep, pruneRunDirs, RUN_INDEX_FILENAME, RUNS_DIRNAME } from "./run-namespace.js";
 import { MAX_OPEN_ASSERTIONS, validateAssertionBatch } from "./assertion-ledger.js";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
 import {
@@ -113,7 +117,7 @@ import { comsRequiredRefusal, parseDispatchPolicy, resolveDispatchBackend } from
 import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from "./research-retention.js";
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
 import { createAccessApprovalRouter } from "./access-approval.ts";
-import { readdirSync, readFileSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync, rmSync } from "fs";
+import { chmodSync, readdirSync, readFileSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync, rmSync } from "fs";
 import {
 	HerdrAgentWatch,
 	HerdrPresence,
@@ -449,6 +453,11 @@ function extractNeedsResearch(output: string): string[] {
 //   watchdog-judge-model: <model spec> — model for the drift judge (default:
 //                              the researcher persona's model, else the
 //                              dispatcher's).
+//   run-history-keep: <n>|off  — how many previous sessions' artifact archives to
+//                              retain under .pi/agent-sessions/runs/ (default 10).
+//                              Each session archives the previous one's artifacts
+//                              into an immutable runs/<runId>/ namespace instead of
+//                              deleting them; "off" retains every run.
 
 interface AgentTeamOverrides {
 	language: string;
@@ -474,6 +483,9 @@ interface AgentTeamOverrides {
 	};
 	watchdogSetting: string;
 	watchdogJudgeModel: string | null;
+	// How many previous sessions' artifact archives to keep under
+	// .pi/agent-sessions/runs/ (run-namespace.js). null = keep everything.
+	runHistoryKeep: number | null;
 	warnings: string[];
 }
 
@@ -493,6 +505,7 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	budgetOverrides: {},
 	watchdogSetting: DEFAULT_WATCHDOG_SETTING,
 	watchdogJudgeModel: null,
+	runHistoryKeep: DEFAULT_RUN_HISTORY_KEEP,
 	warnings: [],
 };
 
@@ -544,6 +557,14 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		}
 		if (key === "docs" && value) {
 			result.docsPaths = value.split(",").map(s => s.trim()).filter(Boolean);
+		}
+		if (key === "run-history-keep" && value) {
+			const keep = normalizeRunHistoryKeep(value);
+			if (keep === undefined) {
+				result.warnings.push(`run-history-keep "${value}" is not a positive integer or "off" — using the default (${DEFAULT_RUN_HISTORY_KEEP})`);
+			} else {
+				result.runHistoryKeep = keep;
+			}
 		}
 		if (key === "research-keep" && value) {
 			const keep = parseResearchKeep(value);
@@ -2065,14 +2086,48 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	let budgetOverrides: AgentTeamOverrides["budgetOverrides"] = {};
 	let turnDispatchCount = 0;
 	let turnResearchCount = 0;
-	// Task tier (complexity triage): declared by the dispatcher via set_task_tier,
-	// reset each user turn. Null until declared; the first dispatch of a turn
-	// assumes DEFAULT_TASK_TIER outside strict mode. Caps = min(mode, tier).
-	let turnTaskTier: string | null = null;
+	// ── Task-scoped budget & tier (run-budget.js) ──
+	// A per-message allowance cannot bound a task: every steering message opened a
+	// fresh turn window, so a run could spend 8 dispatches and 60 minutes again and
+	// again without any counter ever binding. These counters span the whole TASK
+	// and are cleared only by an explicit new task (/af-new-task or
+	// set_task_tier `new_task: true`) — not by a user message.
+	let taskDispatchCount = 0;
+	let taskResearchCount = 0;
+	let taskLabel: string | null = null;
+	// The task clock charges ACTIVE time only — turns that ran, minus the time the
+	// dispatcher spent blocked on ask_user. Raw wall clock would bill the human's
+	// lunch break, an overnight pause, and every long answer against the task, and
+	// at fast mode's 45-minute envelope that hard-stops a task with two dispatches
+	// spent. A false stop is worse than no stop: it teaches people to reset the
+	// task window reflexively, which is the one thing that must stay deliberate.
+	// `taskActiveMs` accumulates finished turns; the open turn is added at check time.
+	let taskActiveMs = 0;
+	let turnAskUserWaitMs = 0;
+	// Review dispatches spent on this task (review-round cap).
+	let taskReviewRounds = 0;
+	// Task tier (complexity triage): declared by the dispatcher via set_task_tier.
+	// TASK-scoped, not turn-scoped, and it moves by ratchet — down freely, up only
+	// with a stated reason (applyTierChange). Null until declared; the first
+	// dispatch assumes DEFAULT_TASK_TIER outside strict mode. Caps = min(mode, tier).
+	let taskTier: string | null = null;
+	// Was the tier ASSUMED by the hub rather than declared by the dispatcher? The
+	// distinction matters to the ratchet: an assumed tier must not turn the
+	// dispatcher's own first triage call into an "escalation" that needs a reason.
+	let taskTierAssumed = false;
 	// Duplicate-dispatch guard: fingerprints of (agent, task) already dispatched
 	// THIS turn. Auto-research resumes and /af-agents-restart call dispatchAgent
 	// directly, so only real dispatcher tool calls are guarded.
 	const turnDispatchFingerprints = new Set<string>();
+	// ── External-blocker circuit breaker (external-blocker.js) ──
+	// Set when a specialist reports it needs something outside the fleet's reach;
+	// gates the next dispatch until the human has been addressed. Cleared by an
+	// ask_user call, by a new user turn (the human spoke), and by a new task.
+	let externalBlockers: { agent: string; what: string }[] = [];
+	let externalBlockerAcknowledged = false;
+	let externalBlockerRefusedOnce = false;
+	// Per-run artifact archive retention (run-namespace.js).
+	let runHistoryKeep: number | null = DEFAULT_RUN_HISTORY_KEEP;
 	// ── Drift watchdog (drift-watchdog.js) ──
 	// Hub-wide setting from the overrides file, live-switchable via /af-watchdog;
 	// per-agent overrides ("on"/"off") win over it; a dispatch_agent `watchdog`
@@ -2081,12 +2136,80 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	let watchdogJudgeModel: string | null = null;
 	const watchdogAgentOverrides = new Map<string, "on" | "off">();
 	function currentBudget() {
-		return resolveTurnBudget(hubMode, budgetOverrides, turnTaskTier);
+		return resolveTurnBudget(hubMode, budgetOverrides, taskTier);
+	}
+	function currentTaskBudget() {
+		return resolveTaskBudget(currentBudget());
+	}
+	function taskCounters() {
+		return { dispatches: taskDispatchCount, research: taskResearchCount };
+	}
+	/**
+	 * Active time spent on this task: finished turns plus the open turn, each
+	 * minus its ask_user waits. An ask_user still in flight is subtracted too, so
+	 * the clock does not tick while the dispatcher sits at a question.
+	 */
+	function taskActiveElapsedMs(): number {
+		let openWait = 0;
+		const now = Date.now();
+		for (const startedAt of askUserStarts.values()) openWait += Math.max(0, now - startedAt);
+		return taskActiveMs + turnActiveMs(currentTurnStartedAt, now, turnAskUserWaitMs + openWait);
+	}
+	/** Fold the turn that is ending into the task's active-time accumulator. */
+	function closeTurnActiveTime() {
+		if (!currentTurnStartedAt) return;
+		taskActiveMs += turnActiveMs(currentTurnStartedAt, Date.now(), turnAskUserWaitMs);
+		turnAskUserWaitMs = 0;
+	}
+	/** Clear the task window: counters, tier, clock, review rounds, blocker breaker. */
+	function resetTaskWindow(label: string | null = null) {
+		taskDispatchCount = 0;
+		taskResearchCount = 0;
+		taskActiveMs = 0;
+		turnAskUserWaitMs = 0;
+		taskReviewRounds = 0;
+		taskLabel = label;
+		taskTier = null;
+		taskTierAssumed = false;
+		externalBlockers = [];
+		externalBlockerAcknowledged = false;
+		externalBlockerRefusedOnce = false;
+		turnDispatchFingerprints.clear();
+		updateModeStatus();
 	}
 	function updateModeStatus() {
 		try {
-			widgetCtx?.ui?.setStatus("hub-mode", budgetStatusLine(hubMode, { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnTaskTier));
+			widgetCtx?.ui?.setStatus(
+				"hub-mode",
+				budgetStatusLine(
+					hubMode,
+					{ dispatches: turnDispatchCount, research: turnResearchCount },
+					currentBudget(),
+					// A trailing "?" marks a tier the hub assumed rather than one the
+					// dispatcher declared — the human can see that triage was skipped.
+					taskTier && taskTierAssumed ? `${taskTier}?` : taskTier,
+					{ counters: taskCounters(), budget: currentTaskBudget() },
+				),
+			);
 		} catch {}
+	}
+	/**
+	 * The two gates that must run BEFORE any budget is charged, in severity
+	 * order: an unacknowledged external blocker, then the tier's persona gate.
+	 * Returns the refusal text, or null when the call may proceed.
+	 */
+	function preflightGate(persona: string): { reason: string; message: string } | null {
+		const blocked = checkExternalBlockerGate({
+			blockers: externalBlockers,
+			acknowledged: externalBlockerAcknowledged,
+			askUserAvailable,
+			refusedOnce: externalBlockerRefusedOnce,
+		});
+		if (blocked) {
+			externalBlockerRefusedOnce = true;
+			return blocked;
+		}
+		return checkTierPersonaGate(taskTier, persona);
 	}
 	// ── Per-turn cost report (/af-hub-report) ──
 	interface TurnReport {
@@ -2221,6 +2344,68 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			mkdirSync(safePathWithin(root, kind), { recursive: true });
 		}
 		return root;
+	}
+
+	/**
+	 * Move the PREVIOUS session's artifacts into `runs/<runId>/artifacts/` — a
+	 * namespace written once and never reused — record it in `runs/index.json`,
+	 * and prune to `run-history-keep` archives. Best-effort throughout: failing to
+	 * archive must never stop a session from starting, but it must also never
+	 * silently fall back to deleting the artifacts.
+	 */
+	function archivePreviousRun(): string | null {
+		const root = artifactsRoot();
+		if (!existsSync(root)) return null;
+		let counts: Record<string, number> = {};
+		let total = 0;
+		try {
+			for (const kind of ARTIFACT_KINDS) {
+				const dir = safePathWithin(root, kind);
+				if (!existsSync(dir)) continue;
+				const n = readdirSync(dir).length;
+				if (n > 0) counts[kind] = n;
+				total += n;
+			}
+		} catch { /* unreadable tree — fall through and try the move anyway */ }
+		if (total === 0) {
+			// Nothing worth keeping: an empty layout is not history.
+			try { rmSync(root, { recursive: true, force: true }); } catch {}
+			return null;
+		}
+		const runId = makeRunId();
+		try {
+			const runsDir = safePathWithin(sessionDir, RUNS_DIRNAME);
+			const runDir = safePathWithin(runsDir, runId);
+			mkdirSync(runDir, { recursive: true });
+			renameSync(root, safePathWithin(runDir, "artifacts"));
+			const meta = buildRunMeta({
+				runId,
+				archivedAt: Date.now(),
+				cwd: sessionDir,
+				project: process.env.PI_COMS_PROJECT || null,
+				workspace: process.env.HERDR_WORKSPACE_ID || null,
+				artifactCounts: counts,
+			});
+			const metaPath = safePathWithin(runDir, "meta.json");
+			writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+			// Written once, never rewritten: make that a file mode, not a promise.
+			try { chmodSync(metaPath, 0o444); } catch {}
+
+			const indexPath = safePathWithin(runsDir, RUN_INDEX_FILENAME);
+			let existing: any = null;
+			try { existing = JSON.parse(readFileSync(indexPath, "utf-8")); } catch {}
+			const index = appendRunIndex(existing, { runId, archivedAt: meta.archivedAt, artifactCounts: counts, project: meta.project, workspace: meta.workspace }, runHistoryKeep);
+			writeFileSync(indexPath, JSON.stringify(index, null, 2));
+
+			for (const stale of pruneRunDirs(readdirSync(runsDir), runHistoryKeep)) {
+				try { rmSync(safePathWithin(runsDir, stale), { recursive: true, force: true }); } catch {}
+			}
+			return runId;
+		} catch {
+			// The archive failed. Leave the artifacts exactly where they are rather
+			// than deleting them — a stale tree is recoverable, a deleted one is not.
+			return null;
+		}
 	}
 
 	function loadInputArtifacts(paths: string[] | undefined, ctx: any): InputArtifactPreview[] {
@@ -2381,7 +2566,13 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		// dirs (delegate children's events + sessions).
 		try { rmSync(safePathWithin(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
 		try { rmSync(safePathWithin(sessionDir, "delegations"), { recursive: true, force: true }); } catch {}
-		try { rmSync(safePathWithin(sessionDir, "artifacts"), { recursive: true, force: true }); } catch {}
+		// Artifacts are NOT ephemeral, and deleting them here is what made a
+		// post-mortem record eleven specialist returns and two reviews as NOT
+		// RECOVERABLE: the next session's `builder-run1.md` reused the same path as
+		// the previous session's, and the wipe removed the originals first. Archive
+		// the previous session's artifacts into an immutable per-run namespace
+		// instead, then start this session with an empty tree.
+		archivePreviousRun();
 		ensureArtifactsLayout();
 		// The assertion ledger is per-task and as ephemeral as the session that owns
 		// it — wipe on session start like findings/, then start with an empty ledger.
@@ -3148,6 +3339,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 ## Dispatch protocol (agent-hub)
 You are serving a dispatched task as a standing peer; the dispatcher only receives this reply, so make it your complete final answer.
 - Clarification: if you need a HUMAN decision (ambiguity, missing input, contradiction, or a destructive/irreversible next step), do NOT guess — include line(s) of the form \`ASK_USER: <one clear English question>\`; you will be re-dispatched with the answers.
+${externalBlockedProtocol()}
 - Deliverable-to-file: when your deliverable is a document (plan, review, critique, inventory, report) and your tools allow writing, write the full document to .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence) — never repo-root ./artifacts/... — and finish with the artifact-relative path (artifacts/<kind>/${agentKey}-run${runNumber}.md) plus a digest of at most 10 lines.
 - If the task includes acceptance assertions (A1, A2, ...), include the structured return from skills/orchestration-verification/SKILL.md.` +
 			buildRulesProtocol() + buildDocsProtocol();
@@ -3547,6 +3739,9 @@ return a single line of the form:
 You may emit multiple ASK_USER lines if you have several questions. The dispatcher
 will surface each to the human user in ${userLanguage} and re-dispatch you with the
 answers. Do not invent values, do not pick "reasonable defaults" silently — ask.
+
+## External-blocker protocol
+${externalBlockedProtocol()}
 
 ## Research protocol
 If you need reconnaissance you cannot perform with your own tools (broad code search,
@@ -4835,20 +5030,55 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the specialist must read the file itself." }))),
 			scope: Type.Optional(Type.Array(Type.String({ description: "Optional advisory file scope globs for writable agents. Changes outside are reported in details.scopeViolations; nothing is auto-reverted. Also arms the drift watchdog's live out-of-scope rule." }))),
 			watchdog: Type.Optional(Type.Boolean({ description: "Force the drift watchdog on/off for THIS dispatch (default: per-agent /af-watchdog override, then the hub-wide setting)." })),
+			review_reason: Type.Optional(Type.String({ description: "Why a documentation-only change needs a review gate (e.g. it publishes a credential, or states a contract other systems rely on). Only needed when dispatching a review persona with a docs-only `scope`." })),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
-			const { task, artifacts, scope, watchdog } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[]; watchdog?: boolean };
+			const { task, artifacts, scope, watchdog, review_reason } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[]; watchdog?: boolean; review_reason?: string };
 			// Display names / underscores resolve to the persona slug key space, so
 			// `agent: "Test Engineer"` never burns a dispatch on a lookup error.
 			const agent = normalizeAgentInput((params as { agent: string }).agent);
-			// Unclassified turn: assume the default tier (outside strict, whose full
+			// Unclassified task: assume the default tier (outside strict, whose full
 			// contract runs uncapped by tiers). The prompt asks for set_task_tier
 			// FIRST; this is the fail-safe, not the intended path.
-			if (turnTaskTier === null && hubMode !== "strict") {
-				turnTaskTier = DEFAULT_TASK_TIER;
-				turnReport.tier = turnTaskTier;
+			if (taskTier === null && hubMode !== "strict") {
+				taskTier = DEFAULT_TASK_TIER;
+				taskTierAssumed = true;
+				turnReport.tier = taskTier;
 				updateModeStatus();
+			}
+			// Pre-flight refusals, in severity order, BEFORE anything is charged: an
+			// unacknowledged external blocker, the tier's persona gate, the review-round
+			// cap, then the docs-only lane. None of these reached a specialist, so none
+			// of them costs a budget slot.
+			const preflight = preflightGate(agent)
+				?? checkReviewRoundCap(taskTier, agent, taskReviewRounds)
+				?? checkDocsLane(agent, scope || [], review_reason);
+			if (preflight) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: preflight.message }],
+					details: { agent, task, status: preflight.reason, reason: preflight.reason, elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
+			}
+			// Task-budget gate: the outer bound a turn window never provided. Checked
+			// BEFORE the turn budget because it is the more severe stop — a new user
+			// message reopens the turn window but not the task window.
+			const taskRefusal = checkTaskBudget(
+				"dispatch",
+				taskCounters(),
+				currentTaskBudget(),
+				taskActiveElapsedMs(),
+				taskTier,
+			);
+			if (taskRefusal) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: taskRefusal.message }],
+					details: { agent, task, status: "task_budget_refused", reason: taskRefusal.reason, elapsed: 0, exitCode: 1, fullOutput: "" },
+				};
 			}
 			// Turn-budget gate: refuse BEFORE any spawn. The dispatcher must stop,
 			// summarize, and ask the user; a new user turn opens a fresh window.
@@ -4897,6 +5127,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				};
 			}
 			turnDispatchCount++;
+			taskDispatchCount++;
+			if (isReviewPersona(agent)) taskReviewRounds++;
 			sessionTotals.dispatches++;
 			updateModeStatus();
 			let writableTracked = false;
@@ -4927,7 +5159,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					scopeSnapshot = snapshotWorktree(ctx.cwd || process.cwd());
 				}
 
-				let result = await dispatchAgent(agent, task, ctx, inputArtifacts, scopeGlobs, watchdog);
+				// A review is a gate, and a gate has a size. Unbounded review authority
+				// ratchets: each round's findings become plan invariants, and the larger
+				// plan justifies another round. The cap binds BLOCKING findings only —
+				// everything else is still reported, just not as a gate.
+				const findingClause = reviewBudgetClause(taskTier, agent);
+				const dispatchedTask = findingClause ? `${task}\n\n${findingClause}` : task;
+
+				let result = await dispatchAgent(agent, dispatchedTask, ctx, inputArtifacts, scopeGlobs, watchdog);
 				let dispatchBilled = result.billed ?? 0;
 				let dispatchOut = result.out ?? 0;
 
@@ -4937,9 +5176,25 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				// session with the paths. The dispatcher only ever sees a short notice,
 				// keeping its context clean of raw findings.
 				const researchRounds: { questions: string[]; files: string[] }[] = [];
+				let autoResearchTaskCapped = false;
 				while (result.exitCode === 0 && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS) {
-					const researchQs = extractNeedsResearch(result.output).slice(0, MAX_AUTO_RESEARCH_QUESTIONS);
+					// The auto-pipe is exempt from the TURN budget (it is hub mechanics,
+					// not a dispatcher decision, and must not steal the dispatcher's
+					// slots) but NOT from the TASK envelope. At 2 rounds x 4 questions per
+					// dispatch and 18 dispatches per task, leaving it uncounted would put
+					// 144 research runs inside the bound that is meant to be the outer one.
+					const researchLeft = remainingTaskResearch(currentTaskBudget(), taskCounters());
+					if (researchLeft === 0) {
+						autoResearchTaskCapped = true;
+						break;
+					}
+					const questionCap = researchLeft == null
+						? MAX_AUTO_RESEARCH_QUESTIONS
+						: Math.min(MAX_AUTO_RESEARCH_QUESTIONS, researchLeft);
+					const researchQs = extractNeedsResearch(result.output).slice(0, questionCap);
 					if (researchQs.length === 0) break;
+					taskResearchCount += researchQs.length;
+					updateModeStatus();
 
 					if (onUpdate) {
 						onUpdate({
@@ -5063,6 +5318,12 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					? `\n\n⚠ ${agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. ` +
 					  `Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`
 					: "";
+				const autoResearchTaskNotice = autoResearchTaskCapped
+					? `\n\n⚠ ${agent} paused for research, but the TASK research envelope is spent ` +
+					  `(${taskResearchCount}/${currentTaskBudget().maxResearch}) — no helper was spawned and the specialist ` +
+					  `was not resumed. Its questions are unanswered. Narrow the task so it can proceed on what it has, ` +
+					  `or open a new task window with /af-new-task if this is genuinely different work.`
+					: "";
 
 				const returnPathNotice = returnPath ? `\n\nFull specialist output: ${returnPath}` : "";
 				// Named as a delivery failure, not a result: the run did not answer.
@@ -5089,6 +5350,42 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					: "";
 				const scopeNotice = scopeNoticeText(scopeViolations);
 				const contractNotice = contractNoticeText(contractNotices);
+				// External blockers arm the circuit breaker: the NEXT dispatch is refused
+				// until the human has been addressed. Recording it here (not in the
+				// dispatcher's reading of the prose) is the point — a blocker that only
+				// exists in a summary gets routed around.
+				const reportedBlockers = extractExternalBlockers(result.output);
+				let externalBlockerNotice = "";
+				if (reportedBlockers.length > 0) {
+					for (const what of reportedBlockers) {
+						if (!externalBlockers.some(b => b.what === what)) externalBlockers.push({ agent, what });
+					}
+					externalBlockerAcknowledged = false;
+					externalBlockerRefusedOnce = false;
+					externalBlockerNotice = `\n\n⛔ ${agent} reported an EXTERNAL BLOCKER — something outside the fleet's reach is missing:\n` +
+						reportedBlockers.map((w, i) => `  ${i + 1}. ${w}`).join("\n") +
+						`\nThe next dispatch/research call is refused until you escalate this to the human. ` +
+						`Do not build a substitute for the missing fact.`;
+				}
+				// Review accounting: count what came back and say so when it exceeds the
+				// tier's cap. The hub does NOT reclassify findings — no rule it can
+				// evaluate tells "invents a manifest" from "this leaks a credential",
+				// and demoting the second by position is worse than tolerating the
+				// first. The enforcement is the review-ROUND cap above, which needs no
+				// judgement about content.
+				let findingNotice = "";
+				if (isReviewPersona(agent)) {
+					findingNotice = findingBudgetNotice(
+						agent,
+						blockingFindingCap(taskTier),
+						countReviewFindings(result.output),
+						taskReviewRounds,
+						reviewRoundCap(taskTier),
+					) || "";
+				}
+				// A documentation-only dispatch closes on the writer's own verification.
+				const docsNotice = docsLaneNotice(agent, scopeGlobs);
+				const docsLaneText = docsNotice ? `\n\n${docsNotice}` : "";
 				// An extracted block is labelled every time it is shown: it was restated
 				// by a cheap pass, not declared by the specialist, and it must never be
 				// mistaken for first-hand evidence when gating on it.
@@ -5101,7 +5398,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					: truncated;
 
 				return {
-					content: [{ type: "text", text: `${summary}${questionsNotice}${researchNotice}${budgetNotice}${returnPathNotice}${pendingNotice}${failurePathNotice}${artifactKindNotice}${contextNotice}${scopeNotice}\n\n${digest}` }],
+					content: [{ type: "text", text: `${summary}${externalBlockerNotice}${questionsNotice}${researchNotice}${budgetNotice}${autoResearchTaskNotice}${returnPathNotice}${pendingNotice}${failurePathNotice}${artifactKindNotice}${contextNotice}${scopeNotice}${findingNotice}${docsLaneText}\n\n${digest}` }],
 					details: {
 						agent,
 						task,
@@ -5203,6 +5500,34 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
 			const { task, persona, model, artifacts } = params as { task: string; persona?: string; model?: string; artifacts?: string[] };
 
+			// Pre-flight refusals before anything is charged: an unacknowledged
+			// external blocker, then the tier's persona gate (deep-researcher is the
+			// most expensive helper in the system and is not a trivial-tier tool).
+			const preflight = preflightGate(persona || "");
+			if (preflight) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: preflight.message }],
+					details: { status: preflight.reason, reason: preflight.reason },
+				};
+			}
+			// Task-budget gate: checked before the turn budget (the more severe stop).
+			const taskRefusal = checkTaskBudget(
+				"research",
+				taskCounters(),
+				currentTaskBudget(),
+				taskActiveElapsedMs(),
+				taskTier,
+			);
+			if (taskRefusal) {
+				turnReport.refusals++;
+				sessionTotals.refusals++;
+				return {
+					content: [{ type: "text", text: taskRefusal.message }],
+					details: { status: "task_budget_refused", reason: taskRefusal.reason },
+				};
+			}
 			// Turn-budget gate (dispatcher-initiated research only — the auto-research
 			// pipe and the /af-research command are exempt).
 			const budgetRefusal = checkTurnBudget(
@@ -5256,6 +5581,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			}
 
 			turnResearchCount++;
+			taskResearchCount++;
 			turnReport.research++;
 			sessionTotals.research++;
 			updateModeStatus();
@@ -5352,28 +5678,42 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		name: "set_task_tier",
 		label: "Set Task Tier",
 		description:
-			"Classify THIS user turn's ask before your first dispatch: trivial (one obvious, low-risk change — 1 dispatch), small (a contained change, no planning pipeline — 2 dispatches), feature (a normal multi-step feature — 6 dispatches), project (a large effort — mode budget applies). The hub enforces the resulting caps; re-call it if the ask turns out bigger than classified (raising the tier mid-turn is allowed and cheap — say why).",
+			"Classify the CURRENT TASK before your first dispatch: trivial (one obvious, low-risk change — 1 dispatch), small (a contained change, no planning pipeline — 2 dispatches), feature (a normal multi-step feature — 6 dispatches), project (a large effort — mode budget applies). The tier persists across user messages and moves by ratchet: LOWERING it is always free, RAISING it requires `reason` naming what the ask turned out to contain. Pass `new_task: true` only when the human has moved on to a genuinely different piece of work — it also resets the task budget.",
 		parameters: Type.Object({
 			tier: Type.String({ description: "One of: trivial | small | feature | project" }),
-			reason: Type.Optional(Type.String({ description: "One line on why this tier fits the ask." })),
+			reason: Type.Optional(Type.String({ description: "One line on why this tier fits the ask. REQUIRED when raising the tier above the current one." })),
+			new_task: Type.Optional(Type.Boolean({ description: "The human moved on to a different piece of work: clears the task budget, the tier, and the duplicate guard. Not for a correction or a follow-up on the same work." })),
 		}),
 		async execute(_callId, params, _signal, _onUpdate, _ctx) {
-			const { tier, reason } = params as { tier: string; reason?: string };
-			const normalized = normalizeTaskTier(tier);
-			if (!normalized) {
+			const { tier, reason, new_task } = params as { tier: string; reason?: string; new_task?: boolean };
+			if (new_task) resetTaskWindow(null);
+			// An ASSUMED tier is the hub's fail-safe, not a declaration to ratchet
+			// against: the dispatcher's own first triage must not be refused as an
+			// "escalation" for lacking a reason it had no way to know it needed.
+			const change = applyTierChange(taskTierAssumed ? null : taskTier, tier, reason);
+			if (!change.ok) {
 				return {
-					content: [{ type: "text" as const, text: `Unknown tier "${tier}" — expected one of: ${TASK_TIERS.join(", ")}. Tier unchanged (${turnTaskTier ?? "unset"}).` }],
-					details: { status: "error", tier: turnTaskTier },
+					content: [{ type: "text" as const, text: change.message }],
+					details: { status: "error", reason: change.reason, tier: change.tier },
 				};
 			}
-			turnTaskTier = normalized;
-			turnReport.tier = normalized;
+			taskTier = change.tier;
+			taskTierAssumed = false;
+			turnReport.tier = change.tier;
 			updateModeStatus();
 			const b = currentBudget();
+			const tb = currentTaskBudget();
 			const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
+			const spent = `${taskDispatchCount}/${cap(tb.maxDispatches)} dispatches, ${taskResearchCount}/${cap(tb.maxResearch)} research`;
 			return {
-				content: [{ type: "text" as const, text: `Task tier: ${normalized}${reason ? ` (${reason})` : ""}. Effective caps this turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Size the apparatus accordingly — do not spend a cap just because it exists.` }],
-				details: { status: "ok", tier: normalized },
+				content: [{
+					type: "text" as const,
+					text: `${change.message}${new_task ? " (new task window opened)" : ""}\n` +
+						`Per turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. ` +
+						`Whole task: ${spent} spent. ` +
+						`Size the apparatus accordingly — do not spend a cap just because it exists.`,
+				}],
+				details: { status: "ok", tier: change.tier, escalated: change.escalated, newTask: !!new_task },
 			};
 		},
 		renderCall(args, theme) {
@@ -6391,6 +6731,32 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			hubMode = mode;
 			updateModeStatus();
 			ctx.ui.notify(`Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)`, "success");
+		},
+	});
+
+	// ── /af-new-task: open a fresh TASK window ──
+	// The task budget is deliberately immune to a user message — a steering
+	// message is a correction, not a new ask, and resetting on it is what let a
+	// run spend a fresh envelope per correction. Opening a new window is
+	// therefore an explicit, human decision, and this is where it is made.
+	pi.registerCommand("af-new-task", {
+		description: "Open a fresh task window: clears the task budget, the task tier, the duplicate guard, and any external-blocker stop. Use when moving on to different work — not for a correction to the current work.",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const label = (args || "").trim() || null;
+			const spentDispatches = taskDispatchCount;
+			const spentResearch = taskResearchCount;
+			const spentReviews = taskReviewRounds;
+			const spentMin = Math.round(taskActiveElapsedMs() / 60_000);
+			const priorTier = taskTier;
+			resetTaskWindow(label);
+			ctx.ui.notify(
+				`New task window${label ? `: ${label}` : ""}\n` +
+				`Previous task${priorTier ? ` (tier ${priorTier})` : ""} spent ${spentDispatches} dispatches, ` +
+				`${spentResearch} research, ${spentReviews} review round(s), ${spentMin} min active.\n` +
+				`Tier is unset — the dispatcher re-triages on its next dispatch.`,
+				"success",
+			);
 		},
 	});
 
@@ -7650,12 +8016,20 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// ask_user call with its tool_execution start/end so /af-agents-history can subtract
 	// that "away from keyboard" time from the dispatcher's real work.
 	pi.on("tool_execution_start", async (event) => {
-		if (event.toolName === "ask_user") askUserStarts.set(event.toolCallId, Date.now());
+		if (event.toolName !== "ask_user") return;
+		askUserStarts.set(event.toolCallId, Date.now());
+		// Asking the human IS the escalation the external-blocker breaker demands:
+		// once it is under way, the gate opens.
+		externalBlockerAcknowledged = true;
+		externalBlockerRefusedOnce = false;
 	});
 	pi.on("tool_execution_end", async (event) => {
 		if (event.toolName !== "ask_user") return;
 		const startedAt = askUserStarts.get(event.toolCallId);
 		askUserStarts.delete(event.toolCallId);
+		// The task clock bills active time only — the human's answer is not the
+		// fleet's work, and billing it is what would false-stop a steered session.
+		if (startedAt) turnAskUserWaitMs += Math.max(0, Date.now() - startedAt);
 		if (startedAt == null) return;
 		const interval: [number, number] = [startedAt, Date.now()];
 		// Attach to the live dispatcher entry, or buffer until one is created this turn.
@@ -7675,18 +8049,28 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			currentOrchestratorEntry.endedAt = Date.now();
 			if (currentOrchestratorEntry.status === "running") currentOrchestratorEntry.status = "done";
 		}
+		// Fold the turn that just ended into the task's active-time accumulator
+		// before the clock is re-based; inter-turn idle is never charged because
+		// no turn is open across it.
+		closeTurnActiveTime();
 		turnActive = true;
 		currentTurnStartedAt = Date.now();
 		currentOrchestratorEntry = null;
 		askUserStarts.clear();
 		turnAskUserIntervals.length = 0;
-		// Fresh turn → fresh budget window (mode itself persists across turns).
-		// The tier and the duplicate guard are turn-scoped too: a new user message
-		// is a new ask, so it re-triages and may legitimately repeat a task.
+		// Fresh turn → fresh TURN budget window (mode persists across turns). The
+		// TASK budget, the tier, and the external-blocker breaker deliberately do
+		// NOT reset here: a steering message is a correction to the same work, not
+		// a new ask, and resetting on it is precisely how a run spent eight fresh
+		// dispatches per correction and never hit a bound. Only /af-new-task (or
+		// set_task_tier `new_task: true`) opens a new task window.
 		turnDispatchCount = 0;
 		turnResearchCount = 0;
-		turnTaskTier = null;
 		turnDispatchFingerprints.clear();
+		// The human sent a message, so an external blocker has been surfaced to them
+		// by definition — the breaker opens and re-arms on the next report.
+		externalBlockerAcknowledged = true;
+		externalBlockerRefusedOnce = false;
 		// Snapshot the previous turn's cost report before opening a fresh one.
 		if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) {
 			lastTurnReport = turnReport;
@@ -7791,6 +8175,7 @@ ask the human. You MUST instead:
 		// budgets in code (dispatch_agent/spawn_research refuse past them); the
 		// prompt teaches the dispatcher to plan within them instead of hitting them.
 		const budget = currentBudget();
+		const taskBudget = currentTaskBudget();
 		const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
 		const capMin = (ms: number | null) => (ms == null ? "unlimited" : `${Math.round(ms / 60_000)} min`);
 		const modeSection = `## Task triage (FIRST, before any dispatch)
@@ -7807,14 +8192,31 @@ to how interesting the work is.
   file, a numbered breakdown), do NOT re-plan or re-spec it. Skip planner and
   plan-reviewer; batch the plan's tasks straight to the builder and use the plan's own
   acceptance criteria as the assertions.
+- A plan is a spec, NOT a mandate to execute all of it. When the plan is larger than what
+  the user actually asked for, do the asked-for part and say which parts you left — the
+  plan's existence is not consent to run its every gate. If a plan for a small ask has
+  grown gates, manifests, or provenance machinery nobody requested, name that to the user
+  instead of executing it.
 - Using every persona is a smell, not a virtue: each dispatch must change the outcome.
   If a dispatch's absence would change nothing, don't make it.
+- THE TIER IS THE TASK'S, NOT THE TURN'S. It survives the user's next message and moves by
+  ratchet: lowering it is always free, raising it needs a \`reason\` naming what the ask
+  turned out to contain. A correction or follow-up ("no, only the one line") is the SAME
+  task — do not re-triage it upward, and do not pass \`new_task\` for it. At trivial/small
+  tiers the hub refuses planner, plan-reviewer, architect, security-auditor and
+  deep-researcher in code; that refusal is a signal to do the work, not to raise the tier.
 
-## Execution mode: ${hubMode}${turnTaskTier ? ` · tier: ${turnTaskTier}` : ""}
+## Execution mode: ${hubMode}${taskTier ? ` · tier: ${taskTier}` : ""}
 Budgets for THIS user turn (enforced by the hub — exhausted budgets make dispatch_agent/
 spawn_research refuse; a new user message opens a fresh window; /af-hub-mode switches mode):
 - dispatch_agent calls: ${cap(budget.maxDispatches)} · spawn_research calls: ${cap(budget.maxResearch)}
 - turn wall clock: ${capMin(budget.wallMs)} · per-run deadline: ${capMin(budget.agentTurnMs)}
+Budgets for the WHOLE TASK (${TASK_BUDGET_MULTIPLIER}× the turn envelope; NOT reset by a user message —
+only by /af-new-task or set_task_tier \`new_task: true\`). Spent so far:
+- dispatches ${taskDispatchCount}/${cap(taskBudget.maxDispatches)} · research ${taskResearchCount}/${cap(taskBudget.maxResearch)} · active time ${Math.round(taskActiveElapsedMs() / 60_000)}/${capMin(taskBudget.wallMs)} min
+- review rounds ${taskReviewRounds}/${cap(reviewRoundCap(taskTier))} (a review is a gate, not a loop)
+Exhausting the TASK budget is a hard stop: it means the work outgrew its envelope three
+times over, which is a re-scoping decision for the human, not something to spend through.
 Plan within the budget: batch related work into ONE dispatch (a coherent slice of 4–6
 plan tasks, not one dispatch per micro-task), and when a budget refusal comes back, STOP —
 summarize progress and ask the user; never retry the refused call in the same turn.
@@ -8300,6 +8702,13 @@ ${researchCatalog}`;
 			}
 		}
 
+		// Per-project overrides are parsed BEFORE loadAgents: loadAgents archives the
+		// previous session's artifacts, and that archive has to honor this project's
+		// `run-history-keep` — reading it afterwards would apply the retention one
+		// session late. Everything else the overrides drive is assigned below.
+		const overrides = parseAgentTeamOverrides(_ctx.cwd);
+		runHistoryKeep = overrides.runHistoryKeep;
+
 		loadAgents(_ctx.cwd);
 
 		// Surface non-fatal persona frontmatter warnings (skipped subagents roles,
@@ -8315,8 +8724,8 @@ ${researchCatalog}`;
 			);
 		}
 
-		// Load per-project overrides (user-facing language, persona gate, models).
-		const overrides = parseAgentTeamOverrides(_ctx.cwd);
+		// Apply the rest of the per-project overrides (user-facing language, persona
+		// gate, models) — parsed above, before loadAgents.
 		userLanguage = overrides.language;
 		researchKeep = overrides.researchKeep;
 		reconSearchTimeoutMs = overrides.reconSearchTimeoutMs;
@@ -8326,8 +8735,8 @@ ${researchCatalog}`;
 		watchdogJudgeModel = overrides.watchdogJudgeModel;
 		turnDispatchCount = 0;
 		turnResearchCount = 0;
-		turnTaskTier = null;
-		turnDispatchFingerprints.clear();
+		// A new session is a new task by definition.
+		resetTaskWindow(null);
 		updateModeStatus();
 		if (overrides.warnings.length > 0) {
 			_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");

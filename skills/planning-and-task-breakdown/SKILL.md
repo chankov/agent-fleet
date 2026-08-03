@@ -20,6 +20,24 @@ Decompose work into small, verifiable tasks with explicit acceptance criteria. G
 
 **When NOT to use:** Single-file changes with obvious scope, or when the spec already contains well-defined tasks.
 
+## Proportionality gate (check before writing anything)
+
+A plan is overhead the human pays for. Before you write one, size it against the ask:
+
+| The ask | The right artifact |
+|---|---|
+| One obvious change, one file, low risk | **No plan.** Make the change and say what you did. |
+| A contained change in familiar code | A task list in your reply — 3–6 lines, no plan file. |
+| Multi-step work, unfamiliar code, or real risk | A plan file, as below. |
+
+Rules that follow from this:
+
+- **Never write a plan longer than the work it plans.** If the plan document would take longer to read than the change takes to make, it is the wrong artifact.
+- **A safety requirement is a task, not a subsystem.** "Don't remove existing permissions" is one acceptance criterion with one verification step — not a hash-pinned manifest, an immutable evidence namespace, and a fixture suite. Provenance machinery is warranted only when the human asked for an audit trail or the change is irreversible at scale.
+- **Plan the ask, not the neighbourhood.** Adjacent problems you notice go in a short "Out of scope / noticed" list at the end for the human to decide on. They do not become tasks.
+- **Split by phase when the phases have different owners.** Repository work, cloud/infrastructure preparation, deployment, and retirement belong in separate plans: bundling them means the whole plan is blocked on whichever phase stalls, and every review re-reads all of it.
+- **Review findings do not silently enlarge the plan.** When a plan revision adds requirements nobody asked for, say so explicitly and let the human accept or drop them.
+
 ## Output Location
 
 By default, save the plan to `docs/plans/{area}/PLAN-{prd-name}-{phase}.md`:

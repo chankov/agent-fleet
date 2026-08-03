@@ -109,13 +109,45 @@ per process (`provider-semaphore.js`: 2 in flight for `custom/*` by default, unl
 elsewhere, `AGENT_HUB_PROVIDER_LIMITS` to override) — the cap is per level of the delegation
 tree, and a nested spawn reuses its parent's permit so it can never wait on its own ancestor.
 Configured under `## agent-hub` (`mode`, `max-dispatches-per-turn`,
-`max-research-per-turn`, `turn-wall-time-s`, `agent-turn-timeout-s`, `session-recycle-runs`);
-switched live with `/af-hub-mode`.
+`max-research-per-turn`, `turn-wall-time-s`, `agent-turn-timeout-s`, `session-recycle-runs`,
+`run-history-keep`); switched live with `/af-hub-mode`.
 
-On top of the mode sit three qualitative guardrails. **Task triage**: the dispatcher
-classifies each turn via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)
-and the caps drop to min(mode, tier); a duplicate-dispatch guard refuses near-identical
-re-dispatches within a turn. **Drift watchdog** (`drift-watchdog.js`): armed dispatches are
+A per-message allowance cannot bound a task, so a second envelope sits above the turn one:
+the **task budget** (`run-budget.js`, `3×` the turn envelope) counts dispatches, research
+runs and **active** time across the WHOLE task and is *not* reset by a user message. Active
+time is turns that ran minus `ask_user` waits — a task clock that billed human idle would
+false-stop a normal steered session, and a false stop teaches people to reset the window
+reflexively. The auto-research pipe is exempt from the turn budget but charged against the
+task envelope, so it cannot smuggle 8 helpers per dispatch past the outer bound. Exhausting
+the task budget is a hard stop — only `/af-new-task` (or `set_task_tier` with
+`new_task: true`) opens a new window. This is the guardrail the post-mortem run never hit: every steering message
+reopened the turn window, so one workspace stayed open 47 hours on a change that took 13
+minutes in a narrow one.
+
+On top of the mode sit several qualitative guardrails. **Task triage**: the dispatcher
+classifies the current TASK via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)
+and the caps drop to min(mode, tier). The tier is task-scoped and **ratcheted** — it survives
+the user's next message, lowering is free, raising needs a stated `reason` — because a
+turn-scoped tier reset to `feature` on every correction. Three refusals enforce
+proportionality in code rather than prose: a duplicate-dispatch guard (near-identical
+re-dispatches within a turn), a **tier persona gate** (`planner`, `plan-reviewer`,
+`architect`, `security-auditor`, `deep-researcher` are refused at trivial/small — each opens
+a document/finding loop), and a **review round cap** (review dispatches per task, by tier).
+Skipping triage assumes `small`, not `feature`: the tier latches for the task, and the case
+where it was never declared is exactly the case where proportionality was not being
+considered. The review **finding** budget is the one thing deliberately left advisory — the
+hub counts blocking findings (`review-findings.js`) and reports an over-budget return, but
+never reclassifies one, because no rule it can evaluate separates an invented manifest from
+a leaked credential; the round cap is what carries the enforcement.
+**Docs lane** (`docs-lane.js`): a dispatch whose whole declared `scope` is documentation
+refuses review personas (overridable with `review_reason`) and tells the dispatcher not to
+open a review gate; an absent scope is never the lighter lane. **External-blocker stop**
+(`external-blocker.js`): a specialist emits `EXTERNAL_BLOCKED: …` when it needs something
+outside the fleet's reach (account, permission, credential, telemetry destination), and the
+hub refuses the next dispatch with an owner-escalation packet until the human is addressed —
+the alternative, observed, is hours spent approximating the missing fact with scripts,
+manifests and fixtures while the assertion still ends UNPROVEN. **Drift watchdog**
+(`drift-watchdog.js`): armed dispatches are
 observed in-flight from the JSON event stream — deterministic rules (out-of-scope writes
 against the declared `scope` globs, tool-call loops, consecutive failures, tool-call cap)
 escalate to a one-shot cheap LLM judge whose DRIFTING/STUCK verdict terminates the run as
@@ -214,10 +246,19 @@ packages/hermes-bridge/       # future Hermes integration package
   at 8 — an id nobody can trace back to a plan line costs a dispatch and an
   ASK_USER cycle to re-derive.
 - **Pre-flight validation is free.** Anything the hub can reject before spawning
-  — an unresolvable artifact path, an unknown research persona — is refused
-  without spending a turn-budget slot. Artifact paths also resolve across
-  artifact kinds when the name is unique, since the hub writes every auto-return
-  under `returns/` while dispatchers reasonably guess `reviews/`.
+  — an unresolvable artifact path, an unknown research persona, a heavy persona
+  at a low tier, a reviewer on a docs-only scope — is refused without spending a
+  budget slot. Artifact paths also resolve across artifact kinds when the name is
+  unique, since the hub writes every auto-return under `returns/` while
+  dispatchers reasonably guess `reviews/`.
+- **Evidence is archived, never overwritten.** Session start moves the previous
+  session's `artifacts/` into an immutable `.pi/agent-sessions/runs/<runId>/`
+  namespace with a read-only `meta.json` and an appended `runs/index.json`
+  (`run-namespace.js`), retained per `run-history-keep` (default 10). The old
+  behaviour — delete `artifacts/` at start, name returns by a per-session counter
+  — collided two ways at once and made a post-mortem record eleven specialist
+  returns and two reviews as NOT RECOVERABLE. A failed archive leaves the
+  artifacts in place: a stale tree is recoverable, a deleted one is not.
 - **Herdr owns panes, presence, and lifecycle; coms owns messages.** Fleet
   recipes hard-require a running herdr server and refuse with an actionable
   message otherwise; non-fleet recipes never touch herdr.

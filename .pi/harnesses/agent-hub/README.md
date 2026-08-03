@@ -102,7 +102,9 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `set_assertions` the next one when it starts.
 - **Artifact bus** — session handoffs live under `.pi/agent-sessions/artifacts/` with conventional
   `returns/`, `failures/`, `plans/`, `reviews/`, `inventories/`, and `evidence/` subdirectories, all
-  wiped and recreated at session start like `findings/`. `failures/` is separate on purpose: a run
+  **archived** into an immutable `runs/<runId>/` namespace at session start rather than wiped (see
+  [Immutable per-run artifact namespaces](#immutable-per-run-artifact-namespaces-run-namespacejs)),
+  so a later session can never overwrite an earlier one's returns. `failures/` is separate on purpose: a run
   that errored or timed out produced no specialist result, so its output goes there and the dispatch
   result names it a **delivery failure** carrying no assertion evidence. Filing a 142-byte coms error
   stub as `returns/code-reviewer-run4.md` once cost a 103-second dispatch investigating a review that
@@ -440,7 +442,48 @@ max-research-per-turn: 4      # integer or off
 turn-wall-time-s: 3600        # integer or off
 agent-turn-timeout-s: 1800    # whole-run deadline per spawned run; integer or off
 session-recycle-runs: 5       # recycle a specialist session after N resumed runs; integer or off
+run-history-keep: 10          # previous sessions' artifact archives to retain; integer or off
 ```
+
+#### Task budget (the bound a turn window cannot provide)
+
+A per-message allowance cannot bound a task. In the run this guardrail comes from, every
+steering message opened a fresh window of 8 dispatches and 60 minutes, so no counter ever
+bound: one workspace stayed open **47 hours**, while the same change made in a narrow
+workspace took **13 minutes**.
+
+So there is a second envelope, **`TASK_BUDGET_MULTIPLIER` (3) × the turn envelope**, whose
+counters are **not** reset by a user message:
+
+| | per turn (standard, `feature`) | per task |
+|---|---|---|
+| `dispatch_agent` | 6 | 18 |
+| `spawn_research` | 4 | 12 |
+| clock | 60 min wall | 180 min **active** |
+
+Exhausting it is a **hard stop**: the refusal says so, and another user message does not
+reopen it. Only `/af-new-task [label]` (or `set_task_tier` with `new_task: true`) opens a
+new task window — clearing the counters, the tier, the review-round count, the duplicate
+guard, and any external-blocker stop. The status chip shows both (`… · task 4/18`).
+
+The reasoning: a task that has burned three full envelopes has not hit a budget problem, it
+has outgrown its scope, and re-scoping is the human's call.
+
+The task clock charges **active time only** — turns that actually ran, each minus the time
+the dispatcher sat blocked on `ask_user`. Inter-turn idle costs nothing, because no turn is
+open across it. Raw wall clock would bill a lunch break, an overnight pause, and every long
+human answer against the task; at `fast` mode's 45-minute envelope a coffee break would
+hard-stop a task with two dispatches spent. A false stop is worse than no stop — it teaches
+people to reset the task window reflexively, and that reset is the one thing that has to
+stay deliberate. Dispatch and research counts remain the honest hard stops.
+
+The **auto-research pipe** (specialist emits `NEEDS_RESEARCH`, the hub fans out read-only
+helpers in code) stays exempt from the TURN budget — it is hub mechanics, not a dispatcher
+decision, and it must not steal the dispatcher's slots — but it **is** charged against the
+task envelope. At 2 rounds × 4 questions per dispatch and 18 dispatches per task, leaving it
+uncounted would have put 144 research runs inside the bound that is supposed to be the outer
+one. When the task's research envelope is spent the pipe does not spawn and the specialist is
+not resumed; the dispatch result says so.
 
 Two related always-on behaviors: specialist **context pressure is measured over
 input + cacheRead + cacheWrite** (resumed sessions re-send their whole accumulated context
@@ -486,17 +529,103 @@ can no longer hold its parent for hours.
 
 ### Task triage (complexity tiers)
 
-The dispatcher classifies each user turn with the `set_task_tier` tool BEFORE its first
+The dispatcher classifies the current TASK with the `set_task_tier` tool BEFORE its first
 dispatch — `trivial` / `small` / `feature` / `project` — and the hub lowers the enforced
 dispatch/research caps to **min(mode, tier)**: trivial = 1 dispatch / 1 research,
-small = 2 / 2, feature = 6 / 4, `project` defers to the mode. Skipping the call makes the
-first dispatch assume `feature` (except in strict mode, where tiers are opt-in). The tier
-resets every user turn and shows in the `hub-mode` status chip (`Mode: standard·small · …`).
-The system prompt ties the tier to the anti-over-engineering rules: a provided plan is a
-spec (no re-planning), assertions stay ≤3 for trivial/small asks, and "using every persona"
-is called out as a smell. Two hygiene guards are enforced in code, not prose: a
-**duplicate-dispatch guard** refuses re-dispatching the same agent with a near-identical
-task inside one turn, and every budget/duplicate refusal is counted in `/af-hub-report`.
+small = 2 / 2, feature = 6 / 4, `project` defers to the mode. The tier shows in the
+`hub-mode` status chip (`Mode: standard·small · …`), with a trailing `?` while it is only
+assumed.
+
+Skipping the call makes the hub assume **`small`**, not `feature`. Because the tier is
+task-scoped, a skipped triage latches for the whole task — and skipped triage is precisely
+the case where the dispatcher was not thinking about proportionality. Assuming `feature`
+there would unlock planner/plan-reviewer/security-auditor, loosen the review caps, and hand
+out the full feature envelope: the over-apparatus failure mode, granted by forgetting a tool
+call. Assuming `small` costs one explicit escalation when the work really is bigger, which
+is the cheap direction to be wrong in. An assumed tier is not a ratchet baseline either: the
+dispatcher's own first `set_task_tier` is treated as an initial declaration, so it never
+needs a `reason` it had no way to know it needed.
+
+The tier is **task-scoped and ratcheted**. It survives the user's next message, and it
+moves in one direction cheaply: **lowering it is always free, raising it requires a
+`reason`** naming what the ask turned out to contain (refused in code otherwise). A
+turn-scoped tier could not bind on a steered run — every correction reset it to null, the
+next dispatch re-assumed `feature`, and the effective tier drifted to the ceiling, because
+nobody ever re-declares `trivial` after a steering message.
+
+Three guards are enforced in code, not prose:
+
+- **Duplicate-dispatch guard** — refuses re-dispatching the same agent with a
+  near-identical task inside one turn.
+- **Tier persona gate** — at `trivial`/`small`, `dispatch_agent`/`spawn_research` refuse
+  `planner`, `plan-reviewer`, `architect`, `security-auditor` and `deep-researcher`
+  (`run-budget.js`). Each opens a document/finding loop whose output then has to be
+  executed and re-reviewed; the escape hatch is raising the tier *with a reason*, not a
+  flag. The refusal costs no budget slot.
+- **Review round cap** — review dispatches per TASK are capped by tier (trivial/small 1,
+  feature 2, project uncapped) and the (N+1)-th is refused without spending a budget slot.
+  This is where the review ratchet is actually cut: findings become requirements and the
+  enlarged requirement set justifies the next round, so the round is the thing to bound.
+- **Review finding budget** — a review persona's dispatch carries a blocking-finding cap
+  tied to the tier (trivial 1, small 2, feature 5, project uncapped) plus the rule that a
+  blocking finding may only enforce an invariant the task/plan/rules already state. The hub
+  **counts** what came back (`review-findings.js`) and appends a visible notice when the
+  return exceeds the cap — it never reclassifies a finding. No rule the hub can evaluate
+  distinguishes "invents a manifest nobody asked for" from "this logs a connection string";
+  both are a heading and a bullet, and silently demoting the second by position would, on
+  the day it matters, move a real security finding into the section nobody acts on.
+
+Every budget/gate refusal is counted in `/af-hub-report`.
+
+### Docs lane (`docs-lane.js`)
+
+A dispatch whose declared `scope` is documentation only — `Docs/**`, `**/*.md`,
+`artifacts/evidence/*.png`, `.changeset/**` — runs in the single-worker docs lane:
+
+- dispatching a review persona (`code-reviewer`, `plan-reviewer`, `security-auditor`,
+  `test-engineer`) on it is **refused** and costs no budget slot;
+- any other persona's result carries a note telling the dispatcher not to open a review
+  gate for it.
+
+An absent or empty `scope` is never the lighter lane — unknown is not docs. The refusal is
+overridable per dispatch with `review_reason: "<why>"` for the cases that do warrant a gate
+(the doc publishes a credential, or states a contract other systems depend on).
+
+### External-blocker stop (`external-blocker.js`)
+
+A specialist that cannot proceed without something outside the fleet's reach — an account,
+a permission, a deployment credential, a telemetry destination, a console-only action —
+emits `EXTERNAL_BLOCKED: <what is missing, who owns it, what it blocks>` (the protocol is
+injected into every specialist prompt). The hub records it and **refuses the next
+dispatch/research** with an owner-escalation packet: what is missing and who owns it, which
+assertions are blocked, what is already proven and where, and the human's options (provide
+access / waive as UNPROVEN / drop from scope).
+
+The gate opens when the human has been addressed — an `ask_user` call, or the next user
+message. Without `ask_user` installed it fires exactly once, so a session that cannot reach
+the human can still finish and report instead of deadlocking.
+
+This exists because the alternative is the most expensive failure mode observed: with no
+correlation destination available, a run kept substituting internal work for the missing
+external fact — scripts, manifests, fixtures, diagnostic packets — for hours, and the
+assertion still ended UNPROVEN.
+
+### Immutable per-run artifact namespaces (`run-namespace.js`)
+
+Session start used to `rm -rf` `.pi/agent-sessions/artifacts/`, and specialist returns were
+named by a per-session counter (`returns/builder-run1.md`). Both halves of that failed at
+once: the next session's `builder-run1.md` claimed the same path as the previous one's, and
+the wipe deleted the originals first — a post-mortem had to record eleven implementation
+returns and two review artifacts as NOT RECOVERABLE.
+
+Now each session **archives** the previous session's artifacts into
+`.pi/agent-sessions/runs/<runId>/artifacts/` — a namespace written once and never reused —
+alongside a read-only `meta.json` (run id, archive time, project, workspace, per-kind
+artifact counts) and an appended `runs/index.json`. `runId` is a sortable UTC timestamp plus
+a random suffix, so two sessions starting in the same second still get distinct namespaces.
+Retention is `run-history-keep` (default 10, `off` keeps everything); an empty artifact tree
+is not archived. If archiving fails the artifacts are **left in place** rather than deleted:
+a stale tree is recoverable, a deleted one is not.
 
 ### Drift watchdog (in-flight observation)
 

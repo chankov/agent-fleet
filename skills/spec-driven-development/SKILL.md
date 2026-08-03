@@ -20,6 +20,18 @@ Write a structured specification before writing any code. The spec is the shared
 
 **When NOT to use:** Single-line fixes, typo corrections, or changes where requirements are unambiguous and self-contained.
 
+## Proportionality gate (check before writing anything)
+
+A spec is a commitment device: once it exists, everything in it gets planned, built, reviewed, and evidenced. That makes an oversized spec the most expensive mistake available here — it is cheaper to under-specify and ask than to over-specify and execute.
+
+Before writing one, answer in one sentence: **what did the human actually ask for?** Then:
+
+- **If the answer fits in a sentence and the change fits in a file, do not write a spec.** Make the change, state your assumptions, and let the human correct you. A one-line correction is cheaper than a spec review.
+- **Spec the request, not the domain.** A request to fix how one service reads its configuration is not a mandate to specify that service's deployment, telemetry, and the retirement of its predecessor. Related work goes in a "Future / not now" list, not in scope.
+- **Do not let non-goals grow the document.** A long list of things you will not do is not safety; it is surface area that later reviews will treat as requirements.
+- **Verification must be proportionate.** Ask what evidence the human would actually want to see. "The tests pass and the app starts" is a complete verification story for most changes; per-item runtime provenance is warranted only when the human asked for it or the change is irreversible.
+- **If the spec grows past the ask while you write it, stop and check in.** Say what it grew into and let the human choose the scope. A spec that outgrew its request is a finding, not a deliverable.
+
 ## Output Location
 
 By default, save the spec to `docs/prds/{area}/PRD{n}-{topic}.md`:
