@@ -1,0 +1,3615 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "0.0.9",
+  "groups": [
+    {
+      "id": "skills",
+      "title": "Skills",
+      "order": 1,
+      "agents": [
+        "claude-code",
+        "opencode",
+        "pi"
+      ],
+      "subcategoryLabel": "phase",
+      "subcategories": [
+        "define",
+        "plan",
+        "build",
+        "verify",
+        "review",
+        "ship",
+        "orchestrate",
+        "learn",
+        "meta"
+      ]
+    },
+    {
+      "id": "personas",
+      "title": "Agent personas",
+      "order": 2,
+      "agents": [
+        "claude-code",
+        "opencode",
+        "pi"
+      ],
+      "subcategoryLabel": "access",
+      "subcategories": [
+        "rw",
+        "ro",
+        "pi-only"
+      ]
+    },
+    {
+      "id": "commands",
+      "title": "Commands / prompts",
+      "order": 3,
+      "agents": [
+        "claude-code",
+        "opencode",
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "references-hooks",
+      "title": "References & hooks",
+      "order": 4,
+      "agents": [
+        "claude-code"
+      ],
+      "subcategoryLabel": "type",
+      "subcategories": [
+        "reference",
+        "hook"
+      ]
+    },
+    {
+      "id": "pi-extensions",
+      "title": "pi extensions & runtime skills",
+      "order": 5,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "type",
+      "subcategories": [
+        "extension",
+        "runtime-skill"
+      ]
+    },
+    {
+      "id": "pi-harnesses",
+      "title": "pi harnesses",
+      "order": 6,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "hermes",
+      "title": "Hermes plugins & skills",
+      "order": 7,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "type",
+      "subcategories": [
+        "plugin",
+        "skill"
+      ]
+    },
+    {
+      "id": "codex-bridge",
+      "title": "Codex remote conductor",
+      "order": 8,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "external-packages",
+      "title": "External packages",
+      "order": 9,
+      "agents": [
+        "claude-code",
+        "opencode",
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "companions",
+      "title": "Companions",
+      "order": 10,
+      "agents": [
+        "claude-code",
+        "opencode",
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    }
+  ],
+  "profiles": {
+    "minimal": {
+      "title": "Lifecycle skills and their commands, nothing else",
+      "items": [
+        "skill:using-agent-skills",
+        "skill:spec-driven-development",
+        "skill:planning-and-task-breakdown",
+        "skill:incremental-implementation",
+        "skill:test-driven-development",
+        "skill:code-review-and-quality",
+        "command:spec",
+        "command:plan",
+        "command:build",
+        "command:test",
+        "command:review"
+      ]
+    },
+    "recommended": {
+      "title": "Every item marked recommended for this agent",
+      "rule": "recommended"
+    },
+    "full": {
+      "title": "Every item available for this agent",
+      "rule": "all"
+    },
+    "pi-fleet-core": {
+      "title": "The pi harness core stack",
+      "items": [
+        "pi-harness:agent-hub",
+        "pi-harness:damage-control-continue",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:compact-and-continue",
+        "pi-extension:btw"
+      ]
+    },
+    "hermes-plugins": {
+      "title": "Hermes plugin/bridge closure (operator-applied)",
+      "items": [
+        "hermes-plugin:agent-fleet-herdr",
+        "hermes-plugin:agent-fleet-monitor",
+        "hermes-skill:hub-conductor",
+        "hermes-skill:hub-liaison",
+        "hermes-skill:hub-watchdog"
+      ]
+    },
+    "codex-bridge": {
+      "title": "Codex remote conductor closure (operator-applied)",
+      "items": [
+        "codex:agent-fleet-codex-remote-control"
+      ]
+    }
+  },
+  "items": [
+    {
+      "id": "codex:agent-fleet-codex-remote-control",
+      "kind": "codex",
+      "group": "codex-bridge",
+      "subcategory": null,
+      "title": "agent-fleet-codex-remote-control",
+      "summary": "",
+      "recommended": false,
+      "consent": "operator",
+      "platform": "linux",
+      "agents": {
+        "pi": {
+          "source": [
+            "systemd/user/agent-fleet-codex-remote-control.service.in"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "user-systemd"
+        }
+      },
+      "operatorSteps": [
+        "clone agent-fleet — the conductor recipes and the unit template are repo-only",
+        "just fleet conductor codex setup docs --project <name>   # writes the unit, does not start it",
+        "just fleet conductor codex pair   # interactive TTY only; the code is short-lived secret material",
+        "just fleet conductor codex start",
+        "just fleet conductor codex status   # reports requested systemd state only"
+      ]
+    },
+    {
+      "id": "command:build",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "build",
+      "summary": "Implement tasks incrementally — build, test, verify, commit.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/build.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/build.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-build.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-build.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/build.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-build.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-build.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/build.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:code-simplify",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "code-simplify",
+      "summary": "Simplify code for clarity and maintainability — reduce complexity without changing behavior",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/code-simplify.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/code-simplify.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-code-simplify.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-code-simplify.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/code-simplify.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-code-simplify.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-code-simplify.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/code-simplify.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:compound",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "compound",
+      "summary": "Capture this session's lessons into the project's rules and docs — compound engineering pass",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-compound.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-compound.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/compound.md"
+          ]
+        }
+      },
+      "recommendsWith": [
+        "skill:compound-learning"
+      ]
+    },
+    {
+      "id": "command:design-agent",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "design-agent",
+      "summary": "Design and write a new agent persona (agents/), workflow skill (skills/), or pi harness (.pi/harnesses/)",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/design-agent.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/design-agent.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-design-agent.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-design-agent.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/design-agent.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:orchestrate",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "orchestrate",
+      "summary": "Orchestrate a config-defined team of subagents — route planner/builder (and more) as a runtime roster, handling NEEDS…",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/orchestrate.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/orchestrate.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-orchestrate.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-orchestrate.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/orchestrate.md"
+          ]
+        }
+      },
+      "companions": [
+        "companion:orchestrate-teams"
+      ],
+      "recommendsWith": [
+        "skill:orchestration-verification"
+      ]
+    },
+    {
+      "id": "command:plan",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "plan",
+      "summary": "Break work into small verifiable tasks with acceptance criteria and dependency ordering",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/plan.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/plan.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-plan.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-plan.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/plan.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-plan.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-plan.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/plan.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:prime",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "prime",
+      "summary": "Load foundational context for the agent-fleet repository",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/prime.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/prime.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-prime.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-prime.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/prime.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:review",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "review",
+      "summary": "Conduct a five-axis code review — correctness, readability, architecture, security, performance",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/review.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/review.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-review.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-review.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/review.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-review.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-review.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/review.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:set-hermes-telegram",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "set-hermes-telegram",
+      "summary": "Install/status the Hermes liaison or turn its Telegram ask_user bridge on/off",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/set-hermes-telegram.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/set-hermes-telegram.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-set-hermes-telegram.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-set-hermes-telegram.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/set-hermes-telegram.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-set-hermes-telegram.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-set-hermes-telegram.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/set-hermes-telegram.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:set-hermes-watchdog",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "set-hermes-watchdog",
+      "summary": "Inspect or safely install the fail-closed Hermes watchdog",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/set-hermes-watchdog.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/set-hermes-watchdog.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-set-hermes-watchdog.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-set-hermes-watchdog.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/set-hermes-watchdog.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-set-hermes-watchdog.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-set-hermes-watchdog.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/set-hermes-watchdog.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:ship",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "ship",
+      "summary": "Run the pre-launch checklist via parallel fan-out to specialist personas, then synthesize a go/no-go decision",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/ship.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/ship.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-ship.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-ship.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/ship.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-ship.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-ship.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/ship.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:spec",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "spec",
+      "summary": "Start spec-driven development — write a structured specification before writing code",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/spec.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/spec.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-spec.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-spec.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/spec.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-spec.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-spec.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/spec.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:test",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "test",
+      "summary": "Run TDD workflow — write failing tests, implement, verify.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/test.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/test.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-test.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-test.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/test.md"
+          ]
+        },
+        "pi": {
+          "source": [
+            ".pi/prompts/af-test.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-test.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/test.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:webperf",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "webperf",
+      "summary": "Run a web performance audit via the web-performance-auditor persona",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/commands/webperf.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/commands/webperf.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/commands/af-webperf.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/commands/af-webperf.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".opencode/commands/webperf.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "companion:claude-hooks-settings",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "settings.json hook entries",
+      "summary": "Registers agent-fleet hooks without touching other keys",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "hooks/hooks.json"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/settings.json",
+          "strategy": "json-merge"
+        }
+      },
+      "parents": [
+        "hook:session-start",
+        "hook:simplify-ignore"
+      ]
+    },
+    {
+      "id": "companion:damage-control-rules",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/damage-control-rules.yaml",
+      "summary": "Rule set the damage-control harness enforces",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/damage-control-rules.yaml"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/damage-control-rules.yaml",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:harness-runtime-closure",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "harness-runtime-closure",
+      "summary": "Runtime files the pi harness recipes shell out to",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "codex",
+            "hermes/skills",
+            "systemd",
+            "docs/ARCHITECTURE.md",
+            "docs/codex-remote-conductor.md",
+            "docs/coms-hermes-bridge.md",
+            "scripts/codex-conductor.ts",
+            "scripts/codex-remote-control.ts",
+            "scripts/coms-claude-bridge.ts",
+            "scripts/coms-cli.ts",
+            "scripts/coms-hermes-bridge.ts",
+            "scripts/fleet.ts",
+            "scripts/lib/claude-bridge-core.ts",
+            "scripts/lib/codex-conductor.ts",
+            "scripts/lib/codex-remote-control.ts",
+            "scripts/lib/coms-envelope.ts",
+            "scripts/lib/fleet-command.ts",
+            "scripts/lib/herdr-layout.ts",
+            "scripts/lib/hermes-bridge-core.ts",
+            "scripts/lib/monitor-env.ts",
+            "scripts/lib/peer-launch.ts",
+            "scripts/lib/persona-banner.ts",
+            "scripts/lib/spawn-stagger.ts",
+            "scripts/lib/team-project.ts",
+            "scripts/lib/team-snapshot.ts",
+            "scripts/peer-banner.ts",
+            "scripts/peer-launch.ts",
+            "scripts/team-snapshot.ts",
+            "scripts/team-up.ts"
+          ],
+          "sourceMode": "all",
+          "target": null,
+          "strategy": "copy-tree",
+          "preserveLayout": true
+        }
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:justfile-region",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "justfile managed region",
+      "summary": "Harness launch recipes between the agent-fleet sentinels",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "justfile"
+          ],
+          "sourceMode": "first",
+          "target": "justfile",
+          "strategy": "managed-region"
+        }
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:orchestrate-teams",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "orchestrate-teams.yaml",
+      "summary": "Named-team roster the /orchestrate command reads",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            ".claude/orchestrate-teams.yaml"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/orchestrate-teams.yaml",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            ".opencode/orchestrate-teams.yaml"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/orchestrate-teams.yaml",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "command:orchestrate"
+      ]
+    },
+    {
+      "id": "companion:pi-agent-configs",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/agents configs",
+      "summary": "teams, peers, chains, and dispatch policy the harnesses read",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agents"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents",
+          "strategy": "copy-tree"
+        }
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:coms"
+      ]
+    },
+    {
+      "id": "companion:pi-extension-deps",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "npm ci (.pi/extensions)",
+      "summary": "Installs the extension runtime dependencies",
+      "recommended": false,
+      "consent": "exec",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          ".pi/extensions"
+        ],
+        "cwd": "."
+      },
+      "parents": [
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:btw",
+        "pi-extension:chrome-devtools-mcp",
+        "pi-extension:compact-and-continue",
+        "pi-extension:mcp-bridge",
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    {
+      "id": "companion:pi-extension-manifests",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/extensions package manifests",
+      "summary": "Runtime dependency manifests for the extensions",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/package.json",
+            ".pi/extensions/package-lock.json"
+          ],
+          "sourceMode": "all",
+          "target": ".pi/extensions",
+          "strategy": "copy-tree"
+        }
+      },
+      "parents": [
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:btw",
+        "pi-extension:chrome-devtools-mcp",
+        "pi-extension:compact-and-continue",
+        "pi-extension:mcp-bridge",
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    {
+      "id": "companion:pi-harness-deps",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "npm ci (.pi/harnesses)",
+      "summary": "Installs the harness runtime dependencies",
+      "recommended": false,
+      "consent": "exec",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          ".pi/harnesses"
+        ],
+        "cwd": "."
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:pi-harness-lib",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/harnesses/lib",
+      "summary": "Shared modules every harness imports",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/lib"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/lib",
+          "strategy": "copy-tree"
+        }
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:pi-harness-manifests",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/harnesses package manifests",
+      "summary": "Runtime dependency manifests for the harnesses",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/package.json",
+            ".pi/harnesses/package-lock.json"
+          ],
+          "sourceMode": "all",
+          "target": ".pi/harnesses",
+          "strategy": "copy-tree"
+        }
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:simplify-ignore-support",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "simplify-ignore support files",
+      "summary": "Test harness and doc that ship with the hook",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "hooks/simplify-ignore-test.sh",
+            "hooks/SIMPLIFY-IGNORE.md"
+          ],
+          "sourceMode": "all",
+          "target": ".claude/hooks",
+          "strategy": "copy-tree"
+        }
+      },
+      "parents": [
+        "hook:simplify-ignore"
+      ]
+    },
+    {
+      "id": "companion:skills-internal-grilling",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "skills/_internal/grilling.md",
+      "summary": "Shared helper for the interview-style skills",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/_internal/grilling.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/_internal/grilling.md",
+          "strategy": "copy-file"
+        },
+        "opencode": {
+          "source": [
+            "skills/_internal/grilling.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/_internal/grilling.md",
+          "strategy": "copy-file"
+        },
+        "pi": {
+          "source": [
+            "skills/_internal/grilling.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/_internal/grilling.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:idea-refine",
+        "skill:planning-and-task-breakdown",
+        "skill:spec-driven-development"
+      ]
+    },
+    {
+      "id": "companion:stt-config",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".ai/stt.json",
+      "summary": "Non-secret voice provider config; keys stay in .env — asked for, never generated",
+      "recommended": false,
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator"
+        }
+      },
+      "operatorSteps": [
+        "pick a provider and write .ai/stt.json — see docs/pi-extensions.md",
+        "put the API key in a gitignored .env under the env-var name stt.json references; never in stt.json itself",
+        "the extension binds Alt+S only once a provider resolves — until then it is a no-op"
+      ],
+      "parents": [
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    {
+      "id": "external:pi-ask-user",
+      "kind": "external-package",
+      "group": "external-packages",
+      "subcategory": null,
+      "title": "pi-ask-user",
+      "summary": "Native ask_user widget for pi",
+      "recommended": false,
+      "consent": "external",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "external"
+        }
+      },
+      "package": {
+        "manager": "pi",
+        "spec": "npm:pi-ask-user",
+        "scope": "project",
+        "probe": "pi-ask-user"
+      }
+    },
+    {
+      "id": "external:playwright-cli",
+      "kind": "external-package",
+      "group": "external-packages",
+      "subcategory": null,
+      "title": "playwright-cli",
+      "summary": "Playwright Agent CLI the bowser runtime skill drives",
+      "recommended": false,
+      "consent": "external",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "external"
+        }
+      },
+      "package": {
+        "manager": "npm",
+        "spec": "@playwright/cli@latest",
+        "scope": "global",
+        "probe": "playwright-cli"
+      }
+    },
+    {
+      "id": "hermes-plugin:agent-fleet-herdr",
+      "kind": "hermes-plugin",
+      "group": "hermes",
+      "subcategory": "plugin",
+      "title": "agent-fleet-herdr",
+      "summary": "",
+      "recommended": false,
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "hermes/plugins/agent-fleet-herdr",
+            "hermes/desktop-plugins/agent-fleet-herdr"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "clone agent-fleet — scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        "scripts/install-hermes-plugin.sh agent-fleet-herdr --profile <profile>",
+        "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
+        "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
+      ]
+    },
+    {
+      "id": "hermes-plugin:agent-fleet-monitor",
+      "kind": "hermes-plugin",
+      "group": "hermes",
+      "subcategory": "plugin",
+      "title": "agent-fleet-monitor",
+      "summary": "",
+      "recommended": false,
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "hermes/plugins/agent-fleet-monitor",
+            "hermes/desktop-plugins/agent-fleet-monitor"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "clone agent-fleet — scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        "scripts/install-hermes-plugin.sh agent-fleet-monitor --profile <profile>",
+        "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
+        "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
+      ]
+    },
+    {
+      "id": "hermes-skill:hub-conductor",
+      "kind": "hermes-skill",
+      "group": "hermes",
+      "subcategory": "skill",
+      "title": "hub-conductor",
+      "summary": "Conducts local pi hub-team peers from Hermes through coms-cli list/send --await, while preserving no-herdr and pool-s…",
+      "recommended": false,
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "hermes/skills/hub-conductor"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "copy hermes/skills/hub-conductor into <hermes-profile>/skills/hub-conductor",
+        "hermes --profile <profile> skills config   # enable hub-conductor",
+        "hermes --profile <profile> gateway restart"
+      ]
+    },
+    {
+      "id": "hermes-skill:hub-liaison",
+      "kind": "hermes-skill",
+      "group": "hermes",
+      "subcategory": "skill",
+      "title": "hub-liaison",
+      "summary": "On any Telegram HUB-Q reply ALWAYS write the pi hub bridge answer file — even when the thread shows cancel/closed/tim…",
+      "recommended": false,
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "hermes/skills/hub-liaison"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "agent-fleet set-hermes-telegram install --profile <profile>",
+        "hermes --profile <profile> skills config   # enable hub-liaison",
+        "hermes --profile <profile> tools enable --platform telegram terminal file",
+        "agent-fleet set-hermes-telegram status --profile <profile>   # confirm ready"
+      ]
+    },
+    {
+      "id": "hermes-skill:hub-watchdog",
+      "kind": "hermes-skill",
+      "group": "hermes",
+      "subcategory": "skill",
+      "title": "hub-watchdog",
+      "summary": "Foreground, fail-closed local Agent Hub watchdog.",
+      "recommended": false,
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "hermes/skills/hub-watchdog"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "agent-fleet set-hermes-watchdog install --profile <profile>",
+        "agent-fleet set-hermes-watchdog status --profile <profile>   # confirm the receipt and lock state"
+      ]
+    },
+    {
+      "id": "hook:coms-stop-hook",
+      "kind": "hook",
+      "group": "references-hooks",
+      "subcategory": "hook",
+      "title": "coms-stop-hook",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "hooks/coms-stop-hook.mjs"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/hooks/coms-stop-hook.mjs",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "hook:session-start",
+      "kind": "hook",
+      "group": "references-hooks",
+      "subcategory": "hook",
+      "title": "session-start",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "hooks/session-start.sh"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/hooks/session-start.sh",
+          "strategy": "copy-file"
+        }
+      },
+      "companions": [
+        "companion:claude-hooks-settings"
+      ]
+    },
+    {
+      "id": "hook:simplify-ignore",
+      "kind": "hook",
+      "group": "references-hooks",
+      "subcategory": "hook",
+      "title": "simplify-ignore",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "hooks/simplify-ignore.sh"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/hooks/simplify-ignore.sh",
+          "strategy": "copy-file"
+        }
+      },
+      "companions": [
+        "companion:claude-hooks-settings",
+        "companion:simplify-ignore-support"
+      ]
+    },
+    {
+      "id": "persona:architect",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "architect",
+      "summary": "System architect — owns design decisions and migration strategy; answers design questions with concrete, justified re…",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/architect.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/architect.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/architect.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/architect.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/architect.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/architect.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:bowser",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "pi-only",
+      "title": "bowser",
+      "summary": "Headless browser automation agent using Playwright CLI.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/bowser.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/bowser.md",
+          "strategy": "copy-file"
+        }
+      },
+      "requires": [
+        "pi-runtime-skill:bowser"
+      ]
+    },
+    {
+      "id": "persona:builder",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "builder",
+      "summary": "Implementation and code generation — lands changes in small verifiable increments.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/builder.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/builder.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/builder.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/builder.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/builder.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/builder.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:code-reviewer",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "code-reviewer",
+      "summary": "Senior code reviewer that evaluates changes across five dimensions — correctness, readability, architecture, security…",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/code-reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/code-reviewer.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/code-reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/code-reviewer.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/code-reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/code-reviewer.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:deep-researcher",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "deep-researcher",
+      "summary": "Read-only deep reconnaissance for hard, ambiguous, or high-stakes questions — traces cross-cutting call paths, maps u…",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/deep-researcher.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/deep-researcher.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/deep-researcher.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/deep-researcher.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/deep-researcher.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/deep-researcher.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:documenter",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "documenter",
+      "summary": "Documentation and README generation",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/documenter.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/documenter.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/documenter.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/documenter.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/documenter.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/documenter.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:orchestrator",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "pi-only",
+      "title": "orchestrator",
+      "summary": "Verification-Contract orchestrator — plans, builds, and verifies in small slices, owns the acceptance assertions, and…",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/orchestrator.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/orchestrator.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:plan-reviewer",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "plan-reviewer",
+      "summary": "Plan critic — reviews, challenges, and validates implementation plans",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/plan-reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/plan-reviewer.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/plan-reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/plan-reviewer.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/plan-reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/plan-reviewer.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:planner",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "planner",
+      "summary": "Architecture and implementation planning — produces a written PLAN file with dependency-ordered tasks and acceptance…",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/planner.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/planner.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/planner.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/planner.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/planner.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/planner.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:releaser",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "releaser",
+      "summary": "Release owner — cuts versions and ships; runs the changeset → version-bump → tag flow on request.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/releaser.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/releaser.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/releaser.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/releaser.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/releaser.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/releaser.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:researcher",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "researcher",
+      "summary": "Read-only reconnaissance — searches code, reads files and docs, and reports findings with file:line citations.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/researcher.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/researcher.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/researcher.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/researcher.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/researcher.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/researcher.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:security-auditor",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "security-auditor",
+      "summary": "Security engineer focused on vulnerability detection, threat modeling, and secure coding practices.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/security-auditor.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/security-auditor.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/security-auditor.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/security-auditor.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/security-auditor.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/security-auditor.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:test-engineer",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "test-engineer",
+      "summary": "QA engineer specialized in test strategy, test writing, and coverage analysis.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/test-engineer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/test-engineer.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/test-engineer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/test-engineer.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/test-engineer.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/test-engineer.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "persona:web-debugger",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "pi-only",
+      "title": "web-debugger",
+      "summary": "Interactive headful Chrome debugging via Chrome DevTools MCP — live DOM snapshots, console, network, and performance…",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/web-debugger.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/web-debugger.md",
+          "strategy": "copy-file"
+        }
+      },
+      "requires": [
+        "pi-extension:chrome-devtools-mcp"
+      ]
+    },
+    {
+      "id": "persona:web-performance-auditor",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "web-performance-auditor",
+      "summary": "Web performance engineer focused on Core Web Vitals, loading, rendering, and network optimization.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "agents/web-performance-auditor.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/agents/web-performance-auditor.md",
+          "strategy": "transform-persona"
+        },
+        "opencode": {
+          "source": [
+            "agents/web-performance-auditor.md"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/agent/web-performance-auditor.md",
+          "strategy": "transform-persona"
+        },
+        "pi": {
+          "source": [
+            "agents/web-performance-auditor.md"
+          ],
+          "sourceMode": "first",
+          "target": "agents/web-performance-auditor.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "pi-extension:agent-fleet-update-check",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "agent-fleet-update-check",
+      "summary": "",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/agent-fleet-update-check"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/agent-fleet-update-check",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-extension:btw",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "btw",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/btw"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/btw",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-extension:chrome-devtools-mcp",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "chrome-devtools-mcp",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/chrome-devtools-mcp"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/chrome-devtools-mcp",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests"
+      ]
+    },
+    {
+      "id": "pi-extension:compact-and-continue",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "compact-and-continue",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/compact-and-continue"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/compact-and-continue",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-extension:mcp-bridge",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "mcp-bridge",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/mcp-bridge"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/mcp-bridge",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests"
+      ]
+    },
+    {
+      "id": "pi-extension:pi-voice-stt",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "pi-voice-stt",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/pi-voice-stt"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/pi-voice-stt",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests",
+        "companion:stt-config"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-harness:agent-hub",
+      "kind": "pi-harness",
+      "group": "pi-harnesses",
+      "subcategory": null,
+      "title": "agent-hub",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/agent-hub"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/agent-hub",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-agent-configs",
+        "companion:pi-harness-deps",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests"
+      ],
+      "requires": [
+        "pi-harness:ask-user-remote",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-harness:ask-user-remote",
+      "kind": "pi-harness",
+      "group": "pi-harnesses",
+      "subcategory": null,
+      "title": "ask-user-remote",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/ask-user-remote"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/ask-user-remote",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-harness-deps",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests"
+      ],
+      "requires": [
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue",
+        "pi-extension:pi-voice-stt",
+        "pi-harness:damage-control-continue"
+      ],
+      "recommendsWith": [
+        "external:pi-ask-user"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:coms"
+      ]
+    },
+    {
+      "id": "pi-harness:coms",
+      "kind": "pi-harness",
+      "group": "pi-harnesses",
+      "subcategory": null,
+      "title": "coms",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/coms"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/coms",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-agent-configs",
+        "companion:pi-harness-deps",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests"
+      ],
+      "requires": [
+        "pi-harness:ask-user-remote",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-harness:damage-control-continue",
+      "kind": "pi-harness",
+      "group": "pi-harnesses",
+      "subcategory": null,
+      "title": "damage-control-continue",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/damage-control-continue"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/damage-control-continue",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:damage-control-rules",
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-harness-deps",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests"
+      ],
+      "requires": [
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue",
+        "pi-extension:pi-voice-stt",
+        "pi-harness:ask-user-remote"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:coms"
+      ]
+    },
+    {
+      "id": "pi-runtime-skill:bowser",
+      "kind": "pi-runtime-skill",
+      "group": "pi-extensions",
+      "subcategory": "runtime-skill",
+      "title": "bowser",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/skills/bowser"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/bowser",
+          "strategy": "copy-tree"
+        }
+      },
+      "recommendsWith": [
+        "external:playwright-cli"
+      ]
+    },
+    {
+      "id": "reference:accessibility-checklist",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "accessibility-checklist",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/accessibility-checklist.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/accessibility-checklist.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "reference:definition-of-done",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "definition-of-done",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/definition-of-done.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/definition-of-done.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "reference:fleet-coordination-patterns",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "fleet-coordination-patterns",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/fleet-coordination-patterns.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/fleet-coordination-patterns.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "reference:observability-checklist",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "observability-checklist",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/observability-checklist.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/observability-checklist.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "reference:orchestration-patterns",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "orchestration-patterns",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/orchestration-patterns.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/orchestration-patterns.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "reference:performance-checklist",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "performance-checklist",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/performance-checklist.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/performance-checklist.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "reference:prompting-patterns",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "prompting-patterns",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/prompting-patterns.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/prompting-patterns.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "reference:security-checklist",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "security-checklist",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/security-checklist.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/security-checklist.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "reference:testing-patterns",
+      "kind": "reference",
+      "group": "references-hooks",
+      "subcategory": "reference",
+      "title": "testing-patterns",
+      "summary": "",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "references/testing-patterns.md"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/references/testing-patterns.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    {
+      "id": "skill:api-and-interface-design",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "api-and-interface-design",
+      "summary": "Guides stable API and interface design.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/api-and-interface-design"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/api-and-interface-design",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/api-and-interface-design"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/api-and-interface-design",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/api-and-interface-design"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/api-and-interface-design",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:browser-testing-with-devtools",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "verify",
+      "title": "browser-testing-with-devtools",
+      "summary": "Tests in real browsers via Chrome DevTools MCP.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/browser-testing-with-devtools",
+            "vendor/agent-skills-upstream/skills/browser-testing-with-devtools"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/browser-testing-with-devtools",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/browser-testing-with-devtools",
+            "vendor/agent-skills-upstream/skills/browser-testing-with-devtools"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/browser-testing-with-devtools",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/browser-testing-with-devtools",
+            "vendor/agent-skills-upstream/skills/browser-testing-with-devtools"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/browser-testing-with-devtools",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:ci-cd-and-automation",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "ci-cd-and-automation",
+      "summary": "Automates CI/CD pipeline setup.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/ci-cd-and-automation"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/ci-cd-and-automation",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/ci-cd-and-automation"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/ci-cd-and-automation",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/ci-cd-and-automation"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/ci-cd-and-automation",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:code-review-and-quality",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "review",
+      "title": "code-review-and-quality",
+      "summary": "Conducts multi-axis code review.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/code-review-and-quality",
+            "vendor/agent-skills-upstream/skills/code-review-and-quality"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/code-review-and-quality",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/code-review-and-quality",
+            "vendor/agent-skills-upstream/skills/code-review-and-quality"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/code-review-and-quality",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/code-review-and-quality",
+            "vendor/agent-skills-upstream/skills/code-review-and-quality"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/code-review-and-quality",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:code-simplification",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "review",
+      "title": "code-simplification",
+      "summary": "Simplifies code for clarity.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/code-simplification"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/code-simplification",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/code-simplification"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/code-simplification",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/code-simplification"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/code-simplification",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:compound-learning",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "learn",
+      "title": "compound-learning",
+      "summary": "Captures a finished session's lessons into the project's own rules and docs — extracts candidate lessons from session…",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/compound-learning"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/compound-learning",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/compound-learning"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/compound-learning",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/compound-learning"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/compound-learning",
+          "strategy": "copy-tree"
+        }
+      },
+      "recommendsWith": [
+        "command:compound",
+        "persona:documenter"
+      ]
+    },
+    {
+      "id": "skill:context-engineering",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "context-engineering",
+      "summary": "Optimizes agent context setup.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/context-engineering",
+            "vendor/agent-skills-upstream/skills/context-engineering"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/context-engineering",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/context-engineering",
+            "vendor/agent-skills-upstream/skills/context-engineering"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/context-engineering",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/context-engineering",
+            "vendor/agent-skills-upstream/skills/context-engineering"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/context-engineering",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:debugging-and-error-recovery",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "verify",
+      "title": "debugging-and-error-recovery",
+      "summary": "Guides systematic root-cause debugging.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/debugging-and-error-recovery"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/debugging-and-error-recovery",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/debugging-and-error-recovery"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/debugging-and-error-recovery",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/debugging-and-error-recovery"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/debugging-and-error-recovery",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:deprecation-and-migration",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "deprecation-and-migration",
+      "summary": "Manages deprecation and migration.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/deprecation-and-migration",
+            "vendor/agent-skills-upstream/skills/deprecation-and-migration"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/deprecation-and-migration",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/deprecation-and-migration",
+            "vendor/agent-skills-upstream/skills/deprecation-and-migration"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/deprecation-and-migration",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/deprecation-and-migration",
+            "vendor/agent-skills-upstream/skills/deprecation-and-migration"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/deprecation-and-migration",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:designing-agents",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "meta",
+      "title": "designing-agents",
+      "summary": "Designs and writes a focused artifact another agent runs — an agent persona in agents/, a workflow skill in skills/,…",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/designing-agents"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/designing-agents",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/designing-agents"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/designing-agents",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/designing-agents"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/designing-agents",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:documentation-and-adrs",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "documentation-and-adrs",
+      "summary": "Records decisions and documentation.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/documentation-and-adrs"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/documentation-and-adrs",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/documentation-and-adrs"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/documentation-and-adrs",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/documentation-and-adrs"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/documentation-and-adrs",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:doubt-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "doubt-driven-development",
+      "summary": "Subjects every non-trivial decision to a fresh-context adversarial review before it stands.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/doubt-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/doubt-driven-development",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/doubt-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/doubt-driven-development",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/doubt-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/doubt-driven-development",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:frontend-ui-engineering",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "frontend-ui-engineering",
+      "summary": "Builds production-quality UIs.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/frontend-ui-engineering",
+            "vendor/agent-skills-upstream/skills/frontend-ui-engineering"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/frontend-ui-engineering",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/frontend-ui-engineering",
+            "vendor/agent-skills-upstream/skills/frontend-ui-engineering"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/frontend-ui-engineering",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/frontend-ui-engineering",
+            "vendor/agent-skills-upstream/skills/frontend-ui-engineering"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/frontend-ui-engineering",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:git-workflow-and-versioning",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "git-workflow-and-versioning",
+      "summary": "Structures git workflow practices.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/git-workflow-and-versioning",
+            "vendor/agent-skills-upstream/skills/git-workflow-and-versioning"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/git-workflow-and-versioning",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/git-workflow-and-versioning",
+            "vendor/agent-skills-upstream/skills/git-workflow-and-versioning"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/git-workflow-and-versioning",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/git-workflow-and-versioning",
+            "vendor/agent-skills-upstream/skills/git-workflow-and-versioning"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/git-workflow-and-versioning",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:idea-refine",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "define",
+      "title": "idea-refine",
+      "summary": "Refines raw ideas into sharp, actionable concepts through structured divergent and convergent thinking.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/idea-refine",
+            "vendor/agent-skills-upstream/skills/idea-refine"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/idea-refine",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/idea-refine",
+            "vendor/agent-skills-upstream/skills/idea-refine"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/idea-refine",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/idea-refine",
+            "vendor/agent-skills-upstream/skills/idea-refine"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/idea-refine",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:skills-internal-grilling"
+      ]
+    },
+    {
+      "id": "skill:incremental-implementation",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "incremental-implementation",
+      "summary": "Delivers changes incrementally.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/incremental-implementation",
+            "vendor/agent-skills-upstream/skills/incremental-implementation"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/incremental-implementation",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/incremental-implementation",
+            "vendor/agent-skills-upstream/skills/incremental-implementation"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/incremental-implementation",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/incremental-implementation",
+            "vendor/agent-skills-upstream/skills/incremental-implementation"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/incremental-implementation",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:interview-me",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "define",
+      "title": "interview-me",
+      "summary": "Extracts what the user actually wants instead of what they think they should want.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/interview-me",
+            "vendor/agent-skills-upstream/skills/interview-me"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/interview-me",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/interview-me",
+            "vendor/agent-skills-upstream/skills/interview-me"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/interview-me",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/interview-me",
+            "vendor/agent-skills-upstream/skills/interview-me"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/interview-me",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:observability-and-instrumentation",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "observability-and-instrumentation",
+      "summary": "Instruments code so production behavior is visible and diagnosable.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/observability-and-instrumentation"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/observability-and-instrumentation",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/observability-and-instrumentation"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/observability-and-instrumentation",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/observability-and-instrumentation"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/observability-and-instrumentation",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:orchestration-verification",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "orchestrate",
+      "title": "orchestration-verification",
+      "summary": "Defines the Verification Contract that keeps a multi-agent run honest — dispatcher-owned acceptance assertions, a par…",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/orchestration-verification"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/orchestration-verification",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/orchestration-verification"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/orchestration-verification",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/orchestration-verification"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/orchestration-verification",
+          "strategy": "copy-tree"
+        }
+      },
+      "recommendsWith": [
+        "persona:builder",
+        "persona:code-reviewer",
+        "persona:orchestrator",
+        "persona:test-engineer"
+      ]
+    },
+    {
+      "id": "skill:peer-coms",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "orchestrate",
+      "title": "peer-coms",
+      "summary": "Makes Claude Code a first-class peer in the local coms agent pool — discover pi colleagues, ask or delegate to them m…",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/peer-coms"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/peer-coms",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/peer-coms"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/peer-coms",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/peer-coms"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/peer-coms",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:performance-optimization",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "review",
+      "title": "performance-optimization",
+      "summary": "Optimizes application performance.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/performance-optimization",
+            "vendor/agent-skills-upstream/skills/performance-optimization"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/performance-optimization",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/performance-optimization",
+            "vendor/agent-skills-upstream/skills/performance-optimization"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/performance-optimization",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/performance-optimization",
+            "vendor/agent-skills-upstream/skills/performance-optimization"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/performance-optimization",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:planning-and-task-breakdown",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "plan",
+      "title": "planning-and-task-breakdown",
+      "summary": "Breaks work into ordered tasks.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/planning-and-task-breakdown",
+            "vendor/agent-skills-upstream/skills/planning-and-task-breakdown"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/planning-and-task-breakdown",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/planning-and-task-breakdown",
+            "vendor/agent-skills-upstream/skills/planning-and-task-breakdown"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/planning-and-task-breakdown",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/planning-and-task-breakdown",
+            "vendor/agent-skills-upstream/skills/planning-and-task-breakdown"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/planning-and-task-breakdown",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:skills-internal-grilling"
+      ]
+    },
+    {
+      "id": "skill:security-and-hardening",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "review",
+      "title": "security-and-hardening",
+      "summary": "Hardens code against vulnerabilities.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/security-and-hardening",
+            "vendor/agent-skills-upstream/skills/security-and-hardening"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/security-and-hardening",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/security-and-hardening",
+            "vendor/agent-skills-upstream/skills/security-and-hardening"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/security-and-hardening",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/security-and-hardening",
+            "vendor/agent-skills-upstream/skills/security-and-hardening"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/security-and-hardening",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:shipping-and-launch",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "shipping-and-launch",
+      "summary": "Prepares production launches.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/shipping-and-launch"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/shipping-and-launch",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/shipping-and-launch"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/shipping-and-launch",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/shipping-and-launch"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/shipping-and-launch",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:source-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "source-driven-development",
+      "summary": "Grounds every implementation decision in official documentation.",
+      "recommended": false,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/source-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/source-driven-development",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/source-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/source-driven-development",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/source-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/source-driven-development",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:spec-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "define",
+      "title": "spec-driven-development",
+      "summary": "Creates specs before coding.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/spec-driven-development",
+            "vendor/agent-skills-upstream/skills/spec-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/spec-driven-development",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/spec-driven-development",
+            "vendor/agent-skills-upstream/skills/spec-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/spec-driven-development",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/spec-driven-development",
+            "vendor/agent-skills-upstream/skills/spec-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/spec-driven-development",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:skills-internal-grilling"
+      ]
+    },
+    {
+      "id": "skill:test-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "test-driven-development",
+      "summary": "Drives development with tests.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/test-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/test-driven-development",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/test-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/test-driven-development",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/test-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/test-driven-development",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:using-agent-skills",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "meta",
+      "title": "using-agent-skills",
+      "summary": "Discovers and invokes agent skills.",
+      "recommended": true,
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "claude-code": {
+          "source": [
+            "skills/using-agent-skills",
+            "vendor/agent-skills-upstream/skills/using-agent-skills"
+          ],
+          "sourceMode": "first",
+          "target": ".claude/skills/using-agent-skills",
+          "strategy": "copy-tree"
+        },
+        "opencode": {
+          "source": [
+            "skills/using-agent-skills",
+            "vendor/agent-skills-upstream/skills/using-agent-skills"
+          ],
+          "sourceMode": "first",
+          "target": ".opencode/skills/using-agent-skills",
+          "strategy": "copy-tree"
+        },
+        "pi": {
+          "source": [
+            "skills/using-agent-skills",
+            "vendor/agent-skills-upstream/skills/using-agent-skills"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/using-agent-skills",
+          "strategy": "copy-tree"
+        }
+      }
+    }
+  ]
+}
