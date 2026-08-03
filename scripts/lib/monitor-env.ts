@@ -39,6 +39,14 @@ export const PROFILE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 export const DEFAULT_PROFILE_ID = "dev";
 
 export const RUNTIME_DIR_NAME = "agent-fleet-monitor";
+export const MAX_MONITOR_SOCKET_PATH_BYTES = 103;
+
+const SOCKET_NAMESPACE_BYTES = 32;
+
+function monitorSocketPathFits(runtimeDir: string): boolean {
+	const longestSocketPath = path.join(runtimeDir, "s", "a".repeat(SOCKET_NAMESPACE_BYTES), "s");
+	return Buffer.byteLength(longestSocketPath) <= MAX_MONITOR_SOCKET_PATH_BYTES;
+}
 
 export interface MonitorEnv {
 	AGENT_FLEET_PROFILE_ID: string;
@@ -56,8 +64,13 @@ export function monitorRuntimeRoot(env: NodeJS.ProcessEnv = process.env): string
 	const xdg = env.XDG_RUNTIME_DIR;
 	if (xdg && path.isAbsolute(xdg)) return path.join(xdg, RUNTIME_DIR_NAME);
 	const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+	// macOS gives each process a long /var/folders/... temp path. Adding the
+	// monitor's 32-byte namespace to it exceeds sockaddr_un.sun_path (104 bytes,
+	// including its terminator), so libuv binds a truncated name that chmod
+	// cannot find. The child under /tmp is still created and verified mode 0700.
+	const tempRoot = process.platform === "darwin" ? "/tmp" : os.tmpdir();
 
-	return path.join(os.tmpdir(), `${RUNTIME_DIR_NAME}-${uid}`);
+	return path.join(tempRoot, `${RUNTIME_DIR_NAME}-${uid}`);
 }
 
 /** Create the runtime root 0700, or say why it cannot be trusted.
@@ -112,6 +125,7 @@ export function resolveMonitorEnv(
 	// louder than silently relocating somebody's deliberate choice.
 	const root = requested ? (path.isAbsolute(requested) ? requested : null) : monitorRuntimeRoot(env);
 	if (!root) return null;
+	if (!monitorSocketPathFits(root)) return null;
 
 	const runtimeDir = ensure(root);
 	if (!runtimeDir) return null;

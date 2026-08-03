@@ -11,7 +11,7 @@ import {
 	resolveMonitorEnv,
 } from "./monitor-env.ts";
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "monitor-env-"));
+const tmp = () => fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : os.tmpdir(), "monitor-env-"));
 
 test("an operator's own export always wins over the defaults", () => {
 	const runtime = path.join(tmp(), "chosen");
@@ -29,9 +29,22 @@ test("nothing set at all lands on the dev profile under XDG_RUNTIME_DIR", () => 
 
 test("no XDG_RUNTIME_DIR falls back to a uid-scoped tmpdir rather than a shared one", () => {
 	const root = monitorRuntimeRoot({});
-	assert.ok(root.startsWith(os.tmpdir()));
+	assert.ok(root.startsWith(process.platform === "darwin" ? "/tmp" : os.tmpdir()));
 	// Two users on one machine must not resolve to the same path.
 	assert.ok(root.endsWith(`-${typeof process.getuid === "function" ? process.getuid() : 0}`));
+});
+
+test("the default runtime root leaves room for the monitor Unix socket", () => {
+	const socketPath = path.join(monitorRuntimeRoot({}), "s", "a".repeat(32), "s");
+	assert.ok(Buffer.byteLength(socketPath) <= 103);
+});
+
+test("an explicit runtime root that would overflow the Unix socket path is rejected", () => {
+	const runtime = path.join(os.tmpdir(), "x".repeat(103));
+	assert.equal(resolveMonitorEnv(
+		{ AGENT_FLEET_MONITOR_RUNTIME_DIR: runtime },
+		() => runtime,
+	), null);
 });
 
 test("AGENT_FLEET_MONITOR=0 is the opt-out and leaves the hub unmonitored", () => {
