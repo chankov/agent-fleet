@@ -326,6 +326,9 @@ are inert in dashboard mode (use `/af-zoom <name>` there).
 > Terminal note: `Alt+[` emits `ESC [` (a CSI prefix) and may be swallowed by some terminals'
 > escape parsers; `Alt+]` and `Alt+\` are the reliable pair. `Alt+↑/↓/←/→` are reserved by the pi
 > editor, which is why the switcher uses the bracket/backslash keys.
+>
+> On macOS, configure the outer terminal to send Option as Meta. For Zed, set
+> `terminal.option_as_meta` to `true`; otherwise Option combinations produce composed characters.
 
 ## Configuration
 

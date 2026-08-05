@@ -31,8 +31,9 @@ opens a modal over it:
 - **`/af-btw <task>`** — start a side task and open its modal.
 - **`/af-btw`** (no args) — reopen the modal on the last-viewed (or most recent) thread.
 - **`Alt+'`** — reopen the modal. (Chosen because it doesn't collide with a pi
-  composer motion the way `Alt+B` does — that's the editor's cursor-word-left. Pick
-  another binding in `index.ts` if your terminal swallows `Alt+'`.)
+  composer motion the way `Alt+B` does — that's the editor's cursor-word-left.) On
+  macOS, configure the terminal to send Option as Meta; in Zed set
+  `terminal.option_as_meta` to `true`.
 
 Once any `/af-btw` command or `Alt+'` has run in a session, the **agent-hub** harness
 footer surfaces an `Alt+' btw` hint next to its `Alt+A view:` hint (via a

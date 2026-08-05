@@ -41,6 +41,11 @@ so an unconfigured session is a no-op. `/af-stt doctor`
 checks the setup. A simplified port of [`cgarrot/pi-voice-stt`](https://github.com/cgarrot/pi-voice-stt);
 see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).
 
+> **macOS terminal note:** Option-to-Alt behavior belongs to the outer terminal, not macOS or Pi.
+> If an Option shortcut inserts a composed character such as `ß`, configure the terminal to send
+> Option as Meta. In Zed, set `terminal.option_as_meta` to `true`. This enables the existing Alt
+> shortcuts; it is not an OS-wide keybinding change.
+
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some set orchestration/UI surfaces and some gate every
 tool call. The unified `just fleet` entry point composes them with a deterministic

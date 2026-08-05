@@ -178,6 +178,9 @@ can be raised.
 
 ## Troubleshooting
 
+- **macOS: Option shortcuts type symbols instead of activating** — configure the terminal to send
+  Option as Meta. In Zed set `terminal.option_as_meta` to `true`; this is terminal-specific, not an
+  OS-wide shortcut change.
 - **`/af-stt doctor` says ffmpeg not found** — install ffmpeg or set `capture.ffmpegPath`.
 - **Linux: no audio** — ensure PulseAudio/PipeWire is running; try `capture.input` of a
   specific source name from `pactl list sources short`.
