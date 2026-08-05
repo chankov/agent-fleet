@@ -26,7 +26,7 @@ Personas and skills are prose that change an agent's *judgment*. A harness is co
 
 **NOT for:**
 - One-off prompts — just write the instruction inline.
-- Claude Code `.claude/agents/` sub-agents — those use a different frontmatter (`tools`, `model`, `color`). The persona workflow in this skill still applies; only the frontmatter shape differs.
+- Personas for another vendor's agent runtime — the workflow in this skill still applies, but the frontmatter shape here is pi's, and pi is the only runtime Agent Fleet installs for.
 - Reference material (long checklists, pattern catalogs) — those belong in `references/`, not in skills or personas.
 - An always-on pi *utility* extension under `.pi/extensions/` — this skill covers the selectable, mutually-exclusive *harnesses* under `.pi/harnesses/`. Adding an auto-discovered utility is a different decision; see `docs/pi-extensions.md`.
 

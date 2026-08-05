@@ -14,7 +14,6 @@ import { basename, join } from "node:path";
 
 import { itemsForAgent } from "./manifest.js";
 import { extractRegion, leafPaths, getPath, canonicalJson } from "./merge-forms.js";
-import { transformPersona } from "./transform-persona.js";
 import { runDoctor } from "./doctor.js";
 import {
   readState,
@@ -146,7 +145,7 @@ export async function runVerify({
       type: "agent-unknown",
       path: STATE_REL_PATH,
       issue: "no recorded or detected coding agent — cannot resolve install targets",
-      fix: "re-run with --agent <claude-code|pi>",
+      fix: "re-run with --agent pi",
     });
   } else {
     items = evaluateWorkspace({
@@ -358,21 +357,14 @@ function evaluateItem({ item, binding, workspace, sourceRoot, baseRoot, recorded
           rel: `${pair.targetRel}/${rel}`,
           ours: hashFile(join(targetAbs, rel)),
           theirs: hashFile(join(pair.sourceAbs, rel)),
-          base: baseHashOf({ baseRoot, sourceRel: `${pair.sourceRel}/${rel}`, agent, transform: false }),
+          base: baseHashOf({ baseRoot, sourceRel: `${pair.sourceRel}/${rel}` }),
           recorded: recordedHashes.get(`${pair.targetRel}/${rel}`) ?? null,
         }))
       : [compareOne({
           rel: pair.targetRel,
           ours: hashFile(targetAbs),
-          theirs: binding.strategy === "transform-persona"
-            ? transformedHash(pair.sourceAbs, agent)
-            : hashFile(pair.sourceAbs),
-          base: baseHashOf({
-            baseRoot,
-            sourceRel: pair.sourceRel,
-            agent,
-            transform: binding.strategy === "transform-persona",
-          }),
+          theirs: hashFile(pair.sourceAbs),
+          base: baseHashOf({ baseRoot, sourceRel: pair.sourceRel }),
           recorded: recordedHashes.get(pair.targetRel) ?? null,
         })];
 
@@ -537,22 +529,11 @@ function compareOne({ rel, ours, theirs, base, recorded }) {
   return { path: rel, state: "conflict" };
 }
 
-function baseHashOf({ baseRoot, sourceRel, agent, transform }) {
+function baseHashOf({ baseRoot, sourceRel }) {
   if (!baseRoot) return null;
   const path = join(baseRoot, sourceRel);
   if (!existsSync(path)) return null;
-  return transform ? transformedHash(path, agent) : hashFile(path);
-}
-
-// Personas are generated, so "theirs" is the transform output — comparing the
-// installed file against the raw canonical source would flag every persona as
-// modified (SKILL.md step 6 makes the same point in prose).
-function transformedHash(sourcePath, agent) {
-  if (!agent) return null;
-  try {
-    const { content } = transformPersona(readFileSync(sourcePath, "utf8"), { agent });
-    return hashText(content);
-  } catch { return null; }
+  return hashFile(path);
 }
 
 function agentOf(item, binding) {

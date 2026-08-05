@@ -38,8 +38,8 @@ Run the CLI from the agent-fleet package the user actually installed:
 3. Ask. **Never scan the filesystem for agent-fleet clones** — it finds forks and stale checkouts,
    not the package the user installed from.
 
-Confirm the workspace path exists. The agent (`claude-code` / `pi`) comes from the
-recorded state; pass `--agent` only to override it.
+Confirm the workspace path exists. pi is the only coding agent the installer targets,
+so there is nothing to ask and nothing to detect — never prompt for one.
 
 ### 2. Read the workspace's current state
 
@@ -67,10 +67,9 @@ Present the `items` grouped by `group`, chunked by `subcategory`. Interaction mo
   to install it (`pi install -l npm:pi-ask-user`), then **stop the pass** and ask the user to
   reload and re-run — the widget is not callable until then. If they decline, use the text
   fallback.
-- **claude-code** → `AskUserQuestion` (max 4 options per call).
 - **anything else** → print a compact table and take a text reply.
 
-Screen budget: ≤ 8 context lines, ≤ 9 options per call (≤ 4 on `AskUserQuestion`). Options carry
+Screen budget: ≤ 8 context lines, ≤ 9 options per call. Options carry
 the data — `{title, description}`, never a table pasted into `context`. Titles are
 `<title> ★ [state]`; descriptions say what picking it does in plain words ("update available",
 "locally modified — installing overwrites your edits"). Long material (diffs, changelog, the plan)

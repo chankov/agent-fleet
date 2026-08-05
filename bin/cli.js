@@ -5,7 +5,6 @@
 //   init               materialize the package, detect the coding agent, hand off to its setup command
 //   doctor             deterministic preflight scan (broken symlinks, stale persona refs)
 //   update             refresh the package, then hand off to the setup workflow for the version-diff
-//   transform-persona  generate per-agent subagent files from the canonical agents/*.md
 //   set-hermes-telegram install/inspect the liaison and start/stop its bridge
 //
 // The CLI itself never decides which skills to install or what to overwrite —
@@ -27,7 +26,6 @@ import { runVerify, hasDrift } from "./lib/verify.js";
 import { buildPlan, hasConflicts, isNoop } from "./lib/plan.js";
 import { applyPlan } from "./lib/apply.js";
 import { readState, readLegacyRecord, isAgentFleetCheckout, STATE_REL_PATH } from "./lib/state.js";
-import { listPersonas, transformPersona } from "./lib/transform-persona.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
 import { bootstrap, cleanupInstaller, readBootstrapMarker } from "./lib/bootstrap.js";
@@ -115,7 +113,6 @@ switch (sub) {
   case "update":            await cmdUpdate();           break;
   case "check-update":      await cmdCheckUpdate();      break;
   case "cleanup-installer":  await cmdCleanupInstaller();  break;
-  case "transform-persona":  await cmdTransformPersona();  break;
   case "set-hermes-telegram": await cmdSetHermesTelegram(); break;
   case "set-hermes-watchdog": await cmdSetHermesWatchdog(); break;
   default:                    fail(`unknown command: ${sub}\n\nRun "agent-fleet --help" for usage.`);
@@ -193,7 +190,7 @@ async function cmdInit() {
   console.log(`Source:    ${pkgRoot}`);
   console.log();
 
-  const agent = await chooseAgent(opts.agent);
+  const agent = chooseAgent(opts.agent);
   console.log(`Coding agent: ${agentLabel(agent)}`);
 
   const method = resolveMethod(opts.method);
@@ -836,7 +833,7 @@ async function cmdUpdate() {
   let agent = opts.agent ?? marker?.agent
     ?? detectAgent({ workspace, env: process.env, preferWorkspaceHints: true });
   if (agent && !AGENTS.includes(agent)) agent = null;
-  if (!agent) agent = await chooseAgent(opts.agent);
+  if (!agent) agent = chooseAgent(opts.agent);
 
   const method = resolveMethod(opts.method, marker?.method ?? "copy");
 
@@ -861,7 +858,7 @@ async function cmdUpdate() {
     console.log(`  ✗ skipped: ${relative(workspace, f.dest)} — ${f.error}`);
   }
 
-  const setupCmd = agent === "claude-code" ? "/setup-agent-fleet" : "/af-setup-agent-fleet";
+  const setupCmd = "/af-setup-agent-fleet";
 
   printSection("Next step");
   if (recorded === current) {
@@ -909,59 +906,6 @@ async function cmdCleanupInstaller() {
   }
 }
 
-async function cmdTransformPersona() {
-  // Generates per-agent subagent definitions from the canonical agents/*.md.
-  // The guided-workspace-setup skill calls this during apply, so the
-  // frontmatter mapping stays deterministic and under test (lib/transform-persona.js).
-  const agent = opts.agent;
-  if (!agent || !AGENTS.includes(agent)) {
-    fail(`transform-persona needs --agent (one of: ${AGENTS.join(", ")})`);
-  }
-
-  const available = listPersonas(pkgRoot, { agent });
-
-  if (opts.list) {
-    for (const p of available) console.log(`${p.name} → ${p.targetRelPath}`);
-    return;
-  }
-
-  const names = opts.all ? available.map((p) => p.name) : parsed.positionals;
-  if (names.length === 0) {
-    fail("name one or more personas, or pass --all / --list");
-  }
-
-  // Writing only happens when --workspace is given explicitly; otherwise the
-  // transformed content goes to stdout (workspace would default to cwd, which
-  // is too easy to splat by accident).
-  const wantsWrite = opts.workspace !== undefined;
-  if (wantsWrite) await mustBeDirectory(workspace, "workspace");
-
-  for (const name of names) {
-    const sourcePath = join(pkgRoot, "agents", `${name}.md`);
-    if (!existsSync(sourcePath)) {
-      fail(`unknown persona "${name}" — run \`agent-fleet transform-persona --list --agent ${agent}\``);
-    }
-    let out;
-    try {
-      out = transformPersona(readFileSync(sourcePath, "utf8"), { agent });
-    } catch (err) {
-      fail(err.message); // e.g. pi-only persona requested for claude-code
-    }
-    if (wantsWrite) {
-      const dest = join(workspace, out.targetRelPath);
-      if (opts["dry-run"]) {
-        console.log(`  ✓ would write: ${out.targetRelPath}`);
-      } else {
-        mkdirSync(dirname(dest), { recursive: true });
-        writeFileSync(dest, out.content);
-        console.log(`  ✓ wrote: ${out.targetRelPath}`);
-      }
-    } else {
-      process.stdout.write(out.content);
-    }
-  }
-}
-
 async function cmdCheckUpdate() {
   // Entry point for hook scripts and pi extensions. Blocks on a single
   // registry fetch (short timeout); emits a one-line banner to stdout if an
@@ -983,31 +927,19 @@ async function cmdCheckUpdate() {
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
-async function chooseAgent(supplied) {
-  if (supplied) {
-    if (!AGENTS.includes(supplied)) {
-      fail(`--agent must be one of: ${AGENTS.join(", ")} (got "${supplied}")`);
-    }
-    return supplied;
+// pi is the only coding agent Agent Fleet installs for, so there is nothing to
+// ask: `--agent` is still honoured (and still validated) so scripts written
+// against the old flag keep working and a wrong value fails loudly.
+function chooseAgent(supplied) {
+  if (supplied && !AGENTS.includes(supplied)) {
+    fail(`--agent must be one of: ${AGENTS.join(", ")} (got "${supplied}")`);
   }
-  const detected = detectAgent({ workspace, env: process.env });
-  if (detected) return detected;
-
-  console.log("Could not auto-detect your coding agent.");
-  const answer = (await prompt(
-    `Which coding agent? [${AGENTS.join("/")}] (claude-code): `,
-  )).trim() || "claude-code";
-
-  if (!AGENTS.includes(answer)) {
-    fail(`Unknown agent "${answer}". Allowed: ${AGENTS.join(", ")}`);
-  }
-  return answer;
+  return supplied ?? detectAgent();
 }
 
 function printHandoff({ agent, method, workspace, source, version }) {
   const rel = relative(process.cwd(), workspace) || ".";
-  const setupCmd =
-    agent === "claude-code" ? "/setup-agent-fleet" : "/af-setup-agent-fleet";
+  const setupCmd = "/af-setup-agent-fleet";
   const lines = [
     `agent-fleet v${version} is ready.`,
     "",
@@ -1035,18 +967,17 @@ function printHandoff({ agent, method, workspace, source, version }) {
 }
 
 function agentLaunchHint(agent) {
-  return { "claude-code": "Claude Code (`claude`)", "pi": "pi (`pi`)" }[agent] || agent;
+  return { "pi": "pi (`pi`)" }[agent] || agent;
 }
 
 function tryLaunch(agent, cwd) {
-  const cmd = { "claude-code": "claude", "pi": "pi" }[agent];
+  const cmd = { "pi": "pi" }[agent];
   if (!cmd) return;
   console.log(`\nLaunching: ${cmd} (cwd: ${cwd})`);
   const r = spawnSync(cmd, [], { cwd, stdio: "inherit" });
   if (r.error) {
     console.log(`(could not launch ${cmd}: ${r.error.message})`);
-    const setupCmd = agent === "claude-code" ? "/setup-agent-fleet" : "/af-setup-agent-fleet";
-    console.log(`Open ${cmd} manually and run ${setupCmd}.`);
+    console.log(`Open ${cmd} manually and run /af-setup-agent-fleet.`);
   }
 }
 
@@ -1114,7 +1045,7 @@ function printHelp(sub) {
   Materialize the package and hand off to the runtime's Agent Fleet setup command.
 
 Options:
-  --agent <claude-code|pi>            Skip the agent auto-detection
+  --agent pi                          Coding agent (pi is the only target)
   --workspace <path>                  Target workspace (default: cwd)
   --launch                            Attempt to launch the coding agent after init
   -h, --help                          Show this help
@@ -1137,7 +1068,7 @@ Options:
 
 Options:
   --workspace <path>                  Target workspace (default: cwd)
-  --agent <claude-code|pi>            Override the recorded/detected agent
+  --agent pi                          Coding agent (pi is the only target)
   --fix                               Apply the repairs without prompting
   --dry-run                           Report only; never write, never prompt
   --json                              Emit the machine report on stdout
@@ -1166,7 +1097,7 @@ Options:
   --workspace <path>                  Target workspace (default: cwd)
   --items <id[,id]>                   Item ids to remove
   --all                               Remove everything the state file records
-  --agent <claude-code|pi>            Override the recorded agent
+  --agent pi                          Coding agent (pi is the only target)
   --dry-run                           Print the plan, write nothing
   --json                              Emit the machine plan/result on stdout
   -y, --yes                           Skip the confirmation
@@ -1186,7 +1117,7 @@ Exit codes:
 
 Options:
   --workspace <path>                  Target workspace (default: cwd)
-  --agent <claude-code|pi>            Override the recorded/detected agent
+  --agent pi                          Coding agent (pi is the only target)
   --json                              Emit the machine report on stdout
   --no-doctor                         Skip the symlink/persona/overrides scan
   -h, --help                          Show this help
@@ -1210,7 +1141,7 @@ An available upgrade (state "outdated") and a deliberate local edit (state
 
 Options:
   --workspace <path>                  Target workspace (default: cwd)
-  --agent <claude-code|pi>            Override the recorded/detected agent${sub === "install" ? `
+  --agent pi                          Coding agent (pi is the only target)${sub === "install" ? `
   --profile <name[,name]>             Named selections, unioned
   --items <id[,id]>                   Explicit item ids, added to the profiles` : ""}
   --allow-exec                        Include items that run a command
@@ -1234,29 +1165,6 @@ Artifacts are installed as copies. --method symlink exists only inside an
 agent-fleet checkout, where editing an artifact is meant to edit the source; a
 workspace that recorded symlinks before that restriction is migrated to copies
 on the next install or upgrade.
-`);
-    return;
-  }
-  if (sub === "transform-persona") {
-    console.log(`agent-fleet transform-persona --agent <agent> [options] [persona…]
-
-  Generate per-agent subagent definitions from the canonical agents/*.md
-  personas. pi gets the canonical file unchanged; claude-code gets a
-  transformed copy (tools/model translated, agent-hub-only keys dropped).
-  pi-only personas (bowser, orchestrator) are refused for other agents.
-
-Options:
-  --agent <claude-code|pi>            Target agent (required)
-  --list                              List available personas + target paths
-  --all                               Transform every available persona
-  --workspace <path>                  Write into <path>/<target>; omit to print to stdout
-  --dry-run                           With --workspace: show what would be written
-  -h, --help                          Show this help
-
-Examples:
-  agent-fleet transform-persona --list --agent claude-code
-  agent-fleet transform-persona --agent claude-code code-reviewer
-  agent-fleet transform-persona --agent claude-code --all --workspace ~/projects/foo
 `);
     return;
   }
@@ -1316,7 +1224,7 @@ Examples:
   then runs inside your coding agent via that command.
 
 Options:
-  --agent <claude-code|pi>            Override the agent (default: marker → auto-detect)
+  --agent pi                          Coding agent (pi is the only target)
   --workspace <path>                  Target workspace (default: cwd)
   --dry-run                           Show what would be written; touch nothing
   -h, --help                          Show this help
@@ -1343,8 +1251,6 @@ Commands:
   check-update        One-line registry check (used by session hooks; safe to script)
   cleanup-installer   Remove the installer slash commands from a workspace (used
                       by the skill at end of setup; safe to run by hand)
-  transform-persona   Generate per-agent subagent files from the canonical
-                      agents/*.md personas (used by the setup skill during apply)
   set-hermes-telegram Install/status the liaison and start/stop its Herdr bridge
   set-hermes-watchdog Install/status/update/uninstall the fail-closed watchdog skill
 
@@ -1354,7 +1260,6 @@ Options:
 
 Examples:
   npx agent-fleet init
-  npx agent-fleet init --agent claude-code --method copy
   npx agent-fleet doctor --workspace ~/projects/foo --fix
   npx agent-fleet verify --agent pi --json
   npx agent-fleet install --agent pi --profile recommended --yes

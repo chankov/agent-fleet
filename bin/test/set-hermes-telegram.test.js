@@ -198,7 +198,7 @@ test("off remains available without Hermes readiness and creates no pane", async
 });
 
 test("slash command artifacts expose install/status/on/off and profile options", () => {
-	for (const file of [".pi/prompts/af-set-hermes-telegram.md", ".claude/commands/set-hermes-telegram.md"]) {
+	for (const file of [".pi/prompts/af-set-hermes-telegram.md"]) {
 		const text = readFileSync(resolve(file), "utf8");
 		assert.match(text, /install/);
 		assert.match(text, /status/);

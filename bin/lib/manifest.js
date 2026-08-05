@@ -17,12 +17,12 @@
 import { readdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { listPersonas, targetRelPath } from "./transform-persona.js";
+import { listPersonas, targetRelPath } from "./personas.js";
 
 export const MANIFEST_SCHEMA_VERSION = 1;
 
 // Fixed order everywhere the manifest emits per-agent data, so output is stable.
-export const MANIFEST_AGENTS = ["claude-code", "pi"];
+export const MANIFEST_AGENTS = ["pi"];
 
 export const MANIFEST_FILE = "install-manifest.json";
 export const MANIFEST_META_FILE = "manifest-meta.json";
@@ -30,7 +30,6 @@ export const MANIFEST_META_FILE = "manifest-meta.json";
 const STRATEGIES = [
   "copy-file",
   "copy-tree",
-  "transform-persona",
   "managed-region",
   "json-merge",
   "exec",
@@ -47,13 +46,11 @@ const ID_RE = /^[a-z][a-z-]*:[a-z0-9][a-z0-9._-]*$/;
 const SKILL_ROOTS = ["skills", join("vendor", "agent-skills-upstream", "skills")];
 
 const SKILL_TARGET_DIR = {
-  "claude-code": ".claude/skills",
-  "pi":          ".pi/skills",
+  "pi": ".pi/skills",
 };
 
 const COMMAND_SOURCE = {
-  "claude-code": { dir: ".claude/commands", prefix: "" },
-  "pi":          { dir: ".pi/prompts", prefix: "af-" },
+  "pi": { dir: ".pi/prompts", prefix: "af-" },
 };
 
 // ── build ───────────────────────────────────────────────────────────────────
@@ -158,25 +155,17 @@ function deriveSkills(sourceRoot, meta) {
 
 function derivePersonas(sourceRoot, meta) {
   const excluded = new Set(meta.exclude?.personas ?? []);
-  const perAgent = new Map(
-    MANIFEST_AGENTS.map((agent) => [
-      agent,
-      new Map(listPersonas(sourceRoot, { agent }).map((p) => [p.name, p])),
-    ]),
-  );
-
   const names = uniqSorted(
-    [...perAgent.get("pi").keys()].filter((n) => !excluded.has(n)),
+    listPersonas(sourceRoot).map((p) => p.name).filter((n) => !excluded.has(n)),
   );
 
   return names.map((name) => {
     const agents = {};
     for (const agent of MANIFEST_AGENTS) {
-      if (!perAgent.get(agent).has(name)) continue; // pi-only persona
       agents[agent] = {
         source: [`agents/${name}.md`],
-        target: targetRelPath(agent, name).split("\\").join("/"),
-        strategy: agent === "pi" ? "copy-file" : "transform-persona",
+        target: targetRelPath(name).split("\\").join("/"),
+        strategy: "copy-file",
       };
     }
     return makeItem(meta, {
@@ -243,19 +232,20 @@ function deriveReferences(sourceRoot, meta) {
     .sort()
     .map((file) => {
       const name = file.slice(0, -3);
-      // claude-code only: docs/pi-setup.md defines no reference install path,
-      // and inventing one is worse than not offering the row (SKILL.md step 3:
-      // ask rather than guess).
+      // A reference is never chosen on its own merits — it is the long-form
+      // half of a skill that cites it by path. meta wires each one as a
+      // `companions:` entry of the citing skills, so selecting the skill
+      // brings its checklists and uninstall refuses to strand them.
       return makeItem(meta, {
         id: `reference:${name}`,
         kind: "reference",
-        group: "references-hooks",
+        group: "references",
         title: name,
         summary: "",
         agents: {
-          "claude-code": {
+          pi: {
             source: [`references/${file}`],
-            target: `.claude/references/${file}`,
+            target: `.pi/references/${file}`,
             strategy: "copy-file",
           },
         },
@@ -270,16 +260,19 @@ function deriveHooks(sourceRoot, meta) {
     .sort()
     .map((file) => {
       const name = file.replace(/\.(sh|mjs)$/, "");
-      // Hooks register into .claude/settings.json; no hook install path is
-      // defined for pi.
+      // The one hook left is the Claude Code Stop hook the coms bridge reads,
+      // so it installs under `.claude/` even though the agent is pi: the
+      // bridged pane is a Claude Code process, and that is where Claude Code
+      // looks. Registering it in `.claude/settings.json` stays manual —
+      // docs/claude-code-coms-bridge.md carries the snippet.
       return makeItem(meta, {
         id: `hook:${name}`,
         kind: "hook",
-        group: "references-hooks",
+        group: "coms-bridge",
         title: name,
         summary: "",
         agents: {
-          "claude-code": {
+          pi: {
             source: [`hooks/${file}`],
             target: `.claude/hooks/${file}`,
             strategy: "copy-file",

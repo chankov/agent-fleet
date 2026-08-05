@@ -111,7 +111,6 @@ test("every canonical persona has an item", () => {
 test("every command source file has an item", () => {
   const excluded = new Set(meta.exclude.commands);
   const sources = [
-    [".claude/commands", ""],
     [".pi/prompts", "af-"],
   ];
   for (const [dir, prefix] of sources) {
@@ -166,7 +165,7 @@ test("installer-only artifacts are never offered", () => {
 // ── per-agent rules ─────────────────────────────────────────────────────────
 
 test("command sources never cross agents", () => {
-  const dirFor = { "claude-code": ".claude/commands/", "pi": ".pi/prompts/af-" };
+  const dirFor = { "pi": ".pi/prompts/af-" };
   for (const item of manifest.items.filter((i) => i.kind === "command")) {
     for (const [agent, binding] of Object.entries(item.agents)) {
       assert.ok(
@@ -178,19 +177,18 @@ test("command sources never cross agents", () => {
   }
 });
 
-test("pi-only personas are offered to pi alone", () => {
-  for (const name of ["bowser", "web-debugger", "orchestrator"]) {
+test("every persona is offered, including the ones coupled to the pi runtime", () => {
+  for (const name of ["bowser", "web-debugger", "orchestrator", "code-reviewer"]) {
     const item = manifest.items.find((i) => i.id === `persona:${name}`);
-    assert.deepEqual(Object.keys(item.agents), ["pi"], `${name} leaked to a non-pi agent`);
+    assert.deepEqual(Object.keys(item.agents), [...MANIFEST_AGENTS], name);
   }
-  const shared = manifest.items.find((i) => i.id === "persona:code-reviewer");
-  assert.deepEqual(Object.keys(shared.agents).sort(), [...MANIFEST_AGENTS].sort());
 });
 
-test("personas are generated for claude-code, copied for pi", () => {
+test("personas are copied verbatim — agents/*.md is already pi's own dialect", () => {
   const item = manifest.items.find((i) => i.id === "persona:builder");
-  assert.equal(item.agents["claude-code"].strategy, "transform-persona");
+  assert.deepEqual(Object.keys(item.agents), ["pi"]);
   assert.equal(item.agents["pi"].strategy, "copy-file");
+  assert.equal(item.agents["pi"].target, "agents/builder.md");
 });
 
 test("native skills shadow the vendored upstream copy", () => {
@@ -210,11 +208,33 @@ test("pi extensions, harnesses, and runtime skills are pi-only", () => {
   }
 });
 
-test("references and hooks are claude-code-only until other agents define a path", () => {
+test("every item binds to pi and nothing else", () => {
   for (const item of manifest.items) {
-    if (item.kind !== "reference" && item.kind !== "hook") continue;
-    assert.deepEqual(Object.keys(item.agents), ["claude-code"], item.id);
+    assert.deepEqual(Object.keys(item.agents), ["pi"], item.id);
   }
+});
+
+test("references install under .pi/, and each one is pulled in by a citing skill", () => {
+  const refs = manifest.items.filter((i) => i.kind === "reference");
+  assert.ok(refs.length > 0, "no reference items in the manifest");
+  for (const item of refs) {
+    assert.ok(
+      item.agents.pi.target.startsWith(".pi/references/"),
+      `${item.id} installs outside .pi/references/`,
+    );
+    // A reference nobody cites is dead weight — the parent back-refs are what
+    // make it travel with its skill instead of being a standalone menu row.
+    assert.ok((item.parents ?? []).length > 0, `${item.id} has no citing parent`);
+  }
+});
+
+test("the coms bridge hook installs where Claude Code reads it", () => {
+  // Claude Code is a coms peer, never an install target — but the pane running
+  // it is a Claude Code process, so its Stop hook has to land in .claude/.
+  const hook = manifest.items.find((i) => i.id === "hook:coms-stop-hook");
+  assert.equal(hook.group, "coms-bridge");
+  assert.deepEqual(Object.keys(hook.agents), ["pi"]);
+  assert.equal(hook.agents.pi.target, ".claude/hooks/coms-stop-hook.mjs");
 });
 
 // ── consent boundary ────────────────────────────────────────────────────────

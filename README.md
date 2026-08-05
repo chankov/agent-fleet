@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/%40chankov%2Fagent-fleet)](https://www.npmjs.com/package/@chankov/agent-fleet)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![runtimes](https://img.shields.io/badge/runtimes-pi%20%C2%B7%20Claude%20Code-8A2BE2)](#quick-start)
+[![runtime](https://img.shields.io/badge/runtime-pi-8A2BE2)](#quick-start)
 [![models](https://img.shields.io/badge/models-bring%20your%20own%20subscriptions%20%2B%20local-2ea44f)](#bring-your-own-subscriptions--and-your-own-gpus)
 [![desktop](https://img.shields.io/badge/Hermes-Desktop%20plugin-ff6a00)](#watch-the-fleet-from-your-desktop--the-hermes-plugin)
 
@@ -15,6 +15,8 @@ Three things make it unusual:
 1. **You run it on the subscriptions you already pay for** — Codex/ChatGPT, GitHub Copilot, Claude, Ollama — mixed *inside one fleet*, alongside models running locally on your own GPU. [How ↓](#bring-your-own-subscriptions--and-your-own-gpus)
 2. **The dispatcher never drowns.** Research output, subagent dumps and specialist chatter stay *out* of the orchestrator's context window — on disk, behind file paths. [How ↓](#agent-hub-a-thin-context-dispatcher-for-pi)
 3. **You can actually see it.** Tiled panes in [herdr](https://herdr.dev), a live session panel in **Hermes Desktop**, and questions relayed to your **phone** when an agent needs a human. [How ↓](#watch-the-fleet-from-your-desktop--the-hermes-plugin)
+
+> **One coding agent: pi.** Everything installs for pi and nothing else. Claude Code appears throughout this README as a **coms peer** — a real Claude pane bridged into the fleet to answer other agents' questions and run cross-model review. That is its whole role; it is not an install target. [The bridge ↓](docs/claude-code-coms-bridge.md)
 
 ![A herdr workspace running an Agent Fleet team: the agent-hub dispatcher pane with its full command surface on the left, six specialist peers tiled on the right, each showing live coms presence](docs/assets/fleet-workspace.png)
 
@@ -64,7 +66,7 @@ flowchart TD
 
 ## Quick Start
 
-### pi (primary runtime)
+### pi — the coding agent
 
 ```bash
 pi install -l npm:@chankov/agent-fleet   # project-scoped package: skills, prompts, ask-user
@@ -76,15 +78,15 @@ just fleet hub                # guarded multi-agent dispatcher
 just fleet team docs          # hub + guarded peers in one tiled herdr workspace
 ```
 
-### Claude Code
+### npm CLI
 
 ```bash
 npx @chankov/agent-fleet init
-# then open your coding agent in this directory and run the command it prints:
-#   Claude Code: /setup-agent-fleet
+# then open pi in this directory and run the command it prints:
+#   /af-setup-agent-fleet
 ```
 
-The CLI detects your coding agent and prints the correct setup command. It runs the full guided install — analysing the workspace, showing grouped menus, and confirming everything before writing a single file.
+That command runs the full guided install — analysing the workspace, showing grouped menus, and confirming everything before writing a single file.
 
 The guided flow is a front-end over the CLI — the CLI itself does every write, so a
 complete install needs no coding agent and no model:
@@ -103,29 +105,18 @@ npx @chankov/agent-fleet verify
 | `npx @chankov/agent-fleet verify` | Read-only report: manifest × install record × disk |
 | `npx @chankov/agent-fleet doctor` | Find and repair breakage (`--fix`); advisory findings listed |
 | `npx @chankov/agent-fleet update` | Surface the version delta + hand off to the runtime's setup command for the per-artifact diff |
-| `npx @chankov/agent-fleet transform-persona` | Generate per-agent subagent files from the canonical personas |
 
 Every verb takes `--dry-run`, `--json`, and `--yes`, and exits `0` ok / `1` error /
 `2` findings / `3` conflicts — scriptable in CI. Full reference: [docs/npm-install.md](docs/npm-install.md).
 
 <details>
-<summary><b>Other install paths</b> — Claude Code marketplace, git clone, pi details</summary>
-
-**Claude Code plugin marketplace** — best UX inside Claude Code:
-
-```
-/plugin marketplace add chankov/agent-fleet
-/plugin install agent-fleet@nc-agent-fleet
-```
-
-> **SSH errors?** The marketplace clones via SSH; use the HTTPS URL instead: `/plugin marketplace add https://github.com/chankov/agent-fleet.git`
+<summary><b>Other install paths</b> — git clone, pi details</summary>
 
 **Git clone** — best for skill authors and contributors:
 
 ```bash
 git clone https://github.com/chankov/agent-fleet.git && cd agent-fleet
-claude --plugin-dir .    # in Claude Code
-# then run /setup-agent-fleet in your target workspace
+node bin/cli.js install --workspace ~/projects/foo --profile recommended
 ```
 
 Artifacts install as copies; refresh them after a `git pull` with `npx agent-fleet upgrade`, which
@@ -320,20 +311,20 @@ Deep dive: [agent-hub harness README](.pi/harnesses/agent-hub/README.md) (the fu
   spec           plan           build         test          review        ship
 ```
 
-9 slash commands map to the development lifecycle; each activates the right skills automatically. **Claude Code uses the unprefixed form; Pi uses `/af-*`.**
+Slash commands map to the development lifecycle; each activates the right skills automatically. They install into `.pi/prompts/` under the `/af-*` namespace, so they never collide with a command your workspace already defines.
 
-| What you're doing | Claude Code | Pi | Key principle |
-|-------------------|-------------|----|---------------|
-| Define what to build | `/spec` | `/af-spec` | Spec before code |
-| Plan how to build it | `/plan` | `/af-plan` | Small, atomic tasks |
-| Build incrementally | `/build` | `/af-build` | One slice at a time (`auto` runs the whole plan in one approved pass) |
-| Prove it works | `/test` | `/af-test` | Tests are proof |
-| Review before merge | `/review` | `/af-review` | Improve code health |
-| Audit web performance | `/webperf` | *invoke the `web-performance-auditor` persona* | Measure before you optimize |
-| Simplify the code | `/code-simplify` | `/af-code-simplify` | Clarity over cleverness |
-| Ship to production | `/ship` | `/af-ship` | Faster is safer |
-| Orchestrate a team | `/orchestrate` | *agent-hub harness* | Main session drives a config-defined roster |
-| Capture session lessons | *`compound-learning` skill* | `/af-compound` *(agent-hub)* | Every session improves the next |
+| What you're doing | Command | Key principle |
+|-------------------|---------|---------------|
+| Define what to build | `/af-spec` | Spec before code |
+| Plan how to build it | `/af-plan` | Small, atomic tasks |
+| Build incrementally | `/af-build` | One slice at a time (`auto` runs the whole plan in one approved pass) |
+| Prove it works | `/af-test` | Tests are proof |
+| Review before merge | `/af-review` | Improve code health |
+| Audit web performance | *invoke the `web-performance-auditor` persona* | Measure before you optimize |
+| Simplify the code | `/af-code-simplify` | Clarity over cleverness |
+| Ship to production | `/af-ship` | Faster is safer |
+| Orchestrate a team | *agent-hub harness* | The hub drives a config-defined roster |
+| Capture session lessons | `/af-compound` *(agent-hub)* | Every session improves the next |
 
 Under the hood are **29 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
 
@@ -354,7 +345,7 @@ Full catalog with descriptions and triggers: **[docs/skills-catalog.md](docs/ski
 
 15 pre-configured specialist personas live in [`agents/`](agents/) — reusable subagent definitions your coding agent delegates work to: `planner`, `plan-reviewer`, `builder`, `code-reviewer`, `test-engineer`, `security-auditor`, `web-performance-auditor`, `documenter`, `architect`, `releaser`, `researcher`, `deep-researcher`, plus the pi-only `bowser`, `web-debugger`, and `orchestrator`.
 
-Each persona is one Markdown file; the canonical format is pi-flavored and the runtime's Agent Fleet setup command transforms it per target agent on install (Claude Code subagents; pi as-is). Personas are the *who*, skills are the *how* — each carries a conditional hook to its primary skill, and they compose into teams under the hub or via `/orchestrate`.
+Each persona is one Markdown file in pi's own frontmatter dialect, installed verbatim — there is no per-agent translation step. Personas are the *who*, skills are the *how* — each carries a conditional hook to its primary skill, and they compose into teams under the hub.
 
 Full roster, skill hooks, install matrix, and team composition: **[docs/agents.md](docs/agents.md)**.
 
@@ -383,7 +374,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | **[docs/hermes-desktop-plugins.md](docs/hermes-desktop-plugins.md)** | **The Hermes Desktop plugin: install, contract, API, failure modes, limits** |
 | [docs/claude-code-coms-bridge.md](docs/claude-code-coms-bridge.md) · [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) · [docs/codex-remote-conductor.md](docs/codex-remote-conductor.md) | Claude Code as a coms peer · phone relay · experimental Codex remote-control operator runbook |
 | [docs/npm-install.md](docs/npm-install.md) | CLI reference, versioning, update flow |
-| [references/](references/) | 9 checklists skills pull in: testing, security, performance, accessibility, observability, orchestration + fleet-coordination + prompting patterns |
+| [references/](references/) | 9 checklists skills pull in: testing, security, performance, accessibility, observability, orchestration + fleet-coordination + prompting patterns. Each installs automatically alongside the skills that cite it |
 
 ---
 

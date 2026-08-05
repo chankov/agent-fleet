@@ -4,7 +4,7 @@ This guide explains how to use Agent Fleet with [pi](https://github.com/badlogic
 
 This repo also ships pi-native **prompt templates** for the lifecycle slash commands (`/af-spec`, `/af-plan`, `/af-build`, `/af-test`, `/af-review`, `/af-code-simplify`, `/af-ship`). These commands add workflow orchestration on top of the underlying skills.
 
-The specialist **personas** in `agents/` — including `web-performance-auditor` — are available to pi as well and are invoked directly as subagents. Note that `/webperf` on Claude Code does not have a Pi `.pi/prompts` equivalent; on pi you run the same audit by invoking the `web-performance-auditor` persona.
+The specialist **personas** in `agents/` — including `web-performance-auditor` — are invoked directly as subagents. There is no `/af-webperf` prompt; run that audit by invoking the `web-performance-auditor` persona.
 
 ## Overview
 
@@ -16,7 +16,7 @@ pi natively supports:
 - Automatic skill loading by the model when intent matches
 - Prompt-template slash commands from `.pi/prompts/*.md`
 
-This means you get near-parity with Claude Code:
+This gives you:
 
 - Skills are selected automatically based on intent
 - Workflows are enforced via `AGENTS.md`
@@ -359,7 +359,7 @@ skills/<skill-name>/SKILL.md
 - Every parent directory walking up from cwd
 - The current directory
 
-The repo's `AGENTS.md` encodes the intent-to-skill mapping and workflow rules that make skill selection behave like Claude Code.
+The repo's `AGENTS.md` encodes the intent-to-skill mapping and workflow rules that drive skill selection.
 
 ### 3. Prompt Templates
 

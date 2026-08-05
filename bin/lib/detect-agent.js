@@ -1,46 +1,33 @@
-// Agent detection — used by `agent-fleet init` to pick a sensible default
-// for the coding agent. The user can always override with --agent.
+// Coding agent identity for the installer.
+//
+// pi is the only coding agent Agent Fleet installs for. Claude Code still
+// appears in the fleet, but strictly as a coms peer driven by
+// scripts/coms-claude-bridge.ts — never as an install target. See
+// docs/claude-code-coms-bridge.md.
+//
+// The list and the detection hook stay because the manifest, the state file,
+// and every CLI verb are written per-agent: a second runtime would be a new
+// entry here, not a reshape of the engine.
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+export const AGENTS = ["pi"];
 
-export const AGENTS = ["claude-code", "pi"];
+export const DEFAULT_AGENT = "pi";
 
 const LABELS = {
-  "claude-code": "Claude Code",
-  "pi":          "pi",
+  "pi": "pi",
 };
 
 export function agentLabel(agent) {
   return LABELS[agent] ?? agent;
 }
 
-// Detection precedence (default):
-//   1. Explicit env vars from the coding agent runtime
-//   2. Workspace directory hints (.claude/ / .pi/)
-//   3. Null — let the caller prompt
-//
-// `preferWorkspaceHints` flips 1 and 2. `update` uses it: the question there
-// is "which agent is *this workspace* configured for?", not "which agent am I
-// running inside?" — so a pi workspace must not resolve to claude-code just
-// because `update` was invoked from a Claude Code shell.
-export function detectAgent({ workspace, env = process.env, preferWorkspaceHints = false } = {}) {
-  const byEnv = () => {
-    if (env.CLAUDECODE === "1" || env.CLAUDE_CODE_ENTRYPOINT) return "claude-code";
-    if (env.PI === "1" || env.PI_SESSION_ID)                  return "pi";
-    return null;
-  };
-
-  const byWorkspace = () => {
-    // Only one match → pick it; multiple → don't guess.
-    if (!workspace) return null;
-    const hits = [];
-    if (existsSync(join(workspace, ".claude"))) hits.push("claude-code");
-    if (existsSync(join(workspace, ".pi"))) hits.push("pi");
-    return hits.length === 1 ? hits[0] : null;
-  };
-
-  return preferWorkspaceHints
-    ? (byWorkspace() ?? byEnv())
-    : (byEnv() ?? byWorkspace());
+/**
+ * Resolve the coding agent for a workspace.
+ *
+ * With a single supported runtime there is nothing to detect — every caller
+ * gets `pi`. The signature is unchanged so call sites keep reading as "ask,
+ * don't assume" if a second agent is ever added back.
+ */
+export function detectAgent() {
+  return DEFAULT_AGENT;
 }

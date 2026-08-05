@@ -12,7 +12,6 @@ import { dirname, join } from "node:path";
 
 import { runVerify, hasDrift, BROKEN_STATES } from "../lib/verify.js";
 import { hashFile, hashText, STATE_SCHEMA_VERSION, STATE_REL_PATH } from "../lib/state.js";
-import { transformPersona } from "../lib/transform-persona.js";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -49,8 +48,8 @@ function manifestFor(packageVersion = "0.0.2") {
     schemaVersion: 1,
     packageVersion,
     groups: [
-      { id: "skills", title: "Skills", order: 1, agents: ["pi", "claude-code"], subcategories: [] },
-      { id: "personas", title: "Personas", order: 2, agents: ["pi", "claude-code"], subcategories: [] },
+      { id: "skills", title: "Skills", order: 1, agents: ["pi"], subcategories: [] },
+      { id: "personas", title: "Personas", order: 2, agents: ["pi"], subcategories: [] },
       { id: "companions", title: "Companions", order: 3, agents: ["pi"], subcategories: [] },
     ],
     profiles: {},
@@ -66,9 +65,9 @@ function manifestFor(packageVersion = "0.0.2") {
         id: "persona:demo-persona", kind: "persona", group: "personas", subcategory: null,
         title: "demo-persona", summary: "", recommended: false, consent: "file", platform: "any",
         agents: {
-          "claude-code": {
+          pi: {
             source: ["agents/demo-persona.md"], sourceMode: "first",
-            target: ".claude/agents/demo-persona.md", strategy: "transform-persona",
+            target: "agents/demo-persona.md", strategy: "copy-file",
           },
         },
       },
@@ -348,20 +347,23 @@ test("a symlink resolving outside the source root is flagged", async () => {
 
 // ── strategies ──────────────────────────────────────────────────────────────
 
-test("personas compare against the transform output, not the raw source", async () => {
+test("personas compare byte-for-byte against the canonical source", async () => {
   await withTmp(async (tmp) => {
     const src = makeSource(tmp);
     const ws = join(tmp, "ws");
-    const { content } = transformPersona(PERSONA, { agent: "claude-code" });
-    write(ws, ".claude/agents/demo-persona.md", content);
+    // agents/*.md is already written in pi's dialect, so install is a plain
+    // copy and an untouched copy must read as up-to-date.
+    write(ws, "agents/demo-persona.md", PERSONA);
+    assert.equal(
+      stateOf(await verify(ws, src, manifestFor()), "persona:demo-persona").state,
+      "up-to-date",
+    );
 
-    const asClaude = await verify(ws, src, manifestFor(), { agent: "claude-code" });
-    assert.equal(stateOf(asClaude, "persona:demo-persona").state, "up-to-date");
-
-    // The raw canonical file must NOT be what a persona is compared against.
-    write(ws, ".claude/agents/demo-persona.md", PERSONA);
-    const raw = await verify(ws, src, manifestFor(), { agent: "claude-code" });
-    assert.equal(stateOf(raw, "persona:demo-persona").state, "modified");
+    write(ws, "agents/demo-persona.md", PERSONA + "\nlocal edit\n");
+    assert.equal(
+      stateOf(await verify(ws, src, manifestFor()), "persona:demo-persona").state,
+      "modified",
+    );
   });
 });
 

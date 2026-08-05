@@ -30,8 +30,6 @@ const ARTIFACT_PATHS = [
   "codex",
   "hermes",
   "systemd",
-  ".claude/commands",
-  ".claude/orchestrate-teams.yaml",
   ".pi/prompts",
   ".pi/extensions",
   ".pi/harnesses",

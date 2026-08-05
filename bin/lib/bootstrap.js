@@ -81,16 +81,6 @@ function plan({ agent, sourceRoot, workspace }) {
   const skillSrc = join(sourceRoot, "skills", "guided-workspace-setup", "SKILL.md");
 
   switch (agent) {
-    case "claude-code":
-      return [
-        { kind: "command", src: join(sourceRoot, ".claude/commands/setup-agent-fleet.md"),
-          dest: join(workspace, ".claude/commands/setup-agent-fleet.md") },
-        { kind: "command", src: join(sourceRoot, ".claude/commands/doctor-agent-fleet.md"),
-          dest: join(workspace, ".claude/commands/doctor-agent-fleet.md") },
-        { kind: "skill",   src: skillSrc,
-          dest: join(workspace, ".claude/skills/guided-workspace-setup/SKILL.md") },
-      ];
-
     case "pi":
       return [
         { kind: "prompt", src: join(sourceRoot, ".pi/prompts/af-setup-agent-fleet.md"),
@@ -113,11 +103,6 @@ function plan({ agent, sourceRoot, workspace }) {
 // leave both unprefixed and current slash commands in the workspace.
 function legacyPaths({ agent, workspace }) {
   switch (agent) {
-    case "claude-code":
-      return [
-        join(workspace, ".claude/commands/setup.md"),
-        join(workspace, ".claude/commands/doctor.md"),
-      ];
     case "pi":
       return [
         join(workspace, ".pi/prompts/setup.md"),
@@ -134,7 +119,7 @@ function legacyPaths({ agent, workspace }) {
  * Run the bootstrap.
  *
  * @param {object} opts
- * @param {string} opts.agent       claude-code | pi
+ * @param {string} opts.agent       pi
  * @param {string} opts.sourceRoot  Absolute path to the installed package
  * @param {string} opts.workspace   Absolute path to the target workspace
  * @param {"copy"|"symlink"} opts.method

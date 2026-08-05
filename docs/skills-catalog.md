@@ -1,6 +1,6 @@
 # Skills Catalog
 
-All 29 skills, grouped by lifecycle phase. Each one is a structured workflow with steps, verification gates, and anti-rationalization tables — see [skill-anatomy.md](skill-anatomy.md) for the format. The lifecycle commands (unprefixed on Claude Code, `/af-spec`, `/af-plan`, `/af-build`, … on Pi) are the entry points; these skills are what they activate, and every skill can also be referenced directly.
+All 29 skills, grouped by lifecycle phase. Each one is a structured workflow with steps, verification gates, and anti-rationalization tables — see [skill-anatomy.md](skill-anatomy.md) for the format. The lifecycle commands (`/af-spec`, `/af-plan`, `/af-build`, …) are the entry points; these skills are what they activate, and every skill can also be referenced directly.
 
 Skills live in **two roots**: fleet-native and customized skills in [`skills/`](../skills/), and the pristine upstream import in [`vendor/agent-skills-upstream/skills/`](../vendor/agent-skills-upstream/). When a name exists in both, the native copy wins — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md).
 
@@ -69,7 +69,7 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
 | [orchestration-verification](../skills/orchestration-verification/SKILL.md) | The Verification Contract — dispatcher-owned acceptance assertions, a parity/touchpoint inventory for "behave like X" requests, structured upward returns with named evidence, and a requirement-regression reset | Orchestrating specialists through a dispatcher (the `agent-hub` harness / `orchestrator` persona), a "make X behave like existing Y" change, or a requirement that keeps coming back wrong |
-| [peer-coms](../skills/peer-coms/SKILL.md) | Makes Claude Code a first-class peer in the local coms pool — discover pi colleagues with `coms-cli list`, ask/delegate with `send --await`, answer inbound peer questions, never drive panes itself | Claude Code runs in a bridged herdr pane (see the [coms bridge](claude-code-coms-bridge.md)), or an inbound `[coms message from …]` arrives |
+| [peer-coms](../skills/peer-coms/SKILL.md) | Makes a bridged Claude Code pane a first-class peer in the local coms pool — discover pi colleagues with `coms-cli list`, ask/delegate with `send --await`, answer inbound peer questions, never drive panes itself. Installing it also brings the Stop hook the bridge reads | Claude Code runs in a bridged herdr pane (see the [coms bridge](claude-code-coms-bridge.md)), or an inbound `[coms message from …]` arrives |
 
 `orchestration-verification` is the single canonical source for the four Verification-Contract artifacts. It is referenced — never restated — by the [`orchestrator`](../agents/orchestrator.md) persona (which drives the [agent-hub harness](../.pi/harnesses/agent-hub/), loaded via `just fleet hub`), and conditionally by the [`builder`](../agents/builder.md), [`test-engineer`](../agents/test-engineer.md), and [`code-reviewer`](../agents/code-reviewer.md) personas, whose structured returns report assertion status with evidence when the skill is installed.
 
@@ -79,13 +79,13 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 |-------|-------------|----------|
 | [compound-learning](../skills/compound-learning/SKILL.md) | End-of-session compound pass — extracts lessons from session evidence (corrections, recurring findings, root causes), dedupes them index-first against the project's rule tree, and lands them as minimal, capped diffs on existing rules/docs files | A session ends with something worth keeping, the user says "compound", or the `documenter` persona receives a `/compound` or `/af-compound` dispatch |
 
-This is the compound-engineering loop: invoked as a skill on Claude Code, or via `/af-compound` in the Pi agent-hub harness, it runs against the `rules:`/`docs:` targets from `.ai/agent-fleet-overrides.md`, with an approval gate and hard caps so the rule tree gets sharper instead of longer.
+This is the compound-engineering loop: invoked via `/af-compound` in the agent-hub harness, it runs against the `rules:`/`docs:` targets from `.ai/agent-fleet-overrides.md`, with an approval gate and hard caps so the rule tree gets sharper instead of longer.
 
 ## Onboard - Get a workspace set up
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [guided-workspace-setup](../skills/guided-workspace-setup/SKILL.md) | The LLM-driven installer behind `/setup-agent-fleet` (Claude Code) or `/af-setup-agent-fleet` (Pi) — workspace analysis, grouped install menus, version-aware three-way diffs, per-project overrides, doctor repairs | Installing, upgrading, or repairing an Agent Fleet workspace |
+| [guided-workspace-setup](../skills/guided-workspace-setup/SKILL.md) | The LLM-driven installer behind `/af-setup-agent-fleet` — workspace analysis, grouped install menus, version-aware three-way diffs, per-project overrides, doctor repairs | Installing, upgrading, or repairing an Agent Fleet workspace |
 
 ## How skills work
 
@@ -96,4 +96,4 @@ Every skill follows a consistent anatomy — frontmatter (`name` + a trigger-bea
 - **Verification is non-negotiable.** Every skill ends with evidence requirements - tests passing, build output, runtime data. "Seems right" is never sufficient.
 - **Progressive disclosure.** The `SKILL.md` is the entry point. Supporting references load only when needed, keeping token usage minimal.
 
-Full format specification: [skill-anatomy.md](skill-anatomy.md). Supplementary checklists the skills pull in live in [`references/`](../references/).
+Full format specification: [skill-anatomy.md](skill-anatomy.md). Supplementary checklists the skills pull in live in [`references/`](../references/) and install automatically alongside them.

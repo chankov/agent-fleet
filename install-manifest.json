@@ -7,7 +7,6 @@
       "title": "Skills",
       "order": 1,
       "agents": [
-        "claude-code",
         "pi"
       ],
       "subcategoryLabel": "phase",
@@ -28,7 +27,6 @@
       "title": "Agent personas",
       "order": 2,
       "agents": [
-        "claude-code",
         "pi"
       ],
       "subcategoryLabel": "access",
@@ -43,24 +41,30 @@
       "title": "Commands / prompts",
       "order": 3,
       "agents": [
-        "claude-code",
         "pi"
       ],
       "subcategoryLabel": null,
       "subcategories": []
     },
     {
-      "id": "references-hooks",
-      "title": "References & hooks",
+      "id": "references",
+      "title": "References",
       "order": 4,
       "agents": [
-        "claude-code"
+        "pi"
       ],
-      "subcategoryLabel": "type",
-      "subcategories": [
-        "reference",
-        "hook"
-      ]
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "coms-bridge",
+      "title": "Claude Code coms bridge",
+      "order": 11,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
     },
     {
       "id": "pi-extensions",
@@ -113,7 +117,6 @@
       "title": "External packages",
       "order": 9,
       "agents": [
-        "claude-code",
         "pi"
       ],
       "subcategoryLabel": null,
@@ -124,7 +127,6 @@
       "title": "Companions",
       "order": 10,
       "agents": [
-        "claude-code",
         "pi"
       ],
       "subcategoryLabel": null,
@@ -221,19 +223,11 @@
       "group": "commands",
       "subcategory": null,
       "title": "build",
-      "summary": "Implement tasks incrementally — build, test, verify, commit.",
+      "summary": "Implement the next task incrementally — build, test, verify, request review",
       "recommended": true,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/build.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/build.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-build.md"
@@ -258,14 +252,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/code-simplify.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/code-simplify.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-code-simplify.md"
@@ -280,54 +266,6 @@
       }
     },
     {
-      "id": "command:design-agent",
-      "kind": "command",
-      "group": "commands",
-      "subcategory": null,
-      "title": "design-agent",
-      "summary": "Design and write a new agent persona (agents/), workflow skill (skills/), or pi harness (.pi/harnesses/)",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/design-agent.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/design-agent.md",
-          "strategy": "copy-file"
-        }
-      }
-    },
-    {
-      "id": "command:orchestrate",
-      "kind": "command",
-      "group": "commands",
-      "subcategory": null,
-      "title": "orchestrate",
-      "summary": "Orchestrate a config-defined team of subagents — route planner/builder (and more) as a runtime roster, handling NEEDS…",
-      "recommended": true,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/orchestrate.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/orchestrate.md",
-          "strategy": "copy-file"
-        }
-      },
-      "companions": [
-        "companion:orchestrate-teams"
-      ],
-      "recommendsWith": [
-        "skill:orchestration-verification"
-      ]
-    },
-    {
       "id": "command:plan",
       "kind": "command",
       "group": "commands",
@@ -338,14 +276,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/plan.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/plan.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-plan.md"
@@ -360,27 +290,6 @@
       }
     },
     {
-      "id": "command:prime",
-      "kind": "command",
-      "group": "commands",
-      "subcategory": null,
-      "title": "prime",
-      "summary": "Load foundational context for the agent-fleet repository",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/prime.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/prime.md",
-          "strategy": "copy-file"
-        }
-      }
-    },
-    {
       "id": "command:review",
       "kind": "command",
       "group": "commands",
@@ -391,14 +300,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/review.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/review.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-review.md"
@@ -423,14 +324,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/set-hermes-telegram.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/set-hermes-telegram.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-set-hermes-telegram.md"
@@ -455,14 +348,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/set-hermes-watchdog.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/set-hermes-watchdog.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-set-hermes-watchdog.md"
@@ -482,19 +367,11 @@
       "group": "commands",
       "subcategory": null,
       "title": "ship",
-      "summary": "Run the pre-launch checklist via parallel fan-out to specialist personas, then synthesize a go/no-go decision",
+      "summary": "Run the pre-launch checklist and prepare for production deployment",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/ship.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/ship.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-ship.md"
@@ -519,14 +396,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/spec.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/spec.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-spec.md"
@@ -551,14 +420,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/test.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/test.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-test.md"
@@ -571,52 +432,6 @@
           ]
         }
       }
-    },
-    {
-      "id": "command:webperf",
-      "kind": "command",
-      "group": "commands",
-      "subcategory": null,
-      "title": "webperf",
-      "summary": "Run a web performance audit via the web-performance-auditor persona",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/commands/webperf.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/commands/webperf.md",
-          "strategy": "copy-file"
-        }
-      }
-    },
-    {
-      "id": "companion:claude-hooks-settings",
-      "kind": "companion",
-      "group": "companions",
-      "subcategory": null,
-      "title": "settings.json hook entries",
-      "summary": "Registers agent-fleet hooks without touching other keys",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            "hooks/hooks.json"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/settings.json",
-          "strategy": "json-merge"
-        }
-      },
-      "parents": [
-        "hook:session-start",
-        "hook:simplify-ignore"
-      ]
     },
     {
       "id": "companion:damage-control-rules",
@@ -723,30 +538,6 @@
         "pi-harness:ask-user-remote",
         "pi-harness:coms",
         "pi-harness:damage-control-continue"
-      ]
-    },
-    {
-      "id": "companion:orchestrate-teams",
-      "kind": "companion",
-      "group": "companions",
-      "subcategory": null,
-      "title": "orchestrate-teams.yaml",
-      "summary": "Named-team roster the /orchestrate command reads",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            ".claude/orchestrate-teams.yaml"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/orchestrate-teams.yaml",
-          "strategy": "copy-file"
-        }
-      },
-      "parents": [
-        "command:orchestrate"
       ]
     },
     {
@@ -930,31 +721,6 @@
       ]
     },
     {
-      "id": "companion:simplify-ignore-support",
-      "kind": "companion",
-      "group": "companions",
-      "subcategory": null,
-      "title": "simplify-ignore support files",
-      "summary": "Test harness and doc that ship with the hook",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            "hooks/simplify-ignore-test.sh",
-            "hooks/SIMPLIFY-IGNORE.md"
-          ],
-          "sourceMode": "all",
-          "target": ".claude/hooks",
-          "strategy": "copy-tree"
-        }
-      },
-      "parents": [
-        "hook:simplify-ignore"
-      ]
-    },
-    {
       "id": "companion:skills-internal-grilling",
       "kind": "companion",
       "group": "companions",
@@ -965,14 +731,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/_internal/grilling.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/_internal/grilling.md",
-          "strategy": "copy-file"
-        },
         "pi": {
           "source": [
             "skills/_internal/grilling.md"
@@ -1207,15 +965,15 @@
     {
       "id": "hook:coms-stop-hook",
       "kind": "hook",
-      "group": "references-hooks",
-      "subcategory": "hook",
+      "group": "coms-bridge",
+      "subcategory": null,
       "title": "coms-stop-hook",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "hooks/coms-stop-hook.mjs"
           ],
@@ -1223,55 +981,9 @@
           "target": ".claude/hooks/coms-stop-hook.mjs",
           "strategy": "copy-file"
         }
-      }
-    },
-    {
-      "id": "hook:session-start",
-      "kind": "hook",
-      "group": "references-hooks",
-      "subcategory": "hook",
-      "title": "session-start",
-      "summary": "",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            "hooks/session-start.sh"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/hooks/session-start.sh",
-          "strategy": "copy-file"
-        }
       },
-      "companions": [
-        "companion:claude-hooks-settings"
-      ]
-    },
-    {
-      "id": "hook:simplify-ignore",
-      "kind": "hook",
-      "group": "references-hooks",
-      "subcategory": "hook",
-      "title": "simplify-ignore",
-      "summary": "",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "claude-code": {
-          "source": [
-            "hooks/simplify-ignore.sh"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/hooks/simplify-ignore.sh",
-          "strategy": "copy-file"
-        }
-      },
-      "companions": [
-        "companion:claude-hooks-settings",
-        "companion:simplify-ignore-support"
+      "parents": [
+        "skill:peer-coms"
       ]
     },
     {
@@ -1285,14 +997,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/architect.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/architect.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/architect.md"
@@ -1338,14 +1042,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/builder.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/builder.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/builder.md"
@@ -1367,14 +1063,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/code-reviewer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/code-reviewer.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/code-reviewer.md"
@@ -1396,14 +1084,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/deep-researcher.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/deep-researcher.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/deep-researcher.md"
@@ -1425,14 +1105,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/documenter.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/documenter.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/documenter.md"
@@ -1475,14 +1147,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/plan-reviewer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/plan-reviewer.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/plan-reviewer.md"
@@ -1504,14 +1168,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/planner.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/planner.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/planner.md"
@@ -1533,14 +1189,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/releaser.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/releaser.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/releaser.md"
@@ -1562,14 +1210,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/researcher.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/researcher.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/researcher.md"
@@ -1591,14 +1231,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/security-auditor.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/security-auditor.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/security-auditor.md"
@@ -1620,14 +1252,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/test-engineer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/test-engineer.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/test-engineer.md"
@@ -1673,14 +1297,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "agents/web-performance-auditor.md"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/agents/web-performance-auditor.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/web-performance-auditor.md"
@@ -1689,7 +1305,10 @@
           "target": "agents/web-performance-auditor.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "companions": [
+        "reference:performance-checklist"
+      ]
     },
     {
       "id": "pi-extension:agent-fleet-update-check",
@@ -2041,191 +1660,228 @@
     {
       "id": "reference:accessibility-checklist",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "accessibility-checklist",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/accessibility-checklist.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/accessibility-checklist.md",
+          "target": ".pi/references/accessibility-checklist.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "skill:frontend-ui-engineering",
+        "skill:shipping-and-launch"
+      ]
     },
     {
       "id": "reference:definition-of-done",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "definition-of-done",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/definition-of-done.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/definition-of-done.md",
+          "target": ".pi/references/definition-of-done.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "skill:incremental-implementation",
+        "skill:planning-and-task-breakdown",
+        "skill:shipping-and-launch",
+        "skill:using-agent-skills"
+      ]
     },
     {
       "id": "reference:fleet-coordination-patterns",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "fleet-coordination-patterns",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/fleet-coordination-patterns.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/fleet-coordination-patterns.md",
+          "target": ".pi/references/fleet-coordination-patterns.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "skill:orchestration-verification"
+      ]
     },
     {
       "id": "reference:observability-checklist",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "observability-checklist",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/observability-checklist.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/observability-checklist.md",
+          "target": ".pi/references/observability-checklist.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "skill:observability-and-instrumentation"
+      ]
     },
     {
       "id": "reference:orchestration-patterns",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "orchestration-patterns",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/orchestration-patterns.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/orchestration-patterns.md",
+          "target": ".pi/references/orchestration-patterns.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "skill:doubt-driven-development"
+      ]
     },
     {
       "id": "reference:performance-checklist",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "performance-checklist",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/performance-checklist.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/performance-checklist.md",
+          "target": ".pi/references/performance-checklist.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "persona:web-performance-auditor",
+        "skill:code-review-and-quality",
+        "skill:performance-optimization",
+        "skill:shipping-and-launch"
+      ]
     },
     {
       "id": "reference:prompting-patterns",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "prompting-patterns",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/prompting-patterns.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/prompting-patterns.md",
+          "target": ".pi/references/prompting-patterns.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "skill:context-engineering",
+        "skill:designing-agents"
+      ]
     },
     {
       "id": "reference:security-checklist",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "security-checklist",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/security-checklist.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/security-checklist.md",
+          "target": ".pi/references/security-checklist.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "skill:code-review-and-quality",
+        "skill:security-and-hardening",
+        "skill:shipping-and-launch"
+      ]
     },
     {
       "id": "reference:testing-patterns",
       "kind": "reference",
-      "group": "references-hooks",
-      "subcategory": "reference",
+      "group": "references",
+      "subcategory": null,
       "title": "testing-patterns",
       "summary": "",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
+        "pi": {
           "source": [
             "references/testing-patterns.md"
           ],
           "sourceMode": "first",
-          "target": ".claude/references/testing-patterns.md",
+          "target": ".pi/references/testing-patterns.md",
           "strategy": "copy-file"
         }
-      }
+      },
+      "parents": [
+        "skill:test-driven-development"
+      ]
     },
     {
       "id": "skill:api-and-interface-design",
@@ -2238,14 +1894,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/api-and-interface-design"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/api-and-interface-design",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/api-and-interface-design"
@@ -2267,15 +1915,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/browser-testing-with-devtools",
-            "vendor/agent-skills-upstream/skills/browser-testing-with-devtools"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/browser-testing-with-devtools",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/browser-testing-with-devtools",
@@ -2298,14 +1937,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/ci-cd-and-automation"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/ci-cd-and-automation",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/ci-cd-and-automation"
@@ -2327,15 +1958,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/code-review-and-quality",
-            "vendor/agent-skills-upstream/skills/code-review-and-quality"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/code-review-and-quality",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/code-review-and-quality",
@@ -2345,7 +1967,11 @@
           "target": ".pi/skills/code-review-and-quality",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:performance-checklist",
+        "reference:security-checklist"
+      ]
     },
     {
       "id": "skill:code-simplification",
@@ -2358,14 +1984,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/code-simplification"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/code-simplification",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/code-simplification"
@@ -2387,14 +2005,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/compound-learning"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/compound-learning",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/compound-learning"
@@ -2420,15 +2030,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/context-engineering",
-            "vendor/agent-skills-upstream/skills/context-engineering"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/context-engineering",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/context-engineering",
@@ -2438,7 +2039,10 @@
           "target": ".pi/skills/context-engineering",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:prompting-patterns"
+      ]
     },
     {
       "id": "skill:debugging-and-error-recovery",
@@ -2451,14 +2055,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/debugging-and-error-recovery"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/debugging-and-error-recovery",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/debugging-and-error-recovery"
@@ -2480,15 +2076,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/deprecation-and-migration",
-            "vendor/agent-skills-upstream/skills/deprecation-and-migration"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/deprecation-and-migration",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/deprecation-and-migration",
@@ -2511,14 +2098,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/designing-agents"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/designing-agents",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/designing-agents"
@@ -2527,7 +2106,10 @@
           "target": ".pi/skills/designing-agents",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:prompting-patterns"
+      ]
     },
     {
       "id": "skill:documentation-and-adrs",
@@ -2540,14 +2122,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/documentation-and-adrs"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/documentation-and-adrs",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/documentation-and-adrs"
@@ -2569,14 +2143,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/doubt-driven-development"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/doubt-driven-development",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/doubt-driven-development"
@@ -2585,7 +2151,10 @@
           "target": ".pi/skills/doubt-driven-development",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:orchestration-patterns"
+      ]
     },
     {
       "id": "skill:frontend-ui-engineering",
@@ -2598,15 +2167,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/frontend-ui-engineering",
-            "vendor/agent-skills-upstream/skills/frontend-ui-engineering"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/frontend-ui-engineering",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/frontend-ui-engineering",
@@ -2616,7 +2176,10 @@
           "target": ".pi/skills/frontend-ui-engineering",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:accessibility-checklist"
+      ]
     },
     {
       "id": "skill:git-workflow-and-versioning",
@@ -2629,15 +2192,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/git-workflow-and-versioning",
-            "vendor/agent-skills-upstream/skills/git-workflow-and-versioning"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/git-workflow-and-versioning",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/git-workflow-and-versioning",
@@ -2660,15 +2214,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/idea-refine",
-            "vendor/agent-skills-upstream/skills/idea-refine"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/idea-refine",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/idea-refine",
@@ -2694,15 +2239,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/incremental-implementation",
-            "vendor/agent-skills-upstream/skills/incremental-implementation"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/incremental-implementation",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/incremental-implementation",
@@ -2712,7 +2248,10 @@
           "target": ".pi/skills/incremental-implementation",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:definition-of-done"
+      ]
     },
     {
       "id": "skill:interview-me",
@@ -2725,15 +2264,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/interview-me",
-            "vendor/agent-skills-upstream/skills/interview-me"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/interview-me",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/interview-me",
@@ -2756,14 +2286,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/observability-and-instrumentation"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/observability-and-instrumentation",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/observability-and-instrumentation"
@@ -2772,7 +2294,10 @@
           "target": ".pi/skills/observability-and-instrumentation",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:observability-checklist"
+      ]
     },
     {
       "id": "skill:orchestration-verification",
@@ -2785,14 +2310,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/orchestration-verification"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/orchestration-verification",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/orchestration-verification"
@@ -2802,6 +2319,9 @@
           "strategy": "copy-tree"
         }
       },
+      "companions": [
+        "reference:fleet-coordination-patterns"
+      ],
       "recommendsWith": [
         "persona:builder",
         "persona:code-reviewer",
@@ -2812,22 +2332,14 @@
     {
       "id": "skill:peer-coms",
       "kind": "skill",
-      "group": "skills",
-      "subcategory": "orchestrate",
+      "group": "coms-bridge",
+      "subcategory": null,
       "title": "peer-coms",
       "summary": "Makes Claude Code a first-class peer in the local coms agent pool — discover pi colleagues, ask or delegate to them m…",
       "recommended": false,
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/peer-coms"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/peer-coms",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/peer-coms"
@@ -2836,7 +2348,10 @@
           "target": ".pi/skills/peer-coms",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "hook:coms-stop-hook"
+      ]
     },
     {
       "id": "skill:performance-optimization",
@@ -2849,15 +2364,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/performance-optimization",
-            "vendor/agent-skills-upstream/skills/performance-optimization"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/performance-optimization",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/performance-optimization",
@@ -2867,7 +2373,10 @@
           "target": ".pi/skills/performance-optimization",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:performance-checklist"
+      ]
     },
     {
       "id": "skill:planning-and-task-breakdown",
@@ -2880,15 +2389,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/planning-and-task-breakdown",
-            "vendor/agent-skills-upstream/skills/planning-and-task-breakdown"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/planning-and-task-breakdown",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/planning-and-task-breakdown",
@@ -2900,7 +2400,8 @@
         }
       },
       "companions": [
-        "companion:skills-internal-grilling"
+        "companion:skills-internal-grilling",
+        "reference:definition-of-done"
       ]
     },
     {
@@ -2914,15 +2415,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/security-and-hardening",
-            "vendor/agent-skills-upstream/skills/security-and-hardening"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/security-and-hardening",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/security-and-hardening",
@@ -2932,7 +2424,10 @@
           "target": ".pi/skills/security-and-hardening",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:security-checklist"
+      ]
     },
     {
       "id": "skill:shipping-and-launch",
@@ -2945,14 +2440,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/shipping-and-launch"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/shipping-and-launch",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/shipping-and-launch"
@@ -2961,7 +2448,13 @@
           "target": ".pi/skills/shipping-and-launch",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:accessibility-checklist",
+        "reference:definition-of-done",
+        "reference:performance-checklist",
+        "reference:security-checklist"
+      ]
     },
     {
       "id": "skill:source-driven-development",
@@ -2974,14 +2467,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/source-driven-development"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/source-driven-development",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/source-driven-development"
@@ -3003,15 +2488,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/spec-driven-development",
-            "vendor/agent-skills-upstream/skills/spec-driven-development"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/spec-driven-development",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/spec-driven-development",
@@ -3037,14 +2513,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/test-driven-development"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/test-driven-development",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/test-driven-development"
@@ -3053,7 +2521,10 @@
           "target": ".pi/skills/test-driven-development",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:testing-patterns"
+      ]
     },
     {
       "id": "skill:using-agent-skills",
@@ -3066,15 +2537,6 @@
       "consent": "file",
       "platform": "any",
       "agents": {
-        "claude-code": {
-          "source": [
-            "skills/using-agent-skills",
-            "vendor/agent-skills-upstream/skills/using-agent-skills"
-          ],
-          "sourceMode": "first",
-          "target": ".claude/skills/using-agent-skills",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/using-agent-skills",
@@ -3084,7 +2546,10 @@
           "target": ".pi/skills/using-agent-skills",
           "strategy": "copy-tree"
         }
-      }
+      },
+      "companions": [
+        "reference:definition-of-done"
+      ]
     }
   ]
 }

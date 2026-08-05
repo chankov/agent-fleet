@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents (Claude Code, pi) when working with code in this repository.
+This file provides guidance to AI coding agents working with code in this repository. pi is the coding agent Agent Fleet installs for; Claude Code takes part only as a coms peer (see `docs/claude-code-coms-bridge.md`).
 
 ## Repository Overview
 
-Agent Fleet — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of lifecycle skills and agent personas for Claude Code and pi. Skills live in two roots: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (native wins on name collisions — see `docs/UPSTREAM-SKILLS.md`).
+Agent Fleet — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of lifecycle skills and agent personas for pi. Skills live in two roots: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (native wins on name collisions — see `docs/UPSTREAM-SKILLS.md`).
 
 ## Skill-Driven Execution
 
@@ -42,17 +42,17 @@ The agent should internally follow this lifecycle and invoke the matching skill 
 
 This lifecycle is normally implicit — the agent maps user intent to the right skill without being asked.
 
-The repo also ships slash commands as explicit lifecycle entry points — unprefixed
-in `.claude/commands/` for Claude Code, `af-`-prefixed in `.pi/prompts/` for pi:
+The repo also ships slash commands as explicit lifecycle entry points, `af-`-prefixed
+in `.pi/prompts/`:
 
-- `/spec` · `/af-spec` → `spec-driven-development`
-- `/plan` · `/af-plan` → `planning-and-task-breakdown`
-- `/build` · `/af-build` → `incremental-implementation` + `test-driven-development`
-- `/test` · `/af-test` → `test-driven-development`
-- `/review` · `/af-review` → `code-review-and-quality`
-- `/code-simplify` · `/af-code-simplify` → `code-simplification`
-- `/ship` · `/af-ship` → `shipping-and-launch`
-- `/setup-agent-fleet` · `/af-setup-agent-fleet` → `guided-workspace-setup`
+- `/af-spec` → `spec-driven-development`
+- `/af-plan` → `planning-and-task-breakdown`
+- `/af-build` → `incremental-implementation` + `test-driven-development`
+- `/af-test` → `test-driven-development`
+- `/af-review` → `code-review-and-quality`
+- `/af-code-simplify` → `code-simplification`
+- `/af-ship` → `shipping-and-launch`
+- `/af-setup-agent-fleet` → `guided-workspace-setup`
 
 Whether triggered implicitly or via a command, the agent MUST invoke the underlying skill — never inline the steps.
 
@@ -85,15 +85,15 @@ This repo has three composable layers. They have different jobs and should not b
 
 - **Skills** (`skills/<name>/SKILL.md`) — workflows with steps and exit criteria. The *how*. Mandatory hops when an intent matches.
 - **Personas** (`agents/<role>.md`) — roles with a perspective and an output format. The *who*.
-- **Slash commands** (`.claude/commands/*.md`) — user-facing entry points. The *when*. The orchestration layer.
+- **Slash commands** (`.pi/prompts/af-*.md`) — user-facing entry points. The *when*. The orchestration layer.
 
 Composition rule: **the user (or a slash command) is the orchestrator. Personas do not invoke other personas.** A persona may invoke skills.
 
-On Claude Code, the only multi-persona orchestration pattern this repo endorses is **parallel fan-out with a merge step** — used by `/ship` (`/af-ship` on pi) to run `code-reviewer`, `security-auditor`, and `test-engineer` concurrently and synthesize their reports. Do not build a "router" persona that decides which other persona to call; that's the job of slash commands and intent mapping. On **pi**, the `agent-hub` harness is the sanctioned exception: the dedicated `orchestrator` persona dispatches specialists under a Verification Contract, with that orchestration living in the harness rather than a peer persona calling another. The Claude Code `/orchestrate` command mirrors a constrained version.
+The multi-persona pattern this repo endorses in a plain session is **parallel fan-out with a merge step** — used by `/af-ship` to run `code-reviewer`, `security-auditor`, and `test-engineer` concurrently and synthesize their reports. Do not build a "router" persona that decides which other persona to call; that's the job of slash commands and intent mapping. The `agent-hub` harness is the sanctioned exception: the dedicated `orchestrator` persona dispatches specialists under a Verification Contract, with that orchestration living in the harness rather than a peer persona calling another.
 
 See [docs/agents.md](docs/agents.md) for the decision matrix and [references/orchestration-patterns.md](references/orchestration-patterns.md) for the full pattern catalog.
 
-**Claude Code interop:** the personas in `agents/` work as Claude Code subagents (auto-discovered from this plugin's `agents/` directory) and as Agent Teams teammates (referenced by name when spawning). Two platform constraints align with our rules: subagents cannot spawn other subagents, and teams cannot nest. Plugin agents silently ignore the `hooks`, `mcpServers`, and `permissionMode` frontmatter fields.
+**Claude Code interop:** a Claude Code pane joins a fleet as a coms peer, not as a persona host. It carries no persona file — `runner: claude-code` in `.pi/agents/peers.yaml` spawns the CLI plus `scripts/coms-claude-bridge.ts`, and the peer's name is what other agents address. `.pi/agents/dispatch-policy.yaml` can then route an agent-hub team member's `dispatch_agent` call to that live peer. See `docs/claude-code-coms-bridge.md`.
 
 ## Creating a New Skill
 
@@ -190,14 +190,14 @@ zip -r {skill-name}.zip {skill-name}/
 
 ### End-User Installation
 
-Document these two installation methods for users:
+Document these installation methods for users:
 
-**Claude Code:**
+**pi (installer):**
 ```bash
-cp -r skills/{skill-name} ~/.claude/skills/
+npx @chankov/agent-fleet install --items skill:{skill-name}
 ```
 
-**claude.ai:**
-Add the skill to project knowledge or paste SKILL.md contents into the conversation.
-
-If the skill requires network access, instruct users to add required domains at `claude.ai/settings/capabilities`.
+**pi (manual):**
+```bash
+cp -r skills/{skill-name} .pi/skills/
+```

@@ -224,43 +224,20 @@ Commit these files if the team should share install state — keep paths relativ
 so they stay portable. A self-referencing checkout (agent-fleet itself) may
 instead `.gitignore` them, since their recorded paths are local to one machine.
 
-## The `/orchestrate` command and its team config
+## Coms-backed team members
 
-`/orchestrate` turns the main session (Claude Code) into an **orchestrator** that drives a config-defined team of installed
-subagents — subagents cannot nest, so all dispatching is the main session's job.
-The default team is `planner` + `builder` (no reviewer); the orchestrator routes
-the team as a **runtime roster, not a fixed `researcher → planner → builder`
-pipeline** — it skips planning when a plan already exists, re-runs `researcher`
-at any point, and loops back to `planner` when the build surfaces a wrong plan.
-It honours the existing subagent handoff markers: `PLAN_FILE: <path>` from the
-planner, and `NEEDS_RESEARCH: <question>` from planner/builder (which dispatches a
-read-only `researcher` and resumes the paused persona with the findings inlined).
+A team member the `agent-hub` harness dispatches (`.pi/agents/teams.yaml`) can be
+served by a live coms peer of the same name instead of a freshly spawned native
+subagent. `.pi/agents/dispatch-policy.yaml` decides that per member at dispatch
+time; `.pi/agents/peers.yaml` decides *how* each peer runs. A peer with
+`runner: claude-code` is an interactive Claude Code pane plus its bridge — the
+one way Claude Code takes part in a fleet. See
+[claude-code-coms-bridge.md](claude-code-coms-bridge.md).
 
-The named teams live in a per-agent config that mirrors pi's
-`.pi/agents/teams.yaml` (a map of team-name → ordered persona list, first key =
-default; `researcher`/`deep-researcher` deliberately unlisted but always
-available). The reader differs by runtime: pi's harness parses its YAML, while
-`/orchestrate` has the **command's instructions** read the YAML via the Read tool
-(no harness runtime in claude-code):
-
-| | Config file | Command |
-|---|---|---|
-| claude-code | `.claude/orchestrate-teams.yaml` | `/orchestrate` |
-| pi | `.pi/agents/teams.yaml` | via the `agent-hub` harness (no `/orchestrate`) |
-
-Switch teams at runtime with `/orchestrate <team> "<task>"` (parallel of pi's
-`/af-agents-team`); use `/orchestrate team=<name> <task>` to disambiguate when the
-task text starts with a word that collides with a team key.
-
-**Guided-setup behaviour.** `guided-workspace-setup` offers `/orchestrate`
-**`★`-recommended** for claude-code (hidden for pi via the existing
-source-availability filter — there is no `.pi/prompts/af-orchestrate.md`), and
-installs the agent's `orchestrate-teams.yaml` as a **companion** of the command
-(a user-edited config is preserved on uninstall, never silently clobbered).
-Two further artifacts are **claude-only** for reasons of their own: the lifecycle
-**hooks** (they register into `.claude/settings.json`, which pi has no install
-path for) and the **`AskUserQuestion` questionnaire menu mode** (the primary menu
-interaction on claude-code).
+Installing `skill:peer-coms` pulls `hook:coms-stop-hook` in as a companion, which
+is what gives a bridged pane exact turn text instead of scraped output.
+Registering that hook in `.claude/settings.json` stays the user's step — the
+installer writes files, and another tool's settings file is not its to merge.
 
 ## Templates
 
@@ -325,7 +302,7 @@ Edit the workspace, not this file — the next apply overwrites it.
 # Edit the workspace, not this file: it is rewritten on every apply.
 
 ## workspace-summary
-agent:   claude-code
+agent:   pi
 method:  copy
 version: 1.4.2
 source:  /home/you/.npm/_npx/<hash>/node_modules/@chankov/agent-fleet

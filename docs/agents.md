@@ -1,6 +1,6 @@
 # Agent Personas
 
-Specialist personas that play a single role with a single perspective. Each persona is a Markdown file consumed as a system prompt by your harness (Claude Code or pi). The canonical file is pi-flavored; `transform-persona` rewrites it per target harness on install.
+Specialist personas that play a single role with a single perspective. Each persona is a Markdown file consumed as a system prompt by pi. The file is written in pi's own frontmatter dialect and installs verbatim — there is no per-harness rewrite step.
 
 ## The full roster
 
@@ -28,21 +28,16 @@ Personas are the *who*, skills are the *how*. Each working persona carries a con
 
 ## Installing personas
 
-The runtime's Agent Fleet setup command offers every persona available for the chosen agent and installs it to the right place, transforming the frontmatter deterministically (via `npx @chankov/agent-fleet transform-persona`):
-
-| Agent | Installed to | Transformation |
-|---|---|---|
-| Claude Code | `.claude/agents/<name>.md` | tools renamed (`read→Read`, `find/ls→Glob`, …), model mapped to `opus`/`sonnet`/`haiku`, agent-hub keys dropped |
-| pi | `agents/<name>.md` | none — the canonical format is the pi format |
-
-When the repo is installed as a Claude Code plugin, the `agents/` directory is auto-discovered — every non-pi-only persona is immediately available as a subagent without a separate install.
+`/af-setup-agent-fleet` offers every persona and copies it to `agents/<name>.md`
+in the workspace. Nothing is translated: the canonical format *is* the pi format,
+which is why a persona verifies byte-for-byte against its source.
 
 ## Teams of subagents
 
 The personas are designed to be composed, not used one at a time. For the full hub → team → agent → sub-agent picture, see [ARCHITECTURE.md](ARCHITECTURE.md#fleet-hierarchy).
 
 - **pi (agent-hub harness)** — the dispatcher spawns personas as specialist agents on a named team from [.pi/agents/teams.yaml](../.pi/agents/teams.yaml): `default` (plan → build → review → document), `debug`, `frontend`, `security`, `hotfix`, `release`, `info`. `just fleet team <name> --no-hub` instead spawns [peers.yaml](../.pi/agents/peers.yaml) personas (e.g. `architect`, `releaser`) as standalone, addressable peers in a tiled [herdr](https://herdr.dev) workspace (requires a running herdr server). Personas with a `subagents:` block (e.g. `code-reviewer`'s `preflight`/`quality`/`perf`/`docs`) additionally delegate slices of their own job to pre-configured children.
-- **Claude Code** — installed personas are native subagents: the main agent delegates to them automatically based on their `description`, or you invoke one explicitly ("use the code-reviewer subagent on this diff"). Chain them along the lifecycle: `/plan` work goes to `planner`, then `plan-reviewer` critiques, `builder` implements, and `code-reviewer` + `security-auditor` gate the merge. `/orchestrate` runs a config-defined roster (see `.claude/orchestrate-teams.yaml`).
+- **Coms peers** — a team member can be served by a live peer instead of a fresh subagent, including a bridged Claude Code pane (`runner: claude-code` in [peers.yaml](../.pi/agents/peers.yaml)). `.pi/agents/dispatch-policy.yaml` decides that per member at dispatch time, which is how `plan-reviewer` and `code-reviewer` get cross-model review with a session that keeps its context across rounds. See [claude-code-coms-bridge.md](claude-code-coms-bridge.md).
 
 ## How personas relate to skills and commands
 
@@ -78,7 +73,7 @@ Pick this only when **independent** investigations can run in parallel and produ
 
 - `/ship` → fans out to `code-reviewer` + `security-auditor` + `test-engineer` in parallel, then synthesizes their reports into a go/no-go decision
 
-On Claude Code, this fan-out is the endorsed in-harness orchestration pattern. On pi, the `agent-hub` harness adds a dispatcher model: the dedicated `orchestrator` persona spawns specialist subagents under a Verification Contract (see [CLAUDE.md](../CLAUDE.md) and the [agent-hub harness](../.pi/harnesses/agent-hub/)). The `/orchestrate` command mirrors a constrained version for Claude Code. See [references/orchestration-patterns.md](../references/orchestration-patterns.md) for the full pattern catalog and anti-patterns.
+This fan-out is the endorsed pattern for a plain session. The `agent-hub` harness adds a dispatcher model on top: the dedicated `orchestrator` persona spawns specialist subagents under a Verification Contract (see [CLAUDE.md](../CLAUDE.md) and the [agent-hub harness](../.pi/harnesses/agent-hub/)). See [references/orchestration-patterns.md](../references/orchestration-patterns.md) for the full pattern catalog and anti-patterns.
 
 ## Decision matrix
 
@@ -128,28 +123,28 @@ A `meta-orchestrator` persona whose job is "decide which other persona to call":
 Why this fails:
 - Pure routing layer with no domain value
 - Adds two paraphrasing hops → information loss + 2× token cost
-- The user already knows they want a review; let them call `/review` directly
+- The user already knows they want a review; let them call `/af-review` directly
 - Replicates work that slash commands and `AGENTS.md` intent-mapping already do
 
 ## Rules for personas
 
 1. A persona is a single role with a single output format. If you find yourself adding a second role, create a second persona.
-2. **Personas do not invoke other personas.** Composition is the job of slash commands or the user. On Claude Code this is also a hard platform constraint — *"subagents cannot spawn other subagents"* — so the rule is enforced for you. The one exception is pi's `agent-hub` harness, where the dedicated `orchestrator` persona dispatches specialists; that dispatch lives in the harness, not in a peer persona calling another.
+2. **Personas do not invoke other personas.** Composition is the job of slash commands or the user. The one exception is the `agent-hub` harness, where the dedicated `orchestrator` persona dispatches specialists; that dispatch lives in the harness, not in a peer persona calling another.
 3. A persona may invoke skills (the *how*).
 4. Every persona file ends with a "Composition" block stating where it fits.
 
 ## Harness interop
 
-On **pi**, the same personas run under the `agent-hub` harness. The rest of this section is Claude Code-specific.
+Personas run under the `agent-hub` harness as native specialist subagents, and
+as standalone peers via `just fleet team <name> --no-hub`. Both read the same
+canonical file.
 
-The personas in this repo are designed to work as Claude Code subagents and as Agent Teams teammates without modification:
-
-- **As subagents:** auto-discovered when this plugin is enabled (no path config needed). Use the Agent tool with `subagent_type: code-reviewer` (or `security-auditor`, `test-engineer`). `/ship` is the canonical example.
-- **As Agent Teams teammates** (experimental, requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`): reference the same persona name when spawning a teammate. The persona's body is **appended to** the teammate's system prompt as additional instructions (not a replacement), so your persona text sits on top of the team-coordination instructions the lead installs (SendMessage, task-list tools, etc.).
-
-Subagents only report results back to the main agent. Agent Teams let teammates message each other directly. Use subagents when reports are enough; use Agent Teams when sub-agents need to challenge each other's findings (e.g. competing-hypothesis debugging). See [references/orchestration-patterns.md](../references/orchestration-patterns.md) for the full mapping.
-
-Plugin agents do not support `hooks`, `mcpServers`, or `permissionMode` frontmatter — those fields are silently ignored. Avoid relying on them when authoring new personas here.
+**A Claude Code peer carries no persona.** `runner: claude-code` spawns the
+Claude CLI plus its coms bridge; what the pane knows about its role comes from
+its own session, not from an `agents/*.md` file. `peer-launch` refuses
+`--persona` for that runner rather than pretending otherwise. The peer's *name*
+is what makes it substitutable for a team member — see
+[claude-code-coms-bridge.md](claude-code-coms-bridge.md).
 
 ## Adding a new persona
 

@@ -13,8 +13,7 @@ Each skill is a Markdown file (`SKILL.md`) that describes a specific engineering
 | Audience | Path | Why |
 |---|---|---|
 | **Most users** — you want to use the skills in your projects | `npx @chankov/agent-fleet init` | One command; semver updates; cross-platform; no source dir to babysit. See [docs/npm-install.md](npm-install.md). |
-| **You already know what you want** — or you're scripting a fresh repo | `npx @chankov/agent-fleet install --agent <a> --profile recommended --yes` | The CLI does every write itself: no coding agent, no model, no prompts. |
-| **Claude Code users** — you live in Claude Code and want plugin-managed updates | `/plugin marketplace add chankov/agent-fleet` | Best UX inside Claude Code; marketplace handles the lifecycle. |
+| **You already know what you want** — or you're scripting a fresh repo | `npx @chankov/agent-fleet install --profile recommended --yes` | The CLI does every write itself: no coding agent, no model, no prompts. |
 | **Skill authors / contributors** — you want to edit the skills themselves | `git clone` + work in the checkout | Inside an agent-fleet checkout `--method symlink` is available, so editing an installed artifact edits the source. |
 
 `init` is the conversational front-end; `install` is the engine underneath it.
@@ -91,9 +90,9 @@ The runtime contract is generated under `$HOME/.local/state/agent-fleet/codex-co
 
 ## Quick Start (Any Agent)
 
-The CLI installs into `claude-code` and `pi` workspaces. For **any other**
-agent it has no target paths to write to, so the skills are loaded by
-hand — that is what this section covers.
+The CLI installs into `pi` workspaces. For **any other** agent it has no target
+paths to write to, so the skills are loaded by hand — that is what this section
+covers.
 
 ### 1. Get the files
 
@@ -104,8 +103,8 @@ git clone https://github.com/chankov/agent-fleet.git
 
 > The npm path puts the package contents in `node_modules/@chankov/agent-fleet/`.
 > Use whichever of the two you have wherever this guide says "the agent-fleet repo."
-> Don't use `agent-fleet install` here — it writes to `.claude/` or `.pi/`,
-> which an agent outside those two won't read.
+> Don't use `agent-fleet install` here — it writes to `.pi/`, which an agent
+> other than pi won't read.
 
 ### 2. Choose a skill
 
@@ -197,24 +196,24 @@ Load an agent definition when you need specialized review. For example, ask your
 
 ## Using Commands
 
-The `.claude/commands/` directory contains slash commands for Claude Code:
+The `.pi/prompts/` directory contains the lifecycle slash commands:
 
 | Command | Skill Invoked |
 |---------|---------------|
-| `/setup-agent-fleet` | guided-workspace-setup |
-| `/spec` | spec-driven-development |
-| `/plan` | planning-and-task-breakdown |
-| `/build` | incremental-implementation + test-driven-development |
-| `/build auto` | planning-and-task-breakdown → incremental-implementation + test-driven-development (whole plan, one approval) |
-| `/test` | test-driven-development |
-| `/review` | code-review-and-quality |
-| `/code-simplify` | code-simplification |
-| `/ship` | shipping-and-launch |
-| `/webperf` | web-performance-auditor (specialist agent, web apps only) |
+| `/af-setup-agent-fleet` | guided-workspace-setup |
+| `/af-spec` | spec-driven-development |
+| `/af-plan` | planning-and-task-breakdown |
+| `/af-build` | incremental-implementation + test-driven-development |
+| `/af-build auto` | planning-and-task-breakdown → incremental-implementation + test-driven-development (whole plan, one approval) |
+| `/af-test` | test-driven-development |
+| `/af-review` | code-review-and-quality |
+| `/af-code-simplify` | code-simplification |
+| `/af-ship` | shipping-and-launch |
 
 ## Using References
 
-The `references/` directory contains supplementary checklists:
+The `references/` directory contains supplementary checklists. Each one installs
+automatically alongside the skills that cite it, so you rarely pick them by hand:
 
 | Reference | Use With |
 |-----------|----------|
@@ -224,8 +223,9 @@ The `references/` directory contains supplementary checklists:
 | `accessibility-checklist.md` | frontend-ui-engineering |
 | `definition-of-done.md` | incremental-implementation, planning-and-task-breakdown |
 | `observability-checklist.md` | observability-and-instrumentation |
-| `orchestration-patterns.md` | orchestration-verification, designing-agents |
-| `prompting-patterns.md` | context-engineering |
+| `orchestration-patterns.md` | doubt-driven-development |
+| `fleet-coordination-patterns.md` | orchestration-verification |
+| `prompting-patterns.md` | context-engineering, designing-agents |
 
 Load a reference when you need detailed patterns beyond what the skill covers.
 

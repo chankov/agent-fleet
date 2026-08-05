@@ -27,7 +27,6 @@ import { dirname, join, resolve } from "node:path";
 import { itemsForAgent } from "./manifest.js";
 import { expandBinding } from "./verify.js";
 import { extractRegion, replaceRegion, stripRegion, leafPaths, setPath, canonicalJson } from "./merge-forms.js";
-import { transformPersona } from "./transform-persona.js";
 import {
   readState, writeState, emptyState, hashFile, hashText, walkTree,
   inspectPath, isInside, linkPointsInside, STATE_REL_PATH, LEGACY_RECORD_REL_PATH,
@@ -235,7 +234,7 @@ function materialize({ item, workspace, sourceRoot, method, agent }) {
   const pairs = expandBinding(binding, sourceRoot);
   if (pairs.length === 0) throw new Error(`no source available for ${item.id}`);
 
-  const link = method === "symlink" && binding.strategy !== "transform-persona";
+  const link = method === "symlink";
   const files = [];
 
   for (const pair of pairs) {
@@ -246,13 +245,6 @@ function materialize({ item, workspace, sourceRoot, method, agent }) {
       mkdirSync(dirname(targetAbs), { recursive: true });
       symlinkSync(pair.sourceAbs, targetAbs);
       files.push({ path: pair.targetRel, mode: "symlink", linkTarget: pair.sourceAbs });
-      continue;
-    }
-
-    if (binding.strategy === "transform-persona") {
-      const { content } = transformPersona(readFileSync(pair.sourceAbs, "utf8"), { agent });
-      writeFileSyncDeep(targetAbs, content);
-      files.push({ path: pair.targetRel, mode: "generated", sha256: hashText(content) });
       continue;
     }
 
@@ -290,11 +282,7 @@ function retireLegacyTargets({ item, workspace, sourceRoot, agent }) {
 
   const sourceRel = (item.binding.source ?? [])[0];
   const sourceAbs = sourceRel ? join(sourceRoot, sourceRel) : null;
-  const ours = sourceAbs && existsSync(sourceAbs)
-    ? (item.binding.strategy === "transform-persona"
-        ? hashText(transformPersona(readFileSync(sourceAbs, "utf8"), { agent }).content)
-        : hashFile(sourceAbs))
-    : null;
+  const ours = sourceAbs && existsSync(sourceAbs) ? hashFile(sourceAbs) : null;
 
   const retired = [];
   for (const rel of legacy) {
@@ -355,11 +343,7 @@ function inventory({ item, workspace, sourceRoot }) {
       }
       continue;
     }
-    files.push({
-      path: pair.targetRel,
-      mode: item.binding.strategy === "transform-persona" ? "generated" : "copy",
-      sha256: hashFile(targetAbs),
-    });
+    files.push({ path: pair.targetRel, mode: "copy", sha256: hashFile(targetAbs) });
   }
   return { files };
 }
@@ -442,12 +426,7 @@ function writeConflictCopies({ item, action, workspace, sourceRoot, agent }) {
       }
       continue;
     }
-    emit(
-      pair.targetRel,
-      item.binding.strategy === "transform-persona"
-        ? transformPersona(readFileSync(pair.sourceAbs, "utf8"), { agent }).content
-        : readFileSync(pair.sourceAbs),
-    );
+    emit(pair.targetRel, readFileSync(pair.sourceAbs));
   }
   return written;
 }
@@ -617,7 +596,6 @@ function pruneEmptyDirs(workspace, relPaths) {
 
 function methodFor(item, method) {
   const strategy = item.binding.strategy;
-  if (strategy === "transform-persona") return "generated";
   if (strategy === "managed-region" || strategy === "json-merge") return strategy;
   return method;
 }

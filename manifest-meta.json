@@ -7,7 +7,7 @@
       "id": "skills",
       "title": "Skills",
       "order": 1,
-      "agents": ["claude-code", "pi"],
+      "agents": ["pi"],
       "subcategoryLabel": "phase",
       "subcategories": ["define", "plan", "build", "verify", "review", "ship", "orchestrate", "learn", "meta"]
     },
@@ -15,7 +15,7 @@
       "id": "personas",
       "title": "Agent personas",
       "order": 2,
-      "agents": ["claude-code", "pi"],
+      "agents": ["pi"],
       "subcategoryLabel": "access",
       "subcategories": ["rw", "ro", "pi-only"]
     },
@@ -23,17 +23,25 @@
       "id": "commands",
       "title": "Commands / prompts",
       "order": 3,
-      "agents": ["claude-code", "pi"],
+      "agents": ["pi"],
       "subcategoryLabel": null,
       "subcategories": []
     },
     {
-      "id": "references-hooks",
-      "title": "References & hooks",
+      "id": "references",
+      "title": "References",
       "order": 4,
-      "agents": ["claude-code"],
-      "subcategoryLabel": "type",
-      "subcategories": ["reference", "hook"]
+      "agents": ["pi"],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "coms-bridge",
+      "title": "Claude Code coms bridge",
+      "order": 11,
+      "agents": ["pi"],
+      "subcategoryLabel": null,
+      "subcategories": []
     },
     {
       "id": "pi-extensions",
@@ -71,7 +79,7 @@
       "id": "external-packages",
       "title": "External packages",
       "order": 9,
-      "agents": ["claude-code", "pi"],
+      "agents": ["pi"],
       "subcategoryLabel": null,
       "subcategories": []
     },
@@ -79,7 +87,7 @@
       "id": "companions",
       "title": "Companions",
       "order": 10,
-      "agents": ["claude-code", "pi"],
+      "agents": ["pi"],
       "subcategoryLabel": null,
       "subcategories": []
     }
@@ -144,7 +152,7 @@
     "personas": [],
     "commands": ["setup-agent-fleet", "doctor-agent-fleet"],
     "references": [],
-    "hooks": ["simplify-ignore-test.sh"],
+    "hooks": [],
     "piExtensions": [],
     "piHarnesses": ["lib"],
     "piRuntimeSkills": []
@@ -169,7 +177,6 @@
     "command:build",
     "command:test",
     "command:review",
-    "command:orchestrate",
     "pi-extension:agent-fleet-update-check"
   ],
 
@@ -198,7 +205,6 @@
     "skill:observability-and-instrumentation": "ship",
     "skill:shipping-and-launch": "ship",
     "skill:orchestration-verification": "orchestrate",
-    "skill:peer-coms": "orchestrate",
     "skill:compound-learning": "learn",
     "skill:using-agent-skills": "meta",
     "skill:designing-agents": "meta",
@@ -219,18 +225,6 @@
     "persona:web-debugger": "pi-only",
     "persona:orchestrator": "pi-only",
 
-    "reference:accessibility-checklist": "reference",
-    "reference:definition-of-done": "reference",
-    "reference:fleet-coordination-patterns": "reference",
-    "reference:observability-checklist": "reference",
-    "reference:orchestration-patterns": "reference",
-    "reference:performance-checklist": "reference",
-    "reference:prompting-patterns": "reference",
-    "reference:security-checklist": "reference",
-    "reference:testing-patterns": "reference",
-    "hook:session-start": "hook",
-    "hook:simplify-ignore": "hook",
-    "hook:coms-stop-hook": "hook",
 
     "pi-extension:mcp-bridge": "extension",
     "pi-extension:chrome-devtools-mcp": "extension",
@@ -252,21 +246,40 @@
 
     "skill:idea-refine": { "companions": ["companion:skills-internal-grilling"] },
     "skill:spec-driven-development": { "companions": ["companion:skills-internal-grilling"] },
-    "skill:planning-and-task-breakdown": { "companions": ["companion:skills-internal-grilling"] },
+    "skill:planning-and-task-breakdown": { "companions": ["companion:skills-internal-grilling", "reference:definition-of-done"] },
+
+    "_references_comment": "A reference is the long-form half of a skill that cites it by path — never a standalone choice. Declaring it here as a companion means selecting the skill brings its checklists, and uninstall refuses to strand a skill without them. Keep this in step with the `references/…` citations in the SKILL.md bodies (both skills/ and the vendored copies under vendor/agent-skills-upstream/).",
+
+    "skill:using-agent-skills": { "companions": ["reference:definition-of-done"] },
+    "skill:incremental-implementation": { "companions": ["reference:definition-of-done"] },
+    "skill:test-driven-development": { "companions": ["reference:testing-patterns"] },
+    "skill:frontend-ui-engineering": { "companions": ["reference:accessibility-checklist"] },
+    "skill:observability-and-instrumentation": { "companions": ["reference:observability-checklist"] },
+    "skill:doubt-driven-development": { "companions": ["reference:orchestration-patterns"] },
+    "skill:security-and-hardening": { "companions": ["reference:security-checklist"] },
+    "skill:performance-optimization": { "companions": ["reference:performance-checklist"] },
+    "skill:code-review-and-quality": { "companions": ["reference:performance-checklist", "reference:security-checklist"] },
+    "skill:context-engineering": { "companions": ["reference:prompting-patterns"] },
+    "skill:designing-agents": { "companions": ["reference:prompting-patterns"] },
+    "skill:shipping-and-launch": {
+      "companions": ["reference:accessibility-checklist", "reference:definition-of-done", "reference:performance-checklist", "reference:security-checklist"]
+    },
+    "persona:web-performance-auditor": { "companions": ["reference:performance-checklist"] },
+
+    "_coms_bridge_comment": "Claude Code is not an install target — it joins the fleet only as a coms peer, driven by scripts/coms-claude-bridge.ts. Both halves of that bridge live in one group: the skill the bridged pane reads, and the Stop hook it writes its turn output through. See docs/claude-code-coms-bridge.md.",
+
+    "skill:peer-coms": {
+      "group": "coms-bridge",
+      "companions": ["hook:coms-stop-hook"]
+    },
 
     "skill:orchestration-verification": {
+      "companions": ["reference:fleet-coordination-patterns"],
       "recommendsWith": ["persona:orchestrator", "persona:builder", "persona:test-engineer", "persona:code-reviewer"]
     },
     "skill:compound-learning": { "recommendsWith": ["command:compound", "persona:documenter"] },
 
-    "command:orchestrate": {
-      "companions": ["companion:orchestrate-teams"],
-      "recommendsWith": ["skill:orchestration-verification"]
-    },
     "command:compound": { "recommendsWith": ["skill:compound-learning"] },
-
-    "hook:session-start": { "companions": ["companion:claude-hooks-settings"] },
-    "hook:simplify-ignore": { "companions": ["companion:claude-hooks-settings", "companion:simplify-ignore-support"] },
 
     "persona:bowser": { "requires": ["pi-runtime-skill:bowser"] },
     "persona:web-debugger": { "requires": ["pi-extension:chrome-devtools-mcp"] },
@@ -357,29 +370,7 @@
       "title": "skills/_internal/grilling.md",
       "summary": "Shared helper for the interview-style skills",
       "agents": {
-        "claude-code": { "source": ["skills/_internal/grilling.md"], "target": ".claude/skills/_internal/grilling.md", "strategy": "copy-file" },
-        "pi":          { "source": ["skills/_internal/grilling.md"], "target": ".pi/skills/_internal/grilling.md", "strategy": "copy-file" }
-      }
-    },
-    "companion:orchestrate-teams": {
-      "title": "orchestrate-teams.yaml",
-      "summary": "Named-team roster the /orchestrate command reads",
-      "agents": {
-        "claude-code": { "source": [".claude/orchestrate-teams.yaml"], "target": ".claude/orchestrate-teams.yaml", "strategy": "copy-file" }
-      }
-    },
-    "companion:claude-hooks-settings": {
-      "title": "settings.json hook entries",
-      "summary": "Registers agent-fleet hooks without touching other keys",
-      "agents": {
-        "claude-code": { "source": ["hooks/hooks.json"], "target": ".claude/settings.json", "strategy": "json-merge" }
-      }
-    },
-    "companion:simplify-ignore-support": {
-      "title": "simplify-ignore support files",
-      "summary": "Test harness and doc that ship with the hook",
-      "agents": {
-        "claude-code": { "source": ["hooks/simplify-ignore-test.sh", "hooks/SIMPLIFY-IGNORE.md"], "sourceMode": "all", "target": ".claude/hooks", "strategy": "copy-tree" }
+        "pi": { "source": ["skills/_internal/grilling.md"], "target": ".pi/skills/_internal/grilling.md", "strategy": "copy-file" }
       }
     },
     "companion:justfile-region": {

@@ -35,7 +35,7 @@ So:
 # In the workspace you want to configure:
 npx @chankov/agent-fleet init
 # Then open your coding agent in this directory and run the command it prints:
-#   Claude Code: /setup-agent-fleet
+#   /af-setup-agent-fleet
 #   Pi:          /af-setup-agent-fleet
 ```
 
@@ -66,15 +66,13 @@ The package also ships assets for the **experimental Linux Codex Remote-Control 
 ### `npx @chankov/agent-fleet init`
 
 Materializes the package, **bootstraps the installer artifacts** into the
-workspace, and hands off to the runtime's Agent Fleet setup command. Claude Code
-uses unprefixed installer commands; Pi uses `/af-setup-agent-fleet`
-and `/af-doctor-agent-fleet`.
+workspace, and hands off to pi's Agent Fleet setup command
+(`/af-setup-agent-fleet`, with `/af-doctor-agent-fleet` alongside it).
 
-What `init` writes per agent:
+What `init` writes:
 
 | Agent | Files written to the workspace |
 |---|---|
-| `claude-code` | `.claude/commands/setup-agent-fleet.md`, `.claude/commands/doctor-agent-fleet.md`, `.claude/skills/guided-workspace-setup/SKILL.md` |
 | `pi` | `.pi/prompts/af-setup-agent-fleet.md`, `.pi/prompts/af-doctor-agent-fleet.md`, `.pi/skills/guided-workspace-setup/SKILL.md` |
 
 These are **just the plumbing** — the slash commands, plus the skill they
@@ -121,12 +119,12 @@ slash commands (`agent-fleet cleanup-installer`).
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `--agent <claude-code\|pi>` | auto-detect | Skip the agent prompt |
+| `--agent pi` | `pi` | Coding agent; pi is the only install target |
 | `--workspace <path>` | `cwd` | Target workspace |
 | `--launch` | off | Shell into the coding agent after init (best effort) |
 
 ```bash
-npx @chankov/agent-fleet init --agent claude-code
+npx @chankov/agent-fleet init --agent pi
 npx @chankov/agent-fleet init --workspace ~/projects/foo
 ```
 
@@ -265,7 +263,7 @@ you edited is preserved (`keep`) whenever the source did not also move. When
 *both* changed, it is a conflict: the incoming version is written beside yours
 as `<file>.new`, your file is left exactly as it is, and the run exits `3`.
 
-Files shared with you — the `justfile` managed region and `.claude/settings.json`
+Files shared with you — the `justfile` managed region and merged JSON targets
 — are only partly ours. Recipes outside the `agent-fleet:harnesses` sentinels
 and settings keys we did not write are never read as drift and never rewritten.
 
@@ -336,30 +334,6 @@ npx agent-fleet update --workspace .
 # The setup command is now back — run the command printed by update to review diffs.
 ```
 
-### `npx @chankov/agent-fleet transform-persona`
-
-Generates per-agent subagent definitions from the canonical personas in
-`agents/*.md`. `pi` gets the canonical file unchanged; `claude-code` gets a
-transformed copy — `tools`/`model` translated to the target's vocabulary
-(`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …), agent-hub-only
-frontmatter dropped, body untouched. pi-only personas (`bowser`, `orchestrator`) are refused for
-other agents. This is what the Agent Fleet setup workflow runs during apply; transformed installs are always
-copies (never symlinks), recorded with `transformed: true`.
-
-| Flag | Default | Purpose |
-|------|---------|---------|
-| `--agent <claude-code\|pi>` | — (required) | Target agent |
-| `--list` | off | Print the availability matrix (persona → target path) |
-| `--all` | off | Transform every available persona |
-| `--workspace <path>` | — | Write into `<path>`; omit to print to stdout |
-| `--dry-run` | off | With `--workspace`: show what would be written |
-
-```bash
-npx @chankov/agent-fleet transform-persona --list --agent claude-code
-npx @chankov/agent-fleet transform-persona --agent claude-code code-reviewer
-npx @chankov/agent-fleet transform-persona --agent claude-code --all --workspace .
-```
-
 ## Versioning
 
 The package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
@@ -407,8 +381,6 @@ a snapshot the release pipeline writes for every published version.
 
 npm is the recommended path for most users. The other two stay supported:
 
-- **[Claude Code plugin marketplace](../README.md#quick-start)** — best UX
-  inside Claude Code. Same skills, marketplace-managed updates.
 - **Git clone** — best for skill authors and contributors. Clone the repo and
   work in it directly; inside an agent-fleet checkout `--method symlink` is
   available, so an edit to an installed artifact edits the source. For any other
@@ -463,15 +435,7 @@ banner prints to stderr before the command output:
 If the cache is stale, a detached background process refreshes it for the
 *next* invocation — the current run is never blocked.
 
-### 2. Claude Code session-start hook
-
-When `hooks/session-start.sh` is installed (offered in Group 18 of `/setup-agent-fleet`),
-every new Claude Code session runs the check with a 3-second wall-clock cap.
-If an upgrade is available, the banner is injected into the session context
-so Claude can mention it on its first turn — e.g. *"Note: agent-fleet 0.2.0
-is available; want me to apply it via `/setup-agent-fleet`?"*
-
-### 3. pi extension (`agent-fleet-update-check`)
+### 2. pi extension (`agent-fleet-update-check`)
 
 When installed from the Pi setup flow, the extension fires on the
 first `agent_start` event of each pi session and emits a `ctx.ui.notify`
@@ -501,8 +465,6 @@ npx @chankov/agent-fleet check-update
 
 ## Troubleshooting
 
-- **"Could not auto-detect your coding agent."** Pass `--agent` or run
-  `init` from a workspace that already has `.claude/` or `.pi/`.
 - **`update` says "no install record".** Run `init` once first; the install
   record is what `update` reads.
 - **The version-aware menu shows `(snapshot missing)`.** The recorded version

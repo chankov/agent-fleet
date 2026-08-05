@@ -20,7 +20,6 @@
 
 import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname, basename, relative, isAbsolute } from "node:path";
-import { transformPersona } from "./transform-persona.js";
 import { validateOverrides } from "./validate-overrides.js";
 
 // Known canonical replacements for personas renamed during the merge.
@@ -32,20 +31,22 @@ const PERSONA_RENAMES = {
 };
 
 // Install-target directories the scanner walks, when present.
+//
+// `.claude/hooks` is the odd one out and belongs here on purpose: the coms
+// bridge's Stop hook is the one artifact pi installs into a Claude Code
+// directory, because the pane reading it is a Claude Code process
+// (docs/claude-code-coms-bridge.md).
 const TARGET_DIRS = [
   // Personas
   "agents",
-  ".claude/agents",
   ".pi/agents",
   // Skills
-  ".claude/skills",
   ".pi/skills",
   ".agents/skills",
-  // Commands / prompts
-  ".claude/commands",
+  // Prompts
   ".pi/prompts",
-  // References + hooks
-  ".claude/references",
+  // References + coms bridge hook
+  ".pi/references",
   ".claude/hooks",
 ];
 
@@ -95,22 +96,14 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
         sourceRoot,
       });
 
-      // Personas under .claude/agents/ must be GENERATED from the canonical
-      // source, never symlinked raw — a raw link would expose the
-      // untransformed pi-flavored frontmatter.
-      const personaAgent = rel === ".claude/agents" ? "claude-code" : null;
-
       findings.push({
         type: "broken-symlink",
         path: relative(workspace, fullPath),
         issue: `broken symlink → missing ${relative(workspace, absTarget)}`,
         fix: replacement
-          ? personaAgent
-            ? `regenerate from ${relative(workspace, join(sourceRoot, replacement))} (transformed for ${personaAgent})`
-            : `repoint to ${relative(workspace, join(sourceRoot, replacement))}`
+          ? `repoint to ${relative(workspace, join(sourceRoot, replacement))}`
           : "delete",
         replacement,
-        personaAgent,
         absPath: fullPath,
       });
     }
@@ -158,13 +151,7 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
   for (const f of findings) {
     try {
       if (f.type === "broken-symlink") {
-        if (f.replacement && f.personaAgent) {
-          const source = readFileSync(join(sourceRoot, f.replacement), "utf8");
-          const { content } = transformPersona(source, { agent: f.personaAgent });
-          unlinkSync(f.absPath);
-          writeFileSync(f.absPath, content);
-          repaired++;
-        } else if (f.replacement) {
+        if (f.replacement) {
           const newTarget = join(sourceRoot, f.replacement);
           unlinkSync(f.absPath);
           symlinkSync(newTarget, f.absPath);

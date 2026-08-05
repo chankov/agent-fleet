@@ -280,7 +280,6 @@ test("uninstall on a missing tree changes nothing", async () => {
 test("guided watchdog commands mirror the deterministic CLI on every surface", () => {
   const surfaces = [
     { path: ".pi/prompts/af-set-hermes-watchdog.md", command: "af-set-hermes-watchdog" },
-    { path: ".claude/commands/set-hermes-watchdog.md", command: "set-hermes-watchdog" },
   ];
 
   for (const { path, command } of surfaces) {

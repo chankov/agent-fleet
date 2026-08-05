@@ -446,22 +446,22 @@ test("real manifest: install pi/recommended, verify clean, re-plan empty", async
   assert.equal(again.summary.changes, 0, "installing twice must be a no-op");
 });
 
-test("real manifest: claude-code personas are generated, not copied", () => {
-  const workspace = tmp("real-cc");
+test("real manifest: a persona installs as a verbatim copy of the canonical file", () => {
+  const workspace = tmp("real-persona");
   const manifest = loadManifest(repoRoot);
   const plan = buildPlan({
     workspace, sourceRoot: repoRoot, packageVersion: manifest.packageVersion,
-    manifest, agent: "claude-code", items: ["persona:code-reviewer"], platform: "linux",
+    manifest, agent: "pi", items: ["persona:code-reviewer"], platform: "linux",
   });
   applyPlan({ plan, manifest });
 
-  const installed = read(workspace, ".claude/agents/code-reviewer.md");
+  const installed = read(workspace, "agents/code-reviewer.md");
   const canonical = readFileSync(join(repoRoot, "agents/code-reviewer.md"), "utf8");
 
-  assert.notEqual(installed, canonical, "the persona is transformed for the target runtime");
-  assert.match(installed, /^tools:/m, "claude-code frontmatter uses `tools:`");
-  assert.doesNotMatch(installed, /^delegate_depth:/m, "agent-hub-only keys are dropped");
-  assert.equal(readState(workspace).items["persona:code-reviewer"].files[0].mode, "generated");
+  // agents/*.md is written in pi's own dialect, so there is nothing to
+  // translate — install is a copy, and the state records it as one.
+  assert.equal(installed, canonical);
+  assert.equal(readState(workspace).items["persona:code-reviewer"].files[0].mode, "copy");
 });
 
 test("real manifest: a fresh install leaves no stray files behind", () => {
