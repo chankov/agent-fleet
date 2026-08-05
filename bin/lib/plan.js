@@ -84,7 +84,7 @@ export function buildPlan({
   const resolvedAgent = agent ?? state?.agent ?? legacy?.agent ?? null;
   if (!resolvedAgent) {
     throw new Error(
-      "cannot plan without a coding agent — pass --agent <claude-code|opencode|pi>",
+      "cannot plan without a coding agent — pass --agent <claude-code|pi>",
     );
   }
 

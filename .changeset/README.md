@@ -16,6 +16,13 @@ one per user-visible change. They drive the version bump and `CHANGELOG.md`.
      install-record schema breakage.
 3. Commit the generated `.changeset/<random-name>.md` file with your change.
 
+Every pending `minor`/`major` changeset is rewritten to `patch` by
+`bin/force-patch-changesets.js` before `changeset version` runs, so releases are
+revision bumps by default. A changeset whose frontmatter carries the YAML
+comment `# release: keep-bump` keeps the bump it was authored with — for
+releases where the version number is the signal (a removed runtime, a retired
+command, an install-record break).
+
 On merge to `main`, the changesets GitHub Action opens (or updates) a
 "Version Packages" PR that rolls every pending changeset into a single version
 bump + `CHANGELOG.md` update. Merging that PR triggers the npm publish.

@@ -166,12 +166,34 @@ export function inspectPath(path) {
   return { kind: st.isDirectory() ? "dir" : "file" };
 }
 
-/** True when `child` is inside `parent` (or equal), after symlink resolution. */
+/** True when `child` is inside `parent` (or equal), comparing normalized paths.
+ *
+ *  Both arguments must already be resolved the same way. Callers holding a
+ *  realpath — anything from `inspectPath().linkTarget` — want
+ *  `linkPointsInside` instead. */
 export function isInside(parent, child) {
   if (!parent || !child) return false;
   const p = resolve(parent);
   const c = resolve(child);
   return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
+}
+
+/**
+ * True when a symlink's resolved target points into `root`.
+ *
+ * `inspectPath` reports `linkTarget` through realpathSync, so the root it is
+ * measured against has to be resolved the same way. Comparing a realpath
+ * against a raw path disagrees the moment any component of the root is itself a
+ * symlink, and the answer is silently wrong rather than an error: the planner
+ * decides a perfectly good link points outside the source tree and schedules a
+ * repair. On macOS both /tmp and /var are symlinks, which is where this
+ * surfaced.
+ */
+export function linkPointsInside(root, linkTarget) {
+  if (!root || !linkTarget) return false;
+  let resolvedRoot = root;
+  try { resolvedRoot = realpathSync(root); } catch { /* unresolvable: compare as given */ }
+  return isInside(resolvedRoot, linkTarget);
 }
 
 /**

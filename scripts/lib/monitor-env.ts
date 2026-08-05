@@ -64,13 +64,25 @@ export function monitorRuntimeRoot(env: NodeJS.ProcessEnv = process.env): string
 	const xdg = env.XDG_RUNTIME_DIR;
 	if (xdg && path.isAbsolute(xdg)) return path.join(xdg, RUNTIME_DIR_NAME);
 	const uid = typeof process.getuid === "function" ? process.getuid() : 0;
-	// macOS gives each process a long /var/folders/... temp path. Adding the
-	// monitor's 32-byte namespace to it exceeds sockaddr_un.sun_path (104 bytes,
-	// including its terminator), so libuv binds a truncated name that chmod
-	// cannot find. The child under /tmp is still created and verified mode 0700.
-	const tempRoot = process.platform === "darwin" ? "/tmp" : os.tmpdir();
 
-	return path.join(tempRoot, `${RUNTIME_DIR_NAME}-${uid}`);
+	return path.join(socketTempRoot(), `${RUNTIME_DIR_NAME}-${uid}`);
+}
+
+/** A temp root short enough to still hold a unix socket path underneath it.
+ *
+ *  macOS gives each process a long /var/folders/... temp path. Adding the
+ *  monitor's 32-byte namespace to it exceeds sockaddr_un.sun_path (104 bytes,
+ *  including its terminator), so libuv binds a truncated name that chmod cannot
+ *  find. The child under /tmp is still created and verified mode 0700.
+ *
+ *  Exported because every test that binds a unix socket needs its fixture root
+ *  built the same way — the monitor's, and ask-user-remote's per-question coms
+ *  endpoints. Reaching for `os.tmpdir()` directly contradicts this rule and the
+ *  failure does not look like a path-length problem from the test: the bind
+ *  half-succeeds at a truncated name, so the chmod that follows throws ENOENT
+ *  out of an already-listening handle and the process never exits. */
+export function socketTempRoot(): string {
+	return process.platform === "darwin" ? "/tmp" : os.tmpdir();
 }
 
 /** Create the runtime root 0700, or say why it cannot be trusted.

@@ -22,7 +22,7 @@ import { listPersonas, targetRelPath } from "./transform-persona.js";
 export const MANIFEST_SCHEMA_VERSION = 1;
 
 // Fixed order everywhere the manifest emits per-agent data, so output is stable.
-export const MANIFEST_AGENTS = ["claude-code", "opencode", "pi"];
+export const MANIFEST_AGENTS = ["claude-code", "pi"];
 
 export const MANIFEST_FILE = "install-manifest.json";
 export const MANIFEST_META_FILE = "manifest-meta.json";
@@ -48,13 +48,11 @@ const SKILL_ROOTS = ["skills", join("vendor", "agent-skills-upstream", "skills")
 
 const SKILL_TARGET_DIR = {
   "claude-code": ".claude/skills",
-  "opencode":    ".opencode/skills",
   "pi":          ".pi/skills",
 };
 
 const COMMAND_SOURCE = {
   "claude-code": { dir: ".claude/commands", prefix: "" },
-  "opencode":    { dir: ".opencode/commands", prefix: "af-" },
   "pi":          { dir: ".pi/prompts", prefix: "af-" },
 };
 
@@ -217,9 +215,9 @@ function deriveCommands(sourceRoot, meta) {
         source: [rel],
         target: rel,
         strategy: "copy-file",
-        // pi and opencode commands used to install unprefixed. A workspace set
-        // up before the `af-` namespace still has the old file, and pi will
-        // happily keep offering `/spec` from it. Declaring the old path lets
+        // pi commands used to install unprefixed. A workspace set up before
+        // the `af-` namespace still has the old file, and pi will happily
+        // keep offering `/spec` from it. Declaring the old path lets
         // apply() retire it under the same ownership rule as anything else.
         ...(prefix ? { legacyTargets: [`${dir}/${name}.md`] } : {}),
       };
@@ -245,9 +243,9 @@ function deriveReferences(sourceRoot, meta) {
     .sort()
     .map((file) => {
       const name = file.slice(0, -3);
-      // claude-code only: neither docs/pi-setup.md nor docs/opencode-setup.md
-      // defines a reference install path, and inventing one is worse than not
-      // offering the row (SKILL.md step 3: ask rather than guess).
+      // claude-code only: docs/pi-setup.md defines no reference install path,
+      // and inventing one is worse than not offering the row (SKILL.md step 3:
+      // ask rather than guess).
       return makeItem(meta, {
         id: `reference:${name}`,
         kind: "reference",
@@ -273,7 +271,7 @@ function deriveHooks(sourceRoot, meta) {
     .map((file) => {
       const name = file.replace(/\.(sh|mjs)$/, "");
       // Hooks register into .claude/settings.json; no hook install path is
-      // defined for opencode or pi.
+      // defined for pi.
       return makeItem(meta, {
         id: `hook:${name}`,
         kind: "hook",

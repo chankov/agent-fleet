@@ -7,6 +7,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { socketTempRoot } from "./lib/monitor-env.ts";
 
 const PROJECT = "hermes-bridge-test";
 const BRIDGE = "scripts/coms-hermes-bridge.ts";
@@ -23,7 +24,9 @@ interface Fixture {
 }
 
 function makeFixture(): Fixture {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "coms-hermes-bridge-test-"));
+	// socketTempRoot, not os.tmpdir: the bridge binds its coms endpoint under this
+	// root, and macOS truncates a socket path that long.
+	const root = fs.mkdtempSync(path.join(socketTempRoot(), "coms-hermes-bridge-test-"));
 	const home = path.join(root, "home");
 	const coms = path.join(root, "coms");
 	const bin = path.join(root, "bin");

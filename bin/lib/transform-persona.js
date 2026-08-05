@@ -8,7 +8,6 @@
 //
 // Targets:
 //   claude-code → .claude/agents/<name>.md   (tools renamed, model mapped)
-//   opencode    → .opencode/agent/<name>.md  (mode: subagent + tool denials)
 //   pi          → agents/<name>.md           (byte-identical passthrough)
 //
 // Used by the `agent-fleet transform-persona` CLI subcommand, which the
@@ -18,7 +17,7 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-export const TRANSFORM_AGENTS = ["claude-code", "opencode", "pi"];
+export const TRANSFORM_AGENTS = ["claude-code", "pi"];
 
 // Personas coupled to the pi runtime: `bowser` depends on the pi runtime
 // skill `bowser` (which drives the external `playwright-cli` tool);
@@ -40,14 +39,9 @@ const CLAUDE_TOOL_MAP = {
   ls:    "Glob",
 };
 
-// OpenCode write-capable tools we deny when the persona does not grant the
-// matching pi tool. `patch` has no pi equivalent, so it follows `write`.
-const OPENCODE_DENIABLE = ["write", "edit", "bash", "patch"];
-
 export function targetRelPath(agent, name) {
   switch (agent) {
     case "claude-code": return join(".claude", "agents", `${name}.md`);
-    case "opencode":    return join(".opencode", "agent", `${name}.md`);
     case "pi":          return join("agents", `${name}.md`);
     default: throw new Error(`unknown agent "${agent}" (allowed: ${TRANSFORM_AGENTS.join(", ")})`);
   }
@@ -107,27 +101,16 @@ export function transformPersona(sourceText, { agent }) {
     return { name, content: sourceText, targetRelPath: targetRelPath("pi", name) };
   }
 
+  // claude-code — the only transforming target left.
   const lines = [];
-  if (agent === "claude-code") {
-    lines.push(`name: ${name}`);
-    lines.push(`description: ${fields.description ?? ""}`);
-    const tools = mapClaudeTools(fields.tools);
-    if (tools) lines.push(`tools: ${tools}`);
-    const model = mapClaudeModel(fields.model);
-    if (model) lines.push(`model: ${model}`);
-    // Keep bare color names; drop hex values Claude Code does not accept.
-    if (fields.color && /^[a-z]+$/.test(fields.color)) lines.push(`color: ${fields.color}`);
-  } else {
-    // opencode — invoked as a subagent; model inherited from the session
-    // (pi provider ids do not map 1:1 onto OpenCode provider ids).
-    lines.push(`description: ${fields.description ?? ""}`);
-    lines.push("mode: subagent");
-    const denials = opencodeDenials(fields.tools);
-    if (denials.length > 0) {
-      lines.push("tools:");
-      for (const t of denials) lines.push(`  ${t}: false`);
-    }
-  }
+  lines.push(`name: ${name}`);
+  lines.push(`description: ${fields.description ?? ""}`);
+  const tools = mapClaudeTools(fields.tools);
+  if (tools) lines.push(`tools: ${tools}`);
+  const model = mapClaudeModel(fields.model);
+  if (model) lines.push(`model: ${model}`);
+  // Keep bare color names; drop hex values Claude Code does not accept.
+  if (fields.color && /^[a-z]+$/.test(fields.color)) lines.push(`color: ${fields.color}`);
 
   const content = `---\n${lines.join("\n")}\n---\n${body}`;
   return { name, content, targetRelPath: targetRelPath(agent, name) };
@@ -151,13 +134,6 @@ function mapClaudeModel(modelValue) {
   if (modelValue.includes("claude-sonnet")) return "sonnet";
   if (modelValue.includes("claude-haiku"))  return "haiku";
   return null; // non-Anthropic pi route → inherit the session model
-}
-
-function opencodeDenials(toolsValue) {
-  if (!toolsValue) return []; // no tools key → inherit (no denials)
-  const granted = new Set(toolsValue.split(",").map((t) => t.trim()));
-  if (granted.has("write")) granted.add("patch"); // patch follows write
-  return OPENCODE_DENIABLE.filter((t) => !granted.has(t));
 }
 
 // ── parsing ────────────────────────────────────────────────────────────────

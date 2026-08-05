@@ -7,7 +7,7 @@
       "id": "skills",
       "title": "Skills",
       "order": 1,
-      "agents": ["claude-code", "opencode", "pi"],
+      "agents": ["claude-code", "pi"],
       "subcategoryLabel": "phase",
       "subcategories": ["define", "plan", "build", "verify", "review", "ship", "orchestrate", "learn", "meta"]
     },
@@ -15,7 +15,7 @@
       "id": "personas",
       "title": "Agent personas",
       "order": 2,
-      "agents": ["claude-code", "opencode", "pi"],
+      "agents": ["claude-code", "pi"],
       "subcategoryLabel": "access",
       "subcategories": ["rw", "ro", "pi-only"]
     },
@@ -23,7 +23,7 @@
       "id": "commands",
       "title": "Commands / prompts",
       "order": 3,
-      "agents": ["claude-code", "opencode", "pi"],
+      "agents": ["claude-code", "pi"],
       "subcategoryLabel": null,
       "subcategories": []
     },
@@ -71,7 +71,7 @@
       "id": "external-packages",
       "title": "External packages",
       "order": 9,
-      "agents": ["claude-code", "opencode", "pi"],
+      "agents": ["claude-code", "pi"],
       "subcategoryLabel": null,
       "subcategories": []
     },
@@ -79,7 +79,7 @@
       "id": "companions",
       "title": "Companions",
       "order": 10,
-      "agents": ["claude-code", "opencode", "pi"],
+      "agents": ["claude-code", "pi"],
       "subcategoryLabel": null,
       "subcategories": []
     }
@@ -358,7 +358,6 @@
       "summary": "Shared helper for the interview-style skills",
       "agents": {
         "claude-code": { "source": ["skills/_internal/grilling.md"], "target": ".claude/skills/_internal/grilling.md", "strategy": "copy-file" },
-        "opencode":    { "source": ["skills/_internal/grilling.md"], "target": ".opencode/skills/_internal/grilling.md", "strategy": "copy-file" },
         "pi":          { "source": ["skills/_internal/grilling.md"], "target": ".pi/skills/_internal/grilling.md", "strategy": "copy-file" }
       }
     },
@@ -366,8 +365,7 @@
       "title": "orchestrate-teams.yaml",
       "summary": "Named-team roster the /orchestrate command reads",
       "agents": {
-        "claude-code": { "source": [".claude/orchestrate-teams.yaml"], "target": ".claude/orchestrate-teams.yaml", "strategy": "copy-file" },
-        "opencode":    { "source": [".opencode/orchestrate-teams.yaml"], "target": ".opencode/orchestrate-teams.yaml", "strategy": "copy-file" }
+        "claude-code": { "source": [".claude/orchestrate-teams.yaml"], "target": ".claude/orchestrate-teams.yaml", "strategy": "copy-file" }
       }
     },
     "companion:claude-hooks-settings": {

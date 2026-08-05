@@ -1,14 +1,14 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents (Claude Code, OpenCode, pi) when working with code in this repository.
+This file provides guidance to AI coding agents (Claude Code, pi) when working with code in this repository.
 
 ## Repository Overview
 
-Agent Fleet — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of lifecycle skills and agent personas for Claude Code, OpenCode, and pi. Skills live in two roots: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (native wins on name collisions — see `docs/UPSTREAM-SKILLS.md`).
+Agent Fleet — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of lifecycle skills and agent personas for Claude Code and pi. Skills live in two roots: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (native wins on name collisions — see `docs/UPSTREAM-SKILLS.md`).
 
-## OpenCode Integration
+## Skill-Driven Execution
 
-OpenCode uses a **skill-driven execution model** powered by the `skill` tool and this repository's `/skills` directory.
+Agent Fleet runs on a **skill-driven execution model** powered by this repository's `/skills` directory.
 
 ### Core Rules
 
@@ -42,26 +42,26 @@ The agent should internally follow this lifecycle and invoke the matching skill 
 
 This lifecycle is normally implicit — the agent maps user intent to the right skill without being asked.
 
-The repo also ships optional OpenCode slash commands in `.opencode/commands/` with an `af-` prefix as explicit lifecycle entry points:
+The repo also ships slash commands as explicit lifecycle entry points — unprefixed
+in `.claude/commands/` for Claude Code, `af-`-prefixed in `.pi/prompts/` for pi:
 
-- `/af-spec` → `spec-driven-development`
-- `/af-plan` → `planning-and-task-breakdown`
-- `/af-build` → `incremental-implementation` + `test-driven-development`
-- `/af-test` → `test-driven-development`
-- `/af-review` → `code-review-and-quality`
-- `/af-code-simplify` → `code-simplification`
-- `/af-ship` → `shipping-and-launch`
-- `/af-design-agent` → `designing-agents`
-- `/af-setup-agent-fleet` → `guided-workspace-setup`
+- `/spec` · `/af-spec` → `spec-driven-development`
+- `/plan` · `/af-plan` → `planning-and-task-breakdown`
+- `/build` · `/af-build` → `incremental-implementation` + `test-driven-development`
+- `/test` · `/af-test` → `test-driven-development`
+- `/review` · `/af-review` → `code-review-and-quality`
+- `/code-simplify` · `/af-code-simplify` → `code-simplification`
+- `/ship` · `/af-ship` → `shipping-and-launch`
+- `/setup-agent-fleet` · `/af-setup-agent-fleet` → `guided-workspace-setup`
 
-Whether triggered implicitly or via an `as-*` command, the agent MUST invoke the underlying skill via the `skill` tool — never inline the steps.
+Whether triggered implicitly or via a command, the agent MUST invoke the underlying skill — never inline the steps.
 
 ### Execution Model
 
 For every request:
 
 1. Determine if any skill applies (even 1% chance)
-2. Invoke the appropriate skill using the `skill` tool
+2. Invoke the appropriate skill
 3. Follow the skill workflow strictly
 4. Only proceed to implementation after required steps (spec, plan, etc.) are complete
 
@@ -77,7 +77,7 @@ Correct behavior:
 
 - Always check for and use skills first
 
-This ensures OpenCode behaves similarly to Claude Code with full workflow enforcement.
+This keeps workflow enforcement identical across every supported runtime.
 
 ## Orchestration: Personas, Skills, and Commands
 
@@ -89,7 +89,7 @@ This repo has three composable layers. They have different jobs and should not b
 
 Composition rule: **the user (or a slash command) is the orchestrator. Personas do not invoke other personas.** A persona may invoke skills.
 
-On Claude Code and OpenCode, the only multi-persona orchestration pattern this repo endorses is **parallel fan-out with a merge step** — used by `/ship` on Claude Code and `/af-ship` on OpenCode to run `code-reviewer`, `security-auditor`, and `test-engineer` concurrently and synthesize their reports. Do not build a "router" persona that decides which other persona to call; that's the job of slash commands and intent mapping. On **pi**, the `agent-hub` harness is the sanctioned exception: the dedicated `orchestrator` persona dispatches specialists under a Verification Contract, with that orchestration living in the harness rather than a peer persona calling another. The `/orchestrate` (Claude Code) / `/af-orchestrate` (OpenCode) command mirrors a constrained version.
+On Claude Code, the only multi-persona orchestration pattern this repo endorses is **parallel fan-out with a merge step** — used by `/ship` (`/af-ship` on pi) to run `code-reviewer`, `security-auditor`, and `test-engineer` concurrently and synthesize their reports. Do not build a "router" persona that decides which other persona to call; that's the job of slash commands and intent mapping. On **pi**, the `agent-hub` harness is the sanctioned exception: the dedicated `orchestrator` persona dispatches specialists under a Verification Contract, with that orchestration living in the harness rather than a peer persona calling another. The Claude Code `/orchestrate` command mirrors a constrained version.
 
 See [docs/agents.md](docs/agents.md) for the decision matrix and [references/orchestration-patterns.md](references/orchestration-patterns.md) for the full pattern catalog.
 

@@ -93,7 +93,7 @@ override files keep working unchanged. When both sections are present their keys
 with later lines winning.
 
 The `rules:` and `docs:` keys are also read outside the harness: the `compound-learning`
-skill (and the `/compound` Claude Code / `/af-compound` OpenCode commands built on it) resolves them as the
+skill (and the `/af-compound` agent-hub command built on it) resolves them as the
 targets an end-of-session compound pass writes lessons to.
 
 | Key | Default | Meaning |
@@ -226,8 +226,7 @@ instead `.gitignore` them, since their recorded paths are local to one machine.
 
 ## The `/orchestrate` command and its team config
 
-`/orchestrate` turns the main session (Claude Code) or primary agent (OpenCode)
-into an **orchestrator** that drives a config-defined team of installed
+`/orchestrate` turns the main session (Claude Code) into an **orchestrator** that drives a config-defined team of installed
 subagents — subagents cannot nest, so all dispatching is the main session's job.
 The default team is `planner` + `builder` (no reviewer); the orchestrator routes
 the team as a **runtime roster, not a fixed `researcher → planner → builder`
@@ -242,12 +241,11 @@ The named teams live in a per-agent config that mirrors pi's
 default; `researcher`/`deep-researcher` deliberately unlisted but always
 available). The reader differs by runtime: pi's harness parses its YAML, while
 `/orchestrate` has the **command's instructions** read the YAML via the Read tool
-(no harness runtime in claude-code/opencode):
+(no harness runtime in claude-code):
 
 | | Config file | Command |
 |---|---|---|
 | claude-code | `.claude/orchestrate-teams.yaml` | `/orchestrate` |
-| opencode | `.opencode/orchestrate-teams.yaml` | `/af-orchestrate` |
 | pi | `.pi/agents/teams.yaml` | via the `agent-hub` harness (no `/orchestrate`) |
 
 Switch teams at runtime with `/orchestrate <team> "<task>"` (parallel of pi's
@@ -255,15 +253,14 @@ Switch teams at runtime with `/orchestrate <team> "<task>"` (parallel of pi's
 task text starts with a word that collides with a team key.
 
 **Guided-setup behaviour.** `guided-workspace-setup` offers `/orchestrate`
-**`★`-recommended** for claude-code + opencode (hidden for pi via the existing
+**`★`-recommended** for claude-code (hidden for pi via the existing
 source-availability filter — there is no `.pi/prompts/af-orchestrate.md`), and
 installs the agent's `orchestrate-teams.yaml` as a **companion** of the command
 (a user-edited config is preserved on uninstall, never silently clobbered).
-Two artifacts stay **claude-only**: the lifecycle **hooks** (they register into
-`.claude/settings.json`, which opencode/pi have no install path for) and the
-**`AskUserQuestion` questionnaire menu mode** (the primary menu interaction on
-claude-code). The orchestrate command and its team config are *not* claude-only —
-they ship for opencode too.
+Two further artifacts are **claude-only** for reasons of their own: the lifecycle
+**hooks** (they register into `.claude/settings.json`, which pi has no install
+path for) and the **`AskUserQuestion` questionnaire menu mode** (the primary menu
+interaction on claude-code).
 
 ## Templates
 

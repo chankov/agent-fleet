@@ -91,8 +91,8 @@ The runtime contract is generated under `$HOME/.local/state/agent-fleet/codex-co
 
 ## Quick Start (Any Agent)
 
-The CLI installs into `claude-code`, `opencode`, and `pi` workspaces. For **any
-other** agent it has no target paths to write to, so the skills are loaded by
+The CLI installs into `claude-code` and `pi` workspaces. For **any other**
+agent it has no target paths to write to, so the skills are loaded by
 hand — that is what this section covers.
 
 ### 1. Get the files
@@ -104,8 +104,8 @@ git clone https://github.com/chankov/agent-fleet.git
 
 > The npm path puts the package contents in `node_modules/@chankov/agent-fleet/`.
 > Use whichever of the two you have wherever this guide says "the agent-fleet repo."
-> Don't use `agent-fleet install` here — it writes to `.claude/`, `.opencode/`, or
-> `.pi/`, which an agent outside those three won't read.
+> Don't use `agent-fleet install` here — it writes to `.claude/` or `.pi/`,
+> which an agent outside those two won't read.
 
 ### 2. Choose a skill
 

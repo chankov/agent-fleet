@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, cpSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, cpSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -314,7 +314,8 @@ test("a symlink into the source root is linked, not compared", async () => {
 
     const item = stateOf(await verify(ws, src, manifestFor()), "skill:demo");
     assert.equal(item.state, "linked");
-    assert.ok(item.linkTarget.startsWith(src));
+    // linkTarget is a realpath; src is not, and on macOS /var is a symlink.
+    assert.ok(item.linkTarget.startsWith(realpathSync(src)));
   });
 });
 

@@ -24,6 +24,7 @@ import {
   walkTree,
   inspectPath,
   isInside,
+  linkPointsInside,
   isVolatileSourceRoot,
   isAgentFleetCheckout,
   STATE_SCHEMA_VERSION,
@@ -145,7 +146,7 @@ export async function runVerify({
       type: "agent-unknown",
       path: STATE_REL_PATH,
       issue: "no recorded or detected coding agent — cannot resolve install targets",
-      fix: "re-run with --agent <claude-code|opencode|pi>",
+      fix: "re-run with --agent <claude-code|pi>",
     });
   } else {
     items = evaluateWorkspace({
@@ -339,7 +340,7 @@ function evaluateItem({ item, binding, workspace, sourceRoot, baseRoot, recorded
         continue;
       }
       const recordedRoot = recorded?.sourceRoot ?? sourceRoot;
-      if (isInside(sourceRoot, found.linkTarget) || isInside(recordedRoot, found.linkTarget)) {
+      if (linkPointsInside(sourceRoot, found.linkTarget) || linkPointsInside(recordedRoot, found.linkTarget)) {
         results.push({ state: "linked", linkTarget: found.linkTarget });
         continue;
       }

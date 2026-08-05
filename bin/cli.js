@@ -945,7 +945,7 @@ async function cmdTransformPersona() {
     try {
       out = transformPersona(readFileSync(sourcePath, "utf8"), { agent });
     } catch (err) {
-      fail(err.message); // e.g. pi-only persona requested for claude-code/opencode
+      fail(err.message); // e.g. pi-only persona requested for claude-code
     }
     if (wantsWrite) {
       const dest = join(workspace, out.targetRelPath);
@@ -1030,25 +1030,16 @@ function printHandoff({ agent, method, workspace, source, version }) {
     "    Step 9 if you'd rather leave them in)",
     "",
   ];
-  if (agent === "opencode") {
-    lines.push(
-      "OpenCode note: project-local skill discovery is limited. If",
-      "/af-setup-agent-fleet does not load the skill, follow",
-      "docs/opencode-setup.md to link it into ~/.config/opencode/skills/",
-      "and add a reference in AGENTS.md.",
-      "",
-    );
-  }
   lines.push("Re-run `npx @chankov/agent-fleet init` later to re-bootstrap (commands are removed by default once setup completes).");
   for (const line of lines) console.log(line);
 }
 
 function agentLaunchHint(agent) {
-  return { "claude-code": "Claude Code (`claude`)", "opencode": "OpenCode (`opencode`)", "pi": "pi (`pi`)" }[agent] || agent;
+  return { "claude-code": "Claude Code (`claude`)", "pi": "pi (`pi`)" }[agent] || agent;
 }
 
 function tryLaunch(agent, cwd) {
-  const cmd = { "claude-code": "claude", "opencode": "opencode", "pi": "pi" }[agent];
+  const cmd = { "claude-code": "claude", "pi": "pi" }[agent];
   if (!cmd) return;
   console.log(`\nLaunching: ${cmd} (cwd: ${cwd})`);
   const r = spawnSync(cmd, [], { cwd, stdio: "inherit" });
@@ -1123,7 +1114,7 @@ function printHelp(sub) {
   Materialize the package and hand off to the runtime's Agent Fleet setup command.
 
 Options:
-  --agent <claude-code|opencode|pi>   Skip the agent auto-detection
+  --agent <claude-code|pi>            Skip the agent auto-detection
   --workspace <path>                  Target workspace (default: cwd)
   --launch                            Attempt to launch the coding agent after init
   -h, --help                          Show this help
@@ -1146,7 +1137,7 @@ Options:
 
 Options:
   --workspace <path>                  Target workspace (default: cwd)
-  --agent <claude-code|opencode|pi>   Override the recorded/detected agent
+  --agent <claude-code|pi>            Override the recorded/detected agent
   --fix                               Apply the repairs without prompting
   --dry-run                           Report only; never write, never prompt
   --json                              Emit the machine report on stdout
@@ -1175,7 +1166,7 @@ Options:
   --workspace <path>                  Target workspace (default: cwd)
   --items <id[,id]>                   Item ids to remove
   --all                               Remove everything the state file records
-  --agent <claude-code|opencode|pi>   Override the recorded agent
+  --agent <claude-code|pi>            Override the recorded agent
   --dry-run                           Print the plan, write nothing
   --json                              Emit the machine plan/result on stdout
   -y, --yes                           Skip the confirmation
@@ -1195,7 +1186,7 @@ Exit codes:
 
 Options:
   --workspace <path>                  Target workspace (default: cwd)
-  --agent <claude-code|opencode|pi>   Override the recorded/detected agent
+  --agent <claude-code|pi>            Override the recorded/detected agent
   --json                              Emit the machine report on stdout
   --no-doctor                         Skip the symlink/persona/overrides scan
   -h, --help                          Show this help
@@ -1219,7 +1210,7 @@ An available upgrade (state "outdated") and a deliberate local edit (state
 
 Options:
   --workspace <path>                  Target workspace (default: cwd)
-  --agent <claude-code|opencode|pi>   Override the recorded/detected agent${sub === "install" ? `
+  --agent <claude-code|pi>            Override the recorded/detected agent${sub === "install" ? `
   --profile <name[,name]>             Named selections, unioned
   --items <id[,id]>                   Explicit item ids, added to the profiles` : ""}
   --allow-exec                        Include items that run a command
@@ -1250,12 +1241,12 @@ on the next install or upgrade.
     console.log(`agent-fleet transform-persona --agent <agent> [options] [persona…]
 
   Generate per-agent subagent definitions from the canonical agents/*.md
-  personas. pi gets the canonical file unchanged; claude-code and opencode get
-  a transformed copy (tools/model translated, agent-hub-only keys dropped).
+  personas. pi gets the canonical file unchanged; claude-code gets a
+  transformed copy (tools/model translated, agent-hub-only keys dropped).
   pi-only personas (bowser, orchestrator) are refused for other agents.
 
 Options:
-  --agent <claude-code|opencode|pi>   Target agent (required)
+  --agent <claude-code|pi>            Target agent (required)
   --list                              List available personas + target paths
   --all                               Transform every available persona
   --workspace <path>                  Write into <path>/<target>; omit to print to stdout
@@ -1265,7 +1256,7 @@ Options:
 Examples:
   agent-fleet transform-persona --list --agent claude-code
   agent-fleet transform-persona --agent claude-code code-reviewer
-  agent-fleet transform-persona --agent opencode --all --workspace ~/projects/foo
+  agent-fleet transform-persona --agent claude-code --all --workspace ~/projects/foo
 `);
     return;
   }
@@ -1325,7 +1316,7 @@ Examples:
   then runs inside your coding agent via that command.
 
 Options:
-  --agent <claude-code|opencode|pi>   Override the agent (default: marker → auto-detect)
+  --agent <claude-code|pi>            Override the agent (default: marker → auto-detect)
   --workspace <path>                  Target workspace (default: cwd)
   --dry-run                           Show what would be written; touch nothing
   -h, --help                          Show this help

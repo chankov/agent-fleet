@@ -36,17 +36,13 @@ const TARGET_DIRS = [
   // Personas
   "agents",
   ".claude/agents",
-  ".opencode/agent",
-  ".opencode/agents", // legacy plural form from older installs
   ".pi/agents",
   // Skills
   ".claude/skills",
-  ".opencode/skills",
   ".pi/skills",
   ".agents/skills",
   // Commands / prompts
   ".claude/commands",
-  ".opencode/commands",
   ".pi/prompts",
   // References + hooks
   ".claude/references",
@@ -99,13 +95,10 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
         sourceRoot,
       });
 
-      // Personas under .claude/agents/ and .opencode/agent(s)/ must be
-      // GENERATED from the canonical source, never symlinked raw — a raw
-      // link would expose the untransformed pi-flavored frontmatter.
-      const personaAgent =
-        rel === ".claude/agents" ? "claude-code"
-        : rel === ".opencode/agent" || rel === ".opencode/agents" ? "opencode"
-        : null;
+      // Personas under .claude/agents/ must be GENERATED from the canonical
+      // source, never symlinked raw — a raw link would expose the
+      // untransformed pi-flavored frontmatter.
+      const personaAgent = rel === ".claude/agents" ? "claude-code" : null;
 
       findings.push({
         type: "broken-symlink",

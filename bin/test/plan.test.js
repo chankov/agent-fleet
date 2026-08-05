@@ -475,7 +475,7 @@ test("upgrade at the same version still reports content drift", () => {
 
 // ── golden plans against the real manifest ──────────────────────────────────
 
-for (const agent of ["pi", "claude-code", "opencode"]) {
+for (const agent of ["pi", "claude-code"]) {
   test(`golden: fresh ${agent} workspace, --profile recommended`, () => {
     const workspace = tmp(`golden-${agent}`);
     const result = buildPlan({

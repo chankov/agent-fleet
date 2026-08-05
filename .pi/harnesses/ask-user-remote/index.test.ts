@@ -14,6 +14,7 @@ import {
 	resolveRemoteProject,
 	wrapAskUserTool,
 } from "./index.ts";
+import { socketTempRoot } from "../../../scripts/lib/monitor-env.ts";
 
 function stockResult(label: string) {
 	return {
@@ -181,7 +182,9 @@ test("agent-hub-style getAllTools probe sees ask_user after wrapper registration
 test("a locally-won race settles and closes the per-question remote endpoint (no server leak)", async (t) => {
 	// defaultStartRemote/defaultCancelRemote import coms-envelope lazily, so the
 	// COMS_DIR override must be in place before the first execute() below.
-	const comsDir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-remote-leak-"));
+	// socketTempRoot, not os.tmpdir: this directory holds a bound per-question
+	// coms endpoint, and macOS truncates a socket path that long.
+	const comsDir = fs.mkdtempSync(path.join(socketTempRoot(), "ask-user-remote-leak-"));
 	process.env.PI_COMS_DIR = comsDir;
 	t.after(() => fs.rmSync(comsDir, { recursive: true, force: true }));
 

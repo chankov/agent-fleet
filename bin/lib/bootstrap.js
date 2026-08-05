@@ -75,8 +75,8 @@ export function readBootstrapMarker(workspace) {
 //
 // All installer slash commands are namespaced with `-agent-fleet` so they
 // don't collide with workspace-defined or other-tool slash commands. The
-// short names (setup, doctor, as-setup, as-doctor) were used in 0.2.0 and
-// earlier — cleanupLegacyNames() removes those if found.
+// short names (setup, doctor) were used in 0.2.0 and earlier —
+// cleanupLegacyNames() removes those if found.
 function plan({ agent, sourceRoot, workspace }) {
   const skillSrc = join(sourceRoot, "skills", "guided-workspace-setup", "SKILL.md");
 
@@ -104,21 +104,6 @@ function plan({ agent, sourceRoot, workspace }) {
           dest: join(workspace, ".pi/skills/guided-workspace-setup/SKILL.md") },
       ];
 
-    case "opencode":
-      // OpenCode discovers skills + commands from ~/.config/opencode/ (global)
-      // and references AGENTS.md. A project-local bootstrap is awkward — we
-      // drop the command file into .opencode/commands/ (which OpenCode does
-      // load from the project) and the skill alongside it, then flag the
-      // AGENTS.md gap for the user.
-      return [
-        { kind: "command", src: join(sourceRoot, ".opencode/commands/af-setup-agent-fleet.md"),
-          dest: join(workspace, ".opencode/commands/af-setup-agent-fleet.md") },
-        { kind: "command", src: join(sourceRoot, ".opencode/commands/af-doctor-agent-fleet.md"),
-          dest: join(workspace, ".opencode/commands/af-doctor-agent-fleet.md") },
-        { kind: "skill",   src: skillSrc,
-          dest: join(workspace, ".opencode/skills/guided-workspace-setup/SKILL.md") },
-      ];
-
     default:
       throw new Error(`bootstrap: unknown agent "${agent}"`);
   }
@@ -140,11 +125,6 @@ function legacyPaths({ agent, workspace }) {
         join(workspace, ".pi/prompts/setup-agent-fleet.md"),
         join(workspace, ".pi/prompts/doctor-agent-fleet.md"),
       ];
-    case "opencode":
-      return [
-        join(workspace, ".opencode/commands/as-setup.md"),
-        join(workspace, ".opencode/commands/as-doctor.md"),
-      ];
     default:
       return [];
   }
@@ -154,7 +134,7 @@ function legacyPaths({ agent, workspace }) {
  * Run the bootstrap.
  *
  * @param {object} opts
- * @param {string} opts.agent       claude-code | opencode | pi
+ * @param {string} opts.agent       claude-code | pi
  * @param {string} opts.sourceRoot  Absolute path to the installed package
  * @param {string} opts.workspace   Absolute path to the target workspace
  * @param {"copy"|"symlink"} opts.method

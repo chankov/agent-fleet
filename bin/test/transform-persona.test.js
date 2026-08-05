@@ -34,16 +34,14 @@ function bodyOf(content) {
 
 // ── availability matrix ─────────────────────────────────────────────────────
 
-test("matrix: pi lists every persona, others exclude the pi-only set", () => {
+test("matrix: pi lists every persona, claude-code excludes the pi-only set", () => {
   const pi = listPersonas(sourceRoot, { agent: "pi" }).map((p) => p.name);
   assert.deepEqual(pi.sort(), [...allPersonaNames].sort());
 
-  for (const agent of ["claude-code", "opencode"]) {
-    const names = listPersonas(sourceRoot, { agent }).map((p) => p.name);
-    assert.equal(names.length, allPersonaNames.length - PI_ONLY_PERSONAS.length);
-    for (const piOnly of PI_ONLY_PERSONAS) {
-      assert.ok(!names.includes(piOnly), `${piOnly} must not be offered for ${agent}`);
-    }
+  const names = listPersonas(sourceRoot, { agent: "claude-code" }).map((p) => p.name);
+  assert.equal(names.length, allPersonaNames.length - PI_ONLY_PERSONAS.length);
+  for (const piOnly of PI_ONLY_PERSONAS) {
+    assert.ok(!names.includes(piOnly), `${piOnly} must not be offered for claude-code`);
   }
 });
 
@@ -64,7 +62,7 @@ test("pi-only persona refused for other agents", () => {
     /pi-only/,
   );
   assert.throws(
-    () => transformPersona(personaSource("orchestrator"), { agent: "opencode" }),
+    () => transformPersona(personaSource("orchestrator"), { agent: "claude-code" }),
     /pi-only/,
   );
 });
@@ -89,22 +87,6 @@ test("code-reviewer → claude-code: exact frontmatter", () => {
   assert.equal(fm.length, 3, "non-Claude default route inherits model; nothing else survives");
 });
 
-test("code-reviewer → opencode: subagent mode + denial map", () => {
-  const { content, targetRelPath: rel } = transformPersona(personaSource("code-reviewer"), {
-    agent: "opencode",
-  });
-  assert.equal(rel, join(".opencode", "agent", "code-reviewer.md"));
-  const fm = frontmatterOf(content);
-  assert.match(fm, /^description: Senior code reviewer/m);
-  assert.match(fm, /^mode: subagent$/m);
-  // read,bash,grep,find,ls granted → deny write/edit/patch, keep bash
-  assert.match(fm, /^  write: false$/m);
-  assert.match(fm, /^  edit: false$/m);
-  assert.match(fm, /^  patch: false$/m);
-  assert.ok(!/bash: false/.test(fm), "granted bash is not denied");
-  assert.ok(!/^name:/m.test(fm), "opencode agents take their name from the filename");
-});
-
 test("code-reviewer → pi: byte-identical passthrough", () => {
   const source = personaSource("code-reviewer");
   const { content, targetRelPath: rel } = transformPersona(source, { agent: "pi" });
@@ -114,13 +96,10 @@ test("code-reviewer → pi: byte-identical passthrough", () => {
 
 // ── edge personas ───────────────────────────────────────────────────────────
 
-test("architect (no tools key): tools omitted everywhere", () => {
+test("architect (no tools key): tools omitted", () => {
   const cc = transformPersona(personaSource("architect"), { agent: "claude-code" });
   assert.ok(!/^tools:/m.test(frontmatterOf(cc.content)), "no tools → inherit (claude-code)");
   assert.ok(!/^model:/m.test(frontmatterOf(cc.content)), "openai-codex route → inherit model");
-
-  const oc = transformPersona(personaSource("architect"), { agent: "opencode" });
-  assert.ok(!/^tools:/m.test(frontmatterOf(oc.content)), "no tools → no denial map (opencode)");
 });
 
 test("releaser: hex color dropped for claude-code", () => {
@@ -135,38 +114,32 @@ test("researcher: kind dropped, read-only tool set mapped", () => {
   assert.match(fm, /^tools: Read, Grep, Glob$/m); // read,grep,find,ls — find+ls dedupe into Glob
 });
 
-test("builder (rw persona): write tools survive, patch follows write on opencode", () => {
+test("builder (rw persona): write tools survive", () => {
   const cc = transformPersona(personaSource("builder"), { agent: "claude-code" });
   assert.match(frontmatterOf(cc.content), /^tools: Read, Write, Edit, Bash, Grep, Glob$/m);
-
-  const oc = transformPersona(personaSource("builder"), { agent: "opencode" });
-  assert.ok(!/^tools:$/m.test(frontmatterOf(oc.content)), "all deniable tools granted → no denial map");
 });
 
 test("agent-hub-only keys never leak into transformed output", () => {
-  for (const agent of ["claude-code", "opencode"]) {
-    for (const { sourcePath } of listPersonas(sourceRoot, { agent })) {
-      const fm = frontmatterOf(transformPersona(readFileSync(sourcePath, "utf8"), { agent }).content);
-      for (const dropped of ["models", "thinking", "delegate_depth", "subagents", "kind", "skills"]) {
-        assert.ok(!new RegExp(`^${dropped}:`, "m").test(fm), `${dropped} dropped (${sourcePath})`);
-      }
-      assert.ok(!/github-copilot\/|openai-codex\//.test(fm), "pi model routes never leak");
+  for (const { sourcePath } of listPersonas(sourceRoot, { agent: "claude-code" })) {
+    const fm = frontmatterOf(
+      transformPersona(readFileSync(sourcePath, "utf8"), { agent: "claude-code" }).content,
+    );
+    for (const dropped of ["models", "thinking", "delegate_depth", "subagents", "kind", "skills"]) {
+      assert.ok(!new RegExp(`^${dropped}:`, "m").test(fm), `${dropped} dropped (${sourcePath})`);
     }
+    assert.ok(!/github-copilot\/|openai-codex\//.test(fm), "pi model routes never leak");
   }
 });
 
 test("body passes through unchanged", () => {
-  for (const agent of ["claude-code", "opencode"]) {
-    for (const { name, sourcePath } of listPersonas(sourceRoot, { agent })) {
-      const source = readFileSync(sourcePath, "utf8");
-      const { content } = transformPersona(source, { agent });
-      assert.equal(bodyOf(content), bodyOf(source), `${name}/${agent} body unchanged`);
-    }
+  for (const { name, sourcePath } of listPersonas(sourceRoot, { agent: "claude-code" })) {
+    const source = readFileSync(sourcePath, "utf8");
+    const { content } = transformPersona(source, { agent: "claude-code" });
+    assert.equal(bodyOf(content), bodyOf(source), `${name} body unchanged`);
   }
 });
 
-test("targetRelPath: opencode uses the singular agent/ directory", () => {
-  assert.equal(targetRelPath("opencode", "x"), join(".opencode", "agent", "x.md"));
+test("targetRelPath: per-agent install locations", () => {
   assert.equal(targetRelPath("claude-code", "x"), join(".claude", "agents", "x.md"));
   assert.equal(targetRelPath("pi", "x"), join("agents", "x.md"));
 });

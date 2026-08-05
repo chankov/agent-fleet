@@ -1,6 +1,6 @@
 # Agent Personas
 
-Specialist personas that play a single role with a single perspective. Each persona is a Markdown file consumed as a system prompt by your harness (Claude Code, OpenCode, or pi). The canonical file is pi-flavored; `transform-persona` rewrites it per target harness on install.
+Specialist personas that play a single role with a single perspective. Each persona is a Markdown file consumed as a system prompt by your harness (Claude Code or pi). The canonical file is pi-flavored; `transform-persona` rewrites it per target harness on install.
 
 ## The full roster
 
@@ -33,7 +33,6 @@ The runtime's Agent Fleet setup command offers every persona available for the c
 | Agent | Installed to | Transformation |
 |---|---|---|
 | Claude Code | `.claude/agents/<name>.md` | tools renamed (`read→Read`, `find/ls→Glob`, …), model mapped to `opus`/`sonnet`/`haiku`, agent-hub keys dropped |
-| OpenCode | `.opencode/agent/<name>.md` | `mode: subagent` added, write-capable tools denied per persona, agent-hub keys dropped |
 | pi | `agents/<name>.md` | none — the canonical format is the pi format |
 
 When the repo is installed as a Claude Code plugin, the `agents/` directory is auto-discovered — every non-pi-only persona is immediately available as a subagent without a separate install.
@@ -44,7 +43,6 @@ The personas are designed to be composed, not used one at a time. For the full h
 
 - **pi (agent-hub harness)** — the dispatcher spawns personas as specialist agents on a named team from [.pi/agents/teams.yaml](../.pi/agents/teams.yaml): `default` (plan → build → review → document), `debug`, `frontend`, `security`, `hotfix`, `release`, `info`. `just fleet team <name> --no-hub` instead spawns [peers.yaml](../.pi/agents/peers.yaml) personas (e.g. `architect`, `releaser`) as standalone, addressable peers in a tiled [herdr](https://herdr.dev) workspace (requires a running herdr server). Personas with a `subagents:` block (e.g. `code-reviewer`'s `preflight`/`quality`/`perf`/`docs`) additionally delegate slices of their own job to pre-configured children.
 - **Claude Code** — installed personas are native subagents: the main agent delegates to them automatically based on their `description`, or you invoke one explicitly ("use the code-reviewer subagent on this diff"). Chain them along the lifecycle: `/plan` work goes to `planner`, then `plan-reviewer` critiques, `builder` implements, and `code-reviewer` + `security-auditor` gate the merge. `/orchestrate` runs a config-defined roster (see `.claude/orchestrate-teams.yaml`).
-- **OpenCode** — installed personas are subagents (`mode: subagent`): mention one with `@<name>` to invoke it directly, or let the primary agent delegate to it by description. `/af-orchestrate` mirrors the Claude Code roster pattern.
 
 ## How personas relate to skills and commands
 
@@ -80,7 +78,7 @@ Pick this only when **independent** investigations can run in parallel and produ
 
 - `/ship` → fans out to `code-reviewer` + `security-auditor` + `test-engineer` in parallel, then synthesizes their reports into a go/no-go decision
 
-On Claude Code and OpenCode, this fan-out is the endorsed in-harness orchestration pattern. On pi, the `agent-hub` harness adds a dispatcher model: the dedicated `orchestrator` persona spawns specialist subagents under a Verification Contract (see [CLAUDE.md](../CLAUDE.md) and the [agent-hub harness](../.pi/harnesses/agent-hub/)). The `/orchestrate` command mirrors a constrained version for Claude Code and OpenCode. See [references/orchestration-patterns.md](../references/orchestration-patterns.md) for the full pattern catalog and anti-patterns.
+On Claude Code, this fan-out is the endorsed in-harness orchestration pattern. On pi, the `agent-hub` harness adds a dispatcher model: the dedicated `orchestrator` persona spawns specialist subagents under a Verification Contract (see [CLAUDE.md](../CLAUDE.md) and the [agent-hub harness](../.pi/harnesses/agent-hub/)). The `/orchestrate` command mirrors a constrained version for Claude Code. See [references/orchestration-patterns.md](../references/orchestration-patterns.md) for the full pattern catalog and anti-patterns.
 
 ## Decision matrix
 
@@ -142,7 +140,7 @@ Why this fails:
 
 ## Harness interop
 
-On **OpenCode**, the same personas install as `mode: subagent` (invoke with `@<name>`); on **pi** they run under the `agent-hub` harness. The rest of this section is Claude Code-specific.
+On **pi**, the same personas run under the `agent-hub` harness. The rest of this section is Claude Code-specific.
 
 The personas in this repo are designed to work as Claude Code subagents and as Agent Teams teammates without modification:
 

@@ -13,7 +13,7 @@ answer: which artifacts this project wants, what belongs in its overrides file, 
 provider to configure. Everything else is `agent-fleet <verb> --json`.
 
 **You never write an install target yourself.** No copying, no symlinking, no path tables, no
-merge rules. If you find yourself about to write into `.claude/`, `.opencode/`, `.pi/`, or the
+merge rules. If you find yourself about to write into `.claude/`, `.pi/`, or the
 `justfile`, you are in the wrong place — call the CLI.
 
 ## When to Use
@@ -38,7 +38,7 @@ Run the CLI from the agent-fleet package the user actually installed:
 3. Ask. **Never scan the filesystem for agent-fleet clones** — it finds forks and stale checkouts,
    not the package the user installed from.
 
-Confirm the workspace path exists. The agent (`claude-code` / `opencode` / `pi`) comes from the
+Confirm the workspace path exists. The agent (`claude-code` / `pi`) comes from the
 recorded state; pass `--agent` only to override it.
 
 ### 2. Read the workspace's current state
@@ -190,7 +190,7 @@ retained command names). Point the user at `.ai/agent-fleet-overrides.md` and su
 
 ## Red Flags
 
-- Any write by this skill into `.claude/`, `.opencode/`, `.pi/`, `agents/`, or the `justfile` —
+- Any write by this skill into `.claude/`, `.pi/`, `agents/`, or the `justfile` —
   those are the CLI's, exclusively. Only `.ai/agent-fleet-overrides.md` and `.ai/stt.json` are yours.
 - An item state computed by eye instead of read from `verify --json`.
 - A path table, merge rule, or removal-ownership rule restated in the conversation — all three

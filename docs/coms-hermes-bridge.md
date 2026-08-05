@@ -113,7 +113,7 @@ The live recipe reuses `scripts/team-up.ts --conductor`: it creates a normal her
 
 ### Telegram bridge control command
 
-The outbound `hermes send` path needs a configured Telegram channel but no skill. Full reply round-trip additionally needs Agent Fleet's `hub-liaison` skill in the profile that owns the running Telegram gateway. Pi and OpenCode use the namespaced command:
+The outbound `hermes send` path needs a configured Telegram channel but no skill. Full reply round-trip additionally needs Agent Fleet's `hub-liaison` skill in the profile that owns the running Telegram gateway. Pi uses the namespaced command:
 
 ```text
 /af-set-hermes-telegram status --profile default

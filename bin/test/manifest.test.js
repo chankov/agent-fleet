@@ -112,7 +112,6 @@ test("every command source file has an item", () => {
   const excluded = new Set(meta.exclude.commands);
   const sources = [
     [".claude/commands", ""],
-    [".opencode/commands", "af-"],
     [".pi/prompts", "af-"],
   ];
   for (const [dir, prefix] of sources) {
@@ -167,7 +166,7 @@ test("installer-only artifacts are never offered", () => {
 // ── per-agent rules ─────────────────────────────────────────────────────────
 
 test("command sources never cross agents", () => {
-  const dirFor = { "claude-code": ".claude/commands/", "opencode": ".opencode/commands/af-", "pi": ".pi/prompts/af-" };
+  const dirFor = { "claude-code": ".claude/commands/", "pi": ".pi/prompts/af-" };
   for (const item of manifest.items.filter((i) => i.kind === "command")) {
     for (const [agent, binding] of Object.entries(item.agents)) {
       assert.ok(
@@ -188,10 +187,9 @@ test("pi-only personas are offered to pi alone", () => {
   assert.deepEqual(Object.keys(shared.agents).sort(), [...MANIFEST_AGENTS].sort());
 });
 
-test("personas are generated for claude-code and opencode, copied for pi", () => {
+test("personas are generated for claude-code, copied for pi", () => {
   const item = manifest.items.find((i) => i.id === "persona:builder");
   assert.equal(item.agents["claude-code"].strategy, "transform-persona");
-  assert.equal(item.agents["opencode"].strategy, "transform-persona");
   assert.equal(item.agents["pi"].strategy, "copy-file");
 });
 

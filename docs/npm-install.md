@@ -36,7 +36,7 @@ So:
 npx @chankov/agent-fleet init
 # Then open your coding agent in this directory and run the command it prints:
 #   Claude Code: /setup-agent-fleet
-#   Pi/OpenCode: /af-setup-agent-fleet
+#   Pi:          /af-setup-agent-fleet
 ```
 
 That's it. `npx` fetches the package, the CLI detects your coding agent and
@@ -67,7 +67,7 @@ The package also ships assets for the **experimental Linux Codex Remote-Control 
 
 Materializes the package, **bootstraps the installer artifacts** into the
 workspace, and hands off to the runtime's Agent Fleet setup command. Claude Code
-uses unprefixed installer commands; Pi and OpenCode use `/af-setup-agent-fleet`
+uses unprefixed installer commands; Pi uses `/af-setup-agent-fleet`
 and `/af-doctor-agent-fleet`.
 
 What `init` writes per agent:
@@ -76,7 +76,6 @@ What `init` writes per agent:
 |---|---|
 | `claude-code` | `.claude/commands/setup-agent-fleet.md`, `.claude/commands/doctor-agent-fleet.md`, `.claude/skills/guided-workspace-setup/SKILL.md` |
 | `pi` | `.pi/prompts/af-setup-agent-fleet.md`, `.pi/prompts/af-doctor-agent-fleet.md`, `.pi/skills/guided-workspace-setup/SKILL.md` |
-| `opencode` | `.opencode/commands/af-setup-agent-fleet.md`, `.opencode/commands/af-doctor-agent-fleet.md`, `.opencode/skills/guided-workspace-setup/SKILL.md` |
 
 These are **just the plumbing** — the slash commands, plus the skill they
 invoke. The actual catalogue (spec-driven-development, code-reviewer,
@@ -122,7 +121,7 @@ slash commands (`agent-fleet cleanup-installer`).
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `--agent <claude-code\|opencode\|pi>` | auto-detect | Skip the agent prompt |
+| `--agent <claude-code\|pi>` | auto-detect | Skip the agent prompt |
 | `--workspace <path>` | `cwd` | Target workspace |
 | `--launch` | off | Shell into the coding agent after init (best effort) |
 
@@ -340,17 +339,16 @@ npx agent-fleet update --workspace .
 ### `npx @chankov/agent-fleet transform-persona`
 
 Generates per-agent subagent definitions from the canonical personas in
-`agents/*.md`. `pi` gets the canonical file unchanged; `claude-code` and
-`opencode` get a transformed copy — `tools`/`model` translated to the target's
-vocabulary (`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …; `mode:
-subagent` + tool denials for OpenCode), agent-hub-only frontmatter dropped,
-body untouched. pi-only personas (`bowser`, `orchestrator`) are refused for
+`agents/*.md`. `pi` gets the canonical file unchanged; `claude-code` gets a
+transformed copy — `tools`/`model` translated to the target's vocabulary
+(`read→Read`, `find/ls→Glob`, `claude-opus-*→opus`, …), agent-hub-only
+frontmatter dropped, body untouched. pi-only personas (`bowser`, `orchestrator`) are refused for
 other agents. This is what the Agent Fleet setup workflow runs during apply; transformed installs are always
 copies (never symlinks), recorded with `transformed: true`.
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `--agent <claude-code\|opencode\|pi>` | — (required) | Target agent |
+| `--agent <claude-code\|pi>` | — (required) | Target agent |
 | `--list` | off | Print the availability matrix (persona → target path) |
 | `--all` | off | Transform every available persona |
 | `--workspace <path>` | — | Write into `<path>`; omit to print to stdout |
@@ -359,7 +357,7 @@ copies (never symlinks), recorded with `transformed: true`.
 ```bash
 npx @chankov/agent-fleet transform-persona --list --agent claude-code
 npx @chankov/agent-fleet transform-persona --agent claude-code code-reviewer
-npx @chankov/agent-fleet transform-persona --agent opencode --all --workspace .
+npx @chankov/agent-fleet transform-persona --agent claude-code --all --workspace .
 ```
 
 ## Versioning
@@ -504,8 +502,7 @@ npx @chankov/agent-fleet check-update
 ## Troubleshooting
 
 - **"Could not auto-detect your coding agent."** Pass `--agent` or run
-  `init` from a workspace that already has one of `.claude/`, `.opencode/`,
-  or `.pi/`.
+  `init` from a workspace that already has `.claude/` or `.pi/`.
 - **`update` says "no install record".** Run `init` once first; the install
   record is what `update` reads.
 - **The version-aware menu shows `(snapshot missing)`.** The recorded version

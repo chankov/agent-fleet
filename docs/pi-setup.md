@@ -4,7 +4,7 @@ This guide explains how to use Agent Fleet with [pi](https://github.com/badlogic
 
 This repo also ships pi-native **prompt templates** for the lifecycle slash commands (`/af-spec`, `/af-plan`, `/af-build`, `/af-test`, `/af-review`, `/af-code-simplify`, `/af-ship`). These commands add workflow orchestration on top of the underlying skills.
 
-The specialist **personas** in `agents/` — including `web-performance-auditor` — are available to pi as well and are invoked directly as subagents. Note that `/webperf` on Claude Code (`/af-webperf` on OpenCode) does not have a Pi `.pi/prompts` equivalent; on pi you run the same audit by invoking the `web-performance-auditor` persona.
+The specialist **personas** in `agents/` — including `web-performance-auditor` — are available to pi as well and are invoked directly as subagents. Note that `/webperf` on Claude Code does not have a Pi `.pi/prompts` equivalent; on pi you run the same audit by invoking the `web-performance-auditor` persona.
 
 ## Overview
 

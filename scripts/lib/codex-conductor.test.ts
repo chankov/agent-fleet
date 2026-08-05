@@ -17,7 +17,10 @@ import {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function fixture(t: { after(fn: () => void): void }): { root: string; configPath: string; conductorCwd: string; comsDir: string } {
-	const base = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fleet-conductor-test-"));
+	// realpathSync: the conductor resolves the roots it is handed, so a fixture
+	// built on an unresolved path disagrees with it wherever tmpdir sits behind a
+	// symlink (/var on macOS).
+	const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-fleet-conductor-test-")));
 	const root = path.join(base, "repo");
 	const bin = path.join(base, "fake-codex");
 	const runtimeDir = path.join(base, "runtime", "codex-conductor");

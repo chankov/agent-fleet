@@ -11,16 +11,15 @@ manifest-meta.json    → the hand-edited half: groups, profiles, recommendation
 skills/       → Agent Fleet-native + customized skills (SKILL.md per directory); shadows same-named vendored skills
 vendor/agent-skills-upstream/ → Pristine upstream skill import at a pinned SHA — NEVER edit in place; policy + update procedure in docs/UPSTREAM-SKILLS.md
 hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote conduction — see docs/coms-hermes-bridge.md
-agents/       → 13 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code/opencode get generated copies; bowser + orchestrator are pi-only)
+agents/       → 13 reusable agent personas, canonical pi-flavored frontmatter; installed per agent via `transform-persona` (claude-code gets generated copies; bowser + orchestrator are pi-only)
 hooks/        → Session lifecycle hooks
 scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; peer-launch single-peer `just fleet peer` launcher; scripts/lib/ pure fleet modules under node --test)
 justfile      → Recipes to launch pi with each harness
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
 .github/workflows/release.yml → On merge to main: opens "Version Packages" PR or runs `changeset publish`
-.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /orchestrate, /compound, /code-simplify, /ship, /design-agent, /prime, /setup-agent-fleet)
-.claude/orchestrate-teams.yaml → named-team roster read by /orchestrate (mirrors .pi/agents/teams.yaml); companion installed with the command; opencode copy at .opencode/orchestrate-teams.yaml
-.opencode/commands/ → OpenCode slash commands, `af-` prefixed mirror of .claude/commands/ (includes af-orchestrate, af-compound) — keep in sync. /orchestrate and /compound ship for claude-code + opencode only; pi orchestrates via the agent-hub harness, which provides its own /af-compound command
+.claude/commands/ → Claude Code slash commands (/spec, /plan, /build, /test, /review, /orchestrate, /code-simplify, /ship, /design-agent, /prime, /webperf, /setup-agent-fleet)
+.claude/orchestrate-teams.yaml → named-team roster read by /orchestrate (mirrors .pi/agents/teams.yaml); companion installed with the command. /orchestrate ships for claude-code only; pi orchestrates via the agent-hub harness, which provides its own /af-compound command
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, agent-fleet-update-check, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just fleet hub` loads Fleet Core before agent-hub; every native child gets damage-control-continue)
@@ -40,7 +39,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
 **Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness), peer-coms (Claude Code as a coms peer via the bridge — see docs/claude-code-coms-bridge.md)
-**Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets, via `/compound` on claude-code/opencode or the agent-hub `/af-compound` command dispatching `documenter`)
+**Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets — invoked as a skill on claude-code, or via the agent-hub `/af-compound` command dispatching `documenter` on pi)
 **Onboard:** guided-workspace-setup
 
 ## Conventions

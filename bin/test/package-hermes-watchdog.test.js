@@ -62,7 +62,6 @@ test("the lifecycle CLI, its guided commands, and the runbook ship together", ()
     "bin/lib/set-hermes-watchdog.js",
     "bin/lib/hermes-profile-artifact.js",
     ".claude/commands/set-hermes-watchdog.md",
-    ".opencode/commands/af-set-hermes-watchdog.md",
     ".pi/prompts/af-set-hermes-watchdog.md",
     "docs/hermes-watchdog-supervisor.md",
     "docs/coms-hermes-bridge.md",

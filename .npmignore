@@ -46,7 +46,6 @@ tmp/
 .claude/settings.json
 .claude/settings.local.json
 .claude/.simplify-ignore-cache/
-.opencode/agents/
 .pi/settings.json
 scripts/
 

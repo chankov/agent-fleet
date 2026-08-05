@@ -28,7 +28,10 @@ import {
 interface Call { file: string; args: string[]; options?: { stdio?: "inherit"; env?: Record<string, string | undefined> }; }
 
 function fixture(t: { after(fn: () => void): void }): { root: string; config: LifecycleConfig } {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fleet-codex-test-"));
+	// realpathSync: the lifecycle resolves the paths it is handed, so a fixture
+	// built on an unresolved path disagrees with it wherever tmpdir sits behind a
+	// symlink (/var on macOS).
+	const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-fleet-codex-test-")));
 	const repo = path.join(root, "repo");
 	const bin = path.join(root, "codex");
 	const comsDir = path.join(root, "coms");

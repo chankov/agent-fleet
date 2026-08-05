@@ -30,7 +30,7 @@ import { extractRegion, replaceRegion, stripRegion, leafPaths, setPath, canonica
 import { transformPersona } from "./transform-persona.js";
 import {
   readState, writeState, emptyState, hashFile, hashText, walkTree,
-  inspectPath, isInside, STATE_REL_PATH, LEGACY_RECORD_REL_PATH,
+  inspectPath, isInside, linkPointsInside, STATE_REL_PATH, LEGACY_RECORD_REL_PATH,
 } from "./state.js";
 
 export const APPLY_SCHEMA_VERSION = 1;
@@ -302,7 +302,7 @@ function retireLegacyTargets({ item, workspace, sourceRoot, agent }) {
     const found = inspectPath(abs);
     if (found.kind === "absent") continue;
     if (found.kind === "symlink") {
-      if (!found.dangling && !isInside(sourceRoot, found.linkTarget)) continue;
+      if (!found.dangling && !linkPointsInside(sourceRoot, found.linkTarget)) continue;
       unlinkSync(abs);
       retired.push(rel);
       continue;
@@ -473,7 +473,7 @@ function removeItem({ id, state, workspace, sourceRoot }) {
     if (found.kind === "absent") continue;
 
     if (found.kind === "symlink") {
-      if (!isInside(sourceRoot, found.linkTarget) && !found.dangling) { kept.push(file.path); continue; }
+      if (!linkPointsInside(sourceRoot, found.linkTarget) && !found.dangling) { kept.push(file.path); continue; }
       unlinkSync(abs); // not rmSync — see clearTarget() on dangling links
       removed++;
       continue;

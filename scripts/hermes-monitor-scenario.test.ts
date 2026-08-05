@@ -10,7 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { socketTempRoot } from "./lib/monitor-env.ts";
 import { join } from "node:path";
 
 import { createScenario, execute, registerDisposable, waitFor, watcherAudit, watcherLocks } from "./hermes-monitor-scenario.ts";
@@ -22,7 +22,7 @@ test.after(() => {
 });
 
 function scenarioRoot(label: string) {
-	const root = mkdtempSync(join(tmpdir(), `${label}-`));
+	const root = mkdtempSync(join(socketTempRoot(), `${label}-`));
 	roots.push(root);
 	return root;
 }

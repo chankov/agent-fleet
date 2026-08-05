@@ -92,6 +92,14 @@ a `.changeset/<random-name>.md` file — commit that alongside your change.
 | New skill, new persona, new command, new option in an existing skill, new optional override key | **minor** |
 | Wording fix, clarified red flag, doctor scan improvement, CLI bug fix, new example | **patch** |
 
+> **Note:** the release pipeline runs `bin/force-patch-changesets.js` ahead of
+> `changeset version`, which rewrites every pending `minor`/`major` changeset
+> down to `patch` — so the table above describes intent, not the version number
+> you will actually get. To keep an authored bump, add the YAML comment
+> `# release: keep-bump` to the changeset's frontmatter. Reserve it for releases
+> where the version number is itself the signal (a removed runtime, a retired
+> command, an install-record break).
+
 ### Release flow
 
 1. PRs merge to `main` with their changeset files.

@@ -2,14 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as net from "node:net";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { socketTempRoot } from "./monitor-env.ts";
 import { MonitorRegistry } from "./hermes-monitor-registry.ts";
 import { MAX_SOCKET_FRAME_BYTES, MonitorSocketServer } from "./hermes-monitor-socket.ts";
 
 function fixtureRoot(): string {
-	return mkdtempSync(join(tmpdir(), "agent-fleet-monitor-socket-"));
+	return mkdtempSync(join(socketTempRoot(), "af-mon-sock-"));
 }
 
 function request(socketPath: string, frame: string): Promise<string> {

@@ -8,7 +8,6 @@
       "order": 1,
       "agents": [
         "claude-code",
-        "opencode",
         "pi"
       ],
       "subcategoryLabel": "phase",
@@ -30,7 +29,6 @@
       "order": 2,
       "agents": [
         "claude-code",
-        "opencode",
         "pi"
       ],
       "subcategoryLabel": "access",
@@ -46,7 +44,6 @@
       "order": 3,
       "agents": [
         "claude-code",
-        "opencode",
         "pi"
       ],
       "subcategoryLabel": null,
@@ -117,7 +114,6 @@
       "order": 9,
       "agents": [
         "claude-code",
-        "opencode",
         "pi"
       ],
       "subcategoryLabel": null,
@@ -129,7 +125,6 @@
       "order": 10,
       "agents": [
         "claude-code",
-        "opencode",
         "pi"
       ],
       "subcategoryLabel": null,
@@ -239,17 +234,6 @@
           "target": ".claude/commands/build.md",
           "strategy": "copy-file"
         },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-build.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-build.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/build.md"
-          ]
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-build.md"
@@ -282,17 +266,6 @@
           "target": ".claude/commands/code-simplify.md",
           "strategy": "copy-file"
         },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-code-simplify.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-code-simplify.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/code-simplify.md"
-          ]
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-code-simplify.md"
@@ -305,33 +278,6 @@
           ]
         }
       }
-    },
-    {
-      "id": "command:compound",
-      "kind": "command",
-      "group": "commands",
-      "subcategory": null,
-      "title": "compound",
-      "summary": "Capture this session's lessons into the project's rules and docs — compound engineering pass",
-      "recommended": false,
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-compound.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-compound.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/compound.md"
-          ]
-        }
-      },
-      "recommendsWith": [
-        "skill:compound-learning"
-      ]
     },
     {
       "id": "command:design-agent",
@@ -351,17 +297,6 @@
           "sourceMode": "first",
           "target": ".claude/commands/design-agent.md",
           "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-design-agent.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-design-agent.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/design-agent.md"
-          ]
         }
       }
     },
@@ -383,17 +318,6 @@
           "sourceMode": "first",
           "target": ".claude/commands/orchestrate.md",
           "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-orchestrate.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-orchestrate.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/orchestrate.md"
-          ]
         }
       },
       "companions": [
@@ -421,17 +345,6 @@
           "sourceMode": "first",
           "target": ".claude/commands/plan.md",
           "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-plan.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-plan.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/plan.md"
-          ]
         },
         "pi": {
           "source": [
@@ -464,17 +377,6 @@
           "sourceMode": "first",
           "target": ".claude/commands/prime.md",
           "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-prime.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-prime.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/prime.md"
-          ]
         }
       }
     },
@@ -496,17 +398,6 @@
           "sourceMode": "first",
           "target": ".claude/commands/review.md",
           "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-review.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-review.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/review.md"
-          ]
         },
         "pi": {
           "source": [
@@ -540,17 +431,6 @@
           "target": ".claude/commands/set-hermes-telegram.md",
           "strategy": "copy-file"
         },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-set-hermes-telegram.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-set-hermes-telegram.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/set-hermes-telegram.md"
-          ]
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-set-hermes-telegram.md"
@@ -582,17 +462,6 @@
           "sourceMode": "first",
           "target": ".claude/commands/set-hermes-watchdog.md",
           "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-set-hermes-watchdog.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-set-hermes-watchdog.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/set-hermes-watchdog.md"
-          ]
         },
         "pi": {
           "source": [
@@ -626,17 +495,6 @@
           "target": ".claude/commands/ship.md",
           "strategy": "copy-file"
         },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-ship.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-ship.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/ship.md"
-          ]
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-ship.md"
@@ -668,17 +526,6 @@
           "sourceMode": "first",
           "target": ".claude/commands/spec.md",
           "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-spec.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-spec.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/spec.md"
-          ]
         },
         "pi": {
           "source": [
@@ -712,17 +559,6 @@
           "target": ".claude/commands/test.md",
           "strategy": "copy-file"
         },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-test.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-test.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/test.md"
-          ]
-        },
         "pi": {
           "source": [
             ".pi/prompts/af-test.md"
@@ -754,17 +590,6 @@
           "sourceMode": "first",
           "target": ".claude/commands/webperf.md",
           "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/commands/af-webperf.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/commands/af-webperf.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            ".opencode/commands/webperf.md"
-          ]
         }
       }
     },
@@ -917,14 +742,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/orchestrate-teams.yaml",
-          "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            ".opencode/orchestrate-teams.yaml"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/orchestrate-teams.yaml",
           "strategy": "copy-file"
         }
       },
@@ -1154,14 +971,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/_internal/grilling.md",
-          "strategy": "copy-file"
-        },
-        "opencode": {
-          "source": [
-            "skills/_internal/grilling.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/_internal/grilling.md",
           "strategy": "copy-file"
         },
         "pi": {
@@ -1484,14 +1293,6 @@
           "target": ".claude/agents/architect.md",
           "strategy": "transform-persona"
         },
-        "opencode": {
-          "source": [
-            "agents/architect.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/architect.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/architect.md"
@@ -1545,14 +1346,6 @@
           "target": ".claude/agents/builder.md",
           "strategy": "transform-persona"
         },
-        "opencode": {
-          "source": [
-            "agents/builder.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/builder.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/builder.md"
@@ -1580,14 +1373,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/agents/code-reviewer.md",
-          "strategy": "transform-persona"
-        },
-        "opencode": {
-          "source": [
-            "agents/code-reviewer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/code-reviewer.md",
           "strategy": "transform-persona"
         },
         "pi": {
@@ -1619,14 +1404,6 @@
           "target": ".claude/agents/deep-researcher.md",
           "strategy": "transform-persona"
         },
-        "opencode": {
-          "source": [
-            "agents/deep-researcher.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/deep-researcher.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/deep-researcher.md"
@@ -1654,14 +1431,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/agents/documenter.md",
-          "strategy": "transform-persona"
-        },
-        "opencode": {
-          "source": [
-            "agents/documenter.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/documenter.md",
           "strategy": "transform-persona"
         },
         "pi": {
@@ -1714,14 +1483,6 @@
           "target": ".claude/agents/plan-reviewer.md",
           "strategy": "transform-persona"
         },
-        "opencode": {
-          "source": [
-            "agents/plan-reviewer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/plan-reviewer.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/plan-reviewer.md"
@@ -1749,14 +1510,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/agents/planner.md",
-          "strategy": "transform-persona"
-        },
-        "opencode": {
-          "source": [
-            "agents/planner.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/planner.md",
           "strategy": "transform-persona"
         },
         "pi": {
@@ -1788,14 +1541,6 @@
           "target": ".claude/agents/releaser.md",
           "strategy": "transform-persona"
         },
-        "opencode": {
-          "source": [
-            "agents/releaser.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/releaser.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/releaser.md"
@@ -1823,14 +1568,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/agents/researcher.md",
-          "strategy": "transform-persona"
-        },
-        "opencode": {
-          "source": [
-            "agents/researcher.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/researcher.md",
           "strategy": "transform-persona"
         },
         "pi": {
@@ -1862,14 +1599,6 @@
           "target": ".claude/agents/security-auditor.md",
           "strategy": "transform-persona"
         },
-        "opencode": {
-          "source": [
-            "agents/security-auditor.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/security-auditor.md",
-          "strategy": "transform-persona"
-        },
         "pi": {
           "source": [
             "agents/security-auditor.md"
@@ -1897,14 +1626,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/agents/test-engineer.md",
-          "strategy": "transform-persona"
-        },
-        "opencode": {
-          "source": [
-            "agents/test-engineer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/test-engineer.md",
           "strategy": "transform-persona"
         },
         "pi": {
@@ -1958,14 +1679,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/agents/web-performance-auditor.md",
-          "strategy": "transform-persona"
-        },
-        "opencode": {
-          "source": [
-            "agents/web-performance-auditor.md"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/agent/web-performance-auditor.md",
           "strategy": "transform-persona"
         },
         "pi": {
@@ -2533,14 +2246,6 @@
           "target": ".claude/skills/api-and-interface-design",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/api-and-interface-design"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/api-and-interface-design",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/api-and-interface-design"
@@ -2569,15 +2274,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/browser-testing-with-devtools",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/browser-testing-with-devtools",
-            "vendor/agent-skills-upstream/skills/browser-testing-with-devtools"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/browser-testing-with-devtools",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -2610,14 +2306,6 @@
           "target": ".claude/skills/ci-cd-and-automation",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/ci-cd-and-automation"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/ci-cd-and-automation",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/ci-cd-and-automation"
@@ -2646,15 +2334,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/code-review-and-quality",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/code-review-and-quality",
-            "vendor/agent-skills-upstream/skills/code-review-and-quality"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/code-review-and-quality",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -2687,14 +2366,6 @@
           "target": ".claude/skills/code-simplification",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/code-simplification"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/code-simplification",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/code-simplification"
@@ -2722,14 +2393,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/compound-learning",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/compound-learning"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/compound-learning",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -2766,15 +2429,6 @@
           "target": ".claude/skills/context-engineering",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "skills/context-engineering",
-            "vendor/agent-skills-upstream/skills/context-engineering"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/context-engineering",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/context-engineering",
@@ -2803,14 +2457,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/debugging-and-error-recovery",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/debugging-and-error-recovery"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/debugging-and-error-recovery",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -2843,15 +2489,6 @@
           "target": ".claude/skills/deprecation-and-migration",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "skills/deprecation-and-migration",
-            "vendor/agent-skills-upstream/skills/deprecation-and-migration"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/deprecation-and-migration",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/deprecation-and-migration",
@@ -2880,14 +2517,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/designing-agents",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/designing-agents"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/designing-agents",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -2919,14 +2548,6 @@
           "target": ".claude/skills/documentation-and-adrs",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/documentation-and-adrs"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/documentation-and-adrs",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/documentation-and-adrs"
@@ -2954,14 +2575,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/doubt-driven-development",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/doubt-driven-development"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/doubt-driven-development",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -2992,15 +2605,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/frontend-ui-engineering",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/frontend-ui-engineering",
-            "vendor/agent-skills-upstream/skills/frontend-ui-engineering"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/frontend-ui-engineering",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -3034,15 +2638,6 @@
           "target": ".claude/skills/git-workflow-and-versioning",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "skills/git-workflow-and-versioning",
-            "vendor/agent-skills-upstream/skills/git-workflow-and-versioning"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/git-workflow-and-versioning",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/git-workflow-and-versioning",
@@ -3072,15 +2667,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/idea-refine",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/idea-refine",
-            "vendor/agent-skills-upstream/skills/idea-refine"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/idea-refine",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -3117,15 +2703,6 @@
           "target": ".claude/skills/incremental-implementation",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "skills/incremental-implementation",
-            "vendor/agent-skills-upstream/skills/incremental-implementation"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/incremental-implementation",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/incremental-implementation",
@@ -3155,15 +2732,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/interview-me",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/interview-me",
-            "vendor/agent-skills-upstream/skills/interview-me"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/interview-me",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -3196,14 +2764,6 @@
           "target": ".claude/skills/observability-and-instrumentation",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/observability-and-instrumentation"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/observability-and-instrumentation",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/observability-and-instrumentation"
@@ -3231,14 +2791,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/orchestration-verification",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/orchestration-verification"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/orchestration-verification",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -3276,14 +2828,6 @@
           "target": ".claude/skills/peer-coms",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "skills/peer-coms"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/peer-coms",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/peer-coms"
@@ -3312,15 +2856,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/performance-optimization",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/performance-optimization",
-            "vendor/agent-skills-upstream/skills/performance-optimization"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/performance-optimization",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -3352,15 +2887,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/planning-and-task-breakdown",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/planning-and-task-breakdown",
-            "vendor/agent-skills-upstream/skills/planning-and-task-breakdown"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/planning-and-task-breakdown",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -3397,15 +2923,6 @@
           "target": ".claude/skills/security-and-hardening",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "skills/security-and-hardening",
-            "vendor/agent-skills-upstream/skills/security-and-hardening"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/security-and-hardening",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "skills/security-and-hardening",
@@ -3434,14 +2951,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/shipping-and-launch",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/shipping-and-launch"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/shipping-and-launch",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -3473,14 +2982,6 @@
           "target": ".claude/skills/source-driven-development",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/source-driven-development"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/source-driven-development",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/source-driven-development"
@@ -3509,15 +3010,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/spec-driven-development",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/spec-driven-development",
-            "vendor/agent-skills-upstream/skills/spec-driven-development"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/spec-driven-development",
           "strategy": "copy-tree"
         },
         "pi": {
@@ -3553,14 +3045,6 @@
           "target": ".claude/skills/test-driven-development",
           "strategy": "copy-tree"
         },
-        "opencode": {
-          "source": [
-            "vendor/agent-skills-upstream/skills/test-driven-development"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/test-driven-development",
-          "strategy": "copy-tree"
-        },
         "pi": {
           "source": [
             "vendor/agent-skills-upstream/skills/test-driven-development"
@@ -3589,15 +3073,6 @@
           ],
           "sourceMode": "first",
           "target": ".claude/skills/using-agent-skills",
-          "strategy": "copy-tree"
-        },
-        "opencode": {
-          "source": [
-            "skills/using-agent-skills",
-            "vendor/agent-skills-upstream/skills/using-agent-skills"
-          ],
-          "sourceMode": "first",
-          "target": ".opencode/skills/using-agent-skills",
           "strategy": "copy-tree"
         },
         "pi": {
