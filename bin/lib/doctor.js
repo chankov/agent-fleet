@@ -2,7 +2,7 @@
 // guided-workspace-setup Step 5. Both `agent-fleet doctor` (CLI) and the
 // Runtime-specific Agent Fleet doctor slash commands call into this so behaviour cannot drift.
 //
-// Three classes of findings:
+// Finding classes:
 //   1. Broken symlinks — links whose source has been moved, renamed, or deleted
 //   2. Stale persona refs — YAML configs (teams.yaml, peers.yaml) that
 //      still name a persona which no longer exists in the source tree
@@ -13,14 +13,23 @@
 //   4. Overrides-file problems — unknown sections/keys, invalid values, and
 //      unset declared env vars in .ai/agent-fleet-overrides.md. Advisory
 //      only: reported, never auto-fixed (the fix is always a hand edit).
+//   5. Mixed skill/prompt ownership — project/global Pi settings enable
+//      `@chankov/agent-fleet` skills/prompts while `.ai/agent-fleet-state.json`
+//      also owns matching copied `skill:*` / `command:*` items. Advisory only:
+//      package vs copy ownership is a user choice; doctor --fix never mutates it.
 //
 // For each broken link we look up a canonical replacement in the source
 // `agents/` or `skills/` tree (many breakages are stale names from the
 // pre-merge layout, e.g. `reviewer` → `code-reviewer`).
 
 import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve, dirname, basename, relative, isAbsolute } from "node:path";
+import { join, resolve, dirname, basename, relative, isAbsolute, sep } from "node:path";
+import { homedir } from "node:os";
 import { validateOverrides } from "./validate-overrides.js";
+import { readState, STATE_REL_PATH } from "./state.js";
+
+export const AGENT_FLEET_PACKAGE_NAME = "@chankov/agent-fleet";
+const AGENT_FLEET_PACKAGE_PATTERN = /(^|[/:])@chankov\/agent-fleet(@[^/]*)?$/;
 
 // Known canonical replacements for personas renamed during the merge.
 const PERSONA_RENAMES = {
@@ -142,6 +151,9 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
 
   // 4. Advisory validation of the overrides file (never auto-fixed).
   findings.push(...validateOverrides({ workspace }));
+
+  // 5. Mixed copied / package-native skill+prompt ownership (advisory, never auto-fixed).
+  findings.push(...scanPiPackageOwnership({ workspace, sourceRoot }));
 
   if (!apply) return findings;
 
@@ -279,4 +291,262 @@ function findReplacement({ brokenName, kind, sourceRoot }) {
   }
 
   return null;
+}
+
+// ── mixed copied / package-native ownership ─────────────────────────────────
+
+/**
+ * Parse a Pi settings `packages` entry into a normalized source + filters shape.
+ * String entries enable every resource type. Object entries follow Pi filter rules:
+ * omit a key to load all of that type, `[]` loads none, patterns narrow the set.
+ *
+ * @param {unknown} entry
+ * @returns {{ source: string, filters: { skills?: unknown, prompts?: unknown, extensions?: unknown, themes?: unknown }, raw: unknown } | null}
+ */
+export function parsePiPackageEntry(entry) {
+  if (typeof entry === "string" && entry.trim()) {
+    return { source: entry.trim(), filters: {}, raw: entry };
+  }
+  if (entry && typeof entry === "object" && typeof entry.source === "string" && entry.source.trim()) {
+    return {
+      source: entry.source.trim(),
+      filters: {
+        skills: entry.skills,
+        prompts: entry.prompts,
+        extensions: entry.extensions,
+        themes: entry.themes,
+      },
+      raw: entry,
+    };
+  }
+  return null;
+}
+
+/** True when a package source refers to `@chankov/agent-fleet` (npm identity, optional pin). */
+export function isAgentFleetPackageSource(source) {
+  if (typeof source !== "string") return false;
+  return AGENT_FLEET_PACKAGE_PATTERN.test(source.trim());
+}
+
+/**
+ * Resolve the effective Agent Fleet package entry across project then global
+ * settings. Project wins unless it sets `autoload: false` (Pi delta semantics):
+ * in that case the project filters layer over the global entry.
+ *
+ * @param {object} opts
+ * @param {string} opts.workspace
+ * @param {string} [opts.home]
+ * @returns {{ entry: ReturnType<typeof parsePiPackageEntry>, settingsPath: string } | null}
+ */
+export function findAgentFleetPackageEntry({ workspace, home = homedir() }) {
+  const projectPath = join(workspace, ".pi", "settings.json");
+  const globalPath = join(home, ".pi", "agent", "settings.json");
+  const project = readPackageEntries(projectPath).find((e) => isAgentFleetPackageSource(e.source)) ?? null;
+  const global = readPackageEntries(globalPath).find((e) => isAgentFleetPackageSource(e.source)) ?? null;
+
+  if (project) {
+    const autoload = project.raw && typeof project.raw === "object" ? project.raw.autoload : undefined;
+    if (autoload === false && global) {
+      return {
+        entry: {
+          source: project.source,
+          filters: { ...global.filters, ...project.filters },
+          raw: project.raw,
+        },
+        settingsPath: projectPath,
+      };
+    }
+    return { entry: project, settingsPath: projectPath };
+  }
+  if (global) return { entry: global, settingsPath: globalPath };
+  return null;
+}
+
+function readPackageEntries(settingsPath) {
+  if (!existsSync(settingsPath)) return [];
+  let packages;
+  try {
+    packages = JSON.parse(readFileSync(settingsPath, "utf8"))?.packages;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(packages)) return [];
+  return packages.map(parsePiPackageEntry).filter(Boolean);
+}
+
+/**
+ * Decide whether a resource type is enabled by a package filter.
+ * Omit/undefined → all; empty array → none; non-empty → treated as enabled
+ * (name-level filter matching is applied later against concrete names).
+ */
+export function resourceTypeEnabled(filter) {
+  if (filter === undefined) return true;
+  if (!Array.isArray(filter)) return true;
+  return filter.length > 0;
+}
+
+/**
+ * Whether a concrete resource name survives the package filter list.
+ * Patterns are basename / relative-path globs simplified to:
+ * - exact name or path segment match
+ * - `!name` / `!path` exclusions
+ * - `*` wildcards via simple glob → RegExp
+ * Empty/omitted filter admits every name.
+ */
+export function resourceNameAllowed(name, filter) {
+  if (filter === undefined) return true;
+  if (!Array.isArray(filter)) return true;
+  if (filter.length === 0) return false;
+
+  let allowed = false;
+  let sawPositive = false;
+  for (const raw of filter) {
+    if (typeof raw !== "string" || !raw) continue;
+    const negated = raw.startsWith("!") || raw.startsWith("-");
+    const pattern = negated ? raw.slice(1) : raw.startsWith("+") ? raw.slice(1) : raw;
+    const matches = matchResourcePattern(name, pattern);
+    if (negated) {
+      if (matches) allowed = false;
+      continue;
+    }
+    sawPositive = true;
+    if (matches) allowed = true;
+  }
+  // Pi: a filter list of only exclusions still starts from the full set.
+  if (!sawPositive) return allowed !== false ? true : false;
+  return allowed;
+}
+
+function matchResourcePattern(name, pattern) {
+  const base = basename(pattern).replace(/\/+$/, "");
+  const bare = base.replace(/\.md$/i, "");
+  if (bare === name || base === name || pattern === name) return true;
+  // Path-ish patterns: skills/foo or prompts/af-build.md
+  if (pattern.includes(name)) return true;
+  if (!pattern.includes("*") && !pattern.includes("?")) return false;
+  const re = new RegExp(
+    `^${escapeRe(pattern).replaceAll("\\*", ".*").replaceAll("\\?", ".")}$`,
+    "i",
+  );
+  return re.test(name) || re.test(base) || re.test(pattern);
+}
+
+/** Skill directory names the Agent Fleet package exposes via its pi manifest. */
+export function listPackageSkillNames(sourceRoot) {
+  const roots = [
+    join(sourceRoot, "skills"),
+    join(sourceRoot, "vendor", "agent-skills-upstream", "skills"),
+    join(sourceRoot, ".pi", "skills"),
+  ];
+  const names = new Set();
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    let entries;
+    try { entries = readdirSync(root, { withFileTypes: true }); }
+    catch { continue; }
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      if (existsSync(join(root, entry.name, "SKILL.md"))) names.add(entry.name);
+    }
+  }
+  return [...names].sort();
+}
+
+/** Prompt template basenames (no `.md`) the package exposes. */
+export function listPackagePromptNames(sourceRoot) {
+  const dir = join(sourceRoot, ".pi", "prompts");
+  if (!existsSync(dir)) return [];
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); }
+  catch { return []; }
+  return entries
+    .filter((e) => (e.isFile() || e.isSymbolicLink()) && e.name.endsWith(".md"))
+    .map((e) => e.name.replace(/\.md$/i, ""))
+    .sort();
+}
+
+/**
+ * Names of copied skills/prompts owned by the workspace state file.
+ * Skills use the `skill:<name>` id; prompts are taken from recorded file paths
+ * under `.pi/prompts/` so they match Pi's template names (`af-build`, …).
+ */
+export function listCopiedSkillAndPromptNames(state) {
+  const skills = new Set();
+  const prompts = new Set();
+  if (!state?.items || typeof state.items !== "object") return { skills, prompts };
+
+  for (const [id, item] of Object.entries(state.items)) {
+    if (id.startsWith("skill:")) {
+      skills.add(id.slice("skill:".length));
+      continue;
+    }
+    if (id.startsWith("pi-runtime-skill:")) {
+      skills.add(id.slice("pi-runtime-skill:".length));
+      continue;
+    }
+    if (!id.startsWith("command:")) continue;
+    for (const file of item?.files ?? []) {
+      const rel = typeof file === "string" ? file : file?.path;
+      if (typeof rel !== "string") continue;
+      const normalized = rel.split(sep).join("/");
+      const m = normalized.match(/(?:^|\/)\.pi\/prompts\/([^/]+)\.md$/i);
+      if (m) prompts.add(m[1]);
+    }
+    // Fall back to sourceRoot on older state shapes.
+    if (typeof item?.sourceRoot === "string") {
+      const m = item.sourceRoot.split(sep).join("/").match(/(?:^|\/)\.pi\/prompts\/([^/]+)\.md$/i);
+      if (m) prompts.add(m[1]);
+    }
+  }
+  return { skills, prompts };
+}
+
+/**
+ * Advisory finding when package-native Agent Fleet skills/prompts overlap
+ * copied install items. Never auto-fixed — the user must pick one ownership path.
+ */
+export function scanPiPackageOwnership({ workspace, sourceRoot, home = homedir() }) {
+  const located = findAgentFleetPackageEntry({ workspace, home });
+  if (!located) return [];
+
+  const skillsEnabled = resourceTypeEnabled(located.entry.filters.skills);
+  const promptsEnabled = resourceTypeEnabled(located.entry.filters.prompts);
+  if (!skillsEnabled && !promptsEnabled) return [];
+
+  const state = readState(workspace);
+  if (!state) return [];
+  const copied = listCopiedSkillAndPromptNames(state);
+
+  const packageSkills = skillsEnabled
+    ? listPackageSkillNames(sourceRoot).filter((name) => resourceNameAllowed(name, located.entry.filters.skills))
+    : [];
+  const packagePrompts = promptsEnabled
+    ? listPackagePromptNames(sourceRoot).filter((name) => resourceNameAllowed(name, located.entry.filters.prompts))
+    : [];
+
+  const skillOverlap = packageSkills.filter((name) => copied.skills.has(name)).sort();
+  const promptOverlap = packagePrompts.filter((name) => copied.prompts.has(name)).sort();
+  if (skillOverlap.length === 0 && promptOverlap.length === 0) return [];
+
+  const parts = [];
+  if (skillOverlap.length) parts.push(`skills: ${skillOverlap.join(", ")}`);
+  if (promptOverlap.length) parts.push(`prompts: ${promptOverlap.join(", ")}`);
+
+  return [{
+    type: "pi-package-ownership",
+    path: STATE_REL_PATH,
+    issue:
+      `mixed ownership — Pi package "${located.entry.source}" (from ${relative(workspace, located.settingsPath) || located.settingsPath}) ` +
+      `and copied Agent Fleet items both expose ${parts.join("; ")}. Pi keeps the first discovery and warns on collisions.`,
+    fix:
+      "pick one ownership path: (1) copied skills/prompts — disable Agent Fleet package skills/prompts " +
+      "(`pi config`, or object-form filters with `\"skills\": []`, `\"prompts\": []`) and keep harnesses; " +
+      "or (2) package-native skills/prompts — `agent-fleet uninstall` the overlapping skill:*/command:* items " +
+      "and keep the Pi package entry. Harness-only composition (package skills + copied harnesses) is safe.",
+    skillOverlap,
+    promptOverlap,
+    packageSource: located.entry.source,
+    settingsPath: located.settingsPath,
+  }];
 }

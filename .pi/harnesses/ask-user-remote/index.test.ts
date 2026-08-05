@@ -5,13 +5,20 @@ import { readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+
 import {
 	activeRemoteCount,
 	captureAskUserTool,
 	defaultSettingsPaths,
 	findStockAskUserPackageEntry,
+	hasDisabledExtensionDiscovery,
 	installAskUserRemote,
+	MISSING_STOCK_ASK_USER_MESSAGE,
 	resolveRemoteProject,
+	resolveStockAskUserModule,
+	stockAskUserCandidatePaths,
 	wrapAskUserTool,
 } from "./index.ts";
 import { socketTempRoot } from "../../../scripts/lib/monitor-env.ts";
@@ -266,6 +273,40 @@ test("preflight finds a stock pi-ask-user package entry across settings paths", 
 	assert.equal(findStockAskUserPackageEntry([pinned])?.entry, "npm:pi-ask-user@1.2.0");
 });
 
+test("preflight honors active and disabled object-form package entries", (t) => {
+	const active = writeSettings(t, JSON.stringify({
+		packages: [{ source: "npm:pi-ask-user" }],
+	}));
+	const disabled = writeSettings(t, JSON.stringify({
+		packages: [{ source: "npm:pi-ask-user", extensions: [] }],
+	}));
+
+	assert.deepEqual(
+		findStockAskUserPackageEntry([active]),
+		{ entry: "npm:pi-ask-user", settingsPath: active },
+	);
+	assert.equal(findStockAskUserPackageEntry([disabled]), null);
+});
+
+test("preflight applies project autoload:false extension deltas over the global package entry", (t) => {
+	const globalEnabled = writeSettings(t, JSON.stringify({ packages: ["npm:pi-ask-user"] }));
+	const projectDisables = writeSettings(t, JSON.stringify({
+		packages: [{ source: "npm:pi-ask-user", autoload: false, extensions: ["-index.ts"] }],
+	}));
+	assert.equal(findStockAskUserPackageEntry([projectDisables, globalEnabled]), null);
+
+	const globalDisabled = writeSettings(t, JSON.stringify({
+		packages: [{ source: "npm:pi-ask-user", extensions: [] }],
+	}));
+	const projectEnables = writeSettings(t, JSON.stringify({
+		packages: [{ source: "npm:pi-ask-user", autoload: false, extensions: ["+index.ts"] }],
+	}));
+	assert.deepEqual(
+		findStockAskUserPackageEntry([projectEnables, globalDisabled]),
+		{ entry: "npm:pi-ask-user", settingsPath: projectEnables },
+	);
+});
+
 test("harness-first order: settings preflight skips the wrapper so a later stock package load cannot conflict", (t) => {
 	const settingsPath = writeSettings(t, JSON.stringify({ packages: ["npm:pi-ask-user"] }));
 	const pi = piCoreLikeRegistry();
@@ -281,7 +322,8 @@ test("harness-first order: settings preflight skips the wrapper so a later stock
 	assert.deepEqual(result, { registered: false });
 	assert.equal(warnings.length, 1);
 	assert.match(warnings[0], /"npm:pi-ask-user" is listed in .* "packages"/);
-	assert.match(warnings[0], /Remove the entry/);
+	assert.match(warnings[0], /extension discovery is enabled/);
+	assert.match(warnings[0], /remote answer racing disabled/);
 
 	// pi core now loads the stock package — must register cleanly, no crash.
 	pi.registerTool(stockTool());
@@ -316,4 +358,241 @@ test("package manifest defaults to ask-user-remote instead of direct stock pi-as
 	const pkg = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf-8"));
 	assert.deepEqual(pkg.pi.extensions, ["./.pi/harnesses/ask-user-remote/index.ts"]);
 	assert.ok(pkg.dependencies["pi-ask-user"]);
+});
+
+test("detects both Pi flags that disable extension discovery", () => {
+	assert.equal(hasDisabledExtensionDiscovery(["pi", "--no-extensions"]), true);
+	assert.equal(hasDisabledExtensionDiscovery(["pi", "-ne"]), true);
+	assert.equal(hasDisabledExtensionDiscovery(["pi"]), false);
+	assert.equal(hasDisabledExtensionDiscovery(["pi", "--tools", "read"]), false);
+});
+
+test("settings entry + discovery enabled: wrapper defers so stock can register once", (t) => {
+	const settingsPath = writeSettings(t, JSON.stringify({ packages: ["npm:pi-ask-user"] }));
+	const pi = piCoreLikeRegistry();
+	const warnings: string[] = [];
+
+	const result = installAskUserRemote(pi as any, {
+		stockFactory: (proxy) => proxy.registerTool(stockTool()),
+		settingsPaths: [settingsPath],
+		extensionDiscoveryDisabled: false,
+		warn: (message) => warnings.push(message),
+	});
+
+	assert.deepEqual(result, { registered: false });
+	assert.equal(pi.tools.size, 0);
+	assert.equal(warnings.length, 1);
+
+	// Stock package registers alone — no conflict.
+	pi.registerTool(stockTool({ label: "Stock Ask User" }));
+	assert.equal(pi.tools.size, 1);
+	assert.equal(pi.tools.get("ask_user").label, "Stock Ask User");
+});
+
+test("settings entry + --no-extensions: wrapper registers exactly one wrapped ask_user", (t) => {
+	const settingsPath = writeSettings(t, JSON.stringify({ packages: ["npm:pi-ask-user"] }));
+	const pi = piCoreLikeRegistry();
+	const warnings: string[] = [];
+
+	const result = installAskUserRemote(pi as any, {
+		stockFactory: (proxy) => proxy.registerTool(stockTool()),
+		settingsPaths: [settingsPath],
+		extensionDiscoveryDisabled: true,
+		startRemote: () => null,
+		warn: (message) => warnings.push(message),
+	});
+
+	assert.equal(result.registered, true);
+	assert.equal(pi.tools.size, 1);
+	assert.equal(pi.tools.get("ask_user"), result.tool);
+	assert.deepEqual(warnings, []);
+});
+
+test("settings entry + -ne flag detection installs the wrapper when discovery is disabled", (t) => {
+	const settingsPath = writeSettings(t, JSON.stringify({ packages: ["npm:pi-ask-user"] }));
+	assert.equal(hasDisabledExtensionDiscovery(["pi", "-ne"]), true);
+
+	const pi = piCoreLikeRegistry();
+	const result = installAskUserRemote(pi as any, {
+		stockFactory: (proxy) => proxy.registerTool(stockTool()),
+		settingsPaths: [settingsPath],
+		extensionDiscoveryDisabled: hasDisabledExtensionDiscovery(["pi", "-ne"]),
+		startRemote: () => null,
+	});
+	assert.equal(result.registered, true);
+});
+
+test("resolver prefers package-native, then .pi/npm, harness runtime, then global", (t) => {
+	const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-resolve-")));
+	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+	const packageRoot = path.join(root, "agent-fleet-pkg");
+	const harnessDir = path.join(packageRoot, ".pi", "harnesses", "ask-user-remote");
+	fs.mkdirSync(harnessDir, { recursive: true });
+	fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@chankov/agent-fleet" }));
+	const modulePath = path.join(harnessDir, "index.ts");
+	fs.writeFileSync(modulePath, "// fixture module\n");
+
+	const cwd = path.join(root, "workspace");
+	const homeDir = path.join(root, "home");
+	fs.mkdirSync(cwd, { recursive: true });
+	fs.mkdirSync(homeDir, { recursive: true });
+
+	const locations = {
+		packageNative: path.join(packageRoot, "node_modules", "pi-ask-user", "index.ts"),
+		projectPi: path.join(cwd, ".pi", "npm", "node_modules", "pi-ask-user", "index.ts"),
+		harnessRuntime: path.join(packageRoot, ".pi", "harnesses", "node_modules", "pi-ask-user", "index.ts"),
+		globalPi: path.join(homeDir, ".pi", "agent", "npm", "node_modules", "pi-ask-user", "index.ts"),
+	};
+
+	const writeStock = (filePath: string, marker: string) => {
+		fs.mkdirSync(path.dirname(filePath), { recursive: true });
+		fs.writeFileSync(filePath, `// ${marker}\n`);
+	};
+
+	const fileUrl = (filePath: string) => pathToFileURL(fs.realpathSync(filePath)).href;
+	const moduleUrl = pathToFileURL(modulePath).href;
+	const resolve = () => resolveStockAskUserModule({ moduleUrl, cwd, homeDir });
+
+	// Priority 4: global only
+	writeStock(locations.globalPi, "global");
+	assert.equal(resolve(), fileUrl(locations.globalPi));
+
+	// Priority 3: harness runtime beats global
+	writeStock(locations.harnessRuntime, "harness");
+	assert.equal(resolve(), fileUrl(locations.harnessRuntime));
+
+	// Priority 2: project Pi package beats harness
+	writeStock(locations.projectPi, "project");
+	assert.equal(resolve(), fileUrl(locations.projectPi));
+
+	// Priority 1: package-native bundled beats all
+	writeStock(locations.packageNative, "bundled");
+	assert.equal(resolve(), fileUrl(locations.packageNative));
+
+	const candidates = stockAskUserCandidatePaths({ moduleUrl, cwd, homeDir });
+	assert.equal(candidates[0], locations.packageNative);
+	assert.ok(candidates.includes(locations.projectPi));
+	assert.ok(candidates.includes(locations.harnessRuntime));
+	assert.ok(candidates.includes(locations.globalPi));
+});
+
+test("copied harness ignores workspace-root node_modules and selects its pinned runtime dependency", (t) => {
+	const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-copied-resolve-")));
+	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+	const workspace = path.join(root, "downstream-app");
+	const harnessDir = path.join(workspace, ".pi", "harnesses", "ask-user-remote");
+	fs.mkdirSync(harnessDir, { recursive: true });
+	fs.writeFileSync(path.join(workspace, "package.json"), JSON.stringify({ name: "downstream-app" }));
+	const modulePath = path.join(harnessDir, "index.ts");
+	fs.writeFileSync(modulePath, "// copied harness fixture\n");
+
+	const unrelatedRootDependency = path.join(workspace, "node_modules", "pi-ask-user", "index.ts");
+	const harnessDependency = path.join(workspace, ".pi", "harnesses", "node_modules", "pi-ask-user", "index.ts");
+	for (const [filePath, marker] of [[unrelatedRootDependency, "unrelated"], [harnessDependency, "pinned"]] as const) {
+		fs.mkdirSync(path.dirname(filePath), { recursive: true });
+		fs.writeFileSync(filePath, `// ${marker}\n`);
+	}
+
+	const options = {
+		moduleUrl: pathToFileURL(modulePath).href,
+		cwd: workspace,
+		homeDir: path.join(root, "home"),
+	};
+	assert.equal(resolveStockAskUserModule(options), pathToFileURL(fs.realpathSync(harnessDependency)).href);
+	assert.ok(!stockAskUserCandidatePaths(options).includes(unrelatedRootDependency));
+});
+
+test("missing stock dependency throws one actionable message", (t) => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-missing-"));
+	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+	const harnessDir = path.join(root, "pkg", ".pi", "harnesses", "ask-user-remote");
+	fs.mkdirSync(harnessDir, { recursive: true });
+	const modulePath = path.join(harnessDir, "index.ts");
+	fs.writeFileSync(modulePath, "// empty\n");
+
+	assert.throws(
+		() => resolveStockAskUserModule({
+			moduleUrl: pathToFileURL(modulePath).href,
+			cwd: path.join(root, "cwd"),
+			homeDir: path.join(root, "home"),
+		}),
+		(error: unknown) => {
+			assert.ok(error instanceof Error);
+			assert.equal(error.message, MISSING_STOCK_ASK_USER_MESSAGE);
+			assert.match(error.message, /npm ci --prefix \.pi\/harnesses/);
+			assert.match(error.message, /pi install -l npm:pi-ask-user/);
+			return true;
+		},
+	);
+});
+
+test("subprocess smoke: default export registers ask_user into configured and active tool lists", (t) => {
+	// Plain Node cannot type-strip TS under node_modules (Pi uses jiti). Stage a
+	// JS stock stub ahead of the real package-native candidate so the child can
+	// exercise the async default export end-to-end without an LLM call.
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-smoke-"));
+	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+	const packageRoot = path.join(root, "pkg");
+	const harnessDir = path.join(packageRoot, ".pi", "harnesses", "ask-user-remote");
+	fs.mkdirSync(harnessDir, { recursive: true });
+	fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@chankov/agent-fleet" }));
+
+	// Copy the harness sources the default export needs.
+	for (const name of ["index.ts", "race-core.js"]) {
+		fs.copyFileSync(new URL(`./${name}`, import.meta.url), path.join(harnessDir, name));
+	}
+
+	const stockJs = path.join(packageRoot, "node_modules", "pi-ask-user", "index.js");
+	fs.mkdirSync(path.dirname(stockJs), { recursive: true });
+	fs.writeFileSync(stockJs, `
+export default function stockAskUser(pi) {
+  pi.registerTool({
+    name: "ask_user",
+    label: "Ask User",
+    parameters: { type: "object" },
+    execute: async () => ({ content: [{ type: "text", text: "ok" }], details: { cancelled: false } }),
+  });
+}
+`);
+
+	const harnessUrl = pathToFileURL(path.join(harnessDir, "index.ts")).href;
+	const script = `
+import harness from ${JSON.stringify(harnessUrl)};
+
+const configured = new Map();
+const active = new Set();
+const pi = {
+  registerTool(tool) {
+    if (configured.has(tool.name)) throw new Error('Tool "' + tool.name + '" conflicts');
+    configured.set(tool.name, tool);
+    active.add(tool.name);
+  },
+  getAllTools() { return [...configured.values()]; },
+  getActiveTools() { return [...active]; },
+};
+
+await harness(pi);
+const configuredNames = pi.getAllTools().map((tool) => tool.name);
+const activeNames = pi.getActiveTools();
+if (!configuredNames.includes("ask_user") || !activeNames.includes("ask_user")) {
+  console.error(JSON.stringify({ ok: false, configuredNames, activeNames }));
+  process.exit(2);
+}
+console.log(JSON.stringify({ ok: true, configuredNames, activeNames }));
+`;
+
+	const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+		encoding: "utf8",
+		cwd: root,
+		env: process.env,
+		timeout: 30_000,
+	});
+	assert.equal(result.status, 0, `stderr=${result.stderr}\nstdout=${result.stdout}`);
+	const payload = JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "{}");
+	assert.equal(payload.ok, true);
+	assert.ok(payload.configuredNames.includes("ask_user"));
+	assert.ok(payload.activeNames.includes("ask_user"));
 });

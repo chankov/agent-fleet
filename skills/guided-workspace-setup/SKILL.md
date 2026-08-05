@@ -66,7 +66,9 @@ Present the `items` grouped by `group`, chunked by `subcategory`. Interaction mo
 - **pi** → the `ask_user` widget from the external `pi-ask-user` package. If it is missing, offer
   to install it (`pi install -l npm:pi-ask-user`), then **stop the pass** and ask the user to
   reload and re-run — the widget is not callable until then. If they decline, use the text
-  fallback.
+  fallback. The standalone package powers this setup menu and plain `pi` sessions; deterministic
+  `just fleet` (`--no-extensions`) sessions get `ask_user` from the `ask-user-remote` harness,
+  which loads stock `pi-ask-user` itself when discovery is disabled.
 - **anything else** → print a compact table and take a text reply.
 
 Screen budget: ≤ 8 context lines, ≤ 9 options per call. Options carry

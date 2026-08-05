@@ -225,6 +225,15 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
       assert.ok(paths.has(`.pi/harnesses/${harness}/${file}`), `${harness}/${file}`);
     }
   }
+  // ask-user-remote is the canonical Fleet ask_user owner; pack must ship runtime
+  // sources + bundled stock dependency, never the harness test files.
+  for (const file of ["index.ts", "race-core.js", "README.md"]) {
+    assert.ok(paths.has(`.pi/harnesses/ask-user-remote/${file}`), `ask-user-remote/${file}`);
+  }
+  assert.ok(paths.has("node_modules/pi-ask-user/index.ts"), "bundled pi-ask-user runtime");
+  assert.ok(paths.has("node_modules/pi-ask-user/skills/ask-user/SKILL.md"), "bundled ask-user skill");
+  assert.equal(paths.has(".pi/harnesses/ask-user-remote/index.test.ts"), false);
+  assert.equal(paths.has(".pi/harnesses/ask-user-remote/race-core.test.js"), false);
   for (const module of ["model", "store", "registry", "socket", "herdr"]) {
     assert.ok(paths.has(`.pi/harnesses/lib/hermes-monitor-${module}.ts`), `shared monitor module: ${module}`);
   }
@@ -288,6 +297,26 @@ test("package, snapshot, and guided manifest surfaces stay aligned", () => {
 // in guided-workspace-setup/SKILL.md. Phase 7 of plans/deterministic-installer.md
 // moved both into the manifest and apply(), so these assert the data and the
 // behaviour instead of the sentences that described them.
+test("root and harness runtime deps pin the same pi-ask-user range", () => {
+  const rootPkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const harnessPkg = JSON.parse(readFileSync(join(root, ".pi", "harnesses", "package.json"), "utf8"));
+  const harnessLock = JSON.parse(readFileSync(join(root, ".pi", "harnesses", "package-lock.json"), "utf8"));
+  assert.equal(rootPkg.dependencies["pi-ask-user"], "^0.14.0");
+  assert.equal(harnessPkg.dependencies["pi-ask-user"], rootPkg.dependencies["pi-ask-user"]);
+  // Prefer the canonical npm field; accept the historical alias only as a fallback.
+  const bundled = rootPkg.bundledDependencies ?? rootPkg.bundleDependencies ?? [];
+  assert.ok(bundled.includes("pi-ask-user"), "package-native installs must bundle pi-ask-user");
+  assert.ok(
+    !(rootPkg.bundledDependencies && rootPkg.bundleDependencies),
+    "do not list both bundleDependencies and bundledDependencies",
+  );
+  assert.ok(harnessLock.packages?.["node_modules/pi-ask-user"], "harness lock must install pi-ask-user");
+  assert.ok(
+    harnessLock.packages["node_modules/pi-ask-user"].version.startsWith("0.14."),
+    "harness lock should resolve pi-ask-user 0.14.x",
+  );
+});
+
 test("the harness runtime closure is a manifest companion of every harness", () => {
   const installManifest = JSON.parse(readFileSync(join(root, "install-manifest.json"), "utf8"));
   const closure = installManifest.items.find((i) => i.id === "companion:harness-runtime-closure");

@@ -118,7 +118,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@sinclair/typebox": "^0.34.49",
-    "pi-ask-user": "^0.11.1",
+    "pi-ask-user": "^0.14.0",
     "typebox": "^1.1.33",
     "yaml": "^2.9.0"
   },

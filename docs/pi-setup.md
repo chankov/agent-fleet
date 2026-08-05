@@ -29,7 +29,7 @@ No plugin, wrapper, or custom system prompt is required for the core workflow.
 
 Agent Fleet owns the lowercase `/af-*` namespace on Pi. This keeps its prompt-template and harness commands distinct from Pi built-ins such as `/model` and `/settings`, skill invocations under `/skill:<name>`, and commands contributed by other installed packages. Examples: `/af-spec`, `/af-agents-list`, and `/af-allow`.
 
-**Recommended companion packages:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-fleet` as a pi package; clone setups should install it separately. `pi-codex-image-gen` is an optional suggested npm/pi extension for image generation; guided setup can offer it when package installation is available, but it is not bundled or required.
+**Recommended companion packages:** [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) adds an interactive `ask_user` tool and bundles an `ask-user` skill. It is bundled automatically when you install `@chankov/agent-fleet` as a pi package; **copied** (clone / CLI install) workspaces should install it separately for plain `pi` sessions. Deterministic `just fleet` sessions load `ask-user-remote` under `--no-extensions` and resolve stock `pi-ask-user` from the harness runtime deps — a dormant settings entry does not suppress that wrapper. `pi-codex-image-gen` is an optional suggested npm/pi extension for image generation; guided setup can offer it when package installation is available, but it is not bundled or required.
 
 **Experimental phone conductor:** Linux users may pair Codex CLI `0.144.x` with ChatGPT Android to perform human-confirmed outbound delegation to live coms peers. Guided setup installs the repository assets when pi harnesses are selected, but deliberately never changes systemd, Codex auth/config, pairing, or service state. Host setup remains an explicit operator flow; see [Codex Remote-Control Conductor](codex-remote-conductor.md).
 
@@ -39,7 +39,11 @@ Agent Fleet owns the lowercase `/af-*` namespace on Pi. This keeps its prompt-te
 
 There are three pi paths: the CLI installer (everything, per workspace), the
 first-class pi package (skills + prompts, package-native), and a clone for
-contributors. They compose — most pi users run the first two together.
+contributors. **Pick one ownership path for skills and lifecycle prompts** —
+copied *or* package-native — so Pi does not load the same skill twice. Harnesses
+may still be copied on top of a package-native skills install (harness-only
+composition). `agent-fleet verify` reports a read-only `pi-package-ownership`
+advisory when both skill/prompt paths overlap; it does not auto-edit settings.
 
 ### The `agent-fleet` CLI (recommended — this is what installs the fleet)
 
@@ -105,6 +109,16 @@ pi install npm:@chankov/agent-fleet
 
 The npm pi package includes this repo's core skills, pi runtime skills, lifecycle prompts, and the bundled `pi-ask-user` package. That means `ask_user` and the `ask-user` skill are available from the same install; do not install `pi-ask-user` a second time unless you intentionally want a separate user/project package entry.
 
+**Do not combine package-native skills/prompts with a full copied skills/prompts install.** Pi keeps the first discovered skill and warns on name collisions. Supported compositions:
+
+| Mode | Skills / prompts | Harnesses / Fleet Core | `ask_user` owner |
+| --- | --- | --- | --- |
+| Copied Fleet setup | CLI copies into `.pi/skills` / `.pi/prompts` | Copied; `just fleet` loads them | Plain Pi: standalone `npm:pi-ask-user`. Default `just fleet`: `ask-user-remote` |
+| Package-native only | `pi install npm:@chankov/agent-fleet` | Optional; install harnesses explicitly if needed | Package harness + bundled `pi-ask-user` |
+| Harness-only composition | Package-native skills/prompts | Copied Fleet Core harnesses only (no copied skills/prompts) | Mode-dependent as above |
+
+If both paths expose the same skill or prompt names, `agent-fleet doctor` / `verify` emit one `pi-package-ownership` advisory with remediation (disable package skills/prompts, or uninstall the overlapping copied items). See the [ask-user-remote README](../.pi/harnesses/ask-user-remote/README.md) for the tool-level ownership matrix.
+
 This package's pi manifest is intentionally conservative: it exposes skills, `.pi/skills`, `.pi/prompts`, and bundled `pi-ask-user` resources. It does **not** auto-expose this repo's `.pi/extensions` or harnesses, because those have their own runtime dependency setup and should still be installed explicitly through guided setup or the manual extension steps below. It also does **not** bundle or require `pi-codex-image-gen`; guided setup may suggest installing that external package with `pi install -l npm:pi-codex-image-gen` only when package installation is available and the user selects it.
 
 ### Clone setup (for contributors)
@@ -159,7 +173,7 @@ An existing `.pi/prompts/` directory is not a problem — the installer writes o
 file per selected command and never replaces the directory. Anything it did not
 write is not recorded, and therefore never removed or overwritten.
 
-4. Install the recommended `pi-ask-user` pi package separately (clone setup only):
+4. Install the recommended `pi-ask-user` pi package separately (copied / clone setup only):
 
 ```bash
 # Project-scoped; records the companion package in .pi/settings.json
@@ -170,6 +184,8 @@ pi install npm:pi-ask-user
 ```
 
 Skip this step if `pi list` already shows `pi-ask-user`, or if you installed `@chankov/agent-fleet` via `pi install npm:@chankov/agent-fleet` (it bundles `pi-ask-user`). This companion is a pi package, not a file copied from this repo — the installer records it under `externalPackages` and tells you to run the command; it never runs a package install for you.
+
+Plain `pi` uses package discovery to load that entry. Default `just fleet` disables discovery and loads `ask-user-remote` instead; the harness resolves stock `pi-ask-user` from `.pi/harnesses/node_modules` (after `npm ci --prefix .pi/harnesses`) or `.pi/npm` without treating the settings entry as a second owner. See [ask-user-remote README](../.pi/harnesses/ask-user-remote/README.md).
 
 Optional image generation: guided setup can offer `pi-codex-image-gen` as a suggested external pi package when package installation is available, or you can install it manually:
 

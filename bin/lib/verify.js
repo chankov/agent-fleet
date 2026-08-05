@@ -48,6 +48,7 @@ export const ADVISORY_FINDINGS = new Set([
   "legacy-target",
   "overrides",
   "yaml-shape",
+  "pi-package-ownership",
 ]);
 
 // Worst-wins ordering when a tree item's files disagree.
