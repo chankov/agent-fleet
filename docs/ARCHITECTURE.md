@@ -19,6 +19,42 @@ the runtime responsibilities and where each module lives in the repository.
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/`, `bin/lib/personas.js` |
 
+## One Hub runtime, independent axes
+
+Every public Pi launch through `just fleet` loads Fleet Core and the `agent-hub`
+harness. Four independent choices shape that runtime:
+
+| Axis | Choices | What it controls |
+| --- | --- | --- |
+| **Posture** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes direct coding tools and keeps dispatch, research, assertions, `ask_user`, and available coms/Herdr tools. |
+| **Hub mode** | `fast`, `standard`, `strict` | Dispatch/research budgets and Verification Contract rigor. `/af-hub-mode` never grants or revokes coding tools. |
+| **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Roster changes do not change posture in a live session. |
+| **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change posture or the native roster. |
+
+Bare `just fleet` therefore means operator posture, an empty native roster, and
+the current terminal. At startup an explicit `--posture` wins; otherwise
+`--agents <roster>` implies orchestrator; otherwise operator is used. An
+orchestrator startup requires a roster. `/af-posture` switches only posture in
+the live session, while `/af-agents-*` changes only the native roster.
+
+All Hub-owned slash commands remain registered in both postures. Runtime gates
+control whether an action can proceed: without coms, Herdr, a visible target,
+or an active roster, the corresponding command refuses with an actionable
+message rather than disappearing. `--browser` and `--all-extensions` expand the
+captured operator surface only when those optional extensions are installed.
+
+The project selected by `--project <name>` is the coms namespace for the Hub
+and every standing or dynamically spawned peer. The Hub-facing peer spawn API
+cannot override it. Native subagents remain children of that Hub and inherit
+its repository context; peers are separate processes in their own panes.
+
+At dispatch time, `backend: "auto"` applies
+`.pi/agents/dispatch-policy.yaml`; `backend: "native"` bypasses same-name peer
+substitution; and `backend: "coms"` requires a visible same-name peer and never
+falls back to a native child. `.pi/agents/peers.yaml` owns how a peer runs
+(`runner`, persona, model, extensions, and declared `env_file`), not whether a
+dispatch uses it.
+
 ## Fleet hierarchy
 
 Agent Fleet is layered on purpose. Work flows **down** (delegate); evidence and status flow **up** — as compact structured returns, never raw dumps.
@@ -27,12 +63,12 @@ Agent Fleet is layered on purpose. Work flows **down** (delegate); evidence and 
 flowchart TD
     You(["You · Hermes inbound relay · Codex outbound conductor on your phone"])
 
-    subgraph HUBL["HUB — thin dispatcher  (just fleet hub · just fleet team)"]
-        Hub["agent-hub harness + orchestrator persona<br/>routes tasks · owns the Verification Contract on disk<br/>never swallows research dumps into its own context"]
+    subgraph HUBL["HUB — guarded runtime  (bare just fleet)"]
+        Hub["agent-hub harness<br/>operator or orchestrator posture · routes tasks<br/>owns the Verification Contract on disk · keeps research dumps out of its own context"]
     end
 
-    subgraph TEAML["TEAM — named roster  (.pi/agents/teams.yaml)"]
-        Team["default: planner · plan-reviewer · builder · test-engineer · code-reviewer · documenter<br/>also: debug · frontend · security · hotfix · release · info"]
+    subgraph TEAML["OPTIONAL NATIVE ROSTER  (.pi/agents/teams.yaml)"]
+        Team["default: builder · test-engineer · code-reviewer · documenter<br/>also: plan · debug · frontend · security · hotfix · release · info"]
     end
 
     subgraph RESL["RESEARCH HELPERS — read-only, always available"]
@@ -58,10 +94,8 @@ Every specialist session is one persona from [`agents/`](../agents/) — *skills
 The same idea as a tree:
 
 ```text
-hub (orchestrator)
-├── team: default
-│   ├── planner            → scout · rules · risk
-│   ├── plan-reviewer      → feasibility · deps
+hub (operator by default; orchestrator when selected)
+├── optional native roster (empty by default; example: default)
 │   ├── builder            → recon · verifier
 │   ├── test-engineer      → coverage-scout · conventions
 │   ├── code-reviewer      → preflight · quality · perf · docs
@@ -180,8 +214,8 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 
 | Dependency | Role | Required? |
 | --- | --- | --- |
-| **[pi](https://github.com/badlogic/pi-mono)** (or your pi install) | Primary coding-agent runtime; loads harnesses, extensions, prompts, and personas | Yes for full fleet mode (`just fleet hub`) |
-| **[herdr](https://herdr.dev)** | Workspace control plane: tiled peer panes, presence push events, team snapshot/resume | Yes for team mode (`just fleet team`); optional for `just fleet hub` |
+| **[pi](https://github.com/badlogic/pi-mono)** (or your pi install) | Primary coding-agent runtime; loads harnesses, extensions, prompts, and personas | Yes for `just fleet` |
+| **[herdr](https://herdr.dev)** | Workspace control plane: Hub/peer panes, presence push events, team snapshot/resume | Required for `--herdr` or `--peers`; optional for bare `just fleet` |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | First-class coms peer via the [coms bridge](claude-code-coms-bridge.md) — cross-model review and analysis. Never an install target: it hosts no skills, commands, or personas | Optional peer |
 | **Hermes** | Remote human-in-the-loop (Telegram relay for hub questions — [coms-hermes-bridge](coms-hermes-bridge.md)) and the Desktop fleet panel ([hermes-desktop-plugins](hermes-desktop-plugins.md), needs v0.19.0+ and the Desktop app) | Optional |
 | **Codex CLI + ChatGPT Android** | Experimental outbound remote-control conductor on supported `0.144.x`; requires Node `22.6+`, user systemd, interactive pairing, and per-command mobile approvals — [runbook](codex-remote-conductor.md) | Optional / revalidate after minor-version or mobile-client changes |
@@ -257,9 +291,11 @@ packages/hermes-bridge/       # future Hermes integration package
   — collided two ways at once and made a post-mortem record eleven specialist
   returns and two reviews as NOT RECOVERABLE. A failed archive leaves the
   artifacts in place: a stale tree is recoverable, a deleted one is not.
-- **Herdr owns panes, presence, and lifecycle; coms owns messages.** Fleet
-  recipes hard-require a running herdr server and refuse with an actionable
-  message otherwise; non-fleet recipes never touch herdr.
+- **Herdr owns panes, presence, and lifecycle; coms owns messages.** Herdr
+  topology recipes (`--herdr` or `--peers`) require a running server and refuse
+  with an actionable message otherwise. Bare Fleet does not require Herdr.
+  `--no-coms` leaves direct/native execution available but disables peer
+  messaging, peer-backed dispatch, and handoff from the Hub.
 - **External agents are peers, not plugins.** Claude Code (and future CLI
   agents) join the fleet through bridge adaptors that speak coms envelopes —
   the fleet core stays agent-agnostic. Hermes remains the inbound `ask_user`/

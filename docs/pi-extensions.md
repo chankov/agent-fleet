@@ -51,8 +51,11 @@ The documented harnesses below are different: each is a **session harness**. The
 reshape the whole pi session — some set orchestration/UI surfaces and some gate every
 tool call. The unified `just fleet` entry point composes them with a deterministic
 Fleet Core: `damage-control-continue`, `ask-user-remote`, Compact & Continue,
-BTW, and the update checker. Voice is an optional feature, not Default Fleet Core. `just fleet hub` adds `agent-hub`; `just fleet peer`
-adds standalone coms. Harnesses live in **`.pi/harnesses/`** — a directory pi does
+BTW, and the update checker. Voice is an optional feature, not Default Fleet Core.
+Every public Pi launch through bare `just fleet` also loads
+`agent-hub`; operator/orchestrator posture changes its direct tool surface without changing
+process or session. `just fleet peer` starts a standalone coms peer. Harnesses live in
+**`.pi/harnesses/`** — a directory pi does
 *not* auto-discover — so a plain `pi` run still loads no safety/orchestration harness.
 
 ### Selective loading — read this first
@@ -63,7 +66,7 @@ all of them. If the harnesses lived there, a plain `pi` run would load them all 
 same CLI flags would abort startup with duplicate registrations. So the harnesses live in
 `.pi/harnesses/` instead, and you load the desired recipe explicitly:
 
-- through the unified `justfile` interface — `just fleet`, `just fleet hub`, `just fleet peer <name>`, `just fleet team <preset>`, …
+- through the unified `justfile` interface — `just fleet`, `just fleet --agents <roster>`, `just fleet --peers <preset>`, `just fleet peer <name>`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts` (advanced use; you must compose safety/utilities yourself)
 
 When you consume this repo from another project, use deterministic `agent-fleet
@@ -80,9 +83,11 @@ exception is loading `damage-control-continue` and `ask-user-remote` before `age
 
 ```bash
 just fleet deps         # install nested runtime deps only; starts no Pi/harness
-just fleet              # guarded Pi + core utilities (voice only when selected)
-just fleet hub          # guarded multi-agent hub
-just fleet team docs    # hub + guarded Herdr peer team
+just fleet              # Hub/operator + Fleet Core; empty native roster
+just fleet --agents frontend
+                        # Hub/orchestrator + native specialist roster
+just fleet --agents default --peers docs --project af
+                        # Hub + native roster + standing Herdr peers
 just fleet peer code-reviewer --project af    # ONE peer in its own Herdr pane, no team
 just fleet help         # unified command grammar
 just --list             # shows the single public `fleet` entry point
@@ -105,11 +110,11 @@ itself.
 
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
-| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Supported multi-agent hub: Fleet Core guardrails, dispatcher grid, specialist delegation, research helpers, persona gate, embedded coms, `/af-handoff`, peer-as-subagent, and footer `agent fleet v<version> · <model><thinking> · <team>` — plus, inside a [herdr](https://herdr.dev) pane, fleet tools (`herdr_spawn_peer` / `herdr_read_pane` / `herdr_close_pane` with human confirmation / `herdr_notify`) | `just fleet hub` |
+| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Unified operator/orchestrator runtime: Fleet Core guardrails, dynamic native roster, specialist delegation, research helpers, embedded coms, `/af-handoff`, explicit native/coms backend routing, and footer `agent fleet v<version> · <model><thinking> · <team>` — plus, inside [Herdr](https://herdr.dev), constrained peer spawn, raw pane spawn, read, confirmed close, and notify tools | `just fleet` |
 | [ask-user-remote](../.pi/harnesses/ask-user-remote/README.md) | Orchestration | Captures stock `pi-ask-user` and registers the default `ask_user`; with `user-remote` live it races local UI against the Hermes bridge, otherwise it is stock local behavior | Fleet Core (`just fleet`) |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Fleet Core safety harness; guards default Pi, Hub, native children, and Herdr Pi peers. Blocks feed back without aborting the turn; protected paths support explicit approval, while dangerous command patterns remain non-exemptible | `just fleet` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between agents on one machine, composed with Fleet Core safety and utilities | `just fleet peer <name>` |
-| [Hermes local monitor transport](../hermes/README.md#local-agent-hub-monitor-integration) | Optional local companion | Owner-only discovery + Unix socket for agent-hub snapshots, cursor output, and exact-generation cancellation; consumed by a separate local Hermes client | Set the two monitor environment variables, then run `just fleet team <team>` |
+| [Hermes local monitor transport](../hermes/README.md#local-agent-hub-monitor-integration) | Optional local companion | Owner-only discovery + Unix socket for agent-hub snapshots, cursor output, and exact-generation cancellation; consumed by a separate local Hermes client | Set the two monitor environment variables, then run a Herdr topology such as `just fleet --herdr` |
 
 Each extension directory has its own `README.md` with the full description, command/tool
 surface, requirements, and per-extension upstream changes.
@@ -159,8 +164,12 @@ make a harness self-contained: copied target harnesses still require the existin
 `agent-team` recipe and absorbs the day-to-day pieces that previously required separate
 harnesses:
 
-- **Dispatcher grid** — fixed specialists from `.pi/agents/teams.yaml`, shown in a live dashboard
-  with compact/full view toggling.
+- **Two live postures** — bare `just fleet` starts as an operator with direct coding tools and an
+  empty native roster; `/af-posture operator|orchestrator` switches prompt and tool surface without
+  restarting or losing session state. Orchestrator removes direct coding tools. All Hub slash
+  commands remain registered in both postures; capability-off actions refuse actionably.
+- **Dispatcher grid** — the active, dynamically adjustable native roster from
+  `.pi/agents/teams.yaml`, shown in a live dashboard with compact/full view toggling.
 - **Specialist delegation** — `dispatch_agent` for writable child-agent work and
   `spawn_research` / `/af-research` for read-only investigation.
 - **Verification Contract** — the dispatcher owns a ledger of checkable acceptance assertions
@@ -176,7 +185,7 @@ harnesses:
 - **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
 - **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls.
-- **Damage-control + ask_user by default** — `just fleet hub` and `just fleet hub --solo` load the
+- **Damage-control + ask_user by default** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` safety harness and `ask-user-remote` before `agent-hub`, so the
   dispatcher's tool calls are checked against the rules file and the `askUserAvailable` probe sees
   `ask_user`. A blocked call feeds back and the turn keeps going rather than aborting. `agent-hub` also
@@ -189,8 +198,9 @@ harnesses:
   and a missing continue harness refuses child dispatch.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
   `/af-handoff`, and peer-as-subagent flows.
-- **Solo mode** — `just fleet hub --solo` keeps the dispatcher grid, delegation, research helpers, persona
-  gate, and controls, but starts without the embedded coms layer.
+- **No-coms mode** — `just fleet --no-coms` keeps direct operator work, native delegation,
+  research helpers, persona gate, and controls, but starts without embedded coms. `/af-handoff`
+  remains registered and explains why it cannot run. Legacy `--solo` maps to this flag with a warning.
 - **Optional Hermes local monitor transport** — uses `AGENT_FLEET_PROFILE_ID`, the absolute
   `AGENT_FLEET_MONITOR_RUNTIME_DIR`, and the Herdr `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`
   required to establish its stable hub identity. It is a source-owned, local-only transport—not a
@@ -198,6 +208,33 @@ harnesses:
   discovery, lease, token, and socket state. Follow the
   [Hermes integration guide](../hermes/README.md#local-agent-hub-monitor-integration) for startup,
   wire examples, cancellation semantics, and reconnect behavior.
+
+### Runtime axes and explicit routing
+
+Posture, native roster, and peer topology are independent:
+
+```bash
+just fleet                                      # operator, empty native roster
+just fleet --agents frontend                    # orchestrator inferred
+just fleet --posture operator --agents frontend # direct tools + native roster
+just fleet --herdr --project af                 # one Hub pane in Herdr
+just fleet --agents frontend --peers frontend --project af
+```
+
+A **native specialist** is a local headless Pi child selected from `teams.yaml`; a **peer** is a
+separate long-lived Pi or Claude Code process registered over coms, usually in a sibling Herdr
+pane. Add a native reviewer at runtime with `/af-agents-add code-reviewer`. When a same-name
+Claude reviewer is live, `dispatch_agent`'s `backend: "native"` still forces the local Pi child,
+`backend: "coms"` requires that peer with no native fallback, and `backend: "auto"` follows
+`dispatch-policy.yaml`.
+
+Inside a Herdr-backed Hub, `herdr_spawn_peer({ name: "code-reviewer" })` uses the declaration in
+`peers.yaml` (including `runner: claude-code`), creates a sibling pane, locks it to the Hub project,
+and waits for coms readiness. Then use `coms_send` + `coms_await`, or `/af-handoff
+code-reviewer`. These actions need a running Herdr server and/or ready coms as appropriate; the
+commands stay registered and explain missing capability. Arbitrary pane commands use the separate
+`herdr_spawn_pane` tool. In orchestrator posture that tool is limited by policy to auxiliary
+processes such as watchers or servers; it must not be used to bypass delegation for code work.
 
 ---
 
@@ -224,7 +261,7 @@ Why `web-debugger` is a coms peer and not a dispatchable subagent: its `chrome_d
 
 ## One peer at a time — `just fleet peer`
 
-`just fleet team <preset>` is the right tool for a *known* set of collaborators, but it
+`just fleet --peers <preset>` is the right topology for a *known* set of collaborators, but it
 requires every peer to be declared in `.pi/agents/peers.yaml` and it builds a whole
 workspace. When you want **one** more agent — often a Claude Code reviewer — next to
 what you already have:
@@ -289,7 +326,7 @@ The `justfile` sets `dotenv-load`, so a `.env` file at the repo root is auto-loa
 | `AZURE_SPEECH_KEY` | `pi-voice-stt` (azure backend) | Azure Speech resource key |
 | `AZURE_SPEECH_ENDPOINT` | `pi-voice-stt` (azure backend) | Azure resource endpoint, used when `provider.endpoint` is unset |
 | `PI_STT_CONFIG` / `PI_STT_KEYBIND` | `pi-voice-stt` | Override config (inline JSON or path) / the record hotkey (default `alt+s`) |
-| `AGENT_FLEET_SPAWN_DELAY` | `_peer` / `_peer-plus` recipes | Seconds to sleep before launching pi in a fleet pane (set per pane by `just fleet team`/`just fleet resume`, see below) |
+| `AGENT_FLEET_SPAWN_DELAY` | `_peer` / `_peer-plus` recipes | Seconds to sleep before launching pi in a fleet pane (set per pane by `just fleet --peers`/`just fleet resume`, see below) |
 
 The `chrome-devtools-mcp` server starts once at extension load, so changing its vars needs a pi
 restart / `/reload` to take effect.
@@ -299,7 +336,7 @@ restart / `/reload` to take effect.
 pi loads its credential store (`~/.pi/agent/auth.json`) once at boot under a short-retry
 file lock. When the stored OAuth token is stale, the first pi to boot refreshes it over
 the network *while holding that lock*; sibling panes spawned in the same instant (as
-`just fleet team` / `just fleet resume` do) lose the lock race and come up
+`just fleet --peers` / `just fleet resume` do) lose the lock race and come up
 with every provider showing **unconfigured**. To dodge this, the team scripts check
 `auth.json` before spawning (only `type`/`expires` are read — values never leave the
 process): if any OAuth credential is expired or about to expire, one pi pane (the hub

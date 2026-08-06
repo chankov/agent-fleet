@@ -47,6 +47,24 @@ export function parseTeamsYaml(raw: string): Record<string, string[]> {
 	return teams;
 }
 
+export function resolveStartupRoster(
+	teams: Record<string, string[]>,
+	requested: unknown,
+): { name: string; members: string[] } | null {
+	if (typeof requested !== "string" || requested.trim() === "") return null;
+	const wanted = requested.trim().toLowerCase();
+	const name = Object.keys(teams).find(candidate => candidate.toLowerCase() === wanted);
+	if (!name) {
+		const available = Object.keys(teams).sort().join(", ") || "(none)";
+		throw new Error(`Unknown native roster "${requested}". Available: ${available}.`);
+	}
+	return { name, members: [...teams[name]] };
+}
+
+export function orchestratorNeedsRoster(posture: string, rosterSize: number): boolean {
+	return posture === "orchestrator" && rosterSize < 1;
+}
+
 // Normalize a dispatcher-supplied agent name to the persona-slug key space:
 // display names ("Test Engineer"), underscores, and stray whitespace all resolve
 // to the same key the hub stores states under ("test-engineer").

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
 	DEFAULT_POLICY,
 	comsRequiredRefusal,
+	explicitComsRefusal,
 	parseDispatchPolicy,
 	resolveDispatchBackend,
 } from "./backend-policy.js";
@@ -70,6 +71,56 @@ substitutions:
 test("parseDispatchPolicy member names are case-insensitive keys", () => {
 	const { policy } = parseDispatchPolicy("substitutions:\n  Code-Reviewer:\n    prefer: coms\n");
 	assert.ok(policy.substitutions["code-reviewer"]);
+});
+
+test("resolveDispatchBackend: explicit native bypasses a live same-name peer", () => {
+	const { policy } = parseDispatchPolicy(SAMPLE);
+	assert.deepEqual(
+		resolveDispatchBackend({
+			agentName: "code-reviewer",
+			policy,
+			livePeerNames: ["code-reviewer"],
+			requestedBackend: "native",
+		}),
+		{ backend: "native" },
+	);
+});
+
+test("resolveDispatchBackend: explicit coms requires a live same-name peer without fallback", () => {
+	const { policy } = parseDispatchPolicy("default: native\n");
+	assert.deepEqual(
+		resolveDispatchBackend({
+			agentName: "builder",
+			policy,
+			livePeerNames: ["Builder"],
+			requestedBackend: "coms",
+		}),
+		{ backend: "coms", peerName: "Builder", explicit: true },
+	);
+	assert.deepEqual(
+		resolveDispatchBackend({
+			agentName: "builder",
+			policy,
+			livePeerNames: [],
+			requestedBackend: "coms",
+		}),
+		{ backend: "coms-unavailable" },
+	);
+});
+
+test("resolveDispatchBackend: unknown explicit backend fails closed", () => {
+	assert.deepEqual(
+		resolveDispatchBackend({ agentName: "builder", policy: DEFAULT_POLICY, livePeerNames: [], requestedBackend: "remote" }),
+		{ backend: "invalid", requestedBackend: "remote" },
+	);
+});
+
+test("explicitComsRefusal names the required peer and remedies", () => {
+	const msg = explicitComsRefusal("Code-Reviewer");
+	assert.match(msg, /explicit coms backend/);
+	assert.match(msg, /code-reviewer/);
+	assert.match(msg, /herdr_spawn_peer/);
+	assert.match(msg, /backend: native|backend: auto/);
 });
 
 test("resolveDispatchBackend: native default leaves everything native", () => {

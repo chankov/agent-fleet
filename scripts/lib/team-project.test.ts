@@ -12,6 +12,7 @@ import {
 	conductorSpec,
 	hubCommand,
 	parseProjectFlag,
+	resolveLegacyAgentRoster,
 	teamSnapshotPath,
 	teamWorkspaceLabel,
 	validateProject,
@@ -65,14 +66,30 @@ test("workspace labels embed the worktree tag + mode and distinguish projects", 
 	assert.notEqual(teamWorkspaceLabel("hub", "docs--project-acme"), teamWorkspaceLabel("hub", "docs", "acme"));
 	assert.notEqual(teamWorkspaceLabel("conductor-hermes", "docs--project-acme"), teamWorkspaceLabel("conductor-hermes", "docs", "acme"));
 	assert.notEqual(teamWorkspaceLabel("conductor-codex", "docs--project-acme"), teamWorkspaceLabel("conductor-codex", "docs", "acme"));
-	assert.deepEqual(hubCommand(), ["just", "fleet", "hub"]);
-	assert.deepEqual(hubCommand("acme"), ["just", "fleet", "hub", "--project", "acme"]);
-	assert.deepEqual(hubCommand("acme", { browser: true, allExtensions: true }), [
-		"just", "fleet", "hub", "--browser", "--all-extensions", "--project", "acme",
+	assert.deepEqual(hubCommand(), ["just", "fleet"]);
+	assert.deepEqual(hubCommand("acme"), ["just", "fleet", "--project", "acme"]);
+	assert.deepEqual(hubCommand("acme", {
+		posture: "operator",
+		agentTeam: "frontend",
+		noComs: true,
+		browser: true,
+		allExtensions: true,
+	}), [
+		"just", "fleet", "--posture", "operator", "--agents", "frontend", "--no-coms",
+		"--browser", "--all-extensions", "--project", "acme",
 	]);
 	assert.deepEqual(conductorCommand(), ["hermes", "-p", "dev"]);
 	assert.equal(teamSnapshotPath("/snap", "docs"), join("/snap", "docs.json"));
 	assert.equal(teamSnapshotPath("/snap", "docs", "acme"), join("/snap", "projects", "acme", "docs.json"));
+});
+
+test("legacy team aliases use a matching native roster or preserve the historical default", () => {
+	const teams = { default: ["builder"], frontend: ["planner"], security: ["security-auditor"] };
+	assert.equal(resolveLegacyAgentRoster(teams, "security"), "security");
+	assert.equal(resolveLegacyAgentRoster(teams, "FRONTEND"), "frontend");
+	assert.equal(resolveLegacyAgentRoster(teams, "web"), "default");
+	assert.equal(resolveLegacyAgentRoster(teams, "docs"), "default");
+	assert.equal(resolveLegacyAgentRoster(teams, "full"), "default");
 });
 
 test("conductorSpec types backend identity and injects only validated Codex context", () => {

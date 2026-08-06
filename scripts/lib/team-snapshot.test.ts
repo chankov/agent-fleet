@@ -129,7 +129,7 @@ test("resume command construction can relaunch hub and peers with the requested 
 	assert.equal(tree.type, "split");
 	if (tree.type === "split") {
 		assert.equal(tree.first.type, "pane");
-		if (tree.first.type === "pane") assert.deepEqual(tree.first.command, ["just", "fleet", "hub", "--project", "acme"]);
+		if (tree.first.type === "pane") assert.deepEqual(tree.first.command, ["just", "fleet", "--project", "acme"]);
 	}
 	const panes: Array<Extract<LayoutNode, { type: "pane" }>> = [];
 	(function walk(n: LayoutNode) {

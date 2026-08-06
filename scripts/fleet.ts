@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { parseFleetCommand } from "./lib/fleet-command.ts";
 import { resolveMonitorEnv } from "./lib/monitor-env.ts";
 
-const HELP = `Agent Fleet — unified Pi runtime
+const HELP = `Agent Fleet — one guarded Hub runtime, two postures, independent topology
 
 SET UP A NEW REPOSITORY
   just fleet setup
@@ -16,112 +16,96 @@ SET UP A NEW REPOSITORY
       confirm once to apply it. Source checkout development: node bin/cli.js setup.
 
 QUICK START
-  just fleet
-      Start the default guarded Pi session with Fleet Core.
-
-  just fleet hub --project af
-      Start Agent Hub with specialists, research, Verification Contract, and coms.
-
-  just fleet team frontend --project af
-      Start a guarded Hub plus the frontend peer team in one Herdr workspace.
+  just fleet                    # Hub/operator, empty native roster
+  just fleet --agents frontend # Hub/orchestrator with native specialists
+  just fleet --herdr --project af
+                                # Hub/operator in a one-pane Herdr workspace
+  just fleet --agents frontend --peers frontend --project af
+                                # matching native roster + standing peers
 
 FLEET CORE — loaded in every Pi mode
   Damage Control Continue · local/remote ask_user · Compact & Continue
   BTW side sessions · update checker (voice is opt-in with --voice)
 
-SESSION MODES
-  just fleet [PI_ARGS...]
-      Safe interactive Pi without Hub or a coms identity.
-      Example: just fleet --model openai-codex/gpt-5.6-terra
+UNIFIED HUB
+  just fleet [--posture operator|orchestrator] [--agents <roster>]
+             [--herdr] [--peers <preset>] [--no-coms] [PI_ARGS...]
+      Bare Fleet always loads Agent Hub in operator posture. Operator keeps
+      read/bash/edit/write plus orchestration; the initial native roster is empty.
+      --agents selects .pi/agents/teams.yaml and implies orchestrator unless an
+      explicit --posture operator is supplied. --no-coms leaves direct/native work
+      available while coms, peer dispatch, and handoff refuse actionably.
 
+POSTURE AND ROSTER
+  /af-posture                    # report posture and capability state
+  /af-agents-add code-reviewer  # add a native Pi specialist at runtime
+  /af-posture orchestrator      # remove direct coding tools; keep orchestration
+  /af-posture operator          # restore the approved direct tool surface
+
+  Posture is independent from /af-hub-mode, the native roster, and peer topology.
+  All Hub slash commands, including /af-handoff, stay registered in both postures;
+  actions whose coms/Herdr capability is unavailable return remediation guidance.
+
+  Explicit dispatch backend examples (inside the Hub):
+    dispatch_agent({ agent: "code-reviewer", task: "Review the diff", backend: "native" })
+    dispatch_agent({ agent: "code-reviewer", task: "Review the diff", backend: "coms" })
+  backend "auto" follows .pi/agents/dispatch-policy.yaml; native always starts
+  the local Pi specialist, while coms requires a live same-name peer and never
+  falls back to native.
+
+HERDR TOPOLOGY — requires a running Herdr server (https://herdr.dev)
+  just fleet --herdr [--project <name>]
+      Hub-only workspace using the empty base peer preset.
+
+  just fleet --peers <preset> [--agents <roster>] [--project <name>]
+      Add standing Pi/Claude peers from .pi/agents/peers.yaml. Hub and every peer
+      receive the same project. Add --dry-run to print the redacted layout only.
+
+  Dynamic Claude reviewer from a Hub already running inside Herdr:
+    herdr_spawn_peer({ name: "code-reviewer" })
+    coms_send({ target: "code-reviewer", prompt: "Review the current diff" })
+    coms_await({ msg_id: "<returned-id>" })
+    /af-handoff code-reviewer
+  The declared runner may be Claude Code. Spawn requires Herdr; messaging and
+  handoff require coms readiness and a target visible in this Hub's project pool.
+  Every spawned peer gets a sibling pane and is locked to the Hub's project.
+
+ONE STANDALONE PEER
   just fleet peer <name> [--runner pi|claude-code] [--persona <p>|--no-persona]
                          [--model <m>] [--project <p>] [--extensions a,b]
                          [--browser] [--all-extensions] [--direction right|down]
                          [--here] [--dry-run] [-- PI_ARGS...]
-      ONE addressable coms peer, in a herdr pane of its own. Inside herdr it
-      splits the current pane; outside it creates a single-pane workspace;
-      --here runs it in this terminal instead.
-      The NAME decides the shape: a name declared in .pi/agents/peers.yaml keeps
-      its runner/model/extensions/env_file, a name matching agents/<name>.md
-      becomes that persona peer, and anything else is a plain Fleet Core peer
-      under that identity. --runner claude-code needs no manifest at all, and
-      --no-persona forces the plain shape for a name that matches a persona.
-      Raw pi arguments go after a "--" separator and need the plain shape.
-      Examples:
-        just fleet peer code-reviewer --project af
-        just fleet peer scratch-reviewer --runner claude-code --model opus --project af
-        just fleet peer web-debugger --browser --project af
-        just fleet peer nick --here --project af
-        just fleet peer architect --no-persona --here -- --session /path/to/session.json
-
-  just fleet hub [--solo] [PI_ARGS...]
-      Agent Hub dispatcher. Embedded coms is on unless --solo is supplied.
-      Examples:
-        just fleet hub --project af
-        just fleet hub --solo
-
-TEAM MODES — presets: base, full, web, docs, default, debug, frontend,
-             security, hotfix, release, info, review, plan
-  just fleet team <preset> [TEAM_ARGS...]
-      Guarded Hub plus guarded reusable peers in one Herdr workspace.
-      Example: just fleet team security --project af
-
-  just fleet team <preset> --no-hub [TEAM_ARGS...]
-      Guarded reusable peers only; no Hub pane.
-      Example: just fleet team docs --no-hub --project af
-
-  just fleet team <preset> [--no-hub] --dry-run [TEAM_ARGS...]
-      Print the resolved workspace, panes, and commands without changing Herdr.
-      Example: just fleet team frontend --dry-run --project af
+      A single addressable peer. Inside Herdr it splits the current pane; outside
+      it creates a one-pane workspace; --here uses this terminal. A peers.yaml
+      declaration controls runner/model/extensions/env_file. A matching persona
+      starts guarded Pi; --runner claude-code starts Claude Code plus its bridge.
 
 TEAM LIFECYCLE
   just fleet snapshot <preset> [--project <name>]
-      Save session references while the workspace keeps running.
-
   just fleet down <preset> [--project <name>]
-      Snapshot and cleanly close the workspace.
-
   just fleet resume <preset> [--project <name>]
-      Rebuild the workspace and resume available Pi/Claude sessions.
-
-  Examples:
-    just fleet snapshot docs --project af
-    just fleet down docs --project af
-    just fleet resume docs --project af
+      Save session refs, close cleanly, and rebuild available Pi/Claude sessions.
 
 HERMES CONDUCTOR
   just fleet conductor hermes [preset] [--dry-run] [TEAM_ARGS...]
       Start Hermes with a peer team, or preview the layout with --dry-run.
-      Example: just fleet conductor hermes docs --project af
 
 CODEX REMOTE-CONTROL CONDUCTOR
   just fleet conductor codex <setup|reconfigure> [preset] [ARGS...]
   just fleet conductor codex <pair|start|status|stop|recover|uninstall>
   just fleet conductor codex [preset] [--dry-run] [TEAM_ARGS...]
 
-  Typical flow:
-    just fleet conductor codex setup docs --project af
-    just fleet conductor codex pair
-    just fleet conductor codex start
-    just fleet conductor codex docs --project af
-    just fleet conductor codex status
-    just fleet conductor codex stop
-
 CAPABILITY FLAGS
-  --browser
-      Add interactive Chrome DevTools MCP tools to the main Pi/Hub process.
-      On a persona peer it adds the chrome-devtools-mcp extension instead.
-      Example: just fleet hub --browser --project af
+  --browser         Add Chrome DevTools MCP tools to the Hub/main Pi process.
+  --voice           Load pi-voice-stt after selecting the voice setup feature.
+  --all-extensions  Also auto-load project/global extensions outside Fleet Core.
+  --no-coms         Disable only the Hub's embedded coms layer.
 
-  --voice
-      Load pi-voice-stt from .pi/extensions after selecting the voice setup feature.
-      Example: just fleet --voice
-
-  --all-extensions
-      Also auto-load arbitrary project/global extensions outside Fleet Core.
-      Not available to persona peers: reusable peers load a deterministic set,
-      declared per peer via extensions: in .pi/agents/peers.yaml.
-      Example: just fleet peer debugger --all-extensions --project af
+COMPATIBILITY ALIASES — accepted with migration warnings
+  just fleet hub [--solo] ...       -> just fleet [--no-coms] ...
+  just fleet team <preset> ...      -> just fleet --agents <roster> --peers <preset> ...
+  just fleet team <preset> --no-hub -> legacy peers-only topology
+  Legacy peer-only presets full/web/docs retain the default native roster.
 
 LIFECYCLE
   just fleet setup [--preset default|full --features none --yes]
@@ -144,12 +128,12 @@ HELP
   just --list          Show the intentionally small public recipe surface.
 
 Configuration:
-  Teams:       .pi/agents/peers.yaml
-  Hub teams:   .pi/agents/teams.yaml
-  Overrides:   .ai/agent-fleet-overrides.md
-  STT:         .ai/stt.json or ~/.pi/agent/stt.json
-  Safety:      .pi/damage-control-rules.yaml
-  Full docs:   docs/pi-extensions.md and docs/pi-setup.md
+  Native rosters: .pi/agents/teams.yaml
+  Peer presets:   .pi/agents/peers.yaml
+  Routing:        .pi/agents/dispatch-policy.yaml
+  Overrides:      .ai/agent-fleet-overrides.md
+  Safety:         .pi/damage-control-rules.yaml
+  Full docs:      docs/pi-extensions.md and docs/pi-setup.md
 `;
 
 function main(): void {
@@ -166,6 +150,9 @@ function main(): void {
 		process.stderr.write(HELP);
 		process.exitCode = 2;
 		return;
+	}
+	for (const warning of invocation.warnings ?? []) {
+		console.error(`fleet: warning: ${warning}`);
 	}
 	// Every mode gets the monitor variables, not just `hub`: a plain `just fleet`
 	// or a `peer` loads no agent-hub and so reads them never, while `hub` and

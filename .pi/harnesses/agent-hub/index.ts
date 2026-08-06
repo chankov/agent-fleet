@@ -88,7 +88,7 @@ import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
-import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, resolveStartupRoster, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
 import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_BUDGET_MULTIPLIER, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, contextOverflowDiagnostic, isReviewPersona, normalizeHubMode, remainingTaskResearch, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, turnActiveMs } from "./run-budget.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
@@ -113,7 +113,9 @@ import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPa
 import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn, parseStructuredReturn } from "./return-contract.js";
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
-import { comsRequiredRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
+import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
+import { parsePosture, posturePrompt, resolvePostureTools, resolveSessionPosture, type Posture } from "./posture.ts";
+import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts";
 import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from "./research-retention.js";
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
 import { createAccessApprovalRouter } from "./access-approval.ts";
@@ -128,8 +130,8 @@ import {
 } from "../lib/herdr-presence.ts";
 import { herdr as herdrApi, herdrAvailable } from "../lib/herdr-client.ts";
 import { buildLiveRegistryEntry, type ComsRegistryEntry } from "../lib/coms-registry-entry.ts";
-import { findPeerByName, parseEnvFile, parsePeersYaml, peerCommand, resolveEnvFilePath } from "../../../scripts/lib/herdr-layout.ts";
-import { DEFAULT_PROJECT } from "../../../scripts/lib/team-project.ts";
+import { parseEnvFile, resolveEnvFilePath } from "../../../scripts/lib/herdr-layout.ts";
+import { worktreeTag } from "../../../scripts/lib/team-project.ts";
 import { STAGGER_ENV_VAR, WARMUP_SECONDS, oauthNeedsWarmup } from "../../../scripts/lib/spawn-stagger.ts";
 import { join, resolve } from "path";
 import * as net from "node:net";
@@ -1795,6 +1797,8 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag("color", { description: "Coms: hex color #RRGGBB (else frontmatter or palette fallback)", type: "string", default: undefined });
 	pi.registerFlag("explicit", { description: "Coms: hide from auto-discovery; addressable only by exact name", type: "boolean", default: false });
 	pi.registerFlag("solo", { description: "Run without the coms layer (fixed specialists + research only — `just fleet hub --solo`)", type: "boolean", default: false });
+	pi.registerFlag("posture", { description: "Fleet main-agent posture: operator|orchestrator", type: "string", default: undefined });
+	pi.registerFlag("agent-team", { description: "Internal: activate a named native roster from .pi/agents/teams.yaml", type: "string", default: undefined });
 
 	// ── Embedded coms: peer state ──
 	let identity: {
@@ -2709,6 +2713,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		}
 		const adoption = adoptableSessionFile(def);
 		agentStates.set(def.name.toLowerCase(), freshAgentState(def, adoption));
+		if (!activeTeamName) activeTeamName = "ad-hoc";
 		recomputeGrid();
 		updateWidget();
 		const quarantineNote = adoption.quarantined
@@ -2726,10 +2731,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		if (state.status === "running") {
 			return { ok: false, message: `${displayName(state.def.name)} is running — wait for it to finish or /af-agents-kill it first` };
 		}
-		if (agentStates.size <= 1) {
-			return { ok: false, message: `${displayName(state.def.name)} is the last team member — add a replacement before dropping it` };
+		if (orchestratorNeedsRoster(posture, agentStates.size - 1)) {
+			return { ok: false, message: `${displayName(state.def.name)} is the last team member — switch to operator posture or add a replacement before dropping it` };
 		}
 		agentStates.delete(key);
+		if (agentStates.size === 0) activeTeamName = "";
 		recomputeGrid();
 		updateWidget();
 		// Promise a reusable session file only when pi would actually accept it.
@@ -3530,6 +3536,7 @@ ${externalBlockedProtocol()}
 		inputArtifacts: InputArtifactPreview[] = [],
 		scopeGlobs: string[] = [],
 		watchdogParam?: boolean,
+		requestedBackend: "auto" | "native" | "coms" = "auto",
 	): Promise<{
 		output: string;
 		exitCode: number;
@@ -3562,6 +3569,8 @@ ${externalBlockedProtocol()}
 		state.toolCount = 0;
 		state.elapsed = 0;
 		state.lastWork = "";
+		state.lastBackend = undefined;
+		state.comsPeerModel = undefined;
 		state.runCount++;
 		state.killedByOperator = false;
 		state.restarting = false;
@@ -3616,7 +3625,18 @@ ${externalBlockedProtocol()}
 
 		const personaKey = state.def.name.toLowerCase();
 		const livePeerNames = () => (comsReady && identity ? peersInScope().map(e => e.name) : []);
-		let route: any = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames() });
+		let route: any = resolveDispatchBackend({
+			agentName: state.def.name,
+			policy: dispatchPolicy,
+			livePeerNames: livePeerNames(),
+			requestedBackend,
+		});
+		if (route.backend === "invalid") {
+			return finishRun(`Invalid dispatch backend "${route.requestedBackend}". Expected auto|native|coms.`, 1);
+		}
+		if (route.backend === "coms-unavailable") {
+			return finishRun(explicitComsRefusal(displayName(state.def.name)), 1);
+		}
 		if (route.backend === "await-coms") {
 			// coms-required member (fallback: none) whose peer is not live yet:
 			// poll the pool through the grace window, then refuse with guidance.
@@ -3626,7 +3646,7 @@ ${externalBlockedProtocol()}
 			updateWidget();
 			while (Date.now() < deadline && route.backend !== "coms") {
 				await new Promise(res => setTimeout(res, 1000));
-				route = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames() });
+				route = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames(), requestedBackend });
 			}
 			if (route.backend !== "coms") {
 				return finishRun(comsRequiredRefusal(displayName(state.def.name), graceS), 1);
@@ -3638,7 +3658,7 @@ ${externalBlockedProtocol()}
 		}
 		if (route.backend === "coms") {
 			void monitorBridge?.registerWaitOnly(monitorKey, () => state.comsAbort?.());
-			const allowNativeFallback = (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
 			const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
 			const comsRes = await dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
 			if (comsRes) {
@@ -5031,10 +5051,15 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			scope: Type.Optional(Type.Array(Type.String({ description: "Optional advisory file scope globs for writable agents. Changes outside are reported in details.scopeViolations; nothing is auto-reverted. Also arms the drift watchdog's live out-of-scope rule." }))),
 			watchdog: Type.Optional(Type.Boolean({ description: "Force the drift watchdog on/off for THIS dispatch (default: per-agent /af-watchdog override, then the hub-wide setting)." })),
 			review_reason: Type.Optional(Type.String({ description: "Why a documentation-only change needs a review gate (e.g. it publishes a credential, or states a contract other systems rely on). Only needed when dispatching a review persona with a docs-only `scope`." })),
+			backend: Type.Optional(Type.Union([
+				Type.Literal("auto"),
+				Type.Literal("native"),
+				Type.Literal("coms"),
+			], { description: "Dispatch backend. auto follows dispatch-policy.yaml (default); native always starts the local Pi specialist; coms requires a live same-name peer and never falls back." })),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
-			const { task, artifacts, scope, watchdog, review_reason } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[]; watchdog?: boolean; review_reason?: string };
+			const { task, artifacts, scope, watchdog, review_reason, backend = "auto" } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[]; watchdog?: boolean; review_reason?: string; backend?: "auto" | "native" | "coms" };
 			// Display names / underscores resolve to the persona slug key space, so
 			// `agent: "Test Engineer"` never burns a dispatch on a lookup error.
 			const agent = normalizeAgentInput((params as { agent: string }).agent);
@@ -5166,7 +5191,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				const findingClause = reviewBudgetClause(taskTier, agent);
 				const dispatchedTask = findingClause ? `${task}\n\n${findingClause}` : task;
 
-				let result = await dispatchAgent(agent, dispatchedTask, ctx, inputArtifacts, scopeGlobs, watchdog);
+				let result = await dispatchAgent(agent, dispatchedTask, ctx, inputArtifacts, scopeGlobs, watchdog, backend);
 				let dispatchBilled = result.billed ?? 0;
 				let dispatchOut = result.out ?? 0;
 
@@ -5226,7 +5251,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 					const resumePrompt = "Research findings for your NEEDS_RESEARCH questions are ready. " +
 						"Read each file with your read tool, then continue from where you paused:\n" +
 						answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
-					result = await dispatchAgent(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog);
+					result = await dispatchAgent(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog, backend);
 					dispatchBilled += result.billed ?? 0;
 					dispatchOut += result.out ?? 0;
 				}
@@ -5403,6 +5428,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 						agent,
 						task,
 						status,
+						backendRequested: backend,
+						backendUsed: state?.lastBackend ?? null,
 						elapsed: result.elapsed,
 						exitCode: result.exitCode,
 						fullOutput: result.output,
@@ -6326,20 +6353,20 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		}
 	}
 
-	/**
-	 * The peers.yaml declaration for a peer name, when the repo has one. A hub
-	 * spawn is handed a bare name, but the fleet may define that name as a
-	 * `runner: claude-code` peer or one that needs extra extensions — launching
-	 * a plain pi peer instead would silently produce a different agent.
-	 */
-	function declaredPeer(name: string): ReturnType<typeof findPeerByName> {
-		const cwd = currentCtx?.cwd ?? process.cwd();
+	/** Manifest and persona probes supplied to the shared Fleet peer resolver. */
+	function peerManifest(cwd: string): string {
 		try {
-			const raw = fs.readFileSync(path.join(cwd, ".pi", "agents", "peers.yaml"), "utf-8");
-			return findPeerByName(parsePeersYaml(raw), name);
+			return fs.readFileSync(path.join(cwd, ".pi", "agents", "peers.yaml"), "utf-8");
 		} catch {
-			return undefined;
+			return "";
 		}
+	}
+
+	function peerPersonaExists(cwd: string, persona: string): boolean {
+		return (
+			fs.existsSync(path.join(cwd, "agents", `${persona}.md`)) ||
+			fs.existsSync(path.join(cwd, ".pi", "agents", `${persona}.md`))
+		);
 	}
 
 	/** Seconds this spawn should sleep before launching pi (stale-OAuth lock race). */
@@ -6362,12 +6389,107 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		name: "herdr_spawn_peer",
 		label: "Herdr Spawn Peer",
 		description:
-			"Spawn a pane in the CURRENT herdr workspace: either a peers.yaml-style coms peer (persona [+ name/model], launched via `just _peer`) or a raw command pane. The peer joins THIS session's coms project pool, and a name declared in .pi/agents/peers.yaml keeps its declared runner/extensions. A persona peer boots IDLE and does nothing until you coms_send to it — spawning delivers no work. The call waits (bounded) for the peer to register and returns `peer_ready` plus its coms name, or `peer_ready: false` with the pane's last output — treat that as a failed start, not a slow one. Spawn one only immediately before the first message you will send it; a peer that receives no work is named in the session digest.",
+			"Spawn one reusable coms peer in a sibling pane of the CURRENT Herdr workspace. Name-only resolution is identical to `just fleet peer`: peers.yaml may select a Pi persona, personaless Fleet Core, or Claude Code plus declared model/extensions/env_file. Explicit compatible fields override the declaration, but the Hub forces its own coms project and never accepts an env path or raw command. The peer boots IDLE; this call waits for `peer_ready` before it may receive coms work.",
 		parameters: Type.Object({
-			persona: Type.Optional(Type.String({ description: "Persona under agents/ (e.g. researcher). Omit for a raw command pane." })),
-			name: Type.String({ description: "Pane label; for persona peers also the coms peer name." }),
-			model: Type.Optional(Type.String({ description: "Optional model spec for the peer (pi --model)." })),
-			command: Type.Optional(Type.String({ description: "Raw shell command for a non-peer pane (mutually exclusive with persona)." })),
+			name: Type.String({ description: "Pane label and coms peer name." }),
+			runner: Type.Optional(Type.Union([Type.Literal("pi"), Type.Literal("claude-code")], { description: "Override the declared runner." })),
+			persona: Type.Optional(Type.String({ description: "Explicit Pi persona under agents/ or .pi/agents/." })),
+			no_persona: Type.Optional(Type.Boolean({ description: "Force a personaless Fleet Core Pi peer." })),
+			model: Type.Optional(Type.String({ description: "Override the declared model." })),
+			extensions: Type.Optional(Type.String({ description: "Comma-separated extensions for a Pi persona peer." })),
+			browser: Type.Optional(Type.Boolean({ description: "Add browser capability to a Pi peer." })),
+			all_extensions: Type.Optional(Type.Boolean({ description: "Load all extensions; personaless Fleet Core only." })),
+			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction (default right)." })),
+		}),
+		async execute(_callId, params) {
+			if (!herdrFleetReady) {
+				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+			}
+			const ownPane = herdrPaneId();
+			if (!ownPane) {
+				return { content: [{ type: "text" as const, text: "not inside a herdr pane." }], details: { error: "no pane" } };
+			}
+			if (!comsReady || !identity) {
+				return {
+					content: [{ type: "text" as const, text: "Cannot spawn an addressable peer while coms is unavailable. Start without --solo/--no-coms, or use herdr_spawn_pane for a non-peer command." }],
+					details: { error: "no coms" },
+				};
+			}
+			try {
+				const cwd = currentCtx?.cwd ?? process.cwd();
+				const plan = buildHubPeerSpawnPlan(params, {
+					project: identity.project,
+					peersYaml: peerManifest(cwd),
+					personaExists: (persona) => peerPersonaExists(cwd, persona),
+					worktreeTag: worktreeTag(cwd),
+				});
+				if (peersInScope().some(peer => peer.name.toLowerCase() === plan.name.toLowerCase())) {
+					throw new Error(`Peer "${plan.name}" is already visible in project "${identity.project}"; use coms_send instead of spawning a duplicate.`);
+				}
+				const env: Record<string, string> = {};
+				if (plan.envFile) {
+					const envPath = resolveEnvFilePath(plan.envFile, cwd);
+					if (!fs.existsSync(envPath)) throw new Error(`env_file not found: ${plan.envFile} (resolved: ${envPath})`);
+					Object.assign(env, parseEnvFile(fs.readFileSync(envPath, "utf-8"), plan.envFile));
+				}
+				const delay = plan.runner === "pi" ? spawnDelaySeconds() : 0;
+				if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
+				const launched = await launchHubPeerInPane(plan, {
+					client: herdrApi,
+					targetPaneId: ownPane,
+					cwd,
+					env,
+					waitForRegistration: waitForPeerRegistration,
+					paneTail,
+					onLaunched: (paneId) => {
+						hubSpawnedPeers.set(plan.name.toLowerCase(), { name: plan.name, paneId, addressed: false });
+						if (plan.runner === "pi") lastHubPiSpawnAt = Date.now();
+					},
+				});
+				const promptNote = launched.promptSeen
+					? ""
+					: `\n⚠ pane ${launched.paneId} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
+				return {
+					content: [{ type: "text" as const, text: `spawned ${plan.kind} in pane ${launched.paneId} (${plan.name}): ${plan.command.join(" ")}${promptNote}\n\n${launched.verdict.message}` }],
+					details: {
+						pane_id: launched.paneId,
+						name: plan.name,
+						kind: plan.kind,
+						runner: plan.runner,
+						project: plan.project,
+						prompt_seen: launched.promptSeen,
+						env_file: plan.envFile ?? null,
+						...launched.verdict,
+					},
+				};
+			} catch (err) {
+				const m = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text" as const, text: `herdr_spawn_peer failed before readiness: ${m}` }], details: { error: m } };
+			}
+		},
+		renderCall(args, theme) {
+			const a = args as any;
+			return new Text(
+				theme.fg("toolTitle", theme.bold("herdr_spawn_peer ")) + theme.fg("accent", a.name ?? "?") + theme.fg("dim", a.runner ? ` (${a.runner})` : ""),
+				0, 0,
+			);
+		},
+		renderResult(result, _options, theme) {
+			const d = result.details as any;
+			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
+			if (d?.peer_ready === false) return new Text(theme.fg("error", `✗ ${d?.pane_id ?? "peer failed"}`), 0, 0);
+			return new Text(theme.fg("success", `✓ ${d?.pane_id ?? "spawned"}`), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_spawn_pane",
+		label: "Herdr Spawn Pane",
+		description:
+			"Spawn a raw shell command in a sibling pane of the CURRENT Herdr workspace. This is not a coms peer: it has no persona, project, registration wait, or peer_ready result. Use herdr_spawn_peer for addressable Pi/Claude workers.",
+		parameters: Type.Object({
+			name: Type.String({ description: "Human-visible pane label." }),
+			command: Type.String({ description: "Raw shell command executed with bash -lc." }),
 			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction (default right)." })),
 		}),
 		async execute(_callId, params) {
@@ -6380,83 +6502,29 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			}
 			try {
 				const cwd = currentCtx?.cwd ?? process.cwd();
-				const env: Record<string, string> = {};
-				let argv: string[];
-				if (params.persona) {
-					// The peer joins THIS hub's coms pool. Defaulting to "default"
-					// (as this once did) puts it in a pool the hub cannot see, so it
-					// never registers no matter how long the readiness wait runs.
-					const declared = declaredPeer(params.name);
-					argv = peerCommand(
-						{
-							persona: params.persona,
-							name: params.name,
-							model: params.model ?? declared?.model,
-							extensions: declared?.extensions,
-							runner: declared?.runner,
-						},
-						"hub-spawned",
-						undefined,
-						identity?.project ?? DEFAULT_PROJECT,
-					);
-					if (declared?.env_file) {
-						Object.assign(env, parseEnvFile(fs.readFileSync(resolveEnvFilePath(declared.env_file, cwd), "utf-8"), declared.env_file));
-					}
-					const delay = declared?.runner === "claude-code" ? 0 : spawnDelaySeconds();
-					if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
-				} else if (params.command) {
-					argv = ["bash", "-lc", params.command];
-				} else {
-					return { content: [{ type: "text" as const, text: "pass persona (peer) or command (raw pane)." }], details: { error: "bad args" } };
-				}
-				// pane.split takes no command — it opens a shell in `cwd`.
+				const argv = ["bash", "-lc", params.command];
 				const { pane } = await herdrApi.paneSplit({
 					target_pane_id: ownPane,
 					direction: params.direction ?? "right",
 					cwd,
-					...(Object.keys(env).length > 0 ? { env } : {}),
 					focus: false,
 				});
 				try { await herdrApi.paneRename(pane.pane_id, params.name); } catch { /* cosmetic */ }
-				// …so the argv is typed into that shell once it shows a prompt.
 				const launch = await launchPeerInPane(herdrApi, pane.pane_id, argv);
-				if (params.persona) lastHubPiSpawnAt = Date.now();
 				const promptNote = launch.promptSeen
 					? ""
 					: `\n⚠ pane ${pane.pane_id} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
-				// A raw command pane is not a coms peer — nothing to wait for and
-				// nothing to sweep. A persona peer is only useful once addressable,
-				// so report that verdict instead of a bare pane id.
-				if (!params.persona) {
-					return {
-						content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}${promptNote}` }],
-						details: { pane_id: pane.pane_id, name: params.name, prompt_seen: launch.promptSeen },
-					};
-				}
-				hubSpawnedPeers.set(params.name.toLowerCase(), { name: params.name, paneId: pane.pane_id, addressed: false });
-				const { found, waitedMs } = await waitForPeerRegistration(params.name);
-				const verdict = peerReadyVerdict({
-					name: params.name,
-					paneId: pane.pane_id,
-					found,
-					waitedMs,
-					paneTail: found ? undefined : await paneTail(pane.pane_id),
-				});
 				return {
-					content: [{ type: "text" as const, text: `spawned pane ${pane.pane_id} (${params.name}): ${argv.join(" ")}${promptNote}\n\n${verdict.message}` }],
-					details: { pane_id: pane.pane_id, name: params.name, prompt_seen: launch.promptSeen, ...verdict },
+					content: [{ type: "text" as const, text: `spawned raw pane ${pane.pane_id} (${params.name}): ${params.command}${promptNote}` }],
+					details: { pane_id: pane.pane_id, name: params.name, prompt_seen: launch.promptSeen },
 				};
 			} catch (err) {
 				const m = err instanceof Error ? err.message : String(err);
-				return { content: [{ type: "text" as const, text: `herdr_spawn_peer failed: ${m}` }], details: { error: m } };
+				return { content: [{ type: "text" as const, text: `herdr_spawn_pane failed: ${m}` }], details: { error: m } };
 			}
 		},
 		renderCall(args, theme) {
-			const a = args as any;
-			return new Text(
-				theme.fg("toolTitle", theme.bold("herdr_spawn_peer ")) + theme.fg("accent", a.name ?? "?") + theme.fg("dim", a.persona ? ` (${a.persona})` : " (raw)"),
-				0, 0,
-			);
+			return new Text(theme.fg("toolTitle", theme.bold("herdr_spawn_pane ")) + theme.fg("accent", (args as any).name ?? "?"), 0, 0);
 		},
 		renderResult(result, _options, theme) {
 			const d = result.details as any;
@@ -6586,6 +6654,32 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// and warn the user to `pi install npm:pi-ask-user` if it's missing.
 
 	let askUserAvailable = false;
+	let posture: Posture = "operator";
+	let baselineTools: string[] = [];
+
+	function applyPostureTools(): void {
+		pi.setActiveTools(resolvePostureTools({
+			posture,
+			baselineTools,
+			comsReady,
+			herdrReady: herdrFleetReady,
+			askUserAvailable,
+		}));
+	}
+
+	function updatePostureStatus(ctx: ExtensionContext): void {
+		ctx.ui.setStatus("hub-posture", `Posture: ${posture}`);
+	}
+
+	function postureStatusText(): string {
+		return [
+			`Posture: ${posture}`,
+			`Direct tools: ${posture === "operator" ? "enabled" : "disabled"}`,
+			`Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`,
+			`Coms: ${comsReady ? `ready${identity ? ` (${identity.name}@${identity.project})` : ""}` : "unavailable"}`,
+			`Herdr: ${herdrFleetReady ? "ready" : "unavailable"}`,
+		].join("\n");
+	}
 
 	// ── Dispatcher persona picker (blocking gate) ──
 	// Mirrors purpose-gate's blocking loop, but over a select of orchestrator
@@ -6701,6 +6795,36 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			await openHistory(ctx);
+		},
+	});
+
+	// ── /af-posture: direct operator ↔ restricted orchestrator ──
+	pi.registerCommand("af-posture", {
+		description: "Show or set the Fleet posture: operator (direct tools) | orchestrator (delegate-only)",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const requested = (args || "").trim();
+			if (!requested) {
+				ctx.ui.notify(`${postureStatusText()}\nSwitch with /af-posture operator|orchestrator`, "info");
+				return;
+			}
+			const next = parsePosture(requested);
+			if (!next) {
+				ctx.ui.notify(`Unknown posture "${requested}" — expected operator|orchestrator.`, "error");
+				return;
+			}
+			if (orchestratorNeedsRoster(next, agentStates.size)) {
+				ctx.ui.notify("Orchestrator posture requires at least one native specialist. Add one with /af-agents-add or select /af-agents-team first.", "warning");
+				return;
+			}
+			posture = next;
+			if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
+				await pickDispatcherPersona(ctx);
+			}
+			applyPostureTools();
+			updatePostureStatus(ctx);
+			pi.appendEntry("agent-hub-posture", { posture });
+			ctx.ui.notify(`${postureStatusText()}\nPrompt and tools update on the next model call.`, "success");
 		},
 	});
 
@@ -6822,7 +6946,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const results = names.map(n => rosterAdd(n));
 			const level = results.some(r => r.ok) ? "success" : "error";
 			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
-			ctx.ui.setStatus("agent-team", `Team: ${activeTeamName}* (${agentStates.size})`);
+			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
 		},
 	});
 
@@ -6838,7 +6962,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			const results = names.map(n => rosterDrop(n));
 			const level = results.some(r => r.ok) ? "success" : "error";
 			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
-			ctx.ui.setStatus("agent-team", `Team: ${activeTeamName}* (${agentStates.size})`);
+			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
 		},
 	});
 
@@ -8041,6 +8165,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// ── System Prompt Override ───────────────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
+		// Re-assert the selected posture for every turn so prompt and tool policy stay
+		// synchronized after commands or runtime capability changes.
+		applyPostureTools();
 		// Open a fresh dispatcher turn for /af-agents-history. The orchestrator entry is
 		// created lazily (only if this turn actually dispatches), so chat-only turns
 		// add no history rows. Defensively close any entry a prior turn left open
@@ -8322,14 +8449,14 @@ your own team you can talk to the peers in your coms POOL — the agents shown i
 `
 			: "";
 
-		const orchestratorPrompt = `You are a dispatcher agent — an orchestrator. You coordinate specialist agents
-to accomplish tasks. You do NOT have direct access to the codebase. You have ${toolList}.
+		const postureText = posturePrompt(posture);
+		const orchestratorPrompt = `${postureText.intro} You have ${toolList}.
 
 ## Language
 ${languageLines}
 
-## Active Team: ${activeTeamName}
-Members: ${teamMembers}
+## Native Roster: ${activeTeamName || "(none)"}
+Members: ${teamMembers || "(none — add a persona before using dispatch_agent)"}
 You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents
 outside this team. The roster CAN change mid-session: the human via /af-agents-add,
 /af-agents-drop, /af-agents-team — or you via \`team_adjust\` (add/drop with a reason)
@@ -8340,6 +8467,7 @@ personas is usually the wrong answer.
 - Analyze the user's request and break it into clear sub-tasks.
 - Choose the right agent(s) for each sub-task.
 ${dispatchSection}
+- Choose \`backend: native\` when the user explicitly requests a local Pi specialist, \`backend: coms\` when they explicitly request a live same-name peer, and \`backend: auto\` otherwise. Never substitute one explicit backend for another.
 - Review results and dispatch follow-up agents if needed.
 - If a task fails, try a different agent or adjust the task description.
 - Summarize the outcome for the user in ${userLanguage}.
@@ -8365,10 +8493,12 @@ ${verificationSection}
 ${comsSection}${herdrFleetReady ? `
 ## Fleet (herdr)
 This session runs inside a herdr workspace and can drive panes:
-- \`herdr_spawn_peer\` stands up an extra worker next to you — a persona peer (joins the coms
-  pool, then talk to it via \`coms_send\`) or a raw command pane (a build watcher, a server).
-  Spawn deliberately; every pane is a process the human sees. Tear down what you spawned.
-- A spawned persona peer BOOTS IDLE and waits for \`coms_send\`: the spawn hands it no task.
+- \`herdr_spawn_peer\` starts an addressable Pi persona, personaless Fleet Core, or Claude Code
+  peer next to you. Name-only calls inherit peers.yaml; explicit fields use the same resolver as
+  \`just fleet peer\`. Every peer is locked to this Hub's coms project.
+- \`herdr_spawn_pane\` starts a raw command pane (for example a build watcher or server). It is
+  not a coms peer and has no readiness result. Spawn deliberately; every pane is human-visible.
+- A spawned peer BOOTS IDLE and waits for \`coms_send\`: the spawn hands it no task.
   The call waits for it to register and returns \`peer_ready\` with its coms name. Spawn one
   only immediately before the first message you will send it — a peer spawned "to have it
   ready" and never addressed is an empty pane named like a worker. If you sent it no work
@@ -8388,8 +8518,7 @@ This session runs inside a herdr workspace and can drive panes:
   a long fleet task finishes or needs attention; it does not replace \`ask_user\`.
 ` : ""}
 ## Hard Rules
-- NEVER try to read, write, or execute code directly — you have no such tools.
-- ALWAYS use \`dispatch_agent\` to get work done; use \`spawn_research\` for read-only recon.
+${postureText.hardRules}
 ${ambiguityRule}
 - You can chain agents: spawn_research to gather context, builder to implement.
 - You can dispatch the same agent multiple times with different tasks.
@@ -8415,7 +8544,7 @@ ${researchCatalog}`;
 
 	// ── Persona gate: block input until a dispatcher persona is picked ──
 	pi.on("input", async (_event, ctx) => {
-		if (personaGateEnabled && !personaGateSatisfied) {
+		if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
 			ctx.ui.notify("Pick a dispatcher persona first (see the select dialog).", "warning");
 			return { action: "handled" as const };
 		}
@@ -8426,6 +8555,9 @@ ${researchCatalog}`;
 
 	pi.on("session_start", async (_event, _ctx) => {
 		registerVersionStatus(_ctx);
+		// Capture the configured surface before Agent Hub applies either posture.
+		// Operator mode restores this baseline (minus gated Hub-owned tools).
+		baselineTools = pi.getActiveTools();
 		accessApprovalRouter.reset();
 		// Clear widgets + any research helpers from a previous session
 		for (const [, st] of Array.from(researchStates.entries())) {
@@ -8829,34 +8961,35 @@ ${researchCatalog}`;
 		personaGateEnabled = overrides.personaGate && orchestratorPersonas.length > 0;
 		personaGateSatisfied = !personaGateEnabled;
 
-		// Default to first team — use /af-agents-team to switch
-		const teamNames = Object.keys(teams);
-		if (teamNames.length > 0) {
-			activateTeam(teamNames[0]);
+		// A roster is opt-in. Resolve it before posture so --agent-team can imply
+		// orchestrator while an explicit --posture operator still wins.
+		agentStates.clear();
+		activeTeamName = "";
+		comsMissNotified.clear();
+		recomputeGrid();
+		const startupRoster = resolveStartupRoster(teams, pi.getFlag("agent-team"));
+		posture = resolveSessionPosture({
+			entries: _ctx.sessionManager.getEntries(),
+			explicitPosture: pi.getFlag("posture"),
+			hasExplicitRoster: startupRoster !== null,
+		});
+		if (orchestratorNeedsRoster(posture, startupRoster?.members.length ?? 0)) {
+			throw new Error("Orchestrator posture requires --agent-team <name> with at least one native specialist.");
 		}
+		if (startupRoster) activateTeam(startupRoster.name);
 
 		// Probe for `ask_user` (registered by the `pi-ask-user` companion package
 		// when installed). Action methods like getAllTools are runtime-only, so
 		// this MUST happen at session_start, not at extension load.
 		askUserAvailable = pi.getAllTools().some(t => t.name === "ask_user");
 
-		// Dispatcher's tool surface: dispatch_agent + spawn_research always; the
-		// assertion-ledger tools (set/update/get) own the Verification Contract —
-		// get_assertions is the bounded read-only recovery path so the dispatcher can
-		// re-read the full ledger after a compaction (the status line shows only counts).
-		// The coms_* tools when the peer layer bound successfully; ask_user only when
-		// pi-ask-user is installed. Per decision G4 the dispatcher persona NEVER narrows
-		// this surface.
-		const dispatcherTools = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust", "set_assertions", "update_assertion", "get_assertions"];
-		if (comsReady) dispatcherTools.push("coms_list", "coms_send", "coms_get", "coms_await");
-		if (askUserAvailable) dispatcherTools.push("ask_user");
-		// Fleet tools only inside a herdr pane with a live server (graceful
-		// degradation like coms — outside herdr the tools are absent).
+		// Fleet tools are available only inside a herdr pane with a live server.
+		// The posture policy adds gated groups without activating unavailable tools.
 		herdrFleetReady = herdrPaneId() !== null && (await herdrAvailable()) !== null;
-		if (herdrFleetReady) dispatcherTools.push("herdr_spawn_peer", "herdr_read_pane", "herdr_close_pane", "herdr_notify");
-		pi.setActiveTools(dispatcherTools);
+		applyPostureTools();
+		updatePostureStatus(_ctx);
 
-		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
+		_ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`);
 		const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 		const askUserLabel = askUserAvailable
 			? "available (via pi-ask-user)"
@@ -8883,14 +9016,16 @@ ${researchCatalog}`;
 				? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /af-dispatch-policy for status)`
 				: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)";
 		_ctx.ui.notify(
-			`Team: ${activeTeamName} (${members})\n` +
-			`Team sets loaded from: .pi/agents/teams.yaml\n` +
+			`Posture: ${posture} (${posture === "operator" ? "direct tools enabled" : "delegate-only"})\n` +
+			`Native roster: ${activeTeamName || "(none)"} (${agentStates.size}${members ? `: ${members}` : ""})\n` +
+			`Native roster sets loaded from: .pi/agents/teams.yaml\n` +
 			`Dispatch backends: ${dispatchLabel}\n` +
 			`User-facing language: ${userLanguage} (override in .ai/agent-fleet-overrides.md)\n` +
 			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n` +
 			`Persona gate: ${personaGateLabel}\n` +
 			`Coms: ${comsLabel}\n` +
 			`Fleet: ${fleetLabel}\n\n` +
+			`/af-posture [mode]       Show/switch operator|orchestrator posture\n` +
 			`/af-agents-team          Select a team\n` +
 			`/af-agents-list          List active agents and status\n` +
 			`/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
@@ -8915,8 +9050,9 @@ ${researchCatalog}`;
 		_ctx.ui.setStatus("dispatcher-persona", personaGateEnabled ? "Persona: (pick one)" : "Persona: Default");
 		updateWidget();
 
-		// Fire the blocking persona gate (input stays swallowed until satisfied).
-		if (personaGateEnabled) {
+		// The persona gate restricts only orchestrator posture. Operators can work
+		// directly and choose a dispatcher persona later without being blocked.
+		if (posture === "orchestrator" && personaGateEnabled) {
 			void pickDispatcherPersona(_ctx);
 		}
 

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -10,10 +11,17 @@ import { parseFleetCommand } from "./fleet-command.ts";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function assertCompleteFleetGuide(output: string): void {
-	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "SESSION MODES", "TEAM MODES", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "LIFECYCLE", "UPDATE NOTE"]) {
+	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "UNIFIED HUB", "POSTURE AND ROSTER", "HERDR TOPOLOGY", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
 		assert.match(output, new RegExp(section));
 	}
-	assert.match(output, /just fleet team frontend --project af/);
+	assert.match(output, /just fleet\s+# Hub\/operator, empty native roster/);
+	assert.match(output, /just fleet --agents frontend --peers frontend --project af/);
+	assert.match(output, /\/af-posture orchestrator/);
+	assert.match(output, /\/af-agents-add code-reviewer/);
+	assert.match(output, /backend: "native"/);
+	assert.match(output, /herdr_spawn_peer\(\{ name: "code-reviewer" \}\)/);
+	assert.match(output, /\/af-handoff code-reviewer/);
+	assert.doesNotMatch(output, /Safe interactive Pi without Hub/);
 	assert.match(output, /Full docs:\s+docs\/pi-extensions\.md/);
 	assert.match(output, /just fleet deps/);
 	assert.match(output, /pi update --extensions updates pi extensions only/);
@@ -42,17 +50,44 @@ test("bare just routes to the complete Fleet guide", (context) => {
 	assertCompleteFleetGuide(result.stdout);
 });
 
-test("fleet defaults to the guarded core runtime", () => {
+test("bare fleet selects the Hub in operator posture with an empty roster", () => {
 	assert.deepEqual(parseFleetCommand([]), {
-		recipe: "_fleet-core",
-		args: ["false", "false", "false"],
+		recipe: "_fleet-hub",
+		args: ["false", "false", "false", "false"],
 	});
 });
 
-test("fleet core capabilities are normalized before Pi arguments", () => {
+test("canonical Hub flags preserve Pi argv and explicit posture precedence", () => {
 	assert.deepEqual(parseFleetCommand(["--browser", "--all-extensions", "--model", "openai/gpt"]), {
-		recipe: "_fleet-core",
-		args: ["true", "false", "true", "--model", "openai/gpt"],
+		recipe: "_fleet-hub",
+		args: ["false", "true", "false", "true", "--model", "openai/gpt"],
+	});
+	assert.deepEqual(parseFleetCommand(["--agents", "frontend", "--model", "m/x"]), {
+		recipe: "_fleet-hub",
+		args: ["false", "false", "false", "false", "--agent-team", "frontend", "--model", "m/x"],
+	});
+	assert.deepEqual(parseFleetCommand(["--posture", "operator", "--agents", "frontend", "--project", "af"]), {
+		recipe: "_fleet-hub",
+		args: ["false", "false", "false", "false", "--posture", "operator", "--agent-team", "frontend", "--project", "af"],
+	});
+});
+
+test("canonical topology flags select Hub-only, peer-preset, and combined Herdr layouts", () => {
+	assert.deepEqual(parseFleetCommand(["--herdr", "--project", "af"]), {
+		recipe: "_fleet-hub-team",
+		args: ["base", "--project", "af"],
+	});
+	assert.deepEqual(parseFleetCommand(["--peers", "frontend", "--project", "af"]), {
+		recipe: "_fleet-hub-team",
+		args: ["frontend", "--project", "af"],
+	});
+	assert.deepEqual(parseFleetCommand(["--agents", "frontend", "--peers", "frontend", "--posture", "operator"]), {
+		recipe: "_fleet-hub-team",
+		args: ["frontend", "--posture", "operator", "--agents", "frontend"],
+	});
+	assert.deepEqual(parseFleetCommand(["--peers", "review", "--dry-run", "--no-coms"]), {
+		recipe: "_fleet-hub-team-dry",
+		args: ["review", "--no-coms"],
 	});
 });
 
@@ -72,25 +107,62 @@ test("fleet peer requires an identity and forwards its flag set verbatim", () =>
 	assert.throws(() => parseFleetCommand(["peer", "--runner", "claude-code"]), /peer requires a peer name/);
 });
 
-test("fleet hub supports solo and optional capabilities", () => {
+test("legacy hub and --solo map deterministically with migration warnings", () => {
 	assert.deepEqual(parseFleetCommand(["hub", "--solo", "--browser", "--project", "af"]), {
 		recipe: "_fleet-hub",
-		args: ["true", "true", "false", "false", "--project", "af"],
+		args: ["true", "true", "false", "false", "--agent-team", "default", "--project", "af"],
+		warnings: [
+			"`just fleet hub` is a compatibility alias; use `just fleet` with canonical flags.",
+			"`--solo` is deprecated; use `--no-coms`.",
+		],
+	});
+	assert.deepEqual(parseFleetCommand(["--solo"]), {
+		recipe: "_fleet-hub",
+		args: ["true", "false", "false", "false"],
+		warnings: ["`--solo` is deprecated; use `--no-coms`."],
 	});
 });
 
-test("fleet team maps hub, peers-only, and dry-run combinations", () => {
+test("Fleet entrypoint prints compatibility guidance before launching the mapped recipe", () => {
+	const dir = mkdtempSync(join(tmpdir(), "fleet-warning-"));
+	try {
+		const fakeJust = join(dir, "just");
+		writeFileSync(fakeJust, "#!/bin/sh\nprintf '%s\\n' \"$*\"\n");
+		chmodSync(fakeJust, 0o755);
+		const result = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/fleet.ts", "hub", "--solo"], {
+			cwd: REPO_ROOT,
+			encoding: "utf8",
+			env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}`, AGENT_FLEET_MONITOR: "0" },
+		});
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stderr, /compatibility alias/);
+		assert.match(result.stderr, /--solo.*deprecated/);
+		assert.equal(result.stdout.trim(), "_fleet-hub true false false false --agent-team default");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("legacy team maps matching native roster and peer preset, while peers-only stays compatible", () => {
 	assert.deepEqual(parseFleetCommand(["team", "frontend", "--project", "af"]), {
 		recipe: "_fleet-hub-team",
-		args: ["frontend", "--project", "af"],
+		args: ["frontend", "--legacy-agents", "frontend", "--project", "af"],
+		warnings: ["`just fleet team frontend` is a compatibility alias; use `just fleet --agents <roster> --peers frontend`."],
+	});
+	assert.deepEqual(parseFleetCommand(["team", "base", "--project", "af"]), {
+		recipe: "_fleet-hub-team",
+		args: ["base", "--project", "af"],
+		warnings: ["`just fleet team base` is a compatibility alias; use `just fleet --herdr`."],
 	});
 	assert.deepEqual(parseFleetCommand(["team", "frontend", "--no-hub", "--dry-run"]), {
 		recipe: "_fleet-team-up-dry",
 		args: ["frontend"],
+		warnings: ["`just fleet team frontend --no-hub` is a compatibility alias; prefer `just fleet peer` or a canonical Hub topology."],
 	});
 	assert.deepEqual(parseFleetCommand(["team", "web", "--browser", "--dry-run"]), {
 		recipe: "_fleet-hub-team-dry",
-		args: ["web", "--browser"],
+		args: ["web", "--legacy-agents", "web", "--browser"],
+		warnings: ["`just fleet team web` is a compatibility alias; use `just fleet --agents <roster> --peers web`."],
 	});
 	assert.throws(() => parseFleetCommand(["team", "web", "--no-hub", "--browser"]), /requires the hub/);
 });
@@ -108,8 +180,8 @@ test("fleet lifecycle commands map to deterministic CLI and dependency recipes",
 	assert.equal(parseFleetCommand(["uninstall", "--yes"]).args.includes("--all"), false, "dispatcher never injects implicit --all");
 	assert.deepEqual(parseFleetCommand(["uninstall", "--all", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--all", "--yes"] });
 	assert.deepEqual(parseFleetCommand(["uninstall", "--items", "pi-harness:coms", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--items", "pi-harness:coms", "--yes"] });
-	assert.deepEqual(parseFleetCommand(["--voice", "--model", "openai/gpt"]), { recipe: "_fleet-core", args: ["false", "true", "false", "--model", "openai/gpt"] });
-	assert.deepEqual(parseFleetCommand(["hub", "--voice"]), { recipe: "_fleet-hub", args: ["false", "false", "true", "false"] });
+	assert.deepEqual(parseFleetCommand(["--voice", "--model", "openai/gpt"]), { recipe: "_fleet-hub", args: ["false", "false", "true", "false", "--model", "openai/gpt"] });
+	assert.deepEqual(parseFleetCommand(["hub", "--voice"]), { recipe: "_fleet-hub", args: ["false", "false", "true", "false", "--agent-team", "default"], warnings: ["`just fleet hub` is a compatibility alias; use `just fleet` with canonical flags."] });
 	assert.deepEqual(parseFleetCommand(["snapshot", "docs", "--project", "af"]), {
 		recipe: "_fleet-team-snapshot",
 		args: ["docs", "--project", "af"],
@@ -144,9 +216,15 @@ test("fleet conductor maps Codex service lifecycle", () => {
 	});
 });
 
-test("fleet rejects unknown modes and incomplete lifecycle commands", () => {
+test("fleet rejects unknown modes, invalid canonical combinations, and duplicate Fleet flags", () => {
 	assert.throws(() => parseFleetCommand(["wat"]), /Unknown fleet mode/);
 	assert.throws(() => parseFleetCommand(["team"]), /team requires/);
 	assert.throws(() => parseFleetCommand(["snapshot"]), /snapshot requires/);
 	assert.throws(() => parseFleetCommand(["conductor"]), /conductor requires/);
+	assert.throws(() => parseFleetCommand(["--posture", "invalid"]), /operator or orchestrator/);
+	assert.throws(() => parseFleetCommand(["--posture", "orchestrator"]), /requires --agents/);
+	assert.throws(() => parseFleetCommand(["--agents"]), /--agents requires/);
+	assert.throws(() => parseFleetCommand(["--peers", "a", "--peers", "b"]), /--peers may only/);
+	assert.throws(() => parseFleetCommand(["--no-coms", "--solo"]), /only be provided once/);
+	assert.throws(() => parseFleetCommand(["--dry-run"]), /requires --herdr or --peers/);
 });

@@ -1,14 +1,13 @@
 # agent-hub
 
-A multi-agent dispatcher with [`coms`](../coms/README.md) **embedded** — so the dispatcher is
-*also* a peer-to-peer node. The recommended `just fleet hub` mode loads Fleet Core
-first: [`damage-control-continue`](../damage-control-continue/README.md),
-[`ask-user-remote`](../ask-user-remote/README.md), STT, Compact & Continue, BTW, and the
-update checker. The dispatcher therefore has guardrails and an `ask_user` handoff tool
-before `agent-hub` starts. It combines local specialist
-orchestration (fixed specialist grid, read-only research helpers, `/af-zoom`, kill/restart, per-agent
-model, dispatcher persona gate) with peer-to-peer collaboration: it can **hand a session off to
-another main agent** and **use a coms peer as a subagent**.
+The unified Agent Fleet runtime for pi, with [`coms`](../coms/README.md) **embedded**. Bare
+`just fleet` loads Fleet Core and starts `agent-hub` in **operator** posture with direct coding
+and orchestration tools, but no standing native roster. The same live session can switch to
+**orchestrator** posture, which removes direct coding tools and drives native specialists under
+the Verification Contract. Fleet Core loads first: [`damage-control-continue`](../damage-control-continue/README.md),
+[`ask-user-remote`](../ask-user-remote/README.md), STT, Compact & Continue, BTW, and the update
+checker. Both postures can adjust the native roster, run research, collaborate with Pi/Claude
+peers, and hand the session to a visible coms peer.
 
 > Consolidates the retired `agent-team` dispatcher into this harness and embeds the ported `coms`
 > P2P layer from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by
@@ -16,7 +15,29 @@ another main agent** and **use a coms peer as a subagent**.
 > [extension catalog](../../../docs/pi-extensions.md) and the
 > [design plan](../../../docs/plans/agent-hub/).
 
-**Optional phone control:** `just fleet team <team> --project <name>` can supply the live peers for the experimental [Codex Android conductor](../../../docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch `just fleet conductor codex <team>` for the same peers. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
+**Optional phone control:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live peers for the experimental [Codex Android conductor](../../../docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch `just fleet conductor codex <team>` for the same peers. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
+
+## Posture, roster, and topology
+
+These are independent runtime axes:
+
+- **Posture** — `/af-posture operator|orchestrator` switches prompt and active tools without
+  restarting or losing session state. Operator keeps `read`, `bash`, `edit`, `write`, approved
+  extension tools, and orchestration. Orchestrator withholds direct coding tools but keeps
+  dispatch, research, assertions, roster controls, `ask_user`, ready coms, and ready Herdr tools.
+  In orchestrator posture, raw Herdr panes are auxiliary-process orchestration—not a route around
+  delegation for reading, editing, testing, or implementing code.
+- **Native roster** — local headless Pi specialists from `.pi/agents/teams.yaml`. Bare Fleet starts
+  empty; select one with `--agents frontend` or add one live with `/af-agents-add code-reviewer`.
+- **Peer topology** — separate long-lived Pi or Claude Code processes from `peers.yaml`, connected
+  by coms and optionally placed in sibling Herdr panes. `--peers frontend` selects a standing
+  preset; `--herdr` creates a Hub-only workspace through the empty `base` preset.
+- **Hub mode** — `/af-hub-mode` controls orchestration strictness and budgets; it does not change
+  posture, roster, or topology.
+
+All Hub slash commands, including `/af-handoff`, are registered in both postures. A command whose
+runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
+disables only embedded coms; direct operator work and native dispatch remain available.
 
 ## What it does
 
@@ -48,7 +69,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 
 `agent-hub` is the supported home for the former standalone dispatcher features:
 
-- **Dispatcher grid** — a live dashboard of fixed specialists from `.pi/agents/teams.yaml`.
+- **Dispatcher grid** — a live dashboard of the active, dynamically adjustable native roster from `.pi/agents/teams.yaml`.
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
 - **Research helpers** — `spawn_research` and `/af-research` launch read-only helper agents. Two
   `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple
@@ -232,7 +253,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
     test writing is never delegated.
 - **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
   session start; by default the dispatcher starts without the gate.
-- **Default damage-control guardrails** — `just fleet hub` and `just fleet hub --solo` load the
+- **Default damage-control guardrails** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` harness before `agent-hub`, so dispatcher tool calls are checked against
   `.pi/damage-control-rules.yaml` and a blocked call feeds back instead of aborting the turn. A
   guardrail is also re-loaded into every native specialist, research helper, and nested delegate
@@ -686,10 +707,13 @@ mode/budget keys) is documented in `docs/agent-fleet-setup.md`.
 Inside a [herdr](https://herdr.dev) pane with a live server, the dispatcher's tool
 surface additionally gets (absent otherwise, like coms):
 
-- `herdr_spawn_peer` — stand up a persona peer (joins the coms pool via `just _peer`) or a
-  raw command pane in the current workspace. The peer joins **this session's `--project` pool**, and
-  a name declared in `.pi/agents/peers.yaml` keeps its declared `runner:`/`extensions:`/`env_file:`,
-  so a spawn by name is the same agent a team launch would produce. A persona peer **boots idle**
+- `herdr_spawn_peer` — stand up a constrained Fleet peer through the shared peer-launch resolver.
+  The peer joins **this session's `--project` pool** (the model cannot override it), and a name
+  declared in `.pi/agents/peers.yaml` keeps its declared `runner:`/`extensions:`/`env_file:`,
+  including `runner: claude-code`; undeclared explicit shapes may select a Pi persona, identity-only
+  Fleet Core peer, or Claude Code. Manifest-declared env is the only env admitted. The peer gets a
+  sibling pane in the current workspace/tab, not a second process in the Hub pane. A spawn by name
+  therefore produces the same declared agent as a preset launch. A persona peer **boots idle**
   and does nothing until a `coms_send` reaches it, so the call waits (bounded, ~45s) for it to
   register and returns `peer_ready` plus its coms name instead of a bare pane id; on failure it
   returns the pane's last output, which means the peer did not start rather than that it is slow.
@@ -698,7 +722,11 @@ surface additionally gets (absent otherwise, like coms):
   Mechanism: herdr's `pane.split` takes **no command** — it opens a shell — so the spawn splits,
   waits for the pane's prompt, and types the argv (text and Enter sent separately, because bash
   bracketed paste would swallow a newline). Only `layout.apply` pane nodes carry an argv, which is
-  why `just fleet team` was never affected by this
+  why declarative preset layouts were never affected by this.
+- `herdr_spawn_pane` — create an arbitrary command pane when a constrained/addressable Fleet peer
+  is not the desired shape; raw commands are intentionally excluded from `herdr_spawn_peer`.
+  Orchestrators may use this for auxiliary processes such as watchers or servers, never to bypass
+  delegate-only implementation policy.
 - `herdr_read_pane` — bounded `pane.read` (≤200 lines), read-to-decide on workers/tools;
   messaging still goes through coms, and peer busy state comes from `coms_list`, not from
   reading the screen
@@ -790,7 +818,8 @@ onward, hops accumulating up to `MAX_HOPS` (5).
 
 ### Coms-backed dispatch (dispatch-policy.yaml)
 
-`just fleet team <team>` boots the Hub next to standing peers from `.pi/agents/peers.yaml` — and some
+`just fleet --agents <roster> --peers <preset>` boots the Hub next to standing peers from
+`.pi/agents/peers.yaml` — and some
 of them (e.g. `code-reviewer`, `plan-reviewer` with `runner: claude-code`) intentionally share a name
 with a team member. `.pi/agents/dispatch-policy.yaml` tells the dispatcher to serve such members
 **through the peer** instead of spawning a native subagent:
@@ -807,8 +836,10 @@ substitutions:
 
 Semantics:
 
-- **One API.** The dispatcher LLM always calls `dispatch_agent("code-reviewer", …)`; the backend is
-  resolved inside `dispatchAgent()`. The whole downstream pipeline — structured return contract,
+- **One API with an explicit override.** `dispatch_agent(..., backend: "auto"|"native"|"coms")`
+  defaults to `auto`, which follows this policy. `native` always starts the local Pi specialist even
+  when a same-name peer is live. `coms` requires that live same-name peer and never falls back to
+  native. The whole downstream pipeline — structured return contract,
   `ASK_USER:` extraction, the NEEDS_RESEARCH auto-research pipe, assertions, history, the grid —
   consumes a coms reply exactly like a subagent's final output (the dispatch protocols ride in the
   message body, since a standing peer only receives a user prompt).
@@ -869,13 +900,10 @@ Orchestration, research helpers, and the grid keep working.
 
 ### Tool surface
 
-`setActiveTools` always preserves the orchestration surface and adds coms when ready:
-
-```ts
-const dispatcherTools = ["dispatch_agent", "spawn_research", "set_assertions", "update_assertion", "get_assertions"];
-if (comsReady)        dispatcherTools.push("coms_list", "coms_send", "coms_get", "coms_await");
-if (askUserAvailable) dispatcherTools.push("ask_user");
-```
+`setActiveTools` always preserves the orchestration surface and adds runtime-ready capabilities.
+Operator posture also preserves the baseline direct/extension tools; orchestrator posture does not.
+Coms tools are active only when coms is ready, Herdr tools only in a live Herdr pane, and `ask_user`
+only when registered. Posture switching recomputes this list live without touching session state.
 
 `set_assertions` / `update_assertion` / `get_assertions` are the always-on Verification Contract ledger tools (see
 [What it does](#what-it-does)); like `dispatch_agent` / `spawn_research` they are part of the
@@ -902,7 +930,7 @@ export AGENT_FLEET_MONITOR_RUNTIME_DIR="/absolute/owner-only/runtime-root"
 Both are required for monitor startup; the runtime root must be absolute and owner-only, and the
 profile ID must be a safe identifier. The monitor also starts only for a Herdr-backed hub with
 `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`; retain those values and `HERDR_SOCKET_PATH` in the
-standard `just fleet team <team>` flow. Workspace labels are display metadata, not monitor identity.
+standard `just fleet --agents <roster> --peers <preset>` flow. Workspace labels are display metadata, not monitor identity.
 
 The live contract exposes three authenticated newline-delimited JSON requests: `snapshot`, cursor-
 based `output`, and exact-generation `cancel`. The monitor is local-only and fails closed when its
@@ -917,7 +945,7 @@ monitor_runtime="${XDG_RUNTIME_DIR:?}/agent-fleet-monitor"
 install -d -m 700 "$monitor_runtime"
 AGENT_FLEET_PROFILE_ID=dev \
 AGENT_FLEET_MONITOR_RUNTIME_DIR="$monitor_runtime" \
-just fleet team default
+just fleet --agents default --peers default
 ```
 
 No Desktop/backend plugin installation is required or provided. Consumers must re-discover after
@@ -934,9 +962,10 @@ lease or socket loss and must never persist or log the token.
 ## Usage
 
 ```bash
-# Unified Fleet interface (Fleet Core is loaded first)
-just fleet hub
-just fleet hub --name architect --purpose "owns the migration design" --project myrepo
+# Unified Fleet interface (Fleet Core + Agent Hub are loaded together)
+just fleet
+just fleet --posture operator --agents frontend --project myrepo
+just fleet --agents frontend --peers frontend --project myrepo
 
 # equivalent direct guarded launch
 pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts
@@ -950,7 +979,7 @@ Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
 
 ### Safety scope
 
-`just fleet hub` and `just fleet hub --solo` load Fleet Core before `agent-hub`, so guardrails and `ask_user` apply
+`just fleet` and `just fleet --no-coms` load Fleet Core before `agent-hub`, so guardrails and `ask_user` apply
 to hub/dispatcher tool calls in that parent pi process — and because it is the *continue* variant, a
 blocked dispatcher call feeds back and the turn keeps going rather than aborting. Specialist and
 research agents are spawned as separate pi subprocesses with `--no-extensions` — but `agent-hub`
@@ -968,14 +997,16 @@ additionally read-only by construction. Guided setup enforces `agent-hub` ⇒
 ### Related recipes
 
 ```bash
-# Hub without coms (fixed specialists + research only)
+# Operator/native work without coms
+just fleet --no-coms
+
+# Hub-only Herdr workspace and a combined topology
+just fleet --herdr --project af
+just fleet --agents default --peers docs --project af
+just fleet --agents default --peers docs --project af --dry-run
+
+# Compatibility aliases (accepted with migration warnings)
 just fleet hub --solo
-
-# Guarded peers only in a tiled Herdr workspace
-just fleet team full --no-hub
-just fleet team full --no-hub --dry-run
-
-# Guarded Hub + peers in one workspace
 just fleet team docs
 
 # Snapshot refs / close cleanly / restore conversations

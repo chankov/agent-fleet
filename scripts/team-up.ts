@@ -26,6 +26,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseTeamsYaml } from "../.pi/harnesses/agent-hub/helpers.ts";
 import {
 	buildTeamLayout,
 	parseEnvFile,
@@ -41,6 +42,7 @@ import {
 	conductorSpec,
 	hubCommand,
 	parseProjectFlag,
+	resolveLegacyAgentRoster,
 	teamWorkspaceLabel,
 	validateTeamName,
 	worktreeTag,
@@ -54,17 +56,25 @@ const REPO_ROOT = fs.realpathSync(path.resolve(SCRIPT_DIR, ".."));
 // repo/worktree gets its own workspace instead of colliding (see worktreeTag).
 const WORKTREE_TAG = worktreeTag(REPO_ROOT);
 const DEFAULT_PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
+const DEFAULT_TEAMS_YAML = path.join(REPO_ROOT, ".pi", "agents", "teams.yaml");
 
 // The guarded hub or Hermes conductor occupies this share of the workspace in
 // --hub/--conductor mode; the team tiles in the rest.
 const HUB_RATIO = 0.4;
 
 function flagValue(argv: string[], flag: string): string | null {
-	const i = argv.indexOf(flag);
-	if (i < 0) return null;
-	const value = argv[i + 1];
+	const indexes = argv.flatMap((value, index) => value === flag ? [index] : []);
+	if (indexes.length > 1) throw new Error(`${flag} may only be provided once`);
+	if (indexes.length === 0) return null;
+	const value = argv[indexes[0] + 1];
 	if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
 	return value;
+}
+
+function booleanFlag(argv: string[], flag: string): boolean {
+	const count = argv.filter(value => value === flag).length;
+	if (count > 1) throw new Error(`${flag} may only be provided once`);
+	return count === 1;
 }
 
 function die(msg: string): never {
@@ -206,12 +216,41 @@ async function main(): Promise<void> {
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
-	const dryRun = argv.includes("--dry-run");
-	const hub = argv.includes("--hub");
-	const hubBrowser = argv.includes("--browser");
-	const hubAllExtensions = argv.includes("--all-extensions");
-	if (!hub && (hubBrowser || hubAllExtensions)) {
-		die("--browser/--all-extensions apply to the hub pane and therefore require --hub");
+	let dryRun: boolean;
+	let hub: boolean;
+	let hubBrowser: boolean;
+	let hubAllExtensions: boolean;
+	let hubNoComs: boolean;
+	let hubPosture: "operator" | "orchestrator" | undefined;
+	let hubAgentTeam: string | undefined;
+	try {
+		dryRun = booleanFlag(argv, "--dry-run");
+		hub = booleanFlag(argv, "--hub");
+		hubBrowser = booleanFlag(argv, "--browser");
+		hubAllExtensions = booleanFlag(argv, "--all-extensions");
+		hubNoComs = booleanFlag(argv, "--no-coms");
+		const posture = flagValue(argv, "--posture");
+		if (posture && posture !== "operator" && posture !== "orchestrator") {
+			throw new Error("--posture requires operator or orchestrator");
+		}
+		hubPosture = posture ?? undefined;
+		const canonicalAgents = flagValue(argv, "--agents");
+		const legacyAgents = flagValue(argv, "--legacy-agents");
+		if (canonicalAgents && legacyAgents) throw new Error("--agents and --legacy-agents are mutually exclusive");
+		if (legacyAgents) {
+			const nativeTeams = parseTeamsYaml(fs.readFileSync(DEFAULT_TEAMS_YAML, "utf-8"));
+			hubAgentTeam = resolveLegacyAgentRoster(nativeTeams, legacyAgents);
+		} else {
+			hubAgentTeam = canonicalAgents ?? undefined;
+		}
+	} catch (err) {
+		die(err instanceof Error ? err.message : String(err));
+	}
+	if (!hub && (hubBrowser || hubAllExtensions || hubNoComs || hubPosture || hubAgentTeam)) {
+		die("--posture/--agents/--no-coms/--browser/--all-extensions apply to the hub pane and therefore require --hub");
+	}
+	if (hubPosture === "orchestrator" && !hubAgentTeam) {
+		die("--posture orchestrator requires --agents <roster>");
 	}
 	let conductor: ConductorBackend | null;
 	try {
@@ -257,9 +296,16 @@ async function main(): Promise<void> {
 	// never gets one. Peers deliberately do not receive them: only agent-hub
 	// reads them, and a peer is not a hub.
 	const monitorEnv = dryRun ? null : resolveMonitorEnv();
+	const hubOptions = {
+		posture: hubPosture,
+		agentTeam: hubAgentTeam,
+		noComs: hubNoComs,
+		browser: hubBrowser,
+		allExtensions: hubAllExtensions,
+	};
 	const rootPane = hub
 		? {
-			command: hubCommand(project, { browser: hubBrowser, allExtensions: hubAllExtensions }),
+			command: hubCommand(project, hubOptions),
 			label: "hub",
 			ratio: HUB_RATIO,
 			...(monitorEnv ? { env: monitorEnv } : {}),
@@ -341,7 +387,7 @@ async function main(): Promise<void> {
 		`Launched ${launchedPrefix}${peers.length} peer(s) for team "${team}" in herdr workspace "${label}" (${wsId}):`,
 	);
 	if (mode === "hub") {
-		console.log(`  • hub (${hubCommand(project, { browser: hubBrowser, allExtensions: hubAllExtensions }).join(" ")} — guarded dispatcher)`);
+		console.log(`  • hub (${hubCommand(project, hubOptions).join(" ")} — guarded dispatcher)`);
 	}
 	if (spec) console.log(`  • ${spec.paneLabel} (${spec.command.join(" ")} — ${spec.displayText})`);
 	if (spec?.backend === "codex") console.log("  • Closing this workspace does not stop the enabled Codex user service; stop it explicitly.");

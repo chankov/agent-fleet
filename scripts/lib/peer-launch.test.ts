@@ -40,13 +40,22 @@ test("a name with no persona and no declaration is the identity-only Fleet Core 
 	assert.equal(plan.workspaceLabel, "wt2-peer-architect--project.af");
 });
 
-test("core peers keep the capability flags and pass pi arguments through", () => {
+test("core peers keep model/capability flags and pass pi arguments through", () => {
 	const plan = buildPeerLaunchPlan(
-		{ name: "debugger", browser: true, allExtensions: true, piArgs: ["--session", "/tmp/s.json"] },
+		{
+			name: "debugger",
+			model: "openai-codex/gpt-5.6-luna",
+			browser: true,
+			allExtensions: true,
+			piArgs: ["--session", "/tmp/s.json"],
+		},
 		ctx(),
 	);
 	assert.equal(plan.kind, "core-peer");
-	assert.deepEqual(plan.command, ["just", "_fleet-peer", "debugger", "true", "true", "--session", "/tmp/s.json"]);
+	assert.deepEqual(plan.command, [
+		"just", "_fleet-peer", "debugger", "true", "true",
+		"--model", "openai-codex/gpt-5.6-luna", "--session", "/tmp/s.json",
+	]);
 });
 
 test("a name matching a persona becomes that persona peer", () => {

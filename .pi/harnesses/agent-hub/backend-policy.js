@@ -116,15 +116,27 @@ export function parseDispatchPolicy(raw) {
 //   { backend: "native", comsMissedNotice: "<member> prefers a coms peer ..." }
 //   { backend: "coms", peerName, timeout_s? }   — peerName is the pool's exact spelling
 //   { backend: "await-coms", grace_s }          — coms-required, peer not live yet: poll, then refuse
-export function resolveDispatchBackend({ agentName, policy, livePeerNames }) {
+export function resolveDispatchBackend({ agentName, policy, livePeerNames, requestedBackend = "auto" }) {
+	if (!["auto", "native", "coms"].includes(requestedBackend)) {
+		return { backend: "invalid", requestedBackend };
+	}
+	if (requestedBackend === "native") return { backend: "native" };
+
 	const p = policy && typeof policy === "object" ? policy : DEFAULT_POLICY;
 	const name = String(agentName || "").toLowerCase();
 	const sub = (p.substitutions || {})[name];
-	const prefer = sub ? sub.prefer : p.default === "coms" ? "coms" : "native";
-	if (prefer !== "coms") return { backend: "native" };
-
 	const live = Array.isArray(livePeerNames) ? livePeerNames : [];
 	const match = live.find((n) => String(n).toLowerCase() === name);
+
+	if (requestedBackend === "coms") {
+		if (match === undefined) return { backend: "coms-unavailable" };
+		const out = { backend: "coms", peerName: String(match), explicit: true };
+		if (sub && sub.timeout_s) out.timeout_s = sub.timeout_s;
+		return out;
+	}
+
+	const prefer = sub ? sub.prefer : p.default === "coms" ? "coms" : "native";
+	if (prefer !== "coms") return { backend: "native" };
 	if (match !== undefined) {
 		const out = { backend: "coms", peerName: String(match) };
 		if (sub && sub.timeout_s) out.timeout_s = sub.timeout_s;
@@ -143,6 +155,15 @@ export function resolveDispatchBackend({ agentName, policy, livePeerNames }) {
 
 // The refusal returned when a coms-required member's peer never appeared
 // within the grace window.
+export function explicitComsRefusal(agentName) {
+	const name = String(agentName || "").toLowerCase();
+	return (
+		`"${agentName}" requested the explicit coms backend, but no live same-name peer ` +
+		`"${name}" is visible in this Hub's pool. Start it with herdr_spawn_peer (inside Herdr), ` +
+		"refresh /af-coms, or dispatch again with backend: native or backend: auto. No native subagent was started."
+	);
+}
+
 export function comsRequiredRefusal(agentName, graceS) {
 	return (
 		`"${agentName}" is configured as coms-required (fallback: none) but no live peer named ` +

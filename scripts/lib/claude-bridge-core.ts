@@ -26,6 +26,51 @@ export const IDLE_WAIT_BACKOFF_MS = [2_000, 4_000, 8_000, 15_000, 30_000];
 /** Longest we will ever wait for a pane to go idle before giving up. */
 export const IDLE_WAIT_CAP_MS = 120_000;
 
+/** A bridge process starts before `claude` in the shared shell recipe. */
+export const CLAUDE_STARTUP_REGISTRATION_SLACK_MS = 5_000;
+export const CLAUDE_STARTUP_TIMEOUT_MS = 40_000;
+export const CLAUDE_STARTUP_POLL_MS = 250;
+
+export interface ClaudePaneState {
+	agent?: unknown;
+	agent_status?: unknown;
+}
+
+/** Registration is readiness only after Herdr has detected the Claude process. */
+export function isClaudePaneReady(pane: ClaudePaneState): boolean {
+	const agent = String(pane.agent ?? "").toLowerCase();
+	const status = String(pane.agent_status ?? "unknown").toLowerCase();
+	return agent === "claude" && ["idle", "working", "blocked", "done"].includes(status);
+}
+
+export async function waitForClaudePaneReady(
+	probe: () => Promise<ClaudePaneState>,
+	options: {
+		timeoutMs?: number;
+		pollMs?: number;
+		now?: () => number;
+		sleep?: (ms: number) => Promise<void>;
+	} = {},
+): Promise<{ ready: boolean; waitedMs: number; last: ClaudePaneState | null }> {
+	const timeoutMs = Math.max(0, options.timeoutMs ?? CLAUDE_STARTUP_TIMEOUT_MS);
+	const pollMs = Math.max(1, options.pollMs ?? CLAUDE_STARTUP_POLL_MS);
+	const now = options.now ?? Date.now;
+	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	const startedAt = now();
+	let last: ClaudePaneState | null = null;
+	for (;;) {
+		try {
+			last = await probe();
+			if (isClaudePaneReady(last)) return { ready: true, waitedMs: now() - startedAt, last };
+		} catch {
+			// Herdr may briefly race pane creation; retry inside the bounded startup window.
+		}
+		const remaining = timeoutMs - (now() - startedAt);
+		if (remaining <= 0) return { ready: false, waitedMs: now() - startedAt, last };
+		await sleep(Math.min(pollMs, remaining));
+	}
+}
+
 /**
  * The caller's own deadline wins — it knows how long the work takes — falling
  * back to the bridge's configured timeout and always clamped to the hard cap.

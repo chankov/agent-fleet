@@ -59,6 +59,16 @@ function dryRun(args: string[], peersYaml: string): { stdout: string; stderr: st
 	return { stdout: r.stdout, stderr: r.stderr, status: r.status };
 }
 
+function parseDryLayout(stdout: string): any {
+	return JSON.parse(stdout.slice(stdout.indexOf("{")));
+}
+
+function paneCommands(node: any): string[][] {
+	return node.type === "pane"
+		? [node.command]
+		: [...paneCommands(node.first), ...paneCommands(node.second)];
+}
+
 test("dry run: hub mode labels the workspace <tag>-hub-* and includes the hub pane", () => {
 	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
 	const peersYaml = join(dir, "peers.yaml");
@@ -71,7 +81,7 @@ test("dry run: hub mode labels the workspace <tag>-hub-* and includes the hub pa
 	assert.equal(parsed.layout.type, "split");
 	assert.equal(parsed.layout.ratio, 0.4);
 	assert.equal(parsed.layout.first.label, "hub");
-	assert.deepEqual(parsed.layout.first.command, ["just", "fleet", "hub"]);
+	assert.deepEqual(parsed.layout.first.command, ["just", "fleet"]);
 });
 
 test("dry run: hub project labels workspace and sends the project to hub plus every peer", () => {
@@ -84,11 +94,75 @@ test("dry run: hub project labels workspace and sends the project to hub plus ev
 	assert.match(r.stdout, /project "acme"/);
 	const parsed = JSON.parse(r.stdout.slice(r.stdout.indexOf("{")));
 	assert.equal(parsed.label, `${TAG}-hub-t--project.acme`);
-	assert.deepEqual(parsed.layout.first.command, ["just", "fleet", "hub", "--project", "acme"]);
+	assert.deepEqual(parsed.layout.first.command, ["just", "fleet", "--project", "acme"]);
 	const paneJson = JSON.stringify(parsed.layout.second);
 	assert.match(paneJson, /"acme"/);
 	assert.deepEqual(parsed.layout.second.first.command, ["just", "_peer", "researcher", "a", "", "", "acme"]);
 	assert.deepEqual(parsed.layout.second.second.command, ["just", "_peer", "documenter", "b", "m/x", "", "acme"]);
+});
+
+test("dry run: unified Hub topology threads posture, native roster, capabilities, and no-coms", () => {
+	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const peersYaml = join(dir, "peers.yaml");
+	writeFileSync(peersYaml, [
+		"base:",
+		"frontend:",
+		"  - name: planner-peer",
+		"    persona: planner",
+	].join("\n"));
+
+	const hubOnly = dryRun(["--team", "base", "--hub", "--project", "af"], peersYaml);
+	assert.equal(hubOnly.status, 0, hubOnly.stderr);
+	assert.deepEqual(parseDryLayout(hubOnly.stdout).layout.command, ["just", "fleet", "--project", "af"]);
+
+	const inferredOrchestrator = dryRun([
+		"--team", "frontend", "--hub", "--agents", "frontend", "--project", "af",
+	], peersYaml);
+	assert.equal(inferredOrchestrator.status, 0, inferredOrchestrator.stderr);
+	assert.deepEqual(parseDryLayout(inferredOrchestrator.stdout).layout.first.command, [
+		"just", "fleet", "--agents", "frontend", "--project", "af",
+	]);
+
+	const explicitOperator = dryRun([
+		"--team", "frontend", "--hub", "--posture", "operator", "--agents", "frontend",
+		"--no-coms", "--browser", "--all-extensions", "--project", "af",
+	], peersYaml);
+	assert.equal(explicitOperator.status, 0, explicitOperator.stderr);
+	const parsed = parseDryLayout(explicitOperator.stdout);
+	assert.deepEqual(parsed.layout.first.command, [
+		"just", "fleet", "--posture", "operator", "--agents", "frontend", "--no-coms",
+		"--browser", "--all-extensions", "--project", "af",
+	]);
+	for (const command of paneCommands(parsed.layout)) {
+		if (command[0] === "just" && command[1] !== "fleet") assert.equal(command.at(-1), "af");
+	}
+});
+
+test("dry run: legacy team roster marker selects matching roster and falls back to default", () => {
+	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const peersYaml = join(dir, "peers.yaml");
+	writeFileSync(peersYaml, [
+		"security:",
+		"  - name: security-peer",
+		"    persona: security-auditor",
+		"web:",
+		"  - name: web-peer",
+		"    persona: web-debugger",
+	].join("\n"));
+
+	const security = dryRun([
+		"--team", "security", "--hub", "--legacy-agents", "security", "--project", "af",
+	], peersYaml);
+	assert.equal(security.status, 0, security.stderr);
+	assert.deepEqual(parseDryLayout(security.stdout).layout.first.command, [
+		"just", "fleet", "--agents", "security", "--project", "af",
+	]);
+
+	const web = dryRun(["--team", "web", "--hub", "--legacy-agents", "web"], peersYaml);
+	assert.equal(web.status, 0, web.stderr);
+	assert.deepEqual(parseDryLayout(web.stdout).layout.first.command, [
+		"just", "fleet", "--agents", "default",
+	]);
 });
 
 test("dry run: non-hub project sends the project to every peer without a hub pane", () => {

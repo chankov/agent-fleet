@@ -63,6 +63,7 @@ import {
 	ReplyPendingError,
 	replyDeadlineAt,
 	resolveReplyTimeoutMs,
+	waitForClaudePaneReady,
 } from "./lib/claude-bridge-core.ts";
 import { herdr, requireHerdr, HerdrUnavailableError } from "../.pi/harnesses/lib/herdr-client.ts";
 import { HerdrPresence } from "../.pi/harnesses/lib/herdr-presence.ts";
@@ -150,6 +151,15 @@ async function main(): Promise<void> {
 	} catch (err) {
 		if (err instanceof HerdrUnavailableError) die(err.message);
 		throw err;
+	}
+
+	// `_claude-peer` backgrounds this bridge before the shell starts Claude Code.
+	// Do not publish a coms identity during that gap: Hub peer readiness is based
+	// on registration, and an immediate prompt typed into the still-booting pane
+	// is lost while the Claude TUI replaces the shell screen.
+	const startup = await waitForClaudePaneReady(async () => (await herdr.paneGet(paneId)).pane);
+	if (!startup.ready) {
+		die(`Claude Code was not detected as ready in pane ${paneId} after ${Math.round(startup.waitedMs / 1000)}s`);
 	}
 
 	// ── identity ──

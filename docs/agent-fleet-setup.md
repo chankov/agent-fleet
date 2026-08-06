@@ -21,6 +21,76 @@ Keep them split: the overrides file is loaded into context constantly, so it
 must stay minimal; the install record is read only by the CLI, so it can be
 large.
 
+## Unified Fleet runtime configuration
+
+A Pi workspace has one public runtime entry point. Bare Fleet loads Fleet Core
+plus Agent Hub in **operator** posture, in the current terminal, with no native
+specialists active:
+
+```bash
+just fleet
+just fleet --project af
+```
+
+Posture, native roster, and peer topology are separate controls:
+
+```bash
+# Direct tools plus an available native roster.
+just fleet --posture operator --agents frontend --project af
+
+# A roster implies orchestrator when posture is not explicit.
+just fleet --agents frontend --project af
+
+# Herdr Hub-only and Hub-plus-peer topologies.
+just fleet --herdr --project af
+just fleet --agents frontend --peers frontend --project af
+```
+
+Startup precedence is deterministic: explicit `--posture` wins; otherwise an
+explicit `--agents` roster implies `orchestrator`; otherwise posture is
+`operator`. An orchestrator startup must name a roster. `--herdr` affects only
+placement, while `--peers <preset>` implies Herdr and starts the selected peer
+preset. Neither topology option selects a native roster.
+
+`--project <name>` selects one coms namespace for the Hub and every standing or
+dynamically spawned peer. Dynamic peer tools deliberately expose no project
+override, so an agent cannot cross that boundary. The default project is
+`default`; use an explicit project when multiple fleets share a machine.
+
+The configuration files have distinct ownership:
+
+| File | Controls |
+| --- | --- |
+| `.pi/agents/teams.yaml` | Named **native rosters** of Pi personas available to `dispatch_agent`. Bare Fleet ignores YAML ordering and starts empty; select one with `--agents`, `/af-agents-team`, or add individuals with `/af-agents-add`. |
+| `.pi/agents/peers.yaml` | Named **standing peer presets** and each peer's runner (`pi` or `claude-code`), persona, model, extensions, and optional declared `env_file`. Select a preset with `--peers`; dynamic `herdr_spawn_peer` uses the same declaration resolver. |
+| `.pi/agents/dispatch-policy.yaml` | Routing used only when `dispatch_agent.backend` is `auto`: native/coms preference, fallback, grace period, and peer reply timeout. |
+| `.ai/agent-fleet-overrides.md` (`## agent-hub`) | Project-specific Hub language, model overrides, rule/doc roots, budgets, mode, watchdog, and related execution policy. It does not choose startup posture or topology. |
+
+For deterministic routing, `backend: "native"` always starts the local Pi
+specialist even if a same-name peer is visible. `backend: "coms"` requires a
+visible same-name peer and refuses without native fallback. The default
+`backend: "auto"` follows `dispatch-policy.yaml` and preserves its configured
+fallback behavior.
+
+Capability flags and runtime gates fail closed:
+
+- `--no-coms` keeps operator direct tools and native dispatch available, but
+  peer dispatch, `coms_send`/`coms_await`, and `/af-handoff` refuse actionably.
+- `--herdr` and `--peers` require a running [Herdr](https://herdr.dev) server.
+  Without Herdr, bare Fleet still works and dynamic pane tools stay inactive.
+- `--browser` adds the browser extension surface and `--all-extensions` opts
+  into the complete approved extension set. Missing optional dependencies do
+  not grant tools merely because a flag was supplied.
+- Hub-owned slash commands remain registered in both postures. A missing coms
+  runtime, Herdr connection, target peer, or native roster produces a
+  capability refusal rather than a missing command.
+
+During the migration release, `just fleet hub`, `just fleet team <preset>`,
+`just fleet team <preset> --no-hub`, and `--solo` remain accepted and print a
+canonical replacement. New automation should use `just fleet` with
+`--agents`, `--peers`, `--herdr`, and `--no-coms`; compatibility does not imply
+that the deprecated grammar will remain indefinitely.
+
 ## The overrides file — `.ai/agent-fleet-overrides.md`
 
 Some skills and pi harnesses need facts specific to each project — where specs
@@ -161,8 +231,9 @@ the environment nor declared in the workspace root `.env`.
 
 ### Per-peer env files (`env_file:` in peers.yaml)
 
-Fleet peers spawned by `just fleet team` can carry their own
-environment: an `env_file:` entry in `.pi/agents/peers.yaml` names a
+Fleet peers spawned through `--peers`, `just fleet peer`, or the Hub's
+constrained dynamic peer tool can carry their own environment: an `env_file:`
+entry in `.pi/agents/peers.yaml` names a
 **repo-relative** KEY=VALUE file (same format as `.env`, no shell evaluation)
 that herdr injects into the peer's pane before the command runs — no `source`,
 no leaking into sibling panes. The file must exist at spawn (team-up refuses
@@ -231,10 +302,12 @@ instead `.gitignore` them, since their recorded paths are local to one machine.
 
 A team member the `agent-hub` harness dispatches (`.pi/agents/teams.yaml`) can be
 served by a live coms peer of the same name instead of a freshly spawned native
-subagent. `.pi/agents/dispatch-policy.yaml` decides that per member at dispatch
-time; `.pi/agents/peers.yaml` decides *how* each peer runs. A peer with
-`runner: claude-code` is an interactive Claude Code pane plus its bridge — the
-one way Claude Code takes part in a fleet. See
+subagent. With the default `backend: "auto"`,
+`.pi/agents/dispatch-policy.yaml` decides that per member at dispatch time;
+explicit `native` bypasses substitution, while explicit `coms` requires the
+peer and never falls back. `.pi/agents/peers.yaml` decides *how* each peer runs.
+A peer with `runner: claude-code` is an interactive Claude Code pane plus its
+bridge — the one way Claude Code takes part in a fleet. See
 [claude-code-coms-bridge.md](claude-code-coms-bridge.md).
 
 Installing `skill:peer-coms` pulls `hook:coms-stop-hook` in as a companion, which

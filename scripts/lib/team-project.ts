@@ -111,14 +111,34 @@ export function teamWorkspaceLabel(
 	return project === DEFAULT_PROJECT ? base : `${base}--project.${project}`;
 }
 
+export interface HubCommandOptions {
+	posture?: "operator" | "orchestrator";
+	agentTeam?: string;
+	noComs?: boolean;
+	browser?: boolean;
+	allExtensions?: boolean;
+}
+
+export function resolveLegacyAgentRoster(teams: Record<string, string[]>, requested: string): string {
+	validateTeamName(requested);
+	const wanted = requested.toLowerCase();
+	return Object.keys(teams).find(name => name.toLowerCase() === wanted)
+		?? Object.keys(teams).find(name => name.toLowerCase() === "default")
+		?? "default";
+}
+
 export function hubCommand(
 	project = DEFAULT_PROJECT,
-	capabilities: { browser?: boolean; allExtensions?: boolean } = {},
+	options: HubCommandOptions = {},
 ): string[] {
 	validateProject(project);
-	const command = ["just", "fleet", "hub"];
-	if (capabilities.browser) command.push("--browser");
-	if (capabilities.allExtensions) command.push("--all-extensions");
+	if (options.agentTeam) validateTeamName(options.agentTeam);
+	const command = ["just", "fleet"];
+	if (options.posture) command.push("--posture", options.posture);
+	if (options.agentTeam) command.push("--agents", options.agentTeam);
+	if (options.noComs) command.push("--no-coms");
+	if (options.browser) command.push("--browser");
+	if (options.allExtensions) command.push("--all-extensions");
 	if (project !== DEFAULT_PROJECT) command.push("--project", project);
 	return command;
 }

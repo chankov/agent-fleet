@@ -6,6 +6,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+	CLAUDE_STARTUP_REGISTRATION_SLACK_MS,
+	CLAUDE_STARTUP_TIMEOUT_MS,
 	completionSentinel,
 	extractSentinelReply,
 	formatPanePrompt,
@@ -13,6 +15,8 @@ import {
 	IDLE_WAIT_CAP_MS,
 	idleWaitBudgetMs,
 	idleWaitDelayMs,
+	isClaudePaneReady,
+	waitForClaudePaneReady,
 	parseHookRecord,
 	PromptQueue,
 	REPLY_TIMEOUT_HARD_CAP_MS,
@@ -23,6 +27,7 @@ import {
 } from "./claude-bridge-core.ts";
 import { peerCommand } from "./herdr-layout.ts";
 import { bridgeRegistryEntry, bridgeRegistryIdentity } from "../coms-claude-bridge.ts";
+import { PEER_READY_TIMEOUT_MS } from "../../.pi/harnesses/lib/spawned-peers.js";
 
 const ENV = {
 	prompt: "What is the answer?",
@@ -59,6 +64,56 @@ test("extractSentinelReply pulls the reply between prompt echo and sentinel", ()
 	// TUI rules stripped
 	const framed = `x: ${completionSentinel("01MSGID")}\n━━━━━━\n● reply line\n━━━━━━\n${completionSentinel("01MSGID")}`;
 	assert.equal(extractSentinelReply(framed, "01MSGID"), "reply line");
+});
+
+test("Claude peer readiness waits for the Claude process, not the early bridge registration", async () => {
+	assert.equal(isClaudePaneReady({ agent_status: "unknown" }), false, "plain shell before Claude starts");
+	assert.equal(isClaudePaneReady({ agent_status: "idle" }), false, "idle shell is not a ready Claude peer");
+	assert.equal(isClaudePaneReady({ agent: "pi", agent_status: "idle" }), false);
+	assert.equal(isClaudePaneReady({ agent: "claude", agent_status: "unknown" }), false);
+	assert.equal(isClaudePaneReady({ agent: "Claude", agent_status: "idle" }), true);
+	assert.equal(isClaudePaneReady({ agent: "claude", agent_status: "working" }), true);
+	assert.equal(isClaudePaneReady({ agent: "claude", agent_status: "blocked" }), true);
+
+	let now = 0;
+	const states = [
+		{ agent_status: "unknown" },
+		{ agent_status: "idle" },
+		{ agent: "claude", agent_status: "idle" },
+	];
+	const result = await waitForClaudePaneReady(
+		async () => states.shift() ?? { agent: "claude", agent_status: "idle" },
+		{ timeoutMs: 1_000, pollMs: 100, now: () => now, sleep: async (ms) => { now += ms; } },
+	);
+	assert.equal(result.ready, true);
+	assert.equal(result.waitedMs, 200);
+	assert.deepEqual(result.last, { agent: "claude", agent_status: "idle" });
+});
+
+test("Claude startup leaves time to publish registration before peer readiness expires", () => {
+	const registrationSlackMs = PEER_READY_TIMEOUT_MS - CLAUDE_STARTUP_TIMEOUT_MS;
+	assert.ok(
+		registrationSlackMs >= CLAUDE_STARTUP_REGISTRATION_SLACK_MS,
+		`expected at least ${CLAUDE_STARTUP_REGISTRATION_SLACK_MS}ms registration slack, got ${registrationSlackMs}ms`,
+	);
+});
+
+test("Claude readiness polling stops exactly at its bounded startup deadline", async () => {
+	let now = 0;
+	let probes = 0;
+	const result = await waitForClaudePaneReady(
+		async () => {
+			probes++;
+			return { agent: "claude", agent_status: "unknown" };
+		},
+		{ timeoutMs: 250, pollMs: 100, now: () => now, sleep: async (ms) => { now += ms; } },
+	);
+	assert.deepEqual(result, {
+		ready: false,
+		waitedMs: 250,
+		last: { agent: "claude", agent_status: "unknown" },
+	});
+	assert.equal(probes, 4, "probe at 0ms, 100ms, 200ms, and the 250ms deadline");
 });
 
 test("PromptQueue serializes strictly and reports depth", () => {

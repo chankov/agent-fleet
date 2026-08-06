@@ -50,29 +50,31 @@ default:
 
 # ---------------------------------------------------------------- unified Fleet interface
 
-# Agent Fleet — one guarded entry point, additive capabilities, and lifecycle verbs.
+# Agent Fleet — one guarded Hub runtime, two postures, independent topology.
 #
-# SAFE INTERACTIVE PI (recommended default)
-#   just fleet
-#   just fleet --model openai-codex/gpt-5.6-terra
+# UNIFIED HUB (recommended default)
+#   just fleet                              # operator + empty native roster
+#   just fleet --agents frontend            # orchestrator + native roster
+#   just fleet --posture operator --agents frontend
+#   just fleet --no-coms                    # direct/native work, no peer messaging
 #   just fleet --browser                    # add live Chrome DevTools tools
 #   just fleet --voice                      # load installed push-to-talk STT
 #   just fleet --all-extensions             # also auto-load project/global extensions
 #
 # ADDRESSABLE COMS PEER
 #   just fleet peer nick --project af
-#   just fleet peer web-debugger --browser --project af
+#   just fleet peer code-reviewer --project af
 #
-# AGENT HUB
-#   just fleet hub --project af             # dispatcher + embedded coms
-#   just fleet hub --solo                   # dispatcher + local children, no coms
-#   just fleet hub --browser --project af   # browser tools in the hub/main process
+# HERDR TOPOLOGY (preset names come from .pi/agents/peers.yaml)
+#   just fleet --herdr --project af         # one Hub pane, no standing peers
+#   just fleet --peers review --project af  # operator Hub + standing peers
+#   just fleet --agents frontend --peers frontend --project af
+#   just fleet --agents frontend --peers frontend --dry-run
 #
-# HERDR TEAMS (preset names come from .pi/agents/peers.yaml)
-#   just fleet team frontend --project af   # guarded hub + guarded peer grid
-#   just fleet team frontend --no-hub       # guarded peer grid only
-#   just fleet team review --dry-run        # print layout; do not touch Herdr
-#   just fleet team web --browser           # browser in hub; peer extras still come from YAML
+# COMPATIBILITY (accepted with migration warnings)
+#   just fleet hub --solo                   # use: just fleet --no-coms
+#   just fleet team frontend --project af   # use canonical --agents/--peers flags
+#   just fleet team frontend --no-hub       # legacy peers-only topology
 #
 # TEAM LIFECYCLE
 #   just fleet snapshot frontend --project af

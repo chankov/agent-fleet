@@ -31,9 +31,10 @@ Agent Fleet source checkout use `node bin/cli.js setup` instead. See
 Once a harness selection installs the managed launcher:
 
 ```bash
-just fleet
-just fleet hub
-just fleet team docs --project af
+just fleet                                      # Hub/operator; empty native roster
+just fleet --agents default --project af        # Hub/orchestrator + native roster
+just fleet --agents default --peers docs --project af
+                                                # Hub + standing Herdr peers
 just fleet deps             # install nested .pi/extensions and .pi/harnesses dependencies
 just fleet doctor
 ```
@@ -45,6 +46,8 @@ so use `setup` or `deps`.
 Use `just fleet uninstall --yes` only for the self-hosted workspace lifecycle.
 It removes the launcher last. Reinstall after that with the package CLI, not
 `just`: `npx @chankov/agent-fleet@latest setup --preset default --features none --yes`.
+
+## Pi package-native skills and prompts
 
 For pi package-native skills/prompts instead of copied ones:
 

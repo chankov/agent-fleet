@@ -129,8 +129,12 @@ function mergeExtensions(...values: (string | undefined)[]): string | undefined 
  * positionals are `<name> <browser> <all_extensions>` followed by raw pi args,
  * so `--project` travels as an ordinary pi flag rather than a placeholder slot.
  */
-function corePeerCommand(name: string, opts: PeerLaunchOptions, project: string): string[] {
+function corePeerCommand(name: string, opts: PeerLaunchOptions, project: string, model?: string): string[] {
 	const command = ["just", "_fleet-peer", name, opts.browser ? "true" : "false", opts.allExtensions ? "true" : "false"];
+	if (model !== undefined) {
+		if (/[\r\n]/.test(model)) throw new Error(`model contains a line break: ${JSON.stringify(model)}`);
+		command.push("--model", model);
+	}
 	if (project !== DEFAULT_PROJECT) command.push("--project", project);
 	for (const arg of opts.piArgs ?? []) {
 		// A pane launch types this argv at a shell prompt one line at a time, so
@@ -198,7 +202,7 @@ export function buildPeerLaunchPlan(opts: PeerLaunchOptions, ctx: PeerLaunchCont
 					"or use --all-extensions / raw pi flags after `--`.",
 			);
 		}
-		return { ...common, kind: "core-peer", command: corePeerCommand(name, opts, project) };
+		return { ...common, kind: "core-peer", command: corePeerCommand(name, opts, project, model) };
 	}
 
 	if (!ctx.personaExists(persona)) throw new Error(`Persona "${persona}" not found under agents/ or .pi/agents/.`);
