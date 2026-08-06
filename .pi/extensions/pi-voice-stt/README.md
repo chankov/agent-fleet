@@ -39,7 +39,7 @@ it shows a moving `transcribing…` dot.
 Config is resolved in this order (first hit wins):
 
 1. `PI_STT_CONFIG` — inline JSON (starts with `{`) or a path to a JSON file
-2. `<cwd>/.ai/stt.json` — project-local config (what guided setup writes)
+2. `<cwd>/.ai/stt.json` — project-local config (what deterministic setup writes)
 3. `~/.pi/agent/stt.json` — global config
 4. built-in defaults
 
@@ -47,8 +47,9 @@ Secrets are **never** stored in the file: the config names an environment variab
 key is read from the process environment — a gitignored `.env` at the repo root, auto-loaded by
 the `justfile`'s `dotenv-load`. See [`examples/stt.json`](examples/stt.json).
 
-> **Guided setup** can write the `.ai/stt.json` + `.env` for you — pick `pi-voice-stt` in
-> `/af-setup-agent-fleet` and answer the provider prompts. See
+> **Deterministic setup** can write `.ai/stt.json` and append an empty `.env`
+> placeholder — select the voice feature in `npx @chankov/agent-fleet setup` and answer
+> the provider prompts. See
 > [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md).
 
 ### Option 1 — Generic OpenAI-compatible endpoint

@@ -19,7 +19,9 @@ import { join } from "node:path";
 
 import { listPersonas, targetRelPath } from "./personas.js";
 
-export const MANIFEST_SCHEMA_VERSION = 1;
+export const MANIFEST_SCHEMA_VERSION = 2;
+export const SNAPSHOT_SCHEMA_VERSIONS = new Set([1, 2]);
+export const STABILITY = ["stable", "experimental", "retired"];
 
 // Fixed order everywhere the manifest emits per-agent data, so output is stable.
 export const MANIFEST_AGENTS = ["pi"];
@@ -93,6 +95,8 @@ export function buildManifest({ sourceRoot, packageVersion, meta = null }) {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
     packageVersion,
     groups: m.groups,
+    presets: m.presets ?? {},
+    features: m.features ?? {},
     profiles: m.profiles,
     items: items.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
   });
@@ -107,14 +111,45 @@ export function loadMeta(sourceRoot) {
   return JSON.parse(readFileSync(join(sourceRoot, MANIFEST_META_FILE), "utf8"));
 }
 
-export function loadManifest(sourceRoot) {
+export function loadCurrentManifest(sourceRoot) {
   const path = join(sourceRoot, MANIFEST_FILE);
   if (!existsSync(path)) {
-    throw new Error(
-      `${MANIFEST_FILE} is missing from ${sourceRoot} — run \`node bin/build-manifest.js\``,
-    );
+    throw new Error(`${MANIFEST_FILE} is missing from ${sourceRoot} — run \`node bin/build-manifest.js\``);
   }
-  return JSON.parse(readFileSync(path, "utf8"));
+  const manifest = JSON.parse(readFileSync(path, "utf8"));
+  const problems = validateManifest(manifest, { sourceRoot });
+  if (problems.length) throw new Error(`invalid current manifest:\n${problems.join("\n")}`);
+  return manifest;
+}
+
+/** Load historical merge metadata without mutating its on-disk schema-v1 form. */
+export function loadSnapshotManifest(sourceRoot) {
+  const path = join(sourceRoot, MANIFEST_FILE);
+  if (!existsSync(path)) return null;
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  if (!SNAPSHOT_SCHEMA_VERSIONS.has(raw.schemaVersion)) {
+    throw new Error(`unsupported snapshot manifest schemaVersion ${raw.schemaVersion}`);
+  }
+  const manifest = raw.schemaVersion === 1 ? normalizeV1Manifest(raw) : raw;
+  const problems = validateSnapshotManifest(manifest);
+  if (problems.length) throw new Error(`invalid snapshot manifest:\n${problems.join("\n")}`);
+  return manifest;
+}
+
+/** Compatibility alias for runtime callers; current package metadata is always v2. */
+export const loadManifest = loadCurrentManifest;
+
+export function normalizeV1Manifest(manifest) {
+  return {
+    ...manifest,
+    schemaVersion: 2,
+    presets: {},
+    features: {},
+    items: (manifest.items ?? []).map((item) => ({
+      ...item,
+      stability: item.retired ? "retired" : "stable",
+    })),
+  };
 }
 
 // ── derivation ──────────────────────────────────────────────────────────────
@@ -402,9 +437,7 @@ function deriveCompanions(sourceRoot, meta) {
     }));
   }
 
-  const closurePath = join(
-    sourceRoot, "skills", "guided-workspace-setup", "companion-manifest.json",
-  );
+  const closurePath = join(sourceRoot, "bin", "catalog", "harness-runtime-closure.json");
   if (existsSync(closurePath)) {
     const closure = JSON.parse(readFileSync(closurePath, "utf8"));
     // `justfile` is in the closure list but needs the managed-region strategy,
@@ -465,6 +498,7 @@ function makeItem(meta, base) {
     title: base.title,
     summary: overrides.summary ?? base.summary ?? "",
     recommended: (meta.recommended ?? []).includes(base.id),
+    stability: overrides.stability ?? (overrides.retired ? "retired" : "stable"),
     consent: overrides.consent ?? base.consent ?? "file",
     platform: overrides.platform ?? base.platform ?? "any",
     agents: orderAgents(base.agents),
@@ -508,8 +542,8 @@ function orderAgents(agents) {
   return out;
 }
 
-function orderedManifest({ schemaVersion, packageVersion, groups, profiles, items }) {
-  return { schemaVersion, packageVersion, groups, profiles, items };
+function orderedManifest({ schemaVersion, packageVersion, groups, presets, features, profiles, items }) {
+  return { schemaVersion, packageVersion, groups, presets, features, profiles, items };
 }
 
 // ── validation ──────────────────────────────────────────────────────────────
@@ -523,13 +557,14 @@ function orderedManifest({ schemaVersion, packageVersion, groups, profiles, item
  * @param {string} [opts.sourceRoot]
  * @returns {string[]}
  */
-export function validateManifest(manifest, { sourceRoot = null } = {}) {
+export function validateManifest(manifest, { sourceRoot = null, snapshot = false } = {}) {
   const problems = [];
 
   if (manifest.schemaVersion !== MANIFEST_SCHEMA_VERSION) {
-    problems.push(
-      `schemaVersion is ${manifest.schemaVersion}, expected ${MANIFEST_SCHEMA_VERSION}`,
-    );
+    problems.push(`schemaVersion is ${manifest.schemaVersion}, expected ${MANIFEST_SCHEMA_VERSION}`);
+  }
+  if (!snapshot && (!manifest.presets || !manifest.features)) {
+    problems.push("schema v2 manifest requires presets and features");
   }
   if (!manifest.packageVersion) problems.push("packageVersion is missing");
 
@@ -546,6 +581,7 @@ export function validateManifest(manifest, { sourceRoot = null } = {}) {
     if (!groupIds.has(item.group)) problems.push(`${at}: unknown group "${item.group}"`);
     if (!CONSENT.includes(item.consent)) problems.push(`${at}: unknown consent "${item.consent}"`);
     if (!PLATFORMS.includes(item.platform)) problems.push(`${at}: unknown platform "${item.platform}"`);
+    if (!STABILITY.includes(item.stability)) problems.push(`${at}: invalid stability "${item.stability}"`);
 
     const agents = Object.keys(item.agents ?? {});
     if (agents.length === 0) problems.push(`${at}: has no agent bindings`);
@@ -608,6 +644,41 @@ export function validateManifest(manifest, { sourceRoot = null } = {}) {
     }
   }
 
+  for (const [name, preset] of Object.entries(manifest.presets ?? {})) {
+    if (preset.rule && preset.items) problems.push(`preset ${name}: declares both "rule" and "items"`);
+    if (!preset.rule && !preset.items) problems.push(`preset ${name}: declares neither "rule" nor "items"`);
+    if (preset.rule && preset.rule !== "stable") problems.push(`preset ${name}: unknown rule "${preset.rule}"`);
+    for (const id of preset.items ?? []) {
+      const item = (manifest.items ?? []).find((candidate) => candidate.id === id);
+      if (!item) problems.push(`preset ${name}: unknown item "${id}"`);
+      else if (item.stability === "retired") problems.push(`preset ${name}: selectable retired item "${id}"`);
+    }
+  }
+
+  const features = manifest.features ?? {};
+  for (const [name, feature] of Object.entries(features)) {
+    if (!STABILITY.includes(feature.stability)) problems.push(`feature ${name}: invalid stability "${feature.stability}"`);
+    if (feature.platform && !PLATFORMS.includes(feature.platform)) problems.push(`feature ${name}: unknown platform "${feature.platform}"`);
+    for (const id of feature.items ?? []) {
+      const item = (manifest.items ?? []).find((candidate) => candidate.id === id);
+      if (!item) problems.push(`feature ${name}: unknown item "${id}"`);
+      else if (item.stability === "retired") problems.push(`feature ${name}: selectable retired item "${id}"`);
+    }
+    for (const dependency of feature.requiresFeatures ?? []) {
+      if (!features[dependency]) problems.push(`feature ${name}: unknown feature dependency "${dependency}"`);
+    }
+  }
+  for (const name of Object.keys(features)) {
+    const visit = (featureName, path = []) => {
+      if (path.includes(featureName)) {
+        problems.push(`feature dependency cycle: ${[...path, featureName].join(" -> ")}`);
+        return;
+      }
+      for (const dependency of features[featureName]?.requiresFeatures ?? []) visit(dependency, [...path, featureName]);
+    };
+    visit(name);
+  }
+
   for (const [name, profile] of Object.entries(manifest.profiles ?? {})) {
     if (profile.rule && profile.items) {
       problems.push(`profile ${name}: declares both "rule" and "items"`);
@@ -623,6 +694,23 @@ export function validateManifest(manifest, { sourceRoot = null } = {}) {
     }
   }
 
+  return problems;
+}
+
+export function validateSnapshotManifest(manifest) {
+  const problems = [];
+  const ids = new Set((manifest.items ?? []).map((item) => item.id));
+  if (!Array.isArray(manifest.items)) problems.push("items is missing");
+  for (const item of manifest.items ?? []) {
+    if (!ID_RE.test(item.id ?? "")) problems.push(`item ${item.id}: invalid id`);
+    if (!STABILITY.includes(item.stability)) problems.push(`item ${item.id}: invalid stability "${item.stability}"`);
+    for (const key of ["companions", "requires", "pinnedBy", "parents"]) {
+      for (const ref of item[key] ?? []) if (!ids.has(ref)) problems.push(`item ${item.id}: ${key} references unknown item "${ref}"`);
+    }
+  }
+  // V1 snapshots predate presets/features and may have agent bindings the
+  // current package no longer supports; their role is a merge base, not a
+  // current install catalogue.
   return problems;
 }
 

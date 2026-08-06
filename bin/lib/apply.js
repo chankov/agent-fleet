@@ -27,12 +27,36 @@ import { dirname, join, resolve } from "node:path";
 import { itemsForAgent } from "./manifest.js";
 import { expandBinding } from "./verify.js";
 import { extractRegion, replaceRegion, stripRegion, leafPaths, setPath, canonicalJson } from "./merge-forms.js";
+import { runTransaction } from "./transaction.js";
+import { renderDesired } from "./desired.js";
 import {
   readState, writeState, emptyState, hashFile, hashText, walkTree,
   inspectPath, isInside, linkPointsInside, STATE_REL_PATH, LEGACY_RECORD_REL_PATH,
 } from "./state.js";
 
 export const APPLY_SCHEMA_VERSION = 1;
+
+/** Retry only commands recorded after a previous post-commit runtime failure. */
+export function retryRuntimeRepairs({ workspace, output = console.log }) {
+  const state = readState(workspace);
+  const pending = state?.runtimeRepairs ?? [];
+  if (pending.length === 0) return { attempted: 0, remaining: [] };
+
+  const remaining = [];
+  for (const repair of pending) {
+    const command = `${repair.command} ${(repair.args ?? []).join(" ")}`.trim();
+    output(command);
+    const run = spawnSync(repair.command, repair.args ?? [], {
+      cwd: insideWorkspace(workspace, repair.cwd ?? "."), stdio: "pipe", encoding: "utf8",
+    });
+    if (run.status !== 0) {
+      remaining.push({ ...repair, status: run.status ?? "signal", stderr: (run.stderr ?? "").trim() });
+    }
+  }
+  state.runtimeRepairs = remaining;
+  writeState(workspace, state);
+  return { attempted: pending.length, remaining };
+}
 
 /**
  * Execute a plan against its workspace.
@@ -44,7 +68,53 @@ export const APPLY_SCHEMA_VERSION = 1;
  * @param {() => string} [opts.now]  injectable clock, for deterministic tests
  * @returns {object} result
  */
-export function applyPlan({ plan, manifest, allowExec = false, now = () => new Date().toISOString() }) {
+export function applyPlan({ plan, manifest, allowExec = false, now = () => new Date().toISOString(), output = console.log, failAt = null }) {
+  const validate = () => {
+    if (plan.migrationBlocked) throw Object.assign(new Error(plan.migrationError), { exitCode: 1 });
+    if (plan.snapshotMetadataError) throw Object.assign(new Error(plan.snapshotMetadataError), { exitCode: 1 });
+    if ((plan.conflicts ?? []).length) throw Object.assign(new Error("unresolved conflicts"), { exitCode: 3 });
+  };
+  let result;
+  try {
+    result = runTransaction({ workspace: plan.workspace, plan, manifest, validate, failAt, commit: () => {
+      if (plan.writeDesired) writeFileSyncDeep(join(plan.workspace, ".ai", "agent-fleet.json"), renderDesired(plan.desired));
+      if (plan.overrides?.write) writeFileSyncDeep(plan.overrides.path, plan.overrides.text);
+      if (plan.stt) {
+        writeFileSyncDeep(plan.stt.path, plan.stt.text);
+        if (plan.stt.env.missing.length) writeFileSyncDeep(plan.stt.env.path, plan.stt.env.text);
+      }
+      return applyImmediate({ plan, manifest, allowExec: false, now });
+    } });
+  } catch (error) {
+    return { schemaVersion: APPLY_SCHEMA_VERSION, workspace: plan.workspace, verb: plan.verb,
+      results: [], conflictFiles: [], failure: { status: "failed", detail: error.message },
+      exitCode: error.exitCode ?? 1, summary: { applied: 0, failed: 1 } };
+  }
+  if (!allowExec) return { ...result, exitCode: 0 };
+
+  const repairs = [];
+  for (const action of plan.actions.filter((entry) => entry.kind === "exec")) {
+    const item = new Map(itemsForAgent(manifest, plan.agent).map((entry) => [entry.id, entry])).get(action.id);
+    const spec = item?.exec;
+    if (!spec) continue;
+    const command = `${spec.command} ${(spec.args ?? []).join(" ")}`.trim();
+    output(command);
+    const run = spawnSync(spec.command, spec.args ?? [], { cwd: insideWorkspace(plan.workspace, spec.cwd ?? "."), stdio: "pipe", encoding: "utf8" });
+    if (run.status !== 0) repairs.push({ id: action.id, command: spec.command, args: spec.args ?? [], cwd: spec.cwd ?? ".", display: command, status: run.status ?? "signal", stderr: (run.stderr ?? "").trim() });
+  }
+  if (repairs.length) {
+    const state = readState(plan.workspace);
+    state.runtimeRepairs = repairs;
+    writeState(plan.workspace, state);
+    return { ...result, exitCode: 1, runtimeRepairs: repairs };
+  }
+  const results = result.results.map((entry) => plan.actions.some((action) => action.id === entry.id && action.kind === "exec")
+    ? { ...entry, status: "applied", detail: "command ran after file commit" }
+    : entry);
+  return { ...result, results, exitCode: 0, runtimeRepairs: [] };
+}
+
+function applyImmediate({ plan, manifest, allowExec = false, now = () => new Date().toISOString() }) {
   const { workspace, sourceRoot, agent, method, packageVersion } = plan;
   const catalogue = new Map(itemsForAgent(manifest, agent).map((i) => [i.id, i]));
   const previous = readState(workspace);
@@ -82,8 +152,14 @@ export function applyPlan({ plan, manifest, allowExec = false, now = () => new D
     }
   }
 
-  // Record the pass even on failure — see the header note.
-  state.packageVersion = failed ? (previous?.packageVersion ?? packageVersion) : packageVersion;
+  // An apply failure is a transaction failure, not a partially successful
+  // installation. Throw before recording state so runTransaction restores every
+  // managed path (including desired state) to its exact pre-image.
+  if (failed) {
+    throw Object.assign(new Error(`${failed.id}: ${failed.detail}`), { actionFailure: failed });
+  }
+
+  state.packageVersion = packageVersion;
   state.updatedAt = now();
   state.installedAt ??= state.updatedAt;
   state.events = [...(state.events ?? []), {

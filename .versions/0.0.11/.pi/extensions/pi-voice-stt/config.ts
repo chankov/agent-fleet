@@ -2,7 +2,7 @@
 //
 // Resolution order (first hit wins):
 //   1. PI_STT_CONFIG     — inline JSON (starts with "{") or a path to a JSON file
-//   2. <cwd>/.ai/stt.json — project-local config (written by guided setup)
+//   2. <cwd>/.ai/stt.json — project-local config (written by deterministic setup)
 //   3. ~/.pi/agent/stt.json — global config
 //   4. built-in defaults
 //

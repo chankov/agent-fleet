@@ -12,7 +12,7 @@
 # children run with guardrails by default.
 #
 # Everything between the two `agent-fleet:harnesses` sentinels below is a
-# MANAGED REGION: guided-workspace-setup regenerates it from the installed
+# MANAGED REGION: `agent-fleet setup` regenerates it from the installed
 # package whenever pi harnesses are installed, refreshed, or retired — so edits
 # inside it are overwritten on upgrade. Put your own recipes OUTSIDE the
 # sentinels (above the opening marker or below the closing one) to keep them.
@@ -21,7 +21,7 @@
 set dotenv-load := true
 
 # How recipes run the fleet TS scripts. The preserve-symlinks flags matter for
-# symlink installs (guided-workspace-setup's `symlink` method): there
+# symlink installs (`agent-fleet setup --method symlink`): there
 # scripts/*.ts are links whose realpath sits under .pi/npm/node_modules/, and
 # Node refuses --experimental-strip-types for anything under node_modules once
 # paths are realpath'd. Keeping symlink paths avoids that; copy installs are
@@ -33,15 +33,16 @@ node_ts := "node --experimental-strip-types --preserve-symlinks --preserve-symli
 # deterministic; these modules are then loaded explicitly:
 #   • damage-control-continue — fail-closed safety with actionable feedback
 #   • ask-user-remote         — stock local ask_user, optionally raced with Hermes
-#   • pi-voice-stt            — Alt+S dictation (silent no-op until configured)
 #   • compact-and-continue    — request_compaction at explicit workflow checkpoints
 #   • btw                     — /btw and Alt+' side sessions
 #   • update check            — bounded, non-blocking package update notification
-# `--browser` additionally loads chrome-devtools-mcp. `--all-extensions` removes
+# `--browser` additionally loads chrome-devtools-mcp; `--voice` explicitly loads
+# pi-voice-stt only after the voice feature has installed it. `--all-extensions` removes
 # `--no-extensions`, so project/global auto-discovered extensions also load; use
 # it only when a session intentionally needs extensions outside Fleet Core.
-fleet_core_extensions := "-e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/extensions/pi-voice-stt/index.ts -e .pi/extensions/compact-and-continue/index.ts -e .pi/extensions/btw/index.ts -e .pi/extensions/agent-fleet-update-check/index.ts"
+fleet_core_extensions := "-e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/extensions/compact-and-continue/index.ts -e .pi/extensions/btw/index.ts -e .pi/extensions/agent-fleet-update-check/index.ts"
 fleet_browser_extension := "-e .pi/extensions/chrome-devtools-mcp/index.ts"
+fleet_voice_extension := "-e .pi/extensions/pi-voice-stt/index.ts"
 
 # Show the complete Fleet command guide, descriptions, and runnable examples.
 default:
@@ -55,6 +56,7 @@ default:
 #   just fleet
 #   just fleet --model openai-codex/gpt-5.6-terra
 #   just fleet --browser                    # add live Chrome DevTools tools
+#   just fleet --voice                      # load installed push-to-talk STT
 #   just fleet --all-extensions             # also auto-load project/global extensions
 #
 # ADDRESSABLE COMS PEER
@@ -86,8 +88,17 @@ default:
 #   just fleet conductor codex status
 #   just fleet conductor codex stop
 #
-# BOOTSTRAP / HELP
-#   just fleet install                       # npm runtime deps only; starts no harness
+# NEW REPOSITORY SETUP (run from the target repository in a real TTY)
+#   just fleet setup
+#     Resolves npx @chankov/agent-fleet@latest and opens the installer TUI.
+#     It needs npm registry access unless @latest is already cached.
+#     Source checkout development: node bin/cli.js setup
+#
+# LIFECYCLE (npx equivalents work even after self-uninstall)
+#   just fleet setup [--preset default|full --features none --yes]
+#   just fleet deps                          # npm runtime deps only; starts no harness
+#   just fleet doctor [--fix]
+#   just fleet uninstall --all --yes       # --all is required for --yes
 #   just fleet help
 #
 # Unified guarded Pi, Hub, peers, teams, lifecycle, and conductor entry point.
@@ -95,8 +106,8 @@ fleet *args:
     @{{node_ts}} scripts/fleet.ts {{args}}
 
 # Hidden Fleet Core launcher. Positional booleans are emitted only by fleet.ts.
-_fleet-core browser="false" all_extensions="false" *args:
-    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; pi $discovery {{fleet_core_extensions}} $browser_ext {{args}}
+_fleet-core browser="false" voice="false" all_extensions="false" *args:
+    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; voice_ext=""; if [ "{{voice}}" = "true" ]; then voice_ext="{{fleet_voice_extension}}"; fi; pi $discovery {{fleet_core_extensions}} $browser_ext $voice_ext {{args}}
 
 # Hidden entry point for `just fleet peer <name>`: resolves the peer (runner,
 # persona, model, extensions from .pi/agents/peers.yaml or flags) and launches it
@@ -114,15 +125,20 @@ _fleet-peer name browser="false" all_extensions="false" *args:
 # Hidden Hub launcher. Agent Hub re-loads Damage Control into every native
 # specialist, researcher, and nested delegate even though children use
 # --no-extensions. `solo=true` disables only the embedded coms layer.
-_fleet-hub solo="false" browser="false" all_extensions="false" *args:
-    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; solo_flag=""; if [ "{{solo}}" = "true" ]; then solo_flag="--solo"; fi; persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi $discovery {{fleet_core_extensions}} -e .pi/harnesses/agent-hub/index.ts $browser_ext $solo_flag $persona {{args}}
+_fleet-hub solo="false" browser="false" voice="false" all_extensions="false" *args:
+    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; voice_ext=""; if [ "{{voice}}" = "true" ]; then voice_ext="{{fleet_voice_extension}}"; fi; solo_flag=""; if [ "{{solo}}" = "true" ]; then solo_flag="--solo"; fi; persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi $discovery {{fleet_core_extensions}} -e .pi/harnesses/agent-hub/index.ts $browser_ext $voice_ext $solo_flag $persona {{args}}
 
-# Hidden dependency bootstrap used by `just fleet install`.
+# Hidden dependency installer used by `just fleet deps`.
 # It installs only Node runtime dependencies. It does NOT launch Pi, activate a
 # harness, configure STT, install ffmpeg/Herdr, or pair a remote conductor.
-_fleet-install:
+_fleet-deps:
     npm install --prefix .pi/extensions
     npm install --prefix .pi/harnesses
+
+# Deterministic lifecycle CLI. `setup` always resolves the published latest
+# package; it needs registry access unless the matching npm cache entry exists.
+_fleet-lifecycle command *args:
+    npx @chankov/agent-fleet@latest {{command}} {{args}}
 
 
 # Internal helper for `fleet team`: launch a reusable GUARDED Pi peer.

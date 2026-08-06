@@ -11,7 +11,7 @@ manifest-meta.json    → the hand-edited half: groups, profiles, recommendation
 skills/       → Agent Fleet-native + customized skills (SKILL.md per directory); shadows same-named vendored skills
 vendor/agent-skills-upstream/ → Pristine upstream skill import at a pinned SHA — NEVER edit in place; policy + update procedure in docs/UPSTREAM-SKILLS.md
 hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote conduction — see docs/coms-hermes-bridge.md
-agents/       → 13 reusable agent personas, canonical pi frontmatter; installed as verbatim copies (no per-agent translation — pi is the only install target)
+agents/       → 15 reusable agent personas, canonical pi frontmatter; installed as verbatim copies (no per-agent translation — pi is the only install target)
 hooks/        → Session lifecycle hooks
 scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; peer-launch single-peer `just fleet peer` launcher; scripts/lib/ pure fleet modules under node --test)
 justfile      → Recipes to launch pi with each harness
@@ -25,7 +25,7 @@ justfile      → Recipes to launch pi with each harness
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
 references/   → Supplementary checklists (testing, performance, security, accessibility, observability); each installs as a companion of the skills that cite it
-docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS.md (vendoring policy — update it when touching vendor/ or shadowed skills), MIGRATION-agent-fleet.md (one-time split record), setup guides, agent-fleet-setup.md (per-project overrides + install-record convention), npm-install.md (CLI + versioning), claude-code-coms-bridge.md and coms-hermes-bridge.md (bridge references), plus pi-extensions.md and pi-specs/ for the pi extensions
+docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS.md (vendoring policy — update it when touching vendor/ or shadowed skills), MIGRATION-agent-fleet.md (major-release migration matrix), setup guides, agent-fleet-setup.md (per-project overrides + ownership), npm-install.md (deterministic lifecycle reference), claude-code-coms-bridge.md and coms-hermes-bridge.md (bridge references), plus pi-extensions.md and pi-specs/ for the pi extensions
 ```
 
 ## Skills by Phase
@@ -38,7 +38,6 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
 **Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md)
 **Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets — invoked via the agent-hub `/af-compound` command dispatching `documenter`)
-**Onboard:** guided-workspace-setup
 
 ## Conventions
 
@@ -51,13 +50,13 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 - Override readers ship built-in defaults but read per-project overrides from `.ai/agent-fleet-overrides.md` in the *target* project — see `docs/agent-fleet-setup.md`:
   - Skills: `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`
   - pi harness: `agent-hub` via the `## agent-hub` section (legacy `## agent-team` still accepted)
-  - pi extension: `pi-voice-stt` reads project-local `.ai/stt.json` (its own JSON config, not the overrides markdown) ahead of global `~/.pi/agent/stt.json`; guided setup writes it + the gitignored `.env` secrets
+  - pi extension: `pi-voice-stt` reads project-local `.ai/stt.json` (its own JSON config, not the overrides markdown) ahead of global `~/.pi/agent/stt.json`; deterministic `agent-fleet setup` writes only provider/env-variable names and appends placeholders to the gitignored `.env`
 - Always-on pi utility extensions live in `.pi/extensions/<name>/` (auto-discovered by pi); the selectable orchestration/UI/safety/messaging harnesses live in `.pi/harnesses/<name>/` (NOT auto-discovered — loaded explicitly via the `justfile` or `pi -e`; `just fleet hub` loads Fleet Core before `agent-hub`, which re-loads `damage-control-continue` into every native specialist, researcher, and nested delegate). Each is a directory with `index.ts` + `package.json` + `README.md`. Never put a harness under `.pi/extensions/` — pi loads everything there at once. The harnesses are ported from disler/pi-vs-claude-code (MIT) — see `docs/pi-extensions.md`
 
 ## Commands
 
 - `npm test` — CLI smoke test (`--version`, `--help`) plus the `node --test` unit tests in `bin/test/`
-- `node bin/cli.js <install|upgrade|uninstall|verify|doctor>` — the installer engine; five policies over one `plan() → apply()` core. `--dry-run`/`--json`/`--yes` on every verb; exit `0` ok, `1` error, `2` findings, `3` conflicts. A full install needs no agent and no model
+- `node bin/cli.js <setup|doctor|uninstall>` — deterministic lifecycle; `setup --dry-run` prints a no-write JSON plan, `doctor` is read-only unless `--fix`, and normal uninstall preserves human config. Exit `0` is success/no-op, `1` failure, `2` doctor findings, and `3` unresolved setup conflicts. `init`, `install`, `upgrade`, and `update` are deprecated compatibility commands, not new documentation targets. No lifecycle command needs an agent or model
 - `node bin/build-manifest.js [--check]` — regenerate `install-manifest.json` from the tree (`--check` fails on drift; run it after adding any artifact)
 - `npm run pack:dry` — `npm pack --dry-run` to verify the tarball contents match `package.json`'s `files` allowlist
 - `npx changeset` — Add a changeset for any user-visible change (see CONTRIBUTING.md for bump rules)
@@ -70,4 +69,4 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 - Always: Treat pi as the only coding agent. Claude Code is a **coms peer**, never an install target — it joins a fleet through `scripts/coms-claude-bridge.ts` (`runner: claude-code` in `.pi/agents/peers.yaml`), reads `skills/peer-coms`, and reports turns through `hooks/coms-stop-hook.mjs`. Adding a `.claude/` install path for anything else re-opens a runtime we deliberately closed — see `docs/claude-code-coms-bridge.md`
 - Never: Add skills that are vague advice instead of actionable processes
 - Never: Duplicate content between skills — reference other skills instead
-- Never: Restate an installer rule (paths, item states, merge/ownership rules, the Fleet Core closure) in a skill or slash command — it lives in `bin/lib/` and `manifest-meta.json`, and a second copy always drifts. `guided-workspace-setup` shells out to the CLI; it writes only `.ai/agent-fleet-overrides.md` and `.ai/stt.json`
+- Never: Restate an installer rule (paths, item states, merge/ownership rules, the Fleet Core closure) in a skill or slash command — it lives in `bin/lib/` and `manifest-meta.json`, and a second copy always drifts. The deterministic CLI owns `.ai/agent-fleet-overrides.md` and `.ai/stt.json`.

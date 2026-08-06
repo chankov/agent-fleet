@@ -30,7 +30,7 @@ Two kinds of native skills exist:
 
 - **Fleet-original skills** with no upstream counterpart:
   `_internal/`, `compound-learning/`, `designing-agents/`,
-  `guided-workspace-setup/`, `orchestration-verification/`, `peer-coms/`.
+  `orchestration-verification/`, `peer-coms/`.
 - **Forked-and-customized skills** that shadow an upstream name. These
   carry deliberate Agent Fleet policy edits (agent operating rules, review
   gates, references to `references/prompting-patterns.md` and the

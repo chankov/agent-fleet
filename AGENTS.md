@@ -52,7 +52,9 @@ in `.pi/prompts/`:
 - `/af-review` → `code-review-and-quality`
 - `/af-code-simplify` → `code-simplification`
 - `/af-ship` → `shipping-and-launch`
-- `/af-setup-agent-fleet` → `guided-workspace-setup`
+
+Workspace installation is outside the prompt/skill layer: use the deterministic
+`agent-fleet setup`, `agent-fleet doctor`, and `agent-fleet uninstall` CLI commands.
 
 Whether triggered implicitly or via a command, the agent MUST invoke the underlying skill — never inline the steps.
 
@@ -192,10 +194,13 @@ zip -r {skill-name}.zip {skill-name}/
 
 Document these installation methods for users:
 
-**pi (installer):**
+**Deterministic workspace lifecycle:**
 ```bash
-npx @chankov/agent-fleet install --items skill:{skill-name}
+npx @chankov/agent-fleet@latest setup
 ```
+
+Use Default/Full and named features rather than raw item selectors; see
+`docs/npm-install.md`.
 
 **pi (manual):**
 ```bash

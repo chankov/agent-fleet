@@ -30,15 +30,22 @@ interface InstallOptions {
 	warn?: (message: string) => void;
 	createAbortController?: () => AbortController;
 	settingsPaths?: string[];
+	/** When true, settings-listed packages are dormant (Pi `--no-extensions`/`-ne`). */
+	extensionDiscoveryDisabled?: boolean;
 	remoteProject?: string | (() => string);
 }
 
+interface ResolveStockOptions {
+	moduleUrl?: string;
+	cwd?: string;
+	homeDir?: string;
+}
+
 // A stock `pi-ask-user` package listed in pi settings is loaded by pi core
-// itself, outside this harness's try/catch. If the harness registers `ask_user`
-// first, the package's later registration makes pi core hard-crash the session
-// with a tool-name conflict. The preflight below detects that configuration and
-// skips the wrapper entirely, so the stock package registers alone regardless
-// of load order.
+// itself only when extension discovery is enabled. Under `--no-extensions`/
+// `-ne` the entry is dormant, so this harness must still install the wrapper.
+// When discovery is enabled, registering here first would make pi core
+// hard-crash later with a tool-name conflict — the preflight skips instead.
 const STOCK_PACKAGE_PATTERN = /(^|[/:])pi-ask-user(@[^/]*)?$/;
 
 export function defaultSettingsPaths(): string[] {
@@ -48,7 +55,74 @@ export function defaultSettingsPaths(): string[] {
 	];
 }
 
+/** True when argv disables Pi package/extension discovery (explicit `-e` still works). */
+export function hasDisabledExtensionDiscovery(argv: string[] = process.argv): boolean {
+	return argv.includes("--no-extensions") || argv.includes("-ne");
+}
+
+interface StockPackageEntry {
+	source: string;
+	autoload?: boolean;
+	extensions?: unknown;
+}
+
+function parseStockPackageEntry(value: unknown): StockPackageEntry | null {
+	if (typeof value === "string") {
+		return STOCK_PACKAGE_PATTERN.test(value) ? { source: value } : null;
+	}
+	if (!value || typeof value !== "object") return null;
+	const entry = value as { source?: unknown; autoload?: unknown; extensions?: unknown };
+	if (typeof entry.source !== "string" || !STOCK_PACKAGE_PATTERN.test(entry.source)) return null;
+	return {
+		source: entry.source,
+		autoload: entry.autoload === false ? false : undefined,
+		extensions: entry.extensions,
+	};
+}
+
+function stockExtensionPatternMatches(rawPattern: string): boolean {
+	let pattern = rawPattern;
+	if (pattern.startsWith("!") || pattern.startsWith("+") || pattern.startsWith("-")) pattern = pattern.slice(1);
+	pattern = pattern.replace(/^\.\//, "");
+	let expression = "";
+	for (let i = 0; i < pattern.length; i++) {
+		const char = pattern[i];
+		if (char === "*") {
+			if (pattern[i + 1] === "*") {
+				expression += ".*";
+				i++;
+			} else {
+				expression += "[^/]*";
+			}
+		} else if (char === "?") {
+			expression += "[^/]";
+		} else {
+			expression += char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		}
+	}
+	return new RegExp(`^${expression}$`).test("index.ts");
+}
+
+function applyStockExtensionFilter(filter: unknown, inherited: boolean): boolean {
+	if (filter === undefined || !Array.isArray(filter)) return inherited;
+	if (filter.length === 0) return false;
+
+	const patterns = filter.filter((value): value is string => typeof value === "string" && value.length > 0);
+	const selectors = patterns.filter((pattern) => !pattern.startsWith("!") && !pattern.startsWith("+") && !pattern.startsWith("-"));
+	let enabled = selectors.length > 0
+		? selectors.some(stockExtensionPatternMatches)
+		: inherited;
+
+	for (const pattern of patterns) {
+		if (!stockExtensionPatternMatches(pattern)) continue;
+		if (pattern.startsWith("!") || pattern.startsWith("-")) enabled = false;
+		else if (pattern.startsWith("+")) enabled = true;
+	}
+	return enabled;
+}
+
 export function findStockAskUserPackageEntry(settingsPaths: string[]): { entry: string; settingsPath: string } | null {
+	const located: Array<{ entry: StockPackageEntry; settingsPath: string }> = [];
 	for (const settingsPath of settingsPaths) {
 		let packages: unknown;
 		try {
@@ -57,10 +131,22 @@ export function findStockAskUserPackageEntry(settingsPaths: string[]): { entry: 
 			continue;
 		}
 		if (!Array.isArray(packages)) continue;
-		const entry = packages.find((pkg) => typeof pkg === "string" && STOCK_PACKAGE_PATTERN.test(pkg));
-		if (entry) return { entry, settingsPath };
+		const entry = packages.map(parseStockPackageEntry).find(Boolean);
+		if (entry) located.push({ entry, settingsPath });
 	}
-	return null;
+
+	// Pi resolves lower-precedence settings first. A normal project entry
+	// replaces the global entry; `autoload:false` applies only its resource
+	// filter as a delta over the inherited package state.
+	let enabled = false;
+	let owner: { entry: StockPackageEntry; settingsPath: string } | null = null;
+	for (let i = located.length - 1; i >= 0; i--) {
+		const current = located[i];
+		const inherited = current.entry.autoload === false ? enabled : true;
+		enabled = applyStockExtensionFilter(current.entry.extensions, inherited);
+		owner = enabled ? current : null;
+	}
+	return owner ? { entry: owner.entry.source, settingsPath: owner.settingsPath } : null;
 }
 
 export function captureAskUserTool(stockFactory: (pi: ExtensionLike) => void, pi: ExtensionLike): ToolRegistration {
@@ -277,10 +363,13 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 }
 
 export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions = {}): { registered: boolean; tool?: ToolRegistration } {
-	if (options.settingsPaths) {
+	const discoveryDisabled = options.extensionDiscoveryDisabled === true;
+	// Settings presence is not runtime availability: under --no-extensions the
+	// package entry is dormant and the wrapper must still install itself.
+	if (!discoveryDisabled && options.settingsPaths) {
 		const listed = findStockAskUserPackageEntry(options.settingsPaths);
 		if (listed) {
-			warn(pi, options, `ask-user-remote: "${listed.entry}" is listed in ${listed.settingsPath} "packages"; skipping the ask_user wrapper so the stock package registers without a tool conflict (remote answer racing disabled). Remove the entry — this harness loads pi-ask-user itself.`);
+			warn(pi, options, `ask-user-remote: "${listed.entry}" is listed in ${listed.settingsPath} "packages" and extension discovery is enabled; skipping the ask_user wrapper so the stock package registers without a tool conflict (remote answer racing disabled for this session).`);
 			return { registered: false };
 		}
 	}
@@ -300,13 +389,71 @@ export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions 
 	}
 }
 
-export function resolveStockAskUserModule(moduleUrl: string = import.meta.url): string {
+const STOCK_ENTRY_NAMES = ["index.ts", "index.js", "index.mjs"] as const;
+
+function stockEntriesUnder(packageDir: string): string[] {
+	return STOCK_ENTRY_NAMES.map((name) => path.join(packageDir, name));
+}
+
+/**
+ * Candidate filesystem paths for stock `pi-ask-user`, in priority order:
+ * 1. Package-native bundled dependency beside the Agent Fleet package
+ * 2. Project Pi package (`.pi/npm`)
+ * 3. Harness runtime dependency (`.pi/harnesses/node_modules`)
+ * 4. Global Pi package (`~/.pi/agent/npm`)
+ *
+ * Each root expands to `index.ts`, then `index.js` / `index.mjs` so plain-Node
+ * smoke fixtures can supply a JS stub while production still prefers the
+ * upstream TypeScript entry that Pi's jiti loader understands.
+ */
+export function stockAskUserCandidatePaths(options: ResolveStockOptions = {}): string[] {
+	const moduleUrl = options.moduleUrl ?? import.meta.url;
+	const cwd = options.cwd ?? process.cwd();
+	const homeDir = options.homeDir ?? os.homedir();
+
 	// Pi's jiti loader preserves the workspace-facing path of a symlinked
 	// harness. Canonicalize this module first so the bundled dependency is
 	// resolved beside the actual Agent Fleet package, not at workspace root.
 	const realModulePath = fs.realpathSync(fileURLToPath(moduleUrl));
-	const stockModulePath = path.resolve(path.dirname(realModulePath), "../../../node_modules/pi-ask-user/index.ts");
-	return pathToFileURL(stockModulePath).href;
+	const moduleDir = path.dirname(realModulePath);
+	// ask-user-remote lives at <package>/.pi/harnesses/ask-user-remote
+	const packageRoot = path.resolve(moduleDir, "../../..");
+	const harnessRoot = path.resolve(moduleDir, "..");
+
+	let isPackageNative = false;
+	try {
+		isPackageNative = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"))?.name === "@chankov/agent-fleet";
+	} catch {
+		// A copied harness has no Agent Fleet package root; do not treat the
+		// downstream application's node_modules as a bundled runtime source.
+	}
+
+	const roots = [
+		...(isPackageNative ? [path.join(packageRoot, "node_modules", "pi-ask-user")] : []),
+		path.join(cwd, ".pi", "npm", "node_modules", "pi-ask-user"),
+		path.join(harnessRoot, "node_modules", "pi-ask-user"),
+		path.join(cwd, ".pi", "harnesses", "node_modules", "pi-ask-user"),
+		path.join(homeDir, ".pi", "agent", "npm", "node_modules", "pi-ask-user"),
+	];
+	return roots.flatMap((root) => stockEntriesUnder(root));
+}
+
+export const MISSING_STOCK_ASK_USER_MESSAGE =
+	"ask-user-remote: pi-ask-user not found. Run `npm ci --prefix .pi/harnesses` and/or `pi install -l npm:pi-ask-user`.";
+
+export function resolveStockAskUserModule(options: ResolveStockOptions | string = {}): string {
+	// Back-compat: older callers passed moduleUrl as the first positional arg.
+	const normalized: ResolveStockOptions = typeof options === "string" ? { moduleUrl: options } : options;
+	const seen = new Set<string>();
+	for (const candidate of stockAskUserCandidatePaths(normalized)) {
+		const resolved = path.resolve(candidate);
+		if (seen.has(resolved)) continue;
+		seen.add(resolved);
+		if (fs.existsSync(resolved)) {
+			return pathToFileURL(fs.realpathSync(resolved)).href;
+		}
+	}
+	throw new Error(MISSING_STOCK_ASK_USER_MESSAGE);
 }
 
 async function loadStockFactory(): Promise<(pi: ExtensionLike) => void> {
@@ -314,8 +461,17 @@ async function loadStockFactory(): Promise<(pi: ExtensionLike) => void> {
 	return mod.default as (pi: ExtensionLike) => void;
 }
 
-export default function askUserRemote(pi: ExtensionLike): void {
-	void loadStockFactory()
-		.then((stockFactory) => installAskUserRemote(pi, { stockFactory, settingsPaths: defaultSettingsPaths() }))
-		.catch((error) => warn(pi, {}, `ask-user-remote: failed to load pi-ask-user (${error instanceof Error ? error.message : String(error)})`));
+export default async function askUserRemote(pi: ExtensionLike): Promise<void> {
+	// Await registration so session_start probes (e.g. agent-hub getAllTools)
+	// see ask_user after extension factories finish loading.
+	try {
+		const stockFactory = await loadStockFactory();
+		installAskUserRemote(pi, {
+			stockFactory,
+			settingsPaths: defaultSettingsPaths(),
+			extensionDiscoveryDisabled: hasDisabledExtensionDiscovery(),
+		});
+	} catch (error) {
+		warn(pi, {}, `ask-user-remote: failed to load pi-ask-user (${error instanceof Error ? error.message : String(error)})`);
+	}
 }

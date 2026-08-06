@@ -86,8 +86,9 @@ test("package skill/prompt inventories come from the Agent Fleet source tree", (
   const skills = listPackageSkillNames(sourceRoot);
   const prompts = listPackagePromptNames(sourceRoot);
   assert.ok(skills.includes("incremental-implementation"));
-  assert.ok(skills.includes("guided-workspace-setup"));
-  assert.ok(prompts.includes("af-setup-agent-fleet"));
+  assert.equal(skills.includes("guided-workspace-setup"), false);
+  assert.equal(prompts.includes("af-setup-agent-fleet"), false);
+  assert.equal(prompts.includes("af-doctor-agent-fleet"), false);
   assert.ok(prompts.includes("af-build"));
 });
 
@@ -172,10 +173,10 @@ test("former mixed RankedIn-style configuration reports one actionable advisory"
   const home = tempWorkspace();
   try {
     seedCopiedState(ws, {
-      skills: ["incremental-implementation", "guided-workspace-setup", "code-review-and-quality"],
+      skills: ["incremental-implementation", "code-review-and-quality"],
       commands: [
         { id: "build", prompt: "af-build" },
-        { id: "setup-agent-fleet", prompt: "af-setup-agent-fleet" },
+        { id: "review", prompt: "af-review" },
       ],
     });
     writeJson(join(ws, ".pi", "settings.json"), {

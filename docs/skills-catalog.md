@@ -81,11 +81,11 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 
 This is the compound-engineering loop: invoked via `/af-compound` in the agent-hub harness, it runs against the `rules:`/`docs:` targets from `.ai/agent-fleet-overrides.md`, with an approval gate and hard caps so the rule tree gets sharper instead of longer.
 
-## Onboard - Get a workspace set up
+## Workspace lifecycle
 
-| Skill | What It Does | Use When |
-|-------|-------------|----------|
-| [guided-workspace-setup](../skills/guided-workspace-setup/SKILL.md) | The LLM-driven installer behind `/af-setup-agent-fleet` — workspace analysis, grouped install menus, version-aware three-way diffs, per-project overrides, doctor repairs | Installing, upgrading, or repairing an Agent Fleet workspace |
+Workspace installation is intentionally not a skill. Use the deterministic
+`agent-fleet setup`, `agent-fleet doctor`, and `agent-fleet uninstall` commands;
+see [npm-install.md](npm-install.md).
 
 ## How skills work
 

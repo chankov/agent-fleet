@@ -8,6 +8,13 @@ import { resolveMonitorEnv } from "./lib/monitor-env.ts";
 
 const HELP = `Agent Fleet — unified Pi runtime
 
+SET UP A NEW REPOSITORY
+  just fleet setup
+      The easiest TUI entry point. It runs npx @chankov/agent-fleet@latest setup
+      from this repository, so it needs npm registry access unless @latest is cached.
+      Select Default/Full and optional features, inspect the exact plan, then
+      confirm once to apply it. Source checkout development: node bin/cli.js setup.
+
 QUICK START
   just fleet
       Start the default guarded Pi session with Fleet Core.
@@ -19,8 +26,8 @@ QUICK START
       Start a guarded Hub plus the frontend peer team in one Herdr workspace.
 
 FLEET CORE — loaded in every Pi mode
-  Damage Control Continue · local/remote ask_user · Speech-to-Text (Alt+S)
-  Compact & Continue · BTW side sessions · update checker
+  Damage Control Continue · local/remote ask_user · Compact & Continue
+  BTW side sessions · update checker (voice is opt-in with --voice)
 
 SESSION MODES
   just fleet [PI_ARGS...]
@@ -106,16 +113,30 @@ CAPABILITY FLAGS
       On a persona peer it adds the chrome-devtools-mcp extension instead.
       Example: just fleet hub --browser --project af
 
+  --voice
+      Load pi-voice-stt from .pi/extensions after selecting the voice setup feature.
+      Example: just fleet --voice
+
   --all-extensions
       Also auto-load arbitrary project/global extensions outside Fleet Core.
       Not available to persona peers: reusable peers load a deterministic set,
       declared per peer via extensions: in .pi/agents/peers.yaml.
       Example: just fleet peer debugger --all-extensions --project af
 
-SETUP
-  just fleet install
+LIFECYCLE
+  just fleet setup [--preset default|full --features none --yes]
+      Reconcile desired state with the newest published package.
+  just fleet deps
       Install only .pi/extensions and .pi/harnesses Node dependencies.
       Does not launch Pi, configure STT, install ffmpeg/Herdr, or pair Codex.
+  just fleet doctor [--fix]
+  just fleet uninstall --all --yes
+      Reinstall after self-uninstall with npx @chankov/agent-fleet@latest setup.
+
+UPDATE NOTE
+  pi update --extensions updates pi extensions only; it does not update this npm
+  installer. Run just fleet setup to resolve @latest and reconcile the workspace.
+  just fleet install was removed; use setup or deps.
 
 HELP
   just                 Show this complete command guide.

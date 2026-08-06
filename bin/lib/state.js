@@ -56,6 +56,7 @@ export function emptyState({ agent, method, packageVersion, sourceRoot, profiles
     updatedAt: now,
     items: {},
     externalPackages: [],
+    runtimeRepairs: [],
     events: [],
   };
 }
@@ -77,6 +78,7 @@ function orderState(state) {
       Object.keys(state.items ?? {}).sort().map((k) => [k, state.items[k]]),
     ),
     externalPackages: state.externalPackages ?? [],
+    runtimeRepairs: state.runtimeRepairs ?? [],
     events: (state.events ?? []).slice(-MAX_EVENTS),
   };
 }

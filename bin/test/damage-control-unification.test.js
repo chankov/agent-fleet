@@ -1,6 +1,6 @@
 // Fleet Core closure and the retired hard-stop harness.
 //
-// These rules used to be prose in guided-workspace-setup/SKILL.md, asserted here
+// These rules are enforced by manifest data and apply.js, asserted here
 // as regexes over that file. Phase 7 of plans/deterministic-installer.md moved
 // them into data and code — `requires`/`pinnedBy` in the manifest, and the
 // ownership check in apply.js — so the assertions moved with them. A regex over
@@ -25,7 +25,6 @@ const read = (path) => readFileSync(join(root, path), "utf8");
 // a workspace must have installed for `just fleet` to start at all.
 const CORE_HARNESSES = ["pi-harness:damage-control-continue", "pi-harness:ask-user-remote"];
 const CORE_EXTENSIONS = [
-  "pi-extension:pi-voice-stt",
   "pi-extension:compact-and-continue",
   "pi-extension:btw",
   "pi-extension:agent-fleet-update-check",

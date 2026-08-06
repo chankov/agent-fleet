@@ -121,7 +121,7 @@ Candidate skill paths to keep as first-class Agent Fleet content:
 skills/orchestration-verification/
 skills/peer-coms/
 skills/compound-learning/
-skills/guided-workspace-setup/
+skills/deterministic setup CLI/
 skills/designing-agents/
 ```
 
@@ -320,7 +320,7 @@ git filter-repo \
   --path skills/orchestration-verification/ \
   --path skills/peer-coms/ \
   --path skills/compound-learning/ \
-  --path skills/guided-workspace-setup/ \
+  --path skills/deterministic setup CLI/ \
   --path skills/designing-agents/ \
   --path package.json \
   --path package-lock.json \

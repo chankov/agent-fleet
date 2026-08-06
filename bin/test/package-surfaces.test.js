@@ -1,5 +1,5 @@
-// Package and guided-setup runtime closure checks for the pre-Gate-P Codex pilot.
-// The guided installer is skill-driven; this test exercises the manifest's
+// Package and deterministic lifecycle runtime-closure checks.
+// This test exercises the manifest's
 // copy/symlink/removal semantics against fixtures so its closure cannot drift.
 
 import test from "node:test";
@@ -27,7 +27,7 @@ import { applyPlan } from "../lib/apply.js";
 import { extractRegion } from "../lib/merge-forms.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const manifestPath = join(root, "skills", "guided-workspace-setup", "companion-manifest.json");
+const manifestPath = join(root, "bin", "catalog", "harness-runtime-closure.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
 function relativePath(value) {
@@ -220,6 +220,14 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
 test("package dry-run includes each versioned harness entrypoint, module, and adjacent manifest", () => {
   const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8" }));
   const paths = new Set(packed[0].files.map(({ path }) => path));
+  assert.ok(paths.has("bin/catalog/harness-runtime-closure.json"), "relocated harness closure must ship in package");
+  assert.equal([...paths].some((path) => /guided-workspace-setup|af-(?:setup|doctor)-agent-fleet/.test(path)), false, "tarball must not ship retired setup surfaces");
+  const prompts = [...paths].filter((path) => path.startsWith(".pi/prompts/af-")).sort();
+  assert.deepEqual(prompts, [
+    ".pi/prompts/af-build.md", ".pi/prompts/af-code-simplify.md", ".pi/prompts/af-plan.md",
+    ".pi/prompts/af-review.md", ".pi/prompts/af-set-hermes-telegram.md", ".pi/prompts/af-set-hermes-watchdog.md",
+    ".pi/prompts/af-ship.md", ".pi/prompts/af-spec.md", ".pi/prompts/af-test.md",
+  ]);
   for (const harness of ["agent-hub", "coms", "damage-control-continue"]) {
     for (const file of ["index.ts", "version.ts", "package.json"]) {
       assert.ok(paths.has(`.pi/harnesses/${harness}/${file}`), `${harness}/${file}`);
@@ -244,6 +252,33 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
 
 // The full watchdog release surface — runtime modules, lifecycle commands,
 // exclusions, and content leak checks — lives in package-hermes-watchdog.test.js.
+test("isolated tarball supports Default and Full deterministic setup", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "af-tarball-"));
+  try {
+    const packed = JSON.parse(execFileSync("npm", ["pack", "--json"], { cwd: root, encoding: "utf8" }));
+    const tarball = join(root, packed[0].filename);
+    const extracted = join(fixture, "package");
+    execFileSync("tar", ["-xzf", tarball, "-C", fixture]);
+
+    for (const preset of ["default", "full"]) {
+      const workspace = join(fixture, preset);
+      mkdirSync(workspace);
+      const result = execFileSync(process.execPath, [
+        join(extracted, "bin", "cli.js"), "setup", "--workspace", workspace,
+        "--preset", preset, "--features", "none", "--yes",
+      ], { encoding: "utf8" });
+      assert.match(result, /Setup complete\./);
+      const desired = JSON.parse(readFileSync(join(workspace, ".ai", "agent-fleet.json"), "utf8"));
+      assert.equal(desired.preset, preset);
+      if (preset === "default") assert.equal(existsSync(join(workspace, ".claude")), false);
+      else assert.ok(existsSync(join(workspace, ".claude", "hooks", "coms-stop-hook.mjs")));
+    }
+  } finally {
+    for (const file of readdirSync(root)) if (/^chankov-agent-fleet-.*\.tgz$/.test(file)) rmSync(join(root, file), { force: true });
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 test("the watchdog release note stays honest about Gate O", () => {
   // The note starts life as a pending changeset and is folded verbatim into
   // CHANGELOG.md by `changeset version`, which deletes the changeset file.
@@ -274,9 +309,9 @@ test("published package hoists extension runtime dependencies for symlink instal
   }
 });
 
-test("package, snapshot, and guided manifest surfaces stay aligned", () => {
+test("package, snapshot, and harness closure surfaces stay aligned", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  for (const required of ["codex/", "hermes/README.md", "hermes/skills/", "systemd/", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md"]) {
+  for (const required of ["codex/", "hermes/README.md", "hermes/skills/", "systemd/", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md"]) {
     assert.ok(pkg.files.includes(required), `package files missing ${required}`);
   }
   assert.equal(pkg.files.includes("hermes/"), false);
@@ -287,16 +322,14 @@ test("package, snapshot, and guided manifest surfaces stay aligned", () => {
   assert.match(pkg.scripts.test, /scripts\/coms-cli\.test\.ts/);
   assert.match(pkg.scripts.test, /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");
-  for (const required of ["codex", "hermes", "systemd", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md", "scripts", "justfile"]) {
+  for (const required of ["codex", "hermes", "systemd", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md", "scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);
   }
   assert.doesNotMatch(snapshot, /^\s*"docs",$/m, "snapshot must not include docs omitted from the package root allowlist");
 });
 
-// The harness runtime closure and the managed-region lifecycle used to be prose
-// in guided-workspace-setup/SKILL.md. Phase 7 of plans/deterministic-installer.md
-// moved both into the manifest and apply(), so these assert the data and the
-// behaviour instead of the sentences that described them.
+// The harness runtime closure and managed-region lifecycle are manifest/apply
+// contracts. These assertions guard the data and behaviour directly.
 test("root and harness runtime deps pin the same pi-ask-user range", () => {
   const rootPkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const harnessPkg = JSON.parse(readFileSync(join(root, ".pi", "harnesses", "package.json"), "utf8"));
@@ -317,10 +350,12 @@ test("root and harness runtime deps pin the same pi-ask-user range", () => {
   );
 });
 
-test("the harness runtime closure is a manifest companion of every harness", () => {
+test("the relocated harness runtime closure is a manifest companion of every harness", () => {
   const installManifest = JSON.parse(readFileSync(join(root, "install-manifest.json"), "utf8"));
   const closure = installManifest.items.find((i) => i.id === "companion:harness-runtime-closure");
-  assert.ok(closure, "the companion-manifest.json closure has no manifest item");
+  assert.ok(closure, "the relocated harness closure has no manifest item");
+  assert.equal(existsSync(join(root, "skills", "guided-workspace-setup", "companion-manifest.json")), false, "legacy skill path must not contain runtime closure");
+  assert.ok(existsSync(manifestPath), "installer-owned runtime closure is missing");
 
   for (const rel of [...(manifest.files ?? []), ...(manifest.directories ?? [])]) {
     if (rel === "justfile") continue; // its own companion — managed region, not a whole-file copy

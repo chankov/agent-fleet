@@ -28,7 +28,7 @@ Personas are the *who*, skills are the *how*. Each working persona carries a con
 
 ## Installing personas
 
-`/af-setup-agent-fleet` offers every persona and copies it to `agents/<name>.md`
+The Full deterministic preset selects every stable persona and copies it to `agents/<name>.md`
 in the workspace. Nothing is translated: the canonical format *is* the pi format,
 which is why a persona verifies byte-for-byte against its source.
 

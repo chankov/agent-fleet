@@ -60,7 +60,7 @@ The root `package.json` is canonical; `bin/sync-harness-versions.js` synchronize
 harness stamps. A persistent-UI harness may keep a local provenance reader beside that manifest
 so a copied or symlinked directory resolves its adjacent stamp, not the launch cwd. This does
 **not** make it dependency-free. Runtime dependencies remain in `.pi/harnesses/package.json` and
-are installed once by `just install`; copied/symlinked target harnesses still need that full
+are installed once by `just fleet deps`; copied/symlinked target harnesses still need that full
 harness dependency installation. The `@mariozechner/pi-*` packages are provided by the pi runtime.
 If a harness needs a new dependency, add it to `.pi/harnesses/package.json`, not the per-harness
 file.
@@ -202,7 +202,7 @@ A **new** harness authored in this repo needs neither.
 
 ## Wiring — three edits beyond the directory
 
-1. **`justfile`** — add a recipe under the matching `# -----` category header, **inside the `agent-fleet:harnesses` managed-region sentinels** (so guided-workspace-setup ships and refreshes it in target workspaces):
+1. **`justfile`** — add a recipe under the matching `# -----` category header, **inside the `agent-fleet:harnesses` managed-region sentinels** (so deterministic setup ships and refreshes it in target workspaces):
    ```
    # <Name>: <short description>
    ext-<name>:
@@ -216,7 +216,7 @@ A **new** harness authored in this repo needs neither.
 ## Verify the harness runs
 
 ```bash
-just install                          # only if a dependency was added
+just fleet deps                       # only if a dependency was added
 pi -e .pi/harnesses/<name>/index.ts    # launches without error
 just ext-<name>                        # the recipe works
 ```

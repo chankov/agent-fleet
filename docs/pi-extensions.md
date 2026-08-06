@@ -22,16 +22,17 @@ conventions. Runtime design specs for the imported harnesses live in `docs/pi-sp
 
 ## What these extensions are
 
-`.pi/extensions/` ships always-on **utility** extensions — `mcp-bridge`,
-`chrome-devtools-mcp`, `compact-and-continue`, `agent-fleet-update-check`, `btw`, and
-`pi-voice-stt`. pi
-auto-discovers that directory, so they layer onto every session. `btw` adds a
+`.pi/extensions/` contains utility extensions. Fleet Core explicitly loads
+`compact-and-continue`, `agent-fleet-update-check`, and `btw`; browser and voice are
+feature-gated: after setup installs them, launch with `just fleet --browser` or
+`just fleet --voice`. This keeps Default deterministic even though pi can auto-discover
+extensions outside Fleet Core. `btw` adds a
 `/af-btw <task>` prompt command (plus an `Alt+'` shortcut) that forks the current session
 into an in-process sub-session and opens a live modal over it — full context, same
 cwd, follow-up composer, with a compact result card landing in the main transcript at
 idle. See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
 
-`pi-voice-stt` adds **Alt+S** push-to-talk dictation: it records the mic to a temp WAV via
+When loaded with `just fleet --voice`, `pi-voice-stt` adds **Alt+S** push-to-talk dictation: it records the mic to a temp WAV via
 `ffmpeg` and transcribes through one of three backends — a generic OpenAI-compatible endpoint,
 Azure Speech (REST short-audio, with optional per-phrase language identification), or Azure
 OpenAI Whisper (Azure AI Foundry). Alt+S toggles record→insert; Enter-while-recording
@@ -49,8 +50,8 @@ see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/READM
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some set orchestration/UI surfaces and some gate every
 tool call. The unified `just fleet` entry point composes them with a deterministic
-Fleet Core: `damage-control-continue`, `ask-user-remote`, STT, Compact & Continue,
-BTW, and the update checker. `just fleet hub` adds `agent-hub`; `just fleet peer`
+Fleet Core: `damage-control-continue`, `ask-user-remote`, Compact & Continue,
+BTW, and the update checker. Voice is an optional feature, not Default Fleet Core. `just fleet hub` adds `agent-hub`; `just fleet peer`
 adds standalone coms. Harnesses live in **`.pi/harnesses/`** — a directory pi does
 *not* auto-discover — so a plain `pi` run still loads no safety/orchestration harness.
 
@@ -65,11 +66,11 @@ same CLI flags would abort startup with duplicate registrations. So the harnesse
 - through the unified `justfile` interface — `just fleet`, `just fleet hub`, `just fleet peer <name>`, `just fleet team <preset>`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts` (advanced use; you must compose safety/utilities yourself)
 
-When you consume this repo from another project, install the harness you want into
-*its* `.pi/harnesses/` (`agent-fleet install --agent pi --items pi-harness:agent-hub`,
-or the `pi-fleet-core` profile for the whole stack) and load it via that project's
-`justfile` region, or point `pi -e` at the harness file directly — never drop the
-harnesses into `.pi/extensions/`, and never load all of them at once. The supported multi-harness
+When you consume this repo from another project, use deterministic `agent-fleet
+setup` to select Default, Full, and named features; it installs the recorded
+harness closure into *that project's* `.pi/harnesses/`. Then load it via the
+managed `justfile` region, or point `pi -e` at a harness file directly — never
+drop harnesses into `.pi/extensions/`, and never load all of them at once. The supported multi-harness
 exception is loading `damage-control-continue` and `ask-user-remote` before `agent-hub` for a guarded hub session (see
 [pi-setup.md](pi-setup.md#optional-pi-extensions)).
 
@@ -78,8 +79,8 @@ exception is loading `damage-control-continue` and `ask-user-remote` before `age
 ## Setup
 
 ```bash
-just fleet install      # one-time runtime deps only; starts no Pi/harness
-just fleet              # guarded Pi + STT and core utilities
+just fleet deps         # install nested runtime deps only; starts no Pi/harness
+just fleet              # guarded Pi + core utilities (voice only when selected)
 just fleet hub          # guarded multi-agent hub
 just fleet team docs    # hub + guarded Herdr peer team
 just fleet peer code-reviewer --project af    # ONE peer in its own Herdr pane, no team
@@ -87,13 +88,13 @@ just fleet help         # unified command grammar
 just --list             # shows the single public `fleet` entry point
 ```
 
-`just install` runs `npm install` for both dependency roots: `.pi/extensions/` for the
-utilities (`@modelcontextprotocol/sdk`, `typebox`) and `.pi/harnesses/` for the harnesses
-(`@sinclair/typebox`, `yaml`). That is the **clone** path. In a target workspace the
-installer handles it: the manifests are copied in as companions, and `agent-fleet install
---allow-exec` runs `npm ci --prefix .pi/extensions` and `npm ci --prefix .pi/harnesses`
-for you (without `--allow-exec` those two steps are printed in the plan and skipped, for
-you to run by hand). The extension dependencies are also root production dependencies of
+`just fleet deps` installs runtime dependencies for both dependency roots:
+`.pi/extensions/` for utilities (`@modelcontextprotocol/sdk`, `typebox`) and
+`.pi/harnesses/` for harnesses (`@sinclair/typebox`, `yaml`). That is the **clone**
+path. In a target workspace, deterministic `agent-fleet setup --allow-exec` runs
+`npm ci --prefix .pi/extensions` and `npm ci --prefix .pi/harnesses` after its file
+transaction. Without `--allow-exec`, the plan lists those runtime steps for the
+operator to run by hand. The extension dependencies are also root production dependencies of
 the published `@chankov/agent-fleet` package, so a pi-package install resolves them from
 the package's real path. The `@mariozechner/pi-*` packages are provided by the pi runtime
 itself.
@@ -116,8 +117,8 @@ surface, requirements, and per-extension upstream changes.
 ### Migration: retired hard-stop harness
 
 The former `.pi/harnesses/damage-control/` hard-stop harness and its standalone recipe
-are retired. Refresh pi harnesses with `agent-fleet upgrade` (or guided setup, which
-calls it): removal is bound by the ownership rule, so only an unchanged, recorded copy
+are retired. Refresh pi harnesses with `agent-fleet setup`: removal is bound by
+the ownership rule, so only an unchanged, recorded copy
 goes — user-modified and unowned copies are preserved, and the managed `justfile` region
 is refreshed without touching recipes outside the sentinels. Use `damage-control-continue` for standalone and
 Agent Hub safety; missing child safety now fails closed instead of falling back or spawning
@@ -329,7 +330,7 @@ These ported files are runtime dependencies of the extensions above:
   automation, used by the `bowser` agent persona. Kept separate from the core
   engineering `skills/`. It drives the external **Playwright Agent CLI**
   (`playwright-cli`), which is **not** bundled — install it once with
-  `npm install -g @playwright/cli@latest` (the guided setup checks for it when
+  `npm install -g @playwright/cli@latest` (deterministic setup checks for it when
   `bowser` is selected). Docs: <https://playwright.dev/agent-cli/installation>.
 - **`docs/pi-specs/`** — the original design specifications: `agent-forge` (now consolidated
   into `agent-hub`), `agent-workflow` (retired `agent-chain`), and `damage-control`.

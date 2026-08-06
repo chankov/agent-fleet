@@ -15,6 +15,7 @@ import {
   serializeManifest,
   validateManifest,
   loadManifest,
+  loadSnapshotManifest,
   loadMeta,
   itemsForAgent,
   resolveSelection,
@@ -71,6 +72,30 @@ test("manifest is stamped with the package version and schema version", () => {
 
 test("manifest validates against the source tree", () => {
   assert.deepEqual(validateManifest(manifest, { sourceRoot: root }), []);
+});
+
+test("schema-v1 snapshots normalize in memory while current manifests require v2", () => {
+  for (const version of ["0.0.10", "0.0.11"]) {
+    const snapshot = loadSnapshotManifest(join(root, ".versions", version));
+    assert.equal(snapshot.schemaVersion, 2);
+    assert.equal(typeof snapshot.presets, "object");
+    assert.equal(typeof snapshot.features, "object");
+    assert.ok(snapshot.items.every((item) => typeof item.stability === "string"));
+  }
+  assert.equal(loadSnapshotManifest(join(root, ".versions", "0.0.9")), null, "pre-manifest source snapshots remain usable bases");
+});
+
+test("v2 validation rejects invalid preset/feature references, cycles, and stability", () => {
+  const broken = structuredClone(manifest);
+  broken.presets.default.items.push("missing:item");
+  broken.features.voice.requiresFeatures = ["missing-feature"];
+  broken.features.hermes.requiresFeatures = ["telegram"];
+  broken.items[0].stability = "unsafe";
+  const problems = validateManifest(broken);
+  assert.ok(problems.some((problem) => problem.includes("preset default: unknown item")));
+  assert.ok(problems.some((problem) => problem.includes("unknown feature dependency")));
+  assert.ok(problems.some((problem) => problem.includes("feature dependency cycle")));
+  assert.ok(problems.some((problem) => problem.includes("invalid stability")));
 });
 
 test("validation catches a broken manifest", () => {
@@ -154,7 +179,7 @@ test("every reference, hook, pi tree, and hermes artifact has an item", () => {
 });
 
 test("installer-only artifacts are never offered", () => {
-  for (const name of ["guided-workspace-setup", "_internal"]) {
+  for (const name of ["_internal"]) {
     assert.ok(!ids.has(`skill:${name}`), `${name} must stay installer-only`);
   }
   for (const name of ["setup-agent-fleet", "doctor-agent-fleet"]) {
@@ -266,6 +291,15 @@ test("hermes and codex artifacts stay operator-gated", () => {
 });
 
 // ── selection ───────────────────────────────────────────────────────────────
+
+test("visible presets have deterministic valid roots", () => {
+  assert.deepEqual(Object.keys(manifest.presets), ["default", "full", "minimal"]);
+  for (const preset of Object.values(manifest.presets)) {
+    for (const id of preset.items ?? []) assert.ok(ids.has(id), id);
+  }
+  assert.equal(manifest.features.browser.items.includes("pi-skill:bowser"), false);
+  assert.ok(manifest.features.browser.items.includes("pi-runtime-skill:bowser"));
+});
 
 test("every profile resolves without unknown ids for every agent", () => {
   for (const agent of MANIFEST_AGENTS) {

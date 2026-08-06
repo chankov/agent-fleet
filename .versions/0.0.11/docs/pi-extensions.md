@@ -49,8 +49,8 @@ see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/READM
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some set orchestration/UI surfaces and some gate every
 tool call. The unified `just fleet` entry point composes them with a deterministic
-Fleet Core: `damage-control-continue`, `ask-user-remote`, STT, Compact & Continue,
-BTW, and the update checker. `just fleet hub` adds `agent-hub`; `just fleet peer`
+Fleet Core: `damage-control-continue`, `ask-user-remote`, Compact & Continue,
+BTW, and the update checker. Voice is an optional feature, not Default Fleet Core. `just fleet hub` adds `agent-hub`; `just fleet peer`
 adds standalone coms. Harnesses live in **`.pi/harnesses/`** — a directory pi does
 *not* auto-discover — so a plain `pi` run still loads no safety/orchestration harness.
 
@@ -116,7 +116,7 @@ surface, requirements, and per-extension upstream changes.
 ### Migration: retired hard-stop harness
 
 The former `.pi/harnesses/damage-control/` hard-stop harness and its standalone recipe
-are retired. Refresh pi harnesses with `agent-fleet upgrade` (or guided setup, which
+are retired. Refresh pi harnesses with `agent-fleet setup` (which
 calls it): removal is bound by the ownership rule, so only an unchanged, recorded copy
 goes — user-modified and unowned copies are preserved, and the managed `justfile` region
 is refreshed without touching recipes outside the sentinels. Use `damage-control-continue` for standalone and
@@ -329,7 +329,7 @@ These ported files are runtime dependencies of the extensions above:
   automation, used by the `bowser` agent persona. Kept separate from the core
   engineering `skills/`. It drives the external **Playwright Agent CLI**
   (`playwright-cli`), which is **not** bundled — install it once with
-  `npm install -g @playwright/cli@latest` (the guided setup checks for it when
+  `npm install -g @playwright/cli@latest` (deterministic setup checks for it when
   `bowser` is selected). Docs: <https://playwright.dev/agent-cli/installation>.
 - **`docs/pi-specs/`** — the original design specifications: `agent-forge` (now consolidated
   into `agent-hub`), `agent-workflow` (retired `agent-chain`), and `damage-control`.

@@ -1,5 +1,5 @@
 // Doctor scan — deterministic preflight extracted from
-// guided-workspace-setup Step 5. Both `agent-fleet doctor` (CLI) and the
+// Both `agent-fleet doctor` (CLI) and the
 // Runtime-specific Agent Fleet doctor slash commands call into this so behaviour cannot drift.
 //
 // Finding classes:

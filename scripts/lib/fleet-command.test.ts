@@ -10,11 +10,14 @@ import { parseFleetCommand } from "./fleet-command.ts";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function assertCompleteFleetGuide(output: string): void {
-	for (const section of ["QUICK START", "SESSION MODES", "TEAM MODES", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "SETUP"]) {
+	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "SESSION MODES", "TEAM MODES", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "LIFECYCLE", "UPDATE NOTE"]) {
 		assert.match(output, new RegExp(section));
 	}
 	assert.match(output, /just fleet team frontend --project af/);
 	assert.match(output, /Full docs:\s+docs\/pi-extensions\.md/);
+	assert.match(output, /just fleet deps/);
+	assert.match(output, /pi update --extensions updates pi extensions only/);
+	assert.match(output, /just fleet install was removed/);
 }
 
 test("Fleet help is complete without requiring the external just binary", () => {
@@ -42,14 +45,14 @@ test("bare just routes to the complete Fleet guide", (context) => {
 test("fleet defaults to the guarded core runtime", () => {
 	assert.deepEqual(parseFleetCommand([]), {
 		recipe: "_fleet-core",
-		args: ["false", "false"],
+		args: ["false", "false", "false"],
 	});
 });
 
 test("fleet core capabilities are normalized before Pi arguments", () => {
 	assert.deepEqual(parseFleetCommand(["--browser", "--all-extensions", "--model", "openai/gpt"]), {
 		recipe: "_fleet-core",
-		args: ["true", "true", "--model", "openai/gpt"],
+		args: ["true", "false", "true", "--model", "openai/gpt"],
 	});
 });
 
@@ -72,7 +75,7 @@ test("fleet peer requires an identity and forwards its flag set verbatim", () =>
 test("fleet hub supports solo and optional capabilities", () => {
 	assert.deepEqual(parseFleetCommand(["hub", "--solo", "--browser", "--project", "af"]), {
 		recipe: "_fleet-hub",
-		args: ["true", "true", "false", "--project", "af"],
+		args: ["true", "true", "false", "false", "--project", "af"],
 	});
 });
 
@@ -92,8 +95,21 @@ test("fleet team maps hub, peers-only, and dry-run combinations", () => {
 	assert.throws(() => parseFleetCommand(["team", "web", "--no-hub", "--browser"]), /requires the hub/);
 });
 
-test("fleet lifecycle commands map to existing control-plane recipes", () => {
-	assert.deepEqual(parseFleetCommand(["install"]), { recipe: "_fleet-install", args: [] });
+test("fleet lifecycle commands map to deterministic CLI and dependency recipes", () => {
+	const justfile = readFileSync(resolve(REPO_ROOT, "justfile"), "utf8");
+	assert.match(justfile, /_fleet-lifecycle command \*args:\n\s+npx @chankov\/agent-fleet@latest \{\{command\}\}/);
+	assert.match(justfile, /_fleet-deps:\n\s+npm install --prefix \.pi\/extensions\n\s+npm install --prefix \.pi\/harnesses/);
+	assert.deepEqual(parseFleetCommand(["setup", "--preset", "default", "--yes"]), { recipe: "_fleet-lifecycle", args: ["setup", "--preset", "default", "--yes"] });
+	assert.deepEqual(parseFleetCommand(["deps"]), { recipe: "_fleet-deps", args: [] });
+	assert.throws(() => parseFleetCommand(["install"]), /use `just fleet setup`.*`just fleet deps`/);
+	assert.deepEqual(parseFleetCommand(["setup", "--preset", "default", "--yes"]), { recipe: "_fleet-lifecycle", args: ["setup", "--preset", "default", "--yes"] });
+	assert.deepEqual(parseFleetCommand(["doctor", "--fix"]), { recipe: "_fleet-lifecycle", args: ["doctor", "--fix"] });
+	assert.deepEqual(parseFleetCommand(["uninstall", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--yes"] });
+	assert.equal(parseFleetCommand(["uninstall", "--yes"]).args.includes("--all"), false, "dispatcher never injects implicit --all");
+	assert.deepEqual(parseFleetCommand(["uninstall", "--all", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--all", "--yes"] });
+	assert.deepEqual(parseFleetCommand(["uninstall", "--items", "pi-harness:coms", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--items", "pi-harness:coms", "--yes"] });
+	assert.deepEqual(parseFleetCommand(["--voice", "--model", "openai/gpt"]), { recipe: "_fleet-core", args: ["false", "true", "false", "--model", "openai/gpt"] });
+	assert.deepEqual(parseFleetCommand(["hub", "--voice"]), { recipe: "_fleet-hub", args: ["false", "false", "true", "false"] });
 	assert.deepEqual(parseFleetCommand(["snapshot", "docs", "--project", "af"]), {
 		recipe: "_fleet-team-snapshot",
 		args: ["docs", "--project", "af"],

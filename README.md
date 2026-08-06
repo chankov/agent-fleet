@@ -66,48 +66,56 @@ flowchart TD
 
 ## Quick Start
 
-### pi — the coding agent
+### Deterministic lifecycle
+
+From the **target repository** in a real TTY, use the easiest installer-TUI entry point:
 
 ```bash
-pi install -l npm:@chankov/agent-fleet   # project-scoped package: skills, prompts, ask-user
-# then, inside pi:
-#   /af-setup-agent-fleet                 # guided install of harnesses, personas, extensions
-# and once set up:
-just fleet                    # guarded Pi + STT and core utilities
+just fleet setup
+```
+
+It resolves `npx @chankov/agent-fleet@latest setup`, asks for the **Default** or
+**Full** preset and optional comma-separated features, shows the exact reconciliation
+plan, then asks once before applying. It needs npm registry access unless `@latest`
+is already cached. Use the package command directly when `just` is unavailable.
+For automation, pass explicit selection and consent:
+
+```bash
+npx @chankov/agent-fleet@latest setup --preset default --features none --yes
+```
+
+**Default** is a launchable stable Fleet Core; it creates neither `.claude/` nor
+voice configuration. **Full** selects all stable platform-applicable catalogue
+roots and may install the recorded Claude Code coms bridge. Features are named
+additions selected after a preset. The lifecycle requires no coding agent or
+model.
+
+```bash
+just fleet                    # guarded Fleet Core
 just fleet hub                # guarded multi-agent dispatcher
-just fleet team docs          # hub + guarded peers in one tiled herdr workspace
+just fleet team docs          # hub + guarded peers in Herdr
+just fleet deps               # install .pi/extensions and .pi/harnesses npm dependencies
+just fleet doctor             # deterministic diagnostics
 ```
 
-### npm CLI
-
-```bash
-npx @chankov/agent-fleet init
-# then open pi in this directory and run the command it prints:
-#   /af-setup-agent-fleet
-```
-
-That command runs the full guided install — analysing the workspace, showing grouped menus, and confirming everything before writing a single file.
-
-The guided flow is a front-end over the CLI — the CLI itself does every write, so a
-complete install needs no coding agent and no model:
-
-```bash
-npx @chankov/agent-fleet install --agent pi --profile recommended --yes
-npx @chankov/agent-fleet verify
-```
-
-| CLI command | What it does |
+| Lifecycle command | What it does |
 |---|---|
-| `npx @chankov/agent-fleet init` | Materialize the package + hand off to the runtime's setup command |
-| `npx @chankov/agent-fleet install` | Install a profile (`minimal`, `recommended`, `full`, `pi-fleet-core`, `hermes-plugins`, `codex-bridge`) or explicit `--items` |
-| `npx @chankov/agent-fleet upgrade` | Refresh what is installed, three-way merged against your local edits |
-| `npx @chankov/agent-fleet uninstall` | Remove recorded artifacts (`--items` / `--all`), bound by the ownership rule |
-| `npx @chankov/agent-fleet verify` | Read-only report: manifest × install record × disk |
-| `npx @chankov/agent-fleet doctor` | Find and repair breakage (`--fix`); advisory findings listed |
-| `npx @chankov/agent-fleet update` | Surface the version delta + hand off to the runtime's setup command for the per-artifact diff |
+| `npx @chankov/agent-fleet setup` | Reconcile Default/Full desired state and named features |
+| `npx @chankov/agent-fleet doctor` | Read-only diagnostics; `--fix` repairs explicit findings |
+| `npx @chankov/agent-fleet uninstall --all --yes` | Remove unchanged recorded artifacts while preserving human configuration |
 
-Every verb takes `--dry-run`, `--json`, and `--yes`, and exits `0` ok / `1` error /
-`2` findings / `3` conflicts — scriptable in CI. Full reference: [docs/npm-install.md](docs/npm-install.md).
+Lifecycle flags are ephemeral over existing desired state unless `--save-desired`
+is explicit. First legacy migration requires `--migrate`, explicit preset/features,
+and `--yes`; its dry-run lists exact state-owned removals. `just fleet uninstall
+--yes` safely removes its own managed launcher last; reinstall afterwards with
+`npx @chankov/agent-fleet@latest setup`, then run `just fleet doctor`.
+
+`pi update --extensions` updates pi extensions only; it does not update the npm
+installer. Run `just fleet setup` to resolve `@latest` and reconcile the workspace.
+`just fleet install` was removed; use `just fleet setup` or `just fleet deps`.
+
+Full reference: [docs/npm-install.md](docs/npm-install.md) and the
+[major-release migration matrix](docs/MIGRATION-agent-fleet.md).
 
 <details>
 <summary><b>Other install paths</b> — git clone, pi details</summary>
@@ -116,14 +124,18 @@ Every verb takes `--dry-run`, `--json`, and `--yes`, and exits `0` ok / `1` erro
 
 ```bash
 git clone https://github.com/chankov/agent-fleet.git && cd agent-fleet
-node bin/cli.js install --workspace ~/projects/foo --profile recommended
+node bin/cli.js setup --workspace ~/projects/foo --preset default --features none --yes
 ```
 
-Artifacts install as copies; refresh them after a `git pull` with `npx agent-fleet upgrade`, which
-does a real three-way merge and keeps your local edits. Symlink installs exist only inside an
-agent-fleet checkout, where editing an artifact is meant to edit the source.
+`setup` reconciles the recorded desired state and preserves locally modified
+state-owned files. This `node bin/cli.js` command is for source-checkout
+development; use the `npx @chankov/agent-fleet@latest setup` package command
+above for a new repository. CLI selections are ephemeral over an existing
+`.ai/agent-fleet.json` unless `--save-desired` is explicit. Symlink installs
+exist only inside an agent-fleet checkout, where editing an artifact is meant
+to edit the source.
 
-**pi details** — the package bundles `pi-ask-user` (interactive `ask_user` + skill); lifecycle commands load from `.pi/prompts/`, always-on utility extensions from `.pi/extensions/` (mcp-bridge, chrome-devtools-mcp, compact-and-continue, pi-voice-stt push-to-talk dictation), and the selectable harnesses live under `.pi/harnesses/` (loaded via the `justfile`). See [docs/pi-setup.md](docs/pi-setup.md) and the [pi extension catalog](docs/pi-extensions.md).
+**pi details** — the package bundles `pi-ask-user` (interactive `ask_user` + skill); lifecycle commands load from `.pi/prompts/`, and Fleet Core explicitly loads its deterministic utility extensions from `.pi/extensions/`. Browser and voice remain opt-in: select the setup feature, then use `just fleet --browser` or `just fleet --voice`; the selectable harnesses live under `.pi/harnesses/`. See [docs/pi-setup.md](docs/pi-setup.md) and the [pi extension catalog](docs/pi-extensions.md).
 
 </details>
 
@@ -335,7 +347,9 @@ Under the hood are **29 skills** — each a structured workflow with steps, veri
 - **Review:** [code-review-and-quality](skills/code-review-and-quality/SKILL.md) · [code-simplification](vendor/agent-skills-upstream/skills/code-simplification/SKILL.md) · [security-and-hardening](skills/security-and-hardening/SKILL.md) · [performance-optimization](skills/performance-optimization/SKILL.md)
 - **Ship:** [git-workflow-and-versioning](skills/git-workflow-and-versioning/SKILL.md) · [ci-cd-and-automation](vendor/agent-skills-upstream/skills/ci-cd-and-automation/SKILL.md) · [deprecation-and-migration](skills/deprecation-and-migration/SKILL.md) · [documentation-and-adrs](vendor/agent-skills-upstream/skills/documentation-and-adrs/SKILL.md) · [observability-and-instrumentation](vendor/agent-skills-upstream/skills/observability-and-instrumentation/SKILL.md) · [shipping-and-launch](vendor/agent-skills-upstream/skills/shipping-and-launch/SKILL.md)
 - **Orchestrate:** [orchestration-verification](skills/orchestration-verification/SKILL.md) · [peer-coms](skills/peer-coms/SKILL.md)
-- **Learn:** [compound-learning](skills/compound-learning/SKILL.md) · **Onboard:** [guided-workspace-setup](skills/guided-workspace-setup/SKILL.md) · **Meta:** [using-agent-skills](skills/using-agent-skills/SKILL.md) · [designing-agents](skills/designing-agents/SKILL.md)
+- **Learn:** [compound-learning](skills/compound-learning/SKILL.md) · **Meta:** [using-agent-skills](skills/using-agent-skills/SKILL.md) · [designing-agents](skills/designing-agents/SKILL.md)
+
+Workspace onboarding uses the deterministic `setup`, `doctor`, and `uninstall` CLI lifecycle.
 
 Full catalog with descriptions and triggers: **[docs/skills-catalog.md](docs/skills-catalog.md)**. Format spec: [docs/skill-anatomy.md](docs/skill-anatomy.md).
 

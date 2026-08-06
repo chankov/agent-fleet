@@ -6,12 +6,14 @@ different readers and different lifetimes, so they are kept separate.
 | File | Read by | When |
 |------|---------|------|
 | `.ai/agent-fleet-overrides.md` | `spec-driven-development`, `planning-and-task-breakdown`, `browser-testing-with-devtools`, `git-workflow-and-versioning`, `compound-learning` (the `rules:`/`docs:` keys of `## agent-hub`), `agent-hub` pi harness | Every run of those skills / every session start of the harness |
-| `.ai/agent-fleet-state.json` | the `agent-fleet` CLI (`install`, `upgrade`, `uninstall`, `verify`, `doctor`) | Every plan and every apply |
-| `.ai/agent-fleet-setup.md` | humans — rendered from the state file, never parsed back | Rewritten on every apply |
+| `.ai/agent-fleet.json` | the deterministic `agent-fleet` lifecycle (`setup`) — human-owned desired state (preset/features); intended to be committed | Every setup plan; created/updated when setup persists desired state or migrates legacy installs |
+| `.ai/agent-fleet-state.json` | the deterministic `agent-fleet` lifecycle (`setup`, `doctor`, `uninstall`) | Every lifecycle plan and apply |
+| `.ai/agent-fleet-setup.md` | humans — rendered from the state file, never parsed back | Rewritten on every setup apply |
+| `.ai/agent-fleet-transaction.json` | the deterministic lifecycle (`setup`, `doctor --fix`) — crash-recovery journal for in-flight file transactions | Written during apply; recovered or discarded by setup/doctor; removed when the transaction commits or is cleaned up |
 | `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
 
 The `.ai/stt.json` file is present only when the optional `pi-voice-stt` voice-dictation
-extension has been configured (by guided setup or by hand). Like the overrides file it holds
+extension has been configured (by deterministic setup or by hand). Like the overrides file it holds
 **no secrets** — it names the env vars (`apiKeyEnv`, plus the Azure endpoint var) whose values
 live in a gitignored root `.env`. See [pi-voice-stt config](#ai-sttjson) below.
 
@@ -185,7 +187,7 @@ replaced the prose ownership rule the setup skill used to carry.
 | State-file field | Meaning |
 |---|---|
 | `agent`, `method`, `sourceRoot` | How and from where this workspace was installed |
-| `packageVersion` | The version that performed the last apply — the merge base for the next `upgrade` |
+| `packageVersion` | The version that performed the last apply — provenance for reconciliation and legacy three-way compatibility |
 | `items` | One entry per installed artifact: strategy, method, files with hashes, JSON key paths |
 | `externalPackages` | Packages the user was told to install; recorded, never installed for them |
 | `events` | Last few applies (verb, version, action count, conflicts) |
@@ -195,30 +197,31 @@ replaced the prose ownership rule the setup skill used to carry.
 
 ### The recorded version and the three-way merge
 
-`packageVersion` drives `upgrade`. For each installed artifact the engine
-compares three sides: *source@recorded* from the package's `.versions/<x.y.z>/`
-snapshot tree, the installed copy on disk, and *source@current*.
+The recorded `packageVersion` supports legacy three-way compatibility. For each
+recorded artifact, the engine can compare *source@recorded* from the package's
+`.versions/<x.y.z>/` snapshot tree, the installed copy on disk, and
+*source@current*. Deterministic `setup` remains the public reconciliation command.
 
 | Outcome | What happens |
 |---|---|
 | Only the source moved | Clean refresh |
-| Only your copy moved | Kept — `upgrade` never eats a local edit |
+| Only your copy moved | Kept — reconciliation never eats a local edit |
 | Both moved, to different content | **Conflict**: the incoming version is written as `<file>.new`, your file is untouched, the run exits `3` |
 | Retired upstream | Proposed for removal by name, subject to the ownership rule |
 
 If the snapshot is missing (an unpublished local build, or a version older than
 `.versions/` retention), the comparison degrades to two-way, the installed copy
-is treated as canonical, and `verify` says so as an advisory finding rather than
-pretending a diff exists.
+is treated as canonical, and the read-only auxiliary `verify` command reports it
+as an advisory finding rather than pretending a diff exists.
 
 ### Pre-engine workspaces
 
 A workspace with only `.ai/agent-fleet-setup.md` and no state file predates the
-installer engine. `verify` reads what it can from the markdown (`agent:`,
-`version:`), reports `stateSource: "legacy-record"`, and `upgrade` says plainly
-that ownership cannot be read back — run `install` once to reconstruct the state
-file first. A workspace with no `version:` at all is pre-versioning: there is no
-recorded baseline, so no three-way merge is attempted.
+installer engine. `setup --migrate --dry-run` previews what it can infer from
+that markdown (`agent:`, `version:`) without adopting unrecorded paths. To
+mutate a legacy workspace, use `setup --migrate` with an explicit preset,
+features, and `--yes`. A workspace with no `version:` at all has no recorded
+baseline, so no three-way merge is attempted.
 
 Commit these files if the team should share install state — keep paths relative
 so they stay portable. A self-referencing checkout (agent-fleet itself) may
@@ -298,7 +301,7 @@ Edit the workspace, not this file — the next apply overwrites it.
 ```markdown
 # Agent Fleet — Workspace Setup
 #
-# Generated from .ai/agent-fleet-state.json by `agent-fleet install`.
+# Generated from .ai/agent-fleet-state.json by `agent-fleet setup`.
 # Edit the workspace, not this file: it is rewritten on every apply.
 
 ## workspace-summary
@@ -318,7 +321,7 @@ external:   []
 updated:    2026-05-22
 
 ## verification
-- 21 item(s) recorded; run `agent-fleet verify` to check them against disk.
+- 21 item(s) recorded; run `agent-fleet doctor` for diagnostics.
 - No secrets are stored in this file or in .ai/agent-fleet-state.json.
 ```
 

@@ -72,6 +72,7 @@
     "references/",
     "hooks/",
     "docs/agent-fleet-setup.md",
+    "docs/MIGRATION-agent-fleet.md",
     "docs/ARCHITECTURE.md",
     "docs/codex-remote-conductor.md",
     "docs/claude-code-coms-bridge.md",

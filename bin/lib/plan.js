@@ -14,7 +14,7 @@
 // See plans/deterministic-installer-manifest-spec.md §4 for the state and merge
 // tables this implements, and plans/deterministic-installer.md phases 3 and 5.
 
-import { itemsForAgent, resolveSelection } from "./manifest.js";
+import { itemsForAgent, resolveSelection, loadSnapshotManifest } from "./manifest.js";
 import { evaluateWorkspace, resolveBaseRoot } from "./verify.js";
 import { readState, readLegacyRecord, isAgentFleetCheckout } from "./state.js";
 
@@ -91,6 +91,16 @@ export function buildPlan({
   const recordedVersion = state?.packageVersion ?? legacy?.version ?? null;
   const stateSource = state ? "state-file" : legacy ? "legacy-record" : "none";
   const baseRoot = resolveBaseRoot(sourceRoot, recordedVersion);
+  // Pre-manifest snapshots (no install-manifest.json) remain valid merge bases.
+  // Corrupt or unsupported snapshot metadata must fail closed — never silent two-way.
+  let snapshotMetadataError = null;
+  if (baseRoot) {
+    try {
+      loadSnapshotManifest(baseRoot);
+    } catch (error) {
+      snapshotMetadataError = error.message;
+    }
+  }
 
   // Symlink installs survive only inside an agent-fleet checkout (see
   // isAgentFleetCheckout). A workspace that recorded `symlink` before the
@@ -218,7 +228,8 @@ export function buildPlan({
     packageVersion,
     recordedVersion,
     stateSource,
-    baseAvailable: Boolean(baseRoot),
+    baseAvailable: Boolean(baseRoot) && !snapshotMetadataError,
+    snapshotMetadataError,
     selection: {
       profiles: [...profiles].sort(),
       requested: [...items].sort(),
@@ -538,12 +549,10 @@ function describe(evaluation) {
   // What the human does instead, for the two classes the engine won't do itself.
   if (evaluation.operatorSteps) out.operatorSteps = evaluation.operatorSteps;
   if (evaluation.packageSpec) out.packageSpec = evaluation.packageSpec;
-  // Only the paths a human has to act on travel with the action; the rest is
-  // noise in a plan that may list a hundred items.
-  const notable = (evaluation.files ?? []).filter(
-    (f) => f.state === "conflict" || f.state === "modified",
-  );
-  if (notable.length > 0) out.files = notable.map((f) => ({ path: f.path, state: f.state }));
+  // Transaction recovery needs the complete owned file set, not merely paths
+  // notable to the confirmation screen. These are workspace-relative leaves.
+  const files = evaluation.files ?? [];
+  if (files.length > 0) out.files = files.map((f) => ({ path: f.path, state: f.state }));
   return out;
 }
 

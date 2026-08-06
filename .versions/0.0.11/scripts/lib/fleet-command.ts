@@ -44,6 +44,14 @@ export function parseFleetCommand(argv: string[]): FleetInvocation {
 
 	const [mode, ...tail] = argv;
 	if (mode === "install") return { recipe: "_fleet-install", args: tail };
+	if (["setup", "doctor"].includes(mode)) return { recipe: "_fleet-lifecycle", args: [mode, ...tail] };
+	// A self-hosted fleet must be able to remove its managed launcher with the
+	// short lifecycle command. The package CLI retains its explicit --all gate;
+	// this dispatcher supplies it only when no narrower selection was requested.
+	if (mode === "uninstall") {
+		const hasSelection = tail.includes("--all") || tail.includes("--items");
+		return { recipe: "_fleet-lifecycle", args: ["uninstall", ...(hasSelection ? [] : ["--all"]), ...tail] };
+	}
 
 	// One addressable peer, in a pane of its own unless --here. peer-launch.ts
 	// owns the whole flag set (including `--` passthrough to pi), so the tail is

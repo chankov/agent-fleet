@@ -1,18 +1,10 @@
 #!/usr/bin/env node
-// agent-fleet — thin dispatcher into the LLM-driven guided setup.
+// agent-fleet — deterministic workspace lifecycle CLI.
 //
-// Main commands:
-//   init               materialize the package, detect the coding agent, hand off to its setup command
-//   doctor             deterministic preflight scan (broken symlinks, stale persona refs)
-//   update             refresh the package, then hand off to the setup workflow for the version-diff
-//   set-hermes-telegram install/inspect the liaison and start/stop its bridge
-//
-// The CLI itself never decides which skills to install or what to overwrite —
-// that is the job of the guided-workspace-setup skill, run by the user's
-// coding agent. We just put the source files where the agent can find them
-// and print the next-step command.
+// setup, doctor, and uninstall are complete without a coding agent or model.
+// Legacy command names remain compatibility aliases and route to setup.
 
-import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -24,11 +16,15 @@ import { runDoctor } from "./lib/doctor.js";
 import { loadManifest } from "./lib/manifest.js";
 import { runVerify, hasDrift } from "./lib/verify.js";
 import { buildPlan, hasConflicts, isNoop } from "./lib/plan.js";
-import { applyPlan } from "./lib/apply.js";
+import { buildReconcilePlan } from "./lib/reconcile.js";
+import { applyPlan, retryRuntimeRepairs } from "./lib/apply.js";
+import { chooseSetup } from "./lib/tui.js";
+import { defaultDesired, readDesired } from "./lib/desired.js";
+import { purgeHumanConfig } from "./lib/purge.js";
+import { recoverTransaction, discardUnrecoverableTransaction, journalPath, transactionRecovery } from "./lib/transaction.js";
 import { readState, readLegacyRecord, isAgentFleetCheckout, STATE_REL_PATH } from "./lib/state.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
-import { bootstrap, cleanupInstaller, readBootstrapMarker } from "./lib/bootstrap.js";
 import { setHermesTelegram, runHermesCommand } from "./lib/set-hermes-telegram.js";
 import { setHermesWatchdog } from "./lib/set-hermes-watchdog.js";
 
@@ -61,6 +57,12 @@ const parsed = (() => {
         workspace: { type: "string" },
         yes:       { type: "boolean", short: "y" },
         profile:   { type: "string" },
+        preset:    { type: "string" },
+        features:  { type: "string" },
+        "save-desired": { type: "boolean" },
+        migrate: { type: "boolean" },
+        "on-conflict": { type: "string" },
+        "purge-config": { type: "boolean" },
         force:     { type: "boolean" },
         restart:   { type: "boolean" },
         "dry-run": { type: "boolean" },
@@ -84,6 +86,7 @@ const parsed = (() => {
 
 const opts = parsed.values;
 const workspace = resolve(opts.workspace ?? process.cwd());
+let repairPlanNote = null;
 
 if (opts.help) {
   printHelp(sub);
@@ -104,15 +107,15 @@ if (!["update", "check-update", "verify", "install", "upgrade", "uninstall", "do
 }
 
 switch (sub) {
-  case "init":              await cmdInit();             break;
+  case "setup":             await cmdSetup();            break;
+  case "init":              warnAlias("init"); await cmdSetup(); break;
   case "doctor":            await cmdDoctor();           break;
   case "verify":            await cmdVerify();           break;
-  case "install":           await cmdPlanVerb("install"); break;
-  case "upgrade":           await cmdPlanVerb("upgrade"); break;
+  case "install":           warnAlias("install"); await (opts.preset || opts.features ? cmdSetup() : cmdPlanVerb("install")); break;
+  case "upgrade":           warnAlias("upgrade"); await cmdPlanVerb("upgrade"); break;
   case "uninstall":         await cmdPlanVerb("uninstall"); break;
-  case "update":            await cmdUpdate();           break;
+  case "update":            warnAlias("update"); await cmdSetup(); break;
   case "check-update":      await cmdCheckUpdate();      break;
-  case "cleanup-installer":  await cmdCleanupInstaller();  break;
   case "set-hermes-telegram": await cmdSetHermesTelegram(); break;
   case "set-hermes-watchdog": await cmdSetHermesWatchdog(); break;
   default:                    fail(`unknown command: ${sub}\n\nRun "agent-fleet --help" for usage.`);
@@ -182,56 +185,6 @@ async function cmdSetHermesTelegram() {
   }
 }
 
-async function cmdInit() {
-  await mustBeDirectory(workspace, "workspace");
-
-  printBanner(`agent-fleet v${pkg.version} — guided init`);
-  console.log(`Workspace: ${workspace}`);
-  console.log(`Source:    ${pkgRoot}`);
-  console.log();
-
-  const agent = chooseAgent(opts.agent);
-  console.log(`Coding agent: ${agentLabel(agent)}`);
-
-  const method = resolveMethod(opts.method);
-
-  // Bootstrap the installer artifacts (setup + doctor + the skill they invoke).
-  // Without this, the agent has no setup command to hand off to. The command itself
-  // is one of the files this writes; the rest of the catalogue (skills, personas,
-  // etc.) is the setup workflow's job inside the agent.
-  printSection("Bootstrap installer");
-  const { written, skipped, removed, warnings } = bootstrap({
-    agent,
-    sourceRoot: pkgRoot,
-    workspace,
-    method,
-    dryRun: opts["dry-run"],
-  });
-
-  for (const w of warnings) console.log(`  ⚠ ${w}`);
-  for (const p of removed) {
-    const tag = opts["dry-run"] ? "would remove (legacy)" : "removed legacy";
-    console.log(`  − ${tag}: ${relative(workspace, p)}`);
-  }
-  for (const f of written) {
-    const tag = opts["dry-run"] ? "would write" : (method === "symlink" ? "linked" : "wrote");
-    console.log(`  ✓ ${tag}: ${relative(workspace, f.dest)}`);
-  }
-  for (const f of skipped) {
-    console.log(`  ✗ skipped: ${relative(workspace, f.dest)} — ${f.error}`);
-  }
-  if (written.length === 0 && skipped.length === 0 && removed.length === 0) {
-    console.log("  (nothing to do — sources missing from package)");
-  }
-
-  printSection("Next step");
-  printHandoff({ agent, method, workspace, source: pkgRoot, version: pkg.version });
-
-  if (opts.launch) {
-    tryLaunch(agent, workspace);
-  }
-}
-
 // Doctor has two repair sources, and the split is deliberate:
 //
 //   • the engine — for every item the state file records. Repair is `plan()`
@@ -244,10 +197,127 @@ async function cmdInit() {
 //
 // Everything else the scan reports (overrides problems, malformed peer entries)
 // is advisory: printed, never auto-fixed, because the fix is always a hand edit.
+function warnAlias(name) { console.error(`Warning: ${name} is deprecated; use setup.`); }
+
+async function cmdSetup() {
+  await mustBeDirectory(workspace, "workspace");
+  if (opts["on-conflict"] !== undefined && !["ours", "theirs"].includes(opts["on-conflict"])) {
+    fail('--on-conflict must be "ours" or "theirs"');
+  }
+  if (opts.method) resolveMethod(opts.method);
+  if (opts.items || opts.profile) {
+    fail("setup does not accept raw item/profile selectors; use --preset <default|full> and --features <name[,name]> instead");
+  }
+  const manifest = loadManifest(pkgRoot);
+  const dryRun = Boolean(opts["dry-run"]);
+  const interactive = !opts.yes && !dryRun;
+  if (interactive && !stdin.isTTY) {
+    fail("setup mutation requires --yes in non-TTY mode (or use --dry-run to preview)");
+  }
+
+  let preset = opts.preset;
+  let features = opts.features;
+  let tuiDesired = null;
+  let setupReadLine = null;
+  let setupRl = null;
+  if (interactive) {
+    setupRl = createInterface({ input: stdin, output: stdout });
+    setupReadLine = async () => {
+      try { return await setupRl.question(""); } catch { return null; }
+    };
+    let selection;
+    try {
+      selection = await chooseSetup({
+        output: stdout,
+        readLine: setupReadLine,
+        manifest,
+        currentDesired: readDesired(workspace, manifest),
+      });
+    } catch (err) {
+      setupRl.close();
+      fail(err.message);
+    }
+    if (selection.cancelled) {
+      setupRl.close();
+      console.log("Aborted — nothing was written.");
+      exit(0);
+    }
+    preset = selection.preset;
+    features = selection.features.join(",");
+    if (selection.changed) {
+      const desired = defaultDesired(manifest);
+      desired.preset = preset;
+      desired.features = Object.fromEntries(Object.keys(desired.features).map((name) => [name, selection.features.includes(name)]));
+      tuiDesired = desired;
+    }
+  }
+
+  const interactiveMigration = interactive && Boolean(
+    readState(workspace) && !existsSync(join(workspace, ".ai", "agent-fleet.json")),
+  );
+  let plan;
+  try {
+    plan = buildReconcilePlan({ workspace, sourceRoot: pkgRoot, packageVersion: pkg.version, manifest,
+      agent: opts.agent ?? "pi", method: opts.method, preset, features,
+      saveDesired: opts["save-desired"], tuiDesired, dryRun,
+      // The interactive selector and final exact-plan confirmation are the
+      // migration consent. Automation retains every explicit gate.
+      migrate: opts.migrate || interactiveMigration, yes: opts.yes || interactive,
+      accept: opts["on-conflict"] ?? null });
+  } catch (err) {
+    setupRl?.close();
+    fail(err.message);
+  }
+  if (plan.migrationBlocked) {
+    setupRl?.close();
+    fail(plan.migrationError);
+  }
+  if (dryRun) {
+    setupRl?.close();
+    process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
+    exit(plan.conflicts.length ? 3 : 0);
+  }
+  if ((interactive || opts.yes) && !opts.json) printPlan(plan);
+  if (interactive) {
+    stdout.write(`\nApply this exact ${plan.firstMigration ? "first-migration " : ""}setup plan? [y/N] `);
+    const answer = await setupReadLine();
+    setupRl.close();
+    if (answer === null || !/^y(es)?$/i.test(answer.trim())) {
+      console.log("Aborted — nothing was written.");
+      exit(0);
+    }
+  }
+  const execOutput = (line) => (opts.json ? console.error : console.log)(`exec: ${line}`);
+  let result = applyPlan({ plan, manifest, allowExec: Boolean(opts["allow-exec"]), output: execOutput });
+  if (opts["allow-exec"] && result.exitCode === 0) {
+    result = { ...result, retryRuntimeRepair: retryRuntimeRepairs({ workspace, output: execOutput }) };
+  }
+  if (opts.json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  else console.log(result.exitCode === 0 ? "Setup complete." : result.failure?.detail ?? "Setup incomplete.");
+  exit(result.exitCode);
+}
+
 async function cmdDoctor() {
   await mustBeDirectory(workspace, "workspace");
 
+  // Recovery is itself a write, so bare doctor must not even inspect a journal
+  // beyond reporting the resulting repairable state. `--fix` recovers first,
+  // then plans against the restored ledger.
+  const recovery = transactionRecovery(workspace);
+  let recoveredTransaction = false;
+  let discardedUnrecoverableJournal = false;
+  if (opts.fix && !opts["dry-run"] && recovery.pending) {
+    try { recoveredTransaction = recoverTransaction(workspace); }
+    catch (err) {
+      if (!err.unrecoverable) fail(`cannot recover pending transaction: ${err.message}`);
+      discardUnrecoverableTransaction(workspace);
+      discardedUnrecoverableJournal = true;
+    }
+  }
+
   const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape"]);
+  const pendingTransaction = existsSync(journalPath(workspace));
+  const unrecoverableJournal = recovery.pending && !recovery.recoverable;
   const plan = buildRepairPlan();
   const repairs = plan?.actions ?? [];
 
@@ -260,10 +330,15 @@ async function cmdDoctor() {
   );
   const findings = (await runDoctor({ workspace, sourceRoot: pkgRoot }))
     .filter((f) => !(f.type === "broken-symlink" && enginePaths.has(f.path)));
+  if (unrecoverableJournal) findings.unshift({
+    type: "unrecoverable-transaction", path: relative(workspace, journalPath(workspace)),
+    issue: "transaction backup is missing or unreadable", fix: "discard installer-owned journal with doctor --fix",
+  });
 
-  const fixable = findings.filter((f) => !ADVISORY_FINDING_TYPES.has(f.type));
+  const fixable = findings.filter((f) => !ADVISORY_FINDING_TYPES.has(f.type) && f.type !== "unrecoverable-transaction");
   const advisory = findings.length - fixable.length;
-  const outstanding = repairs.length + fixable.length;
+  const pendingRuntime = readState(workspace)?.runtimeRepairs ?? [];
+  const outstanding = repairs.length + fixable.length + (pendingTransaction ? 1 : 0) + pendingRuntime.length;
 
   // The report comes first, then the question. Asking "apply 7 fixes?" before
   // naming them is asking for a blind yes.
@@ -272,6 +347,7 @@ async function cmdDoctor() {
     console.log(`Workspace: ${workspace}`);
     if (!plan) console.log(`Recorded:  ${repairPlanNote}`);
 
+    if (pendingTransaction) console.log("Pending transaction journal — re-run with --fix to restore the pre-transaction workspace.");
     if (repairs.length > 0) {
       printSection(`Recorded items to repair (${repairs.length})`);
       for (const a of repairs) console.log(`  ${a.id} — ${a.reason}`);
@@ -287,11 +363,9 @@ async function cmdDoctor() {
 
   // --fix is the documented flag; -y stays an alias for the pre-engine muscle
   // memory, and a bare interactive run still asks.
-  const wantsFix = Boolean(opts.fix || opts.yes);
-  const willFix = outstanding > 0 && !opts["dry-run"] &&
-    (wantsFix || (!opts.json && stdin.isTTY && await confirm(
-      `\nApply the ${outstanding} suggested fix(es) now? [y/N] `,
-    )));
+  // Doctor is strictly read-only unless --fix is explicit.
+  const wantsFix = Boolean(opts.fix);
+  const willFix = outstanding > 0 && !opts["dry-run"] && wantsFix;
 
   let applied = null;
   let scanRepair = null;
@@ -299,6 +373,10 @@ async function cmdDoctor() {
     if (repairs.length > 0) applied = applyPlan({ plan, manifest: loadManifest(pkgRoot) });
     if (fixable.length > 0) scanRepair = await runDoctor({ workspace, sourceRoot: pkgRoot, apply: true });
   }
+
+  const runtimeRepair = willFix
+    ? retryRuntimeRepairs({ workspace, output: (line) => console.log(`exec: ${line}`) })
+    : { attempted: 0, remaining: pendingRuntime };
 
   const report = {
     schemaVersion: 1,
@@ -310,6 +388,10 @@ async function cmdDoctor() {
     findings,
     planNote: plan ? null : repairPlanNote,
     applied,
+    pendingTransaction,
+    recoveredTransaction,
+    discardedUnrecoverableJournal,
+    runtimeRepair,
     scanRepair: scanRepair && {
       repaired: scanRepair.repaired, deleted: scanRepair.deleted, skipped: scanRepair.skipped,
     },
@@ -318,7 +400,7 @@ async function cmdDoctor() {
       fixable: fixable.length,
       advisories: advisory,
       fixed: willFix ? outstanding - (scanRepair?.skipped ?? 0) - (applied?.summary.failed ?? 0) : 0,
-      outstanding: willFix ? (scanRepair?.skipped ?? 0) + (applied?.summary.failed ?? 0) : outstanding,
+      outstanding: willFix ? (scanRepair?.skipped ?? 0) + (applied?.summary.failed ?? 0) + runtimeRepair.remaining.length : outstanding,
     },
   };
 
@@ -329,7 +411,7 @@ async function cmdDoctor() {
 
   if (outstanding === 0) {
     console.log("\n✓ Nothing to repair: no broken recorded items, no broken symlinks, no stale persona references.");
-    exit(findings.length > 0 ? 2 : 0);
+    exit(0);
   }
 
   console.log();
@@ -361,8 +443,6 @@ async function cmdDoctor() {
   );
   exit(report.summary.outstanding > 0 ? 2 : 0);
 }
-
-let repairPlanNote = null;
 
 /**
  * The engine half of `doctor`. Returns null (with a note) rather than failing
@@ -484,6 +564,19 @@ async function cmdVerify() {
 async function cmdPlanVerb(verb) {
   await mustBeDirectory(workspace, "workspace");
 
+  // State may already be gone after a self-uninstall. The separate explicit
+  // config-purge gate remains usable in that final state without inventing a
+  // new ownership record.
+  if (verb === "uninstall" && opts.all && opts["purge-config"] && !readState(workspace)) {
+    if (!opts.yes && (!stdin.isTTY || opts.json)) fail("--purge-config requires --yes in non-TTY/JSON mode");
+    if (!opts.yes && !await confirm("\nPurge human configuration? [y/N] ")) { console.log("Aborted — nothing was written."); exit(0); }
+    const purge = purgeHumanConfig(workspace, { purgeConfig: true });
+    if (opts.json) process.stdout.write(JSON.stringify({ plan: null, applied: null, purge }, null, 2) + "\n");
+    else if (purge.removed.length) console.log(`Purged human configuration: ${purge.removed.join(", ")}`);
+    else console.log("Nothing to purge.");
+    exit(0);
+  }
+
   let manifest;
   try { manifest = loadManifest(pkgRoot); }
   catch (err) { fail(err.message); }
@@ -554,13 +647,23 @@ async function cmdPlanVerb(verb) {
     exit(hasConflicts(plan) ? 3 : 0);
   }
 
-  // Nothing to do is a success, not a prompt.
+  // A config purge is independent of state-owned actions, so it must still
+  // run after a prior --all removed every recorded item.
   if (isNoop(plan)) {
+    if (verb === "uninstall" && opts["purge-config"] && !opts.yes) {
+      if (!stdin.isTTY || opts.json) fail("--purge-config requires --yes in non-TTY/JSON mode");
+      printPlan(plan);
+      if (!await confirm("\nPurge human configuration? [y/N] ")) { console.log("Aborted — nothing was written."); exit(0); }
+    }
+    const purge = verb === "uninstall" && opts["purge-config"]
+      ? purgeHumanConfig(workspace, { purgeConfig: true })
+      : null;
     if (opts.json) {
-      process.stdout.write(JSON.stringify({ plan, applied: null }, null, 2) + "\n");
+      process.stdout.write(JSON.stringify({ plan, applied: null, purge }, null, 2) + "\n");
       exit(0);
     }
     printPlan(plan);
+    if (purge?.removed.length) console.log(`Purged human configuration: ${purge.removed.join(", ")}`);
     exit(0);
   }
 
@@ -580,13 +683,32 @@ async function cmdPlanVerb(verb) {
   }
 
   const applied = applyPlan({ plan, manifest, allowExec: Boolean(opts["allow-exec"]) });
+  const purge = verb === "uninstall" && !applied.summary.failed
+    ? purgeHumanConfig(workspace, { purgeConfig: Boolean(opts["purge-config"]) })
+    : null;
+
+  // A complete --all removal has no remaining lifecycle ownership. Render the
+  // report from the in-memory result first, then remove state/record/journal so
+  // a self-hosted `just fleet uninstall --yes` can delete its own launcher last.
+  const cleanupLifecycle = verb === "uninstall" && opts.all && !applied.summary.failed
+    && Object.keys(readState(workspace)?.items ?? {}).length === 0;
+  const finishLifecycleCleanup = () => {
+    if (!cleanupLifecycle) return;
+    for (const path of [STATE_REL_PATH, ".ai/agent-fleet-setup.md", relative(workspace, journalPath(workspace))]) {
+      rmSync(join(workspace, path), { force: true });
+    }
+  };
 
   if (opts.json) {
-    process.stdout.write(JSON.stringify({ plan, applied }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ plan, applied, purge }, null, 2) + "\n");
+    finishLifecycleCleanup();
     exit(applied.summary.failed ? 1 : hasConflicts(plan) ? 3 : 0);
   }
 
   printApplied(plan, applied);
+  if (purge?.removed.length) console.log(`Purged human configuration: ${purge.removed.join(", ")}`);
+  else if (verb === "uninstall" && purge?.preserved.length) console.log(`Preserved human configuration: ${purge.preserved.join(", ")} (use --purge-config to remove)`);
+  finishLifecycleCleanup();
   exit(applied.summary.failed ? 1 : hasConflicts(plan) ? 3 : 0);
 }
 
@@ -612,7 +734,9 @@ function printApplied(plan, applied) {
     for (const path of applied.conflictFiles) console.log(`  ${path}`);
     console.log(
       "\nEach `.new` file is the incoming version. Compare, merge what you want,\n" +
-      "delete the `.new`, or re-run with --accept-theirs / --accept-ours.",
+      (plan.verb === "upgrade"
+        ? "delete the `.new`, or re-run upgrade with --accept-theirs or --accept-ours."
+        : "delete the `.new`, or re-run setup with --on-conflict theirs|ours."),
     );
   }
 
@@ -643,7 +767,7 @@ function printApplied(plan, applied) {
 
 function printPlan(plan) {
   const s = plan.summary;
-  printBanner(`agent-fleet v${pkg.version} — ${plan.verb} (dry run)`);
+  printBanner(`agent-fleet v${pkg.version} — ${plan.verb} plan`);
   console.log(`Workspace: ${plan.workspace}`);
   console.log(`Agent:     ${agentLabel(plan.agent)}   Method: ${plan.method}`);
   if (plan.verb === "install") {
@@ -679,9 +803,11 @@ function printPlan(plan) {
     for (const a of shown) {
       console.log(`  ${a.kind.padEnd(width)}  ${a.id}${a.reason ? ` — ${a.reason}` : ""}`);
       for (const f of a.files ?? []) console.log(`  ${" ".repeat(width)}    ${f.state}: ${f.path}`);
+      for (const path of a.paths ?? []) console.log(`  ${" ".repeat(width)}    state-owned deletion: ${path}`);
     }
   }
 
+  printConfigurationWrites(plan);
   printOperatorSteps(plan.actions);
 
   printSection("Summary");
@@ -705,9 +831,12 @@ function printPlan(plan) {
 
   console.log();
   if (hasConflicts(plan)) {
+    const resolveHint = plan.verb === "upgrade"
+      ? "  Resolve with --accept-theirs (take the new version) or --accept-ours (keep yours)."
+      : "  Resolve with --on-conflict theirs (take the new version) or --on-conflict ours (keep yours).";
     console.log(
       `✗ ${plan.conflicts.length} conflict(s): changed both locally and upstream.\n` +
-      "  Resolve with --accept-theirs (take the new version) or --accept-ours (keep yours).",
+      resolveHint,
     );
     return;
   }
@@ -725,6 +854,30 @@ function printPlan(plan) {
  * write to, so the only useful thing to emit is the exact command list — which
  * the manifest declares, so it cannot rot away from the artifact it describes.
  */
+function printConfigurationWrites(plan) {
+  const writes = [
+    plan.writeDesired ? plan.desiredPath : null,
+    plan.overrides?.write ? plan.overrides.path : null,
+    plan.stt?.path ?? null,
+    plan.stt?.env?.missing?.length ? plan.stt.env.path : null,
+  ].filter(Boolean);
+  if (writes.length === 0) return;
+  printSection("Configuration writes");
+  for (const path of [...new Set(writes)].sort()) console.log(`  ${relative(plan.workspace, path)}`);
+  if (plan.stt?.env?.missing?.length && !isGitignored(plan.workspace, ".env")) {
+    console.log("  Warning: .env is not covered by the target .gitignore; it may be committed.");
+  }
+}
+
+function isGitignored(workspace, path) {
+  const ignore = join(workspace, ".gitignore");
+  if (!existsSync(ignore)) return false;
+  return readFileSync(ignore, "utf8").split(/\r?\n/).some((line) => {
+    const rule = line.trim();
+    return rule === path || rule === `/${path}` || rule === "*";
+  });
+}
+
 function printOperatorSteps(actions) {
   const external = actions.filter((a) => a.kind === "external");
   const operator = actions.filter((a) => a.kind === "operator");
@@ -797,115 +950,6 @@ async function askProfile(manifest) {
   return chosen;
 }
 
-async function cmdUpdate() {
-  await mustBeDirectory(workspace, "workspace");
-
-  printBanner(`agent-fleet v${pkg.version} — update`);
-  console.log(`Workspace: ${workspace}`);
-  console.log();
-
-  // npm itself does the package upgrade. The CLI's job here is to read the
-  // workspace's install record, surface the version delta, re-install the
-  // setup command, and hand off to the skill for the diff-aware
-  // refresh.
-  const recordPath = join(workspace, ".ai", "agent-fleet-setup.md");
-  if (!existsSync(recordPath)) {
-    console.log("This workspace has no .ai/agent-fleet-setup.md install record.");
-    console.log("Run `npx agent-fleet init` first, then re-run `update` later.");
-    exit(1);
-  }
-
-  const recorded = readRecordedVersion(recordPath);
-  const current  = pkg.version;
-
-  console.log(`Recorded in workspace: v${recorded ?? "(pre-versioning)"}`);
-  console.log(`Installed package:     v${current}`);
-  console.log();
-
-  // Re-bootstrap the installer artifacts so the runtime's setup command is present
-  // after the update. guided-workspace-setup removes these at the end of a
-  // run by default (Step 10b / cleanupInstaller), so a workspace that has
-  // completed setup once no longer has the command — and `update` used to
-  // only print a stale setup instruction while pointing at a command that no
-  // longer existed. The marker recovers the agent/method from init time; if
-  // it was cleaned up too, fall back to detection (and prompt if ambiguous).
-  const marker = readBootstrapMarker(workspace);
-  let agent = opts.agent ?? marker?.agent
-    ?? detectAgent({ workspace, env: process.env, preferWorkspaceHints: true });
-  if (agent && !AGENTS.includes(agent)) agent = null;
-  if (!agent) agent = chooseAgent(opts.agent);
-
-  const method = resolveMethod(opts.method, marker?.method ?? "copy");
-
-  printSection("Refresh installer command");
-  const { written, skipped, removed, warnings } = bootstrap({
-    agent,
-    sourceRoot: pkgRoot,
-    workspace,
-    method,
-    dryRun: opts["dry-run"],
-  });
-  for (const w of warnings) console.log(`  ⚠ ${w}`);
-  for (const p of removed) {
-    const tag = opts["dry-run"] ? "would remove (legacy)" : "removed legacy";
-    console.log(`  − ${tag}: ${relative(workspace, p)}`);
-  }
-  for (const f of written) {
-    const tag = opts["dry-run"] ? "would write" : (method === "symlink" ? "linked" : "wrote");
-    console.log(`  ✓ ${tag}: ${relative(workspace, f.dest)}`);
-  }
-  for (const f of skipped) {
-    console.log(`  ✗ skipped: ${relative(workspace, f.dest)} — ${f.error}`);
-  }
-
-  const setupCmd = "/af-setup-agent-fleet";
-
-  printSection("Next step");
-  if (recorded === current) {
-    console.log(`Recorded version (${recorded}) matches the installed package — no version delta.`);
-    console.log(`${setupCmd} is back in your workspace; run it inside ${agentLabel(agent)} if you`);
-    console.log("want to re-review your artifacts. To upgrade the package itself, run:");
-    console.log("  npm install -g @chankov/agent-fleet@latest    # global");
-    console.log("  npx @chankov/agent-fleet@latest update         # one-shot");
-    return;
-  }
-  console.log(`Open ${agentLaunchHint(agent)} in this directory and run:`);
-  console.log();
-  console.log(`  ${setupCmd}`);
-  console.log();
-  console.log("The guided-workspace-setup skill will detect the version delta, show the");
-  console.log("CHANGELOG between the two versions, and offer a per-artifact three-way diff");
-  console.log("before touching any file.");
-}
-
-async function cmdCleanupInstaller() {
-  // Removes the bootstrap artifacts (setup-agent-fleet, doctor-agent-fleet,
-  // guided-workspace-setup skill body) from the workspace. Invoked by the
-  // skill itself at the end of Step 10 — keeps the workspace's slash-command
-  // list clean. Re-running `init` brings them back.
-  await mustBeDirectory(workspace, "workspace");
-
-  const agent = opts.agent ?? detectAgent({ workspace, env: process.env });
-  if (!agent || !AGENTS.includes(agent)) {
-    fail(`cleanup-installer needs --agent (one of: ${AGENTS.join(", ")})`);
-  }
-
-  const { removed, kept, warnings } = cleanupInstaller({
-    agent,
-    workspace,
-    dryRun: opts["dry-run"],
-  });
-
-  for (const w of warnings) console.log(`  ⚠ ${w}`);
-  for (const p of removed) {
-    const tag = opts["dry-run"] ? "would remove" : "removed";
-    console.log(`  − ${tag}: ${relative(workspace, p)}`);
-  }
-  if (removed.length === 0 && warnings.length === 0) {
-    console.log("Nothing to clean up — installer files already absent.");
-  }
-}
-
 async function cmdCheckUpdate() {
   // Entry point for hook scripts and pi extensions. Blocks on a single
   // registry fetch (short timeout); emits a one-line banner to stdout if an
@@ -937,48 +981,8 @@ function chooseAgent(supplied) {
   return supplied ?? detectAgent();
 }
 
-function printHandoff({ agent, method, workspace, source, version }) {
-  const rel = relative(process.cwd(), workspace) || ".";
-  const setupCmd = "/af-setup-agent-fleet";
-  const lines = [
-    `agent-fleet v${version} is ready.`,
-    "",
-    `Workspace:       ${rel}`,
-    `Coding agent:    ${agentLabel(agent)}`,
-    `Install method:  ${method}`,
-    `Source root:     ${source}`,
-    "",
-    `Open ${agentLaunchHint(agent)} in this directory and run:`,
-    "",
-    `  ${setupCmd}`,
-    "",
-    "The guided-workspace-setup skill will:",
-    "  • analyse the workspace",
-    "  • show grouped install menus with recommendations",
-    "  • offer project overrides",
-    "  • confirm everything before writing a single file",
-    "  • remove the installer commands from your workspace at the end so",
-    "    they don't pollute your agent's command list (reply 'keep' in",
-    "    Step 9 if you'd rather leave them in)",
-    "",
-  ];
-  lines.push("Re-run `npx @chankov/agent-fleet init` later to re-bootstrap (commands are removed by default once setup completes).");
-  for (const line of lines) console.log(line);
-}
-
 function agentLaunchHint(agent) {
   return { "pi": "pi (`pi`)" }[agent] || agent;
-}
-
-function tryLaunch(agent, cwd) {
-  const cmd = { "pi": "pi" }[agent];
-  if (!cmd) return;
-  console.log(`\nLaunching: ${cmd} (cwd: ${cwd})`);
-  const r = spawnSync(cmd, [], { cwd, stdio: "inherit" });
-  if (r.error) {
-    console.log(`(could not launch ${cmd}: ${r.error.message})`);
-    console.log(`Open ${cmd} manually and run /af-setup-agent-fleet.`);
-  }
 }
 
 function readRecordedVersion(path) {
@@ -1039,6 +1043,32 @@ function fail(msg) {
 }
 
 function printHelp(sub) {
+  if (sub === "setup") {
+    console.log(`agent-fleet setup [options]
+
+  Reconcile the workspace to a Default or Full desired state. In a TTY without
+  --yes, the interactive selector explains Default, Full, and experimental
+  opt-in, then shows the exact plan before writing. Non-TTY mutations require
+  --yes; --dry-run always writes nothing.
+
+Options:
+  --workspace <path>                  Target workspace (default: cwd)
+  --preset <default|full>              Desired preset
+  --features <name[,name]|none>        Exact feature opt-ins
+  --save-desired                       Persist CLI overrides to .ai/agent-fleet.json
+  --migrate                            Permit non-interactive first migration (with explicit preset/features and --yes)
+  --allow-exec                         Run consented runtime commands after the file transaction
+  --on-conflict <ours|theirs>           Resolve a three-way conflict before the transaction
+  --dry-run                            Print a plan; write nothing
+  --json                               Emit a machine-readable plan/result (--yes applies)
+  -y, --yes                            Consent to non-interactive mutation
+  -h, --help                           Show this help
+
+Resolve conflicts with --on-conflict theirs (take the package version) or
+--on-conflict ours (keep the local copy).
+`);
+    return;
+  }
   if (sub === "init") {
     console.log(`agent-fleet init [options]
 
@@ -1078,7 +1108,7 @@ Options:
 Exit codes:
   0   nothing to repair
   1   could not run
-  2   repairable issues found (or advisory findings), or a repair failed
+  2   repairable issues found, pending runtime repair, or a repair failed
 `);
     return;
   }
@@ -1100,6 +1130,7 @@ Options:
   --agent pi                          Coding agent (pi is the only target)
   --dry-run                           Print the plan, write nothing
   --json                              Emit the machine plan/result on stdout
+  --purge-config                       Also remove .ai desired/override/STT config (requires consent)
   -y, --yes                           Skip the confirmation
   -h, --help                          Show this help
 
@@ -1151,6 +1182,9 @@ Options:
   --json                              Emit the machine plan/result on stdout
   -y, --yes                           Skip the confirmation (required with --json)
   -h, --help                          Show this help
+
+Resolve conflicts with --accept-theirs (take the new version) or --accept-ours
+(keep the local copy). upgrade does not support setup's --on-conflict flag.
 
 Exit codes:
   0   applied, or nothing to do
@@ -1219,7 +1253,7 @@ Examples:
     console.log(`agent-fleet update [options]
 
   Surface the version delta and re-install the runtime's Agent Fleet setup
-  command so it is always present after an update (guided-workspace-setup
+  command so it is always present after an update (deterministic setup CLI
   removes it at the end of a run by default). The actual diff-aware refresh
   then runs inside your coding agent via that command.
 
@@ -1241,16 +1275,15 @@ Usage:
   npx agent-fleet <command> [options]
 
 Commands:
-  init                Bootstrap installer files + hand off to the setup workflow
+  init                Compatibility alias for setup
   doctor              Find and repair breakage (--fix); advisory findings listed
   verify              Read-only report: manifest × install state × disk (--json)
   install             Install from a profile or explicit item ids
   upgrade             Upgrade what is installed, with a three-way merge
+  setup               Reconcile Default/Full desired state (interactive in a TTY)
   uninstall           Remove recorded artifacts (--items / --all)
-  update              Surface the version delta + hand off to the setup workflow
+  update              Compatibility alias for setup
   check-update        One-line registry check (used by session hooks; safe to script)
-  cleanup-installer   Remove the installer slash commands from a workspace (used
-                      by the skill at end of setup; safe to run by hand)
   set-hermes-telegram Install/status the liaison and start/stop its Herdr bridge
   set-hermes-watchdog Install/status/update/uninstall the fail-closed watchdog skill
 
@@ -1259,6 +1292,7 @@ Options:
   -h, --help       Print this help (or per-command help)
 
 Examples:
+  npx agent-fleet setup --preset default --features none --yes
   npx agent-fleet init
   npx agent-fleet doctor --workspace ~/projects/foo --fix
   npx agent-fleet verify --agent pi --json

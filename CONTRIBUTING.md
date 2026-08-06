@@ -115,9 +115,8 @@ a `.changeset/<random-name>.md` file — commit that alongside your change.
 
 If your change touches the install record schema or any installable artifact
 in a way the version-aware update flow needs to detect, document it explicitly
-in the changeset body — `guided-workspace-setup` reads the CHANGELOG between
-the recorded version and the current version when deciding which Status to
-show in the install menu.
+in the changeset body — the deterministic CLI uses the recorded version and
+snapshot tree to plan the next reconciliation.
 
 ## Reporting Issues
 

@@ -64,7 +64,7 @@ test("Pi loads a symlinked hub after a package-only update", () => {
 		// cannot pass only because a developer ran `just fleet install` locally.
 		symlinkSync(join(repoRoot, "node_modules"), join(workspace, "node_modules"), "dir");
 
-		const manifest = JSON.parse(readFileSync(join(repoRoot, "skills", "guided-workspace-setup", "companion-manifest.json"), "utf8"));
+		const manifest = JSON.parse(readFileSync(join(repoRoot, "bin", "catalog", "harness-runtime-closure.json"), "utf8"));
 		for (const relativePath of manifest.files.filter((value: string) => value.startsWith("scripts/"))) {
 			const target = join(workspace, relativePath);
 			mkdirSync(dirname(target), { recursive: true });

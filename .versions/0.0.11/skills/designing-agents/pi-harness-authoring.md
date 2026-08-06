@@ -202,7 +202,7 @@ A **new** harness authored in this repo needs neither.
 
 ## Wiring — three edits beyond the directory
 
-1. **`justfile`** — add a recipe under the matching `# -----` category header, **inside the `agent-fleet:harnesses` managed-region sentinels** (so guided-workspace-setup ships and refreshes it in target workspaces):
+1. **`justfile`** — add a recipe under the matching `# -----` category header, **inside the `agent-fleet:harnesses` managed-region sentinels** (so deterministic setup ships and refreshes it in target workspaces):
    ```
    # <Name>: <short description>
    ext-<name>:

@@ -5,6 +5,7 @@ export interface FleetInvocation {
 
 interface Capabilities {
 	browser: boolean;
+	voice: boolean;
 	allExtensions: boolean;
 	rest: string[];
 }
@@ -12,13 +13,15 @@ interface Capabilities {
 function capabilities(args: string[]): Capabilities {
 	const rest: string[] = [];
 	let browser = false;
+	let voice = false;
 	let allExtensions = false;
 	for (const arg of args) {
 		if (arg === "--browser") browser = true;
+		else if (arg === "--voice") voice = true;
 		else if (arg === "--all-extensions") allExtensions = true;
 		else rest.push(arg);
 	}
-	return { browser, allExtensions, rest };
+	return { browser, voice, allExtensions, rest };
 }
 
 function bool(value: boolean): string {
@@ -39,11 +42,16 @@ const CODEX_LIFECYCLE = new Set(["setup", "reconfigure", "pair", "start", "statu
 export function parseFleetCommand(argv: string[]): FleetInvocation {
 	if (argv.length === 0 || argv[0].startsWith("--")) {
 		const c = capabilities(argv);
-		return { recipe: "_fleet-core", args: [bool(c.browser), bool(c.allExtensions), ...c.rest] };
+		return { recipe: "_fleet-core", args: [bool(c.browser), bool(c.voice), bool(c.allExtensions), ...c.rest] };
 	}
 
 	const [mode, ...tail] = argv;
-	if (mode === "install") return { recipe: "_fleet-install", args: tail };
+	if (mode === "install") {
+		throw new Error("just fleet install was removed; use `just fleet setup` for lifecycle setup or `just fleet deps` for runtime dependencies");
+	}
+	if (mode === "deps") return { recipe: "_fleet-deps", args: tail };
+	if (["setup", "doctor"].includes(mode)) return { recipe: "_fleet-lifecycle", args: [mode, ...tail] };
+	if (mode === "uninstall") return { recipe: "_fleet-lifecycle", args: ["uninstall", ...tail] };
 
 	// One addressable peer, in a pane of its own unless --here. peer-launch.ts
 	// owns the whole flag set (including `--` passthrough to pi), so the tail is
@@ -56,7 +64,7 @@ export function parseFleetCommand(argv: string[]): FleetInvocation {
 	if (mode === "hub") {
 		const solo = withoutFlag(tail, "--solo");
 		const c = capabilities(solo.rest);
-		return { recipe: "_fleet-hub", args: [bool(solo.present), bool(c.browser), bool(c.allExtensions), ...c.rest] };
+		return { recipe: "_fleet-hub", args: [bool(solo.present), bool(c.browser), bool(c.voice), bool(c.allExtensions), ...c.rest] };
 	}
 
 	if (mode === "team") {

@@ -91,9 +91,9 @@ function makeManifest(extra = []) {
 
 /** plan + apply in one step, the way the CLI does it. */
 function run(opts) {
-  const { manifest, allowExec = false, ...planOpts } = opts;
+  const { manifest, allowExec = false, output, ...planOpts } = opts;
   const plan = buildPlan({ packageVersion: VERSION, agent: AGENT, manifest, allowExec, ...planOpts });
-  const applied = applyPlan({ plan, manifest, allowExec, now: () => "2026-01-01T00:00:00.000Z" });
+  const applied = applyPlan({ plan, manifest, allowExec, output, now: () => "2026-01-01T00:00:00.000Z" });
   return { plan, applied };
 }
 
@@ -277,7 +277,7 @@ test("json-merge refuses to overwrite a file it cannot parse", () => {
 
 // ── conflicts ───────────────────────────────────────────────────────────────
 
-test("a conflict writes .new and leaves the original untouched", () => {
+test("a conflict writes nothing, leaves the original untouched, and exits 3", () => {
   const sourceRoot = makeSource();
   const workspace = tmp("ws");
   const manifest = makeManifest();
@@ -297,8 +297,9 @@ test("a conflict writes .new and leaves the original untouched", () => {
 
   assert.equal(plan.conflicts.length, 1);
   assert.equal(read(workspace, ".pi/skills/alpha/SKILL.md"), "my own text\n", "the original must survive");
-  assert.equal(read(workspace, ".pi/skills/alpha/SKILL.md.new"), "alpha v2\n", "the incoming version lands beside it");
-  assert.deepEqual(applied.conflictFiles, [".pi/skills/alpha/SKILL.md.new"]);
+  assert.equal(existsSync(join(workspace, ".pi/skills/alpha/SKILL.md.new")), false, "a conflict creates no .new file");
+  assert.equal(applied.exitCode, 3);
+  assert.deepEqual(applied.conflictFiles, []);
 });
 
 // ── removal ─────────────────────────────────────────────────────────────────
@@ -350,7 +351,7 @@ test("a target escaping the workspace is refused", () => {
   assert.ok(!existsSync(join(workspace, "..", "escaped")));
 });
 
-test("exec runs only when permitted, and a failure stops the pass", () => {
+test("exec runs after commit only when permitted, and failures create retryable repair state", () => {
   const sourceRoot = makeSource();
   const execItem = (args) => item("companion:cmd", {
     kind: "companion", consent: "exec",
@@ -365,12 +366,14 @@ test("exec runs only when permitted, and a failure stops the pass", () => {
   });
   assert.equal(gated.applied.results.find((r) => r.id === "companion:cmd").status, "skipped");
 
+  const printed = [];
   const ok = run({
     workspace: tmp("ws"), sourceRoot,
     manifest: makeManifest([execItem(["-e", "process.exit(0)"])]),
-    items: ["companion:cmd"], allowExec: true,
+    items: ["companion:cmd"], allowExec: true, output: (line) => printed.push(line),
   });
   assert.equal(ok.applied.results.find((r) => r.id === "companion:cmd").status, "applied");
+  assert.deepEqual(printed, [`${process.execPath} -e process.exit(0)`]);
 
   const workspace = tmp("ws");
   const bad = run({
@@ -378,11 +381,12 @@ test("exec runs only when permitted, and a failure stops the pass", () => {
     manifest: makeManifest([execItem(["-e", "process.exit(2)"])]),
     profiles: ["all"], items: ["companion:cmd"], allowExec: true,
   });
-  assert.equal(bad.applied.summary.failed, 1);
+  assert.equal(bad.applied.exitCode, 1);
+  assert.equal(bad.applied.runtimeRepairs.length, 1);
   assert.ok(readState(workspace), "the state file is written even when the pass fails");
   assert.ok(
     readState(workspace).items["skill:alpha"],
-    "work completed before the failure stays recorded",
+    "the committed tree stays recorded after runtime failure",
   );
 });
 

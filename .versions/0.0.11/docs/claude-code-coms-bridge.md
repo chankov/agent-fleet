@@ -6,6 +6,14 @@ Code itself asks pi peers questions mid-task via `coms-cli`. Requires a running
 [herdr](https://herdr.dev) server (the bridge drives the Claude pane through herdr's
 socket API).
 
+> **This is the only role Claude Code has in Agent Fleet.** It is not a coding-agent
+> install target: `agent-fleet install` targets pi and nothing else, there are no
+> `.claude/` skills, commands, or personas, and no Claude Code plugin. What a bridged
+> pane gets is what this page describes — the `peer-coms` skill and the Stop hook,
+> both installed under the pi agent because the *fleet* is what needs them. A Claude
+> Code peer contributes review, research, and analysis turns over coms; it does not run
+> the lifecycle commands or orchestrate anything.
+
 ```
 pi hub ── coms envelope ──▶ coms-claude-bridge ── pane.send_text ──▶ Claude Code (pane)
 pi hub ◀── response ─────── coms-claude-bridge ◀── Stop hook file ─── (turn ends)
@@ -24,6 +32,15 @@ Claude Code ── Bash: coms-cli send/await ──▶ any pi peer            (o
 
 ## Setup
 
+Installing `skill:peer-coms` brings `hook:coms-stop-hook` with it (a declared companion),
+so `agent-fleet install --items skill:peer-coms` puts both halves in place:
+`.pi/skills/peer-coms/` and `.claude/hooks/coms-stop-hook.mjs`. The hook file lands under
+`.claude/` deliberately — that is where the Claude Code process in the pane looks for it.
+
+**Registering the hook stays a manual step.** The installer writes the file; it does not
+touch `.claude/settings.json`, because that file is the user's own Claude Code
+configuration and merging into it is not something a pi install should decide.
+
 1. **Hook (recommended):** add to the project's (or user's) Claude Code `settings.json`:
 
    ```json
@@ -39,8 +56,9 @@ Claude Code ── Bash: coms-cli send/await ──▶ any pi peer            (o
    `<<COMS_DONE:msg_id>>` sentinel and scraping the pane — it works, but replies can
    carry TUI noise (tool-status lines). The hook returns exact text.
 
-2. **Skill:** install `peer-coms` via the normal per-agent flow so Claude Code knows it
-   is a peer and how to use `coms-cli`.
+2. **Skill:** install `peer-coms` so the bridged session knows it is a peer and how to
+   use `coms-cli`. Point Claude Code at it the way you normally load project skills —
+   a `CLAUDE.md` reference to `.pi/skills/peer-coms/SKILL.md` is enough.
 
 3. **Spawn:** either add a `runner: claude-code` peer to a peers.yaml team and
    `just fleet team <team> --no-hub`, or attach a bridge to an existing Herdr Claude pane:

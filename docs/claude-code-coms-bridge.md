@@ -7,7 +7,7 @@ Code itself asks pi peers questions mid-task via `coms-cli`. Requires a running
 socket API).
 
 > **This is the only role Claude Code has in Agent Fleet.** It is not a coding-agent
-> install target: `agent-fleet install` targets pi and nothing else, there are no
+> install target: deterministic `agent-fleet setup` targets pi and nothing else, there are no
 > `.claude/` skills, commands, or personas, and no Claude Code plugin. What a bridged
 > pane gets is what this page describes — the `peer-coms` skill and the Stop hook,
 > both installed under the pi agent because the *fleet* is what needs them. A Claude
@@ -32,8 +32,9 @@ Claude Code ── Bash: coms-cli send/await ──▶ any pi peer            (o
 
 ## Setup
 
-Installing `skill:peer-coms` brings `hook:coms-stop-hook` with it (a declared companion),
-so `agent-fleet install --items skill:peer-coms` puts both halves in place:
+The stable `claude-bridge` setup feature selects `peer-coms` and its
+`coms-stop-hook` companion. Use `agent-fleet setup --preset default --features
+claude-bridge --yes` (or select it interactively); it puts both halves in place:
 `.pi/skills/peer-coms/` and `.claude/hooks/coms-stop-hook.mjs`. The hook file lands under
 `.claude/` deliberately — that is where the Claude Code process in the pane looks for it.
 

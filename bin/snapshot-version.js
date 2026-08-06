@@ -41,7 +41,7 @@ const ARTIFACT_PATHS = [
   // dev-only.
   "scripts",
   // justfile carries the pi harness launch recipes. It is a companion of the
-  // harness group in guided-workspace-setup, so the snapshot must hold a
+  // harness group in the deterministic installer, so the snapshot must hold a
   // per-version copy for the upgrade three-way diff (retired-harness recipes
   // pruned, new-harness recipes added on refresh).
   "justfile",
@@ -64,6 +64,8 @@ const ARTIFACT_PATHS = [
   // retired now is only resolvable from the base catalogue.
   "install-manifest.json",
   "manifest-meta.json",
+  // Installer-owned harness closure data, independent of the setup skill.
+  "bin/catalog/harness-runtime-closure.json",
 ];
 
 if (existsSync(snapDir)) {

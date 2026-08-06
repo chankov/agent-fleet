@@ -97,6 +97,14 @@ export function createMonitorSessionBridge(deps: any = {}) {
 		throw error;
 	}
 
+	const latestGenerationById = new Map<string, number>();
+	for (const task of records()) latestGenerationById.set(task.id, Math.max(latestGenerationById.get(task.id) ?? 0, task.generation));
+	const reserveGeneration = (id: string, requested: number) => {
+		const generation = Math.max(requested, (latestGenerationById.get(id) ?? 0) + 1);
+		latestGenerationById.set(id, generation);
+		return generation;
+	};
+
 	const persist = () => runtime?.save({
 		tasks: (store.durableSnapshot?.().tasks ?? records()).map((task: any) => ({
 			...task,
@@ -174,6 +182,7 @@ export function createMonitorSessionBridge(deps: any = {}) {
 				value = { ...value, generation: prior.generation + 1 };
 				ready.delete(value.key);
 			}
+			value = { ...value, generation: reserveGeneration(value.id, value.generation ?? 1) };
 			const pending = Promise.resolve().then(() => pub.publishChildForHub({ ...value, ...currentOwner, parentGeneration: value.parentGeneration ?? 1 }, env)).then((task: any) => {
 				keys.set(value.key, { id: task.id, generation: task.generation });
 				monitorKeyByTask.set(taskKey(task), value.key);
@@ -251,7 +260,7 @@ export function createMonitorSessionBridge(deps: any = {}) {
 			persist(); return this.snapshot();
 		},
 		snapshot() { persist(); return { tasks: records().map((task: any) => { const key = monitorKeyByTask.get(taskKey(task)); return { id: task.id, generation: task.generation, kind: task.kind, parentId: task.parentId, parentGeneration: task.parentGeneration, specialist: task.specialist, state: task.state, workspaceId: task.workspaceId, hubPaneId: task.hubPaneId, hubInstanceId: task.hubInstanceId, ownerSessionId: task.ownerSessionId, ownerLeaseExpiresAt: task.ownerLeaseExpiresAt, outputSequence: task.outputSequence, firstSequence: task.firstSequence, truncated: task.truncated, canCancel: !!key && cancellable.has(key) && !terminal(task.state) }; }) }; },
-		reset() { keys.clear(); ready.clear(); late.clear(); finalized.clear(); cancellable.clear(); monitorKeyByTask.clear(); lateByGeneration.clear(); persist(); },
+		reset() { keys.clear(); ready.clear(); late.clear(); finalized.clear(); cancellable.clear(); persist(); },
 		stop() { keys.clear(); ready.clear(); late.clear(); finalized.clear(); cancellable.clear(); monitorKeyByTask.clear(); lateByGeneration.clear(); },
 	};
 }

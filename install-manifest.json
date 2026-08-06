@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "packageVersion": "0.0.11",
   "groups": [
     {
@@ -133,6 +133,110 @@
       "subcategories": []
     }
   ],
+  "presets": {
+    "default": {
+      "title": "Launchable recommended Agent Fleet",
+      "items": [
+        "command:build",
+        "command:plan",
+        "command:review",
+        "command:spec",
+        "command:test",
+        "persona:builder",
+        "persona:code-reviewer",
+        "persona:test-engineer",
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue",
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue",
+        "skill:code-review-and-quality",
+        "skill:compound-learning",
+        "skill:debugging-and-error-recovery",
+        "skill:git-workflow-and-versioning",
+        "skill:incremental-implementation",
+        "skill:orchestration-verification",
+        "skill:planning-and-task-breakdown",
+        "skill:spec-driven-development",
+        "skill:test-driven-development",
+        "skill:using-agent-skills"
+      ]
+    },
+    "full": {
+      "title": "All stable platform-applicable catalogue roots",
+      "rule": "stable"
+    },
+    "minimal": {
+      "title": "Internal lifecycle support preset",
+      "items": [
+        "skill:using-agent-skills",
+        "skill:spec-driven-development",
+        "skill:planning-and-task-breakdown",
+        "skill:incremental-implementation",
+        "skill:test-driven-development",
+        "skill:code-review-and-quality",
+        "command:spec",
+        "command:plan",
+        "command:build",
+        "command:test",
+        "command:review"
+      ]
+    }
+  },
+  "features": {
+    "voice": {
+      "title": "Voice",
+      "stability": "stable",
+      "items": [
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    "browser": {
+      "title": "Browser",
+      "stability": "stable",
+      "items": [
+        "pi-extension:chrome-devtools-mcp",
+        "pi-runtime-skill:bowser"
+      ]
+    },
+    "hermes": {
+      "title": "Hermes",
+      "stability": "stable",
+      "items": [
+        "hermes-plugin:agent-fleet-herdr",
+        "hermes-plugin:agent-fleet-monitor",
+        "hermes-skill:hub-conductor",
+        "hermes-skill:hub-liaison",
+        "hermes-skill:hub-watchdog"
+      ]
+    },
+    "telegram": {
+      "title": "Telegram",
+      "stability": "stable",
+      "requiresFeatures": [
+        "hermes"
+      ],
+      "items": [
+        "hermes-skill:hub-liaison"
+      ]
+    },
+    "claude-bridge": {
+      "title": "Claude bridge",
+      "stability": "stable",
+      "items": [
+        "skill:peer-coms"
+      ]
+    },
+    "codex-remote": {
+      "title": "Codex remote",
+      "stability": "experimental",
+      "items": [
+        "codex:agent-fleet-codex-remote-control"
+      ]
+    }
+  },
   "profiles": {
     "minimal": {
       "title": "Lifecycle skills and their commands, nothing else",
@@ -196,6 +300,7 @@
       "title": "agent-fleet-codex-remote-control",
       "summary": "",
       "recommended": false,
+      "stability": "experimental",
       "consent": "operator",
       "platform": "linux",
       "agents": {
@@ -225,6 +330,7 @@
       "title": "build",
       "summary": "Implement the next task incrementally — build, test, verify, request review",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -249,6 +355,7 @@
       "title": "code-simplify",
       "summary": "Simplify code for clarity and maintainability — reduce complexity without changing behavior",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -273,6 +380,7 @@
       "title": "plan",
       "summary": "Break work into small verifiable tasks with acceptance criteria and dependency ordering",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -297,6 +405,7 @@
       "title": "review",
       "summary": "Conduct a five-axis code review — correctness, readability, architecture, security, performance",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -321,6 +430,7 @@
       "title": "set-hermes-telegram",
       "summary": "Install/status the Hermes liaison or turn its Telegram ask_user bridge on/off",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -345,6 +455,7 @@
       "title": "set-hermes-watchdog",
       "summary": "Inspect or safely install the fail-closed Hermes watchdog",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -369,6 +480,7 @@
       "title": "ship",
       "summary": "Run the pre-launch checklist and prepare for production deployment",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -393,6 +505,7 @@
       "title": "spec",
       "summary": "Start spec-driven development — write a structured specification before writing code",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -417,6 +530,7 @@
       "title": "test",
       "summary": "Run TDD workflow — write failing tests, implement, verify.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -441,6 +555,7 @@
       "title": ".pi/damage-control-rules.yaml",
       "summary": "Rule set the damage-control harness enforces",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -465,6 +580,7 @@
       "title": "harness-runtime-closure",
       "summary": "Runtime files the pi harness recipes shell out to",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -521,6 +637,7 @@
       "title": "justfile managed region",
       "summary": "Harness launch recipes between the agent-fleet sentinels",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -548,6 +665,7 @@
       "title": ".pi/agents configs",
       "summary": "teams, peers, chains, and dispatch policy the harnesses read",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -573,6 +691,7 @@
       "title": "npm ci (.pi/extensions)",
       "summary": "Installs the extension runtime dependencies",
       "recommended": false,
+      "stability": "stable",
       "consent": "exec",
       "platform": "any",
       "agents": {
@@ -609,6 +728,7 @@
       "title": ".pi/extensions package manifests",
       "summary": "Runtime dependency manifests for the extensions",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -639,6 +759,7 @@
       "title": "npm ci (.pi/harnesses)",
       "summary": "Installs the harness runtime dependencies",
       "recommended": false,
+      "stability": "stable",
       "consent": "exec",
       "platform": "any",
       "agents": {
@@ -673,6 +794,7 @@
       "title": ".pi/harnesses/lib",
       "summary": "Shared modules every harness imports",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -700,6 +822,7 @@
       "title": ".pi/harnesses package manifests",
       "summary": "Runtime dependency manifests for the harnesses",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -728,6 +851,7 @@
       "title": "skills/_internal/grilling.md",
       "summary": "Shared helper for the interview-style skills",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -754,6 +878,7 @@
       "title": ".ai/stt.json",
       "summary": "Non-secret voice provider config; keys stay in .env — asked for, never generated",
       "recommended": false,
+      "stability": "stable",
       "consent": "operator",
       "platform": "any",
       "agents": {
@@ -781,6 +906,7 @@
       "title": "pi-ask-user",
       "summary": "Native ask_user widget for pi",
       "recommended": false,
+      "stability": "stable",
       "consent": "external",
       "platform": "any",
       "agents": {
@@ -806,6 +932,7 @@
       "title": "playwright-cli",
       "summary": "Playwright Agent CLI the bowser runtime skill drives",
       "recommended": false,
+      "stability": "stable",
       "consent": "external",
       "platform": "any",
       "agents": {
@@ -831,6 +958,7 @@
       "title": "agent-fleet-herdr",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "operator",
       "platform": "any",
       "agents": {
@@ -860,6 +988,7 @@
       "title": "agent-fleet-monitor",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "operator",
       "platform": "any",
       "agents": {
@@ -889,6 +1018,7 @@
       "title": "hub-conductor",
       "summary": "Conducts local pi hub-team peers from Hermes through coms-cli list/send --await, while preserving no-herdr and pool-s…",
       "recommended": false,
+      "stability": "stable",
       "consent": "operator",
       "platform": "any",
       "agents": {
@@ -916,6 +1046,7 @@
       "title": "hub-liaison",
       "summary": "On any Telegram HUB-Q reply ALWAYS write the pi hub bridge answer file — even when the thread shows cancel/closed/tim…",
       "recommended": false,
+      "stability": "stable",
       "consent": "operator",
       "platform": "any",
       "agents": {
@@ -944,6 +1075,7 @@
       "title": "hub-watchdog",
       "summary": "Foreground, fail-closed local Agent Hub watchdog.",
       "recommended": false,
+      "stability": "stable",
       "consent": "operator",
       "platform": "any",
       "agents": {
@@ -970,6 +1102,7 @@
       "title": "coms-stop-hook",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -994,6 +1127,7 @@
       "title": "architect",
       "summary": "System architect — owns design decisions and migration strategy; answers design questions with concrete, justified re…",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1015,6 +1149,7 @@
       "title": "bowser",
       "summary": "Headless browser automation agent using Playwright CLI.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1039,6 +1174,7 @@
       "title": "builder",
       "summary": "Implementation and code generation — lands changes in small verifiable increments.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1060,6 +1196,7 @@
       "title": "code-reviewer",
       "summary": "Senior code reviewer that evaluates changes across five dimensions — correctness, readability, architecture, security…",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1081,6 +1218,7 @@
       "title": "deep-researcher",
       "summary": "Read-only deep reconnaissance for hard, ambiguous, or high-stakes questions — traces cross-cutting call paths, maps u…",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1102,6 +1240,7 @@
       "title": "documenter",
       "summary": "Documentation and README generation",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1123,6 +1262,7 @@
       "title": "orchestrator",
       "summary": "Verification-Contract orchestrator — plans, builds, and verifies in small slices, owns the acceptance assertions, and…",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1144,6 +1284,7 @@
       "title": "plan-reviewer",
       "summary": "Plan critic — reviews, challenges, and validates implementation plans",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1165,6 +1306,7 @@
       "title": "planner",
       "summary": "Architecture and implementation planning — produces a written PLAN file with dependency-ordered tasks and acceptance…",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1186,6 +1328,7 @@
       "title": "releaser",
       "summary": "Release owner — cuts versions and ships; runs the changeset → version-bump → tag flow on request.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1207,6 +1350,7 @@
       "title": "researcher",
       "summary": "Read-only reconnaissance — searches code, reads files and docs, and reports findings with file:line citations.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1228,6 +1372,7 @@
       "title": "security-auditor",
       "summary": "Security engineer focused on vulnerability detection, threat modeling, and secure coding practices.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1249,6 +1394,7 @@
       "title": "test-engineer",
       "summary": "QA engineer specialized in test strategy, test writing, and coverage analysis.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1270,6 +1416,7 @@
       "title": "web-debugger",
       "summary": "Interactive headful Chrome debugging via Chrome DevTools MCP — live DOM snapshots, console, network, and performance…",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1294,6 +1441,7 @@
       "title": "web-performance-auditor",
       "summary": "Web performance engineer focused on Core Web Vitals, loading, rendering, and network optimization.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1318,6 +1466,7 @@
       "title": "agent-fleet-update-check",
       "summary": "",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1349,6 +1498,7 @@
       "title": "btw",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1380,6 +1530,7 @@
       "title": "chrome-devtools-mcp",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1405,6 +1556,7 @@
       "title": "compact-and-continue",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1436,6 +1588,7 @@
       "title": "mcp-bridge",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1461,6 +1614,7 @@
       "title": "pi-voice-stt",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1477,12 +1631,6 @@
         "companion:pi-extension-deps",
         "companion:pi-extension-manifests",
         "companion:stt-config"
-      ],
-      "pinnedBy": [
-        "pi-harness:agent-hub",
-        "pi-harness:ask-user-remote",
-        "pi-harness:coms",
-        "pi-harness:damage-control-continue"
       ]
     },
     {
@@ -1493,6 +1641,7 @@
       "title": "agent-hub",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1526,6 +1675,7 @@
       "title": "ask-user-remote",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1549,7 +1699,6 @@
         "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:compact-and-continue",
-        "pi-extension:pi-voice-stt",
         "pi-harness:damage-control-continue"
       ],
       "recommendsWith": [
@@ -1568,6 +1717,7 @@
       "title": "coms",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1601,6 +1751,7 @@
       "title": "damage-control-continue",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1625,7 +1776,6 @@
         "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:compact-and-continue",
-        "pi-extension:pi-voice-stt",
         "pi-harness:ask-user-remote"
       ],
       "pinnedBy": [
@@ -1641,6 +1791,7 @@
       "title": "bowser",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1665,6 +1816,7 @@
       "title": "accessibility-checklist",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1690,6 +1842,7 @@
       "title": "definition-of-done",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1717,6 +1870,7 @@
       "title": "fleet-coordination-patterns",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1741,6 +1895,7 @@
       "title": "observability-checklist",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1765,6 +1920,7 @@
       "title": "orchestration-patterns",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1789,6 +1945,7 @@
       "title": "performance-checklist",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1816,6 +1973,7 @@
       "title": "prompting-patterns",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1841,6 +1999,7 @@
       "title": "security-checklist",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1867,6 +2026,7 @@
       "title": "testing-patterns",
       "summary": "",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1891,6 +2051,7 @@
       "title": "api-and-interface-design",
       "summary": "Guides stable API and interface design.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1912,6 +2073,7 @@
       "title": "browser-testing-with-devtools",
       "summary": "Tests in real browsers via Chrome DevTools MCP.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1934,6 +2096,7 @@
       "title": "ci-cd-and-automation",
       "summary": "Automates CI/CD pipeline setup.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1955,6 +2118,7 @@
       "title": "code-review-and-quality",
       "summary": "Conducts multi-axis code review.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -1981,6 +2145,7 @@
       "title": "code-simplification",
       "summary": "Simplifies code for clarity.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2002,6 +2167,7 @@
       "title": "compound-learning",
       "summary": "Captures a finished session's lessons into the project's own rules and docs — extracts candidate lessons from session…",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2027,6 +2193,7 @@
       "title": "context-engineering",
       "summary": "Optimizes agent context setup.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2052,6 +2219,7 @@
       "title": "debugging-and-error-recovery",
       "summary": "Guides systematic root-cause debugging.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2073,6 +2241,7 @@
       "title": "deprecation-and-migration",
       "summary": "Manages deprecation and migration.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2095,6 +2264,7 @@
       "title": "designing-agents",
       "summary": "Designs and writes a focused artifact another agent runs — an agent persona in agents/, a workflow skill in skills/,…",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2119,6 +2289,7 @@
       "title": "documentation-and-adrs",
       "summary": "Records decisions and documentation.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2140,6 +2311,7 @@
       "title": "doubt-driven-development",
       "summary": "Subjects every non-trivial decision to a fresh-context adversarial review before it stands.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2164,6 +2336,7 @@
       "title": "frontend-ui-engineering",
       "summary": "Builds production-quality UIs.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2189,6 +2362,7 @@
       "title": "git-workflow-and-versioning",
       "summary": "Structures git workflow practices.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2211,6 +2385,7 @@
       "title": "idea-refine",
       "summary": "Refines raw ideas into sharp, actionable concepts through structured divergent and convergent thinking.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2236,6 +2411,7 @@
       "title": "incremental-implementation",
       "summary": "Delivers changes incrementally.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2261,6 +2437,7 @@
       "title": "interview-me",
       "summary": "Extracts what the user actually wants instead of what they think they should want.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2283,6 +2460,7 @@
       "title": "observability-and-instrumentation",
       "summary": "Instruments code so production behavior is visible and diagnosable.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2307,6 +2485,7 @@
       "title": "orchestration-verification",
       "summary": "Defines the Verification Contract that keeps a multi-agent run honest — dispatcher-owned acceptance assertions, a par…",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2337,6 +2516,7 @@
       "title": "peer-coms",
       "summary": "Makes Claude Code a first-class peer in the local coms agent pool — discover pi colleagues, ask or delegate to them m…",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2361,6 +2541,7 @@
       "title": "performance-optimization",
       "summary": "Optimizes application performance.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2386,6 +2567,7 @@
       "title": "planning-and-task-breakdown",
       "summary": "Breaks work into ordered tasks.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2412,6 +2594,7 @@
       "title": "security-and-hardening",
       "summary": "Hardens code against vulnerabilities.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2437,6 +2620,7 @@
       "title": "shipping-and-launch",
       "summary": "Prepares production launches.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2464,6 +2648,7 @@
       "title": "source-driven-development",
       "summary": "Grounds every implementation decision in official documentation.",
       "recommended": false,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2485,6 +2670,7 @@
       "title": "spec-driven-development",
       "summary": "Creates specs before coding.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2510,6 +2696,7 @@
       "title": "test-driven-development",
       "summary": "Drives development with tests.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
@@ -2534,6 +2721,7 @@
       "title": "using-agent-skills",
       "summary": "Discovers and invokes agent skills.",
       "recommended": true,
+      "stability": "stable",
       "consent": "file",
       "platform": "any",
       "agents": {
