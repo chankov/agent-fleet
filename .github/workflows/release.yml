@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 # Only one release run at a time so the "Version Packages" PR stays sane.
 concurrency: ${{ github.workflow }}-${{ github.ref }}
