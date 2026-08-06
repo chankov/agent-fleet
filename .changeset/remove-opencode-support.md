@@ -3,16 +3,19 @@
 # release: keep-bump
 ---
 
-Remove OpenCode support. `claude-code` and `pi` are now the only install
-targets — OpenCode is no longer a recognized agent for any skill, persona,
-command, or harness.
+Remove OpenCode support. OpenCode is no longer a recognized agent for any skill,
+persona, command, or harness. (This change left `claude-code` and `pi` as the
+install targets; a later change in the same release removes `claude-code` too,
+leaving pi as the only one.)
 
 **Breaking for OpenCode workspaces.** `--agent opencode` is rejected by every
 CLI verb, and the installer no longer knows the `.opencode/` paths, so it can
 neither install into nor clean up an OpenCode workspace. Anyone with an
 existing OpenCode install should delete `.opencode/agent/`,
 `.opencode/skills/`, `.opencode/commands/`, and `.opencode/orchestrate-teams.yaml`
-by hand before upgrading, then re-run setup for `claude-code` or `pi`.
+by hand before upgrading, then run
+`npx @chankov/agent-fleet@latest setup --preset default --features none --yes`
+for pi. Step-by-step: `docs/MIGRATION-agent-fleet.md`.
 
 What changed:
 

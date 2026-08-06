@@ -9,11 +9,13 @@ import { resolveMonitorEnv } from "./lib/monitor-env.ts";
 const HELP = `Agent Fleet — one guarded Hub runtime, two postures, independent topology
 
 SET UP A NEW REPOSITORY
-  just fleet setup
-      The easiest TUI entry point. It runs npx @chankov/agent-fleet@latest setup
-      from this repository, so it needs npm registry access unless @latest is cached.
+  npx @chankov/agent-fleet@latest setup
+      Run this from the target repository. A repository without Agent Fleet has
+      no justfile yet — setup writes it — so the first install cannot use just.
       Select Default/Full and optional features, inspect the exact plan, then
-      confirm once to apply it. Source checkout development: node bin/cli.js setup.
+      confirm once to apply it. Follow with just fleet deps, then just fleet doctor.
+      Source checkout development: node bin/cli.js setup.
+      Once installed, just fleet setup wraps the same command for this repository.
 
 QUICK START
   just fleet                    # Hub/operator, empty native roster
@@ -108,8 +110,10 @@ COMPATIBILITY ALIASES — accepted with migration warnings
   Legacy peer-only presets full/web/docs retain the default native roster.
 
 LIFECYCLE
-  just fleet setup [--preset default|full --features none --yes]
-      Reconcile desired state with the newest published package.
+  just fleet setup [--dry-run] [--preset default|full --features none --yes]
+      Reconcile desired state with the newest published package. Preset and
+      features are remembered in .ai/agent-fleet.json, so a plain setup needs no
+      flags; flags apply to one run unless --save-desired persists them.
   just fleet deps
       Install only .pi/extensions and .pi/harnesses Node dependencies.
       Does not launch Pi, configure STT, install ffmpeg/Herdr, or pair Codex.
@@ -118,9 +122,14 @@ LIFECYCLE
       Reinstall after self-uninstall with npx @chankov/agent-fleet@latest setup.
 
 UPDATE NOTE
+  Update with: just fleet setup --dry-run, then just fleet setup, then deps+doctor.
+  setup reconciles TOWARD the package: an artifact you edited in place is
+  refreshed and your edit overwritten. --dry-run shows that before it happens;
+  .ai/agent-fleet-overrides.md is the customization no lifecycle command touches.
+  If you and the new version changed the same file, setup exits 3 having written
+  nothing — re-run with --on-conflict theirs or --on-conflict ours.
   pi update --extensions updates pi extensions only; it does not update this npm
-  installer. Run just fleet setup to resolve @latest and reconcile the workspace.
-  just fleet install was removed; use setup or deps.
+  installer. just fleet install was removed; use setup or deps.
 
 HELP
   just                 Show this complete command guide.

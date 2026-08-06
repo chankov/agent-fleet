@@ -66,19 +66,20 @@ flowchart TD
 
 ## Quick Start
 
-### Deterministic lifecycle
+### Install into a repository
 
-From the **target repository** in a real TTY, use the easiest installer-TUI entry point:
+From the **target repository**. The first install goes through `npx` — `just
+fleet` does not exist yet, because the managed justfile region is one of the
+things setup writes:
 
 ```bash
-just fleet setup
+cd ~/projects/my-app
+npx @chankov/agent-fleet@latest setup
 ```
 
-It resolves `npx @chankov/agent-fleet@latest setup`, asks for the **Default** or
-**Full** preset and optional comma-separated features, shows the exact reconciliation
-plan, then asks once before applying. It needs npm registry access unless `@latest`
-is already cached. Use the package command directly when `just` is unavailable.
-For automation, pass explicit selection and consent:
+In a real TTY that opens the installer: pick the **Default** or **Full** preset
+and optional comma-separated features, read the exact reconciliation plan, then
+confirm once. For automation, name the selection and consent:
 
 ```bash
 npx @chankov/agent-fleet@latest setup --preset default --features none --yes
@@ -86,34 +87,58 @@ npx @chankov/agent-fleet@latest setup --preset default --features none --yes
 
 **Default** is a launchable stable Fleet Core; it creates neither `.claude/` nor
 voice configuration. **Full** selects all stable platform-applicable catalogue
-roots and may install the recorded Claude Code coms bridge. Features are named
-additions selected after a preset. The lifecycle requires no coding agent or
-model.
+roots and may install the recorded Claude Code coms bridge. The lifecycle
+requires no coding agent or model.
+
+Setup writes files but never runs commands, so finish with the two npm steps it
+deliberately skipped — the workspace is not launchable until they run:
+
+```bash
+just fleet deps     # npm install in .pi/extensions and .pi/harnesses
+just fleet doctor   # exit 0 = nothing to repair
+```
+
+Then start a fleet:
 
 ```bash
 just fleet                                      # Hub/operator; direct tools; empty native roster
 just fleet --agents frontend                    # Hub/orchestrator + native specialists
 just fleet --agents frontend --peers frontend --project af
                                                 # same Hub + standing peers in Herdr
-just fleet deps               # install .pi/extensions and .pi/harnesses npm dependencies
-just fleet doctor             # deterministic diagnostics
 ```
+
+### Updating
+
+A pi session prints a banner when a newer version is published. Your preset and
+features live in `.ai/agent-fleet.json`, so a plain `setup` reconciles to the
+selection you already made:
+
+```bash
+just fleet setup --dry-run    # preview: what changes, what gets overwritten
+just fleet setup              # apply; shows the plan and asks once
+just fleet deps               # if the plan skipped the npm steps
+just fleet doctor
+```
+
+> **`setup` reconciles toward the package.** A shipped artifact you edited in
+> place is refreshed and your edit is overwritten — no prompt. Customize through
+> `.ai/agent-fleet-overrides.md`, which no lifecycle command touches. If *both*
+> you and the new version changed the same file, setup exits `3` having written
+> nothing; re-run with `--on-conflict theirs` or `--on-conflict ours`.
+
+`pi update --extensions` updates pi's own extensions only — never this installer
+or what it wrote. `just fleet install` was removed; use `setup` or `deps`.
 
 | Lifecycle command | What it does |
 |---|---|
-| `npx @chankov/agent-fleet setup` | Reconcile Default/Full desired state and named features |
+| `npx @chankov/agent-fleet setup` | Reconcile to the Default/Full desired state and named features |
 | `npx @chankov/agent-fleet doctor` | Read-only diagnostics; `--fix` repairs explicit findings |
 | `npx @chankov/agent-fleet uninstall --all --yes` | Remove unchanged recorded artifacts while preserving human configuration |
 
-Lifecycle flags are ephemeral over existing desired state unless `--save-desired`
-is explicit. First legacy migration requires `--migrate`, explicit preset/features,
-and `--yes`; its dry-run lists exact state-owned removals. `just fleet uninstall
---yes` safely removes its own managed launcher last; reinstall afterwards with
-`npx @chankov/agent-fleet@latest setup`, then run `just fleet doctor`.
-
-`pi update --extensions` updates pi extensions only; it does not update the npm
-installer. Run `just fleet setup` to resolve `@latest` and reconcile the workspace.
-`just fleet install` was removed; use `just fleet setup` or `just fleet deps`.
+`just fleet setup`/`doctor`/`uninstall` are thin wrappers over
+`npx @chankov/agent-fleet@latest` for a workspace that already has the justfile.
+`just fleet uninstall --yes` removes its own launcher last, so reinstall
+afterwards with the package CLI.
 
 Full reference: [docs/npm-install.md](docs/npm-install.md) and the
 [major-release migration matrix](docs/MIGRATION-agent-fleet.md).
@@ -128,10 +153,10 @@ git clone https://github.com/chankov/agent-fleet.git && cd agent-fleet
 node bin/cli.js setup --workspace ~/projects/foo --preset default --features none --yes
 ```
 
-`setup` reconciles the recorded desired state and preserves locally modified
-state-owned files. This `node bin/cli.js` command is for source-checkout
-development; use the `npx @chankov/agent-fleet@latest setup` package command
-above for a new repository. CLI selections are ephemeral over an existing
+`setup` reconciles the workspace to the recorded desired state. This
+`node bin/cli.js` command is for source-checkout development; use the
+`npx @chankov/agent-fleet@latest setup` package command above for a new
+repository. CLI selections are ephemeral over an existing
 `.ai/agent-fleet.json` unless `--save-desired` is explicit. Symlink installs
 exist only inside an agent-fleet checkout, where editing an artifact is meant
 to edit the source.
@@ -406,7 +431,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 
 ## Credits & origins
 
-Agent Fleet started as a customized fork of [Addy Osmani](https://github.com/addyosmani)'s [`agent-skills`](https://github.com/addyosmani/agent-skills) library, with pi session-harness patterns from [IndyDevDan](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) (MIT) growing alongside it. As orchestration became the center of gravity, it split into a standalone project — with the upstream relationship kept honest: Addy's library is vendored **pristine at a pinned SHA** under [`vendor/agent-skills-upstream/`](vendor/agent-skills-upstream/) ([policy](docs/UPSTREAM-SKILLS.md)), and the ported harnesses credit their origin in [docs/pi-extensions.md](docs/pi-extensions.md). Split record: [docs/MIGRATION-agent-fleet.md](docs/MIGRATION-agent-fleet.md).
+Agent Fleet started as a customized fork of [Addy Osmani](https://github.com/addyosmani)'s [`agent-skills`](https://github.com/addyosmani/agent-skills) library, with pi session-harness patterns from [IndyDevDan](https://github.com/disler)'s [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) (MIT) growing alongside it. As orchestration became the center of gravity, it split into a standalone project — with the upstream relationship kept honest: Addy's library is vendored **pristine at a pinned SHA** under [`vendor/agent-skills-upstream/`](vendor/agent-skills-upstream/) ([policy](docs/UPSTREAM-SKILLS.md)), and the ported harnesses credit their origin in [docs/pi-extensions.md](docs/pi-extensions.md).
 
 | Person | Handle | What we draw from |
 | --- | --- | --- |

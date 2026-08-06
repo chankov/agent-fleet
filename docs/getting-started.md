@@ -5,47 +5,84 @@ Agent Fleet installs deterministic pi workspace content. The public lifecycle is
 
 ## Install a new repository
 
-From the target repository in a real TTY, launch the installer with:
+From the target repository, run the package command. `just fleet` does not exist
+yet — the managed justfile region is one of the things setup writes — so a first
+install always goes through `npx`:
 
 ```bash
-just fleet setup
+cd ~/projects/my-app
+npx @chankov/agent-fleet@latest setup
 ```
 
-This is the easiest TUI entry point: it resolves `npx @chankov/agent-fleet@latest
-setup`, lets you choose **Default** or **Full** plus optional comma-separated
-features, shows the exact plan, and asks once before applying. It needs npm registry
-access unless `@latest` is cached. Use the package command directly if `just` is
-unavailable; use explicit flags for automation.
+In a real TTY that opens the installer: choose **Default** or **Full** plus
+optional comma-separated features, read the exact plan, and confirm once. For
+automation, name the selection and consent:
 
 ```bash
 npx @chankov/agent-fleet@latest setup --preset default --features none --yes
 ```
 
 Choose **Default** for stable Fleet Core or **Full** for all stable,
-platform-applicable catalogue roots. Default does not create voice configuration
-or `.claude/`; Full may install the recorded Claude Code coms bridge. Features
-are named additions after preset selection. These are package commands; in an
-Agent Fleet source checkout use `node bin/cli.js setup` instead. See
-[npm-install.md](npm-install.md) for migration and ownership rules.
+platform-applicable catalogue roots. Default creates neither voice configuration
+nor `.claude/`; Full may install the recorded Claude Code coms bridge. Features
+are named additions after preset selection. In an Agent Fleet source checkout,
+use `node bin/cli.js setup` instead.
 
-Once a harness selection installs the managed launcher:
+Setup writes files but runs no commands, so finish the install with the two npm
+steps it deliberately skipped — the workspace is not launchable until they run:
+
+```bash
+just fleet deps     # npm install in .pi/extensions and .pi/harnesses
+just fleet doctor   # exit 0 = nothing to repair
+```
+
+(Or pass `--allow-exec` to setup and let it run them in the same pass.)
+
+## First session
 
 ```bash
 just fleet                                      # Hub/operator; empty native roster
 just fleet --agents default --project af        # Hub/orchestrator + native roster
 just fleet --agents default --peers docs --project af
                                                 # Hub + standing Herdr peers
-just fleet deps             # install nested .pi/extensions and .pi/harnesses dependencies
+```
+
+## Update an existing install
+
+A pi session tells you when a newer version is published. To act on it:
+
+```bash
+just fleet setup --dry-run   # preview: what changes, what gets overwritten
+just fleet setup             # apply; shows the plan and asks once
+just fleet deps              # if the plan skipped the npm steps
 just fleet doctor
 ```
 
-`pi update --extensions` does not update the npm installer. Run `just fleet setup`
-to resolve `@latest` and reconcile the workspace; `just fleet install` was removed,
-so use `setup` or `deps`.
+Your preset and features are remembered in `.ai/agent-fleet.json`, so a plain
+`setup` reconciles to the selection you already chose.
 
-Use `just fleet uninstall --yes` only for the self-hosted workspace lifecycle.
-It removes the launcher last. Reinstall after that with the package CLI, not
-`just`: `npx @chankov/agent-fleet@latest setup --preset default --features none --yes`.
+Two things to know before your first update:
+
+- **`setup` reconciles toward the package.** A file you edited in place is
+  refreshed and your edit is overwritten — no prompt, no conflict. Customize
+  through `.ai/agent-fleet-overrides.md` instead, which the lifecycle never
+  touches.
+- **A conflict stops the run.** If you *and* the new version changed the same
+  file, setup exits `3` having written nothing; re-run with `--on-conflict
+  theirs` or `--on-conflict ours`.
+
+`pi update --extensions` updates pi's own extensions only — never this installer
+or what it wrote. Full update reference, including what happens to every file
+state: [npm-install.md](npm-install.md#updating-an-existing-install).
+
+## Uninstall
+
+`just fleet uninstall --yes` is for the self-hosted workspace lifecycle; it
+removes the launcher last. Reinstall after that with the package CLI, not `just`:
+
+```bash
+npx @chankov/agent-fleet@latest setup --preset default --features none --yes
+```
 
 ## Pi package-native skills and prompts
 

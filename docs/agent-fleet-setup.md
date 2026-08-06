@@ -268,17 +268,27 @@ replaced the prose ownership rule the setup skill used to carry.
 
 ### The recorded version and the three-way merge
 
-The recorded `packageVersion` supports legacy three-way compatibility. For each
-recorded artifact, the engine can compare *source@recorded* from the package's
+The recorded `packageVersion` gives every comparison a baseline. For each
+recorded artifact, the engine compares *source@recorded* from the package's
 `.versions/<x.y.z>/` snapshot tree, the installed copy on disk, and
-*source@current*. Deterministic `setup` remains the public reconciliation command.
+*source@current*. Deterministic `setup` is the public reconciliation command.
 
-| Outcome | What happens |
+| Outcome | What `setup` does |
 |---|---|
+| Neither moved | Kept |
 | Only the source moved | Clean refresh |
-| Only your copy moved | Kept — reconciliation never eats a local edit |
-| Both moved, to different content | **Conflict**: the incoming version is written as `<file>.new`, your file is untouched, the run exits `3` |
-| Retired upstream | Proposed for removal by name, subject to the ownership rule |
+| Only your copy moved | **Refreshed — your edit is overwritten.** Reported in the plan as *"locally modified — selecting it overwrites your edits"*, so `--dry-run` shows it before it happens |
+| Both moved, to different content | **Conflict**: the run exits `3` before writing anything. Resolve with `--on-conflict theirs` or `--on-conflict ours` |
+| Retired upstream | Kept by `setup`; the deprecated `upgrade` proposes removal by name, subject to the ownership rule |
+
+Reconciling toward the package is the point of `setup`: the workspace is meant
+to match the version it records. That is why editing a shipped artifact in place
+is not a supported customization route — use `.ai/agent-fleet-overrides.md`, add
+artifacts under names Agent Fleet does not ship, or leave the item out of the
+selection (`setup` never removes what it does not select, so an unselected item
+stays installed and frozen). The deprecated `upgrade` verb preserves local edits
+instead of overwriting them; if you have relied on that, it is the behavioural
+difference to plan for.
 
 If the snapshot is missing (an unpublished local build, or a version older than
 `.versions/` retention), the comparison degrades to two-way, the installed copy
