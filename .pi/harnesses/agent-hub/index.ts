@@ -15,7 +15,7 @@
  *
  * Commands:
  *   /af-agents-team          — switch active team
- *   /af-agents-list          — list loaded agents
+ *   /af-agents-list          — open the Fleet Dashboard
  *   /af-agents-history       — timeline of agent execution (durations + grand total)
  *   /af-agent-model <persona>[.<role>] — switch a team or research persona's (or
  *                           delegate sub-role's) model from its declared candidates
@@ -72,7 +72,7 @@ import {
 import { spawn, type ChildProcess } from "child_process";
 import { spawnPiAgent, spawnPiAgentWithModelFallback, killPiTree, type PiRunControl, type SpawnPiAgentCallbacks, type SpawnPiAgentOptions, type Termination } from "./spawn.ts";
 import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "./research-watchdog.ts";
-import { renderHubFooterLeft } from "./footer.ts";
+import { composeFleetFooterHint, renderHubFooterLeft } from "./footer.ts";
 import { HARNESS_VERSION, registerVersionStatus } from "./version.ts";
 import { cancelLocalOwnedProcess, cancelLocalWaitOnly, monitorKeyForAgent } from "./monitor-control.ts";
 import { createMonitorLifecycle, monitorLifecycleConfig } from "./monitor-lifecycle.ts";
@@ -130,6 +130,13 @@ import {
 } from "../lib/herdr-presence.ts";
 import { herdr as herdrApi, herdrAvailable } from "../lib/herdr-client.ts";
 import { buildLiveRegistryEntry, type ComsRegistryEntry } from "../lib/coms-registry-entry.ts";
+import { FULLSCREEN_OVERLAY, bodyRows, clampScroll, fitToHeight } from "../lib/fleet-overlay.ts";
+import { createPanelResources } from "../lib/fleet-panel.ts";
+import { buildFleetRows, fleetTiming, summarise, unionMs, type DelegateInput, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput } from "../lib/fleet-read-model.ts";
+import { attachFleetDashboardTicker, compactWidgetsEnabled, liveTimeline, resolveFleetKill, resolveFleetRestart } from "../lib/fleet-dashboard-ops.ts";
+import { dashboardTransition, renderFleetDashboard, FLEET_CHROME_ROWS, type DashboardConfirm } from "../lib/fleet-dashboard-view.ts";
+import { detailContent, detailTransition, renderFleetDetail, DETAIL_CHROME_ROWS } from "../lib/fleet-detail-view.ts";
+import { reconcileSelection, type Selection } from "../lib/fleet-selection.ts";
 import { parseEnvFile, resolveEnvFilePath } from "../../../scripts/lib/herdr-layout.ts";
 import { worktreeTag } from "../../../scripts/lib/team-project.ts";
 import { STAGGER_ENV_VAR, WARMUP_SECONDS, oauthNeedsWarmup } from "../../../scripts/lib/spawn-stagger.ts";
@@ -298,6 +305,7 @@ interface ResearchState {
 	killedByOperator?: boolean;
 	timeline: TimelineEntry[];
 	zoomRender?: (force?: boolean) => void;
+	histEntry?: HistoryEntry;
 }
 
 // The subset of state `/af-zoom` needs. Both AgentState (standing team) and ResearchState
@@ -338,30 +346,6 @@ function fmtDuration(ms: number): string {
 	const m = Math.floor(totalSec / 60);
 	const s = totalSec % 60;
 	return `${m}:${String(s).padStart(2, "0")}min`;
-}
-
-// Total covered length of a set of (possibly overlapping) time intervals — the
-// wall-clock during which AT LEAST ONE interval was active. Used to subtract the
-// time a node spent awaiting children: a parent's "real work" is its own span
-// minus the union of its children's runs (so parallel awaits aren't counted twice,
-// and a dispatcher blocked on six concurrent agents is credited once, not six times).
-function unionMs(intervals: Array<[number, number]>): number {
-	if (intervals.length === 0) return 0;
-	const sorted = intervals.slice().sort((a, b) => a[0] - b[0]);
-	let total = 0;
-	let curStart = sorted[0][0];
-	let curEnd = sorted[0][1];
-	for (let i = 1; i < sorted.length; i++) {
-		const [s, e] = sorted[i];
-		if (s > curEnd) {
-			total += curEnd - curStart;
-			curStart = s;
-			curEnd = e;
-		} else if (e > curEnd) {
-			curEnd = e;
-		}
-	}
-	return total + (curEnd - curStart);
 }
 
 // ── Display Name Helper ──────────────────────────
@@ -910,6 +894,8 @@ function parseResearchHandle(arg: string): number | null {
 	return m ? parseInt(m[1], 10) : null;
 }
 
+const ZOOM_CHROME_ROWS = 5;
+
 class ZoomUI {
 	private selectedIndex = 0;
 	private expandedIndex: number | null = null;
@@ -1005,7 +991,7 @@ class ZoomUI {
 		if (this.scrollOffset < 0) this.scrollOffset = 0;
 	}
 
-	render(width: number, height: number, theme: any): string[] {
+	render(width: number, contentHeight: number, theme: any): string[] {
 		const items = this.state.timeline;
 		// Live tail-follow: keep the selection pinned to the newest entry as the
 		// stream grows, until the user scrolls up. Auto-expand each new tail entry
@@ -1039,8 +1025,7 @@ class ZoomUI {
 		bottom.addChild(new Text(theme.fg("dim", " ↑/↓ Navigate • Enter Collapse/Expand • Space/Ctrl+C Copy • Q/Esc Close • live"), 1, 0));
 		bottom.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 		const bottomLines = bottom.render(width);
-
-		const contentHeight = Math.max(3, height - topLines.length - bottomLines.length);
+		const bodyHeight = Math.max(0, contentHeight + ZOOM_CHROME_ROWS - topLines.length - bottomLines.length);
 
 		let bodyLines: string[];
 		if (items.length === 0) {
@@ -1048,17 +1033,17 @@ class ZoomUI {
 		} else {
 			const blocks = items.map((item, i) => this.renderItemBlock(item, i, width, theme, mdTheme));
 			const heights = blocks.map(b => b.length);
-			this.ensureVisible(heights, contentHeight);
+			this.ensureVisible(heights, bodyHeight);
 			bodyLines = [];
 			for (let i = this.scrollOffset; i < blocks.length; i++) {
 				// Always show the first windowed entry (the selected one fits by
 				// construction); stop before a later entry would overflow the budget.
-				if (bodyLines.length > 0 && bodyLines.length + heights[i] > contentHeight) break;
+				if (bodyLines.length > 0 && bodyLines.length + heights[i] > bodyHeight) break;
 				bodyLines.push(...blocks[i]);
 			}
 		}
 
-		return [...topLines, ...bodyLines, ...bottomLines];
+		return fitToHeight([...topLines, ...fitToHeight(bodyLines, bodyHeight), ...bottomLines], contentHeight + ZOOM_CHROME_ROWS);
 	}
 }
 
@@ -1068,6 +1053,8 @@ class ZoomUI {
 // connector. Every row shows a live duration; the footer carries the grand total.
 // Shares the zoom overlay's chrome (bordered header/footer, windowed body) and is
 // re-rendered on a 1s tick so running durations advance while it is open.
+const HISTORY_CHROME_ROWS = 6;
+
 class HistoryUI {
 	private scrollOffset = 0;
 	private followTail = true;
@@ -1207,7 +1194,7 @@ class HistoryUI {
 		return rows;
 	}
 
-	render(width: number, height: number, theme: any): string[] {
+	render(width: number, contentHeight: number, theme: any): string[] {
 		const entries = this.getEntries();
 		const now = Date.now();
 		const runningCount = entries.filter(e => e.status === "running" && e.kind !== "orchestrator").length;
@@ -1244,20 +1231,20 @@ class HistoryUI {
 		bottom.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 		const bottomLines = bottom.render(width);
 
-		const contentHeight = Math.max(3, height - topLines.length - bottomLines.length);
 		const rows = this.buildRows(childrenOf, width, theme, now);
+		const bodyHeight = Math.max(0, contentHeight + HISTORY_CHROME_ROWS - topLines.length - bottomLines.length);
 
 		let bodyLines: string[];
 		if (rows.length === 0) {
 			bodyLines = [theme.fg("dim", "  No dispatches yet — history fills as agents run.")];
 		} else {
-			const maxOffset = Math.max(0, rows.length - contentHeight);
+			const maxOffset = Math.max(0, rows.length - bodyHeight);
 			if (this.followTail) this.scrollOffset = maxOffset;
 			this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxOffset));
-			bodyLines = rows.slice(this.scrollOffset, this.scrollOffset + contentHeight);
+			bodyLines = rows.slice(this.scrollOffset, this.scrollOffset + bodyHeight);
 		}
 
-		return [...topLines, ...bodyLines, ...bottomLines];
+		return fitToHeight([...topLines, ...fitToHeight(bodyLines, bodyHeight), ...bottomLines], contentHeight + HISTORY_CHROME_ROWS);
 	}
 }
 
@@ -1983,7 +1970,7 @@ export default function (pi: ExtensionAPI) {
 	// editor; "compact" = one line per *running* agent (name · context · state)
 	// rendered BELOW the editor, just above the footer. Compact is the default;
 	// idle/done agents are hidden so an idle session shows only the prompt + footer.
-	let viewMode: "dashboard" | "compact" = "compact";
+	let viewMode: "compact" | "off" = "compact";
 	// Compact-view agent switcher: the key of the marked subagent (lowercase persona
 	// name for team specialists, `rN` for research helpers — matching /af-zoom
 	// resolution), or null when nothing is marked. main is never listed (it is the
@@ -2918,60 +2905,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// Cap on nested rows per card; beyond it a "+N more" summary line renders.
 	const MAX_CHILD_ROWS = 6;
 
-	function renderCard(state: AgentState, colWidth: number, theme: any): string[] {
-		const w = Math.max(0, colWidth - 2);
-		const status = cardStatus(state.status, state.elapsed);
-		const headerLine = renderCardHeaderLine(
-			displayName(state.def.name),
-			state.contextPct,
-			// A coms-routed run shows the serving peer's model behind a ⇄coms badge
-			// instead of the native persona model it did NOT dispatch with.
-			state.lastBackend === "coms" ? `⇄coms ${shortModel(state.comsPeerModel)}` : modelWithThinking(state.def),
-			status.text,
-			status.color,
-			w,
-			theme,
-			contextPressure(state.contextPct),
-		);
-		const workRaw = state.task
-			? (state.lastWork || state.task)
-			: state.def.description;
-
-		// Nested delegate-child rows + a subtree rollup line (children count and
-		// token total — sub-sub spend is included in both its own row and here).
-		// Running children sort ahead of finished ones so a live child is never the
-		// row dropped by MAX_CHILD_ROWS; spawn order (startedAt) breaks ties within
-		// a group so the list stays stable as children complete.
-		const children = state.delegations ? Array.from(state.delegations.values()) : [];
-		children.sort((a, b) => {
-			const ar = a.status === "running" ? 0 : 1;
-			const br = b.status === "running" ? 0 : 1;
-			return ar !== br ? ar - br : a.startedAt - b.startedAt;
-		});
-		const childLines: string[] = [];
-		if (children.length > 0) {
-			for (const c of children.slice(0, MAX_CHILD_ROWS)) {
-				childLines.push(renderBorderedLine(renderChildLine(c, w, theme), w, theme));
-			}
-			if (children.length > MAX_CHILD_ROWS) {
-				childLines.push(renderBorderedLine(" " + theme.fg("dim", `… +${children.length - MAX_CHILD_ROWS} more`), w, theme));
-			}
-			const subtreeTokens = children.reduce((n, c) => n + c.tokens, 0);
-			childLines.push(renderBorderedLine(
-				" " + theme.fg("dim", `└ ${children.length} delegate${children.length !== 1 ? "s" : ""} · ${formatTokens(subtreeTokens)} tok`),
-				w, theme,
-			));
-		}
-
-		return [
-			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
-			renderBorderedLine(headerLine, w, theme),
-			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
-			...childLines,
-			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
-		];
-	}
-
 	// A research-helper card. Mirrors renderCard's compact two-line layout while
 	// keeping the `rN` handle + persona/anon label + turn in the name slot.
 	function renderResearchCard(state: ResearchState, colWidth: number, theme: any): string[] {
@@ -3007,41 +2940,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 
 			return {
 				render(width: number): string[] {
-					// Compact mode hides the dashboard grid; running agents are shown
-					// in the belowEditor "agent-running" widget instead.
-					if (viewMode === "compact") return [];
+					// The full fleet list is now a separate overlay; this legacy widget is retired.
+					return [];
 
-					if (agentStates.size === 0) {
-						text.setText(theme.fg("dim", "No agents found. Add .md files to agents/"));
-						return text.render(width);
-					}
-
-					const cols = Math.min(gridCols, agentStates.size);
-					const gap = 1;
-					const colWidth = Math.floor((width - gap * (cols - 1)) / cols);
-					const agents = Array.from(agentStates.values());
-					const rows: string[][] = [];
-
-					for (let i = 0; i < agents.length; i += cols) {
-						const rowAgents = agents.slice(i, i + cols);
-						const cards = rowAgents.map(a => renderCard(a, colWidth, theme));
-
-						// Cards vary in height (delegate-child rows) — pad every card in
-						// the row to the tallest one so columns stay aligned.
-						const cardHeight = Math.max(CARD_HEIGHT, ...cards.map(c => c.length));
-						while (cards.length < cols) {
-							cards.push(Array(cardHeight).fill(" ".repeat(Math.max(0, colWidth))));
-						}
-
-						const blank = " ".repeat(Math.max(0, colWidth));
-						for (let line = 0; line < cardHeight; line++) {
-							rows.push(cards.map(card => card[line] ?? blank));
-						}
-					}
-
-					const output = rows.map(cols => cols.join(" ".repeat(gap)));
-					text.setText(output.join("\n"));
-					return text.render(width);
 				},
 				invalidate() {
 					text.invalidate();
@@ -3072,7 +2973,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 
 					// Compact mode hides the research grid; running helpers are folded
 					// into the belowEditor "agent-running" widget instead.
-					if (viewMode === "compact") return [];
+					if (!compactWidgetsEnabled(viewMode)) return [];
 
 					const cols = Math.min(gridCols, states.length);
 					const gap = 1;
@@ -3157,7 +3058,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		widgetCtx.ui.setWidget("agent-running", (_tui: any, theme: any) => ({
 			invalidate() {},
 			render(width: number): string[] {
-				if (viewMode !== "compact") return [];
+				if (!compactWidgetsEnabled(viewMode)) return [];
 				const running = switchableAgents();
 				if (running.length === 0) return [];
 				const nameWidth = Math.min(24, Math.max(...running.map(r => visibleWidth(r.name))));
@@ -4327,6 +4228,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		updateResearchWidget();
 
 		const histEntry = historyStart("research", `Research r${state.id}`);
+		state.histEntry = histEntry;
 
 		const startTime = Date.now();
 		state.timer = setInterval(() => {
@@ -4763,57 +4665,47 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		return null;
 	}
 
-	function renderPool(width: number, theme: Theme): string[] {
-		// Compact mode hides the coms pool too — only running agents show below the editor.
-		if (viewMode === "compact") return [];
+	let cachedRegistryProject: string | undefined;
+	let cachedRegistryEntries: ComsRegistryEntry[] = [];
+	let cachedRegistryAt = 0;
+	const scrubFleetText = (text: string) => text.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
+	/** Build the one peer source consumed by both the compact pool and dashboard. */
+	function fleetPeerInputs(formatModel: (model: string) => string = (model) => model): PeerInput[] {
 		const projectFilter = displayProject ?? identity?.project ?? "default";
-		const registryEntries = projectFilter === "*"
-			? readAllRegistryEntriesAcrossProjects()
-			: readAllRegistryEntries(projectFilter);
-
-		interface Row {
-			name: string;
-			model: string;
-			color: string;
-			purpose: string;
-			pct: number | null;
-			pending: boolean;
-			stale: boolean;
+		if (cachedRegistryProject !== projectFilter || Date.now() - cachedRegistryAt > 1000) {
+			cachedRegistryProject = projectFilter;
+			cachedRegistryEntries = projectFilter === "*" ? readAllRegistryEntriesAcrossProjects() : readAllRegistryEntries(projectFilter);
+			cachedRegistryAt = Date.now();
 		}
-		const rows: Row[] = [];
+		const registryEntries = cachedRegistryEntries;
+		const peers: PeerInput[] = [];
 		const seenSessions = new Set<string>();
+		const seenNames = new Set<string>();
 
 		for (const [sid, card] of peerCards.entries()) {
 			if (identity && sid === identity.session_id) continue;
 			seenSessions.add(sid);
-			rows.push({
-				name: card.name,
-				model: card.model,
-				color: card.color,
-				purpose: card.purpose,
-				pct: card.context_used_pct,
-				pending: false,
-				stale: (card.staleCount ?? 0) >= 3,
-			});
+			seenNames.add(card.name);
+			peers.push({ key: `peer:${sid}`, name: scrubFleetText(card.name), model: formatModel(card.model), lastWork: scrubFleetText(card.purpose), colorHex: card.color, staleCount: card.staleCount });
 		}
 
-		// Registry-only entries that aren't yet in peerCards → pending
-		const seenNames = new Set(rows.map((r) => r.name));
+		// Registry-only entries have not answered a ping, so the read model owns their pending status.
 		for (const entry of registryEntries) {
 			if (identity && entry.session_id === identity.session_id) continue;
 			if (!includeExplicit && entry.explicit) continue;
-			if (seenSessions.has(entry.session_id)) continue;
-			if (seenNames.has(entry.name)) continue;
-			rows.push({
-				name: entry.name,
-				model: entry.model,
-				color: entry.color,
-				purpose: entry.purpose,
-				pct: null,
-				pending: true,
-				stale: false,
-			});
+			if (seenSessions.has(entry.session_id) || seenNames.has(entry.name)) continue;
+			peers.push({ key: `peer:${entry.session_id}`, name: scrubFleetText(entry.name), model: formatModel(entry.model), lastWork: scrubFleetText(entry.purpose), colorHex: entry.color, pending: true });
 		}
+		return peers;
+	}
+
+	function renderPool(width: number, theme: Theme): string[] {
+		// Compact mode hides the coms pool too — only running agents show below the editor.
+		if (!compactWidgetsEnabled(viewMode)) return [];
+		const rows = buildFleetRows(
+			{ specialists: [], research: [], peers: fleetPeerInputs() },
+			{ showFinished: true },
+		);
 
 		// Border helpers — sandwich the body with single-line box-drawing rules
 		// so the widget reads as its own block. The top border carries a branded
@@ -4860,27 +4752,29 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		const out: string[] = [topBorder];
 
 		for (const r of rows) {
-			const pctNum = r.pct ?? 0;
+			const pctNum = r.contextPct ?? 0;
 			const filled = Math.max(0, Math.min(15, Math.round((pctNum / 100) * 15)));
 			const empty = 15 - filled;
-			const pctLabel = r.pct == null ? "--%" : `${r.pct}%`;
+			const pctLabel = r.contextPct == null ? "--%" : `${r.contextPct}%`;
 
-			if (r.stale) {
-				const dimRow = `✗ ${r.name.padEnd(12)} ${abbreviateModel(r.model).padEnd(14)} [${"-".repeat(15)}] ${pctLabel.padStart(4)}  —  ${r.purpose || ""}`;
+			if (r.status === "stale") {
+				const dimRow = `✗ ${r.name.padEnd(12)} ${abbreviateModel(r.model).padEnd(14)} [${"-".repeat(15)}] ${pctLabel.padStart(4)}  —  ${r.lastWork || ""}`;
 				out.push(truncateToWidth(" " + theme.fg("dim", dimRow), width));
 				continue;
 			}
 
-			const swatch = r.pending ? theme.fg("dim", "●") : hexFg(r.color, "●");
+			const pending = r.status === "pending";
+			const color = r.colorHex ?? "#808080";
+			const swatch = pending ? theme.fg("dim", "●") : hexFg(color, "●");
 			const namePart = theme.fg("accent", r.name.padEnd(12));
 			const modelPart = theme.fg("dim", abbreviateModel(r.model).padEnd(14));
-			const barFill = r.pending
+			const barFill = pending
 				? theme.fg("dim", "-".repeat(15))
-				: hexFg(r.color, "#".repeat(filled)) + theme.fg("dim", "-".repeat(empty));
+				: hexFg(color, "#".repeat(filled)) + theme.fg("dim", "-".repeat(empty));
 			const bar = theme.fg("warning", "[") + barFill + theme.fg("warning", "]");
 			const pctPart = " " + theme.fg("accent", pctLabel.padStart(4));
 			const sep = theme.fg("dim", "  —  ");
-			const purposePart = theme.fg("muted", r.purpose || "");
+			const purposePart = theme.fg("muted", r.lastWork || "");
 
 			const line = " " + swatch + " " + namePart + " " + modelPart + " " + bar + pctPart + sep + purposePart;
 			out.push(truncateToWidth(line, width));
@@ -6738,29 +6632,158 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
+	let fleetShowFinished = false;
+	let fleetFilter = "";
+	function fleetRows(unfiltered = false): FleetRow[] {
+		// agentStates is the roster and its live state in one keyed map: a dispatch
+		// updates this row instead of adding a second live-specialist source.
+		const specialists: SpecialistInput[] = Array.from(agentStates.entries()).map(([key, state]) => ({
+			key, name: displayName(state.def.name), status: state.status,
+			model: state.lastBackend === "coms" ? `⇄ ${shortModel(state.comsPeerModel)}` : modelWithThinking(state.def), backend: state.lastBackend ?? "native",
+			contextPct: state.contextPct, contextTokens: state.contextTokens, ...fleetTiming(state.histEntry),
+			toolCount: state.toolCount, lastWork: state.lastWork || state.task || state.def.description, hasTimeline: true,
+			delegates: Array.from(state.delegations?.values() ?? []).map(child => ({ key: child.id, name: child.role || child.id, status: child.status, model: shortModel(child.model), contextPct: null, contextTokens: child.tokens, elapsed: child.status === "running" ? Date.now() - child.startedAt : child.elapsed, startedAt: child.startedAt, toolCount: child.toolCount, lastWork: child.lastWork, children: [] })),
+		}));
+		const research: ResearchInput[] = Array.from(researchStates.values()).map(state => ({ key: `r${state.id}`, name: `r${state.id} ${state.persona ? displayName(state.def.name) : "research"}`, status: state.status, model: shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)), backend: "native", contextPct: state.contextPct, contextTokens: null, ...fleetTiming(state.histEntry), toolCount: state.toolCount, lastWork: state.lastWork || state.task, hasTimeline: true }));
+		const peers = fleetPeerInputs(model => `⇄ ${abbreviateModel(model)}`);
+		return buildFleetRows({ specialists, research, peers }, unfiltered ? { showFinished: true } : { showFinished: fleetShowFinished, query: fleetFilter });
+	}
+	async function openFleetDetail(row: FleetRow, ctx: any): Promise<void> {
+		const target = row.kind === "research" ? researchStates.get(parseResearchHandle(row.key)!) : row.kind === "delegate" ? findDelegationChild(row.key)?.child : agentStates.get(row.key);
+		const resources = createPanelResources();
+		let scrollOffset = 0, selectedIndex = 0, expandedIndex: number | null = null, followTail = true, lastRender = 0;
+		const timeline = () => liveTimeline(target);
+		try { await ctx.ui.custom((tui: any, theme: any, _kb: any, done: () => void) => {
+			if (target) target.zoomRender = (force?: boolean) => { const now = Date.now(); if (force || now - lastRender > 80) { lastRender = now; tui.requestRender(); } };
+			return { render: (w: number) => { const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); const entries = timeline(); if (followTail) scrollOffset = Math.max(0, detailContent(entries, w, expandedIndex).length - body); return renderFleetDetail(row, entries, scrollOffset, w, body, theme, expandedIndex); }, handleInput: async (data: string) => { const entries = timeline(); const state = { scrollOffset, selectedIndex, expandedIndex, followTail }; const action = detailTransition(data, state, entries, bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS), detailContent(entries, tui.terminal?.columns ?? 80, expandedIndex).length); ({ scrollOffset, selectedIndex, expandedIndex, followTail } = state); if (action === "close") done(); else if (action === "copy") { const item = entries[selectedIndex]; if (item) { try { await copyToClipboard(item.content); ctx.ui.notify("Copied selected zoom row", "success"); } catch { ctx.ui.notify("Failed to copy selected zoom row", "error"); } } } tui.requestRender(); }, invalidate() {}, dispose: () => resources.dispose() };
+		}, FULLSCREEN_OVERLAY); } finally { resources.dispose(); if (target) target.zoomRender = undefined; }
+	}
+	async function restartFleetRow(selected: FleetRow, ctx: any): Promise<void> {
+		const decision = resolveFleetRestart(selected, {
+			researchRestartable: (key) => {
+				const state = researchStates.get(parseResearchHandle(key)!);
+				return !!(state?.task && state.status !== "running");
+			},
+			specialistRestartable: (key) => !!(agentStates.get(key)?.task),
+		});
+		if (decision.action === "unsupported") {
+			ctx.ui.notify(decision.message, decision.level);
+			return;
+		}
+		if (decision.action === "restart-research") {
+			const state = researchStates.get(parseResearchHandle(selected.key)!);
+			if (!state?.task) { ctx.ui.notify(decision.message.replace("Restarting", "Cannot restart"), "warning"); return; }
+			state.sessionFile = null; state.turnCount = 1;
+			ctx.ui.notify(decision.message, "info");
+			spawnResearch(state, state.task, ctx).then(result => deliverResearchFollowUp(state, result));
+			return;
+		}
+		const state = agentStates.get(selected.key);
+		if (!state?.task) { ctx.ui.notify(decision.message.replace("Restarting", "Cannot restart"), "warning"); return; }
+		if (state.status === "running" && (state.proc || state.comsAbort)) {
+			let resolveTermination!: () => void;
+			const terminated = new Promise<void>(resolve => { resolveTermination = resolve; });
+			state.onTerminate = resolveTermination;
+			if (state.proc) { state.killedByOperator = true; state.restarting = true; killPiTree(state.proc); }
+			else await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "restart" } });
+			await terminated;
+		}
+		state.sessionFile = null;
+		ctx.ui.notify(decision.message.includes(displayName(state.def.name)) ? decision.message : `Restarting ${displayName(state.def.name)} (fresh)...`, "info");
+		const result = await dispatchAgent(state.def.name, state.task, ctx);
+		pi.sendMessage({ customType: "agent-restart-result", content: `[${displayName(state.def.name)}] restarted by operator and ${result.exitCode === 0 ? "completed" : "failed"} in ${Math.round(result.elapsed / 1000)}s.`, display: true }, { deliverAs: "followUp", triggerTurn: true });
+	}
+	async function openFleetDashboard(ctx: any): Promise<void> {
+		const resources = createPanelResources();
+		const selection: Selection = { index: 0 };
+		let scrollOffset = 0;
+		let filtering = false;
+		let confirm: DashboardConfirm = null;
+		const toInput = (data: string): string => {
+			if (matchesKey(data, Key.up)) return "\u001b[A";
+			if (matchesKey(data, Key.down)) return "\u001b[B";
+			if (matchesKey(data, Key.pageUp)) return "\u001b[5~";
+			if (matchesKey(data, Key.pageDown)) return "\u001b[6~";
+			if (matchesKey(data, Key.enter)) return "\r";
+			if (matchesKey(data, Key.escape)) return "\u001b";
+			return data;
+		};
+		try {
+			await ctx.ui.custom((tui: any, theme: any, _kb: any, done: () => void) => {
+				attachFleetDashboardTicker(resources, () => tui.requestRender());
+				return {
+				render: (w: number) => {
+					const rows = fleetRows();
+					reconcileSelection(selection, rows);
+					const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS);
+					scrollOffset = clampScroll(scrollOffset, rows.length, body);
+					const summary = summarise(rows);
+					return renderFleetDashboard({
+						rows, selection, scrollOffset, filterQuery: fleetFilter, showFinished: fleetShowFinished,
+						confirmation: confirm && confirm.until > Date.now()
+							? `press ${confirm.action === "kill" ? "x" : "r"} again to ${confirm.action} ${rows.find(r => r.key === confirm!.key)?.name ?? "agent"}`
+							: undefined,
+						summary: { ...summary, wallMs: unionMs(summary.intervals) },
+					}, w, body, theme);
+				},
+				handleInput: async (data: string) => {
+					const rows = fleetRows();
+					reconcileSelection(selection, rows);
+					const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS);
+					const state = { selection, scrollOffset, filtering, filterQuery: fleetFilter, showFinished: fleetShowFinished, confirm };
+					const intent = dashboardTransition(toInput(data), state, rows, body);
+					({ scrollOffset, filtering, confirm } = state);
+					fleetFilter = state.filterQuery;
+					fleetShowFinished = state.showFinished;
+					if (intent === "close") done();
+					else if (intent && typeof intent === "object" && "open" in intent) {
+						const selected = rows.find(r => r.key === intent.open) ?? rows[selection.index];
+						if (selected) await openFleetDetail(selected, ctx);
+					} else if (intent && typeof intent === "object" && "kill" in intent) {
+						const selected = rows.find(r => r.key === intent.kill);
+						if (!selected) ctx.ui.notify("Selected fleet row no longer exists.", "warning");
+						else {
+							const decision = resolveFleetKill(selected, {
+								researchExists: (key) => !!researchStates.get(parseResearchHandle(key)!),
+								agentHandles: (key) => {
+									const agent = agentStates.get(key);
+									return agent ? { proc: agent.proc, comsAbort: agent.comsAbort } : undefined;
+								},
+							});
+							if (decision.action === "kill-research") {
+								const rs = researchStates.get(parseResearchHandle(selected.key)!);
+								if (rs) { removeResearchHelper(rs, ctx); ctx.ui.notify(decision.message, "info"); }
+								else ctx.ui.notify(`Research ${selected.name} is no longer available.`, "warning");
+							} else if (decision.action === "kill-proc") {
+								const agent = agentStates.get(selected.key)!;
+								agent.killedByOperator = true;
+								cancelLocalOwnedProcess({ process: agent.proc, monitorBridge, monitorKey: monitorKeyForAgent(agent.def.name, agent.runCount), treeKill: killPiTree });
+								ctx.ui.notify(decision.message, "info");
+							} else if (decision.action === "coms-abort") {
+								agentStates.get(selected.key)?.comsAbort?.();
+								ctx.ui.notify(decision.message, "info");
+							} else {
+								ctx.ui.notify(decision.message, decision.level);
+							}
+						}
+					} else if (intent && typeof intent === "object" && "restart" in intent) {
+						const selected = rows.find(r => r.key === intent.restart);
+						if (selected) await restartFleetRow(selected, ctx);
+					}
+					tui.requestRender();
+				},
+				invalidate() {},
+				dispose: () => resources.dispose(),
+				};
+			}, FULLSCREEN_OVERLAY);
+		} finally { resources.dispose(); }
+	}
+
 	pi.registerCommand("af-agents-list", {
-		description: "List all loaded agents",
+		description: "Open Fleet Dashboard",
 		handler: async (_args, _ctx) => {
 			widgetCtx = _ctx;
-			const names = Array.from(agentStates.values())
-				.map(s => {
-					const session = s.sessionFile ? "resumed" : "new";
-					const override = modelOverrides.get(s.def.name.toLowerCase());
-					const model = override ? `${override} (switched)` : (s.def.model || "dispatcher's");
-					const thinkOverride = thinkingOverrides.get(s.def.name.toLowerCase());
-					const thinking = thinkOverride
-						? `${resolveThinkingLevel(thinkOverride)} (switched)`
-						: resolveThinkingLevel(s.def.thinking);
-					const switchedRoles = Object.keys(s.def.subagents || {})
-						.map(role => ({ role, m: subagentModelOverrides.get(`${s.def.name.toLowerCase()}.${role.toLowerCase()}`) }))
-						.filter((x): x is { role: string; m: string } => !!x.m);
-					const subLabel = switchedRoles.length
-						? `, switched sub-roles: ${switchedRoles.map(x => `${x.role}→${shortModel(x.m)}`).join(", ")}`
-						: "";
-					return `${displayName(s.def.name)} (${s.status}, ${session}, model: ${model}, thinking: ${thinking}, runs: ${s.runCount}${subLabel}): ${s.def.description}`;
-				})
-				.join("\n");
-			_ctx.ui.notify(names || "No agents loaded", "info");
+			await openFleetDashboard(_ctx);
 		},
 	});
 
@@ -6768,26 +6791,27 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// a 1s tick so running durations advance live; `historyRender` lets a new
 	// dispatch refresh the panel the instant it starts/ends.
 	async function openHistory(ctx: any): Promise<void> {
-		let tick: ReturnType<typeof setInterval> | null = null;
-		await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
-			const ui = new HistoryUI(
-				() => executionHistory,
-				() => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub"),
-				() => done(undefined),
-			);
-			historyRender = () => tui.requestRender();
-			tick = setInterval(() => tui.requestRender(), 1000);
-			return {
-				render: (w: number) => ui.render(w, Math.max(10, Math.floor((tui.terminal?.rows ?? 36) * 0.85)), theme),
-				handleInput: (data: string) => ui.handleInput(data, tui),
-				invalidate: () => {},
-			};
-		}, {
-			overlay: true,
-			overlayOptions: { width: "80%", anchor: "center", maxHeight: "90%" },
-		});
-		if (tick) clearInterval(tick);
-		historyRender = null;
+		const resources = createPanelResources();
+		try {
+			await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
+				const ui = new HistoryUI(
+					() => executionHistory,
+					() => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub"),
+					() => done(undefined),
+				);
+				historyRender = () => tui.requestRender();
+				resources.every(1000, () => tui.requestRender());
+				return {
+					render: (w: number) => ui.render(w, bodyRows(tui.terminal?.rows, HISTORY_CHROME_ROWS), theme),
+					handleInput: (data: string) => ui.handleInput(data, tui),
+					invalidate: () => {},
+					dispose: () => resources.dispose(),
+				};
+			}, FULLSCREEN_OVERLAY);
+		} finally {
+			resources.dispose();
+			historyRender = null;
+		}
 	}
 
 	pi.registerCommand("af-agents-history", {
@@ -7036,14 +7060,15 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// session-rename), and alt+a is not consumed by the editor, so it reaches the
 	// extension shortcut handler in the main input.
 	pi.registerShortcut("alt+a", {
-		description: "Toggle agent view: dashboard ↔ compact",
+		description: "Open Fleet Dashboard",
 		handler: (ctx) => {
 			widgetCtx = ctx;
-			viewMode = viewMode === "dashboard" ? "compact" : "dashboard";
-			updateWidget();
-			updateResearchWidget();
-			ctx.ui.notify(`Agent view: ${viewMode}`, "info");
+			void openFleetDashboard(ctx);
 		},
+	});
+	pi.registerShortcut("alt+shift+a", {
+		description: "Toggle compact agent widget",
+		handler: (ctx) => { widgetCtx = ctx; viewMode = viewMode === "compact" ? "off" : "compact"; updateWidget(); updateResearchWidget(); ctx.ui.notify(`Compact agent widget: ${viewMode}`, "info"); },
 	});
 
 	// Compact-view agent switcher. Alt+] / Alt+[ move the marker through the running
@@ -7055,7 +7080,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// eaten by the escape parser — alt+] and alt+\ are the reliable pair.
 	function cycleMarker(delta: number, ctx: any) {
 		widgetCtx = ctx;
-		if (viewMode !== "compact") {
+		if (!compactWidgetsEnabled(viewMode)) {
 			ctx.ui.notify("Agent switching is a compact-view feature — press Alt+A first", "info");
 			return;
 		}
@@ -7083,7 +7108,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		description: "Compact view: zoom the marked subagent",
 		handler: async (ctx) => {
 			widgetCtx = ctx;
-			if (viewMode !== "compact") {
+			if (!compactWidgetsEnabled(viewMode)) {
 				ctx.ui.notify("Agent zoom from the marker is a compact-view feature — press Alt+A first", "info");
 				return;
 			}
@@ -7100,7 +7125,9 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				ctx.ui.notify(`Marked agent ${markedAgent} is no longer available`, "warning");
 				return;
 			}
-			await openZoom(target, ctx);
+			const row = fleetRows(true).find(r => r.key === markedAgent);
+			if (row) await openFleetDetail(row, ctx);
+			else await openZoom(target, ctx);
 		},
 	});
 
@@ -7119,7 +7146,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	function findDelegationChild(arg: string): { child: DelegationChild; owner: AgentState } | null {
 		const lower = arg.toLowerCase();
 		for (const st of agentStates.values()) {
-			const child = st.delegations?.get(lower);
+			const child = Array.from(st.delegations?.values() ?? []).find(candidate => candidate.id.toLowerCase() === lower);
 			if (child) return { child, owner: st };
 		}
 		return null;
@@ -7153,28 +7180,30 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 	// parser refresh it on new events (throttled to ~12fps; force=true pushes the
 	// final frame on completion).
 	async function openZoom(target: Zoomable, ctx: any): Promise<void> {
+		const resources = createPanelResources();
 		let lastRender = 0;
-		await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
-			const ui = new ZoomUI(target, () => done(undefined), (message, type) => ctx.ui.notify(message, type as any));
-			target.zoomRender = (force?: boolean) => {
-				const now = Date.now();
-				if (force || now - lastRender > 80) {
-					lastRender = now;
-					tui.requestRender();
-				}
-			};
-			return {
-				// Pass the real terminal height (not a hard-coded 30) so the
-				// height-aware scroll keeps the selected/last entry fully visible.
-				render: (w: number) => ui.render(w, Math.max(10, Math.floor(((tui.terminal?.rows ?? 36) * 0.85))), theme),
-				handleInput: (data: string) => ui.handleInput(data, tui),
-				invalidate: () => {},
-			};
-		}, {
-			overlay: true,
-			overlayOptions: { width: "80%", anchor: "center", maxHeight: "90%" },
-		});
-		target.zoomRender = undefined;
+		try {
+			await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
+				const ui = new ZoomUI(target, () => done(undefined), (message, type) => ctx.ui.notify(message, type as any));
+				target.zoomRender = (force?: boolean) => {
+					const now = Date.now();
+					if (force || now - lastRender > 80) {
+						lastRender = now;
+						tui.requestRender();
+					}
+				};
+				resources.onDispose(() => { target.zoomRender = undefined; });
+				return {
+					render: (w: number) => ui.render(w, bodyRows(tui.terminal?.rows, ZOOM_CHROME_ROWS), theme),
+					handleInput: (data: string) => ui.handleInput(data, tui),
+					invalidate: () => {},
+					dispose: () => resources.dispose(),
+				};
+			}, FULLSCREEN_OVERLAY);
+		} finally {
+			resources.dispose();
+			target.zoomRender = undefined;
+		}
 	}
 
 	pi.registerCommand("af-zoom", {
@@ -7201,7 +7230,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				ctx.ui.notify(`Usage: /af-zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
 				return;
 			}
-			await openZoom(target, ctx);
+			const rowKey = (rid != null ? `r${rid}` : arg).toLowerCase();
+			const row = fleetRows(true).find(r => r.key.toLowerCase() === rowKey);
+			if (row) await openFleetDetail(row, ctx);
+			else await openZoom(target, ctx);
 		},
 	});
 
@@ -9027,7 +9059,7 @@ ${researchCatalog}`;
 			`Fleet: ${fleetLabel}\n\n` +
 			`/af-posture [mode]       Show/switch operator|orchestrator posture\n` +
 			`/af-agents-team          Select a team\n` +
-			`/af-agents-list          List active agents and status\n` +
+			`/af-agents-list          Open Fleet Dashboard\n` +
 			`/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
 			`/af-agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
 			`/af-agent-model-thinking <persona> Switch a persona's thinking level\n` +
@@ -9073,7 +9105,7 @@ ${researchCatalog}`;
 				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 
 				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think, activeTeamName);
-				const hint = theme.fg("muted", "Alt+A ") + theme.fg("dim", `view:${viewMode}`);
+				const hint = theme.fg("dim", composeFleetFooterHint(viewMode));
 				// The btw extension flips this global the first time a /af-btw command or
 				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.
 				const btwHint = (globalThis as { __btwActivated?: boolean }).__btwActivated

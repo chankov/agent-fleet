@@ -808,6 +808,7 @@
         }
       },
       "parents": [
+        "pi-extension:btw",
         "pi-harness:agent-hub",
         "pi-harness:ask-user-remote",
         "pi-harness:coms",
@@ -1513,7 +1514,8 @@
       },
       "companions": [
         "companion:pi-extension-deps",
-        "companion:pi-extension-manifests"
+        "companion:pi-extension-manifests",
+        "companion:pi-harness-lib"
       ],
       "pinnedBy": [
         "pi-harness:agent-hub",

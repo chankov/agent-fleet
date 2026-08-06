@@ -1,23 +1,23 @@
 /**
- * btw — in-process side tasks for pi with a live modal, modeled on Claude Code's `/af-btw`.
+ * btw — in-process side tasks for pi with a live full-screen panel.
  *
  * `/af-btw <task>` forks the CURRENT session into an in-process sub-session
  * (`createAgentSession`) that inherits the full conversation as context, works the
- * side task in the same cwd, and streams into a modal overlay with its own
+ * side task in the same cwd, and streams into a full-screen panel with its own
  * transcript + follow-up composer. A compact result card lands in the main
  * transcript when the session next goes idle.
  *
  * Design constraints (all intentional — see .pi/extensions/btw/README.md):
  *   - Command-only surface. No model-callable tool, no subcommands. `/af-btw <task>`
- *     starts a task and opens the modal; `/af-btw` (no args) or `Alt+'` reopens it.
+ *     starts a task and opens the panel; `/af-btw` (no args) or `Alt+'` reopens it.
  *   - In-process sub-session, NOT a child `pi` process. The fork is a real
  *     `AgentSession` with fixed built-in tools and NO extensions/custom tools (the
  *     sub-session loads no extension runtime → no recursion, mirroring the old
  *     `--no-extensions` child).
- *   - The modal is the primary surface: it opens immediately, streams the
- *     sub-session live, and accepts follow-ups (mid-run follow-ups steer the active
- *     run; idle follow-ups start a fresh turn). `Esc` hides it (the task keeps
- *     running); completion only toasts — it never steals focus.
+ *   - The full-screen panel is the primary surface: it opens immediately, streams
+ *     the sub-session live, and accepts follow-ups (mid-run follow-ups steer the
+ *     active run; idle follow-ups start a fresh turn). `Esc` returns to the main
+ *     session while the task keeps running; completion only toasts.
  *   - Each completed turn writes `.pi/btw-sessions/<id>.result.md` and queues a
  *     COMPACT card (✓/✗ + note + elapsed + first lines + artifact path) for the
  *     main transcript, delivered only when idle and kept OUT of the main agent's
@@ -56,6 +56,8 @@ import {
 } from "@mariozechner/pi-tui";
 import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { FULLSCREEN_OVERLAY, bodyRows, fitToHeight } from "../../harnesses/lib/fleet-overlay.ts";
+import { createPanelResources } from "../../harnesses/lib/fleet-panel.ts";
 import {
 	MAX_RETAINED_TERMINAL_THREADS,
 	appendTimelineDelta as appendTimelineDeltaState,
@@ -82,11 +84,8 @@ const STATUS_KEY = "btw";
 const CLEANUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // Coding tools the sub-session runs with (matches pi's default built-in set).
 const SUBSESSION_TOOLS = ["read", "bash", "edit", "write"];
-// Modal sizing.
-const MODAL_WIDTH = "78%";
-const MODAL_MAX_HEIGHT = "80%";
-// Transcript body height budget inside the modal (rows). Keeps the composer visible.
-const BODY_ROWS = 20;
+// Header, border, composer border/label, composer, and hint are fixed chrome.
+const BTW_CHROME_ROWS = 6;
 // One entry in a thread's live transcript. Consecutive text/thinking deltas are
 // coalesced into the trailing entry of the same kind; each tool call and each
 // operator follow-up is its own entry.
@@ -98,7 +97,7 @@ interface TimelineEntry {
 	toolCallId?: string;
 }
 
-// A running (or finished) btw side task. Multiple may run concurrently; the modal
+// A running (or finished) btw side task. Multiple may run concurrently; the panel
 // binds to one at a time (`render` is set only while it is the shown thread).
 interface BtwThread {
 	id: string;
@@ -131,7 +130,7 @@ interface PendingResult {
 	details: BtwDetails;
 }
 
-interface CurrentModalHandle {
+interface CurrentPanelHandle {
 	show: (id: string) => void;
 	currentId: () => string | undefined;
 	timelinePruned: (id: string, prunedCount: number) => void;
@@ -146,13 +145,13 @@ export default function btwExtension(pi: ExtensionAPI) {
 	// Compact result cards waiting for the session to go idle before they are shown.
 	const pending: PendingResult[] = [];
 	// Most-recent context, refreshed on every hook so deferred delivery, status, and
-	// the modal always have a live handle after the original command returned.
+	// the panel always have a live handle after the original command returned.
 	let latestCtx: ExtensionContext | undefined;
-	// Modal lifecycle: guard against double-open, remember last-viewed thread, and
-	// expose a handle so a fresh /af-btw can retarget an already-open modal.
-	let modalOpen = false;
+	// Panel lifecycle: guard against double-open, remember last-viewed thread, and
+	// expose a handle so a fresh /af-btw can retarget an already-open panel.
+	let panelOpen = false;
 	let lastViewedId: string | undefined;
-	let currentModal: CurrentModalHandle | undefined;
+	let currentPanel: CurrentPanelHandle | undefined;
 	// Set on session_shutdown so abort()-driven prompt rejections don't push cards.
 	let shuttingDown = false;
 
@@ -248,12 +247,12 @@ export default function btwExtension(pi: ExtensionAPI) {
 	}
 
 	function reconcileThreadPointers(): void {
-		const currentId = currentModal?.currentId();
+		const currentId = currentPanel?.currentId();
 		const view = reconcileThreadView({ order, lastViewedId, currentId });
 		lastViewedId = view.lastViewedId;
-		if (!currentModal) return;
-		if (view.currentId && view.currentId !== currentId) currentModal.show(view.currentId);
-		else currentModal.clamp();
+		if (!currentPanel) return;
+		if (view.currentId && view.currentId !== currentId) currentPanel.show(view.currentId);
+		else currentPanel.clamp();
 	}
 
 	function enforceTerminalRetention(): void {
@@ -281,7 +280,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 
 	function applyTimelineResult(t: BtwThread, result: { timeline: TimelineEntry[]; prunedCount: number }): void {
 		t.timeline = result.timeline;
-		if (result.prunedCount > 0) currentModal?.timelinePruned(t.id, result.prunedCount);
+		if (result.prunedCount > 0) currentPanel?.timelinePruned(t.id, result.prunedCount);
 	}
 
 	function addTimelineEntry(t: BtwThread, entry: Omit<TimelineEntry, "timestamp"> & { timestamp?: number }): void {
@@ -289,13 +288,13 @@ export default function btwExtension(pi: ExtensionAPI) {
 	}
 
 	// Framing for the side task. Unlike the old child-process version there IS now an
-	// interactive surface (the modal composer), so the "unattended" instruction is
+	// interactive surface (the panel composer), so the "unattended" instruction is
 	// gone; the scoping + summary instructions stay.
 	function framedTask(note: string): string {
 		return [
 			"You have been resumed into a copy of another pi session — the conversation",
 			"history above is your full context. You are working a side task while the main",
-			"session continues. An operator is watching this side task in a modal and can send",
+			"session continues. An operator is watching this side task in a panel and can send",
 			"you follow-up messages, so ask a brief clarifying question only if you are truly",
 			"blocked. Your file changes land in the same working directory as the main session,",
 			"so keep them scoped to exactly what the task asks.",
@@ -309,7 +308,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 
 	// Coalesce a streaming text/thinking delta: extend the trailing entry when it is
 	// the same kind, otherwise start a new one. The state helper caps entry content
-	// and prunes old transcript entries before the modal sees the update.
+	// and prunes old transcript entries before the panel sees the update.
 	function appendDelta(t: BtwThread, kind: "text" | "thinking", delta: string): void {
 		applyTimelineResult(t, appendTimelineDeltaState(t.timeline, kind, delta, Date.now()));
 	}
@@ -508,19 +507,20 @@ export default function btwExtension(pi: ExtensionAPI) {
 		updateStatus(ctx);
 		ctx.ui.notify(`btw started: ${note}`, "info");
 
-		// Open the modal immediately on this thread, or retarget an open modal.
-		if (modalOpen && currentModal) currentModal.show(id);
-		else void openModal(ctx, id);
+		// Open the panel immediately on this thread, or retarget an open panel.
+		if (panelOpen && currentPanel) currentPanel.show(id);
+		else void openPanel(ctx, id);
 	}
 
-	// ── Modal overlay ────────────────────────────────
-	// Top-center overlay with a live transcript (icons/markdown like agent-hub's
-	// ZoomUI) and a follow-up composer. Read-only navigation keys are intercepted
+	// ── Full-screen panel ─────────────────────────────
+	// Full-screen overlay with a live transcript (icons/markdown like agent-hub's
+	// ZoomUI) and a follow-up composer. Navigation keys are intercepted
 	// here; everything else feeds the composer.
-	class BtwModal {
+	class BtwPanel {
 		private selectedIndex = 0;
 		private scrollOffset = 0;
 		private followTail = true;
+		private contentHeight = bodyRows(undefined, BTW_CHROME_ROWS);
 		readonly input = new Input();
 
 		constructor(
@@ -554,7 +554,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 				clampModalView(
 					{ selectedIndex: this.selectedIndex, scrollOffset: this.scrollOffset, followTail: this.followTail },
 					this.thread?.timeline.length ?? 0,
-					BODY_ROWS,
+					this.contentHeight,
 				),
 			);
 		}
@@ -566,7 +566,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 					{ selectedIndex: this.selectedIndex, scrollOffset: this.scrollOffset, followTail: this.followTail },
 					prunedCount,
 					this.thread?.timeline.length ?? 0,
-					BODY_ROWS,
+					this.contentHeight,
 				),
 			);
 		}
@@ -660,7 +660,8 @@ export default function btwExtension(pi: ExtensionAPI) {
 			return box.render(width);
 		}
 
-		render(width: number, theme: Theme): string[] {
+		render(width: number, terminalRows: number | undefined, theme: Theme): string[] {
+			this.contentHeight = bodyRows(terminalRows, BTW_CHROME_ROWS);
 			const lines: string[] = [];
 			const mdTheme = getMarkdownTheme();
 			const t = this.thread;
@@ -691,36 +692,38 @@ export default function btwExtension(pi: ExtensionAPI) {
 			const items = t?.timeline ?? [];
 			this.clamp();
 
+			const composerLines = this.input.render(width);
+			// Input may wrap; borrow those extra rows from the transcript, never from
+			// the composer/hint chrome.
+			const transcriptHeight = Math.max(0, this.contentHeight - Math.max(0, composerLines.length - 1));
 			const bodyLines: string[] = [];
 			if (items.length === 0) {
 				bodyLines.push(theme.fg("dim", "  Working…"));
 			} else {
 				for (let i = this.scrollOffset; i < items.length; i++) {
 					const card = this.renderEntry(items[i], i === this.selectedIndex, width, theme, mdTheme);
-					if (bodyLines.length > 0 && bodyLines.length + card.length > BODY_ROWS) break;
+					if (bodyLines.length > 0 && bodyLines.length + card.length > transcriptHeight) break;
 					bodyLines.push(...card);
 				}
 			}
-			while (bodyLines.length < BODY_ROWS) bodyLines.push("");
-			if (bodyLines.length > BODY_ROWS) bodyLines.length = BODY_ROWS;
-			lines.push(...bodyLines);
+			lines.push(...fitToHeight(bodyLines, transcriptHeight));
 
 			// ── Footer: composer + key hints ──
 			const footer = new Container();
 			footer.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 			footer.addChild(new Text(theme.fg("dim", " follow-up:"), 1, 0));
 			lines.push(...footer.render(width));
-			lines.push(...this.input.render(width));
+			lines.push(...composerLines);
 			const switchHint = order.length >= 2 ? " · ←/→ switch" : "";
-			lines.push(theme.fg("dim", ` Enter send · Esc hide · ↑/↓ scroll${switchHint} · Ctrl+C copy`));
+			lines.push(theme.fg("dim", ` Enter send · Esc return to main (task keeps running) · ↑/↓ scroll${switchHint} · Ctrl+C copy`));
 
-			return lines;
+			return fitToHeight(lines, this.contentHeight + BTW_CHROME_ROWS);
 		}
 	}
 
-	async function openModal(ctx: ExtensionContext, startId?: string): Promise<void> {
-		if (modalOpen) {
-			if (startId && currentModal) currentModal.show(startId);
+	async function openPanel(ctx: ExtensionContext, startId?: string): Promise<void> {
+		if (panelOpen) {
+			if (startId && currentPanel) currentPanel.show(startId);
 			return;
 		}
 		const initial = resolveThreadId(startId, order) ?? mostRecentId();
@@ -728,15 +731,15 @@ export default function btwExtension(pi: ExtensionAPI) {
 			ctx.ui.notify("No btw side tasks yet — /af-btw <task> to start one.", "info");
 			return;
 		}
-		modalOpen = true;
+		panelOpen = true;
 		lastViewedId = initial;
-		let ticker: ReturnType<typeof setInterval> | undefined;
+		const resources = createPanelResources();
 		try {
 			await ctx.ui.custom<void>(
 				(tui, theme, _kb, done) => {
-					const modal = new BtwModal(
+					const panel = new BtwPanel(
 						initial,
-						(text) => submitFollowUp(modal.currentId, text),
+						(text) => submitFollowUp(panel.currentId, text),
 						(m, type) => ctx.ui.notify(m, (type === "success" ? "info" : type) as "info" | "warning" | "error"),
 						() => done(undefined),
 					);
@@ -750,76 +753,70 @@ export default function btwExtension(pi: ExtensionAPI) {
 							tui.requestRender();
 						}
 					};
-					// Bind the render hook to whichever thread the modal currently shows.
+					// Bind the render hook to whichever thread the panel currently shows.
 					const bindRender = () => {
 						for (const th of threads.values()) th.render = undefined;
-						const cur = threads.get(modal.currentId);
+						const cur = threads.get(panel.currentId);
 						if (cur) cur.render = requestRender;
 					};
 					bindRender();
 
-					// Let a fresh /af-btw retarget this open modal and keep selection valid when
+					// Let a fresh /af-btw retarget this open panel and keep selection valid when
 					// retention/pruning changes the backing thread list.
-					currentModal = {
+					currentPanel = {
 						show: (id: string) => {
-							modal.show(id);
+							panel.show(id);
 							bindRender();
-							lastViewedId = modal.currentId;
+							lastViewedId = panel.currentId;
 							tui.requestRender();
 						},
-						currentId: () => modal.currentId,
+						currentId: () => panel.currentId,
 						timelinePruned: (id: string, prunedCount: number) => {
-							modal.timelinePruned(id, prunedCount);
+							panel.timelinePruned(id, prunedCount);
 							tui.requestRender();
 						},
 						clamp: () => {
-							modal.clamp();
+							panel.clamp();
 							tui.requestRender();
 						},
 					};
 
 					// Keep elapsed/spinner live even between stream events.
-					ticker = setInterval(() => tui.requestRender(), 500);
+					resources.every(500, () => tui.requestRender());
 
 					return {
-						render: (w: number) => modal.render(w, theme as Theme),
+						render: (w: number) => panel.render(w, tui.terminal?.rows, theme as Theme),
 						handleInput: (data: string) => {
-							const before = modal.currentId;
-							modal.handleInput(data, tui);
-							if (modal.currentId !== before) {
+							const before = panel.currentId;
+							panel.handleInput(data, tui);
+							if (panel.currentId !== before) {
 								bindRender();
-								lastViewedId = modal.currentId;
+								lastViewedId = panel.currentId;
 							}
 						},
 						invalidate: () => {},
-						dispose: () => {
-							if (ticker) clearInterval(ticker);
-						},
+						dispose: () => resources.dispose(),
 					};
 				},
-				{
-					overlay: true,
-					overlayOptions: { anchor: "top-center", width: MODAL_WIDTH, maxHeight: MODAL_MAX_HEIGHT, nonCapturing: true },
-					onHandle: (h) => h.focus(),
-				},
+				{ ...FULLSCREEN_OVERLAY, onHandle: (h) => h.focus() },
 			);
 		} finally {
-			if (ticker) clearInterval(ticker);
-			currentModal = undefined;
+			resources.dispose();
+			currentPanel = undefined;
 			for (const th of threads.values()) th.render = undefined;
-			modalOpen = false;
+			panelOpen = false;
 		}
 	}
 
 	pi.registerCommand("af-btw", {
-		description: "Start a side task in a live modal (full session context), or reopen the modal. Usage: /af-btw [task]",
+		description: "Start a side task in a live panel (full session context), or reopen the panel. Usage: /af-btw [task]",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			latestCtx = ctx;
 			markBtwActivated();
 			const note = args.trim();
 			if (!note) {
 				if (threads.size > 0) {
-					await openModal(ctx, lastViewedId);
+					await openPanel(ctx, lastViewedId);
 				} else {
 					ctx.ui.notify("Usage: /af-btw <task> — runs a side task with this session's full context.", "warning");
 				}
@@ -829,11 +826,11 @@ export default function btwExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// Alt+' reopens the modal. Chosen at the operator's request: unlike Alt+B (pi's
+	// Alt+' reopens the panel. Chosen at the operator's request: unlike Alt+B (pi's
 	// editor cursor-word-left) it doesn't collide with a composer motion. Was
 	// Alt+Shift+B → Alt+B → Alt+' — pick another binding here if your terminal eats it.
 	pi.registerShortcut("alt+'", {
-		description: "Open the btw side-task modal",
+		description: "Open the btw side-task panel",
 		handler: async (ctx) => {
 			latestCtx = ctx;
 			markBtwActivated();
@@ -841,7 +838,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 				ctx.ui.notify("No btw side tasks yet — /af-btw <task> to start one.", "info");
 				return;
 			}
-			await openModal(ctx, lastViewedId);
+			await openPanel(ctx, lastViewedId);
 		},
 	});
 
@@ -911,7 +908,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 		threads.clear();
 		order.length = 0;
 		lastViewedId = undefined;
-		currentModal?.clamp();
+		currentPanel?.clamp();
 		updateStatus(latestCtx);
 	});
 }

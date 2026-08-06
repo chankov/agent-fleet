@@ -453,6 +453,7 @@
     },
     "pi-extension:btw": {
       "companions": [
+        "companion:pi-harness-lib",
         "companion:pi-extension-manifests",
         "companion:pi-extension-deps"
       ],

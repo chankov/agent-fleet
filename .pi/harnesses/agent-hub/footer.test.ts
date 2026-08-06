@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeHubFooterLeft, renderHubFooterLeft } from "./footer.ts";
+import { composeFleetFooterHint, composeHubFooterLeft, renderHubFooterLeft } from "./footer.ts";
 
 // The literal OSC 8 sequence the footer must emit — spelled out rather than
 // rebuilt from linkify(), so a change to the link format fails here.
@@ -11,6 +11,11 @@ test("hub footer places the linked version before model, thinking suffix, and te
 		composeHubFooterLeft("1.2.3", "gpt-5.5", " (xh)", "full"),
 		`${LINKED} v1.2.3 · gpt-5.5 (xh) · full`,
 	);
+});
+
+test("fleet footer identifies the dashboard shortcut and compact-widget state", () => {
+	assert.equal(composeFleetFooterHint("compact"), "Alt+A fleet · Alt+Shift+A widget:compact");
+	assert.equal(composeFleetFooterHint("off"), "Alt+A fleet · Alt+Shift+A widget:off");
 });
 
 test("hub footer has no dangling version separator when adjacent metadata is unavailable", () => {

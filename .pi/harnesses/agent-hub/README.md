@@ -262,10 +262,9 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `agent-hub` (or plain `coms`) sessions on the same box find each other through per-project registry
   files and exchange messages over a unix socket (named pipe on Windows).
 
-Inherited `/af-zoom` behavior in this harness expands the latest event by default. Use `Space` or
-`Ctrl+C` to copy the selected row content, and `Q` or `Esc` to close the overlay. The overlay sizes
-to the terminal and keeps the selected (and last) entry fully visible while you navigate with
-`↑/↓`.
+`/af-zoom <name|rN|child-id>` opens the selected agent's full-screen stream detail. For fleet rows,
+it uses the [Fleet Dashboard detail controls](#fleet-dashboard-and-detail); a directly addressed
+fallback stream keeps the legacy zoom controls. Both overlays size to the terminal.
 
 ### `/af-agents-history`
 
@@ -295,12 +294,34 @@ execution **tree**:
 Navigate with `↑/↓`, press `G` to jump back to the live tail, and `Q`/`Esc` to close. The log resets
 on each session start.
 
-The agent view starts in **compact** mode, showing one line per *running* agent —
+The agent view starts with the **compact widget** enabled: one line per *running* agent —
 `name · context% · state` — *below* the input box, just above pi's status bar. Idle and done agents
 are hidden, and the coms pool widget collapses too, so an idle session collapses to just the prompt
-and footer. Press **`Alt+A`** to toggle to the full **dashboard** (bordered card grid drawn *above*
-the input box) and back. The current mode and binding are shown in the footer
-(`Alt+A view:compact` / `Alt+A view:dashboard`).
+and footer. **`Alt+Shift+A`** toggles that widget on or off; the footer reports
+`Alt+A fleet · Alt+Shift+A widget:compact|off`.
+
+### Fleet Dashboard and detail
+
+Press **`Alt+A`** or run **`/af-agents-list`** to open the full-screen **Fleet Dashboard**. It is a
+separate, live overlay—not an alternate compact-widget mode—and lists specialists, nested delegates,
+research helpers, and coms peers. It shows status, hierarchy, model, context/tokens, elapsed time,
+tool count, and recent work; its summary counts running/done/failed rows, overlap-aware wall time,
+and visible token totals. Finished/idle/stale rows are hidden by default.
+
+- **`↑`/`↓`** or **`j`/`k`** selects a row; **`PgUp`/`PgDn`** pages; **Enter** opens its full-screen
+  detail view.
+- **`f`** starts a name/model/recent-work filter; type the query and press **Enter** to apply it, or
+  **Esc** to clear it. **`a`** toggles finished rows.
+- **`x`** requests a kill and **`r`** requests a restart; press the same key again within two seconds
+  to confirm. Kill acts on a local running specialist, a coms-backed specialist, or a research helper.
+  Confirmed restart terminates a running specialist when necessary, clears its session, and re-dispatches
+  its previous task fresh; it is refused for peer/delegate rows, running research, and rows with no previous task.
+- **`q`** or **Esc** closes the dashboard.
+
+The detail view streams the selected local agent's text, thinking, and tool timeline. Use **`↑`/`↓`**,
+**`PgUp`/`PgDn`**, and **End** to navigate/tail; **Enter** expands a selected tool call; **Ctrl+C**
+copies the selected entry; **Esc**/**`q`** returns to the dashboard. Coms peers have no local
+transcript and show that explicitly. **`/af-zoom <name|rN>`** opens this same detail view directly.
 
 ### Version footer
 
@@ -336,13 +357,13 @@ the single model line. Press **`Alt+S`** to start/stop dictation as in a normal 
 
 ### Compact-view agent switcher
 
-In **compact view**, the running-subagents list below the input doubles as a switcher. **`Alt+]`**
-and **`Alt+[`** move a marker (`›` + highlight) to the next/previous running subagent; **`Alt+\`**
-opens the read-only `/af-zoom` overlay on the marked one (`Q`/`Esc` to close). This only changes what
-you *view* — **the input box always prompts the main session**, and `main` is never a marker target
-(it is the session under the input, not a subagent). There is no transcript takeover: a subagent's
-stream is surfaced through the modal zoom overlay, never by replacing the main scrollback. The keys
-are inert in dashboard mode (use `/af-zoom <name>` there).
+With the **compact widget enabled**, the running-subagents list below the input doubles as a
+switcher. **`Alt+]`** and **`Alt+[`** move a marker (`›` + highlight) to the next/previous running
+subagent; **`Alt+\`** opens the full-screen detail view on the marked one (`q`/`Esc` to return).
+This only changes what you *view* — **the input box always prompts the main session**, and `main` is
+never a marker target (it is the session under the input, not a subagent). There is no transcript
+takeover: a subagent stream is shown in an overlay, never by replacing the main scrollback. These
+keys require the compact widget; use `/af-zoom <name>` or the Fleet Dashboard otherwise.
 
 > Terminal note: `Alt+[` emits `ESC [` (a CSI prefix) and may be swallowed by some terminals'
 > escape parsers; `Alt+]` and `Alt+\` are the reliable pair. `Alt+↑/↓/←/→` are reserved by the pi

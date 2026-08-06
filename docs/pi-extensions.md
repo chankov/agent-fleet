@@ -28,9 +28,10 @@ feature-gated: after setup installs them, launch with `just fleet --browser` or
 `just fleet --voice`. This keeps Default deterministic even though pi can auto-discover
 extensions outside Fleet Core. `btw` adds a
 `/af-btw <task>` prompt command (plus an `Alt+'` shortcut) that forks the current session
-into an in-process sub-session and opens a live modal over it — full context, same
-cwd, follow-up composer, with a compact result card landing in the main transcript at
-idle. See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
+into an in-process sub-session and opens a focused, capturing full-screen panel — full
+context, same cwd, live transcript, and follow-up composer. `Esc` returns to the main
+session while the side task continues; a compact result card lands in the main transcript
+at idle. See [.pi/extensions/btw/README.md](../.pi/extensions/btw/README.md).
 
 When loaded with `just fleet --voice`, `pi-voice-stt` adds **Alt+S** push-to-talk dictation: it records the mic to a temp WAV via
 `ffmpeg` and transcribes through one of three backends — a generic OpenAI-compatible endpoint,
@@ -168,8 +169,13 @@ harnesses:
   empty native roster; `/af-posture operator|orchestrator` switches prompt and tool surface without
   restarting or losing session state. Orchestrator removes direct coding tools. All Hub slash
   commands remain registered in both postures; capability-off actions refuse actionably.
-- **Dispatcher grid** — the active, dynamically adjustable native roster from
-  `.pi/agents/teams.yaml`, shown in a live dashboard with compact/full view toggling.
+- **Fleet Dashboard and compact widget** — **`Alt+A`** or `/af-agents-list` opens a
+  full-screen dashboard of the active native roster, delegates, research helpers, and coms
+  peers. It supports row detail, filtering, finished-row visibility, confirmed kills,
+  and a confirmed restart request that supplies the restart command. Separately, the default below-editor compact widget shows only
+  running agents; **`Alt+Shift+A`** toggles it on/off. See the
+  [agent-hub README](../.pi/harnesses/agent-hub/README.md#fleet-dashboard-and-detail) for
+  keys and action semantics.
 - **Specialist delegation** — `dispatch_agent` for writable child-agent work and
   `spawn_research` / `/af-research` for read-only investigation.
 - **Verification Contract** — the dispatcher owns a ledger of checkable acceptance assertions
