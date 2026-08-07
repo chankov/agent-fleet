@@ -1,5 +1,147 @@
 # Agent Fleet changelog
 
+## 1.0.0
+
+### Major Changes
+
+- 18da838: Replace guided LLM setup with three deterministic lifecycle commands:
+  `setup`, `doctor`, and `uninstall`. Desired-state config, strict state-owned
+  removal with human-config preservation, legacy alias migration, and
+  preservation of overrides/STT config ship together in one major release.
+
+  **Breaking for anyone who relied on the old guided flow.**
+  `init` / `install` / `upgrade` / `update` remain compatibility aliases that
+  route toward `setup` (or the legacy plan verbs) with deprecation warnings;
+  `cleanup-installer` and the guided-workspace-setup skill/prompts are gone.
+  Setup no longer accepts raw `--items` / `--profile` selectors — use
+  `--preset <default|full>` and `--features <name[,name]|none>` instead.
+
+  What changed:
+
+  - **Desired-state config.** Selection lives in human-owned
+    `.ai/agent-fleet.json` (preset + features). CLI flags are ephemeral unless
+    `--save-desired` persists them. First-time migration from a state-only
+    workspace requires `--migrate` with an explicit preset/features and `--yes`.
+  - **Strict state-owned removal.** `uninstall` only removes paths recorded in
+    `.ai/agent-fleet-state.json` whose bytes still match what we wrote. Human
+    and foreign files are never touched. `--purge-config` is a separate explicit
+    gate for `.ai/agent-fleet.json`, `.ai/agent-fleet-overrides.md`, and
+    `.ai/stt.json`.
+  - **Alias migration.** Deprecated `init`/`update` hand off to `setup`;
+    `install`/`upgrade` keep plan-verb compatibility where needed and warn.
+  - **Overrides and STT preserved.** Default uninstall and reconcile leave
+    project overrides and voice STT config alone unless `--purge-config` is
+    consented. Crash recovery uses `.ai/agent-fleet-transaction.json`.
+  - **Conflict policy on setup.** Three-way conflicts abort before writes
+    (exit `3`) unless resolved with `--on-conflict theirs|ours`. Legacy
+    `upgrade` still uses `--accept-theirs` / `--accept-ours`.
+  - **Just lifecycle and repaired setup UX.** `just fleet install` was removed;
+    use `just fleet deps` for nested runtime dependencies. `just fleet setup`
+    resolves the package through npm `@latest`. JSON setup now applies when
+    consented with `--yes`, failed file transactions roll back rather than report
+    success, and the interactive TUI can authorize a first legacy migration only
+    after its exact migration preview and final confirmation.
+
+  See `docs/agent-fleet-setup.md`, `docs/MIGRATION-agent-fleet.md`, and
+  `docs/npm-install.md` for the operator-facing lifecycle.
+
+### Minor Changes
+
+- 9e37e72: Remove OpenCode support. OpenCode is no longer a recognized agent for any skill,
+  persona, command, or harness. (This change left `claude-code` and `pi` as the
+  install targets; a later change in the same release removes `claude-code` too,
+  leaving pi as the only one.)
+
+  **Breaking for OpenCode workspaces.** `--agent opencode` is rejected by every
+  CLI verb, and the installer no longer knows the `.opencode/` paths, so it can
+  neither install into nor clean up an OpenCode workspace. Anyone with an
+  existing OpenCode install should delete `.opencode/agent/`,
+  `.opencode/skills/`, `.opencode/commands/`, and `.opencode/orchestrate-teams.yaml`
+  by hand before upgrading, then run
+  `npx @chankov/agent-fleet@latest setup --preset default --features none --yes`
+  for pi. Step-by-step: `docs/MIGRATION-agent-fleet.md`.
+
+  What changed:
+
+  - `detect-agent`, `manifest`, `transform-persona`, `bootstrap`, and `doctor`
+    drop every `.opencode/` target path and the OpenCode persona transform
+    (`mode: subagent` + tool denials).
+  - `install-manifest.json` regenerated: 101 items, no `opencode` bindings.
+  - `.opencode/` and `docs/opencode-setup.md` deleted from the package; the
+    `opencode` keyword removed from `package.json`.
+  - `/compound` is gone as an installable command — it only ever shipped as an
+    OpenCode command file. Invoke the `compound-learning` skill directly on
+    Claude Code; pi keeps `/af-compound` via the `agent-hub` harness.
+  - Docs updated across README, AGENTS.md, CLAUDE.md, and `docs/`.
+
+  `.versions/<x.y.z>/` snapshots are left untouched — they are the record of what
+  each past release actually shipped, and the version-aware update flow diffs
+  against them.
+
+### Patch Changes
+
+- baa2617: Unify `ask_user` ownership across runtime modes. `ask-user-remote` now treats a settings-listed `pi-ask-user` entry as dormant under `--no-extensions`/`-ne` (so default `just fleet` still registers the wrapped tool), defers only when extension discovery can actually load the stock package, and resolves stock `pi-ask-user` from package-native, `.pi/npm`, harness runtime (`npm ci --prefix .pi/harnesses`), then global locations. Align root and harness dependencies on `pi-ask-user@^0.14.0`. `doctor`/`verify` emit a read-only `pi-package-ownership` advisory when package-native Agent Fleet skills/prompts overlap copied `skill:*`/`command:*` items.
+- f24bed3: Correct and expand the install/update documentation for the deterministic
+  lifecycle.
+
+  Three corrections, each of which was actively misleading:
+
+  - **First install no longer tells you to run `just fleet setup`.** The managed
+    justfile region is written _by_ setup, so in a repository without Agent Fleet
+    that command fails with `error: no justfile found`. README, `docs/getting-started.md`,
+    `docs/npm-install.md`, `docs/MIGRATION-agent-fleet.md`, and the `just fleet help`
+    banner now lead the first install with `npx @chankov/agent-fleet@latest setup`
+    and present `just fleet setup` as the wrapper available once the workspace has
+    a justfile.
+  - **`setup` does not preserve local edits.** README, `docs/agent-fleet-setup.md`,
+    and the migration guide claimed reconciliation "never eats a local edit". Under
+    `setup` a locally modified owned file is refreshed and the edit is overwritten
+    (`plan.js` plans it as `refresh … overwrites: true`); only the deprecated
+    `upgrade` verb preserves it. The docs now state this plainly, show the plan line
+    that predicts it, and point at `.ai/agent-fleet-overrides.md` as the supported
+    customization route.
+  - **The runtime-dependency step was easy to miss.** The two `npm` companions are
+    `consent: exec` and plan as `skip`, so a workspace is not launchable until
+    `just fleet deps` (or `setup --allow-exec`) runs. It is now part of the install
+    sequence rather than an aside.
+
+  New material: a step-by-step **"Updating an existing install"** section covering
+  the update banner, `check-update`, the `--dry-run` preview and how to read each
+  action line, applying, and resolving an exit-`3` conflict with `--on-conflict
+theirs|ours`; and a per-state table of what reconcile does to every file,
+  including the degraded two-way comparison when a `.versions/` baseline is absent.
+
+  `docs/MIGRATION-agent-fleet.md` is rewritten from a lifecycle-only matrix into a
+  guide to all four breaking changes in this release — the deterministic lifecycle,
+  Claude Code losing install-target status, the OpenCode removal, and the unified
+  `just fleet` runtime — each with the commands to migrate an affected workspace.
+
+- 886a3ad: Remove Claude Code as a coding-agent install target. pi is now the only agent the installer writes for; Claude Code stays in the fleet as a coms peer and nothing else.
+
+  **What is gone**
+
+  - `.claude/commands/` (15 slash commands, including `/orchestrate`) and `.claude/orchestrate-teams.yaml`
+  - `.claude-plugin/` — Agent Fleet is no longer published as a Claude Code plugin; npm is the only distribution channel
+  - `hooks/session-start.sh`, `hooks/simplify-ignore*.sh`, `hooks/SIMPLIFY-IGNORE.md`, `hooks/hooks.json` — all Claude-Code-runtime hooks
+  - `agent-fleet transform-persona` and `bin/lib/transform-persona.js`. Personas were only ever translated _for_ Claude Code; `agents/*.md` is already pi's own dialect, so `bin/lib/personas.js` now just enumerates them and the install strategy is a plain `copy-file`
+  - The `transform-persona` install strategy, the `references-hooks` manifest group, and the interactive "which coding agent?" prompt
+
+  **What replaces it**
+
+  - `--agent` is still accepted and validated everywhere, but defaults to `pi` and is never asked for. `detectAgent()` has nothing left to detect
+  - References move from `.claude/references/` to `.pi/references/` and stop being a standalone menu section: each one is declared a **companion of the skills that cite it**, so installing `code-review-and-quality` brings `security-checklist.md` and `performance-checklist.md` with it, and uninstall refuses to strand a skill without its checklists
+  - A new `coms-bridge` manifest group holds the two halves of the Claude Code bridge — `skill:peer-coms` and `hook:coms-stop-hook`, the latter as a companion of the former. The hook still installs to `.claude/hooks/` under the **pi** agent, because the pane reading it is a Claude Code process. Registering it in `.claude/settings.json` remains a manual step, documented in `docs/claude-code-coms-bridge.md`
+
+  **Unchanged**
+
+  The bridge itself: `scripts/coms-claude-bridge.ts`, `scripts/lib/claude-bridge-core.ts`, `skills/peer-coms/`, the `_claude-peer` justfile recipe, `runner: claude-code` peers in `.pi/agents/peers.yaml`, and the `dispatch-policy.yaml` routing that lets a bridged pane serve an agent-hub team member's dispatch. Cross-model review through a standing Claude session works exactly as before.
+
+  **Upgrading.** A workspace previously installed for `claude-code` is not migrated automatically — its `.claude/` artifacts are no longer in the catalogue, so `verify` will not claim them and `uninstall` will not remove them. Reinstall for pi with `npx @chankov/agent-fleet@latest setup --preset default --features none --yes` followed by `just fleet deps`, then delete the leftover `.claude/` skills, commands, agents, and references by hand — keeping `.claude/hooks/` if you use the coms bridge. Step-by-step: `docs/MIGRATION-agent-fleet.md`.
+
+- 1e9c829: Unify Pi Fleet startup behind one guarded Agent Hub runtime. Bare `just fleet` now loads Fleet Core plus Agent Hub in operator posture, preserving direct coding tools and starting with an empty native roster. Use `--posture`, `--agents`, `--herdr`, `--peers`, `--project`, and `--no-coms` to select execution posture, native specialists, workspace topology, project scope, and communication capabilities independently.
+
+  Add live `/af-posture` switching, on-demand native roster growth, deterministic `dispatch_agent` routing through `backend: auto|native|coms`, and same-project dynamic Pi or Claude Code peer spawning through Herdr. `just fleet hub`, `just fleet team <preset>`, team `--no-hub`, and `--solo` remain accepted for one migration release and print their canonical replacements.
+
 ## 0.0.11
 
 ### Patch Changes
