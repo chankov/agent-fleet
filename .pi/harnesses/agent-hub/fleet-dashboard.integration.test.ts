@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildFleetRows, type FleetSource } from "../lib/fleet-read-model.ts";
+import { gridColumnsForItems, gridColumnsForSize, renderCardGrid } from "../lib/fleet-dashboard-ops.ts";
 import { renderFleetDashboard } from "../lib/fleet-dashboard-view.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
@@ -20,6 +21,15 @@ test("fleet integration retains idle roster rows with coms and reconciles the sa
 	assert.equal(running.find(row => row.key === "builder")?.status, "running");
 });
 
+test("empty native roster renders one research card through the production grid helpers", () => {
+	const gridCols = gridColumnsForSize(0);
+	const states = [{ id: 1, task: "investigate" }];
+	const cols = gridColumnsForItems(gridCols, states.length);
+	assert.equal(cols, 1);
+	assert.doesNotThrow(() => renderCardGrid(states, cols, 1, state => [`r${state.id}: ${state.task}`]));
+	assert.deepEqual(renderCardGrid(states, cols, 1, state => [`r${state.id}: ${state.task}`]), ["r1: investigate"]);
+});
+
 test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, and wall time", () => {
 	assert.match(source, /buildFleetRows\(/);
 	assert.match(source, /reconcileSelection\(selection, rows\)/);
@@ -36,10 +46,23 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(source, /resolveFleetRestart\(/);
 	assert.match(source, /attachFleetDashboardTicker\(/);
 	assert.match(source, /liveTimeline\(target\)/);
+	assert.match(source, /gridCols = gridColumnsForSize\(agentStates\.size\);/, "an empty specialist roster cannot zero the research grid");
+	assert.match(source, /const cols = gridColumnsForItems\(gridCols, states\.length\);/, "research rendering defensively rejects zero columns");
+	assert.match(source, /const grid = renderCardGrid\(/, "research cards use the tested non-empty grid renderer");
 	assert.equal((source.match(/compactWidgetsEnabled\(viewMode\)/g) ?? []).length, 5, "all production compact-widget guards use the shared predicate");
 	// confirmation window is owned by the pure controller
 	const dash = readFileSync(new URL("../lib/fleet-dashboard-view.ts", import.meta.url), "utf8");
 	assert.match(dash, /until: now \+ 2000/);
+});
+
+test("task lifecycle closes at agent_end and mode/reset mutations are auditable", () => {
+	assert.match(source, /pi\.on\("agent_end"[\s\S]*?closeTurnActiveTime\(turnEndedAt\);[\s\S]*?turnActive = false;[\s\S]*?currentTurnStartedAt = 0;/);
+	assert.match(source, /taskClock = resetTaskClock\(taskClock, now\);/);
+	assert.match(source, /appendEntry\("agent-hub-mode", buildHubModeAudit\(/);
+	assert.match(source, /appendEntry\("agent-hub-task-reset", buildTaskResetAudit\(/);
+	assert.match(source, /source: "slash-command"/);
+	assert.match(source, /source: overrides\.hubModeSource/);
+	assert.match(source, /appendTaskResetEntry\("tool:set_task_tier"/);
 });
 
 test("shortcuts, command, compact toggle, footer, and pool use the separate fleet flow", () => {

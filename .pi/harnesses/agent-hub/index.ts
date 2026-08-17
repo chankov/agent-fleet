@@ -89,7 +89,8 @@ import {
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, resolveStartupRoster, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
-import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_BUDGET_MULTIPLIER, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, contextOverflowDiagnostic, isReviewPersona, normalizeHubMode, remainingTaskResearch, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, turnActiveMs } from "./run-budget.js";
+import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_BUDGET_MULTIPLIER, addTaskClockWait, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, closeTaskClock, contextOverflowDiagnostic, createTaskClock, isReviewPersona, normalizeHubMode, openTaskClock, remainingTaskResearch, resetTaskClock, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, taskClockElapsedMs } from "./run-budget.js";
+import { buildHubAuditIdentity, buildHubModeAudit, buildTaskResetAudit } from "./hub-state-audit.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
 import { checkExternalBlockerGate, externalBlockedProtocol, extractExternalBlockers } from "./external-blocker.js";
@@ -133,7 +134,7 @@ import { buildLiveRegistryEntry, type ComsRegistryEntry } from "../lib/coms-regi
 import { FULLSCREEN_OVERLAY, bodyRows, clampScroll, fitToHeight } from "../lib/fleet-overlay.ts";
 import { createPanelResources } from "../lib/fleet-panel.ts";
 import { buildFleetRows, fleetTiming, summarise, unionMs, type DelegateInput, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput } from "../lib/fleet-read-model.ts";
-import { attachFleetDashboardTicker, compactWidgetsEnabled, liveTimeline, resolveFleetKill, resolveFleetRestart } from "../lib/fleet-dashboard-ops.ts";
+import { attachFleetDashboardTicker, compactWidgetsEnabled, gridColumnsForItems, gridColumnsForSize, liveTimeline, renderCardGrid, resolveFleetKill, resolveFleetRestart } from "../lib/fleet-dashboard-ops.ts";
 import { dashboardTransition, renderFleetDashboard, FLEET_CHROME_ROWS, type DashboardConfirm } from "../lib/fleet-dashboard-view.ts";
 import { detailContent, detailTransition, renderFleetDetail, DETAIL_CHROME_ROWS } from "../lib/fleet-detail-view.ts";
 import { reconcileSelection, type Selection } from "../lib/fleet-selection.ts";
@@ -458,6 +459,7 @@ interface AgentTeamOverrides {
 	researchKeep: number;
 	reconSearchTimeoutMs: number | null;
 	hubMode: string;
+	hubModeSource: "default" | "project-override";
 	// Per-axis turn-budget overrides for run-budget.js resolveTurnBudget():
 	// number replaces the mode default, null = "off", undefined = keep default.
 	budgetOverrides: {
@@ -488,6 +490,7 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	researchKeep: DEFAULT_RESEARCH_KEEP,
 	reconSearchTimeoutMs: 120_000,
 	hubMode: DEFAULT_HUB_MODE,
+	hubModeSource: "default",
 	budgetOverrides: {},
 	watchdogSetting: DEFAULT_WATCHDOG_SETTING,
 	watchdogJudgeModel: null,
@@ -573,6 +576,7 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			const mode = normalizeHubMode(value);
 			if (mode) {
 				result.hubMode = mode;
+				result.hubModeSource = "project-override";
 			} else {
 				result.warnings.push(`mode "${value}" is not one of ${HUB_MODES.join("|")} — using the default (${DEFAULT_HUB_MODE})`);
 			}
@@ -2092,9 +2096,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// at fast mode's 45-minute envelope that hard-stops a task with two dispatches
 	// spent. A false stop is worse than no stop: it teaches people to reset the
 	// task window reflexively, which is the one thing that must stay deliberate.
-	// `taskActiveMs` accumulates finished turns; the open turn is added at check time.
-	let taskActiveMs = 0;
-	let turnAskUserWaitMs = 0;
+	// The explicit clock state makes `active` authoritative: a stale timestamp can
+	// never turn inter-turn idle time into task work.
+	let taskClock = createTaskClock();
 	// Review dispatches spent on this task (review-round cap).
 	let taskReviewRounds = 0;
 	// Task tier (complexity triage): declared by the dispatcher via set_task_tier.
@@ -2140,24 +2144,20 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	 * minus its ask_user waits. An ask_user still in flight is subtracted too, so
 	 * the clock does not tick while the dispatcher sits at a question.
 	 */
-	function taskActiveElapsedMs(): number {
+	function taskActiveElapsedMs(now = Date.now()): number {
 		let openWait = 0;
-		const now = Date.now();
 		for (const startedAt of askUserStarts.values()) openWait += Math.max(0, now - startedAt);
-		return taskActiveMs + turnActiveMs(currentTurnStartedAt, now, turnAskUserWaitMs + openWait);
+		return taskClockElapsedMs(taskClock, now, openWait);
 	}
 	/** Fold the turn that is ending into the task's active-time accumulator. */
-	function closeTurnActiveTime() {
-		if (!currentTurnStartedAt) return;
-		taskActiveMs += turnActiveMs(currentTurnStartedAt, Date.now(), turnAskUserWaitMs);
-		turnAskUserWaitMs = 0;
+	function closeTurnActiveTime(now = Date.now()) {
+		taskClock = closeTaskClock(taskClock, now);
 	}
 	/** Clear the task window: counters, tier, clock, review rounds, blocker breaker. */
-	function resetTaskWindow(label: string | null = null) {
+	function resetTaskWindow(label: string | null = null, now = Date.now()) {
 		taskDispatchCount = 0;
 		taskResearchCount = 0;
-		taskActiveMs = 0;
-		turnAskUserWaitMs = 0;
+		taskClock = resetTaskClock(taskClock, now);
 		taskReviewRounds = 0;
 		taskLabel = label;
 		taskTier = null;
@@ -2167,6 +2167,56 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		externalBlockerRefusedOnce = false;
 		turnDispatchFingerprints.clear();
 		updateModeStatus();
+	}
+	function hubAuditIdentity(ctx?: ExtensionContext) {
+		return buildHubAuditIdentity({
+			cwd: ctx?.cwd ?? identity?.cwd ?? currentCtx?.cwd ?? process.cwd(),
+			pid: process.pid,
+			sessionId: identity?.session_id,
+			project: identity?.project,
+			workspaceId: process.env.HERDR_WORKSPACE_ID,
+			paneId: process.env.HERDR_PANE_ID,
+		});
+	}
+	function hubLocationSuffix(ctx?: ExtensionContext): string {
+		const where = hubAuditIdentity(ctx);
+		return `\nRepository: ${where.cwd ?? "unknown"}${where.herdr_pane_id ? ` · pane ${where.herdr_pane_id}` : ""}`;
+	}
+	function appendHubModeEntry(input: {
+		previousMode: string;
+		mode: string;
+		source: "slash-command" | "project-override" | "default";
+		overrideFile?: string | null;
+		ctx?: ExtensionContext;
+	}) {
+		try {
+			pi.appendEntry("agent-hub-mode", buildHubModeAudit({
+				...input,
+				taskTier,
+				turnDispatches: turnDispatchCount,
+				turnResearch: turnResearchCount,
+				identity: hubAuditIdentity(input.ctx),
+			}));
+		} catch { /* diagnostics are best-effort; state changes still succeed */ }
+	}
+	function taskResetSnapshot(now = Date.now()) {
+		return {
+			tier: taskTier,
+			dispatches: taskDispatchCount,
+			research: taskResearchCount,
+			reviewRounds: taskReviewRounds,
+			activeMs: taskActiveElapsedMs(now),
+		};
+	}
+	function appendTaskResetEntry(source: "slash-command" | "tool:set_task_tier", label: string | null, prior: ReturnType<typeof taskResetSnapshot>, ctx?: ExtensionContext) {
+		try {
+			pi.appendEntry("agent-hub-task-reset", buildTaskResetAudit({
+				source,
+				label,
+				prior,
+				identity: hubAuditIdentity(ctx),
+			}));
+		} catch { /* diagnostics are best-effort; state changes still succeed */ }
 	}
 	function updateModeStatus() {
 		try {
@@ -2665,8 +2715,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 
 	// Auto-size grid columns based on team size
 	function recomputeGrid() {
-		const size = agentStates.size;
-		gridCols = size <= 3 ? size : size === 4 ? 2 : 3;
+		gridCols = gridColumnsForSize(agentStates.size);
 	}
 
 	function activateTeam(teamName: string) {
@@ -2975,28 +3024,19 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 					// into the belowEditor "agent-running" widget instead.
 					if (!compactWidgetsEnabled(viewMode)) return [];
 
-					const cols = Math.min(gridCols, states.length);
+					const cols = gridColumnsForItems(gridCols, states.length);
 					const gap = 1;
 					const colWidth = Math.floor((width - gap * (cols - 1)) / cols);
 					const labelText = "── research ";
 					const header = theme.fg("dim", labelText + "─".repeat(Math.max(0, width - labelText.length)));
-					const rows: string[][] = [];
-
-					for (let i = 0; i < states.length; i += cols) {
-						const rowStates = states.slice(i, i + cols);
-						const cards = rowStates.map(s => renderResearchCard(s, colWidth, theme));
-
-						while (cards.length < cols) {
-							cards.push(Array(CARD_HEIGHT).fill(" ".repeat(Math.max(0, colWidth))));
-						}
-
-						const cardHeight = cards[0].length;
-						for (let line = 0; line < cardHeight; line++) {
-							rows.push(cards.map(card => card[line] || ""));
-						}
-					}
-
-					const grid = rows.map(cs => cs.join(" ".repeat(gap)));
+					const grid = renderCardGrid(
+						states,
+						cols,
+						CARD_HEIGHT,
+						s => renderResearchCard(s, colWidth, theme),
+						" ".repeat(gap),
+						" ".repeat(Math.max(0, colWidth)),
+					);
 					text.setText([header, ...grid].join("\n"));
 					return text.render(width);
 				},
@@ -5607,16 +5647,21 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		}),
 		async execute(_callId, params, _signal, _onUpdate, _ctx) {
 			const { tier, reason, new_task } = params as { tier: string; reason?: string; new_task?: boolean };
-			if (new_task) resetTaskWindow(null);
-			// An ASSUMED tier is the hub's fail-safe, not a declaration to ratchet
-			// against: the dispatcher's own first triage must not be refused as an
-			// "escalation" for lacking a reason it had no way to know it needed.
-			const change = applyTierChange(taskTierAssumed ? null : taskTier, tier, reason);
+			// A new task classifies from an empty ratchet. Validate the requested tier
+			// before mutating/resetting anything so invalid input cannot erase a task.
+			const currentTier = new_task ? null : (taskTierAssumed ? null : taskTier);
+			const change = applyTierChange(currentTier, tier, reason);
 			if (!change.ok) {
 				return {
 					content: [{ type: "text" as const, text: change.message }],
 					details: { status: "error", reason: change.reason, tier: change.tier },
 				};
+			}
+			if (new_task) {
+				const resetAt = Date.now();
+				const prior = taskResetSnapshot(resetAt);
+				resetTaskWindow(null, resetAt);
+				appendTaskResetEntry("tool:set_task_tier", null, prior, _ctx);
 			}
 			taskTier = change.tier;
 			taskTierAssumed = false;
@@ -6876,9 +6921,14 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				ctx.ui.notify(`Unknown mode "${requested}" — expected one of: ${HUB_MODES.join(", ")}`, "error");
 				return;
 			}
+			const previousMode = hubMode;
 			hubMode = mode;
 			updateModeStatus();
-			ctx.ui.notify(`Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)`, "success");
+			appendHubModeEntry({ previousMode, mode, source: "slash-command", ctx });
+			ctx.ui.notify(
+				`Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)` + hubLocationSuffix(ctx),
+				"success",
+			);
 		},
 	});
 
@@ -6892,17 +6942,15 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const label = (args || "").trim() || null;
-			const spentDispatches = taskDispatchCount;
-			const spentResearch = taskResearchCount;
-			const spentReviews = taskReviewRounds;
-			const spentMin = Math.round(taskActiveElapsedMs() / 60_000);
-			const priorTier = taskTier;
-			resetTaskWindow(label);
+			const resetAt = Date.now();
+			const prior = taskResetSnapshot(resetAt);
+			resetTaskWindow(label, resetAt);
+			appendTaskResetEntry("slash-command", label, prior, ctx);
 			ctx.ui.notify(
 				`New task window${label ? `: ${label}` : ""}\n` +
-				`Previous task${priorTier ? ` (tier ${priorTier})` : ""} spent ${spentDispatches} dispatches, ` +
-				`${spentResearch} research, ${spentReviews} review round(s), ${spentMin} min active.\n` +
-				`Tier is unset — the dispatcher re-triages on its next dispatch.`,
+				`Previous task${prior.tier ? ` (tier ${prior.tier})` : ""} spent ${prior.dispatches} dispatches, ` +
+				`${prior.research} research, ${prior.reviewRounds} review round(s), ${Math.round(prior.activeMs / 60_000)} min active.\n` +
+				`Tier is unset — the dispatcher re-triages on its next dispatch.` + hubLocationSuffix(ctx),
 				"success",
 			);
 		},
@@ -8185,9 +8233,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		askUserStarts.delete(event.toolCallId);
 		// The task clock bills active time only — the human's answer is not the
 		// fleet's work, and billing it is what would false-stop a steered session.
-		if (startedAt) turnAskUserWaitMs += Math.max(0, Date.now() - startedAt);
+		const endedAt = Date.now();
+		if (startedAt) taskClock = addTaskClockWait(taskClock, Math.max(0, endedAt - startedAt));
 		if (startedAt == null) return;
-		const interval: [number, number] = [startedAt, Date.now()];
+		const interval: [number, number] = [startedAt, endedAt];
 		// Attach to the live dispatcher entry, or buffer until one is created this turn.
 		if (currentOrchestratorEntry) (currentOrchestratorEntry.awaitIntervals ??= []).push(interval);
 		else turnAskUserIntervals.push(interval);
@@ -8211,9 +8260,11 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		// Fold the turn that just ended into the task's active-time accumulator
 		// before the clock is re-based; inter-turn idle is never charged because
 		// no turn is open across it.
-		closeTurnActiveTime();
+		const turnStartedAt = Date.now();
+		closeTurnActiveTime(turnStartedAt);
+		taskClock = openTaskClock(taskClock, turnStartedAt);
 		turnActive = true;
-		currentTurnStartedAt = Date.now();
+		currentTurnStartedAt = turnStartedAt;
 		currentOrchestratorEntry = null;
 		askUserStarts.clear();
 		turnAskUserIntervals.length = 0;
@@ -8601,6 +8652,8 @@ ${researchCatalog}`;
 		executionHistory.length = 0;
 		currentOrchestratorEntry = null;
 		turnActive = false;
+		currentTurnStartedAt = 0;
+		taskClock = createTaskClock();
 		askUserStarts.clear();
 		turnAskUserIntervals.length = 0;
 		if (widgetCtx) {
@@ -8893,6 +8946,7 @@ ${researchCatalog}`;
 		userLanguage = overrides.language;
 		researchKeep = overrides.researchKeep;
 		reconSearchTimeoutMs = overrides.reconSearchTimeoutMs;
+		const previousMode = hubMode;
 		hubMode = overrides.hubMode;
 		budgetOverrides = overrides.budgetOverrides;
 		watchdogSetting = overrides.watchdogSetting;
@@ -8902,6 +8956,13 @@ ${researchCatalog}`;
 		// A new session is a new task by definition.
 		resetTaskWindow(null);
 		updateModeStatus();
+		appendHubModeEntry({
+			previousMode,
+			mode: hubMode,
+			source: overrides.hubModeSource,
+			overrideFile: overrides.hubModeSource === "project-override" ? ".ai/agent-fleet-overrides.md" : null,
+			ctx: _ctx,
+		});
 		if (overrides.warnings.length > 0) {
 			_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
 		}
@@ -9138,15 +9199,18 @@ ${researchCatalog}`;
 	// When this agent was addressed by a peer (an inbound prompt in the queue), the
 	// turn's final assistant text becomes the response we ship back to the sender.
 	pi.on("agent_end", async (_event, ctx) => {
-		// Close the /af-agents-history dispatcher turn (if this turn opened one). The
-		// orchestrator entry's span covers all of its dispatches plus the wrap-up.
+		// Close both the task clock and /af-agents-history dispatcher turn at the
+		// actual end event, so time awaiting the next user message is never charged.
+		const turnEndedAt = Date.now();
+		closeTurnActiveTime(turnEndedAt);
 		turnActive = false;
 		if (currentOrchestratorEntry) {
-			currentOrchestratorEntry.endedAt = Date.now();
+			currentOrchestratorEntry.endedAt = turnEndedAt;
 			if (currentOrchestratorEntry.status === "running") currentOrchestratorEntry.status = "done";
 			currentOrchestratorEntry = null;
 			historyRender?.();
 		}
+		currentTurnStartedAt = 0;
 
 		// End-of-turn sweep: a peer spawned this turn and never sent to is still
 		// running. Named once per turn it stays unaddressed; the close itself is

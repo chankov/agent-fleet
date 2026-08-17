@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -98,13 +98,17 @@ function startRpcProbe(probePath: string) {
 		});
 	}
 
-	async function activeTools(): Promise<string[]> {
+	async function notificationAfter(message: string, prefix: string): Promise<string> {
 		const start = notifications.length;
-		const response = await request({ type: "prompt", message: "/probe-active-tools" });
+		const response = await request({ type: "prompt", message });
 		assert.equal(response.success, true, JSON.stringify(response));
-		const report = notifications.slice(start).find(message => message.startsWith("ACTIVE_TOOLS:"));
+		const report = notifications.slice(start).find(value => value.startsWith(prefix));
 		assert.ok(report, `probe notification missing; notifications=${JSON.stringify(notifications.slice(start))}`);
-		return JSON.parse(report.slice("ACTIVE_TOOLS:".length));
+		return report.slice(prefix.length);
+	}
+
+	async function activeTools(): Promise<string[]> {
+		return JSON.parse(await notificationAfter("/probe-active-tools", "ACTIVE_TOOLS:"));
 	}
 
 	async function close(): Promise<void> {
@@ -115,7 +119,7 @@ function startRpcProbe(probePath: string) {
 		});
 	}
 
-	return { request, activeTools, close };
+	return { request, activeTools, notificationAfter, close };
 }
 
 test("Pi loads the guarded agent-hub extension stack through jiti", () => {
@@ -209,6 +213,42 @@ export default function (pi) {
 
 		assert.equal((await rpc.request({ type: "prompt", message: "/af-posture operator" })).success, true);
 		assert.deepEqual((await rpc.activeTools()).sort(), operator.sort(), "operator tool surface should restore in the same process");
+	} finally {
+		await rpc.close();
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
+test("mode and task reset commands append attributable runtime audit entries", async () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-audit-rpc-"));
+	const probePath = join(workspace, "probe-audit.ts");
+	writeFileSync(probePath, `
+export default function (pi) {
+  pi.registerCommand("probe-audit", {
+    description: "Test-only audit entry probe",
+    handler: async (_args, ctx) => {
+      const entries = ctx.sessionManager.getEntries()
+        .filter(entry => entry.type === "custom" && ["agent-hub-mode", "agent-hub-task-reset"].includes(entry.customType));
+      ctx.ui.notify("AUDIT_ENTRIES:" + JSON.stringify(entries), "info");
+    },
+  });
+}
+`);
+	const rpc = startRpcProbe(probePath);
+	try {
+		assert.equal((await rpc.request({ type: "prompt", message: "/af-hub-mode fast" })).success, true);
+		assert.equal((await rpc.request({ type: "prompt", message: "/af-new-task audit-check" })).success, true);
+		const entries = JSON.parse(await rpc.notificationAfter("/probe-audit", "AUDIT_ENTRIES:"));
+		const modeEntries = entries.filter((entry: any) => entry.customType === "agent-hub-mode").map((entry: any) => entry.data);
+		const resetEntries = entries.filter((entry: any) => entry.customType === "agent-hub-task-reset").map((entry: any) => entry.data);
+		assert.ok(modeEntries.some((entry: any) => entry.source === "default"), "session_start default application must be audited");
+		assert.ok(modeEntries.some((entry: any) => entry.source === "slash-command" && entry.previous_mode === "standard" && entry.mode === "fast"));
+		assert.ok(resetEntries.some((entry: any) => entry.source === "slash-command" && entry.label === "audit-check"));
+		for (const entry of [...modeEntries, ...resetEntries]) {
+			assert.equal(entry.identity.cwd, resolve(repoRoot));
+			assert.ok(entry.identity.pid > 0);
+			assert.equal(entry.identity.herdr_pane_id, null);
+		}
 	} finally {
 		await rpc.close();
 		rmSync(workspace, { recursive: true, force: true });

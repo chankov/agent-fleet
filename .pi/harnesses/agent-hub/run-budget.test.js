@@ -19,6 +19,12 @@ import {
 	TIER_RANK,
 	HEAVY_PERSONAS,
 	DEFAULT_TASK_TIER,
+	addTaskClockWait,
+	closeTaskClock,
+	createTaskClock,
+	openTaskClock,
+	resetTaskClock,
+	taskClockElapsedMs,
 	turnActiveMs,
 	remainingTaskResearch,
 	reviewRoundCap,
@@ -410,6 +416,76 @@ test("the task clock still stops a genuinely long-running task", () => {
 	assert.equal(refusal.reason, "task_wall");
 	assert.match(refusal.message, /ACTIVE time/);
 	assert.match(refusal.message, /human was away is not charged/);
+});
+
+// ── Task clock lifecycle wiring ──────────────────────────────────────────────
+
+test("a closed task turn does not charge inter-turn idle time", () => {
+	const start = 1_000_000;
+	let clock = openTaskClock(createTaskClock(), start);
+	clock = closeTaskClock(clock, start + 5 * 60_000);
+	assert.equal(taskClockElapsedMs(clock, start + 65 * 60_000), 5 * 60_000);
+
+	clock = openTaskClock(clock, start + 65 * 60_000);
+	clock = closeTaskClock(clock, start + 70 * 60_000);
+	assert.equal(taskClockElapsedMs(clock, start + 10 * 60 * 60_000), 10 * 60_000);
+});
+
+test("task clock excludes completed and in-flight ask_user waits", () => {
+	const start = 1_000_000;
+	let clock = openTaskClock(createTaskClock(), start);
+	clock = addTaskClockWait(clock, 8 * 60_000);
+	assert.equal(taskClockElapsedMs(clock, start + 10 * 60_000), 2 * 60_000);
+	assert.equal(taskClockElapsedMs(clock, start + 12 * 60_000, 2 * 60_000), 2 * 60_000);
+});
+
+test("reset between turns clears time and carries no stale interval", () => {
+	const start = 1_000_000;
+	let clock = openTaskClock(createTaskClock(), start);
+	clock = closeTaskClock(clock, start + 5 * 60_000);
+	clock = resetTaskClock(clock, start + 10 * 60_000);
+	assert.deepEqual(clock, createTaskClock());
+	assert.equal(taskClockElapsedMs(clock, start + 60 * 60_000), 0);
+});
+
+test("reset during an active turn rebases the clock for the new task", () => {
+	const start = 1_000_000;
+	let clock = openTaskClock(createTaskClock(), start);
+	clock = resetTaskClock(clock, start + 3 * 60_000);
+	assert.equal(taskClockElapsedMs(clock, start + 5 * 60_000), 2 * 60_000);
+	clock = closeTaskClock(clock, start + 5 * 60_000);
+	assert.equal(taskClockElapsedMs(clock, start + 50 * 60_000), 2 * 60_000);
+});
+
+test("closing a task turn is idempotent", () => {
+	const start = 1_000_000;
+	let clock = openTaskClock(createTaskClock(), start);
+	clock = closeTaskClock(clock, start + 5 * 60_000);
+	clock = closeTaskClock(clock, start + 65 * 60_000);
+	assert.equal(taskClockElapsedMs(clock, start + 24 * 60 * 60_000), 5 * 60_000);
+});
+
+test("PLAN38-shaped wall time stays below the fast task gate when active work is short", () => {
+	const start = 1_000_000;
+	let clock = openTaskClock(createTaskClock(), start);
+	clock = closeTaskClock(clock, start + 4 * 60_000);
+	clock = openTaskClock(clock, start + 44 * 60_000);
+	clock = closeTaskClock(clock, start + 48 * 60_000);
+	const active = taskClockElapsedMs(clock, start + 48 * 60_000);
+	assert.equal(active, 8 * 60_000);
+	const task = resolveTaskBudget(resolveTurnBudget("fast"));
+	assert.equal(checkTaskBudget("dispatch", { dispatches: 0, research: 0 }, task, active, "small"), null);
+});
+
+test("the lifecycle clock still trips the fast task gate after genuine active work", () => {
+	const start = 1_000_000;
+	let clock = openTaskClock(createTaskClock(), start);
+	clock = closeTaskClock(clock, start + 46 * 60_000);
+	const task = resolveTaskBudget(resolveTurnBudget("fast"));
+	assert.equal(
+		checkTaskBudget("dispatch", { dispatches: 0, research: 0 }, task, taskClockElapsedMs(clock, start + 2 * 60 * 60_000), "small")?.reason,
+		"task_wall",
+	);
 });
 
 // ── Auto-research counts against the task envelope (finding 3) ───────────────

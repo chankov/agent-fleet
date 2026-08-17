@@ -3,7 +3,10 @@ import test from "node:test";
 import {
 	attachFleetDashboardTicker,
 	compactWidgetsEnabled,
+	gridColumnsForItems,
+	gridColumnsForSize,
 	liveTimeline,
+	renderCardGrid,
 	resolveFleetKill,
 	resolveFleetRestart,
 } from "./fleet-dashboard-ops.ts";
@@ -150,6 +153,18 @@ test("C6 liveTimeline follows re-dispatch array replacement through detail rende
 });
 
 // ── C7: compact widget off ────────────────────────────────────────────────
+
+test("an empty specialist roster still reserves one grid column for research cards", () => {
+	assert.equal(gridColumnsForSize(0), 1);
+	assert.equal(gridColumnsForSize(1), 1);
+	assert.equal(gridColumnsForSize(4), 2);
+	assert.equal(gridColumnsForSize(5), 3);
+	assert.equal(gridColumnsForItems(0, 1), 1, "one research card cannot be rendered with zero columns");
+	assert.equal(gridColumnsForItems(Number.NaN, 1), 1);
+	assert.equal(gridColumnsForItems(3, 1), 1);
+	assert.doesNotThrow(() => renderCardGrid(["research"], 0, 1, card => [`[${card}]`]));
+	assert.deepEqual(renderCardGrid(["research"], 0, 1, card => [`[${card}]`]), ["[research]"]);
+});
 
 test("C7 compactWidgetsEnabled hides research/pool cards when viewMode is off", () => {
 	assert.equal(compactWidgetsEnabled("compact"), true);

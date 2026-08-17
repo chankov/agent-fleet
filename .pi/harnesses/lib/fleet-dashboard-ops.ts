@@ -100,6 +100,43 @@ export function liveTimeline<T>(target: { timeline?: readonly T[] } | null | und
 	return target?.timeline ?? [];
 }
 
+/** A zero-member operator roster still needs a valid column for research cards. */
+export function gridColumnsForSize(size: number): number {
+	if (size <= 0) return 1;
+	return size <= 3 ? size : size === 4 ? 2 : 3;
+}
+
+/** Defensive render bound: a non-empty card list can never be split by zero. */
+export function gridColumnsForItems(columns: number, itemCount: number): number {
+	const safeColumns = Number.isFinite(columns) ? Math.max(1, Math.floor(columns)) : 1;
+	const safeItems = Number.isFinite(itemCount) ? Math.max(1, Math.floor(itemCount)) : 1;
+	return Math.min(safeColumns, safeItems);
+}
+
+/** Render card lines in a grid without ever indexing an empty first column. */
+export function renderCardGrid<T>(
+	items: readonly T[],
+	columns: number,
+	cardHeight: number,
+	renderCard: (item: T) => string[],
+	gap = " ",
+	blankLine = "",
+): string[] {
+	if (items.length === 0) return [];
+	const cols = gridColumnsForItems(columns, items.length);
+	const height = Number.isFinite(cardHeight) ? Math.max(0, Math.floor(cardHeight)) : 0;
+	const lines: string[] = [];
+	for (let i = 0; i < items.length; i += cols) {
+		const cards = items.slice(i, i + cols).map(renderCard);
+		while (cards.length < cols) cards.push(Array(height).fill(blankLine));
+		const rowHeight = cards[0]?.length ?? height;
+		for (let line = 0; line < rowHeight; line++) {
+			lines.push(cards.map(card => card[line] || "").join(gap));
+		}
+	}
+	return lines;
+}
+
 /** Compact below-editor / research-card widgets render only in compact mode. */
 export function compactWidgetsEnabled(viewMode: "compact" | "off"): boolean {
 	return viewMode === "compact";

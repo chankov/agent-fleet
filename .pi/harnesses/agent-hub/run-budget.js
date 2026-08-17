@@ -305,6 +305,67 @@ export function turnActiveMs(turnStartedAt, now, askUserWaitMs = 0) {
 	return Math.max(0, now - turnStartedAt - Math.max(0, askUserWaitMs || 0));
 }
 
+/** A serializable, deterministic task clock. `active` is authoritative. */
+export function createTaskClock() {
+	return { active: false, accumulatedMs: 0, turnStartedAt: 0, askUserWaitMs: 0 };
+}
+
+/**
+ * Open a task turn. A still-open prior interval is closed first as defensive
+ * recovery for a missing end event; normal turns are closed by agent_end.
+ */
+export function openTaskClock(clock, now) {
+	const base = clock?.active ? closeTaskClock(clock, now) : { ...createTaskClock(), ...clock };
+	return { ...base, active: true, turnStartedAt: now, askUserWaitMs: 0 };
+}
+
+/** Add a completed ask_user wait to the currently open turn. */
+export function addTaskClockWait(clock, waitMs) {
+	if (!clock?.active) return { ...createTaskClock(), ...clock };
+	return {
+		...clock,
+		askUserWaitMs: Math.max(0, clock.askUserWaitMs || 0) + Math.max(0, waitMs || 0),
+	};
+}
+
+/** Finished turns plus the open turn, excluding completed and in-flight waits. */
+export function taskClockElapsedMs(clock, now, openWaitMs = 0) {
+	if (!clock) return 0;
+	const accumulated = Math.max(0, clock.accumulatedMs || 0);
+	if (!clock.active) return accumulated;
+	return accumulated + turnActiveMs(
+		clock.turnStartedAt,
+		now,
+		Math.max(0, clock.askUserWaitMs || 0) + Math.max(0, openWaitMs || 0),
+	);
+}
+
+/** Close the current turn once. Repeated closes are no-ops. */
+export function closeTaskClock(clock, now) {
+	const base = { ...createTaskClock(), ...clock };
+	if (!base.active) return base;
+	return {
+		active: false,
+		accumulatedMs: taskClockElapsedMs(base, now),
+		turnStartedAt: 0,
+		askUserWaitMs: 0,
+	};
+}
+
+/**
+ * Open a fresh task window. During an active turn, the new task begins at the
+ * reset instant; between turns, no timestamp is carried into the next task.
+ */
+export function resetTaskClock(clock, now) {
+	const active = clock?.active === true;
+	return {
+		active,
+		accumulatedMs: 0,
+		turnStartedAt: active ? now : 0,
+		askUserWaitMs: 0,
+	};
+}
+
 /**
  * Gate one dispatcher tool call against the TASK budget (checked before the
  * turn budget: it is the more severe stop).

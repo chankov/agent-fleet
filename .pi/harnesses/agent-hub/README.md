@@ -476,8 +476,14 @@ task, most of it re-billed stale specialist context).
 
 When a budget is exhausted, `dispatch_agent`/`spawn_research` **refuse** with instructions
 to summarize and ask the user; the next user message opens a fresh window. Switch modes
-live with `/af-hub-mode fast|standard|strict` (no argument shows the current mode and usage);
-set the project default and per-axis overrides in the overrides file:
+live with `/af-hub-mode fast|standard|strict` (no argument shows the current mode and usage).
+The live switch is deliberately **process/session-local**: it does not mutate another repository,
+another pane, or the project's override file. A later `session_start` reapplies that repository's
+configured default. Successful live switches and session-start default application append
+`agent-hub-mode` entries to the Pi session record with an allowlisted identity (`cwd`, PID, Hub
+session/project, and Herdr workspace/pane when available), so a mode change can be attributed to
+the process that actually handled it. Set the project default and per-axis overrides in the
+overrides file:
 
 ```markdown
 ## agent-hub
@@ -509,7 +515,10 @@ counters are **not** reset by a user message:
 Exhausting it is a **hard stop**: the refusal says so, and another user message does not
 reopen it. Only `/af-new-task [label]` (or `set_task_tier` with `new_task: true`) opens a
 new task window — clearing the counters, the tier, the review-round count, the duplicate
-guard, and any external-blocker stop. The status chip shows both (`… · task 4/18`).
+guard, and any external-blocker stop. A successful slash-command reset or
+`set_task_tier(new_task: true)` appends an `agent-hub-task-reset` entry with the reset source,
+prior counters/active time, and the same allowlisted process/session/pane identity. The status
+chip shows both (`… · task 4/18`).
 
 The reasoning: a task that has burned three full envelopes has not hit a budget problem, it
 has outgrown its scope, and re-scoping is the human's call.
