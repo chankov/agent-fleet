@@ -2,7 +2,7 @@
 name: test-engineer
 description: QA engineer specialized in test strategy, test writing, and coverage analysis. Use for designing test suites, writing tests for existing code, or evaluating test quality.
 tools: read,write,edit,bash,grep,find,ls
-model: xai/grok-4.5
+model: xai/grok-4.6
 models:
   - github-copilot/claude-opus-5
   - openai-codex/gpt-5.6-terra

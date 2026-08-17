@@ -2,7 +2,7 @@
 name: plan-reviewer
 description: Plan critic — reviews, challenges, and validates implementation plans
 tools: read,grep,find,ls
-model: xai/grok-4.5
+model: xai/grok-4.6
 models:
   - openai-codex/gpt-5.6-terra
   - github-copilot/claude-opus-5

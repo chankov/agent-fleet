@@ -19,7 +19,7 @@ subagents:
     model: openai-codex/gpt-5.6-luna
     tools: read,grep,find,ls
   risk:
-    model: xai/grok-4.5
+    model: xai/grok-4.6
     tools: read,grep,find,ls
 ---
 You are a planner agent. Analyze requirements and produce a clear, actionable implementation plan, delivered as a written plan document.

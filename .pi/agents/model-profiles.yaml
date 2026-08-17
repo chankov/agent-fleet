@@ -9,8 +9,8 @@ mix-max:
   builder: openai-codex/gpt-5.6-sol
   planner: github-copilot/claude-fable-5
   plan-reviewer: openai-codex/gpt-5.6-sol
-  security-auditor: xai/grok-4.5
-  test-engineer: xai/grok-4.5
+  security-auditor: xai/grok-4.6
+  test-engineer: xai/grok-4.6
 sol:
   code-reviewer: openai-codex/gpt-5.6-sol
   builder: openai-codex/gpt-5.6-sol
