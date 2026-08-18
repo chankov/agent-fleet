@@ -37,7 +37,7 @@ the current terminal. At startup an explicit `--posture` wins; otherwise
 orchestrator startup requires a roster. `/af-posture` switches only posture in
 the live session, while `/af-agents-*` changes only the native roster.
 
-All Hub-owned slash commands remain registered in both postures. Runtime gates
+All Hub-owned slash commands remain registered in both postures. `/af-context` is a standalone, read-only full-screen budget diagnostic; it uses provider totals where available, labels heuristic attribution and loaded-excluded inputs, and never combines capacity percentages across Hub, child, and peer planes. Runtime gates
 control whether an action can proceed: without coms, Herdr, a visible target,
 or an active roster, the corresponding command refuses with an actionable
 message rather than disappearing. `--browser` and `--all-extensions` expand the

@@ -17,6 +17,7 @@
  *   /af-agents-team          — switch active team
  *   /af-agents-list          — open the Fleet Dashboard
  *   /af-agents-history       — timeline of agent execution (durations + grand total)
+ *   /af-context              — read-only full-screen context budget diagnostic
  *   /af-agent-model <persona>[.<role>] — switch a team or research persona's (or
  *                           delegate sub-role's) model from its declared candidates
  *   /af-agent-model-thinking <persona> — switch a team or research persona's thinking
@@ -138,6 +139,19 @@ import { attachFleetDashboardTicker, compactWidgetsEnabled, gridColumnsForItems,
 import { dashboardTransition, renderFleetDashboard, FLEET_CHROME_ROWS, type DashboardConfirm } from "../lib/fleet-dashboard-view.ts";
 import { detailContent, detailTransition, renderFleetDetail, DETAIL_CHROME_ROWS } from "../lib/fleet-detail-view.ts";
 import { reconcileSelection, type Selection } from "../lib/fleet-selection.ts";
+import { collectContextBudgetSnapshot, type LivePlane } from "./context-budget-snapshot.ts";
+import { CONTEXT_BUDGET_CHROME_ROWS, contextBudgetTransition, renderContextBudget, type ContextBudgetViewState } from "../lib/context-budget-view.ts";
+import { safeSchemaChars, type ContextBudgetComponent } from "../lib/context-budget.ts";
+import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger } from "../lib/context-budget-hub-prompt.ts";
+import {
+	buildClarificationProtocol,
+	buildDelegationProtocol,
+	buildDeliverableProtocol,
+	delegateStandingParts,
+	RESEARCH_PROTOCOL as SHARED_RESEARCH_PROTOCOL,
+	researchStandingParts,
+	specialistStandingParts,
+} from "../lib/context-budget-child-prompt.ts";
 import { parseEnvFile, resolveEnvFilePath } from "../../../scripts/lib/herdr-layout.ts";
 import { worktreeTag } from "../../../scripts/lib/team-project.ts";
 import { STAGGER_ENV_VAR, WARMUP_SECONDS, oauthNeedsWarmup } from "../../../scripts/lib/spawn-stagger.ts";
@@ -298,6 +312,7 @@ interface ResearchState {
 	elapsed: number;
 	lastWork: string;
 	contextPct: number;
+	contextTokens: number;
 	sessionFile: string | null;  // set after a successful run → enables `-c` resume
 	turnCount: number;
 	finishedAt?: number;  // last time a run ended (any status) — LRU key for retention
@@ -876,14 +891,7 @@ const DELEGATE_CALL_BUDGET = DELEGATE_TREE_SPAWN_BUDGET;
 // Appended to every research helper's system prompt so it knows its sandbox and how to
 // report. Kept separate from the dispatcher's clarification protocol: helpers don't
 // bubble up ASK_USER — they report findings and the dispatcher decides what to do.
-const RESEARCH_PROTOCOL = `
-
-## You are a READ-ONLY research helper
-You can ONLY read, search, and list files (tools: read, grep, find, ls). You CANNOT
-edit, write, or run shell/bash commands — they are not available to you. Investigate
-what you're asked, then report findings concisely, citing concrete locations as
-path:line. Do not propose or attempt edits; another agent will act on your findings.
-If something can't be found or is ambiguous, say so plainly rather than guessing.`;
+const RESEARCH_PROTOCOL = SHARED_RESEARCH_PROTOCOL;
 
 // System prompt for an ad-hoc (anonymous) research helper — one with no persona file.
 const ANON_RESEARCH_PROMPT = `# Research Helper
@@ -1854,6 +1862,8 @@ export default function (pi: ExtensionAPI) {
 	// Read-only research helpers (Phase 4), keyed by numeric id (handle `rN`). Lives
 	// alongside the standing team but renders in its own widget row.
 	const researchStates: Map<number, ResearchState> = new Map();
+	// Metadata only: prompt text is never retained by this ledger.
+	let lastHubLedger: ContextBudgetComponent[] = [];
 	let nextResearchId = 1;
 	// Retention cap for finished durable (manual/persona) helpers — set from the
 	// overrides file's `research-keep:` key at session start (default 4, Infinity
@@ -3688,35 +3698,7 @@ ${externalBlockedProtocol()}
 
 		// Clarification protocol — every specialist learns to bubble up questions
 		// to the dispatcher instead of guessing.
-		const clarificationProtocol = `
-
-## Clarification protocol
-If at any point you need a decision from the human user (ambiguity, missing input,
-contradiction, or a destructive/irreversible next step), DO NOT guess. Stop and
-return a single line of the form:
-
-  ASK_USER: <your question in one clear English sentence>
-
-You may emit multiple ASK_USER lines if you have several questions. The dispatcher
-will surface each to the human user in ${userLanguage} and re-dispatch you with the
-answers. Do not invent values, do not pick "reasonable defaults" silently — ask.
-
-## External-blocker protocol
-${externalBlockedProtocol()}
-
-## Research protocol
-If you need reconnaissance you cannot perform with your own tools (broad code search,
-reading unfamiliar areas of the codebase, summarizing docs), DO NOT guess and DO NOT
-ask the user. Pause for research instead: end your turn with one or more lines of the
-form
-
-  NEEDS_RESEARCH: <one specific, self-contained question>
-
-with nothing after them. Your session pauses there; read-only research helpers are
-spawned for you, each helper's findings are saved to a file, and you are resumed in
-this same session with the file paths — read them and continue from where you left
-off. Ask at most ${MAX_AUTO_RESEARCH_QUESTIONS} questions per pause. Use ASK_USER only
-for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked up.`;
+		const clarificationProtocol = buildClarificationProtocol(userLanguage, MAX_AUTO_RESEARCH_QUESTIONS);
 
 		// Project rules and docs — when the overrides file lists rule folders or
 		// doc entry points, every specialist learns where they are and how to
@@ -3771,23 +3753,11 @@ for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked
 					cwd: ctx.cwd || process.cwd(),
 				}),
 			};
-			delegationProtocol = `
-
-## Delegation protocol
-You have a \`delegate\` tool with pre-configured sub-agents on cheaper models
-(roles: ${Object.keys(subagentRoles!).join(", ")}). Prefer delegating scoped, self-contained
-sub-tasks to them over doing everything yourself. A child shares NONE of your
-context — put everything it needs into its instruction/context. You may run up
-to ${DELEGATE_TREE_SPAWN_BUDGET} delegate calls for this dispatch; parallel children are forced read-only.
-Children are terminal workers: they do not receive delegate tooling at remaining depth 0.`;
+			delegationProtocol = buildDelegationProtocol(Object.keys(subagentRoles!), DELEGATE_TREE_SPAWN_BUDGET);
 			startDelegationWatch(state, delegationDir);
 		}
 
-		const deliverableProtocol = `
-
-## Deliverable-to-file protocol
-When your deliverable is a document (plan, review, critique, inventory, report), write the full document to the real session artifact path when your tools allow it: .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence). Do NOT write repo-root ./artifacts/... files. In your final response, report and pass the artifact-relative handoff path: artifacts/<kind>/${agentKey}-run${runNumber}.md. If your persona already has an explicit output path contract such as planner PLAN_FILE, keep that existing behavior and also summarize/return the session artifact path the hub gives you.
-Finish with the artifact-relative path plus a digest of no more than 10 lines. If the dispatch includes acceptance assertions (A1, A2, ...), also include the structured return from skills/orchestration-verification/SKILL.md. If your tools are read-only and you cannot write a document artifact yourself, finish with the digest + structured return; the hub will still persist your full final return under artifacts/returns/ for dispatcher recovery.`;
+		const deliverableProtocol = buildDeliverableProtocol(agentKey, runNumber);
 
 		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + docsProtocol + delegationProtocol + deliverableProtocol;
 
@@ -4209,6 +4179,7 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 			elapsed: 0,
 			lastWork: "",
 			contextPct: 0,
+			contextTokens: 0,
 			sessionFile: null,
 			turnCount: 1,
 			timeline: [],
@@ -4334,7 +4305,8 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 				state.zoomRender?.();
 			},
 			onUsage: (usage) => {
-				if (researchWindow.window > 0) {
+				state.contextTokens = (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
+			if (researchWindow.window > 0) {
 					// Same context truth as dispatchAgent: include cache reads/writes,
 					// measured against THIS helper's window rather than the dispatcher's.
 					state.contextPct = contextPct(usage, researchWindow.window);
@@ -6867,6 +6839,110 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		},
 	});
 
+	function toolSchemaChars(toolList: string): number {
+		const names = toolList.split(",").map(name => name.trim()).filter(Boolean);
+		const all = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
+		const byName = new Map(all.map((tool: any) => [tool.name, tool]));
+		return names.reduce((sum, name) => {
+			const tool = byName.get(name);
+			return sum + (tool ? safeSchemaChars({ name: tool.name, description: tool.description, parameters: tool.parameters, promptGuidelines: tool.promptGuidelines }) : name.length);
+		}, 0);
+	}
+	function contextPlanes(ctx: any): LivePlane[] {
+		// Keep the projection decomposed along the same standing components native
+		// spawn appends. It intentionally counts no task/history: this is cold-start.
+		const baseChars = safeSchemaChars(ctx?.getSystemPromptOptions?.() ?? {});
+		const projection = (def: AgentDef, research = false) => research
+			? researchStandingParts({
+				personaChars: def.systemPrompt.length,
+				toolChars: toolSchemaChars(RESEARCH_TOOLS),
+				basePromptChars: baseChars,
+				docsProtocol: buildDocsProtocol(),
+			})
+			: specialistStandingParts({
+				personaChars: def.systemPrompt.length,
+				toolChars: toolSchemaChars(def.tools),
+				basePromptChars: baseChars,
+				docsProtocol: buildDocsProtocol(),
+				rulesProtocol: buildRulesProtocol(),
+				userLanguage,
+				delegateRoles: def.subagents && delegateExtPath ? Object.keys(def.subagents) : [],
+				agentKey: safeAgentKey(def.name),
+				runNumber: 0,
+			});
+		const delegateProjection = (owner: AgentState, child: DelegationChild) => {
+			const roleEntry = Object.entries(owner.def.subagents ?? {}).find(([name]) => name.toLowerCase() === child.role.toLowerCase());
+			if (!roleEntry) return undefined;
+			return delegateStandingParts({
+				toolChars: toolSchemaChars(child.tools || roleEntry[1].tools || owner.def.tools),
+				basePromptChars: baseChars,
+				roleNames: [roleEntry[0]],
+			});
+		};
+		const windowFor = (model: string) => model ? resolveContextWindow(model, { lookup: modelWindowLookup(ctx), fallbackWindow: 0 }).window || undefined : undefined;
+		const local = allAgentDefs.filter(def => def.kind !== "research").map(def => {
+			const state = agentStates.get(def.name.toLowerCase());
+			const model = state ? (resolvedModel(state.def) ?? "") : (resolvedModel(def) ?? "");
+			return { id: `specialist/${def.name}`, label: displayName(def.name), plane: "specialist" as const, model, window: windowFor(model), tokens: state?.contextTokens, projectionParts: projection(def) };
+		});
+		const research = researchPersonas.map(def => {
+			const active = Array.from(researchStates.values()).find(state => state.def.name === def.name);
+			const model = active?.model ?? resolvedModel(def) ?? "";
+			return { id: `research/${def.name}`, label: displayName(def.name), plane: "research" as const, model, window: windowFor(model), tokens: active?.contextTokens, projectionParts: projection(def, true), attribution: "projected" as const };
+		});
+		const delegates = Array.from(agentStates.values()).flatMap(state => Array.from(state.delegations?.values() ?? []).map(child => {
+			const projectionParts = delegateProjection(state, child);
+			return projectionParts
+				? { id: `delegate/${child.id}`, label: child.role, plane: "delegate" as const, model: child.model, window: windowFor(child.model), tokens: child.tokens, projectionParts, attribution: "projected" as const }
+				: { id: `delegate/${child.id}`, label: child.role, plane: "delegate" as const, model: child.model, window: windowFor(child.model), tokens: child.tokens, attribution: "unavailable" as const };
+		}));
+		const peers = Array.from(peerCards.values()).map(peer => ({ id: `peer/${peer.name}`, label: peer.name, plane: "peer" as const, model: peer.model, window: windowFor(peer.model ?? ""), percent: peer.context_used_pct, projectionChars: 0, attribution: "unavailable" as const }));
+		return [...local, ...research, ...delegates, ...peers];
+	}
+
+	async function openContextBudget(ctx: any): Promise<void> {
+		const resources = createPanelResources();
+		const toInput = (data: string): string => {
+			if (matchesKey(data, Key.up)) return "\u001b[A";
+			if (matchesKey(data, Key.down)) return "\u001b[B";
+			if (matchesKey(data, Key.pageUp)) return "\u001b[5~";
+			if (matchesKey(data, Key.pageDown)) return "\u001b[6~";
+			if (matchesKey(data, Key.enter)) return "\r";
+			if (matchesKey(data, Key.escape)) return "\u001b";
+			return data;
+		};
+		const state: ContextBudgetViewState = { selection: { index: 0 }, expanded: new Set(), scrollOffset: 0 };
+		const collect = () => {
+			// Build the replacement prompt ledger now rather than waiting for the first
+			// before_agent_start hook; this is pure prompt construction, not a turn.
+			buildHubSystemPrompt(false);
+			return collectContextBudgetSnapshot(ctx, {
+			ledger: lastHubLedger,
+			planes: contextPlanes(ctx),
+			tools: typeof pi.getAllTools === "function" ? pi.getAllTools() : [],
+			activeToolNames: typeof pi.getActiveTools === "function" ? pi.getActiveTools() : [],
+			commands: typeof pi.getCommands === "function" ? pi.getCommands() : [],
+			});
+		};
+		let snapshot = collect();
+		const refresh = () => { snapshot = collect(); };
+		try {
+			await ctx.ui.custom((tui: any, _theme: any, _kb: any, done: () => void) => {
+				resources.every(1000, () => { refresh(); tui.requestRender(); });
+				return {
+					render: (w: number) => renderContextBudget(snapshot, state, w, bodyRows(tui.terminal?.rows, CONTEXT_BUDGET_CHROME_ROWS)),
+					handleInput: (data: string) => { const intent = contextBudgetTransition(toInput(data), state, snapshot, bodyRows(tui.terminal?.rows, CONTEXT_BUDGET_CHROME_ROWS)); if (intent === "close") done(); if (intent === "refresh") refresh(); tui.requestRender(); },
+					invalidate() {}, dispose: () => resources.dispose(),
+				};
+			}, FULLSCREEN_OVERLAY);
+		} finally { resources.dispose(); }
+	}
+
+	pi.registerCommand("af-context", {
+		description: "Open a read-only full-screen context budget diagnostic",
+		handler: async (_args, ctx) => { widgetCtx = ctx; await openContextBudget(ctx); },
+	});
+
 	// ── /af-posture: direct operator ↔ restricted orchestrator ──
 	pi.registerCommand("af-posture", {
 		description: "Show or set the Fleet posture: operator (direct tools) | orchestrator (delegate-only)",
@@ -8245,7 +8321,10 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 
 	// ── System Prompt Override ───────────────────
 
-	pi.on("before_agent_start", async (_event, _ctx) => {
+	// This is also called by /af-context before the first turn. Keep prompt assembly
+	// in this one production path so its ledger describes the exact next replacement.
+	function buildHubSystemPrompt(forTurn: boolean): { systemPrompt: string } {
+		if (forTurn) {
 		// Re-assert the selected posture for every turn so prompt and tool policy stay
 		// synchronized after commands or runtime capability changes.
 		applyPostureTools();
@@ -8288,20 +8367,20 @@ Finish with the artifact-relative path plus a digest of no more than 10 lines. I
 		}
 		turnReport = freshTurnReport();
 		updateModeStatus();
+		}
 
 		// Build dynamic agent catalog from active team only
-		const agentCatalog = Array.from(agentStates.values())
-			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}`)
-			.join("\n\n");
+		const agentCards = Array.from(agentStates.values())
+			.map(s => ({ id: s.def.name, text: `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}` }));
+		const agentCatalog = agentCards.map(card => card.text).join("\n\n");
 
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 
 		// Research personas (kind: research) the dispatcher can spawn read-only via
 		// spawn_research. Independent of team membership.
-		const researchCatalog = researchPersonas.length > 0
-			? researchPersonas
-				.map(d => `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${resolvedModel(d) || "(dispatcher's default)"} · **Thinking:** ${resolveThinkingLevel(resolvedThinking(d))}\n${d.description}`)
-				.join("\n\n")
+		const researchCards = researchPersonas.map(d => ({ id: d.name, text: `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${resolvedModel(d) || "(dispatcher's default)"} · **Thinking:** ${resolveThinkingLevel(resolvedThinking(d))}\n${d.description}` }));
+		const researchCatalog = researchCards.length > 0
+			? researchCards.map(card => card.text).join("\n\n")
 			: "(No research personas defined. Call `spawn_research` without `persona` for an ad-hoc read-only helper.)";
 
 		// Two flavors of the system prompt depending on whether ask_user is
@@ -8533,97 +8612,46 @@ your own team you can talk to the peers in your coms POOL — the agents shown i
 			: "";
 
 		const postureText = posturePrompt(posture);
-		const orchestratorPrompt = `${postureText.intro} You have ${toolList}.
-
-## Language
-${languageLines}
-
-## Native Roster: ${activeTeamName || "(none)"}
-Members: ${teamMembers || "(none — add a persona before using dispatch_agent)"}
-You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents
-outside this team. The roster CAN change mid-session: the human via /af-agents-add,
-/af-agents-drop, /af-agents-team — or you via \`team_adjust\` (add/drop with a reason)
-when the current roster genuinely cannot serve the task. Use it sparingly; more
-personas is usually the wrong answer.
-
-## How to Work
-- Analyze the user's request and break it into clear sub-tasks.
-- Choose the right agent(s) for each sub-task.
-${dispatchSection}
-- Choose \`backend: native\` when the user explicitly requests a local Pi specialist, \`backend: coms\` when they explicitly request a live same-name peer, and \`backend: auto\` otherwise. Never substitute one explicit backend for another.
-- Review results and dispatch follow-up agents if needed.
-- If a task fails, try a different agent or adjust the task description.
-- Summarize the outcome for the user in ${userLanguage}.
-
-${askUserBlock}
-
-${modeSection}
-${verificationSection}
-
-## Research helpers (read-only)
-- \`spawn_research\` runs a READ-ONLY helper (read/grep/find/ls — no bash, no writes)
-  and returns its findings to you inline. Use it for reconnaissance, code search, and
-  reading docs/code BEFORE you dispatch a builder — or to fan out background research.
-- Two flavours: pass \`persona\` to spawn one of the research personas listed below (it
-  brings its own role/model); omit \`persona\` for an ad-hoc helper (optional \`model\`).
-- Match the helper to the job: use a lighter/faster persona for simple reads and a
-  higher-capability one for ambiguous, cross-cutting, or high-stakes research. Compare
-  the **Model** / **Thinking** shown for each persona below and pick deliberately.
-- Specialists you dispatch are sandboxed and CANNOT spawn their own helpers. When a
-  specialist needs research help, YOU run \`spawn_research\`, collect the findings, and
-  fold them into the specialist's task — do not ask the specialist to do it itself.
-- Research helpers are ephemeral and read-only, so they are always safe to run.
-${comsSection}${herdrFleetReady ? `
-## Fleet (herdr)
-This session runs inside a herdr workspace and can drive panes:
-- \`herdr_spawn_peer\` starts an addressable Pi persona, personaless Fleet Core, or Claude Code
-  peer next to you. Name-only calls inherit peers.yaml; explicit fields use the same resolver as
-  \`just fleet peer\`. Every peer is locked to this Hub's coms project.
-- \`herdr_spawn_pane\` starts a raw command pane (for example a build watcher or server). It is
-  not a coms peer and has no readiness result. Spawn deliberately; every pane is human-visible.
-- A spawned peer BOOTS IDLE and waits for \`coms_send\`: the spawn hands it no task.
-  The call waits for it to register and returns \`peer_ready\` with its coms name. Spawn one
-  only immediately before the first message you will send it — a peer spawned "to have it
-  ready" and never addressed is an empty pane named like a worker. If you sent it no work
-  by the end of the turn, say so and offer to close it; the hub names unaddressed
-  hub-spawned peers in the session digest.
-- \`peer_ready: false\` is a FAILED start, not a slow one. The result carries the pane's last
-  output — read it, then fix the cause or close the pane and spawn again. Never \`coms_send\`
-  to a name that never registered, and never spawn a second peer to route around the first.
-- \`herdr_read_pane\` is read-to-decide: peek at a worker/tool pane's recent output before
-  acting on it. It is NOT a messaging channel and NOT a status poll — \`coms_list\` already
-  reports each peer's \`pane_id\` and \`status\` (idle | working | booting), so check that
-  before sending. Prefer \`coms_send\`/\`coms_await\` for pi and bridged peers; reading screens
-  is the last resort for unbridged tools and post-mortems.
-- \`herdr_close_pane\` kills a pane and asks the HUMAN to confirm first. Close only panes you
-  spawned, when their job is done or they are stuck.
-- \`herdr_notify\` reaches the human via desktop notification when they are away — use it when
-  a long fleet task finishes or needs attention; it does not replace \`ask_user\`.
-` : ""}
-## Hard Rules
-${postureText.hardRules}
-${ambiguityRule}
-- You can chain agents: spawn_research to gather context, builder to implement.
-- You can dispatch the same agent multiple times with different tasks.
-- Keep tasks focused — one clear objective per dispatch.
-
-## Agents
-
-${agentCatalog}
-
-## Research personas
-
-${researchCatalog}`;
-
-		// Flavor-only persona merge (decision 9 / G4): the dispatcher persona's body
-		// goes FIRST, then the orchestration rules. The persona enriches the role; it
-		// never replaces the orchestrator prompt and never narrows the tool surface.
-		const systemPrompt = dispatcherPersona
-			? `${dispatcherPersona.systemPrompt}\n\n${orchestratorPrompt}`
-			: orchestratorPrompt;
+		const herdrSection = herdrFleetReady ? HUB_HERDR_SECTION : "";
+		const systemPrompt = assembleHubSystemPrompt({
+			intro: postureText.intro,
+			toolList,
+			languageLines,
+			activeTeamName,
+			teamMembers,
+			dispatchSection,
+			userLanguage,
+			askUserBlock,
+			modeSection,
+			verificationSection,
+			comsSection,
+			herdrSection,
+			hardRules: postureText.hardRules,
+			ambiguityRule,
+			agentCatalog,
+			researchCatalog,
+			dispatcherPersonaPrompt: dispatcherPersona?.systemPrompt,
+		});
+		// Ledger is metadata-only and never written back into the replacement prompt.
+		lastHubLedger = recordHubLedger(systemPrompt, namedHubLedgerParts({
+			intro: postureText.intro,
+			languageLines,
+			teamMembers,
+			agentCards,
+			dispatchSection,
+			modeSection,
+			verificationSection,
+			researchCards,
+			researchCatalog,
+			comsSection,
+			herdrSection,
+			dispatcherPersonaPrompt: dispatcherPersona?.systemPrompt,
+		}));
 
 		return { systemPrompt };
-	});
+	}
+
+	pi.on("before_agent_start", async (_event, _ctx) => buildHubSystemPrompt(true));
 
 	// ── Persona gate: block input until a dispatcher persona is picked ──
 	pi.on("input", async (_event, ctx) => {
@@ -9122,6 +9150,7 @@ ${researchCatalog}`;
 			`/af-agents-team          Select a team\n` +
 			`/af-agents-list          Open Fleet Dashboard\n` +
 			`/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
+			`/af-context              Read-only full-screen context budget diagnostic\n` +
 			`/af-agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
 			`/af-agent-model-thinking <persona> Switch a persona's thinking level\n` +
 			`/af-models [profile]     Apply a named model profile to the team\n` +

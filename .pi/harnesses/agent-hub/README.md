@@ -70,6 +70,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 `agent-hub` is the supported home for the former standalone dispatcher features:
 
 - **Dispatcher grid** — a live dashboard of the active, dynamically adjustable native roster from `.pi/agents/teams.yaml`.
+- **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic in either posture. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
 - **Research helpers** — `spawn_research` and `/af-research` launch read-only helper agents. Two
   `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple

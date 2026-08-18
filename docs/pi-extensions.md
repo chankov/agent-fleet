@@ -190,7 +190,7 @@ harnesses:
   dispatch refusal).
 - **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
-- **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls.
+- **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls. `/af-context` is a separate read-only full-screen context-budget view: provider totals/cache fields are authoritative, component estimates are labelled heuristic or provider-scaled, loaded-but-excluded inputs visibly cost zero, and fleet members use separate model-window denominators. It never reveals or persists raw prompts, schemas, or conversation content.
 - **Damage-control + ask_user by default** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` safety harness and `ask-user-remote` before `agent-hub`, so the
   dispatcher's tool calls are checked against the rules file and the `askUserAvailable` probe sees
