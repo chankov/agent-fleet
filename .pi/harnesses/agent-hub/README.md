@@ -395,8 +395,15 @@ and visible token totals. Finished/idle/stale rows are hidden by default.
 
 The detail view streams the selected local agent's text, thinking, and tool timeline. Use **`↑`/`↓`**,
 **`PgUp`/`PgDn`**, and **End** to navigate/tail; **Enter** expands a selected tool call; **Ctrl+C**
-copies the selected entry; **Esc**/**`q`** returns to the dashboard. Coms peers have no local
-transcript and show that explicitly. **`/af-zoom <name|rN>`** opens this same detail view directly.
+copies the selected entry; and **`m`** replaces the log area with a visible full-screen picker
+containing every model currently reported by Pi's available-model registry. Use **`↑`/`↓`**,
+**`PgUp`/`PgDn`**, or **Home**/**End**, then **Enter** to apply; **Esc** cancels back to the logs.
+Model switching works for local specialists, retained research helpers, and nested delegate roles.
+It applies on the next dispatch/continuation and never interrupts
+a running child. A coms-backed specialist stores the choice for native fallback runs; external coms
+peers control their own model and have no picker. **Esc**/**`q`** returns to the dashboard. Coms peers
+have no local transcript and show that explicitly. **`/af-zoom <name|rN>`** opens this same detail
+view directly.
 
 ### Version footer
 

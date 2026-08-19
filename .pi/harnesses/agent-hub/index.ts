@@ -142,7 +142,7 @@ import { createPanelResources } from "../lib/fleet-panel.ts";
 import { buildFleetRows, fleetTiming, summarise, unionMs, type DelegateInput, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput } from "../lib/fleet-read-model.ts";
 import { attachFleetDashboardTicker, compactWidgetsEnabled, gridColumnsForItems, gridColumnsForSize, liveTimeline, renderCardGrid, resolveFleetKill, resolveFleetRestart } from "../lib/fleet-dashboard-ops.ts";
 import { dashboardTransition, renderFleetDashboard, FLEET_CHROME_ROWS, type DashboardConfirm } from "../lib/fleet-dashboard-view.ts";
-import { detailContent, detailTransition, renderFleetDetail, DETAIL_CHROME_ROWS } from "../lib/fleet-detail-view.ts";
+import { detailContent, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, DETAIL_CHROME_ROWS, type FleetDetailKey, type FleetModelChoice } from "../lib/fleet-detail-view.ts";
 import { reconcileSelection, type Selection } from "../lib/fleet-selection.ts";
 import { collectContextBudgetSnapshot, type LivePlane } from "./context-budget-snapshot.ts";
 import { CONTEXT_BUDGET_CHROME_ROWS, contextBudgetTransition, renderContextBudget, type ContextBudgetViewState } from "../lib/context-budget-view.ts";
@@ -6859,14 +6859,150 @@ ${externalBlockedProtocol()}
 		const peers = fleetPeerInputs(model => `⇄ ${abbreviateModel(model)}`);
 		return buildFleetRows({ specialists, research, peers }, unfiltered ? { showFinished: true } : { showFinished: fleetShowFinished, query: fleetFilter });
 	}
+	type FleetDetailModelTarget =
+		| { kind: "specialist"; current: string; state: AgentState }
+		| { kind: "research"; current: string; state: ResearchState }
+		| { kind: "delegate"; current: string; delegation: NonNullable<ReturnType<typeof findDelegationChild>>; role: [string, SubagentRole]; overrideKey: string };
+
+	function resolveFleetDetailModelTarget(row: FleetRow, ctx: any): FleetDetailModelTarget | null {
+		if (row.kind === "peer") {
+			ctx.ui.notify("External coms peers control their own model; switch it in that peer's Pi session.", "info");
+			return null;
+		}
+		if (row.kind === "specialist") {
+			const state = agentStates.get(row.key);
+			if (!state) { ctx.ui.notify("This specialist is no longer available.", "warning"); return null; }
+			return { kind: "specialist", current: resolvedModel(state.def) ?? "", state };
+		}
+		if (row.kind === "research") {
+			const state = researchStates.get(parseResearchHandle(row.key)!);
+			if (!state) { ctx.ui.notify("This research helper is no longer available.", "warning"); return null; }
+			return { kind: "research", current: state.model, state };
+		}
+		const delegation = findDelegationChild(row.key);
+		if (!delegation) { ctx.ui.notify("This nested delegate is no longer available.", "warning"); return null; }
+		const role = Object.entries(delegation.owner.def.subagents ?? {})
+			.find(([name]) => name.toLowerCase() === delegation.child.role.toLowerCase());
+		if (!role) {
+			ctx.ui.notify(`The role for ${row.name} is no longer declared by ${displayName(delegation.owner.def.name)}.`, "warning");
+			return null;
+		}
+		const overrideKey = `${delegation.owner.def.name.toLowerCase()}.${role[0].toLowerCase()}`;
+		return { kind: "delegate", current: subagentModelOverrides.get(overrideKey) ?? role[1].model, delegation, role, overrideKey };
+	}
+
+	/** Load every model Pi currently reports as available for the inline picker. */
+	async function loadFleetDetailModelChoices(row: FleetRow, ctx: any): Promise<{ choices: FleetModelChoice[]; current: string } | null> {
+		const target = resolveFleetDetailModelTarget(row, ctx);
+		if (!target) return null;
+		try { await ctx.modelRegistry?.refresh?.(); } catch { /* retain the registry's last-known available list */ }
+		const choices = fleetModelChoices(ctx.modelRegistry?.getAvailable?.() ?? [], target.current);
+		if (choices.length === 0) {
+			const diagnostic = ctx.modelRegistry?.getError?.();
+			ctx.ui.notify(`Pi reports no available models${diagnostic ? `: ${diagnostic}` : "."}`, "warning");
+			return null;
+		}
+		return { choices, current: target.current };
+	}
+
+	/** Apply an inline-picker choice to the next run; never interrupt a live child. */
+	function applyFleetDetailModel(row: FleetRow, picked: string, ctx: any): boolean {
+		const target = resolveFleetDetailModelTarget(row, ctx);
+		if (!target) return false;
+		if (picked === target.current) {
+			ctx.ui.notify(`${row.name} is already on ${picked}`, "info");
+			return false;
+		}
+		let applyHint = "applies on the next run";
+		if (target.kind === "specialist") {
+			const key = target.state.def.name.toLowerCase();
+			if (picked === target.state.def.model) modelOverrides.delete(key);
+			else modelOverrides.set(key, picked);
+			applyHint = "applies on the next dispatch";
+		} else if (target.kind === "research") {
+			target.state.model = picked;
+			applyHint = `applies when r${target.state.id} next continues or restarts`;
+		} else {
+			if (picked === target.role[1].model) subagentModelOverrides.delete(target.overrideKey);
+			else subagentModelOverrides.set(target.overrideKey, picked);
+			applyHint = `applies on the next ${displayName(target.delegation.owner.def.name)} dispatch`;
+		}
+		updateWidget();
+		ctx.ui.notify(`${row.name} → ${picked} (${applyHint}; current runs are not interrupted)`, "success");
+		if (target.kind === "specialist" && (dispatchPolicy.substitutions[target.state.def.name.toLowerCase()]?.prefer ?? dispatchPolicy.default) === "coms") {
+			ctx.ui.notify("This specialist prefers a coms peer; the choice applies to native fallback runs, while the peer keeps its own model.", "info");
+		}
+		return true;
+	}
+
+	function matchedFleetDetailInput(data: string): string {
+		const key: FleetDetailKey | undefined =
+			matchesKey(data, Key.up) ? "up"
+				: matchesKey(data, Key.down) ? "down"
+					: matchesKey(data, Key.pageUp) ? "pageUp"
+						: matchesKey(data, Key.pageDown) ? "pageDown"
+							: matchesKey(data, Key.home) ? "home"
+								: matchesKey(data, Key.end) ? "end"
+									: matchesKey(data, Key.enter) ? "enter"
+										: matchesKey(data, Key.escape) ? "escape"
+											: matchesKey(data, Key.ctrl("c")) ? "copy"
+												: undefined;
+		return normalizeFleetDetailInput(data, key);
+	}
+
 	async function openFleetDetail(row: FleetRow, ctx: any): Promise<void> {
 		const target = row.kind === "research" ? researchStates.get(parseResearchHandle(row.key)!) : row.kind === "delegate" ? findDelegationChild(row.key)?.child : agentStates.get(row.key);
 		const resources = createPanelResources();
+		let detailRow = row;
+		let modelPicker: { choices: FleetModelChoice[]; index: number; scrollOffset: number } | null = null;
 		let scrollOffset = 0, selectedIndex = 0, expandedIndex: number | null = null, followTail = true, lastRender = 0;
 		const timeline = () => liveTimeline(target);
 		try { await ctx.ui.custom((tui: any, theme: any, _kb: any, done: () => void) => {
 			if (target) target.zoomRender = (force?: boolean) => { const now = Date.now(); if (force || now - lastRender > 80) { lastRender = now; tui.requestRender(); } };
-			return { render: (w: number) => { const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); const entries = timeline(); if (followTail) scrollOffset = Math.max(0, detailContent(entries, w, expandedIndex).length - body); return renderFleetDetail(row, entries, scrollOffset, w, body, theme, expandedIndex); }, handleInput: async (data: string) => { const entries = timeline(); const state = { scrollOffset, selectedIndex, expandedIndex, followTail }; const action = detailTransition(data, state, entries, bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS), detailContent(entries, tui.terminal?.columns ?? 80, expandedIndex).length); ({ scrollOffset, selectedIndex, expandedIndex, followTail } = state); if (action === "close") done(); else if (action === "copy") { const item = entries[selectedIndex]; if (item) { try { await copyToClipboard(item.content); ctx.ui.notify("Copied selected zoom row", "success"); } catch { ctx.ui.notify("Failed to copy selected zoom row", "error"); } } } tui.requestRender(); }, invalidate() {}, dispose: () => resources.dispose() };
+			return {
+				render: (w: number) => {
+					const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS);
+					if (modelPicker) return renderFleetModelPicker(detailRow.name, modelPicker.choices, modelPicker, w, body, theme);
+					const entries = timeline();
+					if (followTail) scrollOffset = Math.max(0, detailContent(entries, w, expandedIndex).length - body);
+					return renderFleetDetail(detailRow, entries, scrollOffset, w, body, theme, expandedIndex);
+				},
+				handleInput: async (data: string) => {
+					const input = matchedFleetDetailInput(data);
+					const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS);
+					if (modelPicker) {
+						const action = modelPickerTransition(input, modelPicker, modelPicker.choices.length, body);
+						if (action === "cancel") modelPicker = null;
+						else if (action === "select") {
+							const picked = modelPicker.choices[modelPicker.index]?.spec;
+							modelPicker = null;
+							if (picked && applyFleetDetailModel(detailRow, picked, ctx)) {
+								detailRow = { ...detailRow, model: detailRow.status === "running" ? `${detailRow.model} → ${shortModel(picked)} next` : `${shortModel(picked)} (next)` };
+							}
+						}
+						tui.requestRender();
+						return;
+					}
+					const entries = timeline();
+					const state = { scrollOffset, selectedIndex, expandedIndex, followTail };
+					const action = detailTransition(input, state, entries, body, detailContent(entries, tui.terminal?.columns ?? 80, expandedIndex).length);
+					({ scrollOffset, selectedIndex, expandedIndex, followTail } = state);
+					if (action === "close") done();
+					else if (action === "copy") {
+						const item = entries[selectedIndex];
+						if (item) { try { await copyToClipboard(item.content); ctx.ui.notify("Copied selected zoom row", "success"); } catch { ctx.ui.notify("Failed to copy selected zoom row", "error"); } }
+					} else if (action === "model") {
+						const loaded = await loadFleetDetailModelChoices(detailRow, ctx);
+						if (loaded) {
+							const currentIndex = loaded.choices.findIndex(choice => choice.spec === loaded.current);
+							modelPicker = { choices: loaded.choices, index: Math.max(0, currentIndex), scrollOffset: Math.max(0, currentIndex) };
+						}
+					}
+					tui.requestRender();
+				},
+				invalidate() {},
+				dispose: () => resources.dispose(),
+			};
 		}, FULLSCREEN_OVERLAY); } finally { resources.dispose(); if (target) target.zoomRender = undefined; }
 	}
 	async function restartFleetRow(selected: FleetRow, ctx: any): Promise<void> {

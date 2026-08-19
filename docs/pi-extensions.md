@@ -172,7 +172,10 @@ harnesses:
 - **Fleet Dashboard and compact widget** — **`Alt+A`** or `/af-agents-list` opens a
   full-screen dashboard of the active native roster, delegates, research helpers, and coms
   peers. It supports row detail, filtering, finished-row visibility, confirmed kills,
-  and a confirmed restart request that supplies the restart command. Separately, the default below-editor compact widget shows only
+  and a confirmed restart request that supplies the restart command. In local row detail, **`m`**
+  opens a visible inline full-screen picker over the logs, selects from every model currently
+  available in Pi, and applies it to the next specialist, research, or nested-delegate run without
+  interrupting current work. Separately, the default below-editor compact widget shows only
   running agents; **`Alt+Shift+A`** toggles it on/off. See the
   [agent-hub README](../.pi/harnesses/agent-hub/README.md#fleet-dashboard-and-detail) for
   keys and action semantics.

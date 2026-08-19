@@ -184,7 +184,7 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 Two consequences worth spelling out:
 
 - **Cross-model review is the point, not a party trick.** A `builder` on one lab's model and a `code-reviewer` on another's catches what a single model rationalizes past. `plan-reviewer` and `code-reviewer` ship ready to run as **Claude Code peers** for exactly this.
-- **Cost lives on a ladder, not a switch.** Each persona declares a default plus a switch list over a three-tier policy — *deep reasoning / workhorse / fast recon* — swappable at runtime per persona (`/af-agent-model`) or fleet-wide (`/af-models <profile>`). Recon sweeps run on the cheap tier or on your own hardware; only synthesis and verdicts spend the expensive one.
+- **Cost lives on a ladder, not a switch.** Each persona declares a default plus a switch list over a three-tier policy — *deep reasoning / workhorse / fast recon* — swappable at runtime per persona (`/af-agent-model`) or fleet-wide (`/af-models <profile>`). From Fleet Detail (`Alt+A`, Enter), **`m`** can instead choose any model Pi currently reports as available for that local specialist, research helper, or nested delegate's next run. Recon sweeps run on the cheap tier or on your own hardware; only synthesis and verdicts spend the expensive one.
 
 ```bash
 /af-models fast                                   # move the whole team down a tier

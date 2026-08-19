@@ -41,6 +41,15 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(source, /press \$\{confirm\.action === "kill" \? "x" : "r"\} again/);
 	assert.match(source, /openFleetDetail\(selected, ctx\)/);
 	assert.match(source, /detailTransition\(/);
+	assert.match(source, /if \(modelPicker\) return renderFleetModelPicker/);
+	assert.match(source, /action === "model"[\s\S]*?loadFleetDetailModelChoices/);
+	assert.match(source, /modelPickerTransition\(/);
+	assert.match(source, /matchedFleetDetailInput[\s\S]*?matchesKey\(data, Key\.up\)[\s\S]*?matchesKey\(data, Key\.down\)/);
+	assert.match(source, /modelRegistry\?\.getAvailable/);
+	assert.match(source, /modelOverrides\.set\(key, picked\)/);
+	assert.match(source, /target\.state\.model = picked/);
+	assert.match(source, /subagentModelOverrides\.set\(target\.overrideKey, picked\)/);
+	assert.match(source, /current runs are not interrupted/);
 	// C3–C7 wiring: pure ops drive kill/restart/ticker/timeline/compact guards
 	assert.match(source, /resolveFleetKill\(/);
 	assert.match(source, /resolveFleetRestart\(/);
