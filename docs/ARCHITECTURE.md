@@ -37,11 +37,37 @@ the current terminal. At startup an explicit `--posture` wins; otherwise
 orchestrator startup requires a roster. `/af-posture` switches only posture in
 the live session, while `/af-agents-*` changes only the native roster.
 
-All Hub-owned slash commands remain registered in both postures. `/af-context` is a standalone, read-only full-screen budget diagnostic; it uses provider totals where available, labels heuristic attribution and loaded-excluded inputs, and never combines capacity percentages across Hub, child, and peer planes. Runtime gates
-control whether an action can proceed: without coms, Herdr, a visible target,
-or an active roster, the corresponding command refuses with an actionable
-message rather than disappearing. `--browser` and `--all-extensions` expand the
-captured operator surface only when those optional extensions are installed.
+All Hub-owned slash commands remain registered in both postures. Capability packs are resolved automatically from explicit task intent, posture, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `/af-new-task` or `set_task_tier(new_task: true)`, while mandatory posture and pending-operation leases remain.
+
+`/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. Managed specialists and research children use explicit replacement prompts/context manifests with selected persona, policy, and skill paths instead of inherited global skills/context files. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an active roster, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
+
+### Context pressure and recovery
+
+Standing prompt ceilings constrain the repeatable replacement prompt and active schemas; they do not
+bound conversation messages or results accumulated inside a long tool loop. The Hub therefore has a
+second, runtime pressure guard. It samples provider usage, projects a finalized tool result at
+`message_end`, warns and exposes transient compaction support at **80%**, then at **90%** aborts the
+pre-model continuation and waits for `agent_settled` before requesting one Pi compaction. This
+ordering ensures the result is persisted before summarization and prevents an ordinary provider call
+from escaping between pressure detection and recovery.
+
+Recovery is single-flight. High-context startup or concurrent input is retained in memory and
+replayed exactly once after success; failure retains it for `/compact` or a larger-context model.
+`/af-context` and the status line report phase, usage, thresholds, episode, and last outcome. Session
+entries store only numeric/enumerated pressure metadata, never prompts, tool payloads, credentials,
+error bodies, or summaries.
+
+A persisted native roster is also metadata, not copied configuration: only its team name is stored
+and it is re-resolved against current teams and persona definitions. A stale or absent roster in a
+resumed orchestrator session fails closed—posture remains orchestrator, direct tools remain removed,
+and model input is blocked until `/af-agents-team`, an explicit `--agent-team <name>` restart, or an
+explicit operator selection resolves it. Explicit CLI posture and roster selections retain
+precedence.
+
+Pi's session JSONL is the authoritative append-only record for rebuilding a session, including
+compaction and Hub metadata. Pressure and roster recovery operate through Pi/Hub lifecycle APIs;
+they never rewrite prior entries. Operators must not edit, truncate, reorder, or synthesize JSONL to
+recover a session.
 
 The project selected by `--project <name>` is the coms namespace for the Hub
 and every standing or dynamically spawned peer. The Hub-facing peer spawn API

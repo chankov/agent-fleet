@@ -39,6 +39,80 @@ All Hub slash commands, including `/af-handoff`, are registered in both postures
 runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
 disables only embedded coms; direct operator work and native dispatch remain available.
 
+### Automatic capability surfaces
+
+Capability packs load **automatically** from the current request, posture, task tier, pending work,
+and runtime state; there is no activation command. `core` is always present. Orchestrator posture
+always includes `fleet`; explicit delegation/research, acceptance work, an existing coms peer, a
+Herdr pane/watcher request, and explicit or imminent compaction respectively add `fleet`,
+`verification`, `peer`, `workspace`, and `compaction`. A ready coms or Herdr runtime is only
+**readiness**, not intent: its tools and policy remain model-inactive until requested.
+
+Ambiguous delegation, peer, or workspace intent provisionally exposes the smallest relevant pack
+and records its reason in the state capsule and `/af-context`. Before that pack's first side effect,
+the Hub asks one focused `ask_user` confirmation. Confirming promotes it for the task; reject or
+cancel removes it and leaves no message, child, or pane behind. Active task packs persist through
+follow-up turns so a workflow does not lose tools. They shrink only on `/af-new-task` or
+`set_task_tier(new_task: true)` (apart from mandatory posture and pending-operation leases), never
+merely because the next message sounds different.
+
+`/af-context` separates stable replacement-prompt cost from the volatile state capsule and active
+schemas. Inactive and ready-but-inactive packs cost zero model-visible characters. Provider totals,
+including cache read/write when Pi supplies them, remain authoritative; deterministic character
+figures are regression diagnostics and never invent provider usage.
+
+### Context-pressure and resume recovery
+
+Pre-turn surface cost and live conversation pressure are different budgets. `/af-context` separates
+the stable replacement prompt, volatile state capsule, and active tool schemas; user and assistant
+messages plus tool results then accumulate during a turn. A long tool loop can therefore reach the
+model window even while every standing prompt ceiling remains green.
+
+The Hub samples live provider usage and projects each finalized tool result before another model
+request:
+
+- Below **80%**, pressure is `normal`.
+- At **80%**, pressure becomes `warning`; the compact recovery surface is exposed transiently and
+  ordinary work may continue.
+- At **90%**, the Hub aborts the next same-turn provider request, waits until the tool result and
+  aborted turn are persisted, and starts one automatic Pi compaction. Only one recovery may run at
+  a time. Input received while startup or same-turn recovery is active is retained in memory,
+  including images, then replayed once after compaction succeeds.
+
+The status line and `/af-context` show the pressure phase, measured usage, both thresholds, episode,
+and last recovery outcome. Persisted pressure diagnostics contain numeric/enumerated metadata only;
+they never include prompts, tool output, credentials, error bodies, or compaction summaries.
+
+If automatic recovery reports `failed`, the queued input remains retained. Use Pi's built-in manual
+fallback, or switch to a model with a larger context window:
+
+```text
+/compact Preserve the current goal, decisions, assertions, pending operations, blockers, and next step.
+```
+
+A resumed orchestrator session can also require roster recovery. The Hub persists only the selected
+team name and resolves it again against the current `.pi/agents/teams.yaml` and persona files. If the
+team is missing, renamed, empty, or stale, the Hub preserves orchestrator posture, keeps direct coding
+tools unavailable, and blocks model input rather than inventing a roster or silently downgrading.
+Recover with one of these explicit choices:
+
+```text
+/af-agents-team                 # select a currently valid team in the live session
+/af-posture operator            # explicitly leave delegate-only posture
+just fleet --agents <name>      # restart through the public Fleet CLI
+just fleet --posture operator   # restart explicitly as an operator
+```
+
+For a direct Pi launch, the roster flag is `--agent-team <name>` and the posture flag is
+`--posture operator`; explicit startup flags take precedence over persisted selections. Fix stale
+team/persona declarations before selecting them.
+
+The Pi session JSONL under `~/.pi/agent/sessions/` is the authoritative append-only conversation and
+recovery record. Context overflow or a stale roster does **not** by itself mean that file is corrupt.
+Inspect it through `/session`, resume it through `/resume` or Pi's session flags, and recover through
+compaction or the commands above. Never edit, truncate, reorder, or synthesize JSONL entries to
+recover a session.
+
 ## What it does
 
 The whole dispatch loop, end to end:
@@ -72,7 +146,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 - **Dispatcher grid** — a live dashboard of the active, dynamically adjustable native roster from `.pi/agents/teams.yaml`.
 - **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic in either posture. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
-- **Research helpers** — `spawn_research` and `/af-research` launch read-only helper agents. Two
+- **Research helpers** — `spawn_research` and `/af-research` launch read-only helper agents. Managed research children use a replacement read-only prompt with `--no-skills` and `--no-context-files`; managed specialists receive a selected context manifest (persona, applicable policy paths, and named skill paths) rather than inherited global skill/context loading. Two
   `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple
   reads and `deep-researcher` (`gpt-5.5` / xhigh) for hard, cross-cutting investigation. The
   orchestrator routes by persona; each persona's model + thinking level is shown in its catalog.

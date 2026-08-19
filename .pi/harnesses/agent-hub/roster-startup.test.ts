@@ -35,8 +35,9 @@ test("orchestrator posture cannot be entered or left with an empty roster", () =
 	assert.equal(orchestratorNeedsRoster("orchestrator", 1), false);
 });
 
-test("Hub wires explicit startup roster without falling back to the first YAML team", () => {
+test("Hub resolves explicit or persisted startup roster without falling back to the first YAML team", () => {
 	assert.match(indexSource, /registerFlag\("agent-team"/);
-	assert.match(indexSource, /resolveStartupRoster\(teams, pi\.getFlag\("agent-team"\)\)/);
+	assert.match(indexSource, /const explicitRoster = pi\.getFlag\("agent-team"\)/);
+	assert.match(indexSource, /const startupRoster = resolveSessionRoster\(\{/);
 	assert.doesNotMatch(indexSource, /activateTeam\(teamNames\[0\]\)/);
 });

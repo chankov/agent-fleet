@@ -319,7 +319,8 @@ What makes it different is what it **doesn't** put in front of the dispatcher LL
 
 - **Research never enters the dispatcher context.** Specialists end their turn with `NEEDS_RESEARCH:` lines; the hub fans out read-only helpers, writes findings to disk, and resumes the specialist with file paths. The dispatcher sees a one-line notice — never the raw findings. Each local-disk research tool call has a parent-side 120-second watchdog (configurable as `recon-search-timeout-s` in `.ai/agent-fleet-overrides.md`), not a whole-agent deadline.
 - **The Verification Contract lives on disk.** A ledger of checkable acceptance assertions, built from the request *before* any builder runs, rendered as one status line (`Assertions: 2✓ 1○ 1✗ · open: A4`). A stated requirement is never silently dropped, and the contract survives compaction.
-- **Specialists run `--no-extensions`.** Tools and credentials stay scoped to the subagent that needs them instead of leaking up into the dispatcher.
+- **Capability surfaces are automatic and bounded.** No activation command is needed: explicit task intent selects the needed pack, while a ready coms/Herdr runtime alone remains hidden from the model. Ambiguous fleet, peer, or workspace work asks once before its first side effect; packs persist for a task and reset only with `/af-new-task` or `set_task_tier(new_task: true)`.
+- **Specialists run `--no-extensions`.** Managed children receive replacement prompts with selected persona, policy, and skill paths instead of inherited global skills/context; research helpers additionally run `--no-skills` and `--no-context-files`.
 
 ![agent-hub's dashboard view: specialists and read-only research helpers running in parallel, each with its own model, spend and status](docs/assets/agent-hub-dashboard.png)
 

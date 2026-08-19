@@ -111,6 +111,32 @@ test('spawnPiAgent sends the prompt through stdin instead of an unsupported -- s
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
+test('spawnPiAgent emits a replacement research policy without inherited skills or context files', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-research-policy-'));
+  try {
+    const capturePath = join(tmp, 'capture.json');
+    createFakePi(tmp, capturePath);
+    const replacement = '# Read-only Research Helper\nWorking directory: /repo\nCite path:line.';
+    const result = await spawnPiAgent({
+      ...options(tmp, { FAKE_PI_CAPTURE: capturePath }),
+      tools: 'read,grep,find,ls',
+      systemPrompt: replacement,
+      noSkills: true,
+      noContextFiles: true,
+      extensions: ['damage-control.ts'],
+      resume: true,
+    });
+    assert.equal(result.exitCode, 0);
+    const capture = JSON.parse(readFileSync(capturePath, 'utf8'));
+    assert.deepEqual(capture.argv, ['--mode', 'json', '-p', '--no-extensions', '--no-skills', '--no-context-files', '-e', 'damage-control.ts', '--model', 'fake/model', '--tools', 'read,grep,find,ls', '--thinking', 'off', '--system-prompt', replacement, '--session', join(tmp, 'session.jsonl'), '-c']);
+    assert.ok(!capture.argv.includes('--append-system-prompt'));
+    assert.ok(!capture.argv.includes('edit'));
+    assert.ok(!capture.argv.includes('write'));
+    assert.ok(!capture.argv.includes('bash'));
+    assert.ok(!capture.argv.includes('delegate'));
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 test('overridden model falls back once on a pre-work assistant error', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-model-fallback-'));
   try {

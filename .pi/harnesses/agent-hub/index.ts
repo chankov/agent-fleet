@@ -63,7 +63,7 @@
  * Direct guarded launch: pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts
  */
 
-import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ImageContent, Theme } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme, copyToClipboard } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
@@ -89,7 +89,7 @@ import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
-import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, resolveStartupRoster, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
 import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_BUDGET_MULTIPLIER, addTaskClockWait, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, closeTaskClock, contextOverflowDiagnostic, createTaskClock, isReviewPersona, normalizeHubMode, openTaskClock, remainingTaskResearch, resetTaskClock, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, taskClockElapsedMs } from "./run-budget.js";
 import { buildHubAuditIdentity, buildHubModeAudit, buildTaskResetAudit } from "./hub-state-audit.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
@@ -116,7 +116,11 @@ import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredRet
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
-import { parsePosture, posturePrompt, resolvePostureTools, resolveSessionPosture, type Posture } from "./posture.ts";
+import { NATIVE_ROSTER_ENTRY_TYPE, parsePosture, persistedNativeRosterState, posturePrompt, resolvePostureTools, resolveSessionPosture, resolveSessionRoster, type Posture } from "./posture.ts";
+import { CAPABILITY_PACKS, latestPersistedCapabilityState, persistedCapabilityState, resolveCapabilityPacks, type CapabilityPack, type CapabilityResolution, type ContextState, type PendingOperation } from "./capability-packs.ts";
+import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
+import { confirmationGate, confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type CapabilityConfirmationState, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
+import { observeAskUserResults } from "../ask-user-remote/index.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts";
 import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from "./research-retention.js";
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
@@ -141,15 +145,15 @@ import { detailContent, detailTransition, renderFleetDetail, DETAIL_CHROME_ROWS 
 import { reconcileSelection, type Selection } from "../lib/fleet-selection.ts";
 import { collectContextBudgetSnapshot, type LivePlane } from "./context-budget-snapshot.ts";
 import { CONTEXT_BUDGET_CHROME_ROWS, contextBudgetTransition, renderContextBudget, type ContextBudgetViewState } from "../lib/context-budget-view.ts";
-import { safeSchemaChars, type ContextBudgetComponent } from "../lib/context-budget.ts";
+import { component, safeSchemaChars, type ContextBudgetComponent } from "../lib/context-budget.ts";
 import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger } from "../lib/context-budget-hub-prompt.ts";
 import {
-	buildClarificationProtocol,
-	buildDelegationProtocol,
-	buildDeliverableProtocol,
 	delegateStandingParts,
-	RESEARCH_PROTOCOL as SHARED_RESEARCH_PROTOCOL,
+	buildSpecialistContextManifest,
+	nativeResearchSystemPrompt,
+	nativeSpecialistSystemPrompt,
 	researchStandingParts,
+	type SpecialistContextManifest,
 	specialistStandingParts,
 } from "../lib/context-budget-child-prompt.ts";
 import { parseEnvFile, resolveEnvFilePath } from "../../../scripts/lib/herdr-layout.ts";
@@ -252,6 +256,8 @@ interface AgentState {
 	// a percentage cannot be compared against a window it was not divided by.
 	contextTokens: number;
 	sessionFile: string | null;
+	/** Metadata-only child context retained across research-pause resume. */
+	specialistManifest?: SpecialistContextManifest;
 	runCount: number;
 	// Runs served by the CURRENT accumulated session (-c resume chain). Reset on
 	// recycle; drives shouldRecycleSession together with the measured contextPct.
@@ -887,11 +893,6 @@ const CONTEXT_WARN_THRESHOLD = 70;
 // Conservative delegation budgets: one delegate layer only, with four total
 // child spawns reserved tree-wide for a dispatch.
 const DELEGATE_CALL_BUDGET = DELEGATE_TREE_SPAWN_BUDGET;
-
-// Appended to every research helper's system prompt so it knows its sandbox and how to
-// report. Kept separate from the dispatcher's clarification protocol: helpers don't
-// bubble up ASK_USER — they report findings and the dispatcher decides what to do.
-const RESEARCH_PROTOCOL = SHARED_RESEARCH_PROTOCOL;
 
 // System prompt for an ad-hoc (anonymous) research helper — one with no persona file.
 const ANON_RESEARCH_PROMPT = `# Research Helper
@@ -2073,6 +2074,12 @@ than bulk-reading doc trees; when an entry point is a folder, start from its REA
 or index file. If your work changes something the docs describe (architecture, public
 APIs, commands, structure), say so in your final response so the docs can be updated.`;
 	}
+
+	/** One canonical repository context file plus explicitly configured rule roots. */
+	function specialistProjectPolicyPaths(cwd: string): string[] {
+		const canonical = ["AGENTS.md", "CLAUDE.md"].find(candidate => existsSync(path.join(cwd, candidate)));
+		return [...new Set([...(canonical ? [canonical] : []), ...projectRulesDirs])];
+	}
 	// The one supported safety harness. Every native specialist, researcher, and
 	// nested delegate receives it; a missing harness refuses child dispatch.
 	let safetyHarnessPath: string | null = null;
@@ -2172,10 +2179,15 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		taskLabel = label;
 		taskTier = null;
 		taskTierAssumed = false;
+		taskCapabilityPacks = [];
+		taskProvisionalPacks = [];
+		capabilityConfirmation = {};
 		externalBlockers = [];
 		externalBlockerAcknowledged = false;
 		externalBlockerRefusedOnce = false;
 		turnDispatchFingerprints.clear();
+		resolveIncomingCapabilities("", true);
+		applyPostureTools();
 		updateModeStatus();
 	}
 	function hubAuditIdentity(ctx?: ExtensionContext) {
@@ -2741,6 +2753,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			agentStates.set(def.name.toLowerCase(), freshAgentState(def));
 		}
 		recomputeGrid();
+	}
+
+	function persistActiveRoster(): void {
+		if (!activeTeamName || agentStates.size === 0) return;
+		pi.appendEntry(NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState(activeTeamName));
 	}
 
 	// ── Dynamic roster (add/drop/save; /af-agents-add, /af-agents-drop, team_adjust) ──
@@ -3488,6 +3505,7 @@ ${externalBlockedProtocol()}
 		scopeGlobs: string[] = [],
 		watchdogParam?: boolean,
 		requestedBackend: "auto" | "native" | "coms" = "auto",
+		preserveManifest = false,
 	): Promise<{
 		output: string;
 		exitCode: number;
@@ -3696,16 +3714,6 @@ ${externalBlockedProtocol()}
 			}
 		}
 
-		// Clarification protocol — every specialist learns to bubble up questions
-		// to the dispatcher instead of guessing.
-		const clarificationProtocol = buildClarificationProtocol(userLanguage, MAX_AUTO_RESEARCH_QUESTIONS);
-
-		// Project rules and docs — when the overrides file lists rule folders or
-		// doc entry points, every specialist learns where they are and how to
-		// resolve them (rules index-first, docs as orientation entry points).
-		const rulesProtocol = buildRulesProtocol();
-		const docsProtocol = buildDocsProtocol();
-
 		// Mid-turn delegation: a persona that declares `subagents:` gets the
 		// delegate extension injected (`-e delegate.ts`), the `delegate` tool
 		// added to its allowlist (pi filters extension tools too), and its
@@ -3728,7 +3736,6 @@ ${externalBlockedProtocol()}
 		const extensions = [...safety.extensions];
 		let effectiveTools = state.def.tools;
 		let delegateEnv: Record<string, string> | undefined;
-		let delegationProtocol = "";
 		if (delegationActive) {
 			const delegationDir = safePathWithin(sessionDir, "delegations", agentKey);
 			try { rmSync(delegationDir, { recursive: true, force: true }); } catch {}
@@ -3753,13 +3760,25 @@ ${externalBlockedProtocol()}
 					cwd: ctx.cwd || process.cwd(),
 				}),
 			};
-			delegationProtocol = buildDelegationProtocol(Object.keys(subagentRoles!), DELEGATE_TREE_SPAWN_BUDGET);
 			startDelegationWatch(state, delegationDir);
 		}
 
-		const deliverableProtocol = buildDeliverableProtocol(agentKey, runNumber);
-
-		const appendedSystemPrompt = state.def.systemPrompt + clarificationProtocol + rulesProtocol + docsProtocol + delegationProtocol + deliverableProtocol;
+		const manifest = preserveManifest && state.specialistManifest
+			? state.specialistManifest
+			: buildSpecialistContextManifest({
+				personaName: state.def.name,
+				personaPath: state.def.file,
+				personaPrompt: state.def.systemPrompt,
+				task,
+				rulesPaths: specialistProjectPolicyPaths(ctx.cwd || process.cwd()),
+				docsPaths: projectDocsPaths,
+				hasAssertions: extractAssertionIds(task).length > 0,
+				hasScope: scopeGlobs.length > 0,
+				hasArtifacts: inputArtifacts.length > 0,
+				delegateRoles: delegationActive ? Object.keys(subagentRoles!) : [],
+			});
+		state.specialistManifest = manifest;
+		const replacementSystemPrompt = nativeSpecialistSystemPrompt({ manifest, userLanguage, agentKey, runNumber });
 
 		// Per-agent thinking: the persona's `thinking:` frontmatter (or a
 		// /af-agent-model-thinking session override) sets the pi --thinking reasoning
@@ -3820,7 +3839,7 @@ ${externalBlockedProtocol()}
 		if (state.sessionFile && !sessionRecycled) {
 			const overflow = shouldRecycleBeforeSpawn({
 				priorTokens: state.contextTokens,
-				promptTokens: estimatePromptTokens(runPrompt) + estimatePromptTokens(appendedSystemPrompt),
+				promptTokens: estimatePromptTokens(runPrompt) + estimatePromptTokens(replacementSystemPrompt),
 				window: agentWindow.window,
 			});
 			if (overflow) {
@@ -3844,10 +3863,13 @@ ${externalBlockedProtocol()}
 			model,
 			tools: effectiveTools,
 			thinking: thinkingLevel,
-			appendSystemPrompt: appendedSystemPrompt,
+			systemPrompt: replacementSystemPrompt,
+			noSkills: true,
+			noContextFiles: true,
 			sessionFile: agentSessionFile,
 			resume: !!state.sessionFile,
 			prompt: runPrompt,
+			cwd: ctx.cwd || process.cwd(),
 			extensions,
 			env: { ...guardrailEnv(agentKey), ...(delegateEnv || {}) },
 			detached: true,
@@ -4259,13 +4281,18 @@ ${externalBlockedProtocol()}
 			model: state.model,
 			tools: RESEARCH_TOOLS,
 			thinking: thinkingLevel,
-			// Research helpers get the docs orientation block (WHAT/WHY entry
-			// points) but not the rules block — rules govern producing/validating
-			// changes, which read-only research does not do.
-			appendSystemPrompt: state.def.systemPrompt + RESEARCH_PROTOCOL + buildDocsProtocol(),
+			// Replacement policy avoids inherited skills and project context files.
+			// The selected persona remains available by its explicit source path.
+			systemPrompt: nativeResearchSystemPrompt({
+				...(state.persona ? { personaName: state.def.name, personaPath: state.def.file } : {}),
+				cwd: ctx.cwd || process.cwd(),
+			}),
+			noSkills: true,
+			noContextFiles: true,
 			sessionFile: sessionPath,
 			resume: !!state.sessionFile,
 			prompt: appendInputArtifacts(prompt, inputArtifacts),
+			cwd: ctx.cwd || process.cwd(),
 			// A blocked read feeds back so the helper can adapt without aborting.
 			extensions: safety.extensions,
 			env: guardrailEnv(`research-r${state.id}`),
@@ -4445,6 +4472,10 @@ ${externalBlockedProtocol()}
 	}
 
 	function handlePrompt(socket: net.Socket, env: PromptEnvelope): void {
+		if (currentCtx && modelWorkBlockedByRosterRecovery(currentCtx)) {
+			nack(socket, env.msg_id, "orchestrator roster recovery required");
+			return;
+		}
 		// 1. Hop limit check
 		if (typeof env.hops !== "number" || env.hops >= MAX_HOPS) {
 			nack(socket, env.msg_id, "hops exceeded");
@@ -4965,6 +4996,8 @@ ${externalBlockedProtocol()}
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+			const confirmationRefusal = provisionalCapabilityRefusal("fleet");
+			if (confirmationRefusal) return confirmationRefusal;
 			const { task, artifacts, scope, watchdog, review_reason, backend = "auto" } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[]; watchdog?: boolean; review_reason?: string; backend?: "auto" | "native" | "coms" };
 			// Display names / underscores resolve to the persona slug key space, so
 			// `agent: "Test Engineer"` never burns a dispatch on a lookup error.
@@ -5157,7 +5190,7 @@ ${externalBlockedProtocol()}
 					const resumePrompt = "Research findings for your NEEDS_RESEARCH questions are ready. " +
 						"Read each file with your read tool, then continue from where you paused:\n" +
 						answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
-					result = await dispatchAgent(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog, backend);
+					result = await dispatchAgent(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog, backend, true);
 					dispatchBilled += result.billed ?? 0;
 					dispatchOut += result.out ?? 0;
 				}
@@ -5431,6 +5464,8 @@ ${externalBlockedProtocol()}
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+			const confirmationRefusal = provisionalCapabilityRefusal("fleet");
+			if (confirmationRefusal) return confirmationRefusal;
 			const { task, persona, model, artifacts } = params as { task: string; persona?: string; model?: string; artifacts?: string[] };
 
 			// Pre-flight refusals before anything is charged: an unacknowledged
@@ -5619,6 +5654,13 @@ ${externalBlockedProtocol()}
 		}),
 		async execute(_callId, params, _signal, _onUpdate, _ctx) {
 			const { tier, reason, new_task } = params as { tier: string; reason?: string; new_task?: boolean };
+			// An explicit new-task reset is the lifecycle escape hatch and clears
+			// provisional decisions; it must not itself require the old task's consent.
+			if (!new_task) {
+				const confirmationRefusal = provisionalCapabilityRefusal("fleet");
+				if (confirmationRefusal) return confirmationRefusal;
+			}
+
 			// A new task classifies from an empty ratchet. Validate the requested tier
 			// before mutating/resetting anything so invalid input cannot erase a task.
 			const currentTier = new_task ? null : (taskTierAssumed ? null : taskTier);
@@ -5680,6 +5722,8 @@ ${externalBlockedProtocol()}
 			reason: Type.String({ description: "One line on why the roster must change for this task." }),
 		}),
 		async execute(_callId, params, _signal, _onUpdate, ctx) {
+			const confirmationRefusal = provisionalCapabilityRefusal("fleet");
+			if (confirmationRefusal) return confirmationRefusal;
 			const { action, agent, reason } = params as { action: string; agent: string; reason: string };
 			const act = String(action || "").trim().toLowerCase();
 			if (hubMode === "fast") {
@@ -5984,6 +6028,8 @@ ${externalBlockedProtocol()}
 			reply_timeout_ms: Type.Optional(Type.Number({ description: "Receiver-side reply deadline in ms; pass the same budget used for coms_await. Clamped by the receiver." })),
 		}),
 		async execute(_callId, params) {
+			const confirmationRefusal = provisionalCapabilityRefusal("peer");
+			if (confirmationRefusal) return confirmationRefusal;
 			if (!identity) {
 				throw new Error("coms not initialised");
 			}
@@ -6301,6 +6347,8 @@ ${externalBlockedProtocol()}
 			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction." })),
 		}),
 		async execute(_callId, params) {
+			const confirmationRefusal = provisionalCapabilityRefusal("workspace");
+			if (confirmationRefusal) return confirmationRefusal;
 			if (!herdrFleetReady) {
 				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
 			}
@@ -6391,6 +6439,8 @@ ${externalBlockedProtocol()}
 			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction (default right)." })),
 		}),
 		async execute(_callId, params) {
+			const confirmationRefusal = provisionalCapabilityRefusal("workspace");
+			if (confirmationRefusal) return confirmationRefusal;
 			if (!herdrFleetReady) {
 				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
 			}
@@ -6471,6 +6521,8 @@ ${externalBlockedProtocol()}
 			reason: Type.String({ description: "One line shown to the human: why this pane can die." }),
 		}),
 		async execute(_callId, params) {
+			const confirmationRefusal = provisionalCapabilityRefusal("workspace");
+			if (confirmationRefusal) return confirmationRefusal;
 			if (!herdrFleetReady) {
 				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
 			}
@@ -6513,6 +6565,8 @@ ${externalBlockedProtocol()}
 			body: Type.Optional(Type.String({ description: "Notification body." })),
 		}),
 		async execute(_callId, params) {
+			const confirmationRefusal = provisionalCapabilityRefusal("workspace");
+			if (confirmationRefusal) return confirmationRefusal;
 			if (!herdrFleetReady) {
 				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
 			}
@@ -6550,7 +6604,69 @@ ${externalBlockedProtocol()}
 
 	let askUserAvailable = false;
 	let posture: Posture = "operator";
+	let rosterRecoveryRequired = false;
+	let rosterRecoveryDiagnostic = "";
 	let baselineTools: string[] = [];
+	let taskCapabilityPacks: CapabilityPack[] = [];
+	let taskProvisionalPacks: CapabilityPack[] = [];
+	let capabilityConfirmation: CapabilityConfirmationState = {};
+	let contextPressureState: ContextPressureState = createContextPressureState();
+	let capabilityResolution: CapabilityResolution = resolveCapabilityPacks({
+		posture, userText: "", taskPacks: [], comsReady: false, herdrReady: false,
+		pendingOperations: [], contextState: "normal",
+	});
+
+	function pendingCapabilityOperations(): PendingOperation[] {
+		const pending: PendingOperation[] = [];
+		if (Array.from(agentStates.values()).some(state => state.status === "running") || Array.from(researchStates.values()).some(state => state.status === "running")) pending.push({ pack: "fleet", kind: "child" });
+		if (pendingReplies.size > 0 || pendingHandoff) pending.push({ pack: "peer", kind: "message" });
+		if (hubSpawnedPeers.size > 0) pending.push({ pack: "workspace", kind: "pane" });
+		return pending;
+	}
+
+	function capabilityContextState(): ContextState {
+		if (contextPressureState.phase === "warning") return "approaching-compaction";
+		if (contextPressureState.phase !== "normal") return "imminent-compaction";
+		if (contextPressureState.pressure === "imminent") return "imminent-compaction";
+		if (contextPressureState.pressure === "approaching") return "approaching-compaction";
+		// Before the first turn_end sample, preserve startup/input protection from
+		// the live Pi measurement without mutating the single-flight state machine.
+		const percent = currentCtx?.getContextUsage?.()?.percent;
+		if (typeof percent === "number" && percent >= 90) return "imminent-compaction";
+		if (typeof percent === "number" && percent >= 80) return "approaching-compaction";
+		return "normal";
+	}
+
+	function resolveIncomingCapabilities(userText: string, newTask = false): void {
+		capabilityResolution = resolveCapabilityPacks({
+			posture,
+			userText,
+			taskTier: taskTier === "trivial" || taskTier === "small" || taskTier === "feature" || taskTier === "project" ? taskTier : undefined,
+			taskPacks: taskCapabilityPacks,
+			provisionalPacks: taskProvisionalPacks,
+			comsReady,
+			herdrReady: herdrFleetReady,
+			pendingOperations: pendingCapabilityOperations(),
+			contextState: capabilityContextState(),
+			newTask,
+		});
+		for (const pack of ["fleet", "peer", "workspace"] as const) {
+			if (capabilityConfirmation[pack] === "promoted" || capabilityConfirmation[pack] === "declined") {
+				capabilityResolution.provisional = capabilityResolution.provisional.filter(candidate => candidate !== pack);
+				capabilityResolution.confirmationRequired = capabilityResolution.confirmationRequired.filter(candidate => candidate !== pack);
+				if (capabilityConfirmation[pack] === "promoted" && !capabilityResolution.active.includes(pack)) capabilityResolution.active.push(pack);
+			}
+		}
+		taskCapabilityPacks = capabilityResolution.nextTaskPacks = CAPABILITY_PACKS.filter(pack => pack !== "core" && pack !== "compaction" && capabilityResolution.active.includes(pack));
+		taskProvisionalPacks = capabilityResolution.provisional.filter(pack => capabilityConfirmation[pack as ConfirmableCapabilityPack] !== "declined");
+		try { pi.appendEntry("agent-hub-capability-packs", persistedCapabilityState(capabilityResolution, capabilityConfirmation)); } catch { /* state persistence is best-effort */ }
+	}
+
+	function provisionalCapabilityRefusal(pack: ConfirmableCapabilityPack) {
+		const gate = confirmationGate(capabilityConfirmation, pack, capabilityResolution.provisional.includes(pack));
+		if (gate.allowed) return null;
+		return { content: [{ type: "text" as const, text: gate.message }], details: { status: "provisional_confirmation_required", confirmation: gate.status, pack } };
+	}
 
 	function applyPostureTools(): void {
 		pi.setActiveTools(resolvePostureTools({
@@ -6559,11 +6675,22 @@ ${externalBlockedProtocol()}
 			comsReady,
 			herdrReady: herdrFleetReady,
 			askUserAvailable,
+			capabilityPacks: [...capabilityResolution.active, ...capabilityResolution.provisional],
 		}));
 	}
 
 	function updatePostureStatus(ctx: ExtensionContext): void {
 		ctx.ui.setStatus("hub-posture", `Posture: ${posture}`);
+	}
+
+	function modelWorkBlockedByRosterRecovery(ctx: ExtensionContext): boolean {
+		if (posture !== "orchestrator" || !rosterRecoveryRequired) return false;
+		const message = `${rosterRecoveryDiagnostic || "No valid native roster is active."} Select one with /af-agents-team, restart with --agent-team <name>, or switch explicitly with /af-posture operator.`;
+		ctx.ui.notify(message, "error");
+		// Print/JSON modes do not render extension notifications. Never include the
+		// blocked prompt or command arguments in this metadata-only diagnostic.
+		if (!ctx.hasUI) console.error(`[agent-hub] ${message}`);
+		return true;
 	}
 
 	function postureStatusText(): string {
@@ -6626,7 +6753,26 @@ ${externalBlockedProtocol()}
 
 			const idx = options.indexOf(choice);
 			const name = teamNames[idx];
-			activateTeam(name);
+			const selected = resolveSessionRoster({
+				teams,
+				entries: [],
+				explicitRoster: name,
+				availablePersonas: allAgentDefs.map(def => def.name),
+			});
+			if (!selected.roster) {
+				ctx.ui.notify(`${selected.diagnostic} Fix .pi/agents/teams.yaml or select another team.`, "error");
+				return;
+			}
+			activateTeam(selected.roster.name);
+			rosterRecoveryRequired = false;
+			rosterRecoveryDiagnostic = "";
+			persistActiveRoster();
+			resolveIncomingCapabilities("");
+			applyPostureTools();
+			if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
+				await pickDispatcherPersona(ctx);
+			}
+			setTimeout(replayDeferredRecoveryInputs, 0);
 			updateWidget();
 			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
 			ctx.ui.notify(`Team: ${name} — ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`, "info");
@@ -6660,6 +6806,7 @@ ${externalBlockedProtocol()}
 		}, FULLSCREEN_OVERLAY); } finally { resources.dispose(); if (target) target.zoomRender = undefined; }
 	}
 	async function restartFleetRow(selected: FleetRow, ctx: any): Promise<void> {
+		if (modelWorkBlockedByRosterRecovery(ctx)) return;
 		const decision = resolveFleetRestart(selected, {
 			researchRestartable: (key) => {
 				const state = researchStates.get(parseResearchHandle(key)!);
@@ -6838,21 +6985,30 @@ ${externalBlockedProtocol()}
 		const baseChars = safeSchemaChars(ctx?.getSystemPromptOptions?.() ?? {});
 		const projection = (def: AgentDef, research = false) => research
 			? researchStandingParts({
-				personaChars: def.systemPrompt.length,
+				replacementPrompt: nativeResearchSystemPrompt({
+					personaName: def.name,
+					personaPath: def.file,
+					cwd: ctx?.cwd || process.cwd(),
+				}),
 				toolChars: toolSchemaChars(RESEARCH_TOOLS),
-				basePromptChars: baseChars,
-				docsProtocol: buildDocsProtocol(),
+				// --system-prompt plus --no-skills/--no-context-files replaces
+				// inherited child prompt inputs; only the explicit prompt/tools remain.
+				basePromptChars: 0,
 			})
 			: specialistStandingParts({
-				personaChars: def.systemPrompt.length,
+				replacementPrompt: nativeSpecialistSystemPrompt({
+					// An active child projects the exact metadata retained for its
+					// spawn/resume; an inactive card is a task-free cold-start estimate.
+					manifest: agentStates.get(def.name.toLowerCase())?.specialistManifest
+						?? buildSpecialistContextManifest({
+							personaName: def.name, personaPath: def.file, personaPrompt: def.systemPrompt,
+							task: "", rulesPaths: specialistProjectPolicyPaths(ctx?.cwd || process.cwd()), docsPaths: projectDocsPaths,
+							hasAssertions: false, hasScope: false, hasArtifacts: false,
+							delegateRoles: def.subagents && delegateExtPath ? Object.keys(def.subagents) : [],
+						}),
+					userLanguage, agentKey: safeAgentKey(def.name), runNumber: agentStates.get(def.name.toLowerCase())?.runCount ?? 0,
+				}),
 				toolChars: toolSchemaChars(def.tools),
-				basePromptChars: baseChars,
-				docsProtocol: buildDocsProtocol(),
-				rulesProtocol: buildRulesProtocol(),
-				userLanguage,
-				delegateRoles: def.subagents && delegateExtPath ? Object.keys(def.subagents) : [],
-				agentKey: safeAgentKey(def.name),
-				runNumber: 0,
 			});
 		const delegateProjection = (owner: AgentState, child: DelegationChild) => {
 			const roleEntry = Object.entries(owner.def.subagents ?? {}).find(([name]) => name.toLowerCase() === child.role.toLowerCase());
@@ -6902,6 +7058,7 @@ ${externalBlockedProtocol()}
 			buildHubSystemPrompt(false);
 			return collectContextBudgetSnapshot(ctx, {
 			ledger: lastHubLedger,
+			pressure: contextPressureDiagnostic(contextPressureState),
 			planes: contextPlanes(ctx),
 			tools: typeof pi.getAllTools === "function" ? pi.getAllTools() : [],
 			activeToolNames: typeof pi.getActiveTools === "function" ? pi.getActiveTools() : [],
@@ -6947,9 +7104,15 @@ ${externalBlockedProtocol()}
 				return;
 			}
 			posture = next;
+			if (posture === "operator") {
+				rosterRecoveryRequired = false;
+				rosterRecoveryDiagnostic = "";
+				setTimeout(replayDeferredRecoveryInputs, 0);
+			}
 			if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
 				await pickDispatcherPersona(ctx);
 			}
+			resolveIncomingCapabilities("");
 			applyPostureTools();
 			updatePostureStatus(ctx);
 			pi.appendEntry("agent-hub-posture", { posture });
@@ -7124,6 +7287,7 @@ ${externalBlockedProtocol()}
 			}
 			teams[name] = members;
 			activeTeamName = name;
+			persistActiveRoster();
 			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
 			ctx.ui.notify(`Team "${name}" saved to .pi/agents/teams.yaml — ${members.join(", ")}`, "success");
 		},
@@ -7742,6 +7906,7 @@ ${externalBlockedProtocol()}
 		getArgumentCompletions: researchPersonaCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			let rest = (args ?? "").trim();
 			let personaName: string | undefined;
 			let modelArg: string | undefined;
@@ -7817,6 +7982,7 @@ ${externalBlockedProtocol()}
 	// its /af-research-cont alias.
 	const researchContHandler = async (args: string | undefined, ctx: any) => {
 		widgetCtx = ctx;
+		if (modelWorkBlockedByRosterRecovery(ctx)) return;
 		const trimmed = (args ?? "").trim();
 		const sp = trimmed.indexOf(" ");
 		if (sp === -1) {
@@ -8021,6 +8187,7 @@ ${externalBlockedProtocol()}
 		getArgumentCompletions: subagentTargetCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			const name = args?.trim();
 			// An rN handle re-runs a finished helper's last task on a fresh session
 			// (unlike /af-agents-cont, which resumes the existing one). A running helper
@@ -8201,6 +8368,7 @@ ${externalBlockedProtocol()}
 		description: "Hand the session off to a coms peer (the dispatcher composes a self-contained brief): /af-handoff <peer>",
 		getArgumentCompletions: comsPeerCompletions,
 		handler: async (args, ctx) => {
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /af-handoff unavailable.", "warning"); return; }
 			const target = (args ?? "").trim();
 			if (!target) {
@@ -8238,6 +8406,7 @@ ${externalBlockedProtocol()}
 	pi.registerCommand("af-compound", {
 		description: "Capture this session's lessons into the project's rules/docs via the documenter: /af-compound [focus]",
 		handler: async (args, ctx) => {
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			if (!agentStates.has("documenter")) {
 				ctx.ui.notify(
 					"compound: the documenter persona is not in the active team — switch with /af-agents-team (e.g. default or release), then re-run /af-compound.",
@@ -8287,6 +8456,19 @@ ${externalBlockedProtocol()}
 		externalBlockerAcknowledged = true;
 		externalBlockerRefusedOnce = false;
 	});
+	observeAskUserResults(({ params, result, phase }) => {
+		const pack = capabilityConfirmationPack(params.context);
+		if (!pack) return;
+		if (phase === "start") capabilityConfirmation[pack] = "pending";
+		else {
+			const outcome = confirmationOutcome(result);
+			if (!outcome) return;
+			capabilityConfirmation[pack] = outcome;
+			resolveIncomingCapabilities("");
+			applyPostureTools();
+		}
+	});
+
 	pi.on("tool_execution_end", async (event) => {
 		if (event.toolName !== "ask_user") return;
 		const startedAt = askUserStarts.get(event.toolCallId);
@@ -8353,17 +8535,23 @@ ${externalBlockedProtocol()}
 		updateModeStatus();
 		}
 
-		// Build dynamic agent catalog from active team only
-		const agentCards = Array.from(agentStates.values())
-			.map(s => ({ id: s.def.name, text: `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}` }));
+		const modelPacks = new Set<CapabilityPack>([...capabilityResolution.active, ...capabilityResolution.provisional]);
+		const fleetActive = modelPacks.has("fleet");
+		const verificationActive = modelPacks.has("verification");
+		const peerActive = modelPacks.has("peer");
+		const workspaceActive = modelPacks.has("workspace");
+		const compactionActive = modelPacks.has("compaction");
+		// Fleet roster and research policy are absent unless the fleet pack is model-visible.
+		const agentCards = fleetActive ? Array.from(agentStates.values())
+			.map(s => ({ id: s.def.name, text: `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}` })) : [];
 		const agentCatalog = agentCards.map(card => card.text).join("\n\n");
 
-		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+		const teamMembers = fleetActive ? Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ") : "";
 
 		// Research personas (kind: research) the dispatcher can spawn read-only via
 		// spawn_research. Independent of team membership.
-		const researchCards = researchPersonas.map(d => ({ id: d.name, text: `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${resolvedModel(d) || "(dispatcher's default)"} · **Thinking:** ${resolveThinkingLevel(resolvedThinking(d))}\n${d.description}` }));
-		const researchCatalog = researchCards.length > 0
+		const researchCards = fleetActive ? researchPersonas.map(d => ({ id: d.name, text: `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${resolvedModel(d) || "(dispatcher’s default)"} · **Thinking:** ${resolveThinkingLevel(resolvedThinking(d))}\n${d.description}` })) : [];
+		const researchCatalog = !fleetActive ? "" : researchCards.length > 0
 			? researchCards.map(card => card.text).join("\n\n")
 			: "(No research personas defined. Call `spawn_research` without `persona` for an ad-hoc read-only helper.)";
 
@@ -8399,11 +8587,9 @@ ask the human. You MUST instead:
 - For \`ASK_USER:\` markers raised by specialists, relay the question verbatim to
   the user in ${userLanguage} and wait for their reply in the next turn.`;
 
-		const toolList = askUserAvailable
-			? "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), `set_task_tier` (classify the ask before the first dispatch), `team_adjust` (add/drop a team persona, sparingly), `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger), and `ask_user` (talk to the human)"
-			: "these tools: `dispatch_agent` (delegate work to a specialist), `spawn_research` (run a read-only research helper), `set_task_tier` (classify the ask before the first dispatch), `team_adjust` (add/drop a team persona, sparingly), and `set_assertions` / `update_assertion` / `get_assertions` (own and read back the acceptance-assertion ledger). `ask_user` is NOT available — see the section below";
+		const toolList = `these active packs: ${[...modelPacks].join(", ")}. Tools: ${pi.getActiveTools().map(name => `\`${name}\``).join(", ") || "(none)"}`;
 
-		const dispatchSection = askUserAvailable
+		const dispatchSection = !fleetActive ? "" : askUserAvailable
 			? `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
   ways, call \`ask_user\` first. Never invent constraints or "reasonable defaults"
   the user did not state.
@@ -8451,18 +8637,22 @@ ask the human. You MUST instead:
 		const taskBudget = currentTaskBudget();
 		const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
 		const capMin = (ms: number | null) => (ms == null ? "unlimited" : `${Math.round(ms / 60_000)} min`);
+		const capabilityState = [...capabilityResolution.active].map(pack => `${pack}:${capabilityResolution.reasons[pack]}`).join(", ");
+		const provisionalState = capabilityResolution.provisional.map(pack => `${pack}:${capabilityResolution.reasons[pack]}`).join(", ");
 		const stateCapsule = `## Current task state
 - mode: ${hubMode}${taskTier ? ` · tier: ${taskTier}` : ""}; turn dispatches: ${turnDispatchCount}; research: ${turnResearchCount}
 - task dispatches: ${taskDispatchCount}; research: ${taskResearchCount}; review rounds: ${taskReviewRounds}
+- packs active: ${capabilityState}; provisional: ${provisionalState || "none"}
+- provisional confirmation: ${capabilityResolution.provisional.filter(pack => capabilityConfirmation[pack as ConfirmableCapabilityPack] !== "declined").map(pack => `${pack} (${capabilityResolution.reasons[pack]}) → call ask_user exactly once with ${JSON.stringify(capabilityConfirmationQuestion(pack as ConfirmableCapabilityPack))}`).join("; ") || "none"}
 - budgets: dispatch ${cap(budget.maxDispatches)}, research ${cap(budget.maxResearch)}, task wall ${capMin(taskBudget.wallMs)}.`;
 
-		const stableModeSection = `## Task triage (before dispatch)
-Call \`set_task_tier\` honestly: trivial/small work uses minimal ceremony; feature/project work uses the assertion ledger and a review gate. A provided plan is the specification, not consent to execute unrequested phases. Keep related plan work in coherent batches, pass a narrow scope, and treat a budget refusal as a stop-and-ask-human signal; code enforcement remains authoritative.`;
+		const stableModeSection = fleetActive ? `## Task triage (before dispatch)
+Call \`set_task_tier\` honestly: trivial/small work uses minimal ceremony; feature/project work uses the assertion ledger and a review gate. A provided plan is the specification, not consent to execute unrequested phases. Keep related plan work in coherent batches, pass a narrow scope, and treat a budget refusal as a stop-and-ask-human signal; code enforcement remains authoritative.` : "";
 
 		const fullVerificationContract = `## Verification Contract
 For non-trivial work, record at most ${MAX_OPEN_ASSERTIONS} narrow, sourced assertions before building and pass them verbatim to specialists. Advance only on named evidence; unproven/failed is not done. Runtime-UI claims require runtime observation. Use \`skills/orchestration-verification/SKILL.md\` for formats, parity inventories, and regression resets. After compaction, read the ledger before continuing.`;
 
-		const verificationSection = hubMode === "fast"
+		const verificationSection = !verificationActive ? "" : hubMode === "fast"
 			? `## Verification (fast mode)
 The assertion ledger is OPTIONAL in fast mode. State what was asked, dispatch the one
 specialist, and verify from its returned evidence (command output, file:line). If the
@@ -8473,7 +8663,7 @@ standard/strict instead of improvising rigor here.`
 		// Peer section only when coms initialised. Decision G4: the coms_* tools are
 		// already in the active tool surface when ready; here we just teach the
 		// dispatcher how and when to reach for them.
-		const comsSection = comsReady && identity
+		const comsSection = peerActive && comsReady && identity
 			? `
 ## Peer agents (coms)
 You are peer "${identity.name}" in project "${identity.project}". Use \`coms_list\` for the human-scoped pool and status; the Hub cannot widen it. Send one self-contained prompt, then await/get the returned msg_id without resending. Match send/await deadlines. Prefer team dispatch unless the task needs a standing peer, and never duplicate a dispatch to its same-name peer.
@@ -8481,7 +8671,12 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			: "";
 
 		const postureText = posturePrompt(posture);
-		const herdrSection = herdrFleetReady ? HUB_HERDR_SECTION : "";
+		const herdrSection = workspaceActive && herdrFleetReady ? HUB_HERDR_SECTION : "";
+		const compactionSection = compactionActive ? `
+## Context recovery
+- Context pressure is approaching or above the automatic recovery threshold. Keep tool output concise; redirect full test/package logs to files and inspect summaries or tails.
+- \`request_compaction\` is available for explicit recovery. Automatic recovery preserves task state and continues from the compaction summary.
+` : "";
 		const systemPrompt = assembleHubSystemPrompt({
 			intro: postureText.intro,
 			toolList,
@@ -8496,6 +8691,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			stateCapsule,
 			comsSection,
 			herdrSection,
+			compactionSection,
 			hardRules: postureText.hardRules,
 			ambiguityRule,
 			agentCatalog,
@@ -8516,7 +8712,17 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			researchCatalog,
 			comsSection,
 			herdrSection,
+			compactionSection,
 			dispatcherPersonaPrompt: dispatcherPersona?.systemPrompt,
+		})).concat(CAPABILITY_PACKS.map(pack => {
+			const status = capabilityResolution.active.includes(pack) ? "active"
+				: capabilityResolution.provisional.includes(pack) ? "provisional"
+				: (pack === "peer" && comsReady) || (pack === "workspace" && herdrFleetReady) ? "ready-inactive"
+				: pack === "peer" || pack === "workspace" ? "unavailable" : "inactive";
+			return component({
+				id: `hub/capability/${pack}`, plane: "hub", category: "system", label: `Capability ${pack}: ${status}`,
+				source: capabilityResolution.reasons[pack], persistence: "turn", visibility: "ui-only", confidence: "exact-chars", chars: 0,
+			});
 		}));
 
 		return { systemPrompt };
@@ -8524,8 +8730,207 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 
 	pi.on("before_agent_start", async (_event, _ctx) => buildHubSystemPrompt(true));
 
+	const AUTOMATIC_COMPACTION_INSTRUCTIONS = "Preserve the current goal, completed and open assertions, decisions, modified/read files, pending child or peer operations, blockers, and the concrete next step.";
+	type DeferredRecoveryInput = { text: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp" };
+	let automaticCompactionPending = false;
+	let automaticCompactionRunning = false;
+	let deferredReplayAllowance = 0;
+	const deferredRecoveryInputs: DeferredRecoveryInput[] = [];
+
+	function recordContextPressure(source: "message_end" | "turn_end" | "context" | "input" | "agent_settled" | "session_start" | "session_compact" | "compaction_callback", action: string, reason: string): void {
+		const diagnostic = contextPressureDiagnostic(contextPressureState);
+		try {
+			pi.appendEntry("agent-hub-context-pressure", {
+				version: 1,
+				source,
+				phase: diagnostic.phase,
+				pressure: diagnostic.pressure,
+				episode: diagnostic.episode,
+				tokens: diagnostic.tokens,
+				context_window: diagnostic.contextWindow,
+				percent: diagnostic.percent,
+				warning_percent: diagnostic.warningPercent,
+				automatic_percent: diagnostic.automaticPercent,
+				last_recovery_outcome: diagnostic.lastRecoveryOutcome,
+				action,
+				reason,
+			});
+		} catch { /* diagnostics are best-effort */ }
+	}
+
+	function updateContextPressureStatus(ctx: ExtensionContext): void {
+		const diagnostic = contextPressureDiagnostic(contextPressureState);
+		const percent = diagnostic.percent === null ? "unknown" : `${diagnostic.percent.toFixed(1)}%`;
+		ctx.ui.setStatus("context-pressure", `Context: ${contextPressureState.phase} · ${percent} · auto ${diagnostic.automaticPercent}% · last ${diagnostic.lastRecoveryOutcome}`);
+	}
+
+	function observeContextPressure(ctx: ExtensionContext, source: "message_end" | "turn_end" | "input" | "session_start", additionalTokens = 0): "none" | "expose-compaction" | "compact-now" {
+		const usage = ctx.getContextUsage();
+		const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? null;
+		const tokens = usage?.tokens == null ? null : usage.tokens + Math.max(0, additionalTokens);
+		const percent = tokens != null && contextWindow != null && contextWindow > 0
+			? tokens / contextWindow * 100
+			: usage?.percent ?? null;
+		const decision = transitionContextPressure(contextPressureState, {
+			type: "usage",
+			usage: { tokens, contextWindow, percent },
+		});
+		const previousPhase = contextPressureState.phase;
+		contextPressureState = decision.state;
+		updateContextPressureStatus(ctx);
+		resolveIncomingCapabilities("");
+		applyPostureTools();
+		if (decision.action !== "none" || previousPhase !== decision.state.phase) {
+			recordContextPressure(source, decision.action, decision.reason);
+		}
+		if (decision.action === "compact-now") {
+			automaticCompactionPending = true;
+			if (ctx.hasUI) ctx.ui.notify("Context reached 90%; pausing the tool loop for automatic compaction.", "warning");
+		}
+		return decision.action;
+	}
+
+	function markContextCompactionSucceeded(): void {
+		automaticCompactionPending = false;
+		if (contextPressureState.phase === "recovered") return;
+		const decision = transitionContextPressure(contextPressureState, { type: "compaction-succeeded" });
+		contextPressureState = decision.state;
+		if (currentCtx) updateContextPressureStatus(currentCtx);
+		resolveIncomingCapabilities("");
+		applyPostureTools();
+		recordContextPressure("session_compact", decision.action, decision.reason);
+	}
+
+	function replayDeferredRecoveryInputs(): void {
+		if (automaticCompactionPending || automaticCompactionRunning || deferredRecoveryInputs.length === 0) return;
+		const queued = deferredRecoveryInputs.splice(0);
+		deferredReplayAllowance += queued.length;
+		for (let index = 0; index < queued.length; index++) {
+			const input = queued[index];
+			const content = input.images?.length
+				? [{ type: "text" as const, text: input.text }, ...input.images]
+				: input.text;
+			pi.sendUserMessage(content, {
+				deliverAs: index === 0 ? input.streamingBehavior : "followUp",
+			});
+		}
+	}
+
+	function runAutomaticCompaction(ctx: ExtensionContext, source: "input" | "agent_settled" | "session_start"): void {
+		if (!automaticCompactionPending || automaticCompactionRunning) return;
+		automaticCompactionPending = false;
+		automaticCompactionRunning = true;
+		recordContextPressure(source, "compact-now", "automatic-threshold");
+		if (ctx.hasUI) ctx.ui.notify("Automatic context compaction started.", "warning");
+		ctx.compact({
+			customInstructions: AUTOMATIC_COMPACTION_INSTRUCTIONS,
+			onComplete: () => {
+				automaticCompactionRunning = false;
+				markContextCompactionSucceeded();
+				if (ctx.hasUI) ctx.ui.notify("Automatic context compaction completed.", "success");
+				replayDeferredRecoveryInputs();
+			},
+			onError: (error) => {
+				automaticCompactionRunning = false;
+				const failed = transitionContextPressure(contextPressureState, { type: "compaction-failed", error: "automatic compaction failed" });
+				contextPressureState = failed.state;
+				updateContextPressureStatus(ctx);
+				resolveIncomingCapabilities("");
+				applyPostureTools();
+				recordContextPressure("compaction_callback", failed.action, failed.reason);
+				if (ctx.hasUI) ctx.ui.notify(`Automatic compaction failed: ${error.message}. Deferred input is retained; run /compact or switch to a larger-context model.`, "error");
+			},
+		});
+	}
+
+	// A finalized tool result is already present in Agent state when message_end
+	// fires, so live usage includes its size. Abort synchronously here: compacting
+	// directly from turn_end races the next provider request in Pi 0.84.x.
+	pi.on("message_end", async (event, ctx) => {
+		if (event.message.role !== "toolResult") return;
+		// Pi persists the tool result after this hook, so project its model-visible
+		// content onto the last trusted usage sample. JSON includes text and image
+		// payload sizes while excluding non-contextual tool details.
+		const projectedResultTokens = estimatePromptTokens(JSON.stringify(event.message.content ?? []));
+		if (observeContextPressure(ctx, "message_end", projectedResultTokens) === "compact-now") ctx.abort();
+	});
+
+	pi.on("turn_end", async (_event, ctx) => {
+		observeContextPressure(ctx, "turn_end");
+	});
+
+	// Abort again at Pi's pre-model context boundary. The message_end abort can
+	// race agent-core's tool-loop continuation; this signal belongs to the next
+	// request and prevents a network call while recovery is pending.
+	pi.on("context", async (_event, ctx) => {
+		if (!automaticCompactionPending) return;
+		recordContextPressure("context", "compact-now", "single-flight");
+		ctx.abort();
+	});
+
+	// Wait until abort persistence and agent cleanup finish before compaction. This
+	// gives prepareCompaction the finalized tool result and prevents a continuation
+	// request from winning the race.
+	pi.on("agent_settled", async (_event, ctx) => {
+		runAutomaticCompaction(ctx, "agent_settled");
+	});
+
+	pi.on("session_compact", async () => {
+		markContextCompactionSucceeded();
+		if (!automaticCompactionRunning) setTimeout(replayDeferredRecoveryInputs, 0);
+	});
+
 	// ── Persona gate: block input until a dispatcher persona is picked ──
-	pi.on("input", async (_event, ctx) => {
+	function incomingText(event: unknown): string {
+		const value = event as { text?: unknown; message?: unknown; input?: unknown } | null;
+		if (typeof value?.text === "string") return value.text;
+		if (typeof value?.message === "string") return value.message;
+		if (typeof value?.input === "string") return value.input;
+		const message = value?.message as { content?: unknown } | undefined;
+		return typeof message?.content === "string" ? message.content : "";
+	}
+
+	pi.on("input", async (event, ctx) => {
+		const replayingDeferredRecoveryInput = event.source === "extension" && deferredReplayAllowance > 0;
+		if (replayingDeferredRecoveryInput) {
+			deferredReplayAllowance--;
+		} else {
+			// Session usage can already be over threshold before the first model turn
+			// (resume/startup). Sample it here as a final preflight, retain the exact
+			// input in memory, and replay only after compaction has completed.
+			if (contextPressureState.phase === "normal") observeContextPressure(ctx, "input");
+			if (automaticCompactionPending || automaticCompactionRunning || contextPressureState.phase === "failed") {
+				deferredRecoveryInputs.push({
+					text: event.text,
+					images: event.images ? [...event.images] : undefined,
+					streamingBehavior: event.streamingBehavior,
+				});
+				if (automaticCompactionPending && ctx.isIdle()) setTimeout(() => runAutomaticCompaction(ctx, "input"), 0);
+				ctx.ui.notify(
+					contextPressureState.phase === "failed"
+						? "Context recovery failed; input is retained. Run /compact or switch to a larger-context model."
+						: "Input retained until automatic context recovery completes.",
+					"warning",
+				);
+				return { action: "handled" as const };
+			}
+		}
+		if (replayingDeferredRecoveryInput && modelWorkBlockedByRosterRecovery(ctx)) {
+			// Compaction succeeded, but this resumed orchestrator still needs an
+			// explicit roster decision. Retain the exact replay payload again and
+			// resume it only after the live recovery command clears the gate.
+			deferredRecoveryInputs.push({
+				text: event.text,
+				images: event.images ? [...event.images] : undefined,
+				streamingBehavior: event.streamingBehavior,
+			});
+			return { action: "handled" as const };
+		}
+		if (modelWorkBlockedByRosterRecovery(ctx)) return { action: "handled" as const };
+		// Pi routes normal, resumed, and remote prompts through this hook before
+		// before_agent_start, so this local resolver changes the same request's surface.
+		resolveIncomingCapabilities(incomingText(event));
+		applyPostureTools();
 		if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
 			ctx.ui.notify("Pick a dispatcher persona first (see the select dialog).", "warning");
 			return { action: "handled" as const };
@@ -8537,6 +8942,14 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 
 	pi.on("session_start", async (_event, _ctx) => {
 		registerVersionStatus(_ctx);
+		contextPressureState = createContextPressureState();
+		updateContextPressureStatus(_ctx);
+		automaticCompactionPending = false;
+		automaticCompactionRunning = false;
+		deferredReplayAllowance = 0;
+		deferredRecoveryInputs.length = 0;
+		rosterRecoveryRequired = false;
+		rosterRecoveryDiagnostic = "";
 		// Capture the configured surface before Agent Hub applies either posture.
 		// Operator mode restores this baseline (minus gated Hub-owned tools).
 		baselineTools = pi.getActiveTools();
@@ -8953,22 +9366,49 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		personaGateEnabled = overrides.personaGate && orchestratorPersonas.length > 0;
 		personaGateSatisfied = !personaGateEnabled;
 
-		// A roster is opt-in. Resolve it before posture so --agent-team can imply
-		// orchestrator while an explicit --posture operator still wins.
+		// Explicit CLI selection wins; otherwise restore only the canonical team name
+		// and re-resolve it against current teams.yaml/persona files. An explicit
+		// operator posture suppresses an ambient persisted roster unless --agent-team
+		// was also supplied.
 		agentStates.clear();
 		activeTeamName = "";
 		comsMissNotified.clear();
 		recomputeGrid();
-		const startupRoster = resolveStartupRoster(teams, pi.getFlag("agent-team"));
-		posture = resolveSessionPosture({
-			entries: _ctx.sessionManager.getEntries(),
-			explicitPosture: pi.getFlag("posture"),
-			hasExplicitRoster: startupRoster !== null,
+		const sessionEntries = _ctx.sessionManager.getEntries();
+		const explicitPosture = pi.getFlag("posture");
+		const explicitRoster = pi.getFlag("agent-team");
+		const hasExplicitRoster = typeof explicitRoster === "string" && explicitRoster.trim() !== "";
+		const startupRoster = resolveSessionRoster({
+			teams,
+			entries: sessionEntries,
+			explicitRoster,
+			availablePersonas: allAgentDefs.map(def => def.name),
+			includePersisted: !(explicitPosture === "operator" && !hasExplicitRoster),
 		});
-		if (orchestratorNeedsRoster(posture, startupRoster?.members.length ?? 0)) {
-			throw new Error("Orchestrator posture requires --agent-team <name> with at least one native specialist.");
+		posture = resolveSessionPosture({
+			entries: sessionEntries,
+			explicitPosture,
+			hasExplicitRoster: startupRoster.source === "explicit",
+		});
+		if (startupRoster.roster) {
+			activateTeam(startupRoster.roster.name);
+			persistActiveRoster();
 		}
-		if (startupRoster) activateTeam(startupRoster.name);
+		rosterRecoveryRequired = orchestratorNeedsRoster(posture, agentStates.size);
+		rosterRecoveryDiagnostic = rosterRecoveryRequired
+			? startupRoster.diagnostic || "Persisted orchestrator posture has no native roster."
+			: "";
+		if (startupRoster.diagnostic) {
+			_ctx.ui.notify(
+				`${startupRoster.diagnostic} ${rosterRecoveryRequired ? "Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --posture operator." : "Continuing without that roster."}`,
+				rosterRecoveryRequired ? "error" : "warning",
+			);
+		} else if (rosterRecoveryRequired) {
+			_ctx.ui.notify(
+				`${rosterRecoveryDiagnostic} Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --posture operator.`,
+				"error",
+			);
+		}
 
 		// Probe for `ask_user` (registered by the `pi-ask-user` companion package
 		// when installed). Action methods like getAllTools are runtime-only, so
@@ -8978,7 +9418,15 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		// Fleet tools are available only inside a herdr pane with a live server.
 		// The posture policy adds gated groups without activating unavailable tools.
 		herdrFleetReady = herdrPaneId() !== null && (await herdrAvailable()) !== null;
+		const persistedCapabilities = latestPersistedCapabilityState(_ctx.sessionManager.getEntries());
+		taskCapabilityPacks = persistedCapabilities?.taskPacks ?? [];
+		taskProvisionalPacks = persistedCapabilities?.provisional ?? [];
+		capabilityConfirmation = persistedCapabilities?.confirmation ?? {};
+		resolveIncomingCapabilities("");
 		applyPostureTools();
+		if (observeContextPressure(_ctx, "session_start") === "compact-now") {
+			setTimeout(() => runAutomaticCompaction(_ctx, "session_start"), 0);
+		}
 		updatePostureStatus(_ctx);
 
 		_ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`);
@@ -9045,7 +9493,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 
 		// The persona gate restricts only orchestrator posture. Operators can work
 		// directly and choose a dispatcher persona later without being blocked.
-		if (posture === "orchestrator" && personaGateEnabled) {
+		if (posture === "orchestrator" && personaGateEnabled && !rosterRecoveryRequired) {
 			void pickDispatcherPersona(_ctx);
 		}
 

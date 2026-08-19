@@ -72,6 +72,8 @@ visible same-name peer and refuses without native fallback. The default
 `backend: "auto"` follows `dispatch-policy.yaml` and preserves its configured
 fallback behavior.
 
+Capability packs load automatically—do not run an activation command. Explicit task intent activates the matching ready surface; readiness alone never exposes coms or Herdr tools to the model. Ambiguous fleet/peer/workspace intent gets one confirmation before its first side effect, and active task packs persist until the explicit `/af-new-task` or `set_task_tier(new_task: true)` reset.
+
 Capability flags and runtime gates fail closed:
 
 - `--no-coms` keeps operator direct tools and native dispatch available, but
@@ -90,6 +92,35 @@ During the migration release, `just fleet hub`, `just fleet team <preset>`,
 canonical replacement. New automation should use `just fleet` with
 `--agents`, `--peers`, `--herdr`, and `--no-coms`; compatibility does not imply
 that the deprecated grammar will remain indefinitely.
+
+### Resume and recovery
+
+The Hub distinguishes the **pre-turn surface** (stable replacement prompt, volatile state capsule,
+and active tool schemas) from **intra-turn pressure** (conversation and tool results accumulated in
+the live model window). `/af-context` shows both. At 80% live usage the Hub warns and transiently makes
+compaction support available; at 90% it blocks the next provider continuation and requests a
+single automatic compaction after the current result is persisted. A prompt submitted during
+startup/recovery is retained in memory and replayed once after success.
+
+If automatic recovery fails, the prompt remains retained. Pi's built-in command is the bare-runtime
+fallback:
+
+```text
+/compact Preserve the current goal, decisions, modified files, pending operations, blockers, and next step.
+```
+
+You can also switch to a larger-context model. Do not try to make room by editing the session file.
+The JSONL shown by `/session` under `~/.pi/agent/sessions/` is Pi's authoritative append-only record;
+resume with `/resume`, `pi -c`, or `pi --session <path|id>`. Never edit, truncate, reorder, or add
+synthetic entries to recover from context pressure.
+
+A resumed orchestrator session may instead be blocked because its persisted team name no longer
+resolves against the current `.pi/agents/teams.yaml` and persona files. This is a fail-closed roster
+recovery gate: orchestrator posture and its direct-tool restrictions remain in force. Choose a valid
+team with `/af-agents-team`, restart publicly with `just fleet --agents <name>`, or explicitly choose
+operator posture with `/af-posture operator` / `just fleet --posture operator`. Direct Pi launches
+use `--agent-team <name>` or `--posture operator`. Explicit startup flags win over persisted state;
+fix missing or renamed team/persona declarations before selecting them.
 
 ## The overrides file — `.ai/agent-fleet-overrides.md`
 

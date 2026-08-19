@@ -49,7 +49,14 @@ export interface SpawnPiAgentOptions {
 	model: string;
 	tools: string;
 	thinking: string;
-	appendSystemPrompt: string;
+	/** Replacement prompt; mutually exclusive with appendSystemPrompt when spawning. */
+	systemPrompt?: string;
+	/** Prompt appended to Pi's inherited prompt (legacy/default child policy). */
+	appendSystemPrompt?: string;
+	/** Disable automatic global skill discovery for a minimized child. */
+	noSkills?: boolean;
+	/** Disable AGENTS.md/CLAUDE.md and other automatic context-file discovery. */
+	noContextFiles?: boolean;
 	sessionFile: string;
 	resume?: boolean;
 	prompt: string;
@@ -122,11 +129,16 @@ export function spawnPiAgent(
 	opts: SpawnPiAgentOptions,
 	cbs: SpawnPiAgentCallbacks = {},
 ): Promise<SpawnPiAgentResult> {
+	const promptArg = opts.systemPrompt !== undefined
+		? ["--system-prompt", opts.systemPrompt]
+		: ["--append-system-prompt", opts.appendSystemPrompt ?? ""];
 	const args = [
 		"--mode", "json", "-p", "--no-extensions",
+		...(opts.noSkills ? ["--no-skills"] : []),
+		...(opts.noContextFiles ? ["--no-context-files"] : []),
 		...(opts.extensions || []).flatMap(e => ["-e", e]),
 		"--model", opts.model, "--tools", opts.tools, "--thinking", opts.thinking,
-		"--append-system-prompt", opts.appendSystemPrompt, "--session", opts.sessionFile,
+		...promptArg, "--session", opts.sessionFile,
 	];
 	if (opts.resume) args.push("-c");
 

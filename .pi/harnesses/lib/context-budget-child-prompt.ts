@@ -4,15 +4,9 @@ import { externalBlockedProtocol } from "../agent-hub/external-blocker.js";
 export { DELEGATE_TREE_SPAWN_BUDGET };
 export const RESEARCH_TOOLS = "read,grep,find,ls";
 export const MAX_AUTO_RESEARCH_QUESTIONS = 4;
-
-export const RESEARCH_PROTOCOL = `
-
-## You are a READ-ONLY research helper
-You can ONLY read, search, and list files (tools: read, grep, find, ls). You CANNOT
-edit, write, or run shell/bash commands — they are not available to you. Investigate
-what you're asked, then report findings concisely, citing concrete locations as
-path:line. Do not propose or attempt edits; another agent will act on your findings.
-If something can't be found or is ambiguous, say so plainly rather than guessing.`;
+/** Deterministic reference estimate: four serialized characters per token. */
+export const RESEARCH_STANDING_TOKEN_CEILING = 3_000;
+export const RESEARCH_TOKEN_CHARS = 4;
 
 export function buildClarificationProtocol(userLanguage: string, maxQuestions = MAX_AUTO_RESEARCH_QUESTIONS): string {
 	return `
@@ -74,45 +68,88 @@ export interface ChildPromptParts {
 	chars: number;
 }
 
+export interface SpecialistContextManifest {
+	persona: { name: string; sourcePath: string; primarySkillPaths: string[] };
+	taskSkillPaths: string[];
+	projectPolicy: { rulesPaths: string[]; docsPaths: string[] };
+	flags: { assertions: boolean; scope: boolean; artifacts: boolean };
+	delegateRoles: string[];
+	protocolIds: string[];
+}
+
+const skillPaths = (text: string) => [...new Set(text.match(/(?:^|[\s`(])((?:\.?\/?skills\/)[\w./-]+\/SKILL\.md)/g) ?? [])]
+	.map(match => match.match(/((?:\.?\/?skills\/)[\w./-]+\/SKILL\.md)/)?.[1] ?? "")
+	.filter(Boolean);
+
+export function buildSpecialistContextManifest(input: {
+	personaName: string;
+	personaPath: string;
+	personaPrompt: string;
+	task: string;
+	rulesPaths: readonly string[];
+	docsPaths: readonly string[];
+	hasAssertions: boolean;
+	hasScope: boolean;
+	hasArtifacts: boolean;
+	delegateRoles: readonly string[];
+}): SpecialistContextManifest {
+	const protocolIds = ["clarification", "external-blocker", "research", "deliverable"];
+	if (input.rulesPaths.length) protocolIds.push("rules");
+	if (input.docsPaths.length) protocolIds.push("docs");
+	if (input.hasAssertions) protocolIds.push("verification");
+	if (input.delegateRoles.length) protocolIds.push("delegation");
+	return {
+		persona: { name: input.personaName, sourcePath: input.personaPath, primarySkillPaths: skillPaths(input.personaPrompt) },
+		taskSkillPaths: skillPaths(input.task),
+		projectPolicy: { rulesPaths: [...input.rulesPaths], docsPaths: [...input.docsPaths] },
+		flags: { assertions: input.hasAssertions, scope: input.hasScope, artifacts: input.hasArtifacts },
+		delegateRoles: [...input.delegateRoles],
+		protocolIds,
+	};
+}
+
+export function nativeSpecialistSystemPrompt(input: { manifest: SpecialistContextManifest; userLanguage: string; agentKey: string; runNumber: number }): string {
+	const { manifest } = input;
+	const paths = (label: string, values: string[]) => values.length ? `\n${label}: ${values.join(", ")}` : "";
+	const framing = [
+		"Task is supplied via stdin.",
+		...(manifest.flags.scope ? ["Declared scope is supplied via stdin."] : []),
+		...(manifest.flags.artifacts ? ["Artifact paths are supplied via stdin."] : []),
+	];
+	const references = `# Managed Specialist\nPersona: ${manifest.persona.name}; source: ${manifest.persona.sourcePath}.${paths("Primary skills", manifest.persona.primarySkillPaths)}${paths("Task-selected skills", manifest.taskSkillPaths)}${paths("Applicable project rules", manifest.projectPolicy.rulesPaths)}${paths("Applicable project docs", manifest.projectPolicy.docsPaths)}\n${framing.join(" ")} Read the persona source before work and applicable project rules before edits or commands. Read only the named skill and documentation paths when relevant; do not discover global skills or context files.`;
+	let prompt = references + buildClarificationProtocol(input.userLanguage);
+	if (manifest.flags.assertions) prompt += "\n\n## Verification\nRead skills/orchestration-verification/SKILL.md for the structured return contract; apply the assertions supplied in the task.";
+	if (manifest.delegateRoles.length) prompt += buildDelegationProtocol(manifest.delegateRoles);
+	prompt += buildDeliverableProtocol(input.agentKey, input.runNumber);
+	return prompt;
+}
+
 export function specialistStandingParts(input: {
-	personaChars: number;
+	replacementPrompt: string;
 	toolChars: number;
-	basePromptChars: number;
-	docsProtocol: string;
-	rulesProtocol: string;
-	userLanguage: string;
-	delegateRoles?: readonly string[];
-	agentKey?: string;
-	runNumber?: number;
 }): ChildPromptParts[] {
-	const clarification = buildClarificationProtocol(input.userLanguage);
-	const delegation = buildDelegationProtocol(input.delegateRoles ?? []);
-	const deliverable = buildDeliverableProtocol(input.agentKey ?? "<persona>", input.runNumber ?? 0);
 	return [
-		{ id: "persona", category: "persona", label: "Full persona", chars: input.personaChars },
+		{ id: "specialist-replacement", category: "system", label: "Replacement specialist manifest prompt", chars: input.replacementPrompt.length },
 		{ id: "child-tools", category: "tool", label: "Configured child tools", chars: input.toolChars },
-		{ id: "pi-base", category: "system", label: "Pi child base prompt inputs", chars: input.basePromptChars },
-		{ id: "docs-protocol", category: "protocol", label: "Project docs protocol", chars: input.docsProtocol.length },
-		{ id: "clarification-protocol", category: "protocol", label: "Clarification and external-blocker protocols", chars: clarification.length },
-		{ id: "rules-protocol", category: "protocol", label: "Project rules protocol", chars: input.rulesProtocol.length },
-		{ id: "delegation-protocol", category: "protocol", label: "Delegation protocol", chars: delegation.length },
-		{ id: "deliverable-protocol", category: "protocol", label: "Deliverable and artifact framing", chars: deliverable.length },
+		{ id: "pi-base", category: "system", label: "Pi child base prompt inputs", chars: 0 },
 	];
 }
 
 export function researchStandingParts(input: {
-	personaChars: number;
+	replacementPrompt: string;
 	toolChars: number;
 	basePromptChars: number;
-	docsProtocol: string;
 }): ChildPromptParts[] {
-	return [
-		{ id: "persona", category: "persona", label: "Full persona", chars: input.personaChars },
-		{ id: "child-tools", category: "tool", label: "Configured child tools", chars: input.toolChars },
-		{ id: "pi-base", category: "system", label: "Pi child base prompt inputs", chars: input.basePromptChars },
-		{ id: "docs-protocol", category: "protocol", label: "Project docs protocol", chars: input.docsProtocol.length },
-		{ id: "research-protocol", category: "protocol", label: "Read-only research protocol", chars: RESEARCH_PROTOCOL.length },
+	const parts = [
+		{ id: "research-replacement", category: "system" as const, label: "Replacement read-only research prompt", chars: input.replacementPrompt.length },
+		{ id: "child-tools", category: "tool" as const, label: "Configured child tools", chars: input.toolChars },
+		{ id: "pi-base", category: "system" as const, label: "Pi child base prompt inputs", chars: input.basePromptChars },
 	];
+	const standingChars = parts.reduce((sum, part) => sum + part.chars, 0);
+	if (Math.ceil(standingChars / RESEARCH_TOKEN_CHARS) > RESEARCH_STANDING_TOKEN_CEILING) {
+		throw new Error(`Research standing overhead exceeds ${RESEARCH_STANDING_TOKEN_CEILING} estimated tokens`);
+	}
+	return parts;
 }
 
 export function delegateStandingParts(input: {
@@ -127,23 +164,16 @@ export function delegateStandingParts(input: {
 	];
 }
 
-export function nativeSpecialistAppendedPrompt(input: {
-	systemPrompt: string;
-	userLanguage: string;
-	rulesProtocol: string;
-	docsProtocol: string;
-	delegateRoles?: readonly string[];
-	agentKey: string;
-	runNumber: number;
+export function nativeResearchSystemPrompt(input: {
+	personaName?: string;
+	personaPath?: string;
+	cwd: string;
 }): string {
-	return input.systemPrompt
-		+ buildClarificationProtocol(input.userLanguage)
-		+ input.rulesProtocol
-		+ input.docsProtocol
-		+ buildDelegationProtocol(input.delegateRoles ?? [])
-		+ buildDeliverableProtocol(input.agentKey, input.runNumber);
-}
-
-export function nativeResearchAppendedPrompt(systemPrompt: string, docsProtocol: string): string {
-	return systemPrompt + RESEARCH_PROTOCOL + docsProtocol;
+	const persona = input.personaName && input.personaPath
+		? `\nSelected persona: ${input.personaName}. Its source is ${input.personaPath}; read that one file only when its role guidance is needed.`
+		: "\nNo persona is selected; act as a general research helper.";
+	return `# Read-only Research Helper
+You investigate the requested repository topic for a parent agent. Your only tools are read, grep, find, and ls. Do not edit, write, run bash, delegate, or claim those tools are available.${persona}
+Working directory: ${input.cwd}
+Task input may name artifact paths; inspect only paths relevant to that task. Report concise findings with concrete path:line citations. State uncertainty or missing evidence plainly. Return findings only; do not propose or attempt edits.`;
 }

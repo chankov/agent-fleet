@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildContextBudgetSnapshot, collectContextBudgetSnapshot } from "./context-budget-snapshot.ts";
+import { component } from "../lib/context-budget.ts";
 
 const ledger = [{ id: "hub/intro", plane: "hub" as const, category: "system" as const, label: "Hub intro", persistence: "turn" as const, visibility: "model-visible" as const, confidence: "exact-chars" as const, chars: 6, estimatedTokens: 2 }];
 
@@ -100,6 +101,41 @@ test("known local delegates project standing parts; unresolved peers stay unavai
 	assert.equal(snapshot.planes[1].components[0].confidence, "unavailable");
 	assert.equal(snapshot.planes[1].summary.window, undefined);
 	assert.equal(snapshot.planes[1].summary.occupancyPercent, 22);
+});
+
+test("pack diagnostics are metadata-only and do not change model-visible attribution", () => {
+	const snapshot = buildContextBudgetSnapshot({
+		systemPrompt: "core policy",
+		ledger: [
+			component({ id: "hub/policy/core", plane: "hub", category: "system", label: "Core", persistence: "fixed", visibility: "model-visible", confidence: "exact-chars", chars: 11 }),
+			...(["active", "provisional", "ready-but-inactive", "unavailable"] as const).map(status => component({ id: `hub/capability/${status}`, plane: "hub", category: "system", label: `Capability peer: ${status}`, persistence: "turn", visibility: "ui-only", confidence: "exact-chars", chars: 0 })),
+		],
+	});
+	for (const status of ["active", "provisional", "ready-but-inactive", "unavailable"]) {
+		const entry = snapshot.components.find(item => item.id === `hub/capability/${status}`)!;
+		assert.equal(entry.visibility, "ui-only");
+		assert.equal(entry.adjustedTokens, 0);
+	}
+	assert.equal(snapshot.hub.summary.attributedTokens, 3);
+	assert.doesNotMatch(JSON.stringify(snapshot), /raw user text/);
+});
+
+test("pressure diagnostics add zero model-visible attribution and retain no error body", () => {
+	const snapshot = buildContextBudgetSnapshot({
+		window: 100_000,
+		usage: { input: 85_000 },
+		systemPrompt: "stable prompt",
+		pressure: {
+			phase: "warning", pressure: "approaching", episode: 2,
+			tokens: 85_000, contextWindow: 100_000, percent: 85,
+			warningPercent: 80, automaticPercent: 90, lastRecoveryOutcome: "failed",
+		},
+	});
+	assert.equal(snapshot.pressure?.phase, "warning");
+	assert.equal(snapshot.pressure?.lastRecoveryOutcome, "failed");
+	assert.equal(snapshot.hub.summary.attributedTokens, 4, "pressure metadata does not become a model component");
+	assert.ok(!snapshot.components.some(component => component.id.includes("pressure")));
+	assert.doesNotMatch(JSON.stringify(snapshot), /raw prompt|tool output|credential|compaction summary/);
 });
 
 test("collector invokes only documented read surfaces", () => {

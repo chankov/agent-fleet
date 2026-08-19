@@ -87,6 +87,21 @@ test("policy duplication guard keeps detailed protocols out of the Hub persona",
 	for (const duplicatedParagraph of ["Cap the open ledger at 8", "Give a peer time, not retries", "ASK_USER:", "NEEDS_RESEARCH:"]) assert.doesNotMatch(persona, new RegExp(duplicatedParagraph));
 });
 
+test("inactive pack policy fragments are absent and active fragments are attributed deterministically", () => {
+	const inactive = { ...representativeParts("operator", false), dispatchSection: "", verificationSection: "", comsSection: "", herdrSection: "", compactionSection: "", agentCatalog: "", researchCatalog: "", agentCards: [], researchCards: [] };
+	const inactivePrompt = assembleHubSystemPrompt(inactive);
+	const inactiveLedger = recordHubLedger(inactivePrompt, namedHubLedgerParts(inactive));
+	for (const id of ["hub/policy/dispatch", "hub/policy/verification", "hub/policy/coms", "hub/policy/workspace", "hub/policy/compaction"]) {
+		assert.equal(inactiveLedger.find(entry => entry.id === id)?.chars, 0, `${id} must cost zero`);
+	}
+	assert.doesNotMatch(inactivePrompt, /Native Roster|Verification Contract|Peer agents|Fleet \(herdr\)|Context recovery/);
+
+	const active = { ...representativeParts("orchestrator", true), compactionSection: "## Context recovery\n- request_compaction is active." };
+	const activeLedger = recordHubLedger(assembleHubSystemPrompt(active), namedHubLedgerParts(active));
+	assert.ok((activeLedger.find(entry => entry.id === "hub/policy/compaction")?.chars ?? 0) > 0);
+	assert.equal(activeLedger.reduce((sum, entry) => sum + entry.chars, 0), assembleHubSystemPrompt(active).length);
+});
+
 test("herdr is actual, zero, or unavailable — never an enabled placeholder", () => {
 	const off = representativeParts("orchestrator", false);
 	const offLedger = recordHubLedger(assembleHubSystemPrompt(off), namedHubLedgerParts(off));

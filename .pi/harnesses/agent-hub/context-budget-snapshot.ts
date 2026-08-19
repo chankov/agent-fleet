@@ -1,4 +1,5 @@
 import { component, reconcilePlane, safeSchemaChars, type ContextBudgetComponent, type ContextPlane } from "../lib/context-budget.ts";
+import type { ContextPressureDiagnostic } from "./context-pressure.ts";
 
 export interface Usage { input?: number; cacheRead?: number; cacheWrite?: number; output?: number; reasoning?: number; total?: number; cost?: number; }
 export interface ProjectionPart { id: string; category: ContextBudgetComponent["category"]; label: string; chars: number; }
@@ -9,8 +10,9 @@ export interface SnapshotInput {
 	activeToolNames?: readonly string[];
 	commands?: readonly { name: string; description?: string; source?: string; sourceInfo?: { path?: string; source?: string } }[];
 	conversation?: readonly unknown[]; ledger?: readonly ContextBudgetComponent[]; planes?: readonly LivePlane[];
+	pressure?: ContextPressureDiagnostic;
 }
-export interface ContextBudgetSnapshot { estimator: "chars/4-v1"; capturedAt: number; model?: string; hub: ReturnType<typeof reconcilePlane>; components: ContextBudgetComponent[]; planes: ReturnType<typeof reconcilePlane>[]; usage: Usage; }
+export interface ContextBudgetSnapshot { estimator: "chars/4-v1"; capturedAt: number; model?: string; hub: ReturnType<typeof reconcilePlane>; components: ContextBudgetComponent[]; planes: ReturnType<typeof reconcilePlane>[]; usage: Usage; pressure?: ContextPressureDiagnostic; }
 
 const chars = (value: unknown) => typeof value === "string" ? value.length : safeSchemaChars(value);
 const entry = (id: string, category: ContextBudgetComponent["category"], label: string, size: number, visibility: ContextBudgetComponent["visibility"] = "model-visible", source?: string) => component({ id, plane: "hub", category, label, source, persistence: "turn", visibility, confidence: "heuristic", chars: size });
@@ -72,7 +74,7 @@ export function buildContextBudgetSnapshot(input: SnapshotInput): ContextBudgetS
 		if (plane.tokens === undefined && number(plane.percent) !== undefined) result.summary.occupancyPercent = number(plane.percent);
 		return result;
 	});
-	return { estimator: "chars/4-v1", capturedAt: Date.now(), model: input.model, hub, components: [...hub.components, ...(hub.residual ? [hub.residual] : [])], planes, usage };
+	return { estimator: "chars/4-v1", capturedAt: Date.now(), model: input.model, hub, components: [...hub.components, ...(hub.residual ? [hub.residual] : [])], planes, usage, pressure: input.pressure };
 }
 
 /** Pull only Pi's documented read APIs; no send/compact/session write is used here. */

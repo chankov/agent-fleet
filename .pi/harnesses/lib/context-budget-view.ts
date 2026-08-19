@@ -94,9 +94,14 @@ export function renderContextBudget(snapshot: ContextBudgetSnapshot, state: Cont
 	const rows = contextBudgetRows(snapshot, state.expanded); reconcileSelection(state.selection, rows);
 	keepSelectionVisible(state, rows, Math.max(0, height - 2));
 	const hub = snapshot.hub.summary;
-	const header = ansiTruncate(`CONTEXT BUDGET  ${snapshot.model ?? "model unknown"} · ${tokens(hub.measuredTokens)} / ${tokens(hub.window)} (${pct(hub.occupancyPercent)}) · ${snapshot.estimator}`, Math.max(1, width));
+	const pressure = snapshot.pressure;
+	const pressureLabel = pressure ? ` · pressure ${pressure.phase}` : "";
+	const header = ansiTruncate(`CONTEXT BUDGET  ${snapshot.model ?? "model unknown"} · ${tokens(hub.measuredTokens)} / ${tokens(hub.window)} (${pct(hub.occupancyPercent)})${pressureLabel} · ${snapshot.estimator}`, Math.max(1, width));
 	const visible = rows.slice(state.scrollOffset, state.scrollOffset + Math.max(0, height - 2));
 	const body = visible.map((row) => ansiTruncate(`${state.selection.key === row.key ? ">" : " "} ${row.label} — ${row.detail}`, Math.max(1, width)));
-	const footer = ansiTruncate(`Attributed ${tokens(hub.attributedTokens)} · residual ${tokens(hub.residualTokens)} · ↑↓ Enter r q`, Math.max(1, width));
+	const recovery = pressure
+		? `warn ${pressure.warningPercent}% · auto ${pressure.automaticPercent}% · last ${pressure.lastRecoveryOutcome} · `
+		: "";
+	const footer = ansiTruncate(`${recovery}Attributed ${tokens(hub.attributedTokens)} · residual ${tokens(hub.residualTokens)} · ↑↓ Enter r q`, Math.max(1, width));
 	return fitToHeight([header, ...fitToHeight(body, Math.max(0, height - 2)), footer], height);
 }

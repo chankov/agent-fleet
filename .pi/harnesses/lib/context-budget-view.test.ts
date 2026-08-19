@@ -10,11 +10,24 @@ const snapshot = buildContextBudgetSnapshot({
 	systemPrompt: "prompt",
 	tools: Array.from({ length: 20 }, (_, i) => ({ name: `tool-${i}`, description: "x" })),
 	planes: [{ id: "specialist/b", label: "Builder", plane: "specialist", window: 200, tokens: 40 }],
+	pressure: {
+		phase: "warning", pressure: "approaching", episode: 1,
+		tokens: 20, contextWindow: 1000, percent: 2,
+		warningPercent: 80, automaticPercent: 90, lastRecoveryOutcome: "none",
+	},
 });
 const state = (): ContextBudgetViewState => ({ selection: { index: 0 }, expanded: new Set(), scrollOffset: 0 });
 for (const [width, height] of [[40, 3], [80, 10], [160, 30]] as const) {
 	test(`view is fixed-height at ${width} columns`, () => assert.equal(renderContextBudget(snapshot, state(), width, height).length, height));
 }
+test("view renders pressure phase, thresholds, and last recovery outcome", () => {
+	const rendered = renderContextBudget(snapshot, state(), 180, 8).join("\n");
+	assert.match(rendered, /pressure warning/);
+	assert.match(rendered, /warn 80%/);
+	assert.match(rendered, /auto 90%/);
+	assert.match(rendered, /last none/);
+});
+
 test("visible rows have globally stable keys and navigation reaches children, categories, and planes", () => {
 	const categories = ["system", "project", "roster", "tool", "addon", "skill", "conversation"] as const;
 	const rich = buildContextBudgetSnapshot({

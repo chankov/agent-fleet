@@ -101,10 +101,10 @@ test("context collector remains metadata-only and peer windows are never fabrica
 	assert.match(source, /specialistStandingParts/);
 	assert.match(source, /researchStandingParts/);
 	assert.match(source, /delegateStandingParts/);
-	assert.match(source, /buildClarificationProtocol/);
-	assert.match(source, /buildDeliverableProtocol/);
-	assert.match(childPrompt, /Clarification and external-blocker protocols/);
-	assert.match(childPrompt, /Deliverable and artifact framing/);
+	assert.match(childPrompt, /function buildClarificationProtocol/);
+	assert.match(childPrompt, /function buildDeliverableProtocol/);
+	assert.match(childPrompt, /Clarification protocol/);
+	assert.match(childPrompt, /Deliverable-to-file protocol/);
 	assert.match(childPrompt, /Resolved delegate role protocol/);
 	assert.match(source, /projectionParts, attribution: "projected"/);
 	assert.match(source, /attribution: "unavailable"/);

@@ -18,6 +18,7 @@ import {
 	hasDisabledExtensionDiscovery,
 	installAskUserRemote,
 	MISSING_STOCK_ASK_USER_MESSAGE,
+	observeAskUserResults,
 	resolveRemoteProject,
 	resolveStockAskUserModule,
 	stockAskUserCandidatePaths,
@@ -87,6 +88,21 @@ test("with no remote peer, wrapper calls stock execute with original args and re
 	assert.equal(wrapped.renderCall, tool.renderCall);
 	assert.equal(wrapped.renderResult, tool.renderResult);
 	assert.equal(wrapped.parameters, COMPACT_ASK_USER_PARAMETERS);
+});
+
+test("typed ask-result observer sees compact marker and local cancellation without changing fallback behavior", async () => {
+	const observed: any[] = [];
+	const stop = observeAskUserResults((observation) => observed.push(observation));
+	try {
+		const wrapped = wrapAskUserTool(stockTool({ execute: async () => ({ details: { cancelled: true, response: null } }) }), { startRemote: () => null });
+		await wrapped.execute("confirmation", { question: "Confirm?", context: "[[agent-hub-capability-confirmation:fleet]]", options: ["Confirm", "Reject", "Cancel"] });
+		assert.deepEqual(observed.map(({ phase, params, result }) => ({ phase, context: params.context, cancelled: result?.details?.cancelled })), [
+			{ phase: "start", context: "[[agent-hub-capability-confirmation:fleet]]", cancelled: undefined },
+			{ phase: "result", context: "[[agent-hub-capability-confirmation:fleet]]", cancelled: true },
+		]);
+	} finally {
+		stop();
+	}
 });
 
 test("compact facade keeps Hub question semantics while hiding UI preferences", () => {

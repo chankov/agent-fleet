@@ -35,6 +35,26 @@ interface InstallOptions {
 	remoteProject?: string | (() => string);
 }
 
+export interface AskUserResultObservation {
+	params: { question?: unknown; context?: unknown; options?: unknown };
+	result?: unknown;
+	phase: "start" | "result";
+}
+
+const askUserResultObservers = new Set<(observation: AskUserResultObservation) => void>();
+
+/** Observe compact ask calls without inspecting human prose. */
+export function observeAskUserResults(observer: (observation: AskUserResultObservation) => void): () => void {
+	askUserResultObservers.add(observer);
+	return () => askUserResultObservers.delete(observer);
+}
+
+function emitAskUserObservation(observation: AskUserResultObservation): void {
+	for (const observer of askUserResultObservers) {
+		try { observer(observation); } catch { /* observers cannot break asking */ }
+	}
+}
+
 interface ResolveStockOptions {
 	moduleUrl?: string;
 	cwd?: string;
@@ -363,6 +383,7 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 		parameters: COMPACT_ASK_USER_PARAMETERS,
 		async execute(toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: any, ctx?: any) {
 			const stockParams = compactAskUserParams(params);
+			emitAskUserObservation({ params: stockParams, phase: "start" });
 			const configuredProject = typeof options.remoteProject === "function" ? options.remoteProject() : options.remoteProject;
 			const remoteProject = configuredProject ?? process.env.PI_COMS_PROJECT?.trim() ?? "default";
 			const startRemote = options.startRemote ?? ((remoteParams: any) => defaultStartRemote(remoteParams, remoteProject));
@@ -374,10 +395,12 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 			}
 
 			if (!remoteStart) {
-				return await stockTool.execute?.(toolCallId, stockParams, signal, onUpdate, ctx);
+				const result = await stockTool.execute?.(toolCallId, stockParams, signal, onUpdate, ctx);
+				emitAskUserObservation({ params: stockParams, result, phase: "result" });
+				return result;
 			}
 
-			return await raceAskUser({
+			const result = await raceAskUser({
 				runLocal: (localSignal: AbortSignal) => stockTool.execute?.(toolCallId, stockParams, localSignal, onUpdate, ctx),
 				startRemote: () => remoteStart,
 				cancelRemote: options.cancelRemote ?? ((qid: string, reason: string) => defaultCancelRemote(qid, reason, remoteProject)),
@@ -388,6 +411,8 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 				},
 				signal,
 			});
+			emitAskUserObservation({ params: stockParams, result, phase: "result" });
+			return result;
 		},
 	};
 }

@@ -17,6 +17,7 @@ export interface HubPromptParts {
 	verificationSection: string;
 	comsSection: string;
 	herdrSection: string;
+	compactionSection?: string;
 	hardRules: string;
 	ambiguityRule: string;
 	agentCatalog: string;
@@ -40,11 +41,7 @@ export function assembleHubSystemPrompt(parts: HubPromptParts): string {
 	const team = parts.activeTeamName || "(none)";
 	const members = parts.teamMembers || "(none — add a persona before using dispatch_agent)";
 	const state = parts.stateCapsule ? `\n${parts.stateCapsule}\n` : "";
-	const policy = `${parts.intro} You have ${parts.toolList}.
-
-## Language
-${parts.languageLines}
-
+	const fleet = parts.dispatchSection ? `
 ## Native Roster: ${team}
 Members: ${members}
 Dispatch only listed agents. The roster may change through its Fleet commands or \`team_adjust\` when it genuinely cannot serve the task; more personas is usually the wrong answer.
@@ -54,20 +51,10 @@ ${parts.dispatchSection}
 - Choose \`backend: native\` only for an explicitly requested local Pi specialist, \`backend: coms\` only for an explicitly requested live same-name peer, and \`backend: auto\` otherwise. Never substitute an explicit backend.
 - Review results, follow up when needed, and summarize for the user in ${parts.userLanguage}.
 
-${parts.askUserBlock}
-
-${parts.modeSection}${state}
-${parts.verificationSection}
-
 ## Research helpers (read-only)
 - \`spawn_research\` is read-only (read/grep/find/ls; no bash or writes). Use it for necessary reconnaissance, not to read a return artifact you already have.
 - Choose a light persona for simple reads and a stronger one for ambiguous, cross-cutting, or high-stakes research.
 - Specialists cannot spawn helpers; run necessary research and pass its findings or artifact path to the specialist.
-${parts.comsSection}${parts.herdrSection}
-## Hard Rules
-${parts.hardRules}
-${parts.ambiguityRule}
-- Keep each dispatch focused and use the returned evidence before reporting completion.
 
 ## Agents
 
@@ -75,7 +62,21 @@ ${parts.agentCatalog}
 
 ## Research personas
 
-${parts.researchCatalog}`;
+${parts.researchCatalog}
+` : "";
+	const verification = parts.verificationSection ? `\n${parts.verificationSection}\n` : "";
+	const policy = `${parts.intro} You have ${parts.toolList}.
+
+## Language
+${parts.languageLines}${fleet}
+${parts.askUserBlock}
+
+${parts.modeSection}${state}${verification}
+${parts.comsSection}${parts.herdrSection}${parts.compactionSection ?? ""}
+## Hard Rules
+${parts.hardRules}
+${parts.ambiguityRule}
+- Keep each dispatch focused and use the returned evidence before reporting completion.`;
 	return parts.dispatcherPersonaPrompt ? `${parts.dispatcherPersonaPrompt}\n\n${policy}` : policy;
 }
 
@@ -84,7 +85,7 @@ export interface NamedHubPart { id: string; text: string; category: ContextCateg
 export function namedHubLedgerParts(input: {
 	intro: string; languageLines: string; teamMembers: string; agentCards: readonly { id: string; text: string }[];
 	dispatchSection: string; modeSection: string; verificationSection: string; researchCards: readonly { id: string; text: string }[];
-	researchCatalog: string; comsSection: string; herdrSection: string; stateCapsule?: string; dispatcherPersonaPrompt?: string;
+	researchCatalog: string; comsSection: string; herdrSection: string; compactionSection?: string; stateCapsule?: string; dispatcherPersonaPrompt?: string;
 }): NamedHubPart[] {
 	return [
 		{ id: "hub/policy/posture", text: input.intro, category: "system", persistence: "fixed", source: "posture.ts" },
@@ -98,6 +99,7 @@ export function namedHubLedgerParts(input: {
 		...(input.researchCards.length ? input.researchCards.map(card => ({ id: `hub/research/${card.id}`, text: card.text, category: "persona" as const, persistence: "session" as const, source: "research-persona" })) : [{ id: "hub/research-empty", text: input.researchCatalog, category: "persona" as const, persistence: "session" as const, source: "research-persona" }]),
 		{ id: "hub/policy/coms", text: input.comsSection, category: "protocol", persistence: "fixed", source: "coms" },
 		{ id: "hub/policy/workspace", text: input.herdrSection, category: "protocol", persistence: "fixed", source: "herdr" },
+		{ id: "hub/policy/compaction", text: input.compactionSection ?? "", category: "protocol", persistence: "fixed", source: "compaction" },
 		{ id: "hub/persona", text: input.dispatcherPersonaPrompt ?? "", category: "persona", persistence: "session", source: "dispatcher-persona" },
 	];
 }

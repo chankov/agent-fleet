@@ -350,6 +350,48 @@ test("root and harness runtime deps pin the same pi-ask-user range", () => {
   );
 });
 
+test("active runtime lockfiles stay above audited vulnerable version floors", () => {
+  const locks = {
+    root: JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8")),
+    extensions: JSON.parse(readFileSync(join(root, ".pi", "extensions", "package-lock.json"), "utf8")),
+    harnesses: JSON.parse(readFileSync(join(root, ".pi", "harnesses", "package-lock.json"), "utf8")),
+  };
+  const floors = [
+    ["root", "node_modules/@earendil-works/pi-coding-agent", "0.84.2"],
+    ["root", "node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion", "5.0.9"],
+    ["root", "node_modules/@earendil-works/pi-coding-agent/node_modules/undici", "8.9.0"],
+    ["root", "node_modules/@earendil-works/pi-coding-agent/node_modules/protobufjs", "7.6.5"],
+    ["root", "node_modules/fast-uri", "3.1.5"],
+    ["root", "node_modules/ip-address", "10.5.0"],
+    ["root", "node_modules/hono", "4.12.34"],
+    ["root", "node_modules/@hono/node-server", "1.19.15"],
+    ["root", "node_modules/js-yaml", "4.3.1"],
+    ["root", "node_modules/read-yaml-file/node_modules/js-yaml", "3.15.1"],
+    ["extensions", "node_modules/fast-uri", "3.1.5"],
+    ["extensions", "node_modules/express-rate-limit", "8.6.0"],
+    ["extensions", "node_modules/ip-address", "10.5.0"],
+    ["extensions", "node_modules/hono", "4.12.34"],
+    ["extensions", "node_modules/@hono/node-server", "1.19.15"],
+    ["extensions", "node_modules/body-parser", "2.3.0"],
+    ["extensions", "node_modules/qs", "6.15.2"],
+    ["harnesses", "node_modules/@earendil-works/pi-coding-agent", "0.84.2"],
+    ["harnesses", "node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion", "5.0.9"],
+    ["harnesses", "node_modules/@earendil-works/pi-coding-agent/node_modules/undici", "8.9.0"],
+  ];
+  const parts = (version) => version.split(".").map((part) => Number.parseInt(part, 10));
+  const atLeast = (actual, floor) => {
+    const a = parts(actual);
+    const b = parts(floor);
+    return a[0] > b[0] || (a[0] === b[0] && (a[1] > b[1] || (a[1] === b[1] && a[2] >= b[2])));
+  };
+
+  for (const [lockName, packagePath, floor] of floors) {
+    const actual = locks[lockName].packages?.[packagePath]?.version;
+    assert.ok(actual, `${lockName} lock is missing ${packagePath}`);
+    assert.ok(atLeast(actual, floor), `${lockName} lock resolves ${packagePath} at vulnerable ${actual}; expected >= ${floor}`);
+  }
+});
+
 test("the relocated harness runtime closure is a manifest companion of every harness", () => {
   const installManifest = JSON.parse(readFileSync(join(root, "install-manifest.json"), "utf8"));
   const closure = installManifest.items.find((i) => i.id === "companion:harness-runtime-closure");

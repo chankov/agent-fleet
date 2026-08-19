@@ -190,7 +190,8 @@ harnesses:
   dispatch refusal).
 - **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
   override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
-- **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls. `/af-context` is a separate read-only full-screen context-budget view: provider totals/cache fields are authoritative, component estimates are labelled heuristic or provider-scaled, loaded-but-excluded inputs visibly cost zero, and fleet members use separate model-window denominators. It never reveals or persists raw prompts, schemas, or conversation content.
+- **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls. `/af-context` is a separate read-only full-screen context-budget view: provider totals/cache fields are authoritative, component estimates are labelled heuristic or provider-scaled, stable prompt and volatile-state cost are separated, loaded-but-excluded and inactive packs visibly cost zero, and fleet members use separate model-window denominators. It also shows live pressure phase, measured usage, the 80%/90% thresholds, episode, and last recovery outcome. It never reveals or persists raw prompts, schemas, conversation content, error bodies, or compaction summaries.
+- **Automatic capability packs** — no activation command is needed. Intent, posture, tier, pending work, and runtime state resolve the model-visible tools before the turn; readiness alone does not make coms/Herdr visible. Ambiguous fleet, peer, or workspace use asks once before its first side effect. The compact pack is transient when explicitly requested or pressure is imminent; ordinary task packs persist until `/af-new-task` or `set_task_tier(new_task: true)`. Managed children receive selected replacement prompts/manifests (`--no-skills` and `--no-context-files` where applicable), not inherited global context.
 - **Damage-control + ask_user by default** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` safety harness and `ask-user-remote` before `agent-hub`, so the
   dispatcher's tool calls are checked against the rules file and the `askUserAvailable` probe sees
@@ -214,6 +215,28 @@ harnesses:
   discovery, lease, token, and socket state. Follow the
   [Hermes integration guide](../hermes/README.md#local-agent-hub-monitor-integration) for startup,
   wire examples, cancellation semantics, and reconnect behavior.
+
+#### Context and roster recovery troubleshooting
+
+A green standing-prompt budget does not guarantee that a long tool loop fits: messages and tool
+results continue accumulating inside the current model window. Agent Hub warns at **80%** live
+usage. At **90%** it aborts the next same-turn provider request, waits for persistence/settlement,
+and starts one automatic Pi compaction. Startup or newly submitted input is retained in memory and
+replayed exactly once after recovery. Use `/af-context` to distinguish `warning`, `compacting`,
+`recovered`, and `failed` pressure from stable prompt/schema cost.
+
+If automatic compaction fails, retained input is not discarded. Use Pi's built-in `/compact
+[instructions]` command—even in bare Pi without Agent Hub—or switch to a larger-context model. Pi's
+session JSONL under `~/.pi/agent/sessions/` remains the authoritative append-only record. Context
+overflow does not imply corruption: inspect with `/session`, resume with `/resume` or Pi's session
+flags, and **never edit, truncate, reorder, or synthesize JSONL entries to recover**.
+
+If resume instead reports that orchestrator posture has no valid native roster, direct tools and
+model input intentionally remain blocked. Select a current team with `/af-agents-team`; restart via
+`just fleet --agents <name>` (direct Pi: `--agent-team <name>`); or explicitly choose operator with
+`/af-posture operator` / `just fleet --posture operator`. Repair stale team/persona definitions
+before selecting them. The Hub never invents a roster or silently downgrades persisted posture, and
+explicit startup flags retain precedence.
 
 ### Runtime axes and explicit routing
 

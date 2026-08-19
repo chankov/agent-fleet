@@ -5,11 +5,14 @@ import {
 	COMS_TOOLS,
 	HERDR_TOOLS,
 	ORCHESTRATION_TOOLS,
+	latestPersistedNativeRoster,
 	latestPersistedPosture,
 	parsePosture,
+	persistedNativeRosterState,
 	posturePrompt,
 	resolvePostureTools,
 	resolveSessionPosture,
+	resolveSessionRoster,
 	resolveStartupPosture,
 } from "./posture.ts";
 
@@ -59,6 +62,54 @@ test("session posture restores state unless an explicit CLI posture overrides it
 	assert.equal(resolveSessionPosture({ entries: [], hasExplicitRoster: true }), "orchestrator");
 });
 
+test("native roster metadata restores only versioned team names", () => {
+	const entries = [
+		{ type: "custom", customType: "agent-hub-native-roster", data: { version: 1, team: "default", task: "must not be copied" } },
+		{ type: "custom", customType: "agent-hub-native-roster", data: { version: 2, team: "future" } },
+	];
+	assert.deepEqual(persistedNativeRosterState(" Frontend "), { version: 1, team: "Frontend" });
+	assert.equal(latestPersistedNativeRoster(entries), "default");
+	assert.equal(latestPersistedNativeRoster([{ type: "custom", customType: "agent-hub-native-roster", data: { version: 1, team: "" } }]), null);
+});
+
+test("session roster gives explicit CLI selection precedence over persisted metadata", () => {
+	const entries = [{ type: "custom", customType: "agent-hub-native-roster", data: { version: 1, team: "default" } }];
+	const resolved = resolveSessionRoster({
+		teams: { default: ["builder"], Security: ["security-auditor"] },
+		entries,
+		explicitRoster: "security",
+		availablePersonas: ["builder", "security-auditor"],
+	});
+	assert.deepEqual(resolved, {
+		source: "explicit",
+		roster: { name: "Security", members: ["security-auditor"] },
+		diagnostic: null,
+	});
+	assert.deepEqual(resolveSessionRoster({
+		teams: { default: ["builder"] }, entries,
+		availablePersonas: ["builder"], includePersisted: false,
+	}), { source: "none", roster: null, diagnostic: null });
+});
+
+test("session roster restores current team configuration and fails closed when it is stale", () => {
+	const persisted = [{ type: "custom", customType: "agent-hub-native-roster", data: { version: 1, team: "default" } }];
+	assert.deepEqual(resolveSessionRoster({
+		teams: { default: ["builder", "test-engineer"] }, entries: persisted,
+		availablePersonas: ["builder", "test-engineer"],
+	}), {
+		source: "persisted",
+		roster: { name: "default", members: ["builder", "test-engineer"] },
+		diagnostic: null,
+	});
+	const stale = resolveSessionRoster({
+		teams: { default: ["builder", "removed-persona"] }, entries: persisted,
+		availablePersonas: ["builder"],
+	});
+	assert.equal(stale.roster, null);
+	assert.match(stale.diagnostic ?? "", /default.*removed-persona/);
+	assert.equal(stale.source, "persisted");
+});
+
 test("posture prompt permits direct work only for operators", () => {
 	const operator = posturePrompt("operator");
 	assert.match(operator.intro, /Fleet operator/);
@@ -68,9 +119,7 @@ test("posture prompt permits direct work only for operators", () => {
 	const orchestrator = posturePrompt("orchestrator");
 	assert.match(orchestrator.intro, /dispatcher agent/);
 	assert.match(orchestrator.hardRules, /NEVER try to read, write, or execute/);
-	assert.match(orchestrator.hardRules, /herdr_spawn_pane/);
-	assert.match(orchestrator.hardRules, /auxiliary processes/);
-	assert.match(orchestrator.hardRules, /NEVER use it to bypass delegation/);
+	assert.doesNotMatch(orchestrator.hardRules, /herdr_spawn_pane/);
 });
 
 test("operator preserves coding and approved extension tools while gating Hub capabilities", () => {

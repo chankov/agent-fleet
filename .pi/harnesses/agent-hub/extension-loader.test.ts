@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -46,15 +46,21 @@ function assertExtensionStackLoaded(result: ReturnType<typeof spawnSync>) {
 	assert.doesNotMatch(output, /Unknown option: --solo/);
 }
 
-function startRpcProbe(probePath: string) {
+function startRpcProbe(
+	probePath: string,
+	extraArgs: string[] = [],
+	options: { beforeHubExtensions?: string[]; fleetArgs?: string[] } = {},
+) {
 	const env = { ...process.env, PI_OFFLINE: "1" };
 	delete env.HERDR_ENV;
 	delete env.HERDR_PANE_ID;
 	delete env.HERDR_WORKSPACE_ID;
+	const stack = [extensionPaths[0], extensionPaths[1], ...(options.beforeHubExtensions ?? []), extensionPaths[2]];
+	const fleetArgs = options.fleetArgs ?? ["--solo", "--posture", "operator", "--agent-team", "default"];
 	const child = spawn(piExecutable, [
 		"--mode", "rpc", "--no-session", "--no-extensions",
-		...extensionPaths.flatMap(extensionPath => ["-e", extensionPath]),
-		"-e", probePath, "--solo", "--posture", "operator", "--agent-team", "default",
+		...stack.flatMap(extensionPath => ["-e", extensionPath]),
+		"-e", probePath, ...extraArgs, ...fleetArgs,
 	], { cwd: repoRoot, env, stdio: ["pipe", "pipe", "pipe"] });
 	let sequence = 0;
 	let stdoutBuffer = "";
@@ -111,6 +117,16 @@ function startRpcProbe(probePath: string) {
 		return JSON.parse(await notificationAfter("/probe-active-tools", "ACTIVE_TOOLS:"));
 	}
 
+	async function waitForNotification(prefix: string, timeoutMs = 20_000): Promise<string> {
+		const deadline = Date.now() + timeoutMs;
+		for (;;) {
+			const report = notifications.find(value => value.startsWith(prefix));
+			if (report) return report.slice(prefix.length);
+			if (Date.now() >= deadline) throw new Error(`Notification timeout for ${prefix}; notifications=${JSON.stringify(notifications)}\n${stderr}`);
+			await new Promise(resolve => setTimeout(resolve, 20));
+		}
+	}
+
 	async function close(): Promise<void> {
 		child.stdin.end();
 		await new Promise<void>(resolve => {
@@ -119,7 +135,7 @@ function startRpcProbe(probePath: string) {
 		});
 	}
 
-	return { request, activeTools, notificationAfter, close };
+	return { request, activeTools, notificationAfter, waitForNotification, close };
 }
 
 test("Pi loads the guarded agent-hub extension stack through jiti", () => {
@@ -158,6 +174,256 @@ export default function (pi) {
 	}
 });
 
+test("effective Hub profiles stay within deterministic prompt plus active-schema budgets", async () => {
+	const cases = [
+		{ name: "greeting", message: "hello", maxChars: 14_000, expectedTool: "ask_user" },
+		{ name: "direct", message: "Fix the parser and run its tests.", maxChars: 18_000, expectedTool: "read" },
+		{ name: "fleet", message: "Delegate this implementation to a specialist.", maxChars: 20_000, expectedTool: "dispatch_agent" },
+		{ name: "verification", message: "Implement this feature with acceptance criteria.", maxChars: 20_000, expectedTool: "set_assertions" },
+		{ name: "compaction", message: "Please compact the conversation.", maxChars: 20_000, expectedTool: "request_compaction", extraArgs: ["-e", ".pi/extensions/compact-and-continue/index.ts"] },
+	] as const;
+	for (const profile of cases) {
+		const workspace = mkdtempSync(join(tmpdir(), `agent-hub-budget-${profile.name}-`));
+		const probePath = join(workspace, "probe-budget.ts");
+		writeFileSync(probePath, `
++export default function (pi) {
++  pi.registerCommand("probe-budget", {
++    description: "Test-only effective context budget probe",
++    handler: async (_args, ctx) => {
++      const active = new Set(pi.getActiveTools());
++      const schemas = pi.getAllTools().filter(tool => active.has(tool.name))
++        .map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters }));
++      const prompt = String(ctx.getSystemPrompt?.() ?? "");
++      ctx.ui.notify("PROFILE_BUDGET:" + JSON.stringify({ promptChars: prompt.length, schemaChars: JSON.stringify(schemas).length, active: [...active] }), "info");
++    },
++  });
++}
++`.replace(/^\+/gm, ""));
+		const rpc = startRpcProbe(probePath, "extraArgs" in profile ? [...profile.extraArgs] : []);
+		try {
+			assert.equal((await rpc.request({ type: "prompt", message: profile.message })).success, true);
+			const measured = JSON.parse(await rpc.notificationAfter("/probe-budget", "PROFILE_BUDGET:"));
+			assert.ok(measured.promptChars > 0, `${profile.name} must expose its effective replacement prompt`);
+			assert.ok(measured.promptChars + measured.schemaChars <= profile.maxChars,
+				`${profile.name} effective chars=${measured.promptChars + measured.schemaChars} > ${profile.maxChars}`);
+			assert.ok(measured.active.includes(profile.expectedTool), `${profile.name} must expose ${profile.expectedTool}`);
+			if (profile.name !== "fleet") assert.ok(!measured.active.includes("dispatch_agent"));
+		} finally {
+			await rpc.close();
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	}
+});
+
+test("tool-result pressure aborts before a tool loop can make another provider request", async () => {
+	const workspace = mkdtempSync(join(repoRoot, ".tmp-context-pressure-e2e-"));
+	const probePath = join(workspace, "pressure-provider.ts");
+	const eventPath = join(workspace, "events.ndjson");
+	writeFileSync(probePath, String.raw`
+import { appendFileSync } from "node:fs";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+
+let providerCalls = 0;
+const eventPath = process.env.PRESSURE_EVENT_PATH;
+const record = (value) => appendFileSync(eventPath, JSON.stringify(value) + "\n");
+
+function streamPressure(model, context, options) {
+  const stream = createAssistantMessageEventStream();
+  queueMicrotask(() => {
+    if (options?.signal?.aborted) {
+      const aborted = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "aborted", timestamp: Date.now(), errorMessage: "pressure recovery abort" };
+      record({ type: "provider_aborted" });
+      stream.push({ type: "start", partial: aborted });
+      stream.push({ type: "error", reason: "aborted", error: aborted });
+      stream.end();
+      return;
+    }
+    providerCalls++;
+    const output = {
+      role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
+      usage: { input: providerCalls === 1 ? 190000 : providerCalls === 2 ? 220000 : 1000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "pending", timestamp: Date.now(),
+    };
+    output.usage.totalTokens = output.usage.input + output.usage.output;
+    record({ type: "provider", call: providerCalls, summaryPrompt: /context summarization assistant/i.test(context.systemPrompt || ""), toolCount: context.tools?.length ?? 0, deferred: JSON.stringify(context.messages).includes("deferred-after-pressure") });
+    stream.push({ type: "start", partial: output });
+    if (providerCalls === 2) {
+      const toolCall = { type: "toolCall", id: "pressure-call", name: "pressure_probe", arguments: {} };
+      output.content.push(toolCall);
+      stream.push({ type: "toolcall_start", contentIndex: 0, partial: output });
+      stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: output });
+      output.stopReason = "toolUse";
+    } else {
+      const text = providerCalls === 1 ? "seed ".repeat(20000) : "context recovery summary";
+      output.content.push({ type: "text", text });
+      stream.push({ type: "text_start", contentIndex: 0, partial: output });
+      stream.push({ type: "text_delta", contentIndex: 0, delta: text, partial: output });
+      stream.push({ type: "text_end", contentIndex: 0, content: text, partial: output });
+      output.stopReason = "stop";
+    }
+    stream.push({ type: "done", reason: output.stopReason, message: output });
+    stream.end();
+  });
+  return stream;
+}
+
+export default function (pi) {
+  pi.registerProvider("pressure-test", {
+    name: "Pressure Test", baseUrl: "http://127.0.0.1", apiKey: "test", api: "pressure-test-api",
+    models: [{ id: "pressure-model", name: "Pressure Model", reasoning: false, input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 272000, maxTokens: 1000 }],
+    streamSimple: streamPressure,
+  });
+  pi.registerTool({ name: "pressure_probe", label: "Pressure Probe", description: "Return a large synthetic tool result.",
+    parameters: Type.Object({}), async execute() { return { content: [{ type: "text", text: "x".repeat(140000) }] }; } });
+  pi.on("turn_end", (_event, ctx) => record({ type: "turn_end", active: pi.getActiveTools(), entries: ctx.sessionManager.getEntries().map(entry => entry.type) }));
+}
+`);
+	const previousPath = process.env.PRESSURE_EVENT_PATH;
+	process.env.PRESSURE_EVENT_PATH = eventPath;
+	const rpc = startRpcProbe(probePath, ["-e", ".pi/extensions/compact-and-continue/index.ts", "--model", "pressure-test/pressure-model"]);
+	try {
+		assert.equal((await rpc.request({ type: "prompt", message: "seed the previous turn" })).success, true);
+		const firstTurnDeadline = Date.now() + 10_000;
+		while (!existsSync(eventPath) || !readFileSync(eventPath, "utf8").includes('"type":"turn_end"')) {
+			if (Date.now() >= firstTurnDeadline) assert.fail("seed turn did not settle");
+			await new Promise(resolve => setTimeout(resolve, 20));
+		}
+		assert.equal((await rpc.request({ type: "prompt", message: "run the pressure probe" })).success, true);
+		await rpc.waitForNotification("Context reached 90%; pausing the tool loop for automatic compaction.", 10_000);
+		assert.equal((await rpc.request({ type: "prompt", message: "deferred-after-pressure" })).success, true,
+			"input arriving during recovery is handled rather than rejected as streaming");
+		try {
+			await rpc.waitForNotification("Automatic context compaction completed.", 30_000);
+		} catch (error) {
+			assert.fail(`${error instanceof Error ? error.message : String(error)}\nevents=${existsSync(eventPath) ? readFileSync(eventPath, "utf8") : "missing"}`);
+		}
+		const replayDeadline = Date.now() + 10_000;
+		while (!readFileSync(eventPath, "utf8").includes('"deferred":true')) {
+			if (Date.now() >= replayDeadline) assert.fail(`deferred input was not replayed after compaction: ${readFileSync(eventPath, "utf8")}`);
+			await new Promise(resolve => setTimeout(resolve, 20));
+		}
+		const events = readFileSync(eventPath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+		const providers = events.filter(event => event.type === "provider");
+		const deferredIndex = providers.findIndex(event => event.deferred);
+		assert.ok(deferredIndex >= 3, `expected seed + tool + compaction before replay: ${JSON.stringify(providers)}`);
+		assert.ok(providers[0].toolCount > 0 && providers[1].toolCount > 0, "the first two calls are ordinary agent turns");
+		assert.ok(providers.slice(2, deferredIndex).every(event => event.summaryPrompt && event.toolCount === 0),
+			`no ordinary provider request may run between pressure and recovery: ${JSON.stringify(providers)}`);
+		assert.equal(providers[deferredIndex].summaryPrompt, false);
+		assert.ok(providers[deferredIndex].toolCount > 0, "deferred input replays through the ordinary Hub surface");
+		assert.ok(events.filter(event => event.type === "provider_aborted").length <= 1,
+			"the tool-loop continuation is either preempted before provider invocation or aborted exactly once");
+		const pressureTurns = events.filter(event => event.type === "turn_end");
+		assert.ok(pressureTurns.some(event => event.active.includes("request_compaction")),
+			"the transient compaction tool is visible during the pressure episode");
+	} finally {
+		await rpc.close();
+		if (previousPath === undefined) delete process.env.PRESSURE_EVENT_PATH;
+		else process.env.PRESSURE_EVENT_PATH = previousPath;
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
+test("legacy orchestrator state without a roster loads fail-closed and blocks provider input", () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-roster-recovery-"));
+	try {
+		const seedPath = join(workspace, "seed-legacy-posture.ts");
+		const capturePath = join(workspace, "capture-gate.ts");
+		const statePath = join(workspace, "state.json");
+		const providerPath = join(workspace, "provider-called");
+		writeFileSync(seedPath, `
+export default function (pi) {
+  pi.on("session_start", () => {
+    pi.appendEntry("agent-hub-posture", { posture: "orchestrator" });
+  });
+}
+`);
+		writeFileSync(capturePath, `
+import { writeFileSync } from "node:fs";
+export default function (pi) {
+  pi.registerProvider("roster-gate-test", {
+    name: "Roster Gate Test", baseUrl: "http://127.0.0.1", apiKey: "test", api: "roster-gate-test-api",
+    models: [{ id: "model", name: "Model", reasoning: false, input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 10000, maxTokens: 100 }],
+    streamSimple() { writeFileSync(process.env.PROVIDER_CALLED, "yes"); throw new Error("roster gate allowed a provider request"); },
+  });
+  pi.on("session_start", (event, ctx) => writeFileSync(process.env.ROSTER_CAPTURE, JSON.stringify({
+    tools: pi.getActiveTools(),
+    entries: ctx.sessionManager.getEntries().filter(entry => entry.type === "custom").map(entry => ({ customType: entry.customType, data: entry.data })),
+  })));
+}
+`);
+		const result = spawnSync(piExecutable, [
+			"--mode", "print", "--no-session", "--no-extensions",
+			"-e", extensionPaths[0], "-e", extensionPaths[1], "-e", seedPath,
+			"-e", extensionPaths[2], "-e", capturePath,
+			"--solo", "--model", "roster-gate-test/model", "attempt model input",
+		], {
+			cwd: repoRoot,
+			encoding: "utf8",
+			env: { ...process.env, PI_OFFLINE: "1", ROSTER_CAPTURE: statePath, PROVIDER_CALLED: providerPath },
+		});
+		assertExtensionStackLoaded(result);
+		assert.match(`${result.stdout}\n${result.stderr}`, /Persisted orchestrator posture has no native roster/);
+		assert.equal(existsSync(providerPath), false, "fail-closed input must not reach the provider");
+		const state = JSON.parse(readFileSync(statePath, "utf8"));
+		for (const direct of ["read", "bash", "edit", "write"]) assert.ok(!state.tools.includes(direct), `${direct} must remain unavailable`);
+		assert.ok(state.entries.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data.posture === "orchestrator"));
+		assert.ok(!state.entries.some((entry: any) => entry.customType === "agent-hub-native-roster"), "legacy state remains metadata-only and does not invent a roster");
+
+	} finally {
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
+test("legacy no-roster recovery blocks slash commands that could start model work", async () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-roster-command-gate-"));
+	const seedPath = join(workspace, "seed-legacy-posture.ts");
+	const probePath = join(workspace, "roster-command-provider.ts");
+	const providerPath = join(workspace, "provider-called");
+	writeFileSync(seedPath, `
+export default function (pi) {
+  pi.on("session_start", () => pi.appendEntry("agent-hub-posture", { posture: "orchestrator" }));
+}
+`);
+	writeFileSync(probePath, `
+import { writeFileSync } from "node:fs";
+export default function (pi) {
+  pi.registerProvider("roster-command-gate", {
+    name: "Roster Command Gate", baseUrl: "http://127.0.0.1", apiKey: "test", api: "roster-command-gate-api",
+    models: [{ id: "model", name: "Model", reasoning: false, input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 10000, maxTokens: 100 }],
+    streamSimple() { writeFileSync(${JSON.stringify(providerPath)}, "yes"); throw new Error("roster command gate allowed a provider request"); },
+  });
+}
+`);
+	const rpc = startRpcProbe(probePath, ["--model", "roster-command-gate/model"], {
+		beforeHubExtensions: [seedPath],
+		fleetArgs: ["--solo"],
+	});
+	try {
+		for (const command of [
+			"/af-research inspect the workspace",
+			"/af-agents-cont r1 continue",
+			"/af-agents-restart builder",
+			"/af-handoff reviewer",
+			"/af-compound",
+		]) {
+			await rpc.notificationAfter(command, "Persisted orchestrator posture has no native roster.");
+		}
+		assert.equal(existsSync(providerPath), false, "no guarded command may reach the parent provider");
+	} finally {
+		await rpc.close();
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
 test("runtime posture activates operator tools and restricts orchestrator tools", () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-posture-runtime-"));
 	try {
@@ -188,11 +454,12 @@ export default function (pi) {
 			if (posture === "operator") assert.match(result.stdout, /Native roster: \(none\) \(0\)/);
 			else assert.match(result.stdout, /Native roster: default \([1-9][0-9]*\)/);
 			const active = JSON.parse(readFileSync(capturePath, "utf8"));
-			for (const tool of ["dispatch_agent", "spawn_research", "set_assertions"]) assert.ok(active.includes(tool));
 			if (posture === "operator") {
 				for (const tool of ["read", "bash", "edit", "write"]) assert.ok(active.includes(tool), `${tool} should be active`);
+				for (const tool of ["dispatch_agent", "spawn_research", "set_assertions"]) assert.ok(!active.includes(tool), `${tool} should be inactive on greeting`);
 			} else {
-				for (const tool of ["read", "bash", "edit", "write"]) assert.ok(!active.includes(tool), `${tool} should be inactive`);
+				for (const tool of ["read", "bash", "edit", "write", "set_assertions"]) assert.ok(!active.includes(tool), `${tool} should be inactive`);
+				for (const tool of ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust"]) assert.ok(active.includes(tool), `${tool} should be active for orchestrator`);
 			}
 		}
 	} finally {
@@ -221,21 +488,25 @@ export default function (pi) {
 		}
 
 		const operator = await rpc.activeTools();
-		for (const tool of ["read", "bash", "edit", "write", "dispatch_agent", "ask_user"]) {
-			assert.ok(operator.includes(tool), `${tool} should be active for operator`);
-		}
+		for (const tool of ["read", "bash", "edit", "write", "ask_user"]) assert.ok(operator.includes(tool), `${tool} should be active for operator`);
+		for (const tool of ["dispatch_agent", "spawn_research", "set_assertions"]) assert.ok(!operator.includes(tool), `${tool} should be inactive for operator greeting`);
 		for (const gated of ["coms_send", "herdr_spawn_peer", "herdr_spawn_pane"]) {
 			assert.ok(!operator.includes(gated), `${gated} should stay gated when unavailable`);
 		}
+
+		// Even offline Pi invokes input before it rejects the provider request; this
+		// proves the same normal prompt updates its tool surface without a classifier.
+		await rpc.request({ type: "prompt", message: "Delegate this to a specialist." });
+		const delegated = await rpc.activeTools();
+		for (const tool of ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust"]) assert.ok(delegated.includes(tool), `${tool} should activate from the incoming prompt`);
 
 		assert.equal((await rpc.request({ type: "prompt", message: "/af-posture orchestrator" })).success, true);
 		const orchestrator = await rpc.activeTools();
 		for (const tool of ["read", "bash", "edit", "write"]) {
 			assert.ok(!orchestrator.includes(tool), `${tool} should be inactive for orchestrator`);
 		}
-		for (const tool of ["dispatch_agent", "spawn_research", "set_assertions", "ask_user"]) {
-			assert.ok(orchestrator.includes(tool), `${tool} should remain active for orchestrator`);
-		}
+		for (const tool of ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust", "ask_user"]) assert.ok(orchestrator.includes(tool), `${tool} should remain active for orchestrator`);
+		for (const tool of ["set_assertions"]) assert.ok(!orchestrator.includes(tool), `${tool} should remain inactive without verification intent`);
 
 		const switchedCommands = await rpc.request({ type: "get_commands" });
 		const switchedNames = switchedCommands.data.commands.map((command: { name: string }) => command.name);
@@ -244,7 +515,8 @@ export default function (pi) {
 		}
 
 		assert.equal((await rpc.request({ type: "prompt", message: "/af-posture operator" })).success, true);
-		assert.deepEqual((await rpc.activeTools()).sort(), operator.sort(), "operator tool surface should restore in the same process");
+		const restored = await rpc.activeTools();
+		for (const tool of ["read", "bash", "edit", "write", "dispatch_agent", "spawn_research"]) assert.ok(restored.includes(tool), `${tool} should remain available while the task fleet pack is retained`);
 	} finally {
 		await rpc.close();
 		rmSync(workspace, { recursive: true, force: true });

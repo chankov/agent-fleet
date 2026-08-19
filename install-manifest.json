@@ -1261,7 +1261,7 @@
       "group": "personas",
       "subcategory": "pi-only",
       "title": "orchestrator",
-      "summary": "Verification-Contract orchestrator — plans, builds, and verifies in small slices, owns the acceptance assertions, and…",
+      "summary": "Verification-Contract orchestrator — coordinates small, evidence-gated batches and does not report completion until e…",
       "recommended": false,
       "stability": "stable",
       "consent": "file",
