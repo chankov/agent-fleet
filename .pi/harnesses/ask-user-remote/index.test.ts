@@ -10,6 +10,8 @@ import { pathToFileURL } from "node:url";
 
 import {
 	activeRemoteCount,
+	COMPACT_ASK_USER_PARAMETERS,
+	compactAskUserParams,
 	captureAskUserTool,
 	defaultSettingsPaths,
 	findStockAskUserPackageEntry,
@@ -81,10 +83,19 @@ test("with no remote peer, wrapper calls stock execute with original args and re
 
 	const actual = await wrapped.execute("tool-call-1", params, signal, onUpdate, ctx);
 	assert.equal(actual, expected);
-	assert.deepEqual(seenArgs, ["tool-call-1", params, signal, onUpdate, ctx]);
+	assert.deepEqual(seenArgs, ["tool-call-1", { ...params, options: [{ title: "A" }] }, signal, onUpdate, ctx]);
 	assert.equal(wrapped.renderCall, tool.renderCall);
 	assert.equal(wrapped.renderResult, tool.renderResult);
-	assert.equal(wrapped.parameters, tool.parameters);
+	assert.equal(wrapped.parameters, COMPACT_ASK_USER_PARAMETERS);
+});
+
+test("compact facade keeps Hub question semantics while hiding UI preferences", () => {
+	const compact = JSON.stringify(COMPACT_ASK_USER_PARAMETERS);
+	assert.ok(compact.length < 900, `compact schema=${compact.length}`);
+	assert.deepEqual(compactAskUserParams({ question: "Pick", options: ["A", { title: "B", description: "why" }], allowMultiple: true, displayMode: "inline" }), {
+		question: "Pick", options: [{ title: "A" }, { title: "B", description: "why" }], allowMultiple: true,
+	});
+	for (const hidden of ["displayMode", "singleSelectLayout", "overlayToggleKey", "commentToggleKey", "timeout"]) assert.equal(compact.includes(hidden), false);
 });
 
 test("abort signal reaches the captured stock execute and resolves cancelled:true in fallback mode", async () => {

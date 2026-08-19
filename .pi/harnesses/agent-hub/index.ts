@@ -4949,19 +4949,19 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "dispatch_agent",
 		label: "Dispatch Agent",
-		description: "Dispatch a task to a specialist agent. The agent will execute the task and return the result. Use the system prompt to see available agent names.",
+		description: "Dispatch one focused task to a listed specialist; it returns evidence.",
 		parameters: Type.Object({
 			agent: Type.String({ description: "Agent name (case-insensitive)" }),
 			task: Type.String({ description: "Task description for the agent to execute" }),
-			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the specialist must read the file itself." }))),
-			scope: Type.Optional(Type.Array(Type.String({ description: "Optional advisory file scope globs for writable agents. Changes outside are reported in details.scopeViolations; nothing is auto-reverted. Also arms the drift watchdog's live out-of-scope rule." }))),
-			watchdog: Type.Optional(Type.Boolean({ description: "Force the drift watchdog on/off for THIS dispatch (default: per-agent /af-watchdog override, then the hub-wide setting)." })),
-			review_reason: Type.Optional(Type.String({ description: "Why a documentation-only change needs a review gate (e.g. it publishes a credential, or states a contract other systems rely on). Only needed when dispatching a review persona with a docs-only `scope`." })),
+			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path; the specialist reads it." }))),
+			scope: Type.Optional(Type.Array(Type.String({ description: "Advisory writable-file globs; violations are reported, never reverted." }))),
+			watchdog: Type.Optional(Type.Boolean({ description: "Override this dispatch's drift watchdog." })),
+			review_reason: Type.Optional(Type.String({ description: "Why a docs-only review is needed." })),
 			backend: Type.Optional(Type.Union([
 				Type.Literal("auto"),
 				Type.Literal("native"),
 				Type.Literal("coms"),
-			], { description: "Dispatch backend. auto follows dispatch-policy.yaml (default); native always starts the local Pi specialist; coms requires a live same-name peer and never falls back." })),
+			], { description: "auto policy; native local; coms requires its live peer (no fallback)." })),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
@@ -5422,12 +5422,12 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "spawn_research",
 		label: "Spawn Research",
-		description: "Spawn a READ-ONLY research helper (read/grep/find/ls — no bash, no writes) and return its findings. Use for reconnaissance, code search, and reading docs/code before dispatching a builder, or to gather context for a specialist (specialists cannot spawn their own helpers). Pass `persona` to use a research persona, or omit it for an ad-hoc helper.",
+		description: "Run a read-only (read/grep/find/ls) helper and return findings.",
 		parameters: Type.Object({
-			task: Type.String({ description: "What to investigate. Be specific about what to find and report." }),
-			persona: Type.Optional(Type.String({ description: "Optional research-persona name (see the Research personas list). It brings its own role/model/thinking. Omit for an anonymous helper." })),
-			model: Type.Optional(Type.String({ description: "Optional pi model spec for an anonymous helper (ignored when `persona` is set — the persona carries its own model)." })),
-			artifacts: Type.Optional(Type.Array(Type.String({ description: "Optional repo-relative or session-artifact-relative input artifact path. The hub injects only path + one-line preview; the helper must read the file itself." }))),
+			task: Type.String({ description: "Investigation and expected findings." }),
+			persona: Type.Optional(Type.String({ description: "Research persona; omit for ad-hoc." })),
+			model: Type.Optional(Type.String({ description: "Anonymous-helper model; ignored with persona." })),
+			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path." }))),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
@@ -5725,17 +5725,16 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "set_assertions",
 		label: "Set Assertions",
-		description:
-			`Record the acceptance-assertion ledger for the current task (the Verification Contract). Call this BEFORE dispatching a builder, with one checkable assertion per requirement, and again to REBUILD the whole ledger on a 'wrong again' regression reset (it replaces any existing list). Each assertion needs an id (A1, A2, …), a verification tag (test | runtime-ui | code-grep | manual), one pass condition, and a source naming where the requirement comes from. Keep at most ${MAX_OPEN_ASSERTIONS} open at a time — declare later batches when they start. See skills/orchestration-verification/SKILL.md for the format. The ledger is persisted and its status is shown to the human; it does not block dispatch.`,
+		description: `Replace this task's checkable assertion ledger (max ${MAX_OPEN_ASSERTIONS}); dispatch only evidence-gated work.`,
 		parameters: Type.Object({
 			assertions: Type.Array(
 				Type.Object({
-					id: Type.String({ description: "Stable id, e.g. A1, A2 — referenced verbatim in dispatches and returns." }),
-					tag: Type.String({ description: "How it will be proven: test | runtime-ui | code-grep | manual." }),
-					text: Type.String({ description: "One checkable pass condition (split compound requirements into separate assertions)." }),
-					source: Type.String({ description: "Where this requirement comes from — \"PLAN-x.md:585-595\", \"user request\", \"review finding F3\". Required: a specialist asked to prove the assertion must be able to read its origin instead of asking." }),
+					id: Type.String({ description: "Stable id (A1, A2)." }),
+					tag: Type.String({ description: "test | runtime-ui | code-grep | manual." }),
+					text: Type.String({ description: "One pass condition." }),
+					source: Type.String({ description: "Requirement origin." }),
 				}),
-				{ description: `The full assertion list — replaces any existing ledger. Soft cap ${MAX_OPEN_ASSERTIONS} per batch.` },
+				{ description: `Replacement list; soft cap ${MAX_OPEN_ASSERTIONS}.` },
 			),
 		}),
 		async execute(_callId, params, _signal, _onUpdate, ctx) {
@@ -5771,8 +5770,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "update_assertion",
 		label: "Update Assertion",
-		description:
-			"Update one acceptance assertion's status after a verification gate. status is proven (name the evidence — test name, command output, file:line, or runtime observation), unproven (not yet checked), or failed (checked and wrong). Advance the task only on proven; treat unproven/failed as not done. A runtime-ui assertion is proven only by an actual runtime observation, never a static review.",
+		description: "Record a verification result. proven requires named evidence; unproven/failed are not done.",
 		parameters: Type.Object({
 			id: Type.String({ description: "Assertion id to update, e.g. A2." }),
 			status: Type.String({ description: "One of: proven | unproven | failed." }),
@@ -5836,8 +5834,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "get_assertions",
 		label: "Get Assertions",
-		description:
-			"Read back the full acceptance-assertion ledger — every id, tag, status, pass condition, and named evidence. Use this to recover the ledger after a context compaction (the dispatcher status line shows only counts, not the assertion text) before re-dispatching or reporting done. Read-only: it never changes the ledger.",
+		description: "Read the full assertion ledger, especially after compaction. Read-only.",
 		parameters: Type.Object({}),
 		async execute(_callId, _params, _signal, _onUpdate, _ctx) {
 			if (assertions.length === 0) {
@@ -5865,11 +5862,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "coms_list",
 		label: "Coms List",
-		description:
-			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
-			"names, models, live context-window usage, pane_id, and status (idle | working | booting). " +
-			"Check status before sending instead of polling the pane. Discovery is scoped to what the human " +
-			"displays via /af-coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
+		description: "List peers in the human-scoped pool; this tool cannot widen discovery.",
 		parameters: Type.Object({
 			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /af-coms displays — a widening request is ignored." })),
 			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /af-coms --all." })),
@@ -5981,10 +5974,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "coms_send",
 		label: "Coms Send",
-		description:
-			"Send a prompt to a peer agent. Returns synchronously with a msg_id once the receiver acks. " +
-			"Use coms_get (non-blocking) or coms_await (blocking) with the msg_id to retrieve the response. " +
-			"Throws if the receiver is unreachable or rejects the envelope.",
+		description: "Send to an in-pool peer; use its msg_id with coms_get or coms_await.",
 		parameters: Type.Object({
 			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /af-coms --project or /af-coms --all." }),
 			prompt: Type.String({ description: "The prompt to send." }),
@@ -6157,8 +6147,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "coms_await",
 		label: "Coms Await",
-		description:
-			"Block until a pending coms_send reply lands or the timeout fires. Default timeout 30 minutes (PI_COMS_TIMEOUT_MS).",
+		description: "Wait for a pending coms_send reply; timeout leaves it pending.",
 		parameters: Type.Object({
 			msg_id: Type.String({ description: "msg_id returned by coms_send." }),
 			timeout_ms: Type.Optional(Type.Number({ description: "Override the default timeout (ms)." })),
@@ -6299,18 +6288,17 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "herdr_spawn_peer",
 		label: "Herdr Spawn Peer",
-		description:
-			"Spawn one reusable coms peer in a sibling pane of the CURRENT Herdr workspace. Name-only resolution is identical to `just fleet peer`: peers.yaml may select a Pi persona, personaless Fleet Core, or Claude Code plus declared model/extensions/env_file. Explicit compatible fields override the declaration, but the Hub forces its own coms project and never accepts an env path or raw command. The peer boots IDLE; this call waits for `peer_ready` before it may receive coms work.",
+		description: "Spawn a reusable sibling coms peer from its declared or compatible override settings; wait for peer_ready.",
 		parameters: Type.Object({
-			name: Type.String({ description: "Pane label and coms peer name." }),
-			runner: Type.Optional(Type.Union([Type.Literal("pi"), Type.Literal("claude-code")], { description: "Override the declared runner." })),
-			persona: Type.Optional(Type.String({ description: "Explicit Pi persona under agents/ or .pi/agents/." })),
-			no_persona: Type.Optional(Type.Boolean({ description: "Force a personaless Fleet Core Pi peer." })),
-			model: Type.Optional(Type.String({ description: "Override the declared model." })),
-			extensions: Type.Optional(Type.String({ description: "Comma-separated extensions for a Pi persona peer." })),
-			browser: Type.Optional(Type.Boolean({ description: "Add browser capability to a Pi peer." })),
-			all_extensions: Type.Optional(Type.Boolean({ description: "Load all extensions; personaless Fleet Core only." })),
-			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction (default right)." })),
+			name: Type.String({ description: "Peer and pane name." }),
+			runner: Type.Optional(Type.Union([Type.Literal("pi"), Type.Literal("claude-code")], { description: "Runner override." })),
+			persona: Type.Optional(Type.String({ description: "Pi persona override." })),
+			no_persona: Type.Optional(Type.Boolean({ description: "Use persona-less Fleet Core." })),
+			model: Type.Optional(Type.String({ description: "Model override." })),
+			extensions: Type.Optional(Type.String({ description: "Pi extensions." })),
+			browser: Type.Optional(Type.Boolean({ description: "Enable browser." })),
+			all_extensions: Type.Optional(Type.Boolean({ description: "All extensions (Fleet Core only)." })),
+			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction." })),
 		}),
 		async execute(_callId, params) {
 			if (!herdrFleetReady) {
@@ -6396,8 +6384,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "herdr_spawn_pane",
 		label: "Herdr Spawn Pane",
-		description:
-			"Spawn a raw shell command in a sibling pane of the CURRENT Herdr workspace. This is not a coms peer: it has no persona, project, registration wait, or peer_ready result. Use herdr_spawn_peer for addressable Pi/Claude workers.",
+		description: "Spawn a raw auxiliary command in a sibling pane, not a coms peer.",
 		parameters: Type.Object({
 			name: Type.String({ description: "Human-visible pane label." }),
 			command: Type.String({ description: "Raw shell command executed with bash -lc." }),
@@ -6447,8 +6434,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "herdr_read_pane",
 		label: "Herdr Read Pane",
-		description:
-			"Read the recent output of a herdr pane (bounded; max 200 lines). Read-to-decide: check on a spawned worker or an unbridged tool before acting. Prefer coms_send/coms_await for talking to pi or bridged peers.",
+		description: "Read up to 200 recent pane lines; use coms for bridged peers.",
 		parameters: Type.Object({
 			pane_id: Type.String({ description: "Pane id, e.g. w3:p2 (see herdr_spawn_peer result or the sidebar)." }),
 			lines: Type.Optional(Type.Number({ description: "Line cap, default 60, max 200." })),
@@ -6479,8 +6465,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "herdr_close_pane",
 		label: "Herdr Close Pane",
-		description:
-			"Close a herdr pane (kills whatever runs in it). DESTRUCTIVE — the human is asked to confirm every call. Only close panes you spawned; never close the human's own panes.",
+		description: "Close a Hub-spawned pane. Destructive: always asks the human.",
 		parameters: Type.Object({
 			pane_id: Type.String({ description: "Pane id to close." }),
 			reason: Type.String({ description: "One line shown to the human: why this pane can die." }),
@@ -6522,8 +6507,7 @@ ${externalBlockedProtocol()}
 	pi.registerTool({
 		name: "herdr_notify",
 		label: "Herdr Notify",
-		description:
-			"Show a desktop notification via herdr — reach the human when they are not watching this pane (long task finished, fleet needs attention). Not a substitute for ask_user.",
+		description: "Notify an away human; never replaces ask_user.",
 		parameters: Type.Object({
 			title: Type.String({ description: "Notification title." }),
 			body: Type.Optional(Type.String({ description: "Notification body." })),
@@ -8467,112 +8451,16 @@ ask the human. You MUST instead:
 		const taskBudget = currentTaskBudget();
 		const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
 		const capMin = (ms: number | null) => (ms == null ? "unlimited" : `${Math.round(ms / 60_000)} min`);
-		const modeSection = `## Task triage (FIRST, before any dispatch)
-Call \`set_task_tier\` to classify THIS turn's ask — the hub lowers the enforced caps
-to min(mode, tier), so an honest tier is how you avoid burning budget on ceremony:
-- trivial — one obvious, low-risk change (1 dispatch, 1 research). No ledger, no review pipeline.
-- small — a contained change in familiar code (2 dispatches, 2 research). At most 3 narrow assertions.
-- feature — a normal multi-step feature (6 dispatches, 4 research). Ledger + one review gate.
-- project — a large, multi-phase effort (mode budget applies). Full rigor per the mode.
-If you skip the call, the hub assumes "feature". Re-call it (say why) if the ask turns
-out bigger — raising the tier mid-turn is allowed. Tie the tier to the USER'S ask, not
-to how interesting the work is.
-- A provided plan is a SPEC: when the user hands you an existing plan/task list (a PLAN
-  file, a numbered breakdown), do NOT re-plan or re-spec it. Skip planner and
-  plan-reviewer; batch the plan's tasks straight to the builder and use the plan's own
-  acceptance criteria as the assertions.
-- A plan is a spec, NOT a mandate to execute all of it. When the plan is larger than what
-  the user actually asked for, do the asked-for part and say which parts you left — the
-  plan's existence is not consent to run its every gate. If a plan for a small ask has
-  grown gates, manifests, or provenance machinery nobody requested, name that to the user
-  instead of executing it.
-- Using every persona is a smell, not a virtue: each dispatch must change the outcome.
-  If a dispatch's absence would change nothing, don't make it.
-- THE TIER IS THE TASK'S, NOT THE TURN'S. It survives the user's next message and moves by
-  ratchet: lowering it is always free, raising it needs a \`reason\` naming what the ask
-  turned out to contain. A correction or follow-up ("no, only the one line") is the SAME
-  task — do not re-triage it upward, and do not pass \`new_task\` for it. At trivial/small
-  tiers the hub refuses planner, plan-reviewer, architect, security-auditor and
-  deep-researcher in code; that refusal is a signal to do the work, not to raise the tier.
+		const stateCapsule = `## Current task state
+- mode: ${hubMode}${taskTier ? ` · tier: ${taskTier}` : ""}; turn dispatches: ${turnDispatchCount}; research: ${turnResearchCount}
+- task dispatches: ${taskDispatchCount}; research: ${taskResearchCount}; review rounds: ${taskReviewRounds}
+- budgets: dispatch ${cap(budget.maxDispatches)}, research ${cap(budget.maxResearch)}, task wall ${capMin(taskBudget.wallMs)}.`;
 
-## Execution mode: ${hubMode}${taskTier ? ` · tier: ${taskTier}` : ""}
-Budgets for THIS user turn (enforced by the hub — exhausted budgets make dispatch_agent/
-spawn_research refuse; a new user message opens a fresh window; /af-hub-mode switches mode):
-- dispatch_agent calls: ${cap(budget.maxDispatches)} · spawn_research calls: ${cap(budget.maxResearch)}
-- turn wall clock: ${capMin(budget.wallMs)} · per-run deadline: ${capMin(budget.agentTurnMs)}
-Budgets for the WHOLE TASK (${TASK_BUDGET_MULTIPLIER}× the turn envelope; NOT reset by a user message —
-only by /af-new-task or set_task_tier \`new_task: true\`). Spent so far:
-- dispatches ${taskDispatchCount}/${cap(taskBudget.maxDispatches)} · research ${taskResearchCount}/${cap(taskBudget.maxResearch)} · active time ${Math.round(taskActiveElapsedMs() / 60_000)}/${capMin(taskBudget.wallMs)} min
-- review rounds ${taskReviewRounds}/${cap(reviewRoundCap(taskTier))} (a review is a gate, not a loop)
-Exhausting the TASK budget is a hard stop: it means the work outgrew its envelope three
-times over, which is a re-scoping decision for the human, not something to spend through.
-Plan within the budget: batch related work into ONE dispatch (a coherent slice of 4–6
-plan tasks, not one dispatch per micro-task), and when a budget refusal comes back, STOP —
-summarize progress and ask the user; never retry the refused call in the same turn.
-Repeating an identical task to the same agent in one turn is refused in code
-(duplicate guard) — use the earlier result or change the task materially.
-Every task you dispatch states four things: the objective, the expected output format,
-the files in scope (also pass them as \`scope\` globs — they arm the live drift watchdog),
-and the boundaries (what NOT to touch). Vague tasks produce duplicated or drifting work.
-${hubMode === "fast"
-	? `FAST mode rules: this is a single-specialist path for small, low-risk asks.
-- Use at most ONE specialist dispatch (plus one research call only if truly needed).
-- Skip the assertion ledger and the plan/review pipeline; rely on the specialist's own
-  verification and report back.
-- Nested delegation is disabled; do not commission inventories or parity audits.
-- If the task turns out to be larger than fast mode fits, say so and ask the user to
-  switch modes (/af-hub-mode standard) instead of burning the budget.`
-	: hubMode === "standard"
-		? `STANDARD mode rules: rigor where it pays, batching everywhere else.
-- At most ONE reconnaissance pass before building (skip it for familiar code); prefer the
-  specialist's own recon over a separate research run.
-- Execute plans in a FEW large batches (4–6 tasks per builder dispatch), each followed by
-  ONE verification gate; do not re-audit everything after every small fix — re-verify only
-  the assertions the fix touched.
-- One review gate at the end (code review; security only when the change is
-  security-sensitive) — not one per micro-slice.
-- Reserve deep-researcher for genuinely cross-cutting questions (max 1–2 per task).`
-		: `STRICT mode rules: the full Verification Contract below applies — use for production
-migrations, security-sensitive work, or when the user explicitly asks for it. The wide
-budgets are a checkpoint, not a target: when one is hit, stop and check in with the user.`}
-`;
+		const stableModeSection = `## Task triage (before dispatch)
+Call \`set_task_tier\` honestly: trivial/small work uses minimal ceremony; feature/project work uses the assertion ledger and a review gate. A provided plan is the specification, not consent to execute unrequested phases. Keep related plan work in coherent batches, pass a narrow scope, and treat a budget refusal as a stop-and-ask-human signal; code enforcement remains authoritative.`;
 
-		const fullVerificationContract = `## Verification Contract (assertion ledger)
-A clearly stated requirement must never be silently dropped. You OWN a ledger of checkable
-acceptance assertions; build it before you dispatch, and refuse "done" until each is proven.
-- BEFORE dispatching a builder for any non-trivial task, convert the request into numbered
-  assertions and record them with \`set_assertions\` — one pass condition each, tagged
-  test | runtime-ui | code-grep | manual (see skills/orchestration-verification/SKILL.md).
-  Pass the relevant assertions VERBATIM into each dispatch.
-- Every assertion NAMES ITS SOURCE (\`source: "PLAN-x.md:585-595"\`, \`"user request"\`,
-  \`"review finding F3"\`). The hub refuses a sourceless batch by id: a specialist told to
-  prove A9 must be able to read where A9 came from instead of asking you.
-- Keep at most ${MAX_OPEN_ASSERTIONS} assertions OPEN at once. A large task still has many
-  assertions — declare the batch the next dispatches actually prove, and \`set_assertions\`
-  the next batch when it starts. Over the cap the hub accepts the call but warns.
-- Keep assertions NARROW: one subsystem / one behavior each. Never bundle several
-  subsystems into one giant assertion — a compound assertion forces a full re-audit after
-  every small fix. After a fix, re-verify the touched assertions only.
-- After each verification gate, call \`update_assertion\` with proven (and name the evidence),
-  unproven, or failed. Advance ONLY on proven; unproven and failed both mean not done.
-- A runtime-ui assertion (visibility, placement, "appears in the table") is proven only by an
-  actual runtime observation — dispatch a browser-capable specialist; a static review never
-  closes it.
-- For "make X behave like existing Y" requests, FIRST spawn_research a deep-researcher parity
-  inventory of every site where the exemplar is special-cased, and turn each site into an
-  assertion — otherwise the exemplar ships and its siblings are missed.
-- On a "wrong again" correction, call \`set_assertions\` again to rebuild the ledger from the
-  LATEST correction before re-dispatching (a regression reset — old summaries are now suspect).
-- After a context compaction your status line shows only counts (e.g. "2✓ 3○"), not the
-  assertion text. Call \`get_assertions\` to read the full ledger back — ids, tags, pass
-  conditions, and the named evidence on each proven/failed assertion — before you re-dispatch
-  or report done. This is your bounded read-only window onto recorded ground truth; you do not
-  author code.
-- Specialist returns land pre-parsed in \`details.structuredReturn\` with the raw return at
-  \`details.returnPath\` — read the digest/path directly; NEVER spawn a research helper just to
-  read a return artifact you already hold.
-The ledger is persisted and its status is shown to the human; it is advisory — it informs your
-gating, it does not auto-block a dispatch.`;
+		const fullVerificationContract = `## Verification Contract
+For non-trivial work, record at most ${MAX_OPEN_ASSERTIONS} narrow, sourced assertions before building and pass them verbatim to specialists. Advance only on named evidence; unproven/failed is not done. Runtime-UI claims require runtime observation. Use \`skills/orchestration-verification/SKILL.md\` for formats, parity inventories, and regression resets. After compaction, read the ledger before continuing.`;
 
 		const verificationSection = hubMode === "fast"
 			? `## Verification (fast mode)
@@ -8588,26 +8476,7 @@ standard/strict instead of improvising rigor here.`
 		const comsSection = comsReady && identity
 			? `
 ## Peer agents (coms)
-You are ALSO a peer on the coms mesh — project "${identity.project}", name "${identity.name}". Beyond
-your own team you can talk to the peers in your coms POOL — the agents shown in the pool widget:
-- \`coms_list\` — discover the peers in your pool (names, models, live context usage). The pool is
-  scoped to YOUR project and excludes private (explicit) peers. You CANNOT widen this — only the human
-  can, with \`/af-coms --project <name>\` or \`/af-coms --all\`. Do not ask coms_list for other projects.
-- \`coms_send\` returns a msg_id; then \`coms_await\` (blocking) or \`coms_get\` (poll) reads the reply.
-  For long work put the SAME budget on both calls: \`coms_send(reply_timeout_ms: N, ...)\`, then
-  \`coms_await(timeout_ms: N, ...)\`. The send controls the receiver; await controls only your local
-  wait. A timeout returns pending — await/get the same msg_id again, never re-send the task.
-  This lets you use a peer as an on-demand subagent: send a SELF-CONTAINED task, await it, and fold the
-  result into your plan. A peer does NOT share your context — spell out everything it needs.
-- Only peers in your pool are reachable. \`coms_send\`/\`/af-handoff\` to anyone outside it is refused. If
-  you need a peer that is not in the pool, ASK THE HUMAN to widen scope (\`/af-coms --project\`/\`--all\`),
-  then retry. Do not pass cross-project context to a peer unless the human approved that reach.
-- Prefer \`dispatch_agent\`/\`spawn_research\` for in-team work; reach for coms when a task needs another
-  STANDING agent already in your pool (a human-driven peer, a specialist outside this team).
-- A peer can also address YOU as a subagent — answer an inbound coms prompt as a normal turn.
-- Some team members may be transparently served by a same-name pool peer (dispatch-policy.yaml).
-  This changes NOTHING for you: keep dispatching them via \`dispatch_agent\`; never coms_send the
-  same task to their peer as well.
+You are peer "${identity.name}" in project "${identity.project}". Use \`coms_list\` for the human-scoped pool and status; the Hub cannot widen it. Send one self-contained prompt, then await/get the returned msg_id without resending. Match send/await deadlines. Prefer team dispatch unless the task needs a standing peer, and never duplicate a dispatch to its same-name peer.
 `
 			: "";
 
@@ -8622,8 +8491,9 @@ your own team you can talk to the peers in your coms POOL — the agents shown i
 			dispatchSection,
 			userLanguage,
 			askUserBlock,
-			modeSection,
+			modeSection: stableModeSection,
 			verificationSection,
+			stateCapsule,
 			comsSection,
 			herdrSection,
 			hardRules: postureText.hardRules,
@@ -8639,8 +8509,9 @@ your own team you can talk to the peers in your coms POOL — the agents shown i
 			teamMembers,
 			agentCards,
 			dispatchSection,
-			modeSection,
+			modeSection: stableModeSection,
 			verificationSection,
+			stateCapsule,
 			researchCards,
 			researchCatalog,
 			comsSection,

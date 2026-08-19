@@ -329,26 +329,56 @@ async function defaultCancelRemote(qid: string, reason: string, project: string)
 	}
 }
 
+// Keep UI preferences in the stock implementation; expose only question semantics.
+export const COMPACT_ASK_USER_PARAMETERS = {
+	type: "object",
+	properties: {
+		question: { type: "string", description: "One focused question." },
+		context: { type: "string", description: "Short decision context." },
+		options: { type: "array", items: { type: "string", description: "Choice label." }, minItems: 2, maxItems: 6, description: "Two to six choices." },
+		allowMultiple: { type: "boolean", description: "Allow several choices." },
+		allowFreeform: { type: "boolean", description: "Allow a typed answer." },
+		allowComment: { type: "boolean", description: "Allow an optional comment." },
+	},
+	required: ["question"],
+} as const;
+
+export function compactAskUserParams(params: any): any {
+	return {
+		question: params?.question,
+		...(params?.context === undefined ? {} : { context: params.context }),
+		...(params?.options === undefined ? {} : { options: normalizeOptions(params.options) }),
+		...(params?.allowMultiple === undefined ? {} : { allowMultiple: params.allowMultiple }),
+		...(params?.allowFreeform === undefined ? {} : { allowFreeform: params.allowFreeform }),
+		...(params?.allowComment === undefined ? {} : { allowComment: params.allowComment }),
+	};
+}
+
 export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOptions = {}): ToolRegistration {
 	return {
 		...stockTool,
+		description: "Ask one focused human question; choices are optional.",
+		promptSnippet: "Ask one focused human question",
+		promptGuidelines: ["Ask one focused question per call."],
+		parameters: COMPACT_ASK_USER_PARAMETERS,
 		async execute(toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: any, ctx?: any) {
+			const stockParams = compactAskUserParams(params);
 			const configuredProject = typeof options.remoteProject === "function" ? options.remoteProject() : options.remoteProject;
 			const remoteProject = configuredProject ?? process.env.PI_COMS_PROJECT?.trim() ?? "default";
 			const startRemote = options.startRemote ?? ((remoteParams: any) => defaultStartRemote(remoteParams, remoteProject));
 			let remoteStart: { qid: string; result: Promise<any> } | null = null;
 			try {
-				remoteStart = await startRemote(params, ctx);
+				remoteStart = await startRemote(stockParams, ctx);
 			} catch {
 				remoteStart = null;
 			}
 
 			if (!remoteStart) {
-				return await stockTool.execute?.(toolCallId, params, signal, onUpdate, ctx);
+				return await stockTool.execute?.(toolCallId, stockParams, signal, onUpdate, ctx);
 			}
 
 			return await raceAskUser({
-				runLocal: (localSignal: AbortSignal) => stockTool.execute?.(toolCallId, params, localSignal, onUpdate, ctx),
+				runLocal: (localSignal: AbortSignal) => stockTool.execute?.(toolCallId, stockParams, localSignal, onUpdate, ctx),
 				startRemote: () => remoteStart,
 				cancelRemote: options.cancelRemote ?? ((qid: string, reason: string) => defaultCancelRemote(qid, reason, remoteProject)),
 				createAbortController: () => {

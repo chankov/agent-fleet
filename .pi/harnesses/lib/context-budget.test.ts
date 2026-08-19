@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { component, estimateTokens, planeOccupancy, reconcilePlane, safeSchemaChars } from "./context-budget.ts";
 
 const visible = (id: string, chars: number) => component({ id, plane: "hub", category: "system", label: id, persistence: "fixed", visibility: "model-visible", confidence: "heuristic", chars });
@@ -53,4 +54,16 @@ test("missing usage fields do not invent cache or residual", () => {
 	const result = reconcilePlane([visible("a", 8)], "hub");
 	assert.equal(result.summary.measuredTokens, undefined);
 	assert.equal(result.residual, undefined);
+});
+
+test("deterministic profile fixtures attribute exact prompt, tool, and plane characters", () => {
+	const profiles = JSON.parse(readFileSync(new URL("./fixtures/context-budget-profiles.json", import.meta.url), "utf8")) as Array<{ name: string; plane: "hub" | "research" | "specialist"; prompt: string; tools: string[] }>;
+	assert.deepEqual(profiles.map(profile => profile.name), ["greeting", "direct-coding", "fleet", "verification", "peer", "workspace", "compaction-full-fleet", "research-helper", "specialist"]);
+	for (const profile of profiles) {
+		const policy = component({ id: `${profile.name}/policy`, plane: profile.plane, category: "system", label: "policy", persistence: "fixed", visibility: "model-visible", confidence: "exact-chars", chars: profile.prompt.length });
+		const tools = profile.tools.map(name => component({ id: `${profile.name}/tool/${name}`, plane: profile.plane, category: "tool", label: name, persistence: "fixed", visibility: "model-visible", confidence: "exact-chars", chars: safeSchemaChars({ name, description: `${name} tool` }) }));
+		assert.equal(policy.chars, profile.prompt.length, `${profile.name} policy attribution`);
+		assert.equal(tools.reduce((total, tool) => total + tool.chars, 0), profile.tools.reduce((total, name) => total + safeSchemaChars({ name, description: `${name} tool` }), 0), `${profile.name} tool attribution`);
+		assert.ok([policy, ...tools].every(entry => entry.plane === profile.plane && entry.confidence === "exact-chars"), `${profile.name} plane attribution`);
+	}
 });

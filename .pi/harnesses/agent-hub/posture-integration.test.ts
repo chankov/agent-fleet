@@ -31,3 +31,13 @@ test("wiring contract: orchestrator persona defers authority to active posture",
 	assert.match(personaSource, /operator posture/i);
 	assert.match(personaSource, /orchestrator posture/i);
 });
+
+test("same-turn lifecycle has one pre-model surface assembly point for normal and resumed remote turns", () => {
+	const inputHook = indexSource.match(/pi\.on\("input", async \(_event, ctx\) => \{[\s\S]*?\n\t\}\);/);
+	const beforeHook = indexSource.match(/pi\.on\("before_agent_start", async \(_event, _ctx\) => buildHubSystemPrompt\(true\)\);/);
+	assert.ok(inputHook, "incoming normal and remote messages share Pi's input hook");
+	assert.ok(beforeHook, "all model turns share the before_agent_start hook");
+	// Registration order is intentionally irrelevant: Pi invokes input before model startup.
+	assert.match(indexSource, /function buildHubSystemPrompt\(forTurn: boolean\)[\s\S]*?if \(forTurn\) \{[\s\S]*?applyPostureTools\(\)/);
+	assert.doesNotMatch(indexSource, /classification model|classify.*model request|sendMessage\([\s\S]{0,100}classif/i);
+});

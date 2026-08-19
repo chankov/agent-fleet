@@ -1,5 +1,9 @@
 import { component, type ContextBudgetComponent, type ContextCategory } from "./context-budget.ts";
 
+/**
+ * Prompt inputs are deliberately split between stable policy and a small volatile
+ * state capsule. Callers must not put counters or task state in policy fragments.
+ */
 export interface HubPromptParts {
 	intro: string;
 	toolList: string;
@@ -17,88 +21,53 @@ export interface HubPromptParts {
 	ambiguityRule: string;
 	agentCatalog: string;
 	researchCatalog: string;
+	/** Changes per turn: tier, budgets, active counters, and pending state only. */
+	stateCapsule?: string;
 	dispatcherPersonaPrompt?: string;
 }
 
 export const HUB_HERDR_SECTION = `
 ## Fleet (herdr)
-This session runs inside a herdr workspace and can drive panes:
-- \`herdr_spawn_peer\` starts an addressable Pi persona, personaless Fleet Core, or Claude Code
-  peer next to you. Name-only calls inherit peers.yaml; explicit fields use the same resolver as
-  \`just fleet peer\`. Every peer is locked to this Hub's coms project.
-- \`herdr_spawn_pane\` starts a raw command pane (for example a build watcher or server). It is
-  not a coms peer and has no readiness result. Spawn deliberately; every pane is human-visible.
-- A spawned peer BOOTS IDLE and waits for \`coms_send\`: the spawn hands it no task.
-  The call waits for it to register and returns \`peer_ready\` with its coms name. Spawn one
-  only immediately before the first message you will send it — a peer spawned "to have it
-  ready" and never addressed is an empty pane named like a worker. If you sent it no work
-  by the end of the turn, say so and offer to close it; the hub names unaddressed
-  hub-spawned peers in the session digest.
-- \`peer_ready: false\` is a FAILED start, not a slow one. The result carries the pane's last
-  output — read it, then fix the cause or close the pane and spawn again. Never \`coms_send\`
-  to a name that never registered, and never spawn a second peer to route around the first.
-- \`herdr_read_pane\` is read-to-decide: peek at a worker/tool pane's recent output before
-  acting on it. It is NOT a messaging channel and NOT a status poll — \`coms_list\` already
-  reports each peer's \`pane_id\` and \`status\` (idle | working | booting), so check that
-  before sending. Prefer \`coms_send\`/\`coms_await\` for pi and bridged peers; reading screens
-  is the last resort for unbridged tools and post-mortems.
-- \`herdr_close_pane\` kills a pane and asks the HUMAN to confirm first. Close only panes you
-  spawned, when their job is done or they are stuck.
-- \`herdr_notify\` reaches the human via desktop notification when they are away — use it when
-  a long fleet task finishes or needs attention; it does not replace \`ask_user\`.
+- Use panes only for auxiliary processes; never bypass specialist delegation.
+- Spawn a peer immediately before its first message. It boots idle; \`peer_ready: false\` is a failed start.
+- Check \`coms_list\` for peer status; read panes only for unbridged tools or post-mortems.
+- \`herdr_close_pane\` requires human confirmation. Close only panes you opened when their work ends.
+- \`herdr_notify\` reaches an away human; it never replaces \`ask_user\`.
 `;
 
 /** Assemble the effective Hub replacement prompt. Ledger metadata is never interpolated. */
 export function assembleHubSystemPrompt(parts: HubPromptParts): string {
 	const team = parts.activeTeamName || "(none)";
 	const members = parts.teamMembers || "(none — add a persona before using dispatch_agent)";
-	const orchestratorPrompt = `${parts.intro} You have ${parts.toolList}.
+	const state = parts.stateCapsule ? `\n${parts.stateCapsule}\n` : "";
+	const policy = `${parts.intro} You have ${parts.toolList}.
 
 ## Language
 ${parts.languageLines}
 
 ## Native Roster: ${team}
 Members: ${members}
-You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents
-outside this team. The roster CAN change mid-session: the human via /af-agents-add,
-/af-agents-drop, /af-agents-team — or you via \`team_adjust\` (add/drop with a reason)
-when the current roster genuinely cannot serve the task. Use it sparingly; more
-personas is usually the wrong answer.
+Dispatch only listed agents. The roster may change through its Fleet commands or \`team_adjust\` when it genuinely cannot serve the task; more personas is usually the wrong answer.
 
 ## How to Work
-- Analyze the user's request and break it into clear sub-tasks.
-- Choose the right agent(s) for each sub-task.
 ${parts.dispatchSection}
-- Choose \`backend: native\` when the user explicitly requests a local Pi specialist, \`backend: coms\` when they explicitly request a live same-name peer, and \`backend: auto\` otherwise. Never substitute one explicit backend for another.
-- Review results and dispatch follow-up agents if needed.
-- If a task fails, try a different agent or adjust the task description.
-- Summarize the outcome for the user in ${parts.userLanguage}.
+- Choose \`backend: native\` only for an explicitly requested local Pi specialist, \`backend: coms\` only for an explicitly requested live same-name peer, and \`backend: auto\` otherwise. Never substitute an explicit backend.
+- Review results, follow up when needed, and summarize for the user in ${parts.userLanguage}.
 
 ${parts.askUserBlock}
 
-${parts.modeSection}
+${parts.modeSection}${state}
 ${parts.verificationSection}
 
 ## Research helpers (read-only)
-- \`spawn_research\` runs a READ-ONLY helper (read/grep/find/ls — no bash, no writes)
-  and returns its findings to you inline. Use it for reconnaissance, code search, and
-  reading docs/code BEFORE you dispatch a builder — or to fan out background research.
-- Two flavours: pass \`persona\` to spawn one of the research personas listed below (it
-  brings its own role/model); omit \`persona\` for an ad-hoc helper (optional \`model\`).
-- Match the helper to the job: use a lighter/faster persona for simple reads and a
-  higher-capability one for ambiguous, cross-cutting, or high-stakes research. Compare
-  the **Model** / **Thinking** shown for each persona below and pick deliberately.
-- Specialists you dispatch are sandboxed and CANNOT spawn their own helpers. When a
-  specialist needs research help, YOU run \`spawn_research\`, collect the findings, and
-  fold them into the specialist's task — do not ask the specialist to do it itself.
-- Research helpers are ephemeral and read-only, so they are always safe to run.
+- \`spawn_research\` is read-only (read/grep/find/ls; no bash or writes). Use it for necessary reconnaissance, not to read a return artifact you already have.
+- Choose a light persona for simple reads and a stronger one for ambiguous, cross-cutting, or high-stakes research.
+- Specialists cannot spawn helpers; run necessary research and pass its findings or artifact path to the specialist.
 ${parts.comsSection}${parts.herdrSection}
 ## Hard Rules
 ${parts.hardRules}
 ${parts.ambiguityRule}
-- You can chain agents: spawn_research to gather context, builder to implement.
-- You can dispatch the same agent multiple times with different tasks.
-- Keep tasks focused — one clear objective per dispatch.
+- Keep each dispatch focused and use the returned evidence before reporting completion.
 
 ## Agents
 
@@ -107,70 +76,39 @@ ${parts.agentCatalog}
 ## Research personas
 
 ${parts.researchCatalog}`;
-	return parts.dispatcherPersonaPrompt
-		? `${parts.dispatcherPersonaPrompt}\n\n${orchestratorPrompt}`
-		: orchestratorPrompt;
+	return parts.dispatcherPersonaPrompt ? `${parts.dispatcherPersonaPrompt}\n\n${policy}` : policy;
 }
 
-export interface NamedHubPart {
-	id: string;
-	text: string;
-	category: ContextCategory;
-}
+export interface NamedHubPart { id: string; text: string; category: ContextCategory; persistence?: ContextBudgetComponent["persistence"]; source?: string; }
 
 export function namedHubLedgerParts(input: {
-	intro: string;
-	languageLines: string;
-	teamMembers: string;
-	agentCards: readonly { id: string; text: string }[];
-	dispatchSection: string;
-	modeSection: string;
-	verificationSection: string;
-	researchCards: readonly { id: string; text: string }[];
-	researchCatalog: string;
-	comsSection: string;
-	herdrSection: string;
-	dispatcherPersonaPrompt?: string;
+	intro: string; languageLines: string; teamMembers: string; agentCards: readonly { id: string; text: string }[];
+	dispatchSection: string; modeSection: string; verificationSection: string; researchCards: readonly { id: string; text: string }[];
+	researchCatalog: string; comsSection: string; herdrSection: string; stateCapsule?: string; dispatcherPersonaPrompt?: string;
 }): NamedHubPart[] {
-	const herdrReady = input.herdrSection.length > 0;
 	return [
-		{ id: "hub/intro", text: input.intro, category: "system" },
-		{ id: "hub/language", text: input.languageLines, category: "protocol" },
-		{ id: "hub/roster-header", text: input.teamMembers, category: "roster" },
-		...input.agentCards.map((card) => ({ id: `hub/roster/${card.id}`, text: card.text, category: "roster" as const })),
-		{ id: "hub/work-policy", text: input.dispatchSection, category: "protocol" },
-		{ id: "hub/task-triage", text: input.modeSection, category: "protocol" },
-		{ id: "hub/verification", text: input.verificationSection, category: "protocol" },
-		...(input.researchCards.length
-			? input.researchCards.map((card) => ({ id: `hub/research/${card.id}`, text: card.text, category: "persona" as const }))
-			: [{ id: "hub/research-empty", text: input.researchCatalog, category: "persona" as const }]),
-		{ id: "hub/coms", text: input.comsSection, category: "protocol" },
-		{ id: "hub/herdr", text: input.herdrSection, category: "protocol" },
-		{ id: "hub/persona", text: input.dispatcherPersonaPrompt ?? "", category: "persona" },
-	].map((part) => part.id === "hub/herdr" && !herdrReady
-		? { ...part, text: "" }
-		: part);
+		{ id: "hub/policy/posture", text: input.intro, category: "system", persistence: "fixed", source: "posture.ts" },
+		{ id: "hub/policy/language", text: input.languageLines, category: "protocol", persistence: "fixed", source: "hub-policy" },
+		{ id: "hub/roster-header", text: input.teamMembers, category: "roster", persistence: "session", source: "active-roster" },
+		...input.agentCards.map(card => ({ id: `hub/roster/${card.id}`, text: card.text, category: "roster" as const, persistence: "session" as const, source: "agent-persona" })),
+		{ id: "hub/policy/dispatch", text: input.dispatchSection, category: "protocol", persistence: "fixed", source: "hub-policy" },
+		{ id: "hub/policy/triage", text: input.modeSection, category: "protocol", persistence: "fixed", source: "run-budget" },
+		{ id: "hub/policy/verification", text: input.verificationSection, category: "protocol", persistence: "fixed", source: "orchestration-verification" },
+		{ id: "hub/state", text: input.stateCapsule ?? "", category: "system", persistence: "turn", source: "hub-state" },
+		...(input.researchCards.length ? input.researchCards.map(card => ({ id: `hub/research/${card.id}`, text: card.text, category: "persona" as const, persistence: "session" as const, source: "research-persona" })) : [{ id: "hub/research-empty", text: input.researchCatalog, category: "persona" as const, persistence: "session" as const, source: "research-persona" }]),
+		{ id: "hub/policy/coms", text: input.comsSection, category: "protocol", persistence: "fixed", source: "coms" },
+		{ id: "hub/policy/workspace", text: input.herdrSection, category: "protocol", persistence: "fixed", source: "herdr" },
+		{ id: "hub/persona", text: input.dispatcherPersonaPrompt ?? "", category: "persona", persistence: "session", source: "dispatcher-persona" },
+	];
 }
 
 export function recordHubLedger(systemPrompt: string, parts: readonly NamedHubPart[]): ContextBudgetComponent[] {
 	const namedChars = parts.reduce((sum, part) => sum + part.text.length, 0);
-	return parts.map((part) => component({
-		id: part.id,
-		plane: "hub",
-		category: part.category,
-		label: part.id.replace("hub/", "Hub "),
-		persistence: "turn",
-		visibility: part.id === "hub/herdr" && part.text.length === 0 ? "unknown" : "model-visible",
-		confidence: part.id === "hub/herdr" && part.text.length === 0 ? "unavailable" : "exact-chars",
-		chars: part.text.length,
+	return parts.map(part => component({
+		id: part.id, plane: "hub", category: part.category, label: part.id.replace("hub/", "Hub "), source: part.source,
+		persistence: part.persistence ?? "turn", visibility: "model-visible", confidence: "exact-chars", chars: part.text.length,
 	})).concat(component({
-		id: "hub/separators-and-rules",
-		plane: "hub",
-		category: "system",
-		label: "Hub separators, hard rules, and formatting",
-		persistence: "turn",
-		visibility: "model-visible",
-		confidence: "exact-chars",
-		chars: Math.max(0, systemPrompt.length - namedChars),
+		id: "hub/separators-and-rules", plane: "hub", category: "system", label: "Hub separators and formatting", source: "hub-prompt-template",
+		persistence: "fixed", visibility: "model-visible", confidence: "exact-chars", chars: Math.max(0, systemPrompt.length - namedChars),
 	}));
 }

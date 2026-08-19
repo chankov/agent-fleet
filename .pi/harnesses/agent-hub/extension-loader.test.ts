@@ -126,6 +126,38 @@ test("Pi loads the guarded agent-hub extension stack through jiti", () => {
 	assertExtensionStackLoaded(runExtensionStack(repoRoot));
 });
 
+test("Hub fleet, verification, coms, and Herdr schemas stay compact without changing their fields", () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-schema-runtime-"));
+	try {
+		const capturePath = join(workspace, "tools.json");
+		const probePath = join(workspace, "probe.ts");
+		writeFileSync(probePath, `
+import { writeFileSync } from "node:fs";
+export default function (pi) {
+  pi.on("session_start", () => {
+    const tools = pi.getAllTools().map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters }));
+    writeFileSync(process.env.TOOL_CAPTURE, JSON.stringify(tools));
+  });
+}
+`);
+		const result = spawnSync(piExecutable, ["--mode", "rpc", "--no-session", "--no-extensions", ...extensionPaths.flatMap(extensionPath => ["-e", extensionPath]), "-e", probePath, "--solo", "--posture", "operator"], {
+			cwd: repoRoot, encoding: "utf8", env: { ...process.env, PI_OFFLINE: "1", TOOL_CAPTURE: capturePath },
+		});
+		assertExtensionStackLoaded(result);
+		const tools = JSON.parse(readFileSync(capturePath, "utf8"));
+		const names = ["dispatch_agent", "spawn_research", "set_assertions", "update_assertion", "get_assertions", "coms_list", "coms_send", "coms_get", "coms_await", "herdr_spawn_peer", "herdr_spawn_pane", "herdr_read_pane", "herdr_close_pane", "herdr_notify"];
+		const selected = tools.filter((tool: any) => names.includes(tool.name));
+		assert.equal(selected.length, names.length);
+		assert.ok(JSON.stringify(selected).length < 8_000, `compact serialized schemas=${JSON.stringify(selected).length}`);
+		for (const [name, fields] of [["dispatch_agent", ["agent", "task", "artifacts", "scope", "watchdog", "review_reason", "backend"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
+			const tool = selected.find((entry: any) => entry.name === name);
+			assert.deepEqual(Object.keys(tool.parameters.properties), fields, `${name} accepted fields`);
+		}
+	} finally {
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
 test("runtime posture activates operator tools and restricts orchestrator tools", () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-posture-runtime-"));
 	try {
