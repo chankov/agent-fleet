@@ -1,0 +1,142 @@
+# Reusable coms peers, grouped into named teams (parallels teams.yaml).
+#
+# `just fleet team <name> --no-hub` spawns each peer in its own Herdr pane
+# (requires a running herdr server — https://herdr.dev),
+# using the hidden `_peer` helper (guarded Fleet Core + coms + the persona).
+#
+# A team is NOT required to launch a single peer: `just fleet peer <name>` puts
+# one peer (pi or `--runner claude-code`) in its own pane — splitting the current
+# pane inside Herdr, else creating a one-pane workspace, or `--here` for the
+# calling terminal. A name declared below keeps its runner/model/extensions/
+# env_file; an undeclared name works too.
+#
+# Each peer entry:
+#   name    — coms identity (the addressable peer name); overrides persona frontmatter
+#   persona — file under agents/ (without .md); its body is the role, its
+#             frontmatter `description`/`color` become the coms purpose/color
+#   model   — optional pi --model spec (e.g. anthropic/claude-opus-4-7); omit to
+#             inherit pi's default model
+#   extensions — optional comma-separated extension names under .pi/extensions/ to
+#             load into this peer (routes it through `_peer-plus`). Use for a
+#             chrome-devtools-mcp browser-debug peer whose `chrome_devtools__*`
+#             tools a --no-extensions subagent could not get.
+#   env_file — optional repo-relative KEY=VALUE file (no shell evaluation) injected
+#             into the peer's pane env by herdr before the command runs. Must exist
+#             at spawn or team-up refuses. Values are redacted in --dry-run output.
+#             Pair with the gitignored `.env` convention from guided setup
+#             (docs/agent-fleet-setup.md).
+#   runner  — optional; "claude-code" spawns interactive Claude Code + its coms
+#             bridge in the pane instead of a pi peer (persona not required;
+#             model maps to `claude --model`). Example:
+#               - name: claude-main
+#                 runner: claude-code
+#                 model: opus
+
+# Hub-only workspace: `just fleet team base --project <name>` creates a Herdr
+# workspace containing only the guarded hub, with no reusable coms peer panes.
+base:
+
+full:
+  - name: web-debugger
+    persona: web-debugger
+    model: openai-codex/gpt-5.6-terra
+    extensions: chrome-devtools-mcp
+  - name: documenter
+    persona: documenter
+    model: openai-codex/gpt-5.6-terra
+  - name: researcher
+    persona: researcher
+    model: openai-codex/gpt-5.6-luna
+
+web:
+  - name: web-debugger
+    persona: web-debugger
+    model: openai-codex/gpt-5.6-terra
+    extensions: chrome-devtools-mcp
+
+docs:
+  - name: documenter
+    persona: documenter
+    model: openai-codex/gpt-5.6-terra
+  - name: researcher
+    persona: researcher
+    model: openai-codex/gpt-5.6-luna
+
+# Mirrored from .pi/agents/teams.yaml for `just fleet team <team>`.
+default:
+  - name: code-reviewer
+    runner: claude-code
+  - name: web-debugger
+    persona: web-debugger
+    model: openai-codex/gpt-5.6-terra
+    extensions: chrome-devtools-mcp
+
+debug:
+  - name: test-engineer
+    persona: test-engineer
+    model: openai-codex/gpt-5.6-terra
+  - name: builder
+    persona: builder
+    model: openai-codex/gpt-5.6-terra
+  - name: code-reviewer
+    runner: claude-code
+
+frontend:
+  - name: planner
+    persona: planner
+    model: openai-codex/gpt-5.6-sol
+  - name: builder
+    persona: builder
+    model: openai-codex/gpt-5.6-terra
+  - name: bowser
+    persona: bowser
+    model: openai-codex/gpt-5.6-luna
+  - name: code-reviewer
+    runner: claude-code
+
+security:
+  - name: security-auditor
+    persona: security-auditor
+    model: openai-codex/gpt-5.6-sol
+  - name: builder
+    persona: builder
+    model: openai-codex/gpt-5.6-terra
+  - name: test-engineer
+    persona: test-engineer
+    model: openai-codex/gpt-5.6-terra
+  - name: code-reviewer
+    runner: claude-code
+
+hotfix:
+  - name: builder
+    persona: builder
+    model: openai-codex/gpt-5.6-terra
+  - name: code-reviewer
+    runner: claude-code
+
+release:
+  - name: releaser
+    persona: releaser
+    model: openai-codex/gpt-5.6-terra
+  - name: documenter
+    persona: documenter
+    model: openai-codex/gpt-5.6-terra
+
+info:
+  - name: documenter
+    persona: documenter
+    model: openai-codex/gpt-5.3-codex-spark
+  - name: code-reviewer
+    runner: claude-code
+
+review:
+  - name: plan-reviewer
+    runner: claude-code
+  - name: code-reviewer
+    runner: claude-code
+
+plan:
+  - name: planner
+    runner: claude-code
+  - name: code-reviewer
+    runner: claude-code
