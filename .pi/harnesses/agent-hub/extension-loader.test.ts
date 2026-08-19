@@ -185,24 +185,62 @@ test("effective Hub profiles stay within deterministic prompt plus active-schema
 	for (const profile of cases) {
 		const workspace = mkdtempSync(join(tmpdir(), `agent-hub-budget-${profile.name}-`));
 		const probePath = join(workspace, "probe-budget.ts");
+		const capturePath = join(workspace, "profile-budget.json");
 		writeFileSync(probePath, `
++import { writeFileSync } from "node:fs";
++import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
++
++const capturePath = ${JSON.stringify(capturePath)};
++
++function streamBudgetProbe(model, context) {
++  const stream = createAssistantMessageEventStream();
++  queueMicrotask(() => {
++    const schemas = context.tools ?? [];
++    writeFileSync(capturePath, JSON.stringify({
++      promptChars: String(context.systemPrompt ?? "").length,
++      schemaChars: JSON.stringify(schemas).length,
++      active: schemas.map(tool => tool.name),
++    }));
++    const output = {
++      role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
++      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
++        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
++      stopReason: "stop", timestamp: Date.now(),
++    };
++    stream.push({ type: "start", partial: output });
++    output.content.push({ type: "text", text: "ok" });
++    stream.push({ type: "text_start", contentIndex: 0, partial: output });
++    stream.push({ type: "text_delta", contentIndex: 0, delta: "ok", partial: output });
++    stream.push({ type: "text_end", contentIndex: 0, content: "ok", partial: output });
++    stream.push({ type: "done", reason: "stop", message: output });
++    stream.end();
++  });
++  return stream;
++}
++
 +export default function (pi) {
-+  pi.registerCommand("probe-budget", {
-+    description: "Test-only effective context budget probe",
-+    handler: async (_args, ctx) => {
-+      const active = new Set(pi.getActiveTools());
-+      const schemas = pi.getAllTools().filter(tool => active.has(tool.name))
-+        .map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters }));
-+      const prompt = String(ctx.getSystemPrompt?.() ?? "");
-+      ctx.ui.notify("PROFILE_BUDGET:" + JSON.stringify({ promptChars: prompt.length, schemaChars: JSON.stringify(schemas).length, active: [...active] }), "info");
-+    },
++  pi.registerProvider("profile-budget-test", {
++    name: "Profile Budget Test", baseUrl: "http://127.0.0.1", apiKey: "test", api: "profile-budget-test-api",
++    models: [{ id: "model", name: "Model", reasoning: false, input: ["text"],
++      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 272000, maxTokens: 1000 }],
++    streamSimple: streamBudgetProbe,
 +  });
 +}
 +`.replace(/^\+/gm, ""));
-		const rpc = startRpcProbe(probePath, "extraArgs" in profile ? [...profile.extraArgs] : []);
+		const extraArgs = [
+			...("extraArgs" in profile ? [...profile.extraArgs] : []),
+			"--model", "profile-budget-test/model",
+		];
+		const rpc = startRpcProbe(probePath, extraArgs);
 		try {
-			assert.equal((await rpc.request({ type: "prompt", message: profile.message })).success, true);
-			const measured = JSON.parse(await rpc.notificationAfter("/probe-budget", "PROFILE_BUDGET:"));
+			const promptResponse = await rpc.request({ type: "prompt", message: profile.message });
+			assert.equal(promptResponse.success, true, `${profile.name}: ${JSON.stringify(promptResponse)}`);
+			const captureDeadline = Date.now() + 10_000;
+			while (!existsSync(capturePath)) {
+				if (Date.now() >= captureDeadline) assert.fail(`${profile.name} provider context was not captured`);
+				await new Promise(resolve => setTimeout(resolve, 20));
+			}
+			const measured = JSON.parse(readFileSync(capturePath, "utf8"));
 			assert.ok(measured.promptChars > 0, `${profile.name} must expose its effective replacement prompt`);
 			assert.ok(measured.promptChars + measured.schemaChars <= profile.maxChars,
 				`${profile.name} effective chars=${measured.promptChars + measured.schemaChars} > ${profile.maxChars}`);
