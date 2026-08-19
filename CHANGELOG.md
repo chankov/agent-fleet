@@ -1,5 +1,14 @@
 # Agent Fleet changelog
 
+## 1.0.2
+
+### Patch Changes
+
+- f2007a3: Replace Agent Hub's double-confirmation budget UX with one localized Yes/No `ask_user` confirmation. Accepted turn continuations renew the current turn in-place; accepted task continuations open an audited tranche while preserving task tier, assertions, capability packs, blockers, label, and progress. Exclude human `ask_user` wait time from both turn and task active-time clocks. Remove the redundant `/af-new-task` slash command; genuinely different work still resets through `set_task_tier(new_task: true)`. Add a visible inline `m` model picker over Fleet Detail logs that exposes every model Pi currently reports as available and applies the choice to a local specialist, research helper, or nested delegate's next run without interrupting current work. Normalize legacy and Kitty keyboard sequences so arrows and paging keys navigate the picker consistently.
+- c028354: Add the read-only `/af-context` Agent Hub context-budget diagnostic with provider reconciliation and separate fleet context planes.
+- e1e8bff: Refresh the root, MCP-extension, and harness runtime lockfiles to patched Pi, HTTP, schema-validation, and YAML transitive dependencies. Add an offline lock-floor regression so vulnerable resolutions cannot silently return.
+- e1e8bff: Reduce standing Agent Hub context with automatic, intent-gated capability packs and selected managed-child context manifests. Prevent same-turn overflow with 80%/90% pressure diagnostics, single-flight automatic compaction, and exact-once deferred input replay. Restore persisted named rosters against current configuration while keeping stale orchestrator sessions fail-closed, and document recovery without session-file edits.
+
 ## 1.0.1
 
 ### Patch Changes
