@@ -111,10 +111,10 @@ export function resolveTurnBudget(mode, overrides = {}, tier = undefined) {
 }
 
 function refusalTail(mode) {
-	return "Do NOT retry this call in this turn. Summarize progress so far (including " +
-		"unproven assertions and artifact paths), then ask the user whether to continue — " +
-		"the next user message starts a fresh budget window. The user can widen budgets " +
-		`with /af-hub-mode (current: ${mode}) or the max-*-per-turn / turn-wall-time-s keys ` +
+	return "Do NOT retry this call before human confirmation. Summarize progress so far (including " +
+		"unproven assertions and artifact paths), then use the Hub's one-click budget continuation " +
+		"confirmation. Do not ask for a typed continue message or a slash command. The user can widen " +
+		`future budgets with /af-hub-mode (current: ${mode}) or the max-*-per-turn / turn-wall-time-s keys ` +
 		"in .ai/agent-fleet-overrides.md.";
 }
 
@@ -203,8 +203,7 @@ export function budgetStatusLine(mode, counters, budget, tier = null, task = nul
 //
 // The tier now survives the turn and moves by ratchet: DOWN is free (cheap and
 // self-limiting), UP costs an explicit reason that is recorded and shown. Only
-// an explicit new task (set_task_tier `new_task: true`, or /af-new-task) clears
-// it.
+// an explicit new task (`set_task_tier` with `new_task: true`) clears it.
 
 export const TIER_RANK = { trivial: 0, small: 1, feature: 2, project: 3 };
 
@@ -265,9 +264,9 @@ export function applyTierChange(current, next, reason = "") {
 // Turn budgets are a per-message allowance, and a per-message allowance cannot
 // bound a task: the observed 47-hour run never hit one, because every steering
 // message opened a fresh window of 8 dispatches and 60 minutes. The task budget
-// is the same envelope multiplied once and NOT reset by a user message — only
-// by an explicit new task. Exhaustion is a hard stop, not a "summarize and ask":
-// continuing requires the human to open a new task window.
+// is the same envelope multiplied once and NOT reset by a user message.
+// Exhaustion is a hard stop until the human accepts one audited continuation
+// tranche; opening a genuinely new task remains a separate lifecycle action.
 
 export const TASK_BUDGET_MULTIPLIER = 3;
 
@@ -284,9 +283,9 @@ export function resolveTaskBudget(turnBudget, multiplier = TASK_BUDGET_MULTIPLIE
 function taskRefusalTail() {
 	return "This is a HARD STOP for the current task, not a turn refusal — another user message does " +
 		"NOT reopen it. Summarize what is proven (with evidence and artifact paths), what is unproven, " +
-		"and what remains, then ask the human to either narrow the remaining work or open a fresh task " +
-		"window with `/af-new-task`. If the task genuinely grew, say what it grew INTO — a task that " +
-		"outgrew its envelope three times over is a re-scoping decision, not a budget problem.";
+		"and what remains, then use the Hub's one-click task-budget continuation confirmation. A confirmed " +
+		"continuation opens one audited tranche while preserving task state. Use `set_task_tier` with " +
+		"`new_task: true` only when the human genuinely moved to different work.";
 }
 
 /**
@@ -500,7 +499,7 @@ export function checkReviewRoundCap(tier, persona, roundsSoFar) {
 			`the fix produced new findings is the ratchet — each round's findings become requirements, and the ` +
 			`enlarged requirement set justifies the next round.\n` +
 			`If this genuinely is a different review (a different subsystem, or work the earlier round never saw), ` +
-			`raise the tier with a reason via set_task_tier, or open a new task window with /af-new-task.`,
+			`raise the tier with a reason via set_task_tier, or call it with new_task: true for genuinely different work.`,
 	};
 }
 

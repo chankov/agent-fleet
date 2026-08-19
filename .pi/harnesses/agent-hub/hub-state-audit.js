@@ -53,3 +53,21 @@ export function buildTaskResetAudit(input = {}) {
 		identity: buildHubAuditIdentity(input.identity),
 	};
 }
+
+export function buildBudgetContinuationAudit(input = {}) {
+	const prior = input.prior ?? {};
+	return {
+		schema_version: 1,
+		kind: text(input.kind, 16),
+		continuation: count(input.continuation),
+		reason: text(input.reason, 64),
+		prior: {
+			tier: text(prior.tier, 32),
+			dispatches: count(prior.dispatches),
+			research: count(prior.research),
+			review_rounds: count(prior.reviewRounds),
+			active_ms: count(prior.activeMs),
+		},
+		identity: buildHubAuditIdentity(input.identity),
+	};
+}

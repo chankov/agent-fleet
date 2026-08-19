@@ -52,7 +52,7 @@ Ambiguous delegation, peer, or workspace intent provisionally exposes the smalle
 and records its reason in the state capsule and `/af-context`. Before that pack's first side effect,
 the Hub asks one focused `ask_user` confirmation. Confirming promotes it for the task; reject or
 cancel removes it and leaves no message, child, or pane behind. Active task packs persist through
-follow-up turns so a workflow does not lose tools. They shrink only on `/af-new-task` or
+follow-up turns so a workflow does not lose tools. They shrink only through
 `set_task_tier(new_task: true)` (apart from mandatory posture and pending-operation leases), never
 merely because the next message sounds different.
 
@@ -550,8 +550,12 @@ task, most of it re-billed stale specialist context).
   second confirming reads); use for production migrations and security-sensitive work.
 
 When a budget is exhausted, `dispatch_agent`/`spawn_research` **refuse** with instructions
-to summarize and ask the user; the next user message opens a fresh window. Switch modes
-live with `/af-hub-mode fast|standard|strict` (no argument shows the current mode and usage).
+to summarize and ask one localized Yes/No `ask_user` question. **Yes** renews the turn budget
+inside the same tool loop; the user does not type `continue` or run a slash command. A normal
+new user message still opens a fresh turn window. Time blocked in any `ask_user` question is
+excluded from the turn wall clock, so a slow human answer cannot exhaust the next dispatch.
+Switch modes live with `/af-hub-mode fast|standard|strict` (no argument shows the current mode
+and usage).
 The live switch is deliberately **process/session-local**: it does not mutate another repository,
 another pane, or the project's override file. A later `session_start` reapplies that repository's
 configured default. Successful live switches and session-start default application append
@@ -588,19 +592,24 @@ counters are **not** reset by a user message:
 | clock | 60 min wall | 180 min **active** |
 
 Exhausting it is a **hard stop**: the refusal says so, and another user message does not
-reopen it. Only `/af-new-task [label]` (or `set_task_tier` with `new_task: true`) opens a
-new task window — clearing the counters, the tier, the review-round count, the duplicate
-guard, and any external-blocker stop. A successful slash-command reset or
-`set_task_tier(new_task: true)` appends an `agent-hub-task-reset` entry with the reset source,
-prior counters/active time, and the same allowlisted process/session/pane identity. The status
-chip shows both (`… · task 4/18`).
+reopen it. The hub asks one localized Yes/No `ask_user` question. **Yes** opens one audited
+continuation tranche and resumes directly; it resets the task dispatch/research counters,
+active-time clock, review allowance, and the current turn budget while preserving the task
+tier, assertion ledger, capability packs, label, blockers, and accumulated progress. **No**
+(or cancellation) stops. Each accepted tranche appends `agent-hub-budget-continuation` with
+bounded prior usage and allowlisted process/session/pane identity.
 
-The reasoning: a task that has burned three full envelopes has not hit a budget problem, it
-has outgrown its scope, and re-scoping is the human's call.
+`set_task_tier` with `new_task: true` remains the lifecycle action for genuinely different work.
+It clears task identity/state as well as counters and appends an `agent-hub-task-reset` audit
+entry. Do not use it merely to continue the same task. The status chip still shows both turn and
+task usage (`… · task 4/18`).
 
-The task clock charges **active time only** — turns that actually ran, each minus the time
-the dispatcher sat blocked on `ask_user`. Inter-turn idle costs nothing, because no turn is
-open across it. Raw wall clock would bill a lunch break, an overnight pause, and every long
+The reasoning: three full envelopes still require an explicit human decision, but that decision
+is now a single confirmation rather than a fake new task followed by a second message.
+
+Both turn and task clocks charge **active time only** — turns that actually ran, minus the
+time the dispatcher sat blocked on `ask_user`. Inter-turn idle costs nothing, because no turn
+is open across it. Raw wall clock would bill a lunch break, an overnight pause, and every long
 human answer against the task; at `fast` mode's 45-minute envelope a coffee break would
 hard-stop a task with two dispatches spent. A false stop is worse than no stop — it teaches
 people to reset the task window reflexively, and that reset is the one thing that has to

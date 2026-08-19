@@ -55,7 +55,7 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(dash, /until: now \+ 2000/);
 });
 
-test("task lifecycle closes at agent_end and mode/reset mutations are auditable", () => {
+test("task lifecycle closes at agent_end and mode/tool-reset mutations are auditable", () => {
 	assert.match(source, /pi\.on\("agent_end"[\s\S]*?closeTurnActiveTime\(turnEndedAt\);[\s\S]*?turnActive = false;[\s\S]*?currentTurnStartedAt = 0;/);
 	assert.match(source, /taskClock = resetTaskClock\(taskClock, now\);/);
 	assert.match(source, /appendEntry\("agent-hub-mode", buildHubModeAudit\(/);
@@ -63,6 +63,7 @@ test("task lifecycle closes at agent_end and mode/reset mutations are auditable"
 	assert.match(source, /source: "slash-command"/);
 	assert.match(source, /source: overrides\.hubModeSource/);
 	assert.match(source, /appendTaskResetEntry\("tool:set_task_tier"/);
+	assert.doesNotMatch(source, /registerCommand\("af-new-task"/);
 });
 
 test("shortcuts, command, compact toggle, footer, and pool use the separate fleet flow", () => {

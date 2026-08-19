@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	buildBudgetContinuationAudit,
 	buildHubAuditIdentity,
 	buildHubModeAudit,
 	buildTaskResetAudit,
@@ -75,8 +76,32 @@ test("task reset audit records bounded prior counters without task bodies or env
 	assert.doesNotMatch(JSON.stringify(audit), /do-not-log|prompt/);
 });
 
+test("budget continuation audit records the renewed tranche without task prose", () => {
+	const audit = buildBudgetContinuationAudit({
+		kind: "task",
+		continuation: 3,
+		reason: "task_wall",
+		prior: { tier: "feature", dispatches: 6, research: 2, reviewRounds: 2, activeMs: 123_456 },
+		identity: { cwd: "/repo", pid: 42 },
+		prompt: "private remaining work",
+	});
+	assert.deepEqual(audit.prior, {
+		tier: "feature",
+		dispatches: 6,
+		research: 2,
+		review_rounds: 2,
+		active_ms: 123456,
+	});
+	assert.equal(audit.kind, "task");
+	assert.equal(audit.continuation, 3);
+	assert.equal(audit.reason, "task_wall");
+	assert.doesNotMatch(JSON.stringify(audit), /private remaining work|prompt/);
+});
+
 test("audit serializers are fail-soft for missing or malformed values", () => {
 	assert.doesNotThrow(() => buildHubModeAudit());
 	assert.doesNotThrow(() => buildTaskResetAudit({ prior: { activeMs: Number.NaN } }));
+	assert.doesNotThrow(() => buildBudgetContinuationAudit({ prior: { activeMs: Number.NaN } }));
 	assert.equal(buildTaskResetAudit({ prior: { activeMs: Number.NaN } }).prior.active_ms, 0);
+	assert.equal(buildBudgetContinuationAudit({ prior: { activeMs: Number.NaN } }).prior.active_ms, 0);
 });

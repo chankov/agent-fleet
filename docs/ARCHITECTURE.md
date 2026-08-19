@@ -37,7 +37,7 @@ the current terminal. At startup an explicit `--posture` wins; otherwise
 orchestrator startup requires a roster. `/af-posture` switches only posture in
 the live session, while `/af-agents-*` changes only the native roster.
 
-All Hub-owned slash commands remain registered in both postures. Capability packs are resolved automatically from explicit task intent, posture, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `/af-new-task` or `set_task_tier(new_task: true)`, while mandatory posture and pending-operation leases remain.
+All Hub-owned slash commands remain registered in both postures. Capability packs are resolved automatically from explicit task intent, posture, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory posture and pending-operation leases remain.
 
 `/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. Managed specialists and research children use explicit replacement prompts/context manifests with selected persona, policy, and skill paths instead of inherited global skills/context files. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an active roster, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
 
@@ -154,9 +154,10 @@ child is orphaned. Full pattern catalog: [references/orchestration-patterns.md](
 ### Execution modes & turn budgets
 
 The hub enforces per-user-turn budgets in code (`run-budget.js`): `fast`/`standard`/`strict`
-modes cap `dispatch_agent` calls, `spawn_research` calls, and wall clock per turn, set the
+modes cap `dispatch_agent` calls, `spawn_research` calls, and active time per turn, set the
 per-run deadline above, and control nested delegation. Exhausted budgets make the dispatch
-tools refuse with "summarize and ask the user"; a new user message opens a fresh window.
+tools refuse and request one Yes/No `ask_user` confirmation; Yes renews the turn in the same
+tool loop. A normal new user message also opens a fresh turn window.
 Specialist context pressure is measured over input + cacheRead + cacheWrite against **that
 agent's own** model window, resolved from pi's model registry with the source recorded
 (`context-window.js`) — measuring a 49k local model against the dispatcher's window is what
@@ -174,15 +175,20 @@ Configured under `## agent-hub` (`mode`, `max-dispatches-per-turn`,
 
 A per-message allowance cannot bound a task, so a second envelope sits above the turn one:
 the **task budget** (`run-budget.js`, `3×` the turn envelope) counts dispatches, research
-runs and **active** time across the WHOLE task and is *not* reset by a user message. Active
-time is turns that ran minus `ask_user` waits — a task clock that billed human idle would
-false-stop a normal steered session, and a false stop teaches people to reset the window
-reflexively. The auto-research pipe is exempt from the turn budget but charged against the
-task envelope, so it cannot smuggle 8 helpers per dispatch past the outer bound. Exhausting
-the task budget is a hard stop — only `/af-new-task` (or `set_task_tier` with
-`new_task: true`) opens a new window. This is the guardrail the post-mortem run never hit: every steering message
-reopened the turn window, so one workspace stayed open 47 hours on a change that took 13
-minutes in a narrow one.
+runs and **active** time across the WHOLE task and is *not* reset by a user message. Both turn
+and task active time exclude `ask_user` waits — billing human idle false-stops a normal steered
+session and teaches people to reset reflexively. The auto-research pipe is exempt from the turn
+budget but charged against the task envelope, so it cannot smuggle 8 helpers per dispatch past
+the outer bound.
+
+Either envelope stops before another dispatch/research call and asks one localized Yes/No
+`ask_user` question. A confirmed turn continuation renews its counters/clock in the same tool
+loop. A confirmed task continuation opens one audited tranche, also renews the turn, and
+preserves task tier, assertions, capability packs, label, blockers, and progress. No typed
+`continue` message or slash command is required. `set_task_tier` with `new_task: true` is only
+for genuinely different work and clears task identity/state. This is the guardrail the
+post-mortem run never hit: every steering message reopened the turn window,
+so one workspace stayed open 47 hours on a change that took 13 minutes in a narrow one.
 
 On top of the mode sit several qualitative guardrails. **Task triage**: the dispatcher
 classifies the current TASK via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)

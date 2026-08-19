@@ -91,7 +91,7 @@ import {
 } from "../lib/damage-control-shared.ts";
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
 import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_BUDGET_MULTIPLIER, addTaskClockWait, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, closeTaskClock, contextOverflowDiagnostic, createTaskClock, isReviewPersona, normalizeHubMode, openTaskClock, remainingTaskResearch, resetTaskClock, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, taskClockElapsedMs } from "./run-budget.js";
-import { buildHubAuditIdentity, buildHubModeAudit, buildTaskResetAudit } from "./hub-state-audit.js";
+import { buildBudgetContinuationAudit, buildHubAuditIdentity, buildHubModeAudit, buildTaskResetAudit } from "./hub-state-audit.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
 import { checkExternalBlockerGate, externalBlockedProtocol, extractExternalBlockers } from "./external-blocker.js";
@@ -120,6 +120,7 @@ import { NATIVE_ROSTER_ENTRY_TYPE, parsePosture, persistedNativeRosterState, pos
 import { CAPABILITY_PACKS, latestPersistedCapabilityState, persistedCapabilityState, resolveCapabilityPacks, type CapabilityPack, type CapabilityResolution, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationGate, confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type CapabilityConfirmationState, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
+import { budgetContinuationInstruction, budgetContinuationKind, budgetContinuationOutcome, turnBudgetActiveMs, type BudgetContinuationKind } from "./budget-continuation.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts";
 import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from "./research-retention.js";
@@ -450,7 +451,7 @@ function extractNeedsResearch(output: string): string[] {
 //   max-dispatches-per-turn: <n>|off — dispatch_agent calls allowed per user turn
 //                              (replaces the mode default; "off" = unlimited).
 //   max-research-per-turn: <n>|off — spawn_research calls allowed per user turn.
-//   turn-wall-time-s: <n>|off  — wall-clock budget per user turn.
+//   turn-wall-time-s: <n>|off  — active-time budget per user turn (ask_user waits excluded).
 //   agent-turn-timeout-s: <n>|off — whole-run deadline for each spawned
 //                              specialist/research/delegate run (not per tool).
 //   session-recycle-runs: <n>|off — recycle a specialist's accumulated session
@@ -2092,18 +2093,27 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// ── Execution mode & per-turn budgets (run-budget.js) ──
 	// hubMode: overrides-file default, switchable live via /af-hub-mode (session-
 	// lifetime). Budgets are per USER TURN: counters reset in before_agent_start,
-	// so exhaustion means "stop, summarize, ask" and the next user message opens
-	// a fresh window. currentTurnStartedAt (above) doubles as the wall-clock base.
+	// or after an explicit one-click continuation. currentTurnStartedAt (above)
+	// is the active-time base; ask_user waits are subtracted.
 	let hubMode: string = DEFAULT_HUB_MODE;
 	let budgetOverrides: AgentTeamOverrides["budgetOverrides"] = {};
 	let turnDispatchCount = 0;
 	let turnResearchCount = 0;
+	// Human wait time is not fleet work. Track it separately from history UI
+	// intervals so a continuation can rebase the budget without erasing history.
+	let turnBudgetAskUserWaitMs = 0;
+	type PendingBudgetContinuation = { kind: BudgetContinuationKind; reason: string };
+	let pendingBudgetContinuation: PendingBudgetContinuation | null = null;
+	const budgetContinuationAsks = new Map<string, { kind: BudgetContinuationKind; reason: string; params: { context?: unknown; options?: unknown } }>();
+	let taskContinuationCount = 0;
+	let turnContinuationCount = 0;
 	// ── Task-scoped budget & tier (run-budget.js) ──
 	// A per-message allowance cannot bound a task: every steering message opened a
 	// fresh turn window, so a run could spend 8 dispatches and 60 minutes again and
 	// again without any counter ever binding. These counters span the whole TASK
-	// and are cleared only by an explicit new task (/af-new-task or
-	// set_task_tier `new_task: true`) — not by a user message.
+	// and are cleared only by an explicit new task (`set_task_tier` with
+	// `new_task: true`) or an approved task-budget continuation — never by an
+	// ordinary user message.
 	let taskDispatchCount = 0;
 	let taskResearchCount = 0;
 	let taskLabel: string | null = null;
@@ -2166,6 +2176,33 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		for (const startedAt of askUserStarts.values()) openWait += Math.max(0, now - startedAt);
 		return taskClockElapsedMs(taskClock, now, openWait);
 	}
+	function turnBudgetActiveElapsedMs(now = Date.now()): number {
+		let openWait = 0;
+		for (const startedAt of askUserStarts.values()) openWait += Math.max(0, now - startedAt);
+		return turnBudgetActiveMs(currentTurnStartedAt, now, turnBudgetAskUserWaitMs, openWait);
+	}
+	function armBudgetContinuation(kind: BudgetContinuationKind, reason: string): void {
+		pendingBudgetContinuation = { kind, reason };
+	}
+	/** Renew only the per-turn envelope; the task identity and outer counters stay intact. */
+	function renewTurnBudgetWindow(now = Date.now()): void {
+		turnDispatchCount = 0;
+		turnResearchCount = 0;
+		currentTurnStartedAt = now;
+		turnBudgetAskUserWaitMs = 0;
+		turnDispatchFingerprints.clear();
+		turnContinuationCount++;
+		updateModeStatus();
+	}
+	/** Add one task tranche while preserving tier, assertions, packs, blockers, and label. */
+	function continueTaskBudgetWindow(now = Date.now()): void {
+		taskDispatchCount = 0;
+		taskResearchCount = 0;
+		taskClock = resetTaskClock(taskClock, now);
+		taskReviewRounds = 0;
+		taskContinuationCount++;
+		renewTurnBudgetWindow(now);
+	}
 	/** Fold the turn that is ending into the task's active-time accumulator. */
 	function closeTurnActiveTime(now = Date.now()) {
 		taskClock = closeTaskClock(taskClock, now);
@@ -2176,6 +2213,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		taskResearchCount = 0;
 		taskClock = resetTaskClock(taskClock, now);
 		taskReviewRounds = 0;
+		taskContinuationCount = 0;
+		pendingBudgetContinuation = null;
+		budgetContinuationAsks.clear();
 		taskLabel = label;
 		taskTier = null;
 		taskTierAssumed = false;
@@ -2230,11 +2270,31 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			activeMs: taskActiveElapsedMs(now),
 		};
 	}
-	function appendTaskResetEntry(source: "slash-command" | "tool:set_task_tier", label: string | null, prior: ReturnType<typeof taskResetSnapshot>, ctx?: ExtensionContext) {
+	function budgetContinuationSnapshot(kind: BudgetContinuationKind, now = Date.now()) {
+		return kind === "task" ? taskResetSnapshot(now) : {
+			tier: taskTier,
+			dispatches: turnDispatchCount,
+			research: turnResearchCount,
+			reviewRounds: 0,
+			activeMs: turnBudgetActiveElapsedMs(now),
+		};
+	}
+	function appendTaskResetEntry(source: "tool:set_task_tier", label: string | null, prior: ReturnType<typeof taskResetSnapshot>, ctx?: ExtensionContext) {
 		try {
 			pi.appendEntry("agent-hub-task-reset", buildTaskResetAudit({
 				source,
 				label,
+				prior,
+				identity: hubAuditIdentity(ctx),
+			}));
+		} catch { /* diagnostics are best-effort; state changes still succeed */ }
+	}
+	function appendBudgetContinuationEntry(kind: BudgetContinuationKind, reason: string, prior: ReturnType<typeof taskResetSnapshot>, ctx?: ExtensionContext) {
+		try {
+			pi.appendEntry("agent-hub-budget-continuation", buildBudgetContinuationAudit({
+				kind,
+				continuation: kind === "task" ? taskContinuationCount : turnContinuationCount,
+				reason,
 				prior,
 				identity: hubAuditIdentity(ctx),
 			}));
@@ -5039,8 +5099,9 @@ ${externalBlockedProtocol()}
 			if (taskRefusal) {
 				turnReport.refusals++;
 				sessionTotals.refusals++;
+				armBudgetContinuation("task", taskRefusal.reason);
 				return {
-					content: [{ type: "text", text: taskRefusal.message }],
+					content: [{ type: "text", text: budgetContinuationInstruction(taskRefusal.message, "task", userLanguage) }],
 					details: { agent, task, status: "task_budget_refused", reason: taskRefusal.reason, elapsed: 0, exitCode: 1, fullOutput: "" },
 				};
 			}
@@ -5050,14 +5111,15 @@ ${externalBlockedProtocol()}
 				"dispatch",
 				{ dispatches: turnDispatchCount, research: turnResearchCount },
 				currentBudget(),
-				Date.now() - (currentTurnStartedAt || Date.now()),
+				turnBudgetActiveElapsedMs(),
 				hubMode,
 			);
 			if (budgetRefusal) {
 				turnReport.refusals++;
 				sessionTotals.refusals++;
+				armBudgetContinuation("turn", budgetRefusal.reason);
 				return {
-					content: [{ type: "text", text: budgetRefusal.message }],
+					content: [{ type: "text", text: budgetContinuationInstruction(budgetRefusal.message, "turn", userLanguage) }],
 					details: { agent, task, status: "budget_refused", reason: budgetRefusal.reason, elapsed: 0, exitCode: 1, fullOutput: "" },
 				};
 			}
@@ -5286,7 +5348,7 @@ ${externalBlockedProtocol()}
 					? `\n\n⚠ ${agent} paused for research, but the TASK research envelope is spent ` +
 					  `(${taskResearchCount}/${currentTaskBudget().maxResearch}) — no helper was spawned and the specialist ` +
 					  `was not resumed. Its questions are unanswered. Narrow the task so it can proceed on what it has, ` +
-					  `or open a new task window with /af-new-task if this is genuinely different work.`
+					  `or call set_task_tier with new_task: true if this is genuinely different work.`
 					: "";
 
 				const returnPathNotice = returnPath ? `\n\nFull specialist output: ${returnPath}` : "";
@@ -5491,8 +5553,9 @@ ${externalBlockedProtocol()}
 			if (taskRefusal) {
 				turnReport.refusals++;
 				sessionTotals.refusals++;
+				armBudgetContinuation("task", taskRefusal.reason);
 				return {
-					content: [{ type: "text", text: taskRefusal.message }],
+					content: [{ type: "text", text: budgetContinuationInstruction(taskRefusal.message, "task", userLanguage) }],
 					details: { status: "task_budget_refused", reason: taskRefusal.reason },
 				};
 			}
@@ -5502,14 +5565,15 @@ ${externalBlockedProtocol()}
 				"research",
 				{ dispatches: turnDispatchCount, research: turnResearchCount },
 				currentBudget(),
-				Date.now() - (currentTurnStartedAt || Date.now()),
+				turnBudgetActiveElapsedMs(),
 				hubMode,
 			);
 			if (budgetRefusal) {
 				turnReport.refusals++;
 				sessionTotals.refusals++;
+				armBudgetContinuation("turn", budgetRefusal.reason);
 				return {
-					content: [{ type: "text", text: budgetRefusal.message }],
+					content: [{ type: "text", text: budgetContinuationInstruction(budgetRefusal.message, "turn", userLanguage) }],
 					details: { status: "budget_refused", reason: budgetRefusal.reason },
 				};
 			}
@@ -7155,30 +7219,6 @@ ${externalBlockedProtocol()}
 		},
 	});
 
-	// ── /af-new-task: open a fresh TASK window ──
-	// The task budget is deliberately immune to a user message — a steering
-	// message is a correction, not a new ask, and resetting on it is what let a
-	// run spend a fresh envelope per correction. Opening a new window is
-	// therefore an explicit, human decision, and this is where it is made.
-	pi.registerCommand("af-new-task", {
-		description: "Open a fresh task window: clears the task budget, the task tier, the duplicate guard, and any external-blocker stop. Use when moving on to different work — not for a correction to the current work.",
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const label = (args || "").trim() || null;
-			const resetAt = Date.now();
-			const prior = taskResetSnapshot(resetAt);
-			resetTaskWindow(label, resetAt);
-			appendTaskResetEntry("slash-command", label, prior, ctx);
-			ctx.ui.notify(
-				`New task window${label ? `: ${label}` : ""}\n` +
-				`Previous task${prior.tier ? ` (tier ${prior.tier})` : ""} spent ${prior.dispatches} dispatches, ` +
-				`${prior.research} research, ${prior.reviewRounds} review round(s), ${Math.round(prior.activeMs / 60_000)} min active.\n` +
-				`Tier is unset — the dispatcher re-triages on its next dispatch.` + hubLocationSuffix(ctx),
-				"success",
-			);
-		},
-	});
-
 	pi.registerCommand("af-watchdog", {
 		description: "Drift watchdog: /af-watchdog [on|off|auto] hub-wide, /af-watchdog <agent> [on|off|clear] per agent, no args to show",
 		handler: async (args, ctx) => {
@@ -8451,6 +8491,14 @@ ${externalBlockedProtocol()}
 	pi.on("tool_execution_start", async (event) => {
 		if (event.toolName !== "ask_user") return;
 		askUserStarts.set(event.toolCallId, Date.now());
+		const kind = budgetContinuationKind(event.args?.context);
+		if (kind && pendingBudgetContinuation?.kind === kind) {
+			budgetContinuationAsks.set(event.toolCallId, {
+				kind,
+				reason: pendingBudgetContinuation.reason,
+				params: event.args,
+			});
+		}
 		// Asking the human IS the escalation the external-blocker breaker demands:
 		// once it is under way, the gate opens.
 		externalBlockerAcknowledged = true;
@@ -8476,13 +8524,38 @@ ${externalBlockedProtocol()}
 		// The task clock bills active time only — the human's answer is not the
 		// fleet's work, and billing it is what would false-stop a steered session.
 		const endedAt = Date.now();
-		if (startedAt) taskClock = addTaskClockWait(taskClock, Math.max(0, endedAt - startedAt));
-		if (startedAt == null) return;
-		const interval: [number, number] = [startedAt, endedAt];
-		// Attach to the live dispatcher entry, or buffer until one is created this turn.
-		if (currentOrchestratorEntry) (currentOrchestratorEntry.awaitIntervals ??= []).push(interval);
-		else turnAskUserIntervals.push(interval);
-		historyRender?.();
+		const waitMs = startedAt == null ? 0 : Math.max(0, endedAt - startedAt);
+		if (startedAt) taskClock = addTaskClockWait(taskClock, waitMs);
+		turnBudgetAskUserWaitMs += waitMs;
+		if (startedAt != null) {
+			const interval: [number, number] = [startedAt, endedAt];
+			// Attach to the live dispatcher entry, or buffer until one is created this turn.
+			if (currentOrchestratorEntry) (currentOrchestratorEntry.awaitIntervals ??= []).push(interval);
+			else turnAskUserIntervals.push(interval);
+			historyRender?.();
+		}
+
+		// Renew only when this exact marked ask selected its first option. This uses
+		// Pi's tool events rather than wrapper internals, so it also works when the
+		// stock ask_user package owns the tool under extension discovery.
+		const confirmation = budgetContinuationAsks.get(event.toolCallId);
+		budgetContinuationAsks.delete(event.toolCallId);
+		if (confirmation) {
+			const outcome = budgetContinuationOutcome(confirmation.params, event.result);
+			if (outcome) pendingBudgetContinuation = null;
+			if (outcome === "continue") {
+				const prior = budgetContinuationSnapshot(confirmation.kind, endedAt);
+				if (confirmation.kind === "task") continueTaskBudgetWindow(endedAt);
+				else renewTurnBudgetWindow(endedAt);
+				appendBudgetContinuationEntry(confirmation.kind, confirmation.reason, prior, currentCtx ?? undefined);
+				widgetCtx?.ui?.notify(
+					confirmation.kind === "task"
+						? "Task budget continued; task tier, assertions, capabilities, and progress were preserved."
+						: "Turn budget continued; continuing without another message.",
+					"success",
+				);
+			}
+		}
 	});
 
 	// ── System Prompt Override ───────────────────
@@ -8513,12 +8586,16 @@ ${externalBlockedProtocol()}
 		currentOrchestratorEntry = null;
 		askUserStarts.clear();
 		turnAskUserIntervals.length = 0;
+		turnBudgetAskUserWaitMs = 0;
+		budgetContinuationAsks.clear();
+		if (pendingBudgetContinuation?.kind === "turn") pendingBudgetContinuation = null;
 		// Fresh turn → fresh TURN budget window (mode persists across turns). The
 		// TASK budget, the tier, and the external-blocker breaker deliberately do
 		// NOT reset here: a steering message is a correction to the same work, not
 		// a new ask, and resetting on it is precisely how a run spent eight fresh
-		// dispatches per correction and never hit a bound. Only /af-new-task (or
-		// set_task_tier `new_task: true`) opens a new task window.
+		// dispatches per correction and never hit a bound. A task continuation is
+		// instead an explicit Yes/No confirmation; genuinely different work uses
+		// set_task_tier with new_task: true.
 		turnDispatchCount = 0;
 		turnResearchCount = 0;
 		turnDispatchFingerprints.clear();
@@ -8968,6 +9045,11 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		taskClock = createTaskClock();
 		askUserStarts.clear();
 		turnAskUserIntervals.length = 0;
+		turnBudgetAskUserWaitMs = 0;
+		turnContinuationCount = 0;
+		taskContinuationCount = 0;
+		pendingBudgetContinuation = null;
+		budgetContinuationAsks.clear();
 		if (widgetCtx) {
 			widgetCtx.ui.setWidget("agent-team", undefined);
 			widgetCtx.ui.setWidget("agent-research", undefined);

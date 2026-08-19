@@ -523,7 +523,7 @@ export default function (pi) {
 	}
 });
 
-test("mode and task reset commands append attributable runtime audit entries", async () => {
+test("mode command remains auditable and af-new-task is no longer registered", async () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-audit-rpc-"));
 	const probePath = join(workspace, "probe-audit.ts");
 	writeFileSync(probePath, `
@@ -532,7 +532,7 @@ export default function (pi) {
     description: "Test-only audit entry probe",
     handler: async (_args, ctx) => {
       const entries = ctx.sessionManager.getEntries()
-        .filter(entry => entry.type === "custom" && ["agent-hub-mode", "agent-hub-task-reset"].includes(entry.customType));
+        .filter(entry => entry.type === "custom" && entry.customType === "agent-hub-mode");
       ctx.ui.notify("AUDIT_ENTRIES:" + JSON.stringify(entries), "info");
     },
   });
@@ -540,15 +540,14 @@ export default function (pi) {
 `);
 	const rpc = startRpcProbe(probePath);
 	try {
+		const commands = await rpc.request({ type: "get_commands" });
+		assert.ok(!commands.data.commands.some((command: { name: string }) => command.name === "af-new-task"));
 		assert.equal((await rpc.request({ type: "prompt", message: "/af-hub-mode fast" })).success, true);
-		assert.equal((await rpc.request({ type: "prompt", message: "/af-new-task audit-check" })).success, true);
 		const entries = JSON.parse(await rpc.notificationAfter("/probe-audit", "AUDIT_ENTRIES:"));
 		const modeEntries = entries.filter((entry: any) => entry.customType === "agent-hub-mode").map((entry: any) => entry.data);
-		const resetEntries = entries.filter((entry: any) => entry.customType === "agent-hub-task-reset").map((entry: any) => entry.data);
 		assert.ok(modeEntries.some((entry: any) => entry.source === "default"), "session_start default application must be audited");
 		assert.ok(modeEntries.some((entry: any) => entry.source === "slash-command" && entry.previous_mode === "standard" && entry.mode === "fast"));
-		assert.ok(resetEntries.some((entry: any) => entry.source === "slash-command" && entry.label === "audit-check"));
-		for (const entry of [...modeEntries, ...resetEntries]) {
+		for (const entry of modeEntries) {
 			assert.equal(entry.identity.cwd, resolve(repoRoot));
 			assert.ok(entry.identity.pid > 0);
 			assert.equal(entry.identity.herdr_pane_id, null);

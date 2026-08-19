@@ -108,12 +108,13 @@ test("checkTurnBudget allows calls under every limit", () => {
 	assert.equal(checkTurnBudget("research", { dispatches: 7, research: 3 }, budget, 1000), null);
 });
 
-test("checkTurnBudget refuses on dispatch cap with actionable guidance", () => {
+test("checkTurnBudget refuses on dispatch cap with one-click continuation guidance", () => {
 	const budget = resolveTurnBudget("fast");
 	const r = checkTurnBudget("dispatch", { dispatches: 2, research: 0 }, budget, 0, "fast");
 	assert.equal(r.reason, "dispatches");
 	assert.match(r.message, /Do NOT retry/);
-	assert.match(r.message, /ask the user/);
+	assert.match(r.message, /one-click budget continuation/);
+	assert.match(r.message, /Do not ask for a typed continue message or a slash command/);
 	assert.match(r.message, /\/af-hub-mode/);
 });
 
@@ -274,12 +275,14 @@ test("checkTaskBudget stops the task on dispatches, research and wall clock", ()
 	assert.equal(wall.reason, "task_wall");
 });
 
-test("a task-budget refusal says another user message does NOT reopen it", () => {
+test("a task-budget refusal requires one-click continuation rather than a fake new task", () => {
 	const task = resolveTaskBudget(resolveTurnBudget("fast"));
 	const refusal = checkTaskBudget("dispatch", { dispatches: 99, research: 0 }, task, 0, "trivial");
 	assert.match(refusal.message, /HARD STOP/);
 	assert.match(refusal.message, /does\s+NOT reopen it/);
-	assert.match(refusal.message, /\/af-new-task/);
+	assert.match(refusal.message, /one-click task-budget continuation/);
+	assert.match(refusal.message, /preserving task state/);
+	assert.match(refusal.message, /set_task_tier.*new_task: true.*only when/);
 });
 
 test("the task envelope is strictly wider than one turn — the turn gate still fires first", () => {
@@ -540,7 +543,7 @@ test("checkReviewRoundCap refuses the round after the cap", () => {
 	assert.equal(gate.reason, "review_round_cap");
 	assert.match(gate.message, /NOT counted against any budget/);
 	assert.match(gate.message, /A review is a GATE, not a loop/);
-	assert.match(gate.message, /\/af-new-task/);
+	assert.match(gate.message, /set_task_tier.*new_task: true/);
 });
 
 test("checkReviewRoundCap only applies to review personas and capped tiers", () => {
