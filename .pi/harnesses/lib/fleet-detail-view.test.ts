@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { DETAIL_CHROME_ROWS, detailContent, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker } from "./fleet-detail-view.ts";
+import { DETAIL_CHROME_ROWS, detailContent, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker } from "./fleet-detail-view.ts";
 
 const theme = { fg: (_: string, s: string) => s, bold: (s: string) => s };
 const row = { key: "a", name: "Architect", kind: "specialist" as const, depth: 0, status: "running" as const, model: "opus", backend: "native" as const, contextPct: 42, contextTokens: 42_000, elapsed: 1_000, toolCount: 3, lastWork: "work", hasTimeline: true };
@@ -60,6 +60,15 @@ test("inline model picker visibly renders options above the detail layer", () =>
 	assert.equal(state.index, 1);
 	assert.equal(modelPickerTransition("\r", state, choices.length, 3), "select");
 	assert.equal(modelPickerTransition("\u001b", state, choices.length, 3), "cancel");
+});
+
+test("session substitution picker renders source and available-target stages", () => {
+	const choices = [{ spec: "openai/spark", label: "openai/spark → moonshot/una (active this session)" }];
+	const state = { index: 0, scrollOffset: 0 };
+	assert.match(renderFleetSubstitutionPicker("source", undefined, choices, state, 100, 3, theme).join("\n"), /1\/2 choose configured source/);
+	const target = renderFleetSubstitutionPicker("target", "openai/spark", [{ spec: "moonshot/una", label: "moonshot/una" }], state, 100, 3, theme).join("\n");
+	assert.match(target, /2\/2 choose available target/);
+	assert.match(target, /Esc back/);
 });
 
 test("detail input normalizes keys identified from Kitty and legacy sequences", () => {

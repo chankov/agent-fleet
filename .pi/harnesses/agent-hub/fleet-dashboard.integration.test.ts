@@ -44,6 +44,10 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(source, /if \(modelPicker\) return renderFleetModelPicker/);
 	assert.match(source, /action === "model"[\s\S]*?loadFleetDetailModelChoices/);
 	assert.match(source, /modelPickerTransition\(/);
+	assert.match(source, /renderFleetSubstitutionPicker\(/);
+	assert.match(source, /intent === "substitute"[\s\S]*?substitutionSourceChoices\(\)/);
+	assert.match(source, /modelSubstitutions\.set\(source, target\)/);
+	assert.match(source, /resolvedSubagentModel\(/);
 	assert.match(source, /matchedFleetDetailInput[\s\S]*?matchesKey\(data, Key\.up\)[\s\S]*?matchesKey\(data, Key\.down\)/);
 	assert.match(source, /modelRegistry\?\.getAvailable/);
 	assert.match(source, /modelOverrides\.set\(key, picked\)/);
@@ -79,6 +83,7 @@ test("shortcuts, command, compact toggle, footer, and pool use the separate flee
 	// A12 — each named route/key/hint individually
 	assert.match(source, /registerShortcut\("alt\+a"[\s\S]*?void openFleetDashboard\(ctx\)/);
 	assert.match(source, /pi\.registerCommand\("af-agents-list"[\s\S]*?await openFleetDashboard\(_ctx\)/);
+	assert.match(source, /registerCommand\("af-agent-models-substitute"[\s\S]*?tokens\.length === 0[\s\S]*?openFleetDashboard\(ctx, true\)/);
 	assert.match(source, /registerShortcut\("alt\+shift\+a"[\s\S]*?viewMode = viewMode === "compact" \? "off" : "compact"/);
 	assert.ok(source.includes('registerShortcut("alt+\\\\",'));
 	assert.match(source, /registerShortcut\("alt\+\\\\"[\s\S]*?await openFleetDetail\(row, ctx\)/);

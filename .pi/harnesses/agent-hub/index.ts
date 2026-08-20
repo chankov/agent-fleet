@@ -23,7 +23,7 @@
  *   /af-agent-model-thinking <persona> — switch a team or research persona's thinking
  *                           level (off|minimal|low|medium|high|xhigh)
  *   /af-models [profile]     — apply a named model profile (.pi/agents/model-profiles.yaml)
- *   /af-agent-models-substitute <source> <target> — swap one model across all personas
+ *   /af-agent-models-substitute [<source> <target>] — visually pick/save a session-wide model substitution
  *   /af-dispatch-policy      — show which members route to coms peers (.pi/agents/dispatch-policy.yaml)
  *   /af-agents-kill <name|rN|all> — SIGTERM a frozen specialist (and its delegation
  *                           tree); on a research helper it kills AND removes the
@@ -142,7 +142,7 @@ import { createPanelResources } from "../lib/fleet-panel.ts";
 import { buildFleetRows, fleetTiming, summarise, unionMs, type DelegateInput, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput } from "../lib/fleet-read-model.ts";
 import { attachFleetDashboardTicker, compactWidgetsEnabled, gridColumnsForItems, gridColumnsForSize, liveTimeline, renderCardGrid, resolveFleetKill, resolveFleetRestart } from "../lib/fleet-dashboard-ops.ts";
 import { dashboardTransition, renderFleetDashboard, FLEET_CHROME_ROWS, type DashboardConfirm } from "../lib/fleet-dashboard-view.ts";
-import { detailContent, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, DETAIL_CHROME_ROWS, type FleetDetailKey, type FleetModelChoice } from "../lib/fleet-detail-view.ts";
+import { detailContent, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker, DETAIL_CHROME_ROWS, type FleetDetailKey, type FleetModelChoice } from "../lib/fleet-detail-view.ts";
 import { reconcileSelection, type Selection } from "../lib/fleet-selection.ts";
 import { collectContextBudgetSnapshot, type LivePlane } from "./context-budget-snapshot.ts";
 import { CONTEXT_BUDGET_CHROME_ROWS, contextBudgetTransition, renderContextBudget, type ContextBudgetViewState } from "../lib/context-budget-view.ts";
@@ -1970,6 +1970,10 @@ export default function (pi: ExtensionAPI) {
 	// One "coms peer missing → native" notice per member per team activation.
 	const comsMissNotified = new Set<string>();
 	const modelOverrides = new Map<string, string>();
+	// Session-wide source → target substitutions. Unlike the eager per-persona map,
+	// these are resolved at spawn time, so personas and delegate roles activated or
+	// created later in the same session inherit the substitution automatically.
+	const modelSubstitutions = new Map<string, string>();
 	// Session-lifetime per-persona thinking-level overrides set by
 	// /af-agent-model-thinking (lowercase persona name → pi --thinking level). Wins
 	// over the persona's frontmatter `thinking:`; resets on session_start; takes
@@ -1978,7 +1982,8 @@ export default function (pi: ExtensionAPI) {
 	// Session-lifetime model overrides for delegate sub-roles, set by
 	// /af-agent-model <persona>.<role>. Keyed "<persona>.<role>" (lowercase); applied
 	// when the dispatch serializes AGENT_HUB_DELEGATE_CONFIG, so nested children
-	// inherit them. Resets on session_start. /af-models profiles never touch these.
+	// inherit them. Session-wide source substitutions are resolved after this map.
+	// Resets on session_start. /af-models profiles never touch these.
 	const subagentModelOverrides = new Map<string, string>();
 	let activeTeamName = "";
 	let gridCols = 2;
@@ -2433,10 +2438,20 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		return out;
 	}
 
-	// The model a persona would dispatch on right now: session override →
-	// frontmatter default → undefined (dispatcher's model).
+	function substitutedModel(model: string | undefined): string | undefined {
+		return model ? (modelSubstitutions.get(model) ?? model) : undefined;
+	}
+
+	// The model a persona would dispatch on right now: explicit per-persona
+	// override → frontmatter default, then the session-wide source substitution.
+	// Resolving here (rather than eagerly rewriting every loaded def) makes the
+	// mapping apply to agents activated or spawned later in the same session.
 	function resolvedModel(def: AgentDef): string | undefined {
-		return modelOverrides.get(def.name.toLowerCase()) ?? def.model;
+		return substitutedModel(modelOverrides.get(def.name.toLowerCase()) ?? def.model);
+	}
+
+	function resolvedSubagentModel(persona: string, role: string, declared: string): string {
+		return substitutedModel(subagentModelOverrides.get(`${persona.toLowerCase()}.${role.toLowerCase()}`) ?? declared) ?? declared;
 	}
 
 	// The raw thinking value a persona would dispatch with right now: session
@@ -3714,7 +3729,8 @@ ${externalBlockedProtocol()}
 			?? (ctx.model
 				? `${ctx.model.provider}/${ctx.model.id}`
 				: "openrouter/google/gemini-3-flash-preview");
-		const originalModelFallback = fallbackModelFor(state.def, model);
+		const fallbackCandidate = substitutedModel(fallbackModelFor(state.def, model));
+		const originalModelFallback = fallbackCandidate === model ? undefined : fallbackCandidate;
 
 		// THIS specialist's window, not the dispatcher's. Measuring a 49k local
 		// model against a hosted model's window is what produced readings like
@@ -3785,8 +3801,10 @@ ${externalBlockedProtocol()}
 		// delegate config, so nested children inherit the switch for free.
 		const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
 			? Object.fromEntries(Object.entries(state.def.subagents).map(([role, r]) => {
-				const override = subagentModelOverrides.get(`${personaKey}.${role.toLowerCase()}`);
-				return [role, override ? applyModelOverride(r, override) : r];
+				const effective = resolvedSubagentModel(personaKey, role, r.model);
+				const configured = effective !== r.model ? applyModelOverride(r, effective) : r;
+				const fallback = substitutedModel(configured.fallbackModel);
+				return [role, fallback === configured.model ? { ...configured, fallbackModel: undefined } : { ...configured, fallbackModel: fallback }];
 			}))
 			: null;
 		// Fast mode is a single-specialist path: no nested delegation trees.
@@ -4336,6 +4354,8 @@ ${externalBlockedProtocol()}
 		// READ-ONLY by construction: RESEARCH_TOOLS only, regardless of persona frontmatter.
 		let fullText = "";
 		const researchWindow = resolveContextWindow(state.model, { lookup: modelWindowLookup(ctx), fallbackWindow: contextWindow });
+		const researchFallbackCandidate = substitutedModel(fallbackModelFor(state.def, state.model));
+		const researchFallback = researchFallbackCandidate === state.model ? undefined : researchFallbackCandidate;
 		notifyProviderQueue(state.model, `Research r${state.id}`, ctx);
 		const res = await providerSemaphore.run(state.model, () => spawnPiAgentWithModelFallback({
 			model: state.model,
@@ -4361,7 +4381,7 @@ ${externalBlockedProtocol()}
 			...researchWatchdogSpawnOptions(reconSearchTimeoutMs, signal),
 			// Whole-run deadline from the active mode's budget (null in strict mode).
 			turnDeadlineMs: currentBudget().agentTurnMs,
-		}, fallbackModelFor(state.def, state.model), {
+		}, researchFallback, {
 			onProcess: (p) => { state.proc = p; },
 			onModelFallback: ({ from, to, reason }) => {
 				state.lastWork = `model fallback: ${shortModel(from)} → ${shortModel(to)}`;
@@ -6888,29 +6908,78 @@ ${externalBlockedProtocol()}
 			return null;
 		}
 		const overrideKey = `${delegation.owner.def.name.toLowerCase()}.${role[0].toLowerCase()}`;
-		return { kind: "delegate", current: subagentModelOverrides.get(overrideKey) ?? role[1].model, delegation, role, overrideKey };
+		return { kind: "delegate", current: resolvedSubagentModel(delegation.owner.def.name, role[0], role[1].model), delegation, role, overrideKey };
+	}
+
+	async function loadAvailableModelChoices(ctx: any, current?: string): Promise<FleetModelChoice[] | null> {
+		try { await ctx.modelRegistry?.refresh?.(); } catch { /* retain the registry's last-known available list */ }
+		const choices = fleetModelChoices(ctx.modelRegistry?.getAvailable?.() ?? [], current);
+		if (choices.length === 0) {
+			const diagnostic = ctx.modelRegistry?.getError?.();
+			ctx.ui.notify(`Pi reports no available models${diagnostic ? `: ${diagnostic}` : "."}`, "warning");
+			return null;
+		}
+		return choices;
 	}
 
 	/** Load every model Pi currently reports as available for the inline picker. */
 	async function loadFleetDetailModelChoices(row: FleetRow, ctx: any): Promise<{ choices: FleetModelChoice[]; current: string } | null> {
 		const target = resolveFleetDetailModelTarget(row, ctx);
 		if (!target) return null;
-		try { await ctx.modelRegistry?.refresh?.(); } catch { /* retain the registry's last-known available list */ }
-		const choices = fleetModelChoices(ctx.modelRegistry?.getAvailable?.() ?? [], target.current);
-		if (choices.length === 0) {
-			const diagnostic = ctx.modelRegistry?.getError?.();
-			ctx.ui.notify(`Pi reports no available models${diagnostic ? `: ${diagnostic}` : "."}`, "warning");
-			return null;
+		const choices = await loadAvailableModelChoices(ctx, target.current);
+		return choices ? { choices, current: target.current } : null;
+	}
+
+	function substitutionSourceChoices(): FleetModelChoice[] {
+		return allKnownModels().map(spec => {
+			const target = modelSubstitutions.get(spec);
+			return { spec, label: target ? `${spec} → ${target} (active this session)` : spec };
+		});
+	}
+
+	async function applySessionModelSubstitution(source: string, target: string, ctx: any): Promise<boolean> {
+		const known = allKnownModels();
+		if (!known.includes(source)) {
+			ctx.ui.notify(`Unknown configured source model "${source}". Choose one of: ${known.join(", ") || "none"}.`, "error");
+			return false;
 		}
-		return { choices, current: target.current };
+		const available = await loadAvailableModelChoices(ctx, modelSubstitutions.get(source));
+		if (!available) return false;
+		if (!available.some(choice => choice.spec === target)) {
+			ctx.ui.notify(`Target model "${target}" is not currently available in Pi.`, "error");
+			return false;
+		}
+		if (source === target) {
+			ctx.ui.notify(`Source and target are the same (${source}); the session substitution was not changed.`, "info");
+			return false;
+		}
+		const previous = modelSubstitutions.get(source);
+		if (previous === target) {
+			ctx.ui.notify(`Substitution ${source} → ${target} is already active for this session.`, "info");
+			return false;
+		}
+		modelSubstitutions.set(source, target);
+		const personas = allAgentDefs.filter(def => (modelOverrides.get(def.name.toLowerCase()) ?? def.model) === source);
+		const roles = allAgentDefs.flatMap(def => Object.entries(def.subagents ?? {})
+			.filter(([role, config]) => (subagentModelOverrides.get(`${def.name.toLowerCase()}.${role.toLowerCase()}`) ?? config.model) === source)
+			.map(([role]) => `${def.name}.${role}`));
+		updateWidget();
+		ctx.ui.notify(
+			`${previous ? "Updated" : "Saved"} session substitution ${source} → ${target}. ` +
+			`${personas.length} persona${personas.length === 1 ? "" : "s"} and ${roles.length} sub-role${roles.length === 1 ? "" : "s"} currently resolve through it; ` +
+			`future agents spawned from the same configured source inherit it automatically. Current runs are not interrupted.`,
+			"success",
+		);
+		return true;
 	}
 
 	/** Apply an inline-picker choice to the next run; never interrupt a live child. */
 	function applyFleetDetailModel(row: FleetRow, picked: string, ctx: any): boolean {
 		const target = resolveFleetDetailModelTarget(row, ctx);
 		if (!target) return false;
-		if (picked === target.current) {
-			ctx.ui.notify(`${row.name} is already on ${picked}`, "info");
+		const effectivePicked = substitutedModel(picked) ?? picked;
+		if (effectivePicked === target.current) {
+			ctx.ui.notify(`${row.name} is already on ${effectivePicked}`, "info");
 			return false;
 		}
 		let applyHint = "applies on the next run";
@@ -6928,7 +6997,7 @@ ${externalBlockedProtocol()}
 			applyHint = `applies on the next ${displayName(target.delegation.owner.def.name)} dispatch`;
 		}
 		updateWidget();
-		ctx.ui.notify(`${row.name} → ${picked} (${applyHint}; current runs are not interrupted)`, "success");
+		ctx.ui.notify(`${row.name} → ${effectivePicked} (${applyHint}; current runs are not interrupted)`, "success");
 		if (target.kind === "specialist" && (dispatchPolicy.substitutions[target.state.def.name.toLowerCase()]?.prefer ?? dispatchPolicy.default) === "coms") {
 			ctx.ui.notify("This specialist prefers a coms peer; the choice applies to native fallback runs, while the peer keeps its own model.", "info");
 		}
@@ -6977,7 +7046,8 @@ ${externalBlockedProtocol()}
 							const picked = modelPicker.choices[modelPicker.index]?.spec;
 							modelPicker = null;
 							if (picked && applyFleetDetailModel(detailRow, picked, ctx)) {
-								detailRow = { ...detailRow, model: detailRow.status === "running" ? `${detailRow.model} → ${shortModel(picked)} next` : `${shortModel(picked)} (next)` };
+								const effectivePicked = substitutedModel(picked) ?? picked;
+								detailRow = { ...detailRow, model: detailRow.status === "running" ? `${detailRow.model} → ${shortModel(effectivePicked)} next` : `${shortModel(effectivePicked)} (next)` };
 							}
 						}
 						tui.requestRender();
@@ -7041,12 +7111,23 @@ ${externalBlockedProtocol()}
 		const result = await dispatchAgent(state.def.name, state.task, ctx);
 		pi.sendMessage({ customType: "agent-restart-result", content: `[${displayName(state.def.name)}] restarted by operator and ${result.exitCode === 0 ? "completed" : "failed"} in ${Math.round(result.elapsed / 1000)}s.`, display: true }, { deliverAs: "followUp", triggerTurn: true });
 	}
-	async function openFleetDashboard(ctx: any): Promise<void> {
+	type FleetSubstitutionPickerState = {
+		stage: "source" | "target";
+		source?: string;
+		choices: FleetModelChoice[];
+		index: number;
+		scrollOffset: number;
+	};
+
+	async function openFleetDashboard(ctx: any, startSubstitution = false): Promise<void> {
 		const resources = createPanelResources();
 		const selection: Selection = { index: 0 };
 		let scrollOffset = 0;
 		let filtering = false;
 		let confirm: DashboardConfirm = null;
+		let substitutionPicker: FleetSubstitutionPickerState | null = startSubstitution
+			? { stage: "source", choices: substitutionSourceChoices(), index: 0, scrollOffset: 0 }
+			: null;
 		const toInput = (data: string): string => {
 			if (matchesKey(data, Key.up)) return "\u001b[A";
 			if (matchesKey(data, Key.down)) return "\u001b[B";
@@ -7064,6 +7145,12 @@ ${externalBlockedProtocol()}
 					const rows = fleetRows();
 					reconcileSelection(selection, rows);
 					const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS);
+					if (substitutionPicker) {
+						return renderFleetSubstitutionPicker(
+							substitutionPicker.stage, substitutionPicker.source, substitutionPicker.choices,
+							substitutionPicker, w, body, theme,
+						);
+					}
 					scrollOffset = clampScroll(scrollOffset, rows.length, body);
 					const summary = summarise(rows);
 					return renderFleetDashboard({
@@ -7078,13 +7165,44 @@ ${externalBlockedProtocol()}
 					const rows = fleetRows();
 					reconcileSelection(selection, rows);
 					const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS);
+					const input = toInput(data);
+					if (substitutionPicker) {
+						const action = modelPickerTransition(input, substitutionPicker, substitutionPicker.choices.length, body);
+						if (action === "cancel") {
+							if (substitutionPicker.stage === "target") {
+								const source = substitutionPicker.source;
+								const choices = substitutionSourceChoices();
+								const index = Math.max(0, choices.findIndex(choice => choice.spec === source));
+								substitutionPicker = { stage: "source", choices, index, scrollOffset: index };
+							} else substitutionPicker = null;
+						} else if (action === "select") {
+							const picked = substitutionPicker.choices[substitutionPicker.index]?.spec;
+							if (picked && substitutionPicker.stage === "source") {
+								const targets = await loadAvailableModelChoices(ctx, modelSubstitutions.get(picked));
+								if (targets) {
+									const current = modelSubstitutions.get(picked);
+									const index = Math.max(0, targets.findIndex(choice => choice.spec === current));
+									substitutionPicker = { stage: "target", source: picked, choices: targets, index, scrollOffset: index };
+								}
+							} else if (picked && substitutionPicker.source) {
+								await applySessionModelSubstitution(substitutionPicker.source, picked, ctx);
+								substitutionPicker = null;
+							}
+						}
+						tui.requestRender();
+						return;
+					}
 					const state = { selection, scrollOffset, filtering, filterQuery: fleetFilter, showFinished: fleetShowFinished, confirm };
-					const intent = dashboardTransition(toInput(data), state, rows, body);
+					const intent = dashboardTransition(input, state, rows, body);
 					({ scrollOffset, filtering, confirm } = state);
 					fleetFilter = state.filterQuery;
 					fleetShowFinished = state.showFinished;
 					if (intent === "close") done();
-					else if (intent && typeof intent === "object" && "open" in intent) {
+					else if (intent === "substitute") {
+						const choices = substitutionSourceChoices();
+						if (choices.length === 0) ctx.ui.notify("No configured persona or sub-role models are available as substitution sources.", "warning");
+						else substitutionPicker = { stage: "source", choices, index: 0, scrollOffset: 0 };
+					} else if (intent && typeof intent === "object" && "open" in intent) {
 						const selected = rows.find(r => r.key === intent.open) ?? rows[selection.index];
 						if (selected) await openFleetDetail(selected, ctx);
 					} else if (intent && typeof intent === "object" && "kill" in intent) {
@@ -7701,9 +7819,10 @@ ${externalBlockedProtocol()}
 		const roleItems = Array.from(agentStates.values()).flatMap(s =>
 			Object.entries(s.def.subagents || {}).map(([role, r]) => {
 				const override = subagentModelOverrides.get(`${s.def.name.toLowerCase()}.${role.toLowerCase()}`);
+				const effective = resolvedSubagentModel(s.def.name, role, r.model);
 				return {
 					value: `${s.def.name}.${role}`,
-					label: `${s.def.name}.${role} — ${shortModel(override ?? r.model)}${override ? " (switched)" : ""}`,
+					label: `${s.def.name}.${role} — ${shortModel(effective)}${override || effective !== r.model ? " (switched)" : ""}`,
 				};
 			}),
 		);
@@ -7750,7 +7869,7 @@ ${externalBlockedProtocol()}
 				for (const m of [role.model, ...allowedModels(parent.def)]) {
 					if (m && !candidates.includes(m)) candidates.push(m);
 				}
-				const current = subagentModelOverrides.get(overrideKey) ?? role.model;
+				const current = resolvedSubagentModel(parent.def.name, roleKey, role.model);
 				const options = candidates.map(m => {
 					const tags = [m === role.model ? "default" : "", m === current ? "current" : ""].filter(Boolean);
 					return tags.length ? `${m} (${tags.join(", ")})` : m;
@@ -7759,8 +7878,9 @@ ${externalBlockedProtocol()}
 				const choice = await ctx.ui.select(`Model for ${label}`, options);
 				if (choice === undefined) return;
 				const picked = candidates[options.indexOf(choice)];
-				if (picked === current) {
-					ctx.ui.notify(`${label} is already on ${picked}`, "info");
+				const effectivePicked = substitutedModel(picked) ?? picked;
+				if (effectivePicked === current) {
+					ctx.ui.notify(`${label} is already on ${effectivePicked}`, "info");
 					return;
 				}
 				if (picked === role.model) {
@@ -7770,7 +7890,7 @@ ${externalBlockedProtocol()}
 				}
 				updateWidget();
 				ctx.ui.notify(
-					`${label} → ${picked} (applies on next dispatch of ${parent.def.name})`,
+					`${label} → ${effectivePicked} (applies on next dispatch of ${parent.def.name})`,
 					"success",
 				);
 				return;
@@ -7809,9 +7929,10 @@ ${externalBlockedProtocol()}
 			const choice = await ctx.ui.select(`Model for ${displayName(def.name)}`, options);
 			if (choice === undefined) return;
 			const picked = candidates[options.indexOf(choice)];
-			const pickedIsCurrent = current ? picked === current : picked === DISPATCHER_DEFAULT;
+			const effectivePicked = picked === DISPATCHER_DEFAULT ? picked : (substitutedModel(picked) ?? picked);
+			const pickedIsCurrent = current ? effectivePicked === current : picked === DISPATCHER_DEFAULT;
 			if (pickedIsCurrent) {
-				ctx.ui.notify(`${displayName(def.name)} is already on ${picked}`, "info");
+				ctx.ui.notify(`${displayName(def.name)} is already on ${effectivePicked}`, "info");
 				return;
 			}
 			if (picked === def.model || picked === DISPATCHER_DEFAULT) {
@@ -7825,7 +7946,7 @@ ${externalBlockedProtocol()}
 			const applyHint = (def.kind || "").toLowerCase() === "research"
 				? "applies on next /af-research or spawn_research"
 				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
-			ctx.ui.notify(`${displayName(def.name)} → ${picked} (${applyHint})`, "success");
+			ctx.ui.notify(`${displayName(def.name)} → ${effectivePicked} (${applyHint})`, "success");
 			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
 				ctx.ui.notify(
 					`Note: ${displayName(def.name)} prefers a coms peer (dispatch-policy.yaml) — this model override only applies to native(-fallback) runs; the peer keeps its own model.`,
@@ -7953,113 +8074,59 @@ ${externalBlockedProtocol()}
 		},
 	});
 
-	// All known model strings across every persona (allowedModels union), deduped
-	// preserving first-seen order. Used for /af-agent-models-substitute autocomplete.
+	// Every configured model source across persona defaults/candidates, retained
+	// fallbacks, and delegate sub-roles. Active mapping keys remain visible so the
+	// operator can replace a session substitution even if the roster changes.
 	function allKnownModels(): string[] {
 		const seen = new Set<string>();
 		const out: string[] = [];
+		const add = (model: string | undefined) => {
+			if (model && !seen.has(model)) { seen.add(model); out.push(model); }
+		};
 		for (const def of allAgentDefs) {
-			for (const m of allowedModels(def)) {
-				if (m && !seen.has(m)) { seen.add(m); out.push(m); }
+			add(def.model);
+			add(def.fallbackModel);
+			for (const model of def.models ?? []) add(model);
+			for (const role of Object.values(def.subagents ?? {})) {
+				add(role.model);
+				add(role.fallbackModel);
 			}
 		}
+		for (const model of modelOverrides.values()) add(model);
+		for (const model of subagentModelOverrides.values()) add(model);
+		for (const source of modelSubstitutions.keys()) add(source);
 		return out;
 	}
 
-	// Completions for /af-agent-models-substitute: a flat list of known models.
-	// Free text allowed too — we just suggest, never restrict, so ad-hoc targets
-	// (e.g. a model a persona does not declare) still produce a clean "skipped"
-	// report at apply time.
 	const substituteCompletions = (prefix: string): AutocompleteItem[] | null => {
-		const items = allKnownModels().map(m => ({ value: m, label: m }));
+		const items = substitutionSourceChoices().map(choice => ({ value: choice.spec, label: choice.label }));
 		if (items.length === 0) return null;
 		const p = prefix.toLowerCase();
 		const filtered = items.filter(i => i.value.toLowerCase().startsWith(p));
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// /af-agent-models-substitute <source> <target> — replace one model across all
-	// personas (team members + research + orchestrator; never the dispatcher).
-	// Per-persona validity: target must be in that persona's allowedModels.
-	// Applies session-lifetime (same lifetime as /af-agent-model); takes effect on
-	// the persona's NEXT dispatch (/af-agents-restart applies it immediately).
-	// One-step flow: dry-run summary is shown up front, then the swap is
-	// applied unconditionally — the operator runs the command to commit.
+	// Bare command opens the exact same source → available-target picker as `m` in
+	// Fleet Dashboard. The two-argument form remains available for scripting.
 	pi.registerCommand("af-agent-models-substitute", {
-		description: "Replace one model across all personas: /af-agent-models-substitute <source> <target>",
+		description: "Save a session-wide model substitution: /af-agent-models-substitute [<source> <target>]",
 		getArgumentCompletions: substituteCompletions,
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (tokens.length === 0) {
+				if (allKnownModels().length === 0) {
+					ctx.ui.notify("No configured persona or sub-role models are available as substitution sources.", "warning");
+					return;
+				}
+				await openFleetDashboard(ctx, true);
+				return;
+			}
 			if (tokens.length !== 2) {
-				ctx.ui.notify(
-					`Usage: /af-agent-models-substitute <source> <target>. ` +
-					`Both must be model specs (e.g. openai-codex/gpt-5.3-codex-spark).`,
-					"error",
-				);
+				ctx.ui.notify("Usage: /af-agent-models-substitute [<source> <target>]", "error");
 				return;
 			}
-			const [source, target] = tokens;
-
-			// Build the dry-run. Walk every loaded persona (team + research +
-			// orchestrator all live in allAgentDefs) and decide per-persona:
-			//   - "match"   : current effective model === source AND target is a
-			//                 declared candidate → will be switched.
-			//   - "skip"    : any other case, with a reason.
-			const matches: { def: AgentDef; current: string }[] = [];
-			const skipped: { def: AgentDef; reason: string }[] = [];
-			for (const def of allAgentDefs) {
-				const current = resolvedModel(def);
-				if (!current) {
-					skipped.push({ def, reason: "no default model (runs on dispatcher's model)" });
-					continue;
-				}
-				if (current !== source) {
-					skipped.push({ def, reason: `current is ${current} (not ${source})` });
-					continue;
-				}
-				if (!allowedModels(def).includes(target)) {
-					skipped.push({ def, reason: `target ${target} not in declared candidates (model:/af-models: in ${def.file})` });
-					continue;
-				}
-				matches.push({ def, current });
-			}
-
-			// If target === source, the substitution is a no-op. We still report
-			// it so the operator sees that the request was understood.
-			if (source === target) {
-				ctx.ui.notify(
-					`Source and target are the same (${source}); nothing to do. ` +
-					`Affected: ${matches.length}, skipped: ${skipped.length}.`,
-					"info",
-				);
-				return;
-			}
-
-			// Apply: for every match, if the persona's frontmatter default IS the
-			// target, clear any existing override (so it tracks frontmatter
-			// updates); otherwise record target in modelOverrides. Mirrors
-			// /af-agent-model and /af-models.
-			const applied: string[] = [];
-			for (const { def } of matches) {
-				const key = def.name.toLowerCase();
-				if (def.model === target) {
-					modelOverrides.delete(key);
-				} else {
-					modelOverrides.set(key, target);
-				}
-				applied.push(`${displayName(def.name)}: ${source} → ${target}`);
-			}
-
-			const skipDetails = skipped.map(s => `${displayName(s.def.name)}: ${s.reason}`);
-			const summary = [
-				`Substitution ${source} → ${target}:`,
-				`  Affected: ${applied.length}${applied.length ? ` (${applied.join(", ")})` : ""}`,
-				`  Skipped: ${skipped.length}${skipped.length ? ` (${skipDetails.join("; ")})` : ""}`,
-				`  Applies on next dispatch (/af-agents-restart to apply now).`,
-			].join("\n");
-			updateWidget();
-			ctx.ui.notify(summary, applied.length > 0 ? "success" : "info");
+			await applySessionModelSubstitution(tokens[0], tokens[1], ctx);
 		},
 	});
 
@@ -9516,6 +9583,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		// Model switching state resets each session; per-project overrides replace
 		// the persona defs' default model / candidate list before anything reads them.
 		modelOverrides.clear();
+		modelSubstitutions.clear();
 		subagentModelOverrides.clear();
 		thinkingOverrides.clear();
 		for (const def of allAgentDefs) {
@@ -9691,7 +9759,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			`/af-agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
 			`/af-agent-model-thinking <persona> Switch a persona's thinking level\n` +
 			`/af-models [profile]     Apply a named model profile to the team\n` +
-			`/af-agent-models-substitute <src> <tgt> Swap one model across all personas\n` +
+			`/af-agent-models-substitute [src tgt] Pick/save a session-wide source → target model substitution\n` +
 			`/af-dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)\n` +
 			`/af-agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
 			`/af-agents-restart <name> Kill + re-run its last task fresh\n` +

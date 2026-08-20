@@ -184,12 +184,13 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 Two consequences worth spelling out:
 
 - **Cross-model review is the point, not a party trick.** A `builder` on one lab's model and a `code-reviewer` on another's catches what a single model rationalizes past. `plan-reviewer` and `code-reviewer` ship ready to run as **Claude Code peers** for exactly this.
-- **Cost lives on a ladder, not a switch.** Each persona declares a default plus a switch list over a three-tier policy — *deep reasoning / workhorse / fast recon* — swappable at runtime per persona (`/af-agent-model`) or fleet-wide (`/af-models <profile>`). From Fleet Detail (`Alt+A`, Enter), **`m`** can instead choose any model Pi currently reports as available for that local specialist, research helper, or nested delegate's next run. Recon sweeps run on the cheap tier or on your own hardware; only synthesis and verdicts spend the expensive one.
+- **Cost lives on a ladder, not a switch.** Each persona declares a default plus a switch list over a three-tier policy — *deep reasoning / workhorse / fast recon* — swappable at runtime per persona (`/af-agent-model`) or fleet-wide (`/af-models <profile>`). From Fleet Detail (`Alt+A`, Enter), **`m`** can choose any model Pi currently reports as available for that local specialist, research helper, or nested delegate's next run. From Fleet Dashboard itself, **`m`** opens a source/target picker that saves a session-wide substitution for current and future spawns; bare `/af-agent-models-substitute` opens that same flow. Recon sweeps run on the cheap tier or on your own hardware; only synthesis and verdicts spend the expensive one.
 
 ```bash
 /af-models fast                                   # move the whole team down a tier
 /af-agent-model builder github-copilot/claude-sonnet-4.6
-/af-agent-models-substitute openai-codex/gpt-5.6-sol ollama/glm-5.2:cloud   # swap one model everywhere
+/af-agent-models-substitute                         # visually pick a session-wide source → target mapping
+/af-agent-models-substitute openai-codex/gpt-5.6-sol ollama/glm-5.2:cloud   # same operation, direct form
 ```
 
 Per-project defaults live in `.ai/agent-fleet-overrides.md` — see [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md).

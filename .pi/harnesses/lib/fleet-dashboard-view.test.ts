@@ -61,6 +61,8 @@ test("dashboardTransition moves selection, pages, filters, toggles finished, and
 	assert.equal(state.filterQuery, "");
 	assert.equal(dashboardTransition("a", state, rows, 2), null);
 	assert.equal(state.showFinished, true);
+	assert.equal(dashboardTransition("m", state, rows, 2), "substitute");
+	assert.equal(dashboardTransition("M", state, rows, 2), "substitute");
 	assert.deepEqual(dashboardTransition("\r", state, rows, 2), { open: "a" });
 	assert.equal(dashboardTransition("q", state, rows, 2), "close");
 });

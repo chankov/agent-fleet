@@ -247,8 +247,9 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   children inherit it). `/af-models [profile]` applies a named profile
   from `.pi/agents/model-profiles.yaml` — a macro over the same declared candidates, validated at
   session start (a profile with any entry outside a persona's candidates is dropped whole, with an
-  error); profiles never touch sub-role models — only `/af-agent-model` reaches those. Nothing
-  outside the declared lists is ever selectable. When an effective project or session override
+  error); profiles never touch sub-role models — only `/af-agent-model` reaches those. Those
+  declared-candidate commands stay within their lists; Fleet Detail and the session-wide
+  substitution target picker intentionally use Pi's currently available registry. When an effective project or session override
   fails with a model/provider error or aborted request before work begins (including local-model
   memory-limit failures), the hub retries once with the model originally declared in the persona
   frontmatter. For **write-capable** runs this is pre-work only: no fallback occurs after text
@@ -265,12 +266,14 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   way — `/af-agent-model <persona>` and `/af-agent-model-thinking <persona>` accept them alongside team
   members. Since research helpers are spawned fresh on each `/af-research` / `spawn_research`, the
   switch lands on their next spawn (there is no running instance to `/af-agents-restart`).
-  `/af-agent-models-substitute <source> <target>` is the global one-shot form: walks every loaded
-  persona (team + research + orchestrator), and for each whose **current effective model** is
-  `<source>` and whose declared candidates include `<target>`, sets the session override to
-  `<target>`. One-step flow — the dry-run summary (affected vs skipped, with reasons) is shown
-  inline, then the swap is applied immediately and takes effect on each persona's next dispatch
-  (`/af-agents-restart` to apply now). It never touches the dispatcher or delegate sub-roles.
+  `/af-agent-models-substitute [<source> <target>]` saves a runtime source → target mapping for
+  the current session. With no arguments it opens the same two-step visual picker as `m` in Fleet
+  Dashboard: first choose a source from every model configured across persona defaults, candidates,
+  fallbacks, and delegate sub-roles; then choose a target from Pi's currently available models. The
+  two-argument form performs the same operation directly. The mapping is resolved when work is
+  spawned rather than eagerly copied into today's roster, so team members, research personas, and
+  delegate sub-roles activated or created later in the session inherit it automatically. Existing
+  runs are not interrupted, and all mappings reset at the next `session_start`.
 - **Thinking levels** — each persona's frontmatter `thinking:` sets its pi `--thinking`
   reasoning effort (`off` · `minimal` · `low` · `medium` · `high` · `xhigh`). `/af-agent-model-thinking
   <persona>` switches it among those six levels for the session; like a model switch it takes effect

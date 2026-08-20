@@ -25,8 +25,9 @@ export function fleetModelChoices(models: readonly PiModelSummary[], current?: s
 }
 
 /** Render the model picker in the same full-screen layer as Fleet Detail. */
-export function renderFleetModelPicker(
-	title: string,
+function renderChoicePicker(
+	heading: string,
+	footer: string,
 	choices: readonly FleetModelChoice[],
 	state: FleetModelPickerState,
 	width: number,
@@ -42,14 +43,48 @@ export function renderFleetModelPicker(
 		return selected ? theme.fg("accent", theme.bold(line)) : line;
 	});
 	const lines = [
-		theme.bold(trim(` Model for ${title} · next run · ${choices.length} available`, w)),
+		theme.bold(trim(heading, w)),
 		theme.fg("dim", "╭" + "─".repeat(Math.max(0, w - 2)) + "╮"),
 		...rows,
 		...Array(Math.max(0, body - rows.length)).fill(""),
 		theme.fg("dim", "╰" + "─".repeat(Math.max(0, w - 2)) + "╯"),
-		theme.fg("dim", "↑↓ select · PgUp/PgDn page · Home/End · Enter apply · Esc cancel"),
+		theme.fg("dim", footer),
 	];
 	return lines.slice(0, body + DETAIL_CHROME_ROWS).concat(Array(Math.max(0, body + DETAIL_CHROME_ROWS - lines.length)).fill(""));
+}
+
+export function renderFleetModelPicker(
+	title: string,
+	choices: readonly FleetModelChoice[],
+	state: FleetModelPickerState,
+	width: number,
+	bodyHeight: number,
+	theme: ThemeLike,
+): string[] {
+	return renderChoicePicker(
+		` Model for ${title} · next run · ${choices.length} available`,
+		"↑↓ select · PgUp/PgDn page · Home/End · Enter apply · Esc cancel",
+		choices, state, width, bodyHeight, theme,
+	);
+}
+
+/** Render either step of the session-wide source → target substitution flow. */
+export function renderFleetSubstitutionPicker(
+	stage: "source" | "target",
+	source: string | undefined,
+	choices: readonly FleetModelChoice[],
+	state: FleetModelPickerState,
+	width: number,
+	bodyHeight: number,
+	theme: ThemeLike,
+): string[] {
+	const heading = stage === "source"
+		? ` Substitute model · 1/2 choose configured source · ${choices.length} known`
+		: ` Substitute ${source ?? "model"} · 2/2 choose available target · ${choices.length} available`;
+	const footer = stage === "source"
+		? "↑↓ select · PgUp/PgDn page · Home/End · Enter next · Esc cancel"
+		: "↑↓ select · PgUp/PgDn page · Home/End · Enter apply · Esc back";
+	return renderChoicePicker(heading, footer, choices, state, width, bodyHeight, theme);
 }
 
 export type FleetDetailKey = "up" | "down" | "pageUp" | "pageDown" | "home" | "end" | "enter" | "escape" | "copy";
