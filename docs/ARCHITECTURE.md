@@ -27,7 +27,7 @@ harness. Four independent choices shape that runtime:
 | Axis | Choices | What it controls |
 | --- | --- | --- |
 | **Posture** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes direct coding tools and keeps dispatch, research, assertions, `ask_user`, and available coms/Herdr tools. |
-| **Hub mode** | `fast`, `standard`, `strict` | Dispatch/research budgets and Verification Contract rigor. `/af-hub-mode` never grants or revokes coding tools. |
+| **Hub mode** | `fast`, `standard`, `strict` | Dispatch/research budgets and Verification Contract rigor. `/af-hub-mode` never grants or revokes coding tools. `/af-work-mode` / **Alt+M** apply recommended mode+posture presets without merging the axes. |
 | **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Roster changes do not change posture in a live session. |
 | **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change posture or the native roster. |
 
@@ -35,7 +35,9 @@ Bare `just fleet` therefore means operator posture, an empty native roster, and
 the current terminal. At startup an explicit `--posture` wins; otherwise
 `--agents <roster>` implies orchestrator; otherwise operator is used. An
 orchestrator startup requires a roster. `/af-posture` switches only posture in
-the live session, while `/af-agents-*` changes only the native roster.
+the live session, `/af-hub-mode` switches only budgets, `/af-work-mode` applies a
+mode+posture preset (orchestrator presets still require a roster before either
+axis changes), and `/af-agents-*` changes only the native roster.
 
 All Hub-owned slash commands remain registered in both postures. Capability packs are resolved automatically from explicit task intent, posture, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory posture and pending-operation leases remain.
 
@@ -171,7 +173,7 @@ elsewhere, `AGENT_HUB_PROVIDER_LIMITS` to override) — the cap is per level of 
 tree, and a nested spawn reuses its parent's permit so it can never wait on its own ancestor.
 Configured under `## agent-hub` (`mode`, `max-dispatches-per-turn`,
 `max-research-per-turn`, `turn-wall-time-s`, `agent-turn-timeout-s`, `session-recycle-runs`,
-`run-history-keep`); switched live with `/af-hub-mode`.
+`run-history-keep`); switched live with `/af-hub-mode` or a `/af-work-mode` / **Alt+M** preset.
 
 A per-message allowance cannot bound a task, so a second envelope sits above the turn one:
 the **task budget** (`run-budget.js`, `3×` the turn envelope) counts dispatches, research

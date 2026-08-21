@@ -10,6 +10,7 @@ const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", im
 test("wiring contract: Hub registers posture controls without conditional commands", () => {
 	assert.match(indexSource, /registerFlag\("posture"/);
 	assert.match(indexSource, /registerCommand\("af-posture"/);
+	assert.match(indexSource, /registerCommand\("af-work-mode"/);
 	assert.match(indexSource, /registerCommand\("af-handoff"/);
 	assert.doesNotMatch(indexSource, /if \(posture === [^)]+\)\s*\{\s*pi\.registerCommand/);
 });
@@ -40,6 +41,10 @@ test("wiring contract: Hub applies posture tools at startup and live switches", 
 	const applications = indexSource.match(/applyPostureTools\(\)/g) ?? [];
 	assert.ok(applications.length >= 3, `expected definition plus startup and command applications, got ${applications.length}`);
 	assert.match(indexSource, /resolvePostureTools\(/);
+	assert.match(indexSource, /async function applyExecutionPair\(/);
+	assert.match(indexSource, /async function openExecutionProfilePicker\(/);
+	assert.match(indexSource, /registerCommand\("af-work-mode"[\s\S]*?openExecutionProfilePicker/);
+	assert.match(indexSource, /registerShortcut\("alt\+m"[\s\S]*?openExecutionProfilePicker/);
 });
 
 test("wiring contract: orchestrator persona defers authority to active posture", () => {

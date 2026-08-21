@@ -84,12 +84,13 @@ test("shortcuts, command, compact toggle, footer, and pool use the separate flee
 	assert.match(source, /registerShortcut\("alt\+a"[\s\S]*?void openFleetDashboard\(ctx\)/);
 	assert.match(source, /pi\.registerCommand\("af-agents-list"[\s\S]*?await openFleetDashboard\(_ctx\)/);
 	assert.match(source, /registerCommand\("af-agent-models-substitute"[\s\S]*?tokens\.length === 0[\s\S]*?openFleetDashboard\(ctx, true\)/);
+	assert.match(source, /registerShortcut\("alt\+m"[\s\S]*?void openExecutionProfilePicker\(ctx\)/);
 	assert.match(source, /registerShortcut\("alt\+shift\+a"[\s\S]*?viewMode = viewMode === "compact" \? "off" : "compact"/);
 	assert.ok(source.includes('registerShortcut("alt+\\\\",'));
 	assert.match(source, /registerShortcut\("alt\+\\\\"[\s\S]*?await openFleetDetail\(row, ctx\)/);
 	assert.match(source, /pi\.registerCommand\("af-zoom"[\s\S]*?const rowKey = \(rid != null \? `r\$\{rid\}` : arg\)\.toLowerCase\(\)[\s\S]*?r\.key\.toLowerCase\(\) === rowKey/);
 	assert.match(source, /function findDelegationChild[\s\S]*?candidate\.id\.toLowerCase\(\) === lower/);
-	assert.match(source, /const hint = theme\.fg\("dim", composeFleetFooterHint\(viewMode\)\);/);
+	assert.match(source, /const hint = theme\.fg\("dim", composeFleetFooterHint\(viewMode, compactExecutionPair\(hubMode, posture\)\)\);/);
 	assert.doesNotMatch(source, /theme\.fg\("muted", "Alt\+A "\) \+ theme\.fg\("dim", composeFleetFooterHint/);
 	assert.match(source, /function fleetPeerInputs[\s\S]*?pending: true/);
 	assert.match(source, /function renderPool[\s\S]*?buildFleetRows\([\s\S]*?peers: fleetPeerInputs\(\)/);

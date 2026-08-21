@@ -35,6 +35,10 @@
  *                           (team member, research helper rN, or delegate child id)
  *   /af-research <task>      — spawn a read-only research helper (@persona, --model)
  *   /af-agents-cont rN ...   — resume a finished research helper (alias: /af-research-cont)
+ *   /af-work-mode [fast|standard|strict|advanced|<mode> <posture>]
+ *                           — unified execution profile picker (mode + posture)
+ *   /af-posture [operator|orchestrator] — show/switch direct vs delegate-only
+ *   /af-hub-mode [fast|standard|strict] — show/switch execution budgets
  *
  * Finished research helpers are auto-pruned: auto-research pipe helpers as soon
  * as they finish (findings persist as files under findings/), manual/persona
@@ -47,9 +51,9 @@
  *                           documenter to land them in the project's rules/docs
  *
  * Shortcuts:
- *   Alt+A                 — toggle agent view: dashboard grid (above editor) ↔
- *                           compact running-agents list (below editor: one line
- *                           per *running* agent — name · context · state)
+ *   Alt+A                 — open the Fleet Dashboard
+ *   Alt+M                 — open the execution profile picker (mode + posture)
+ *   Alt+Shift+A           — toggle the compact running-agents widget
  *   Alt+] / Alt+[         — compact view: mark next/previous running subagent
  *   Alt+\                 — compact view: zoom the marked subagent (Q/Esc closes)
  *
@@ -117,6 +121,20 @@ import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
 import { NATIVE_ROSTER_ENTRY_TYPE, parsePosture, persistedNativeRosterState, posturePrompt, resolvePostureTools, resolveSessionPosture, resolveSessionRoster, type Posture } from "./posture.ts";
+import {
+	advancedProfileOptions,
+	compactExecutionPair,
+	executionPairBlockedByRoster,
+	executionProfileLabel,
+	hubModePickerOptions,
+	isHubMode,
+	parseWorkModeArgs,
+	posturePickerOptions,
+	recommendedProfileById,
+	recommendedProfileOptions,
+	selectedPickerValue,
+	type ExecutionPair,
+} from "./execution-profile.ts";
 import { CAPABILITY_PACKS, latestPersistedCapabilityState, persistedCapabilityState, resolveCapabilityPacks, type CapabilityPack, type CapabilityResolution, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationGate, confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type CapabilityConfirmationState, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
@@ -7402,6 +7420,98 @@ ${externalBlockedProtocol()}
 		handler: async (_args, ctx) => { widgetCtx = ctx; await openContextBudget(ctx); },
 	});
 
+	function currentExecutionPair(): ExecutionPair {
+		const mode = normalizeHubMode(hubMode);
+		return { mode: isHubMode(mode) ? mode : "standard", posture };
+	}
+
+	function hubModeStatusText(): string {
+		const b = currentBudget();
+		const cap = (n: number | null) => (n == null ? "∞" : String(n));
+		return `Execution mode: ${hubMode}\nThis turn: ${turnDispatchCount}/${cap(b.maxDispatches)} dispatches, ` +
+			`${turnResearchCount}/${cap(b.maxResearch)} research`;
+	}
+
+	function rosterRefusalMessage(): string {
+		return "Orchestrator posture requires at least one native specialist. Add one with /af-agents-add or select /af-agents-team first.";
+	}
+
+	function commitHubMode(mode: string, ctx: ExtensionContext, source: "slash-command" | "project-override" | "default"): boolean {
+		if (mode === hubMode) return false;
+		const previousMode = hubMode;
+		hubMode = mode;
+		updateModeStatus();
+		appendHubModeEntry({ previousMode, mode, source, ctx });
+		return true;
+	}
+
+	async function commitPosture(next: Posture, ctx: ExtensionContext): Promise<"ok" | "unchanged" | "roster"> {
+		if (orchestratorNeedsRoster(next, agentStates.size)) return "roster";
+		if (next === posture) return "unchanged";
+		posture = next;
+		if (posture === "operator") {
+			rosterRecoveryRequired = false;
+			rosterRecoveryDiagnostic = "";
+			setTimeout(replayDeferredRecoveryInputs, 0);
+		}
+		if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
+			await pickDispatcherPersona(ctx);
+		}
+		resolveIncomingCapabilities("");
+		applyPostureTools();
+		updatePostureStatus(ctx);
+		pi.appendEntry("agent-hub-posture", { posture });
+		return "ok";
+	}
+
+	async function applyExecutionPair(pair: ExecutionPair, ctx: ExtensionContext): Promise<void> {
+		const current = currentExecutionPair();
+		if (executionPairBlockedByRoster(current, pair, agentStates.size)) {
+			ctx.ui.notify(rosterRefusalMessage(), "warning");
+			return;
+		}
+		const modeChanged = pair.mode !== hubMode;
+		const postureChanged = pair.posture !== posture;
+		if (!modeChanged && !postureChanged) {
+			ctx.ui.notify(`Already ${executionProfileLabel(pair)}\n${postureStatusText()}\n${hubModeStatusText()}`, "info");
+			return;
+		}
+		if (modeChanged) commitHubMode(pair.mode, ctx, "slash-command");
+		if (postureChanged) {
+			const result = await commitPosture(pair.posture, ctx);
+			if (result === "roster") {
+				ctx.ui.notify(rosterRefusalMessage(), "warning");
+				return;
+			}
+		}
+		ctx.ui.notify(
+			`Work mode → ${executionProfileLabel(pair)}\n${postureStatusText()}\n${hubModeStatusText()}\nBudgets apply from the next dispatch; prompt and tools update on the next model call.` +
+				hubLocationSuffix(ctx),
+			"success",
+		);
+	}
+
+	async function openAdvancedExecutionPicker(ctx: ExtensionContext): Promise<void> {
+		const picker = advancedProfileOptions(currentExecutionPair());
+		const choice = await ctx.ui.select(picker.title, picker.options);
+		const pair = selectedPickerValue(picker.options, choice, picker.pairs);
+		if (!pair) return;
+		await applyExecutionPair(pair, ctx);
+	}
+
+	async function openExecutionProfilePicker(ctx: ExtensionContext): Promise<void> {
+		const picker = recommendedProfileOptions(currentExecutionPair());
+		const choice = await ctx.ui.select(picker.title, picker.options);
+		const key = selectedPickerValue(picker.options, choice, picker.keys);
+		if (!key) return;
+		if (key === "advanced") {
+			await openAdvancedExecutionPicker(ctx);
+			return;
+		}
+		const profile = recommendedProfileById(key);
+		if (profile) await applyExecutionPair({ mode: profile.mode, posture: profile.posture }, ctx);
+	}
+
 	// ── /af-posture: direct operator ↔ restricted orchestrator ──
 	pi.registerCommand("af-posture", {
 		description: "Show or set the Fleet posture: operator (direct tools) | orchestrator (delegate-only)",
@@ -7409,6 +7519,19 @@ ${externalBlockedProtocol()}
 			widgetCtx = ctx;
 			const requested = (args || "").trim();
 			if (!requested) {
+				if (ctx.hasUI && typeof ctx.ui.select === "function") {
+					const picker = posturePickerOptions(posture);
+					const choice = await ctx.ui.select(picker.title, picker.options);
+					const next = selectedPickerValue(picker.options, choice, picker.postures);
+					if (!next) return;
+					const result = await commitPosture(next, ctx);
+					if (result === "roster") {
+						ctx.ui.notify(rosterRefusalMessage(), "warning");
+						return;
+					}
+					ctx.ui.notify(`${postureStatusText()}\nPrompt and tools update on the next model call.`, result === "ok" ? "success" : "info");
+					return;
+				}
 				ctx.ui.notify(`${postureStatusText()}\nSwitch with /af-posture operator|orchestrator`, "info");
 				return;
 			}
@@ -7417,24 +7540,12 @@ ${externalBlockedProtocol()}
 				ctx.ui.notify(`Unknown posture "${requested}" — expected operator|orchestrator.`, "error");
 				return;
 			}
-			if (orchestratorNeedsRoster(next, agentStates.size)) {
-				ctx.ui.notify("Orchestrator posture requires at least one native specialist. Add one with /af-agents-add or select /af-agents-team first.", "warning");
+			const result = await commitPosture(next, ctx);
+			if (result === "roster") {
+				ctx.ui.notify(rosterRefusalMessage(), "warning");
 				return;
 			}
-			posture = next;
-			if (posture === "operator") {
-				rosterRecoveryRequired = false;
-				rosterRecoveryDiagnostic = "";
-				setTimeout(replayDeferredRecoveryInputs, 0);
-			}
-			if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
-				await pickDispatcherPersona(ctx);
-			}
-			resolveIncomingCapabilities("");
-			applyPostureTools();
-			updatePostureStatus(ctx);
-			pi.appendEntry("agent-hub-posture", { posture });
-			ctx.ui.notify(`${postureStatusText()}\nPrompt and tools update on the next model call.`, "success");
+			ctx.ui.notify(`${postureStatusText()}\nPrompt and tools update on the next model call.`, result === "ok" ? "success" : "info");
 		},
 	});
 
@@ -7448,13 +7559,21 @@ ${externalBlockedProtocol()}
 			widgetCtx = ctx;
 			const requested = (args || "").trim();
 			if (!requested) {
-				const b = currentBudget();
-				const cap = (n: number | null) => (n == null ? "∞" : String(n));
-				ctx.ui.notify(
-					`Execution mode: ${hubMode}\nThis turn: ${turnDispatchCount}/${cap(b.maxDispatches)} dispatches, ` +
-					`${turnResearchCount}/${cap(b.maxResearch)} research\nSwitch with /af-hub-mode ${HUB_MODES.join("|")}`,
-					"info",
-				);
+				if (ctx.hasUI && typeof ctx.ui.select === "function") {
+					const picker = hubModePickerOptions(hubMode);
+					const choice = await ctx.ui.select(picker.title, picker.options);
+					const mode = selectedPickerValue(picker.options, choice, picker.modes);
+					if (!mode) return;
+					const changed = commitHubMode(mode, ctx, "slash-command");
+					ctx.ui.notify(
+						changed
+							? `Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)` + hubLocationSuffix(ctx)
+							: hubModeStatusText(),
+						changed ? "success" : "info",
+					);
+					return;
+				}
+				ctx.ui.notify(`${hubModeStatusText()}\nSwitch with /af-hub-mode ${HUB_MODES.join("|")}`, "info");
 				return;
 			}
 			const mode = normalizeHubMode(requested);
@@ -7462,14 +7581,40 @@ ${externalBlockedProtocol()}
 				ctx.ui.notify(`Unknown mode "${requested}" — expected one of: ${HUB_MODES.join(", ")}`, "error");
 				return;
 			}
-			const previousMode = hubMode;
-			hubMode = mode;
-			updateModeStatus();
-			appendHubModeEntry({ previousMode, mode, source: "slash-command", ctx });
+			const changed = commitHubMode(mode, ctx, "slash-command");
 			ctx.ui.notify(
-				`Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)` + hubLocationSuffix(ctx),
-				"success",
+				changed
+					? `Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)` + hubLocationSuffix(ctx)
+					: hubModeStatusText(),
+				changed ? "success" : "info",
 			);
+		},
+	});
+
+	pi.registerCommand("af-work-mode", {
+		description: "Show or set the execution profile (mode + posture). Alt+M opens the picker.",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const parsed = parseWorkModeArgs(args);
+			if (!parsed.ok) {
+				ctx.ui.notify(parsed.error, "error");
+				return;
+			}
+			if (parsed.action === "apply") {
+				await applyExecutionPair(parsed.pair, ctx);
+				return;
+			}
+			if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
+				const current = currentExecutionPair();
+				ctx.ui.notify(
+					`Work mode: ${executionProfileLabel(current)} (${current.mode} + ${current.posture})\n` +
+					`${postureStatusText()}\n${hubModeStatusText()}\nSwitch with /af-work-mode fast|standard|strict|advanced or /af-work-mode <mode> <posture>`,
+					"info",
+				);
+				return;
+			}
+			if (parsed.action === "advanced") await openAdvancedExecutionPicker(ctx);
+			else await openExecutionProfilePicker(ctx);
 		},
 	});
 
@@ -7630,6 +7775,22 @@ ${externalBlockedProtocol()}
 		handler: (ctx) => {
 			widgetCtx = ctx;
 			void openFleetDashboard(ctx);
+		},
+	});
+	pi.registerShortcut("alt+m", {
+		description: "Open execution profile picker",
+		handler: (ctx) => {
+			widgetCtx = ctx;
+			if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
+				const current = currentExecutionPair();
+				ctx.ui.notify(
+					`Work mode: ${executionProfileLabel(current)} (${current.mode} + ${current.posture})\n` +
+					`${postureStatusText()}\n${hubModeStatusText()}\nSwitch with /af-work-mode fast|standard|strict|advanced`,
+					"info",
+				);
+				return;
+			}
+			void openExecutionProfilePicker(ctx);
 		},
 	});
 	pi.registerShortcut("alt+shift+a", {
@@ -9751,7 +9912,9 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			`Persona gate: ${personaGateLabel}\n` +
 			`Coms: ${comsLabel}\n` +
 			`Fleet: ${fleetLabel}\n\n` +
+			`/af-work-mode [profile]  Fast Operator / Standard or Strict Orchestrator (Alt+M)\n` +
 			`/af-posture [mode]       Show/switch operator|orchestrator posture\n` +
+			`/af-hub-mode [mode]      Show/switch fast|standard|strict budgets\n` +
 			`/af-agents-team          Select a team\n` +
 			`/af-agents-list          Open Fleet Dashboard\n` +
 			`/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
@@ -9800,7 +9963,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 
 				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think, activeTeamName);
-				const hint = theme.fg("dim", composeFleetFooterHint(viewMode));
+				const hint = theme.fg("dim", composeFleetFooterHint(viewMode, compactExecutionPair(hubMode, posture)));
 				// The btw extension flips this global the first time a /af-btw command or
 				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.
 				const btwHint = (globalThis as { __btwActivated?: boolean }).__btwActivated

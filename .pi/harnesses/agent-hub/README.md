@@ -26,14 +26,19 @@ These are independent runtime axes:
   extension tools, and orchestration. Orchestrator withholds direct coding tools but keeps
   dispatch, research, assertions, roster controls, `ask_user`, ready coms, and ready Herdr tools.
   In orchestrator posture, raw Herdr panes are auxiliary-process orchestration—not a route around
-  delegation for reading, editing, testing, or implementing code.
+  delegation for reading, editing, testing, or implementing code. With no argument, `/af-posture`
+  opens a two-option picker.
 - **Native roster** — local headless Pi specialists from `.pi/agents/teams.yaml`. Bare Fleet starts
   empty; select one with `--agents frontend` or add one live with `/af-agents-add code-reviewer`.
 - **Peer topology** — separate long-lived Pi or Claude Code processes from `peers.yaml`, connected
   by coms and optionally placed in sibling Herdr panes. `--peers frontend` selects a standing
   preset; `--herdr` creates a Hub-only workspace through the empty `base` preset.
 - **Hub mode** — `/af-hub-mode` controls orchestration strictness and budgets; it does not change
-  posture, roster, or topology.
+  posture, roster, or topology. With no argument it opens a three-option picker.
+- **Execution profile** — `/af-work-mode` and **Alt+M** apply a mode+posture preset without merging
+  those axes. The primary picker offers **Fast Operator**, **Standard Orchestrator**, **Strict
+  Orchestrator**, and **Advanced…** (all six pairs). Orchestrator presets still require a native
+  roster before either axis changes. `/af-hub-mode` and `/af-posture` remain independent controls.
 
 All Hub slash commands, including `/af-handoff`, are registered in both postures. A command whose
 runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
@@ -99,6 +104,7 @@ Recover with one of these explicit choices:
 ```text
 /af-agents-team                 # select a currently valid team in the live session
 /af-posture operator            # explicitly leave delegate-only posture
+/af-work-mode fast              # Fast Operator: smallest budget + direct tools
 just fleet --agents <name>      # restart through the public Fleet CLI
 just fleet --posture operator   # restart explicitly as an operator
 ```
@@ -376,7 +382,16 @@ The agent view starts with the **compact widget** enabled: one line per *running
 `name · context% · state` — *below* the input box, just above pi's status bar. Idle and done agents
 are hidden, and the coms pool widget collapses too, so an idle session collapses to just the prompt
 and footer. **`Alt+Shift+A`** toggles that widget on or off; the footer reports
-`Alt+A fleet · Alt+Shift+A widget:compact|off`.
+`Alt+A fleet · Alt+M Fast·Operator · Alt+Shift+A widget:compact|off`.
+
+### Execution profile picker
+
+Press **`Alt+M`** or run **`/af-work-mode`** to open the execution-profile picker. The primary menu
+offers **Fast Operator**, **Standard Orchestrator**, **Strict Orchestrator**, and **Advanced…**
+(all six mode/posture pairs). Arrow keys move, Enter applies, and Esc cancels with no change.
+Orchestrator presets require a native roster before either axis changes. `/af-hub-mode` and
+`/af-posture` remain available for independent control; with no argument each opens its own picker.
+On macOS, the outer terminal must send Option as Meta or Alt+M will not reach the Hub.
 
 ### Fleet Dashboard and detail
 
@@ -564,8 +579,8 @@ to summarize and ask one localized Yes/No `ask_user` question. **Yes** renews th
 inside the same tool loop; the user does not type `continue` or run a slash command. A normal
 new user message still opens a fresh turn window. Time blocked in any `ask_user` question is
 excluded from the turn wall clock, so a slow human answer cannot exhaust the next dispatch.
-Switch modes live with `/af-hub-mode fast|standard|strict` (no argument shows the current mode
-and usage).
+Switch modes live with `/af-hub-mode fast|standard|strict` (no argument opens a mode picker).
+To change mode and posture together, use `/af-work-mode` or **Alt+M**.
 The live switch is deliberately **process/session-local**: it does not mutate another repository,
 another pane, or the project's override file. A later `session_start` reapplies that repository's
 configured default. Successful live switches and session-start default application append

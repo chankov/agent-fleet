@@ -15,8 +15,9 @@ export function composeHubFooterLeft(
 		.join(" · ");
 }
 
-export function composeFleetFooterHint(viewMode: "compact" | "off"): string {
-	return `Alt+A fleet · Alt+Shift+A widget:${viewMode}`;
+export function composeFleetFooterHint(viewMode: "compact" | "off", executionPair?: string): string {
+	const work = executionPair ? ` · Alt+M ${executionPair}` : "";
+	return `Alt+A fleet${work} · Alt+Shift+A widget:${viewMode}`;
 }
 
 export function renderHubFooterLeft(

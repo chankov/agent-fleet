@@ -13,9 +13,16 @@ test("hub footer places the linked version before model, thinking suffix, and te
 	);
 });
 
-test("fleet footer identifies the dashboard shortcut and compact-widget state", () => {
+test("fleet footer identifies the dashboard shortcut, work-mode pair, and compact-widget state", () => {
 	assert.equal(composeFleetFooterHint("compact"), "Alt+A fleet · Alt+Shift+A widget:compact");
-	assert.equal(composeFleetFooterHint("off"), "Alt+A fleet · Alt+Shift+A widget:off");
+	assert.equal(
+		composeFleetFooterHint("compact", "Fast·Operator"),
+		"Alt+A fleet · Alt+M Fast·Operator · Alt+Shift+A widget:compact",
+	);
+	assert.equal(
+		composeFleetFooterHint("off", "Fast·Orchestrator"),
+		"Alt+A fleet · Alt+M Fast·Orchestrator · Alt+Shift+A widget:off",
+	);
 });
 
 test("hub footer has no dangling version separator when adjacent metadata is unavailable", () => {

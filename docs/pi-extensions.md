@@ -167,7 +167,9 @@ harnesses:
 
 - **Two live postures** — bare `just fleet` starts as an operator with direct coding tools and an
   empty native roster; `/af-posture operator|orchestrator` switches prompt and tool surface without
-  restarting or losing session state. Orchestrator removes direct coding tools. All Hub slash
+  restarting or losing session state. Orchestrator removes direct coding tools. `/af-work-mode` and
+  **Alt+M** apply recommended mode+posture presets (Fast Operator, Standard Orchestrator, Strict
+  Orchestrator, plus Advanced) without merging those independent axes. All Hub slash
   commands remain registered in both postures; capability-off actions refuse actionably.
 - **Fleet Dashboard and compact widget** — **`Alt+A`** or `/af-agents-list` opens a
   full-screen dashboard of the active native roster, delegates, research helpers, and coms
