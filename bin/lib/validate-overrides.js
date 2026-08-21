@@ -49,7 +49,7 @@ const KNOWN_SECTIONS = {
       "rules": checkFolders("rules"),
       "docs": checkPaths("docs entry point"),
       "recon-search-timeout-s": oneOfIntegerOrOff(1, 3600),
-      "mode": oneOf(["fast", "standard", "strict"]),
+      "mode": (value) => `ignored — execution modes were removed; budgets follow task tier. Remove this key (was "${value}")`,
       "max-dispatches-per-turn": oneOfIntegerOrOff(1, 1000),
       "max-research-per-turn": oneOfIntegerOrOff(1, 1000),
       "turn-wall-time-s": oneOfIntegerOrOff(1, 86400),

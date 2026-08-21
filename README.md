@@ -332,10 +332,9 @@ just fleet --agents frontend                    # native roster; orchestrator in
 just fleet --posture operator --agents frontend # direct work plus the same roster
 just fleet --no-coms                            # direct/native work; no peer messaging
 
-# live posture, mode, and roster changes preserve the session
+# live posture and roster changes preserve the session
 /af-agents-add code-reviewer
-/af-work-mode standard          # Standard Orchestrator (Alt+M picker)
-/af-posture orchestrator
+/af-work-mode orchestrator      # Alt+M picker
 /af-posture operator
 
 # Herdr topology (requires a running server — https://herdr.dev)

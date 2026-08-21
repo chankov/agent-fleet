@@ -1,18 +1,15 @@
-// Execution modes & per-turn budgets — the pure policy core behind the hub's
-// runaway-orchestration guardrails. Budgets are PER USER TURN: a new user
-// message opens a fresh window, so "budget exhausted" naturally means "stop,
-// summarize, ask the user". Everything here is data + pure functions so the
-// policy is unit-testable away from the 7k-line harness.
+// Task-tier budgets — the pure policy core behind the hub's runaway-orchestration
+// guardrails. Budgets are PER USER TURN: a new user message opens a fresh window,
+// so "budget exhausted" naturally means "stop, summarize, ask the user". Everything
+// here is data + pure functions so the policy is unit-testable away from the
+// 7k-line harness.
 //
-// A budget value of `null` means "off"/unlimited for that axis.
+// A budget value of `null` means "off"/unlimited for that axis. Live envelopes
+// never use null: every tier has explicit numbers. Override `off` cannot lift a
+// tier cap — it stays bounded by the tier.
 
-export const HUB_MODES = ["fast", "standard", "strict"];
-export const DEFAULT_HUB_MODE = "standard";
-
-// Task tiers — the dispatcher's per-turn complexity triage. Tier caps only
-// lower the dispatch/research axes (min with the mode budget): a trivial ask
-// must not burn a standard-mode budget on ceremony, while `project` defers
-// entirely to the mode. Unset tier is treated as "feature".
+// Task tiers — the dispatcher's complexity triage AND the budget envelope.
+// Unset/junk tier is treated as DEFAULT_TASK_TIER (`small`).
 export const TASK_TIERS = ["trivial", "small", "feature", "project"];
 // The tier ASSUMED when the dispatcher never called set_task_tier. It is
 // deliberately not the middle of the range: the tier is task-scoped, so a skipped
@@ -23,13 +20,6 @@ export const TASK_TIERS = ["trivial", "small", "feature", "project"];
 // by forgetting a tool call. Assuming `small` costs an explicit escalation (with a
 // reason) when the work really is bigger, which is the cheap direction to be wrong in.
 export const DEFAULT_TASK_TIER = "small";
-
-export const TIER_CAPS = {
-	trivial: { maxDispatches: 1, maxResearch: 1 },
-	small: { maxDispatches: 2, maxResearch: 2 },
-	feature: { maxDispatches: 6, maxResearch: 4 },
-	project: { maxDispatches: null, maxResearch: null },
-};
 
 /** "Small", " TRIVIAL " → canonical tier name, or null when unrecognized. */
 export function normalizeTaskTier(value) {
@@ -48,16 +38,24 @@ export const RECYCLE_CONTEXT_PCT = 60;
 // still being consulted as if it were advisory.
 export const HARD_RECYCLE_CONTEXT_PCT = 100;
 
-export const MODE_BUDGETS = {
-	fast: {
-		maxDispatches: 2,
+export const TIER_BUDGETS = {
+	trivial: {
+		maxDispatches: 1,
 		maxResearch: 1,
 		wallMs: 15 * 60_000,
 		agentTurnMs: 10 * 60_000,
 		recycleRuns: 3,
 		delegation: false,
 	},
-	standard: {
+	small: {
+		maxDispatches: 2,
+		maxResearch: 2,
+		wallMs: 15 * 60_000,
+		agentTurnMs: 10 * 60_000,
+		recycleRuns: 3,
+		delegation: false,
+	},
+	feature: {
 		maxDispatches: 8,
 		maxResearch: 4,
 		wallMs: 60 * 60_000,
@@ -65,57 +63,56 @@ export const MODE_BUDGETS = {
 		recycleRuns: 5,
 		delegation: true,
 	},
-	strict: {
-		maxDispatches: 24,
-		maxResearch: 12,
-		wallMs: 240 * 60_000,
-		agentTurnMs: null,
+	project: {
+		maxDispatches: 12,
+		maxResearch: 6,
+		wallMs: 90 * 60_000,
+		agentTurnMs: 30 * 60_000,
 		recycleRuns: 5,
 		delegation: true,
 	},
 };
 
-/** "Fast", " STRICT " → canonical mode name, or null when unrecognized. */
-export function normalizeHubMode(value) {
-	const v = String(value ?? "").trim().toLowerCase();
-	return HUB_MODES.includes(v) ? v : null;
-}
+/** Dispatch/research slice of TIER_BUDGETS — kept for callers that only need caps. */
+export const TIER_CAPS = Object.fromEntries(
+	TASK_TIERS.map((tier) => [tier, {
+		maxDispatches: TIER_BUDGETS[tier].maxDispatches,
+		maxResearch: TIER_BUDGETS[tier].maxResearch,
+	}]),
+);
 
 /**
- * Effective budget for a mode with per-project overrides applied.
+ * Effective budget for a task tier with per-project overrides applied as a ceiling.
  * Override fields (all optional): maxDispatches, maxResearch, wallMs,
- * agentTurnMs, recycleRuns — a number replaces the mode default, `null` turns
- * the axis off, `undefined` keeps the default. `delegation` is mode-owned.
- * A declared `tier` (task tier) then LOWERS the dispatch and research caps to
- * the tier cap — overrides raise/disable the mode side, but the tier keeps a
- * simple ask from spending the whole envelope. No tier (null/undefined) means
- * no tier caps: the caller decides when to assume DEFAULT_TASK_TIER.
+ * agentTurnMs, recycleRuns — a number is min()'d with the tier; `null`/`off`
+ * stays bounded by the tier; `undefined` keeps the tier default. `delegation`
+ * is tier-owned and never overridable. Unset/junk tier → DEFAULT_TASK_TIER.
  */
-export function resolveTurnBudget(mode, overrides = {}, tier = undefined) {
-	const base = MODE_BUDGETS[normalizeHubMode(mode) ?? DEFAULT_HUB_MODE];
-	const pick = (key) => (overrides[key] === undefined ? base[key] : overrides[key]);
-	const caps = TIER_CAPS[normalizeTaskTier(tier)] ?? { maxDispatches: null, maxResearch: null };
-	const lower = (value, cap) => {
-		if (cap == null) return value;
-		if (value == null) return cap;
-		return Math.min(value, cap);
+export function resolveTurnBudget(tier, overrides = {}) {
+	const base = TIER_BUDGETS[normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER];
+	const ceiling = (key) => {
+		const override = overrides[key];
+		if (override === undefined || override === null) return base[key];
+		if (base[key] == null) return override;
+		return Math.min(base[key], override);
 	};
 	return {
-		maxDispatches: lower(pick("maxDispatches"), caps.maxDispatches),
-		maxResearch: lower(pick("maxResearch"), caps.maxResearch),
-		wallMs: pick("wallMs"),
-		agentTurnMs: pick("agentTurnMs"),
-		recycleRuns: pick("recycleRuns"),
+		maxDispatches: ceiling("maxDispatches"),
+		maxResearch: ceiling("maxResearch"),
+		wallMs: ceiling("wallMs"),
+		agentTurnMs: ceiling("agentTurnMs"),
+		recycleRuns: ceiling("recycleRuns"),
 		delegation: base.delegation,
 	};
 }
 
-function refusalTail(mode) {
+function refusalTail(tier) {
+	const label = normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER;
 	return "Do NOT retry this call before human confirmation. Summarize progress so far (including " +
 		"unproven assertions and artifact paths), then use the Hub's one-click budget continuation " +
-		"confirmation. Do not ask for a typed continue message or a slash command. The user can widen " +
-		`future budgets with /af-hub-mode (current: ${mode}) or the max-*-per-turn / turn-wall-time-s keys ` +
-		"in .ai/agent-fleet-overrides.md.";
+		"confirmation. Do not ask for a typed continue message or a slash command. Raise the task " +
+		`tier with set_task_tier when the work outgrew "${label}", or tighten/widen future ceilings ` +
+		"with the max-*-per-turn / turn-wall-time-s keys in .ai/agent-fleet-overrides.md.";
 }
 
 /**
@@ -123,26 +120,27 @@ function refusalTail(mode) {
  * kind: "dispatch" | "research"; counters: { dispatches, research } — calls
  * already made this turn. Returns null when allowed, else { reason, message }.
  */
-export function checkTurnBudget(kind, counters, budget, elapsedWallMs, mode = DEFAULT_HUB_MODE) {
+export function checkTurnBudget(kind, counters, budget, elapsedWallMs, tier = DEFAULT_TASK_TIER) {
+	const label = normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER;
 	if (budget.wallMs != null && elapsedWallMs >= budget.wallMs) {
 		return {
 			reason: "wall",
 			message: `⚠ Turn budget exhausted: wall clock at ${Math.round(elapsedWallMs / 60_000)} min ` +
-				`(limit ${Math.round(budget.wallMs / 60_000)} min in ${mode} mode). ${refusalTail(mode)}`,
+				`(limit ${Math.round(budget.wallMs / 60_000)} min at tier ${label}). ${refusalTail(label)}`,
 		};
 	}
 	if (kind === "dispatch" && budget.maxDispatches != null && counters.dispatches >= budget.maxDispatches) {
 		return {
 			reason: "dispatches",
 			message: `⚠ Turn budget exhausted: ${counters.dispatches} of ${budget.maxDispatches} ` +
-				`dispatch_agent calls used in ${mode} mode. ${refusalTail(mode)}`,
+				`dispatch_agent calls used at tier ${label}. ${refusalTail(label)}`,
 		};
 	}
 	if (kind === "research" && budget.maxResearch != null && counters.research >= budget.maxResearch) {
 		return {
 			reason: "research",
 			message: `⚠ Turn budget exhausted: ${counters.research} of ${budget.maxResearch} ` +
-				`spawn_research calls used in ${mode} mode. ${refusalTail(mode)}`,
+				`spawn_research calls used at tier ${label}. ${refusalTail(label)}`,
 		};
 	}
 	return null;
@@ -180,14 +178,14 @@ export function contextOverflowDiagnostic(runsSinceFresh, contextPct, { agent = 
 	);
 }
 
-/** One-line status chip: "Mode: standard·small · 1/2 disp · 0/2 res · task 4/6". */
-export function budgetStatusLine(mode, counters, budget, tier = null, task = null) {
+/** One-line status chip: "Tier: small · 1/2 disp · 0/2 res · task 4/6". */
+export function budgetStatusLine(counters, budget, tier = null, task = null) {
 	const cap = (n) => (n == null ? "∞" : String(n));
-	const tierSuffix = tier ? `·${tier}` : "";
+	const tierLabel = tier || DEFAULT_TASK_TIER;
 	const taskSuffix = task
 		? ` · task ${task.counters.dispatches}/${cap(task.budget.maxDispatches)}`
 		: "";
-	return `Mode: ${mode}${tierSuffix} · ${counters.dispatches}/${cap(budget.maxDispatches)} disp · ` +
+	return `Tier: ${tierLabel} · ${counters.dispatches}/${cap(budget.maxDispatches)} disp · ` +
 		`${counters.research}/${cap(budget.maxResearch)} res${taskSuffix}`;
 }
 
@@ -293,7 +291,7 @@ function taskRefusalTail() {
  *
  * The task clock must never charge for human time. A task's wall clock spans
  * every message on it, so a lunch break, an overnight pause, or a long `ask_user`
- * answer would all count as budget — and at `fast` mode's 45-minute task wall a
+ * answer would all count as budget — and at `small` tier's 45-minute task wall a
  * single coffee break would hard-stop a task with two dispatches spent. That is a
  * false positive that teaches people to reset the task window reflexively, which
  * costs more than the guardrail buys. Dispatch/research counts stay the honest
@@ -432,8 +430,8 @@ const GATED_TIERS = new Set(["trivial", "small"]);
 
 /**
  * Refuse a heavy persona at a low tier. Returns null when allowed, else
- * { reason, message }. Unknown/absent tier never gates (strict mode leaves the
- * tier unset on purpose).
+ * { reason, message }. Unknown/absent tier never gates here; the harness assumes
+ * DEFAULT_TASK_TIER before calling.
  */
 export function checkTierPersonaGate(tier, persona) {
 	const t = normalizeTaskTier(tier);

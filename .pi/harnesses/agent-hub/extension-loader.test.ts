@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -561,11 +561,21 @@ export default function (pi) {
 	}
 });
 
-test("mode command remains auditable and af-new-task is no longer registered", async () => {
+test("legacy agent-hub-mode session entries are no-ops and af-hub-mode stays unregistered", async () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-audit-rpc-"));
+	const legacyPath = join(workspace, "seed-legacy-mode.ts");
 	const probePath = join(workspace, "probe-audit.ts");
+	writeFileSync(legacyPath, `
+export default function (pi) {
+  pi.on("session_start", () => pi.appendEntry("agent-hub-mode", { mode: "strict" }));
+}
+`);
 	writeFileSync(probePath, `
 export default function (pi) {
+  pi.registerCommand("probe-active-tools", {
+    description: "Test-only active tool probe",
+    handler: async (_args, ctx) => ctx.ui.notify("ACTIVE_TOOLS:" + JSON.stringify(pi.getActiveTools()), "info"),
+  });
   pi.registerCommand("probe-audit", {
     description: "Test-only audit entry probe",
     handler: async (_args, ctx) => {
@@ -576,27 +586,24 @@ export default function (pi) {
   });
 }
 `);
-	const rpc = startRpcProbe(probePath);
+	const rpc = startRpcProbe(probePath, [], { beforeHubExtensions: [legacyPath] });
 	try {
+		const tools = await rpc.activeTools();
+		assert.ok(tools.includes("read"), "legacy mode must not restore a non-operator runtime mode");
 		const commands = await rpc.request({ type: "get_commands" });
-		assert.ok(!commands.data.commands.some((command: { name: string }) => command.name === "af-new-task"));
-		assert.equal((await rpc.request({ type: "prompt", message: "/af-hub-mode fast" })).success, true);
+		const names = commands.data.commands.map((command: { name: string }) => command.name);
+		assert.ok(!names.includes("af-new-task"));
+		assert.ok(!names.includes("af-hub-mode"));
 		const entries = JSON.parse(await rpc.notificationAfter("/probe-audit", "AUDIT_ENTRIES:"));
-		const modeEntries = entries.filter((entry: any) => entry.customType === "agent-hub-mode").map((entry: any) => entry.data);
-		assert.ok(modeEntries.some((entry: any) => entry.source === "default"), "session_start default application must be audited");
-		assert.ok(modeEntries.some((entry: any) => entry.source === "slash-command" && entry.previous_mode === "standard" && entry.mode === "fast"));
-		for (const entry of modeEntries) {
-			assert.equal(entry.identity.cwd, resolve(repoRoot));
-			assert.ok(entry.identity.pid > 0);
-			assert.equal(entry.identity.herdr_pane_id, null);
-		}
+		assert.equal(entries.length, 1, "the legacy entry remains metadata-only and no new mode entry is written");
+		assert.equal(entries[0].data?.mode, "strict");
 	} finally {
 		await rpc.close();
 		rmSync(workspace, { recursive: true, force: true });
 	}
 });
 
-test("work-mode command applies recommended profiles and refuses orchestrator without a roster", async () => {
+test("work-mode command switches posture and refuses orchestrator without a roster", async () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-work-mode-rpc-"));
 	const probePath = join(workspace, "probe-work-mode.ts");
 	writeFileSync(probePath, `
@@ -606,7 +613,7 @@ export default function (pi) {
     handler: async (_args, ctx) => ctx.ui.notify("ACTIVE_TOOLS:" + JSON.stringify(pi.getActiveTools()), "info"),
   });
   pi.registerCommand("probe-work-mode", {
-    description: "Test-only mode/posture probe",
+    description: "Test-only posture probe",
     handler: async (_args, ctx) => {
       const entries = ctx.sessionManager.getEntries()
         .filter(entry => entry.type === "custom" && (entry.customType === "agent-hub-mode" || entry.customType === "agent-hub-posture"));
@@ -619,57 +626,50 @@ export default function (pi) {
 	try {
 		const commands = await withRoster.request({ type: "get_commands" });
 		assert.ok(commands.data.commands.some((command: { name: string }) => command.name === "af-work-mode"));
-		assert.equal((await withRoster.request({ type: "prompt", message: "/af-work-mode fast" })).success, true);
+		assert.ok(!commands.data.commands.some((command: { name: string }) => command.name === "af-hub-mode"));
+		assert.equal((await withRoster.request({ type: "prompt", message: "/af-work-mode operator" })).success, true);
 		const operator = await withRoster.activeTools();
 		for (const tool of ["read", "bash", "edit", "write"]) {
-			assert.ok(operator.includes(tool), `${tool} should remain active for Fast Operator`);
+			assert.ok(operator.includes(tool), `${tool} should remain active for operator`);
 		}
-		const afterFast = JSON.parse(await withRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
-		assert.ok(afterFast.some((entry: any) => entry.customType === "agent-hub-mode" && entry.data?.source === "slash-command" && entry.data?.previous_mode === "standard" && entry.data?.mode === "fast"));
-		assert.ok(!afterFast.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data?.posture === "orchestrator"));
+		const afterOperator = JSON.parse(await withRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
+		assert.ok(!afterOperator.some((entry: any) => entry.customType === "agent-hub-mode"));
+		assert.ok(!afterOperator.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data?.posture === "orchestrator"));
 
-		assert.equal((await withRoster.request({ type: "prompt", message: "/af-work-mode standard" })).success, true);
+		assert.equal((await withRoster.request({ type: "prompt", message: "/af-work-mode orchestrator" })).success, true);
 		const orchestrator = await withRoster.activeTools();
 		for (const tool of ["read", "bash", "edit", "write"]) {
-			assert.ok(!orchestrator.includes(tool), `${tool} should be inactive for Standard Orchestrator`);
+			assert.ok(!orchestrator.includes(tool), `${tool} should be inactive for orchestrator`);
 		}
 		for (const tool of ["dispatch_agent", "spawn_research"]) {
-			assert.ok(orchestrator.includes(tool), `${tool} should remain active for Standard Orchestrator`);
+			assert.ok(orchestrator.includes(tool), `${tool} should remain active for orchestrator`);
 		}
-		const afterStandard = JSON.parse(await withRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
-		assert.ok(afterStandard.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data?.posture === "orchestrator"));
-		assert.ok(afterStandard.some((entry: any) => entry.customType === "agent-hub-mode" && entry.data?.source === "slash-command" && entry.data?.mode === "standard"));
+		const afterOrch = JSON.parse(await withRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
+		assert.ok(afterOrch.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data?.posture === "orchestrator"));
+		assert.ok(!afterOrch.some((entry: any) => entry.customType === "agent-hub-mode"));
 
-		assert.equal((await withRoster.request({ type: "prompt", message: "/af-work-mode fast orchestrator" })).success, true);
-		const custom = await withRoster.activeTools();
+		assert.equal((await withRoster.request({ type: "prompt", message: "/af-work-mode fast" })).success, true);
+		const afterFastAlias = await withRoster.activeTools();
 		for (const tool of ["read", "bash", "edit", "write"]) {
-			assert.ok(!custom.includes(tool), `${tool} should stay inactive for Fast Orchestrator`);
+			assert.ok(afterFastAlias.includes(tool), `${tool} should return with deprecated fast → operator`);
 		}
-		const afterCustom = JSON.parse(await withRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
-		const latestMode = [...afterCustom].reverse().find((entry: any) => entry.customType === "agent-hub-mode")?.data;
-		const latestPosture = [...afterCustom].reverse().find((entry: any) => entry.customType === "agent-hub-posture")?.data;
-		assert.equal(latestMode?.mode, "fast");
-		assert.equal(latestPosture?.posture, "orchestrator");
 	} finally {
 		await withRoster.close();
 	}
 
 	const noRoster = startRpcProbe(probePath, [], { fleetArgs: ["--solo", "--posture", "operator"] });
 	try {
-		assert.equal((await noRoster.request({ type: "prompt", message: "/af-work-mode standard" })).success, true);
+		assert.equal((await noRoster.request({ type: "prompt", message: "/af-work-mode orchestrator" })).success, true);
 		const stillOperator = await noRoster.activeTools();
 		for (const tool of ["read", "bash", "edit", "write"]) {
 			assert.ok(stillOperator.includes(tool), `${tool} should remain after refused orchestrator profile`);
 		}
 		const refused = JSON.parse(await noRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
-		assert.ok(!refused.some((entry: any) => entry.customType === "agent-hub-mode" && entry.data?.source === "slash-command"));
 		assert.ok(!refused.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data?.posture === "orchestrator"));
 
-		assert.equal((await noRoster.request({ type: "prompt", message: "/af-work-mode fast" })).success, true);
-		const afterFast = JSON.parse(await noRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
-		assert.ok(afterFast.some((entry: any) => entry.customType === "agent-hub-mode" && entry.data?.source === "slash-command" && entry.data?.mode === "fast"));
+		assert.equal((await noRoster.request({ type: "prompt", message: "/af-work-mode operator" })).success, true);
 		const tools = await noRoster.activeTools();
-		for (const tool of ["read", "bash"]) assert.ok(tools.includes(tool), `${tool} should remain active for Fast Operator`);
+		for (const tool of ["read", "bash"]) assert.ok(tools.includes(tool), `${tool} should remain active for operator`);
 	} finally {
 		await noRoster.close();
 		rmSync(workspace, { recursive: true, force: true });

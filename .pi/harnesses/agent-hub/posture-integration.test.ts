@@ -37,14 +37,25 @@ test("wiring contract: Hub restores named rosters and gates stale orchestrator s
 	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator posture requires --agent-team/);
 });
 
+test("wiring contract: every fleet action assumes a tier before its persona gate", () => {
+	assert.match(indexSource, /function ensureTaskTier\(\): void \{[\s\S]*?taskTier = DEFAULT_TASK_TIER;[\s\S]*?taskTierAssumed = true;[\s\S]*?turnReport\.tier = taskTier;[\s\S]*?updateModeStatus\(\)/);
+	const dispatchTool = indexSource.match(/name: "dispatch_agent",[\s\S]*?(?=\n\t\}\);\n\n\t\/\/ ── spawn_research Tool)/);
+	const researchTool = indexSource.match(/name: "spawn_research",[\s\S]*?(?=\n\t\/\/ ── set_task_tier Tool)/);
+	assert.ok(dispatchTool, "dispatch_agent tool is registered");
+	assert.ok(researchTool, "spawn_research tool is registered");
+	assert.match(dispatchTool[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(agent\)/);
+	assert.match(researchTool[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(persona \|\| ""\)/);
+});
+
 test("wiring contract: Hub applies posture tools at startup and live switches", () => {
 	const applications = indexSource.match(/applyPostureTools\(\)/g) ?? [];
 	assert.ok(applications.length >= 3, `expected definition plus startup and command applications, got ${applications.length}`);
 	assert.match(indexSource, /resolvePostureTools\(/);
-	assert.match(indexSource, /async function applyExecutionPair\(/);
-	assert.match(indexSource, /async function openExecutionProfilePicker\(/);
-	assert.match(indexSource, /registerCommand\("af-work-mode"[\s\S]*?openExecutionProfilePicker/);
-	assert.match(indexSource, /registerShortcut\("alt\+m"[\s\S]*?openExecutionProfilePicker/);
+	assert.match(indexSource, /async function applyPostureSelection\(/);
+	assert.match(indexSource, /async function openPosturePicker\(/);
+	assert.match(indexSource, /registerCommand\("af-work-mode"[\s\S]*?openPosturePicker/);
+	assert.match(indexSource, /registerShortcut\("alt\+m"[\s\S]*?openPosturePicker/);
+	assert.doesNotMatch(indexSource, /registerCommand\("af-hub-mode"/);
 });
 
 test("wiring contract: orchestrator persona defers authority to active posture", () => {

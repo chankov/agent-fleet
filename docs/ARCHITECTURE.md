@@ -22,22 +22,22 @@ the runtime responsibilities and where each module lives in the repository.
 ## One Hub runtime, independent axes
 
 Every public Pi launch through `just fleet` loads Fleet Core and the `agent-hub`
-harness. Four independent choices shape that runtime:
+harness. Three independent choices shape that runtime:
 
 | Axis | Choices | What it controls |
 | --- | --- | --- |
-| **Posture** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes direct coding tools and keeps dispatch, research, assertions, `ask_user`, and available coms/Herdr tools. |
-| **Hub mode** | `fast`, `standard`, `strict` | Dispatch/research budgets and Verification Contract rigor. `/af-hub-mode` never grants or revokes coding tools. `/af-work-mode` / **Alt+M** apply recommended mode+posture presets without merging the axes. |
+| **Posture** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes direct coding tools and keeps dispatch, research, assertions, `ask_user`, and available coms/Herdr tools. `/af-posture` and `/af-work-mode` / **Alt+M** switch this axis. |
 | **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Roster changes do not change posture in a live session. |
 | **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change posture or the native roster. |
 
 Bare `just fleet` therefore means operator posture, an empty native roster, and
 the current terminal. At startup an explicit `--posture` wins; otherwise
 `--agents <roster>` implies orchestrator; otherwise operator is used. An
-orchestrator startup requires a roster. `/af-posture` switches only posture in
-the live session, `/af-hub-mode` switches only budgets, `/af-work-mode` applies a
-mode+posture preset (orchestrator presets still require a roster before either
-axis changes), and `/af-agents-*` changes only the native roster.
+orchestrator startup requires a roster. `/af-posture` and `/af-work-mode` /
+**Alt+M** switch only posture in the live session, and `/af-agents-*` changes
+only the native roster. Dispatch, research, nested delegation, and Verification
+Contract rigor follow the **task tier** (`trivial`/`small`/`feature`/`project`),
+not a session execution mode.
 
 All Hub-owned slash commands remain registered in both postures. Capability packs are resolved automatically from explicit task intent, posture, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory posture and pending-operation leases remain.
 
@@ -145,21 +145,22 @@ Composition rule: **the hub (or a slash command) orchestrates; personas do not i
 The shared `spawnPiAgent` seam supervises every `read`/`grep`/`find`/`ls` call from native
 research helpers and nested delegate children. The supervisor tracks JSONL `toolCallId` values
 independently, with a default 120-second deadline (`recon-search-timeout-s: 1..3600|off` under
-`## agent-hub`). It is a per-tool watchdog; the whole-run bound is separate — the execution
-mode's per-run deadline (`agent-turn-timeout-s`), which terminates a hung run as `turn_timeout`.
+`## agent-hub`). It is a per-tool watchdog; the whole-run bound is separate — the task-tier
+per-run deadline (`agent-turn-timeout-s`), which terminates a hung run as `turn_timeout`.
 On timeout or caller cancellation it owns and terminates the child's process group (SIGTERM,
 then SIGKILL after a bounded grace), has a separate settlement timer for missing `close`/pipe
 drain, and reports timeout separately from cancellation. Research helpers and nested delegates
 are each given safe process-group ownership; delegates forward parent termination so no detached
 child is orphaned. Full pattern catalog: [references/orchestration-patterns.md](../references/orchestration-patterns.md).
 
-### Execution modes & turn budgets
+### Task-tier budgets
 
-The hub enforces per-user-turn budgets in code (`run-budget.js`): `fast`/`standard`/`strict`
-modes cap `dispatch_agent` calls, `spawn_research` calls, and active time per turn, set the
-per-run deadline above, and control nested delegation. Exhausted budgets make the dispatch
-tools refuse and request one Yes/No `ask_user` confirmation; Yes renews the turn in the same
-tool loop. A normal new user message also opens a fresh turn window.
+The hub enforces per-user-turn budgets in code (`run-budget.js`): the current **task tier**
+caps `dispatch_agent` calls, `spawn_research` calls, and active time per turn, sets the
+per-run deadline above, and controls nested delegation (`off` at trivial/small). Exhausted
+budgets make the dispatch tools refuse and request one Yes/No `ask_user` confirmation; Yes
+renews the turn in the same tool loop. A normal new user message also opens a fresh turn
+window.
 Specialist context pressure is measured over input + cacheRead + cacheWrite against **that
 agent's own** model window, resolved from pi's model registry with the source recorded
 (`context-window.js`) — measuring a 49k local model against the dispatcher's window is what
@@ -171,9 +172,10 @@ is recycled before the spawn rather than after the run. Requests to one provider
 per process (`provider-semaphore.js`: 2 in flight for `custom/*` by default, unlimited
 elsewhere, `AGENT_HUB_PROVIDER_LIMITS` to override) — the cap is per level of the delegation
 tree, and a nested spawn reuses its parent's permit so it can never wait on its own ancestor.
-Configured under `## agent-hub` (`mode`, `max-dispatches-per-turn`,
+Configured under `## agent-hub` (`max-dispatches-per-turn`,
 `max-research-per-turn`, `turn-wall-time-s`, `agent-turn-timeout-s`, `session-recycle-runs`,
-`run-history-keep`); switched live with `/af-hub-mode` or a `/af-work-mode` / **Alt+M** preset.
+`run-history-keep`) as ceilings (`min` with the tier). A leftover `mode:` key is ignored with
+a warning.
 
 A per-message allowance cannot bound a task, so a second envelope sits above the turn one:
 the **task budget** (`run-budget.js`, `3×` the turn envelope) counts dispatches, research
@@ -192,9 +194,9 @@ for genuinely different work and clears task identity/state. This is the guardra
 post-mortem run never hit: every steering message reopened the turn window,
 so one workspace stayed open 47 hours on a change that took 13 minutes in a narrow one.
 
-On top of the mode sit several qualitative guardrails. **Task triage**: the dispatcher
+On top of the tier envelope sit several qualitative guardrails. **Task triage**: the dispatcher
 classifies the current TASK via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)
-and the caps drop to min(mode, tier). The tier is task-scoped and **ratcheted** — it survives
+and that classification *is* the budget. The tier is task-scoped and **ratcheted** — it survives
 the user's next message, lowering is free, raising needs a stated `reason` — because a
 turn-scoped tier reset to `feature` on every correction. Three refusals enforce
 proportionality in code rather than prose: a duplicate-dispatch guard (near-identical
@@ -220,14 +222,16 @@ observed in-flight from the JSON event stream — deterministic rules (out-of-sc
 against the declared `scope` globs, tool-call loops, consecutive failures, tool-call cap)
 escalate to a one-shot cheap LLM judge whose DRIFTING/STUCK verdict terminates the run as
 `drift_stop` (exit 125, partial output preserved); enabled per hub/agent/dispatch
-(`watchdog` key, `/af-watchdog`, `watchdog` param). Two rules about scope: the session's
+(`watchdog` key, `/af-watchdog`, `watchdog` param). Orchestrator posture auto-arms the
+watchdog when the hub setting is `auto`/`on`; a dispatch `watchdog: false` cannot disarm it
+there. Hub or per-agent `off` remains the opt-out. Two rules about scope: the session's
 own `artifacts/`, `findings/`, and `delegations/` subtrees are implicitly in scope (the
 deliverable protocol *orders* specialists to write there, and the judge is told so), and the
 `scope` rule is non-terminal — it reports a drift advisory on the result and never stops a
 run by itself, matching the post-run scope gate, which reverts nothing. **Dynamic teams**: `/af-agents-add`,
 `/af-agents-drop`, `/af-agents-save` restructure the roster live (the system prompt rebuilds
 every turn), and the gated `team_adjust` tool lets the dispatcher itself adjust the roster
-outside fast mode, with user notification. `/af-hub-report` accounts each turn's dispatches,
+when nested delegation is on (feature/project), with user notification. `/af-hub-report` accounts each turn's dispatches,
 tokens (billed = input + cacheRead + cacheWrite), recycles, drift stops, and refusals.
 
 ## Runtime stack (tools the fleet sits on)

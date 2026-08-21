@@ -35,10 +35,9 @@
  *                           (team member, research helper rN, or delegate child id)
  *   /af-research <task>      — spawn a read-only research helper (@persona, --model)
  *   /af-agents-cont rN ...   — resume a finished research helper (alias: /af-research-cont)
- *   /af-work-mode [fast|standard|strict|advanced|<mode> <posture>]
- *                           — unified execution profile picker (mode + posture)
+ *   /af-work-mode [operator|orchestrator]
+ *                           — posture picker (alias of /af-posture; Alt+M)
  *   /af-posture [operator|orchestrator] — show/switch direct vs delegate-only
- *   /af-hub-mode [fast|standard|strict] — show/switch execution budgets
  *
  * Finished research helpers are auto-pruned: auto-research pipe helpers as soon
  * as they finish (findings persist as files under findings/), manual/persona
@@ -52,7 +51,7 @@
  *
  * Shortcuts:
  *   Alt+A                 — open the Fleet Dashboard
- *   Alt+M                 — open the execution profile picker (mode + posture)
+ *   Alt+M                 — open the posture picker (operator | orchestrator)
  *   Alt+Shift+A           — toggle the compact running-agents widget
  *   Alt+] / Alt+[         — compact view: mark next/previous running subagent
  *   Alt+\                 — compact view: zoom the marked subagent (Q/Esc closes)
@@ -94,8 +93,8 @@ import {
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
-import { DEFAULT_HUB_MODE, DEFAULT_TASK_TIER, HUB_MODES, TASK_BUDGET_MULTIPLIER, addTaskClockWait, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, closeTaskClock, contextOverflowDiagnostic, createTaskClock, isReviewPersona, normalizeHubMode, openTaskClock, remainingTaskResearch, resetTaskClock, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, taskClockElapsedMs } from "./run-budget.js";
-import { buildBudgetContinuationAudit, buildHubAuditIdentity, buildHubModeAudit, buildTaskResetAudit } from "./hub-state-audit.js";
+import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, closeTaskClock, contextOverflowDiagnostic, createTaskClock, isReviewPersona, openTaskClock, remainingTaskResearch, resetTaskClock, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, taskClockElapsedMs } from "./run-budget.js";
+import { buildBudgetContinuationAudit, buildHubAuditIdentity, buildTaskResetAudit } from "./hub-state-audit.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
 import { checkExternalBlockerGate, externalBlockedProtocol, extractExternalBlockers } from "./external-blocker.js";
@@ -122,18 +121,11 @@ import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
 import { NATIVE_ROSTER_ENTRY_TYPE, parsePosture, persistedNativeRosterState, posturePrompt, resolvePostureTools, resolveSessionPosture, resolveSessionRoster, type Posture } from "./posture.ts";
 import {
-	advancedProfileOptions,
-	compactExecutionPair,
+	compactPosture,
 	executionPairBlockedByRoster,
-	executionProfileLabel,
-	hubModePickerOptions,
-	isHubMode,
 	parseWorkModeArgs,
 	posturePickerOptions,
-	recommendedProfileById,
-	recommendedProfileOptions,
 	selectedPickerValue,
-	type ExecutionPair,
 } from "./execution-profile.ts";
 import { CAPABILITY_PACKS, latestPersistedCapabilityState, persistedCapabilityState, resolveCapabilityPacks, type CapabilityPack, type CapabilityResolution, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
@@ -462,12 +454,10 @@ function extractNeedsResearch(output: string): string[] {
 //   recon-search-timeout-s: <1..3600>|off — parent-side deadline for each
 //                              read/grep/find/ls call made by research helpers
 //                              and read-only delegate children (default 120).
-//   mode: fast|standard|strict — default execution mode (see run-budget.js).
-//                              fast = single-specialist path, standard = batched
-//                              work with turn budgets (default), strict = full
-//                              Verification Contract with wide budgets.
-//   max-dispatches-per-turn: <n>|off — dispatch_agent calls allowed per user turn
-//                              (replaces the mode default; "off" = unlimited).
+//   mode:                      — REMOVED. Ignored with a warning; budgets follow
+//                              task tier (see run-budget.js).
+//   max-dispatches-per-turn: <n>|off — ceiling on dispatch_agent calls per user turn
+//                              (min with the task-tier envelope; "off" stays at the tier).
 //   max-research-per-turn: <n>|off — spawn_research calls allowed per user turn.
 //   turn-wall-time-s: <n>|off  — active-time budget per user turn (ask_user waits excluded).
 //   agent-turn-timeout-s: <n>|off — whole-run deadline for each spawned
@@ -498,10 +488,8 @@ interface AgentTeamOverrides {
 	docsPaths: string[];
 	researchKeep: number;
 	reconSearchTimeoutMs: number | null;
-	hubMode: string;
-	hubModeSource: "default" | "project-override";
-	// Per-axis turn-budget overrides for run-budget.js resolveTurnBudget():
-	// number replaces the mode default, null = "off", undefined = keep default.
+	// Per-axis turn-budget ceilings for run-budget.js resolveTurnBudget():
+	// number is min()'d with the task tier; null/"off" stays at the tier.
 	budgetOverrides: {
 		maxDispatches?: number | null;
 		maxResearch?: number | null;
@@ -529,8 +517,6 @@ const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	docsPaths: [],
 	researchKeep: DEFAULT_RESEARCH_KEEP,
 	reconSearchTimeoutMs: 120_000,
-	hubMode: DEFAULT_HUB_MODE,
-	hubModeSource: "default",
 	budgetOverrides: {},
 	watchdogSetting: DEFAULT_WATCHDOG_SETTING,
 	watchdogJudgeModel: null,
@@ -613,13 +599,7 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			}
 		}
 		if (key === "mode" && value) {
-			const mode = normalizeHubMode(value);
-			if (mode) {
-				result.hubMode = mode;
-				result.hubModeSource = "project-override";
-			} else {
-				result.warnings.push(`mode "${value}" is not one of ${HUB_MODES.join("|")} — using the default (${DEFAULT_HUB_MODE})`);
-			}
+			result.warnings.push(`mode "${value}" is ignored — execution modes were removed; budgets follow task tier. Remove this key.`);
 		}
 		if (key === "watchdog" && value) {
 			const setting = normalizeWatchdogSetting(value);
@@ -630,8 +610,8 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			}
 		}
 		if (key === "watchdog-judge-model" && value) result.watchdogJudgeModel = value;
-		// Turn-budget keys: a positive integer replaces the mode default, "off"
-		// disables the axis. Counts are unitless; *-s keys are seconds → ms.
+		// Turn-budget keys: a positive integer is a ceiling (min with the tier);
+		// "off" stays at the tier. Counts are unitless; *-s keys are seconds → ms.
 		const budgetKeys: Record<string, { field: keyof AgentTeamOverrides["budgetOverrides"]; scaleMs: boolean }> = {
 			"max-dispatches-per-turn": { field: "maxDispatches", scaleMs: false },
 			"max-research-per-turn": { field: "maxResearch", scaleMs: false },
@@ -646,7 +626,7 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			} else if (/^\d+$/.test(value) && Number(value) >= 1) {
 				result.budgetOverrides[field] = Number(value) * (scaleMs ? 1000 : 1);
 			} else {
-				result.warnings.push(`${key} "${value}" is not a positive integer or "off" — using the ${result.hubMode} mode default`);
+				result.warnings.push(`${key} "${value}" is not a positive integer or "off" — using the task-tier default`);
 			}
 		}
 		const slug = "[a-z0-9]+(?:-[a-z0-9]+)*";
@@ -2113,12 +2093,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// Per-tool deadline for read/grep/find/ls in research helpers/delegates. The
 	// whole-run bound is separate: the turn budget's agentTurnMs (run-budget.js).
 	let reconSearchTimeoutMs: number | null = 120_000;
-	// ── Execution mode & per-turn budgets (run-budget.js) ──
-	// hubMode: overrides-file default, switchable live via /af-hub-mode (session-
-	// lifetime). Budgets are per USER TURN: counters reset in before_agent_start,
-	// or after an explicit one-click continuation. currentTurnStartedAt (above)
-	// is the active-time base; ask_user waits are subtracted.
-	let hubMode: string = DEFAULT_HUB_MODE;
+	// ── Per-turn budgets (run-budget.js) ──
+	// Envelopes follow task tier. Override keys are a ceiling (min with the tier).
+	// Counters reset in before_agent_start, or after an explicit one-click
+	// continuation. currentTurnStartedAt (above) is the active-time base; ask_user
+	// waits are subtracted.
 	let budgetOverrides: AgentTeamOverrides["budgetOverrides"] = {};
 	let turnDispatchCount = 0;
 	let turnResearchCount = 0;
@@ -2143,7 +2122,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// The task clock charges ACTIVE time only — turns that ran, minus the time the
 	// dispatcher spent blocked on ask_user. Raw wall clock would bill the human's
 	// lunch break, an overnight pause, and every long answer against the task, and
-	// at fast mode's 45-minute envelope that hard-stops a task with two dispatches
+	// at small tier's 45-minute envelope that hard-stops a task with two dispatches
 	// spent. A false stop is worse than no stop: it teaches people to reset the
 	// task window reflexively, which is the one thing that must stay deliberate.
 	// The explicit clock state makes `active` authoritative: a stale timestamp can
@@ -2154,7 +2133,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// Task tier (complexity triage): declared by the dispatcher via set_task_tier.
 	// TASK-scoped, not turn-scoped, and it moves by ratchet — down freely, up only
 	// with a stated reason (applyTierChange). Null until declared; the first
-	// dispatch assumes DEFAULT_TASK_TIER outside strict mode. Caps = min(mode, tier).
+	// dispatch assumes DEFAULT_TASK_TIER. Caps come from the tier envelope.
 	let taskTier: string | null = null;
 	// Was the tier ASSUMED by the hub rather than declared by the dispatcher? The
 	// distinction matters to the ratchet: an assumed tier must not turn the
@@ -2175,13 +2154,15 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	let runHistoryKeep: number | null = DEFAULT_RUN_HISTORY_KEEP;
 	// ── Drift watchdog (drift-watchdog.js) ──
 	// Hub-wide setting from the overrides file, live-switchable via /af-watchdog;
-	// per-agent overrides ("on"/"off") win over it; a dispatch_agent `watchdog`
-	// param wins over both.
+	// per-agent overrides ("on"/"off") win over it. In operator posture a
+	// dispatch_agent `watchdog` param wins over both. In orchestrator posture the
+	// watchdog auto-arms unless hub or per-agent is explicitly off; dispatch
+	// `watchdog: false` cannot disarm it.
 	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
 	let watchdogJudgeModel: string | null = null;
 	const watchdogAgentOverrides = new Map<string, "on" | "off">();
 	function currentBudget() {
-		return resolveTurnBudget(hubMode, budgetOverrides, taskTier);
+		return resolveTurnBudget(taskTier ?? DEFAULT_TASK_TIER, budgetOverrides);
 	}
 	function currentTaskBudget() {
 		return resolveTaskBudget(currentBudget());
@@ -2267,23 +2248,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		const where = hubAuditIdentity(ctx);
 		return `\nRepository: ${where.cwd ?? "unknown"}${where.herdr_pane_id ? ` · pane ${where.herdr_pane_id}` : ""}`;
 	}
-	function appendHubModeEntry(input: {
-		previousMode: string;
-		mode: string;
-		source: "slash-command" | "project-override" | "default";
-		overrideFile?: string | null;
-		ctx?: ExtensionContext;
-	}) {
-		try {
-			pi.appendEntry("agent-hub-mode", buildHubModeAudit({
-				...input,
-				taskTier,
-				turnDispatches: turnDispatchCount,
-				turnResearch: turnResearchCount,
-				identity: hubAuditIdentity(input.ctx),
-			}));
-		} catch { /* diagnostics are best-effort; state changes still succeed */ }
-	}
 	function taskResetSnapshot(now = Date.now()) {
 		return {
 			tier: taskTier,
@@ -2326,14 +2290,13 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	function updateModeStatus() {
 		try {
 			widgetCtx?.ui?.setStatus(
-				"hub-mode",
+				"hub-tier",
 				budgetStatusLine(
-					hubMode,
 					{ dispatches: turnDispatchCount, research: turnResearchCount },
 					currentBudget(),
 					// A trailing "?" marks a tier the hub assumed rather than one the
 					// dispatcher declared — the human can see that triage was skipped.
-					taskTier && taskTierAssumed ? `${taskTier}?` : taskTier,
+					taskTier && taskTierAssumed ? `${taskTier}?` : (taskTier ?? DEFAULT_TASK_TIER),
 					{ counters: taskCounters(), budget: currentTaskBudget() },
 				),
 			);
@@ -2344,6 +2307,14 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	 * order: an unacknowledged external blocker, then the tier's persona gate.
 	 * Returns the refusal text, or null when the call may proceed.
 	 */
+	/** Latch the conservative tier before any fleet action can pass a persona gate. */
+	function ensureTaskTier(): void {
+		if (taskTier !== null) return;
+		taskTier = DEFAULT_TASK_TIER;
+		taskTierAssumed = true;
+		turnReport.tier = taskTier;
+		updateModeStatus();
+	}
 	function preflightGate(persona: string): { reason: string; message: string } | null {
 		const blocked = checkExternalBlockerGate({
 			blockers: externalBlockers,
@@ -3825,7 +3796,7 @@ ${externalBlockedProtocol()}
 				return [role, fallback === configured.model ? { ...configured, fallbackModel: undefined } : { ...configured, fallbackModel: fallback }];
 			}))
 			: null;
-		// Fast mode is a single-specialist path: no nested delegation trees.
+		// Nested delegation follows the task-tier envelope (off at trivial/small).
 		const delegationActive = turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
 		const safety = requireSafetyHarness(safetyHarnessPath);
 		if (!safety.ok) return finishRun(safety.error, 1);
@@ -3885,7 +3856,7 @@ ${externalBlockedProtocol()}
 
 		// ── Drift watchdog: layer-1 rules on the live stream, judge on escalation ──
 		// Precedence: dispatch param > per-agent /af-watchdog override > hub setting.
-		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting);
+		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting, posture);
 		// The hub ORDERS every specialist to write its deliverable under the session
 		// artifacts tree, which no dispatcher `scope:` ever lists — so those paths are
 		// implicitly in scope. Both path forms: the specialist may use either.
@@ -5100,15 +5071,9 @@ ${externalBlockedProtocol()}
 			// Display names / underscores resolve to the persona slug key space, so
 			// `agent: "Test Engineer"` never burns a dispatch on a lookup error.
 			const agent = normalizeAgentInput((params as { agent: string }).agent);
-			// Unclassified task: assume the default tier (outside strict, whose full
-			// contract runs uncapped by tiers). The prompt asks for set_task_tier
-			// FIRST; this is the fail-safe, not the intended path.
-			if (taskTier === null && hubMode !== "strict") {
-				taskTier = DEFAULT_TASK_TIER;
-				taskTierAssumed = true;
-				turnReport.tier = taskTier;
-				updateModeStatus();
-			}
+			// Unclassified task: assume the default tier. The prompt asks for
+			// set_task_tier FIRST; this is the fail-safe, not the intended path.
+			ensureTaskTier();
 			// Pre-flight refusals, in severity order, BEFORE anything is charged: an
 			// unacknowledged external blocker, the tier's persona gate, the review-round
 			// cap, then the docs-only lane. None of these reached a specialist, so none
@@ -5150,7 +5115,7 @@ ${externalBlockedProtocol()}
 				{ dispatches: turnDispatchCount, research: turnResearchCount },
 				currentBudget(),
 				turnBudgetActiveElapsedMs(),
-				hubMode,
+				taskTier,
 			);
 			if (budgetRefusal) {
 				turnReport.refusals++;
@@ -5568,6 +5533,9 @@ ${externalBlockedProtocol()}
 			if (confirmationRefusal) return confirmationRefusal;
 			const { task, persona, model, artifacts } = params as { task: string; persona?: string; model?: string; artifacts?: string[] };
 
+			// Research is also a fleet action: latch the conservative tier before
+			// its persona gate, so research-first cannot bypass assumed-small.
+			ensureTaskTier();
 			// Pre-flight refusals before anything is charged: an unacknowledged
 			// external blocker, then the tier's persona gate (deep-researcher is the
 			// most expensive helper in the system and is not a trivial-tier tool).
@@ -5604,7 +5572,7 @@ ${externalBlockedProtocol()}
 				{ dispatches: turnDispatchCount, research: turnResearchCount },
 				currentBudget(),
 				turnBudgetActiveElapsedMs(),
-				hubMode,
+				taskTier,
 			);
 			if (budgetRefusal) {
 				turnReport.refusals++;
@@ -5740,15 +5708,15 @@ ${externalBlockedProtocol()}
 	});
 
 	// ── set_task_tier Tool (complexity triage) ──
-	// The dispatcher classifies each user turn BEFORE its first dispatch; the
-	// declared tier lowers the dispatch/research caps to min(mode, tier) in code.
-	// Skipping it makes the first dispatch assume the default tier (run-budget.js).
+	// The dispatcher classifies each TASK before its first dispatch; the declared
+	// tier *is* the budget envelope (run-budget.js). Skipping it makes the first
+	// dispatch assume DEFAULT_TASK_TIER.
 
 	pi.registerTool({
 		name: "set_task_tier",
 		label: "Set Task Tier",
 		description:
-			"Classify the CURRENT TASK before your first dispatch: trivial (one obvious, low-risk change — 1 dispatch), small (a contained change, no planning pipeline — 2 dispatches), feature (a normal multi-step feature — 6 dispatches), project (a large effort — mode budget applies). The tier persists across user messages and moves by ratchet: LOWERING it is always free, RAISING it requires `reason` naming what the ask turned out to contain. Pass `new_task: true` only when the human has moved on to a genuinely different piece of work — it also resets the task budget.",
+			"Classify the CURRENT TASK before your first dispatch: trivial (one obvious, low-risk change — 1 dispatch), small (a contained change, no planning pipeline — 2 dispatches), feature (a normal multi-step feature — 8 dispatches), project (a large effort — 12 dispatches). Nested delegation is off at trivial/small. The tier persists across user messages and moves by ratchet: LOWERING it is always free, RAISING it requires `reason` naming what the ask turned out to contain. Pass `new_task: true` only when the human has moved on to a genuinely different piece of work — it also resets the task budget.",
 		parameters: Type.Object({
 			tier: Type.String({ description: "One of: trivial | small | feature | project" }),
 			reason: Type.Optional(Type.String({ description: "One line on why this tier fits the ask. REQUIRED when raising the tier above the current one." })),
@@ -5809,15 +5777,16 @@ ${externalBlockedProtocol()}
 	});
 
 	// ── team_adjust Tool (dispatcher-driven roster changes, gated) ──
-	// The dispatcher may restructure its own team mid-session — but never in fast
-	// mode, never past the roster cap, and the human is notified of every change.
+	// The dispatcher may restructure its own team mid-session — but never when the
+	// current tier has nested delegation off, never past the roster cap, and the
+	// human is notified of every change.
 	const TEAM_ADJUST_ROSTER_CAP = 8;
 
 	pi.registerTool({
 		name: "team_adjust",
 		label: "Team Adjust",
 		description:
-			"Add or drop a specialist persona in the ACTIVE team (the roster you can dispatch to). Use sparingly, when the current roster genuinely cannot serve the task (e.g. add security-auditor for a security-sensitive change, drop an unused specialist). Not available in fast mode. The human sees every change and can revert with /af-agents-add /af-agents-drop.",
+			"Add or drop a specialist persona in the ACTIVE team (the roster you can dispatch to). Use sparingly, when the current roster genuinely cannot serve the task (e.g. add security-auditor for a security-sensitive change, drop an unused specialist). Not available at trivial/small tiers. The human sees every change and can revert with /af-agents-add /af-agents-drop.",
 		parameters: Type.Object({
 			action: Type.String({ description: "add | drop" }),
 			agent: Type.String({ description: "Persona name (case-insensitive), e.g. security-auditor" }),
@@ -5828,9 +5797,10 @@ ${externalBlockedProtocol()}
 			if (confirmationRefusal) return confirmationRefusal;
 			const { action, agent, reason } = params as { action: string; agent: string; reason: string };
 			const act = String(action || "").trim().toLowerCase();
-			if (hubMode === "fast") {
+			if (!currentBudget().delegation) {
+				const tier = taskTier ?? DEFAULT_TASK_TIER;
 				return {
-					content: [{ type: "text" as const, text: "team_adjust is disabled in fast mode — a single-specialist path never needs roster changes. Ask the user to /af-hub-mode standard if the task outgrew fast mode." }],
+					content: [{ type: "text" as const, text: `team_adjust is disabled at tier "${tier}" — a single-specialist path never needs roster changes. Raise the task tier with set_task_tier if the work outgrew "${tier}".` }],
 					details: { status: "refused" },
 				};
 			}
@@ -7420,29 +7390,16 @@ ${externalBlockedProtocol()}
 		handler: async (_args, ctx) => { widgetCtx = ctx; await openContextBudget(ctx); },
 	});
 
-	function currentExecutionPair(): ExecutionPair {
-		const mode = normalizeHubMode(hubMode);
-		return { mode: isHubMode(mode) ? mode : "standard", posture };
-	}
-
-	function hubModeStatusText(): string {
-		const b = currentBudget();
-		const cap = (n: number | null) => (n == null ? "∞" : String(n));
-		return `Execution mode: ${hubMode}\nThis turn: ${turnDispatchCount}/${cap(b.maxDispatches)} dispatches, ` +
-			`${turnResearchCount}/${cap(b.maxResearch)} research`;
-	}
-
 	function rosterRefusalMessage(): string {
 		return "Orchestrator posture requires at least one native specialist. Add one with /af-agents-add or select /af-agents-team first.";
 	}
 
-	function commitHubMode(mode: string, ctx: ExtensionContext, source: "slash-command" | "project-override" | "default"): boolean {
-		if (mode === hubMode) return false;
-		const previousMode = hubMode;
-		hubMode = mode;
-		updateModeStatus();
-		appendHubModeEntry({ previousMode, mode, source, ctx });
-		return true;
+	function watchdogArmedNote(next: Posture): string {
+		if (next !== "orchestrator") return "";
+		const armed = resolveWatchdogActive(undefined, undefined, watchdogSetting, next);
+		return armed
+			? "\nDrift watchdog: armed (orchestrator auto). /af-watchdog off to disarm."
+			: "\nDrift watchdog: off (explicit hub setting).";
 	}
 
 	async function commitPosture(next: Posture, ctx: ExtensionContext): Promise<"ok" | "unchanged" | "roster"> {
@@ -7464,52 +7421,31 @@ ${externalBlockedProtocol()}
 		return "ok";
 	}
 
-	async function applyExecutionPair(pair: ExecutionPair, ctx: ExtensionContext): Promise<void> {
-		const current = currentExecutionPair();
-		if (executionPairBlockedByRoster(current, pair, agentStates.size)) {
+	async function applyPostureSelection(next: Posture, ctx: ExtensionContext, deprecatedFrom?: string): Promise<void> {
+		if (executionPairBlockedByRoster(posture, next, agentStates.size)) {
 			ctx.ui.notify(rosterRefusalMessage(), "warning");
 			return;
 		}
-		const modeChanged = pair.mode !== hubMode;
-		const postureChanged = pair.posture !== posture;
-		if (!modeChanged && !postureChanged) {
-			ctx.ui.notify(`Already ${executionProfileLabel(pair)}\n${postureStatusText()}\n${hubModeStatusText()}`, "info");
+		const result = await commitPosture(next, ctx);
+		if (result === "roster") {
+			ctx.ui.notify(rosterRefusalMessage(), "warning");
 			return;
 		}
-		if (modeChanged) commitHubMode(pair.mode, ctx, "slash-command");
-		if (postureChanged) {
-			const result = await commitPosture(pair.posture, ctx);
-			if (result === "roster") {
-				ctx.ui.notify(rosterRefusalMessage(), "warning");
-				return;
-			}
-		}
+		const deprecation = deprecatedFrom
+			? `"${deprecatedFrom}" is no longer an execution mode; mapped to ${next} posture.\n`
+			: "";
 		ctx.ui.notify(
-			`Work mode → ${executionProfileLabel(pair)}\n${postureStatusText()}\n${hubModeStatusText()}\nBudgets apply from the next dispatch; prompt and tools update on the next model call.` +
-				hubLocationSuffix(ctx),
-			"success",
+			`${deprecation}${postureStatusText()}\nPrompt and tools update on the next model call.${watchdogArmedNote(next)}`,
+			result === "ok" ? "success" : "info",
 		);
 	}
 
-	async function openAdvancedExecutionPicker(ctx: ExtensionContext): Promise<void> {
-		const picker = advancedProfileOptions(currentExecutionPair());
+	async function openPosturePicker(ctx: ExtensionContext): Promise<void> {
+		const picker = posturePickerOptions(posture);
 		const choice = await ctx.ui.select(picker.title, picker.options);
-		const pair = selectedPickerValue(picker.options, choice, picker.pairs);
-		if (!pair) return;
-		await applyExecutionPair(pair, ctx);
-	}
-
-	async function openExecutionProfilePicker(ctx: ExtensionContext): Promise<void> {
-		const picker = recommendedProfileOptions(currentExecutionPair());
-		const choice = await ctx.ui.select(picker.title, picker.options);
-		const key = selectedPickerValue(picker.options, choice, picker.keys);
-		if (!key) return;
-		if (key === "advanced") {
-			await openAdvancedExecutionPicker(ctx);
-			return;
-		}
-		const profile = recommendedProfileById(key);
-		if (profile) await applyExecutionPair({ mode: profile.mode, posture: profile.posture }, ctx);
+		const next = selectedPickerValue(picker.options, choice, picker.postures);
+		if (!next) return;
+		await applyPostureSelection(next, ctx);
 	}
 
 	// ── /af-posture: direct operator ↔ restricted orchestrator ──
@@ -7520,16 +7456,7 @@ ${externalBlockedProtocol()}
 			const requested = (args || "").trim();
 			if (!requested) {
 				if (ctx.hasUI && typeof ctx.ui.select === "function") {
-					const picker = posturePickerOptions(posture);
-					const choice = await ctx.ui.select(picker.title, picker.options);
-					const next = selectedPickerValue(picker.options, choice, picker.postures);
-					if (!next) return;
-					const result = await commitPosture(next, ctx);
-					if (result === "roster") {
-						ctx.ui.notify(rosterRefusalMessage(), "warning");
-						return;
-					}
-					ctx.ui.notify(`${postureStatusText()}\nPrompt and tools update on the next model call.`, result === "ok" ? "success" : "info");
+					await openPosturePicker(ctx);
 					return;
 				}
 				ctx.ui.notify(`${postureStatusText()}\nSwitch with /af-posture operator|orchestrator`, "info");
@@ -7540,59 +7467,12 @@ ${externalBlockedProtocol()}
 				ctx.ui.notify(`Unknown posture "${requested}" — expected operator|orchestrator.`, "error");
 				return;
 			}
-			const result = await commitPosture(next, ctx);
-			if (result === "roster") {
-				ctx.ui.notify(rosterRefusalMessage(), "warning");
-				return;
-			}
-			ctx.ui.notify(`${postureStatusText()}\nPrompt and tools update on the next model call.`, result === "ok" ? "success" : "info");
-		},
-	});
-
-	// ── /af-hub-mode: execution mode (fast|standard|strict) ──
-	// Session-lifetime switch over the overrides-file default. Budgets bind on
-	// the NEXT tool call (counters are per user turn and keep running); the
-	// dispatcher prompt rebuilds with the new mode on the next turn.
-	pi.registerCommand("af-hub-mode", {
-		description: "Show or set the execution mode: fast (single specialist) | standard (batched, default) | strict (full Verification Contract)",
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const requested = (args || "").trim();
-			if (!requested) {
-				if (ctx.hasUI && typeof ctx.ui.select === "function") {
-					const picker = hubModePickerOptions(hubMode);
-					const choice = await ctx.ui.select(picker.title, picker.options);
-					const mode = selectedPickerValue(picker.options, choice, picker.modes);
-					if (!mode) return;
-					const changed = commitHubMode(mode, ctx, "slash-command");
-					ctx.ui.notify(
-						changed
-							? `Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)` + hubLocationSuffix(ctx)
-							: hubModeStatusText(),
-						changed ? "success" : "info",
-					);
-					return;
-				}
-				ctx.ui.notify(`${hubModeStatusText()}\nSwitch with /af-hub-mode ${HUB_MODES.join("|")}`, "info");
-				return;
-			}
-			const mode = normalizeHubMode(requested);
-			if (!mode) {
-				ctx.ui.notify(`Unknown mode "${requested}" — expected one of: ${HUB_MODES.join(", ")}`, "error");
-				return;
-			}
-			const changed = commitHubMode(mode, ctx, "slash-command");
-			ctx.ui.notify(
-				changed
-					? `Execution mode → ${mode} (budgets apply from the next dispatch; prompt updates next turn)` + hubLocationSuffix(ctx)
-					: hubModeStatusText(),
-				changed ? "success" : "info",
-			);
+			await applyPostureSelection(next, ctx);
 		},
 	});
 
 	pi.registerCommand("af-work-mode", {
-		description: "Show or set the execution profile (mode + posture). Alt+M opens the picker.",
+		description: "Show or set Fleet posture (operator | orchestrator). Alt+M opens the picker.",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const parsed = parseWorkModeArgs(args);
@@ -7601,20 +7481,17 @@ ${externalBlockedProtocol()}
 				return;
 			}
 			if (parsed.action === "apply") {
-				await applyExecutionPair(parsed.pair, ctx);
+				await applyPostureSelection(parsed.posture, ctx, parsed.deprecatedFrom);
 				return;
 			}
 			if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
-				const current = currentExecutionPair();
 				ctx.ui.notify(
-					`Work mode: ${executionProfileLabel(current)} (${current.mode} + ${current.posture})\n` +
-					`${postureStatusText()}\n${hubModeStatusText()}\nSwitch with /af-work-mode fast|standard|strict|advanced or /af-work-mode <mode> <posture>`,
+					`${postureStatusText()}\nSwitch with /af-work-mode operator|orchestrator`,
 					"info",
 				);
 				return;
 			}
-			if (parsed.action === "advanced") await openAdvancedExecutionPicker(ctx);
-			else await openExecutionProfilePicker(ctx);
+			await openPosturePicker(ctx);
 		},
 	});
 
@@ -7778,19 +7655,17 @@ ${externalBlockedProtocol()}
 		},
 	});
 	pi.registerShortcut("alt+m", {
-		description: "Open execution profile picker",
+		description: "Open posture picker",
 		handler: (ctx) => {
 			widgetCtx = ctx;
 			if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
-				const current = currentExecutionPair();
 				ctx.ui.notify(
-					`Work mode: ${executionProfileLabel(current)} (${current.mode} + ${current.posture})\n` +
-					`${postureStatusText()}\n${hubModeStatusText()}\nSwitch with /af-work-mode fast|standard|strict|advanced`,
+					`${postureStatusText()}\nSwitch with /af-work-mode operator|orchestrator`,
 					"info",
 				);
 				return;
 			}
-			void openExecutionProfilePicker(ctx);
+			void openPosturePicker(ctx);
 		},
 	});
 	pi.registerShortcut("alt+shift+a", {
@@ -9070,10 +8945,10 @@ ask the human. You MUST instead:
 - When a specialist emits an \`ASK_USER:\` line in English, translate it to
   ${userLanguage} before relaying to the user.${userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : ""}`;
 
-		// ── Execution mode section + mode-conditional Verification Contract ──
-		// The mode is the dispatcher's operating envelope: the hub ENFORCES the
-		// budgets in code (dispatch_agent/spawn_research refuse past them); the
-		// prompt teaches the dispatcher to plan within them instead of hitting them.
+		// ── Task triage + Verification Contract ──
+		// The hub ENFORCES budgets in code (dispatch_agent/spawn_research refuse
+		// past the task-tier envelope); the prompt teaches the dispatcher to plan
+		// within them instead of hitting them.
 		const budget = currentBudget();
 		const taskBudget = currentTaskBudget();
 		const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
@@ -9081,7 +8956,7 @@ ask the human. You MUST instead:
 		const capabilityState = [...capabilityResolution.active].map(pack => `${pack}:${capabilityResolution.reasons[pack]}`).join(", ");
 		const provisionalState = capabilityResolution.provisional.map(pack => `${pack}:${capabilityResolution.reasons[pack]}`).join(", ");
 		const stateCapsule = `## Current task state
-- mode: ${hubMode}${taskTier ? ` · tier: ${taskTier}` : ""}; turn dispatches: ${turnDispatchCount}; research: ${turnResearchCount}
+- tier: ${taskTier ?? DEFAULT_TASK_TIER}${taskTierAssumed ? "?" : ""}; turn dispatches: ${turnDispatchCount}; research: ${turnResearchCount}
 - task dispatches: ${taskDispatchCount}; research: ${taskResearchCount}; review rounds: ${taskReviewRounds}
 - packs active: ${capabilityState}; provisional: ${provisionalState || "none"}
 - provisional confirmation: ${capabilityResolution.provisional.filter(pack => capabilityConfirmation[pack as ConfirmableCapabilityPack] !== "declined").map(pack => `${pack} (${capabilityResolution.reasons[pack]}) → call ask_user exactly once with ${JSON.stringify(capabilityConfirmationQuestion(pack as ConfirmableCapabilityPack))}`).join("; ") || "none"}
@@ -9093,13 +8968,7 @@ Call \`set_task_tier\` honestly: trivial/small work uses minimal ceremony; featu
 		const fullVerificationContract = `## Verification Contract
 For non-trivial work, record at most ${MAX_OPEN_ASSERTIONS} narrow, sourced assertions before building and pass them verbatim to specialists. Advance only on named evidence; unproven/failed is not done. Runtime-UI claims require runtime observation. Use \`skills/orchestration-verification/SKILL.md\` for formats, parity inventories, and regression resets. After compaction, read the ledger before continuing.`;
 
-		const verificationSection = !verificationActive ? "" : hubMode === "fast"
-			? `## Verification (fast mode)
-The assertion ledger is OPTIONAL in fast mode. State what was asked, dispatch the one
-specialist, and verify from its returned evidence (command output, file:line). If the
-request carries real acceptance criteria or turns risky, ask the user to switch to
-standard/strict instead of improvising rigor here.`
-			: fullVerificationContract;
+		const verificationSection = !verificationActive ? "" : fullVerificationContract;
 
 		// Peer section only when coms initialised. Decision G4: the coms_* tools are
 		// already in the active tool surface when ready; here we just teach the
@@ -9704,8 +9573,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		userLanguage = overrides.language;
 		researchKeep = overrides.researchKeep;
 		reconSearchTimeoutMs = overrides.reconSearchTimeoutMs;
-		const previousMode = hubMode;
-		hubMode = overrides.hubMode;
 		budgetOverrides = overrides.budgetOverrides;
 		watchdogSetting = overrides.watchdogSetting;
 		watchdogJudgeModel = overrides.watchdogJudgeModel;
@@ -9714,13 +9581,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		// A new session is a new task by definition.
 		resetTaskWindow(null);
 		updateModeStatus();
-		appendHubModeEntry({
-			previousMode,
-			mode: hubMode,
-			source: overrides.hubModeSource,
-			overrideFile: overrides.hubModeSource === "project-override" ? ".ai/agent-fleet-overrides.md" : null,
-			ctx: _ctx,
-		});
 		if (overrides.warnings.length > 0) {
 			_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
 		}
@@ -9912,9 +9772,8 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			`Persona gate: ${personaGateLabel}\n` +
 			`Coms: ${comsLabel}\n` +
 			`Fleet: ${fleetLabel}\n\n` +
-			`/af-work-mode [profile]  Fast Operator / Standard or Strict Orchestrator (Alt+M)\n` +
-			`/af-posture [mode]       Show/switch operator|orchestrator posture\n` +
-			`/af-hub-mode [mode]      Show/switch fast|standard|strict budgets\n` +
+			`/af-work-mode [posture]  Operator | Orchestrator (Alt+M)\n` +
+			`/af-posture [posture]    Show/switch operator|orchestrator posture\n` +
 			`/af-agents-team          Select a team\n` +
 			`/af-agents-list          Open Fleet Dashboard\n` +
 			`/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
@@ -9963,7 +9822,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 
 				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think, activeTeamName);
-				const hint = theme.fg("dim", composeFleetFooterHint(viewMode, compactExecutionPair(hubMode, posture)));
+				const hint = theme.fg("dim", composeFleetFooterHint(viewMode, compactPosture(posture)));
 				// The btw extension flips this global the first time a /af-btw command or
 				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.
 				const btwHint = (globalThis as { __btwActivated?: boolean }).__btwActivated

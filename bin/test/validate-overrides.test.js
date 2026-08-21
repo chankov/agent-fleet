@@ -164,9 +164,8 @@ recon-search-timeout-s: 0
   assert.match(issues[5], /recon-search-timeout-s .* not an integer from 1 to 3600 or "off"/);
 });
 
-test("execution-mode and turn-budget keys accept valid values", () => {
+test("turn-budget keys accept valid values", () => {
   assert.deepEqual(findingsFor(`## agent-hub
-mode: strict
 max-dispatches-per-turn: 8
 max-research-per-turn: off
 turn-wall-time-s: 3600
@@ -175,14 +174,14 @@ session-recycle-runs: 5
 `), []);
 });
 
-test("execution-mode and turn-budget keys flag invalid values", () => {
+test("valid legacy mode key is deprecated and invalid budget values still flag", () => {
   const issues = findingsFor(`## agent-hub
-mode: turbo
+mode: fast
 max-dispatches-per-turn: zero
 session-recycle-runs: -1
 `).map((f) => f.issue);
   assert.equal(issues.length, 3);
-  assert.match(issues[0], /mode .* "turbo" is not one of: fast\|standard\|strict/);
+  assert.match(issues[0], /mode in ## agent-hub: ignored — execution modes were removed/);
   assert.match(issues[1], /max-dispatches-per-turn .* not an integer from 1 to 1000 or "off"/);
   assert.match(issues[2], /session-recycle-runs .* not an integer from 1 to 1000 or "off"/);
 });

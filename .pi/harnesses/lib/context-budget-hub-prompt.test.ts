@@ -26,7 +26,7 @@ function representativeParts(posture: "operator" | "orchestrator", herdr: boolea
 		dispatchSection: "- Dispatch tasks via `dispatch_agent`.",
 		userLanguage: "English",
 		askUserBlock: "## ask_user is NOT available in this session",
-		modeSection: "## Execution mode: standard",
+		modeSection: "## Task triage (before dispatch)",
 		verificationSection: "## Verification Contract",
 		comsSection: "",
 		herdrSection: herdr ? HUB_HERDR_SECTION : "",
@@ -50,7 +50,7 @@ test("compact stable policy preserves posture, backend, ambiguity, and evidence 
 		assert.match(prompt, /backend: native.*backend: coms.*backend: auto/s);
 		assert.match(prompt, /NEVER proceed past an ambiguity by guessing/);
 		assert.match(prompt, /returned evidence before reporting completion/);
-		assert.match(prompt, /Execution mode/);
+		assert.match(prompt, /Task triage/);
 	}
 });
 

@@ -22,7 +22,7 @@ personas is usually the wrong answer.
 
 ## ask_user is NOT available in this session
 
-## Execution mode: standard
+## Task triage (before dispatch)
 ## Verification Contract
 
 ## Research helpers (read-only)

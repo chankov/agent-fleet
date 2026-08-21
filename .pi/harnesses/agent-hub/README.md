@@ -33,12 +33,9 @@ These are independent runtime axes:
 - **Peer topology** — separate long-lived Pi or Claude Code processes from `peers.yaml`, connected
   by coms and optionally placed in sibling Herdr panes. `--peers frontend` selects a standing
   preset; `--herdr` creates a Hub-only workspace through the empty `base` preset.
-- **Hub mode** — `/af-hub-mode` controls orchestration strictness and budgets; it does not change
-  posture, roster, or topology. With no argument it opens a three-option picker.
-- **Execution profile** — `/af-work-mode` and **Alt+M** apply a mode+posture preset without merging
-  those axes. The primary picker offers **Fast Operator**, **Standard Orchestrator**, **Strict
-  Orchestrator**, and **Advanced…** (all six pairs). Orchestrator presets still require a native
-  roster before either axis changes. `/af-hub-mode` and `/af-posture` remain independent controls.
+- **Posture shortcuts** — `/af-work-mode` and **Alt+M** switch operator vs orchestrator. Orchestrator
+  still requires a native roster. Budgets, nested delegation, and Verification Contract rigor follow
+  the **task tier**, not a session execution mode.
 
 All Hub slash commands, including `/af-handoff`, are registered in both postures. A command whose
 runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
@@ -104,7 +101,7 @@ Recover with one of these explicit choices:
 ```text
 /af-agents-team                 # select a currently valid team in the live session
 /af-posture operator            # explicitly leave delegate-only posture
-/af-work-mode fast              # Fast Operator: smallest budget + direct tools
+/af-work-mode operator          # restore direct tools
 just fleet --agents <name>      # restart through the public Fleet CLI
 just fleet --posture operator   # restart explicitly as an operator
 ```
@@ -382,16 +379,14 @@ The agent view starts with the **compact widget** enabled: one line per *running
 `name · context% · state` — *below* the input box, just above pi's status bar. Idle and done agents
 are hidden, and the coms pool widget collapses too, so an idle session collapses to just the prompt
 and footer. **`Alt+Shift+A`** toggles that widget on or off; the footer reports
-`Alt+A fleet · Alt+M Fast·Operator · Alt+Shift+A widget:compact|off`.
+`Alt+A fleet · Alt+M Operator · Alt+Shift+A widget:compact|off`.
 
-### Execution profile picker
+### Posture picker
 
-Press **`Alt+M`** or run **`/af-work-mode`** to open the execution-profile picker. The primary menu
-offers **Fast Operator**, **Standard Orchestrator**, **Strict Orchestrator**, and **Advanced…**
-(all six mode/posture pairs). Arrow keys move, Enter applies, and Esc cancels with no change.
-Orchestrator presets require a native roster before either axis changes. `/af-hub-mode` and
-`/af-posture` remain available for independent control; with no argument each opens its own picker.
-On macOS, the outer terminal must send Option as Meta or Alt+M will not reach the Hub.
+Press **`Alt+M`** or run **`/af-work-mode`** / **`/af-posture`** to open the posture picker:
+**operator** (direct tools) or **orchestrator** (delegate-only). Arrow keys move, Enter applies,
+and Esc cancels with no change. Orchestrator requires a native roster. On macOS, the outer
+terminal must send Option as Meta or Alt+M will not reach the Hub.
 
 ### Fleet Dashboard and detail
 
@@ -551,50 +546,36 @@ and forward parent cancellation, avoiding detached-orphan processes. Caller
 cancellation follows the same bounded cleanup path but is reported as `cancelled`, not
 `tool_timeout`.
 
-### Execution modes & turn budgets
+### Task-tier budgets
 
-The hub runs one of three **execution modes** — `fast`, `standard` (default), `strict` —
-with **per-user-turn budgets enforced in code**, not prose. This is the guardrail against
-runaway orchestration (the observed failure mode: 100+ dispatches and 100M+ tokens for one
-task, most of it re-billed stale specialist context).
+The hub runs **per-user-turn budgets enforced in code**, not prose, keyed off the current
+**task tier**. This is the guardrail against runaway orchestration (the observed failure
+mode: 100+ dispatches and 100M+ tokens for one task, most of it re-billed stale specialist
+context).
 
-| Budget (per user turn)            | fast   | standard | strict  |
-|-----------------------------------|--------|----------|---------|
-| `dispatch_agent` calls            | 2      | 8        | 24      |
-| `spawn_research` calls            | 1      | 4        | 12      |
-| Turn wall clock                   | 15 min | 60 min   | 240 min |
-| Per-run deadline (specialist/research/delegate) | 10 min | 30 min | off |
-| Specialist session recycled after | 3 runs | 5 runs   | 5 runs  |
-| Nested delegation                 | off    | on       | on      |
-
-- **fast** — single-specialist path for small, low-risk asks; assertion ledger optional,
-  no nested delegation.
-- **standard** — batched execution: one recon max, builder batches of 4–6 plan tasks with
-  one gate each, one review gate at the end.
-- **strict** — the full Verification Contract (parity inventories, per-batch gates,
-  second confirming reads); use for production migrations and security-sensitive work.
+| Budget (per user turn)            | trivial | small | feature | project |
+|-----------------------------------|---------|-------|---------|---------|
+| `dispatch_agent` calls            | 1       | 2     | 8       | 12      |
+| `spawn_research` calls            | 1       | 2     | 4       | 6       |
+| Turn wall clock                   | 15 min  | 15 min| 60 min  | 90 min  |
+| Per-run deadline (specialist/research/delegate) | 10 min | 10 min | 30 min | 30 min |
+| Specialist session recycled after | 3 runs  | 3 runs| 5 runs  | 5 runs  |
+| Nested delegation                 | off     | off   | on      | on      |
 
 When a budget is exhausted, `dispatch_agent`/`spawn_research` **refuse** with instructions
 to summarize and ask one localized Yes/No `ask_user` question. **Yes** renews the turn budget
 inside the same tool loop; the user does not type `continue` or run a slash command. A normal
 new user message still opens a fresh turn window. Time blocked in any `ask_user` question is
 excluded from the turn wall clock, so a slow human answer cannot exhaust the next dispatch.
-Switch modes live with `/af-hub-mode fast|standard|strict` (no argument opens a mode picker).
-To change mode and posture together, use `/af-work-mode` or **Alt+M**.
-The live switch is deliberately **process/session-local**: it does not mutate another repository,
-another pane, or the project's override file. A later `session_start` reapplies that repository's
-configured default. Successful live switches and session-start default application append
-`agent-hub-mode` entries to the Pi session record with an allowlisted identity (`cwd`, PID, Hub
-session/project, and Herdr workspace/pane when available), so a mode change can be attributed to
-the process that actually handled it. Set the project default and per-axis overrides in the
-overrides file:
+Raise the task with `set_task_tier` when the work outgrew the current envelope. Override keys
+in `.ai/agent-fleet-overrides.md` are a **ceiling** (`min` with the tier); `off` stays at the
+tier rather than lifting the cap. A leftover `mode:` key is ignored with a warning.
 
 ```markdown
 ## agent-hub
-mode: standard                # fast|standard|strict
-max-dispatches-per-turn: 8    # integer or off
-max-research-per-turn: 4      # integer or off
-turn-wall-time-s: 3600        # integer or off
+max-dispatches-per-turn: 8    # integer ceiling, or off (stays at the tier)
+max-research-per-turn: 4      # integer ceiling, or off (stays at the tier)
+turn-wall-time-s: 3600        # integer ceiling, or off (stays at the tier)
 agent-turn-timeout-s: 1800    # whole-run deadline per spawned run; integer or off
 session-recycle-runs: 5       # recycle a specialist session after N resumed runs; integer or off
 run-history-keep: 10          # previous sessions' artifact archives to retain; integer or off
@@ -610,9 +591,9 @@ workspace took **13 minutes**.
 So there is a second envelope, **`TASK_BUDGET_MULTIPLIER` (3) × the turn envelope**, whose
 counters are **not** reset by a user message:
 
-| | per turn (standard, `feature`) | per task |
+| | per turn (`feature`) | per task |
 |---|---|---|
-| `dispatch_agent` | 6 | 18 |
+| `dispatch_agent` | 8 | 24 |
 | `spawn_research` | 4 | 12 |
 | clock | 60 min wall | 180 min **active** |
 
@@ -693,11 +674,9 @@ can no longer hold its parent for hours.
 ### Task triage (complexity tiers)
 
 The dispatcher classifies the current TASK with the `set_task_tier` tool BEFORE its first
-dispatch — `trivial` / `small` / `feature` / `project` — and the hub lowers the enforced
-dispatch/research caps to **min(mode, tier)**: trivial = 1 dispatch / 1 research,
-small = 2 / 2, feature = 6 / 4, `project` defers to the mode. The tier shows in the
-`hub-mode` status chip (`Mode: standard·small · …`), with a trailing `?` while it is only
-assumed.
+dispatch — `trivial` / `small` / `feature` / `project` — and that classification *is* the
+budget envelope (see the table above). The tier shows in the `hub-tier` status chip
+(`Tier: small · …`), with a trailing `?` while it is only assumed.
 
 Skipping the call makes the hub assume **`small`**, not `feature`. Because the tier is
 task-scoped, a skipped triage latches for the whole task — and skipped triage is precisely
@@ -806,11 +785,14 @@ drives the cards — not post-hoc:
   partial output preserved) and the dispatch result instructs: re-dispatch ONCE with a
   corrected, narrowed task — never the same task unchanged.
 
-Enablement is dynamic, precedence top to bottom: the `watchdog: true|false` param on a
-single `dispatch_agent` call → a per-agent override (`/af-watchdog builder on|off|clear`) →
-the hub-wide setting (`/af-watchdog on|off|auto`, default `auto`, project default via the
-`watchdog:` overrides key). Read-only research helpers are not monitored — they already
-run under the per-tool watchdog + turn deadline and cannot write.
+Enablement is dynamic. In **operator** posture, precedence is the `watchdog: true|false`
+param on a single `dispatch_agent` call → a per-agent override (`/af-watchdog builder
+on|off|clear`) → the hub-wide setting (`/af-watchdog on|off|auto`, default `auto`, project
+default via the `watchdog:` overrides key): `on`/`auto` arm and `off` disarms. In
+**orchestrator** posture, hub `auto`/`on` auto-arms; dispatch `watchdog: false` cannot
+disarm it. Opt out with hub `/af-watchdog off` (or override `watchdog: off`), or a per-agent
+`off`. Read-only research helpers are not monitored — they already run under the per-tool
+watchdog + turn deadline and cannot write.
 
 ### Dynamic teams
 
@@ -821,7 +803,7 @@ Rosters start from `.pi/agents/teams.yaml` but are not frozen there:
 - `/af-agents-save <name>` — persist the current roster as a named team back into
   `teams.yaml` (targeted block upsert; comments and other teams untouched).
 - `team_adjust` — the dispatcher itself may add/drop a persona **with a stated reason**;
-  disabled in fast mode, capped at 8 roster members, and every change is notified to the
+  disabled at trivial/small tiers, capped at 8 roster members, and every change is notified to the
   human. The system prompt is rebuilt each turn, so changes take effect immediately.
 
 ### `/af-hub-report`

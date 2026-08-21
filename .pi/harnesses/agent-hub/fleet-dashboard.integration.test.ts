@@ -68,15 +68,14 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(dash, /until: now \+ 2000/);
 });
 
-test("task lifecycle closes at agent_end and mode/tool-reset mutations are auditable", () => {
+test("task lifecycle closes at agent_end and task-reset mutations are auditable", () => {
 	assert.match(source, /pi\.on\("agent_end"[\s\S]*?closeTurnActiveTime\(turnEndedAt\);[\s\S]*?turnActive = false;[\s\S]*?currentTurnStartedAt = 0;/);
 	assert.match(source, /taskClock = resetTaskClock\(taskClock, now\);/);
-	assert.match(source, /appendEntry\("agent-hub-mode", buildHubModeAudit\(/);
+	assert.doesNotMatch(source, /appendEntry\("agent-hub-mode"/);
 	assert.match(source, /appendEntry\("agent-hub-task-reset", buildTaskResetAudit\(/);
-	assert.match(source, /source: "slash-command"/);
-	assert.match(source, /source: overrides\.hubModeSource/);
 	assert.match(source, /appendTaskResetEntry\("tool:set_task_tier"/);
 	assert.doesNotMatch(source, /registerCommand\("af-new-task"/);
+	assert.doesNotMatch(source, /registerCommand\("af-hub-mode"/);
 });
 
 test("shortcuts, command, compact toggle, footer, and pool use the separate fleet flow", () => {
@@ -84,13 +83,13 @@ test("shortcuts, command, compact toggle, footer, and pool use the separate flee
 	assert.match(source, /registerShortcut\("alt\+a"[\s\S]*?void openFleetDashboard\(ctx\)/);
 	assert.match(source, /pi\.registerCommand\("af-agents-list"[\s\S]*?await openFleetDashboard\(_ctx\)/);
 	assert.match(source, /registerCommand\("af-agent-models-substitute"[\s\S]*?tokens\.length === 0[\s\S]*?openFleetDashboard\(ctx, true\)/);
-	assert.match(source, /registerShortcut\("alt\+m"[\s\S]*?void openExecutionProfilePicker\(ctx\)/);
+	assert.match(source, /registerShortcut\("alt\+m"[\s\S]*?void openPosturePicker\(ctx\)/);
 	assert.match(source, /registerShortcut\("alt\+shift\+a"[\s\S]*?viewMode = viewMode === "compact" \? "off" : "compact"/);
 	assert.ok(source.includes('registerShortcut("alt+\\\\",'));
 	assert.match(source, /registerShortcut\("alt\+\\\\"[\s\S]*?await openFleetDetail\(row, ctx\)/);
 	assert.match(source, /pi\.registerCommand\("af-zoom"[\s\S]*?const rowKey = \(rid != null \? `r\$\{rid\}` : arg\)\.toLowerCase\(\)[\s\S]*?r\.key\.toLowerCase\(\) === rowKey/);
 	assert.match(source, /function findDelegationChild[\s\S]*?candidate\.id\.toLowerCase\(\) === lower/);
-	assert.match(source, /const hint = theme\.fg\("dim", composeFleetFooterHint\(viewMode, compactExecutionPair\(hubMode, posture\)\)\);/);
+	assert.match(source, /const hint = theme\.fg\("dim", composeFleetFooterHint\(viewMode, compactPosture\(posture\)\)\);/);
 	assert.doesNotMatch(source, /theme\.fg\("muted", "Alt\+A "\) \+ theme\.fg\("dim", composeFleetFooterHint/);
 	assert.match(source, /function fleetPeerInputs[\s\S]*?pending: true/);
 	assert.match(source, /function renderPool[\s\S]*?buildFleetRows\([\s\S]*?peers: fleetPeerInputs\(\)/);

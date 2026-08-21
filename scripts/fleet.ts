@@ -44,7 +44,7 @@ POSTURE AND ROSTER
   /af-posture orchestrator      # remove direct coding tools; keep orchestration
   /af-posture operator          # restore the approved direct tool surface
 
-  Posture is independent from /af-hub-mode, the native roster, and peer topology.
+  Posture is independent from the native roster and peer topology. Budgets follow task tier.
   All Hub slash commands, including /af-handoff, stay registered in both postures;
   actions whose coms/Herdr capability is unavailable return remediation guidance.
 

@@ -23,20 +23,6 @@ export function buildHubAuditIdentity(input = {}) {
 	};
 }
 
-export function buildHubModeAudit(input = {}) {
-	return {
-		schema_version: 1,
-		previous_mode: text(input.previousMode, 32),
-		mode: text(input.mode, 32),
-		source: text(input.source, 64),
-		override_file: text(input.overrideFile),
-		task_tier: text(input.taskTier, 32),
-		turn_dispatches: count(input.turnDispatches),
-		turn_research: count(input.turnResearch),
-		identity: buildHubAuditIdentity(input.identity),
-	};
-}
-
 export function buildTaskResetAudit(input = {}) {
 	const prior = input.prior ?? {};
 	return {
