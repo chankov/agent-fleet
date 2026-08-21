@@ -1,0 +1,36 @@
+import { formatVersionLabel } from "./version.ts";
+
+type FooterTheme = {
+	fg(color: string, text: string): string;
+};
+
+export function composeHubFooterLeft(
+	version: string | null,
+	model: string,
+	thinkingSuffix: string,
+	team: string,
+): string {
+	return [version ? formatVersionLabel(version) : "", `${model}${thinkingSuffix}`, team]
+		.filter(Boolean)
+		.join(" · ");
+}
+
+export function composeFleetFooterHint(viewMode: "compact" | "off", executionPair?: string): string {
+	const work = executionPair ? ` · Alt+M ${executionPair}` : "";
+	return `Alt+A fleet${work} · Alt+Shift+A widget:${viewMode}`;
+}
+
+export function renderHubFooterLeft(
+	theme: FooterTheme,
+	version: string | null,
+	model: string,
+	thinkingSuffix: string,
+	team: string,
+): string {
+	const metadata = [version ? formatVersionLabel(version) : "", `${model}${thinkingSuffix}`]
+		.filter(Boolean)
+		.join(" · ");
+	const dimMetadata = theme.fg("dim", ` ${metadata}`);
+	const separator = metadata && team ? theme.fg("muted", " · ") : "";
+	return dimMetadata + separator + (team ? theme.fg("accent", team) : "");
+}
