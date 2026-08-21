@@ -165,11 +165,11 @@ test("shouldRecycleSession hard-recycles at or above a full context window", () 
 test("contextOverflowDiagnostic fires only for a fresh session over the window", () => {
 	assert.equal(contextOverflowDiagnostic(1, 315), null); // recycling handles it
 	assert.equal(contextOverflowDiagnostic(0, 99), null);
-	const diag = contextOverflowDiagnostic(0, 315, { agent: "planner", model: "custom/Qwen3.6-35B-A3B-4bit" });
+	const diag = contextOverflowDiagnostic(0, 315, { agent: "planner", model: "custom/Qwen3.8-27B-Uncensored-MLX-4bit" });
 	assert.ok(diag);
 	assert.match(diag, /planner/);
 	assert.match(diag, /315%/);
-	assert.match(diag, /custom\/Qwen3\.6-35B-A3B-4bit/);
+	assert.match(diag, /custom\/Qwen3\.8-27B-Uncensored-MLX-4bit/);
 	// Names the actual cause: one run cannot be split by recycling.
 	assert.match(diag, /contextWindow/);
 	assert.equal(contextOverflowDiagnostic(0, 100), contextOverflowDiagnostic(0, 100));

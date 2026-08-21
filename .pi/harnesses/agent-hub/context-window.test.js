@@ -12,14 +12,14 @@ import {
 } from "./context-window.js";
 
 const registry = {
-	"custom/Qwen3.6-35B-A3B-4bit": { contextWindow: 49152 },
+	"custom/Qwen3.8-27B-Uncensored-MLX-4bit": { contextWindow: 49152 },
 	"openai-codex/gpt-5.6-luna": { contextWindow: 400_000 },
 	"openrouter/google/gemini-3-flash-preview": { contextWindow: 1_000_000 },
 };
 const lookup = (provider, modelId) => registry[`${provider}/${modelId}`];
 
 test("splitModelSpec keeps everything after the first slash as the model id", () => {
-	assert.deepEqual(splitModelSpec("custom/Qwen3.6-35B-A3B-4bit"), { provider: "custom", modelId: "Qwen3.6-35B-A3B-4bit" });
+	assert.deepEqual(splitModelSpec("custom/Qwen3.8-27B-Uncensored-MLX-4bit"), { provider: "custom", modelId: "Qwen3.8-27B-Uncensored-MLX-4bit" });
 	assert.deepEqual(splitModelSpec("openrouter/google/gemini-3-flash-preview"), {
 		provider: "openrouter",
 		modelId: "google/gemini-3-flash-preview",
@@ -32,10 +32,10 @@ test("splitModelSpec keeps everything after the first slash as the model id", ()
 });
 
 test("the registry is the source, and the source is reported", () => {
-	const small = resolveContextWindow("custom/Qwen3.6-35B-A3B-4bit", { lookup, fallbackWindow: 400_000 });
+	const small = resolveContextWindow("custom/Qwen3.8-27B-Uncensored-MLX-4bit", { lookup, fallbackWindow: 400_000 });
 	assert.equal(small.window, 49152);
 	assert.match(small.source, /model registry/);
-	assert.match(small.source, /custom\/Qwen3\.6-35B-A3B-4bit/);
+	assert.match(small.source, /custom\/Qwen3\.8-27B-Uncensored-MLX-4bit/);
 
 	// Multi-segment ids resolve too — this is the shape the default model uses.
 	assert.equal(resolveContextWindow("openrouter/google/gemini-3-flash-preview", { lookup }).window, 1_000_000);
@@ -94,10 +94,10 @@ test("the pre-spawn guard fires only when a resumed session would overflow", () 
 test("the over-window diagnostic names the window and its source", () => {
 	const msg = overWindowDiagnostic({
 		agent: "Planner",
-		model: "custom/Qwen3.6-35B-A3B-4bit",
+		model: "custom/Qwen3.8-27B-Uncensored-MLX-4bit",
 		pct: 315,
 		window: 49152,
-		source: "pi model registry (custom/Qwen3.6-35B-A3B-4bit)",
+		source: "pi model registry (custom/Qwen3.8-27B-Uncensored-MLX-4bit)",
 	});
 	assert.match(msg, /Planner/);
 	assert.match(msg, /315%/);

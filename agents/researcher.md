@@ -9,6 +9,7 @@ models:
   - openai-codex/gpt-5.6-terra
   - ollama/nemotron-3-ultra:cloud
   - ollama/minimax-m3:cloud
+  - custom/Qwen3.8-27B-Uncensored-MLX-4bit
 thinking: low
 ---
 

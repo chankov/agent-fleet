@@ -2,7 +2,7 @@
 //
 // The bug this fixes: the hub measured EVERY specialist and research helper
 // against `ctx.model.contextWindow` — the DISPATCHER's window. A specialist on
-// custom/Qwen3.6-35B-A3B-4bit (49152) and one on a 400k hosted model were
+// custom/Qwen3.8-27B-Uncensored-MLX-4bit (49152) and one on a 400k hosted model were
 // divided by the same number, so `⚠ Planner context at 315%` could mean either
 // "the window is wrong for that provider" or "the run really did run 3× over",
 // and nothing in the output told them apart.

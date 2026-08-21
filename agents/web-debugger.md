@@ -7,6 +7,7 @@ models:
   - openai-codex/gpt-5.6-sol
   - openai-codex/gpt-5.6-luna
   - ollama/glm-5.2:cloud
+  - custom/Qwen3.8-27B-Uncensored-MLX-4bit
 color: cyan
 skills:
   - browser-testing-with-devtools

@@ -14,7 +14,7 @@ const tick = () => new Promise((r) => setImmediate(r));
 const settle = async (n = 6) => { for (let i = 0; i < n; i++) await tick(); };
 
 test("providerKey takes the prefix before the first slash", () => {
-	assert.equal(providerKey("custom/Qwen3.6-35B-A3B-4bit"), "custom");
+	assert.equal(providerKey("custom/Qwen3.8-27B-Uncensored-MLX-4bit"), "custom");
 	assert.equal(providerKey("openrouter/google/gemini-3-flash-preview"), "openrouter");
 	assert.equal(providerKey(" OpenAI-Codex/gpt-5.6-luna "), "openai-codex");
 	assert.equal(providerKey("bare-model"), "bare-model");
@@ -23,7 +23,7 @@ test("providerKey takes the prefix before the first slash", () => {
 });
 
 test("only custom/* is limited by default", () => {
-	assert.equal(providerLimit("custom/Qwen3.6-35B-A3B-4bit", DEFAULT_PROVIDER_LIMITS), 2);
+	assert.equal(providerLimit("custom/Qwen3.8-27B-Uncensored-MLX-4bit", DEFAULT_PROVIDER_LIMITS), 2);
 	assert.equal(providerLimit("openai-codex/gpt-5.6-luna", DEFAULT_PROVIDER_LIMITS), null);
 	assert.equal(providerLimit("anthropic/claude-opus-4-7", DEFAULT_PROVIDER_LIMITS), null);
 });

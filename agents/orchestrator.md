@@ -8,6 +8,7 @@ models:
   - openai-codex/gpt-5.6-luna
   - ollama/minimax-m3:cloud
   - ollama/nemotron-3-ultra:cloud
+  - custom/Qwen3.8-27B-Uncensored-MLX-4bit
 thinking: medium
 ---
 

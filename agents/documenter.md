@@ -8,6 +8,7 @@ models:
   - openai-codex/gpt-5.3-codex-spark
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
+  - custom/Qwen3.8-27B-Uncensored-MLX-4bit
 thinking: minimal
 ---
 You are a documentation agent. Write clear, concise documentation. Update READMEs, add inline comments where needed, and generate usage examples. Match the project's existing doc style.
