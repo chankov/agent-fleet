@@ -406,17 +406,31 @@ and visible token totals. Finished/idle/stale rows are hidden by default.
   its previous task fresh; it is refused for peer/delegate rows, running research, and rows with no previous task.
 - **`q`** or **Esc** closes the dashboard.
 
-The detail view streams the selected local agent's text, thinking, and tool timeline. Use **`↑`/`↓`**,
-**`PgUp`/`PgDn`**, and **End** to navigate/tail; **Enter** expands a selected tool call; **Ctrl+C**
-copies the selected entry; and **`m`** replaces the log area with a visible full-screen picker
-containing every model currently reported by Pi's available-model registry. Use **`↑`/`↓`**,
-**`PgUp`/`PgDn`**, or **Home**/**End**, then **Enter** to apply; **Esc** cancels back to the logs.
-Model switching works for local specialists, retained research helpers, and nested delegate roles.
-It applies on the next dispatch/continuation and never interrupts
-a running child. A coms-backed specialist stores the choice for native fallback runs; external coms
-peers control their own model and have no picker. **Esc**/**`q`** returns to the dashboard. Coms peers
-have no local transcript and show that explicitly. **`/af-zoom <name|rN>`** opens this same detail
-view directly.
+The detail view streams the selected local agent's assistant text, provider-emitted thinking, tool
+arguments, and tool results (including success/error and duration). Normal events request an immediate
+render; a 2-second ticker recovers missed file notifications and advances elapsed time. Use **`v`** to
+switch between scan-friendly **Compact** rows and wrapped **Verbose** output. The choice is preserved
+while drilling into other rows in the same open dashboard.
+
+Use **`↑`/`↓`**, **`PgUp`/`PgDn`**, and **Home**/**End** to navigate. Manual movement pauses tail-follow;
+**End** restores it. **Enter** expands a selected tool row in Compact mode and **Ctrl+C** copies the
+selected entry. **`m`** replaces the log area with a full-screen picker containing every model currently
+reported by Pi's available-model registry. Use **`↑`/`↓`**, **`PgUp`/`PgDn`**, or **Home**/**End**, then
+**Enter** to apply; **Esc** cancels back to the logs.
+
+Each local run also writes an append-only transcript under `.pi/agent-sessions/transcripts/`. The
+directory/file permissions are owner-only (0700/0600 where the platform supports them), large events
+are chunked, and the live in-memory window is bounded. Common authorization headers, API keys, access
+tokens, passwords, provider tokens, and private-key blocks become `[REDACTED]` **before both persistence
+and display**. This is pattern-based protection, so operators should still avoid deliberately printing
+unknown secret formats.
+
+“Thinking” means only text explicitly emitted by the provider/runtime; hidden model reasoning is not
+available, and personas with thinking disabled have no thinking rows. Model switching works for local
+specialists, retained research helpers, and nested delegate roles. It applies on the next dispatch or
+continuation and never interrupts a running child. A coms-backed specialist stores the choice for native
+fallback runs; external coms peers control their own model, have no picker, and have no local transcript.
+**Esc**/**`q`** returns to the dashboard. **`/af-zoom <name|rN>`** opens this same detail view directly.
 
 ### Version footer
 

@@ -91,8 +91,8 @@ export interface SpawnPiAgentCallbacks {
 	onTextDelta?(delta: string): void;
 	onThinkingDelta?(delta: string): void;
 	onToolStart?(toolName: string, argStr: string, toolCallId?: string): void;
-	/** isError is present only when the event stream carries an error flag. */
-	onToolEnd?(toolName: string, toolCallId?: string, isError?: boolean): void;
+	/** Result text is the complete textual tool payload; duration is measured in the parent process. */
+	onToolEnd?(toolName: string, toolCallId?: string, isError?: boolean, resultText?: string, durationMs?: number): void;
 	onUsage?(usage: PiUsage, source: "message_end" | "agent_end"): void;
 }
 
@@ -233,7 +233,20 @@ export function spawnPiAgent(
 			deadlineTimer = setTimeout(() => terminate("turn_timeout"), turnDeadlineMs);
 		}
 
+		const toolStarts = new Map<string, number>();
 		const toolId = (event: any) => String(event.toolCallId ?? event.tool_call_id ?? event.id ?? "");
+		const toolResultText = (result: any): string => {
+			const content = result?.content ?? result;
+			if (typeof content === "string") return content;
+			if (!Array.isArray(content)) {
+				try { return content == null ? "" : JSON.stringify(content); } catch { return String(content ?? ""); }
+			}
+			return content.map((item: any) => {
+				if (typeof item === "string") return item;
+				if (item?.type === "text" && typeof item.text === "string") return item.text;
+				try { return JSON.stringify(item); } catch { return String(item ?? ""); }
+			}).filter(Boolean).join("\n");
+		};
 		const handleEvent = (event: any) => {
 			if (event.type === "message_update") {
 				const delta = event.assistantMessageEvent;
@@ -245,6 +258,7 @@ export function spawnPiAgent(
 				try { argStr = event.args != null ? JSON.stringify(event.args) : ""; } catch {}
 				const id = toolId(event);
 				const name = event.toolName || "tool";
+				if (id && !toolStarts.has(id)) toolStarts.set(id, Date.now());
 				cbs.onToolStart?.(name, argStr, id || undefined);
 				if (timeoutMs != null && id && watchedTools.has(name) && !calls.has(id)) {
 					const startedAt = Date.now();
@@ -258,7 +272,15 @@ export function spawnPiAgent(
 					if (call) { clearTimeout(call.timer); calls.delete(id); }
 				}
 				const rawIsError = event.isError ?? event.is_error ?? event.result?.isError ?? event.result?.is_error;
-				cbs.onToolEnd?.(event.toolName || "tool", id || undefined, typeof rawIsError === "boolean" ? rawIsError : undefined);
+				const startedAt = id ? toolStarts.get(id) : undefined;
+				if (id) toolStarts.delete(id);
+				cbs.onToolEnd?.(
+					event.toolName || "tool",
+					id || undefined,
+					typeof rawIsError === "boolean" ? rawIsError : undefined,
+					toolResultText(event.result),
+					startedAt == null ? undefined : Math.max(0, Date.now() - startedAt),
+				);
 			} else if (event.type === "message_end") {
 				if (event.message?.role === "assistant"
 					&& (event.message.stopReason === "error" || event.message.stopReason === "aborted")) {

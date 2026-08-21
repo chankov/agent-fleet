@@ -152,7 +152,8 @@ import { createPanelResources } from "../lib/fleet-panel.ts";
 import { buildFleetRows, fleetTiming, summarise, unionMs, type DelegateInput, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput } from "../lib/fleet-read-model.ts";
 import { attachFleetDashboardTicker, compactWidgetsEnabled, gridColumnsForItems, gridColumnsForSize, liveTimeline, renderCardGrid, resolveFleetKill, resolveFleetRestart } from "../lib/fleet-dashboard-ops.ts";
 import { dashboardTransition, renderFleetDashboard, FLEET_CHROME_ROWS, type DashboardConfirm } from "../lib/fleet-dashboard-view.ts";
-import { detailContent, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker, DETAIL_CHROME_ROWS, type FleetDetailKey, type FleetModelChoice } from "../lib/fleet-detail-view.ts";
+import { detailContent, detailEntryOffsets, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker, DETAIL_CHROME_ROWS, type FleetDetailKey, type FleetModelChoice } from "../lib/fleet-detail-view.ts";
+import { createFleetTranscriptStore, readFleetTranscript, readFleetTranscriptBefore, readFleetTranscriptTail, redactTimelineEvent, type FleetTranscriptRecord, type FleetTranscriptStore } from "../lib/fleet-transcript-store.ts";
 import { reconcileSelection, type Selection } from "../lib/fleet-selection.ts";
 import { collectContextBudgetSnapshot, type LivePlane } from "./context-budget-snapshot.ts";
 import { CONTEXT_BUDGET_CHROME_ROWS, contextBudgetTransition, renderContextBudget, type ContextBudgetViewState } from "../lib/context-budget-view.ts";
@@ -213,10 +214,13 @@ interface AgentDef {
 // deltas are coalesced into the trailing entry of the same kind; each tool call
 // is its own entry.
 interface TimelineEntry {
-	kind: "text" | "tool" | "thinking";
+	kind: "text" | "tool" | "thinking" | "tool-start" | "tool-result";
 	title: string;
 	content: string;
 	timestamp: number;
+	callId?: string;
+	status?: "success" | "error";
+	durationMs?: number;
 }
 
 // A delegate child (or grandchild) of a dispatched specialist, reconstructed
@@ -238,6 +242,7 @@ interface DelegationChild {
 	startedAt: number;
 	elapsed: number;
 	timeline: TimelineEntry[];
+	transcriptStore?: FleetTranscriptStore;
 	zoomRender?: (force?: boolean) => void;
 	// The /af-agents-history node for this delegate child, set on its spawn event so
 	// the exit event can close it. Lets a delegating specialist's row subtract the
@@ -295,6 +300,7 @@ interface AgentState {
 	// while a `/af-zoom` overlay is open so the stream parser can refresh it live
 	// (throttled; pass force=true for the final frame).
 	timeline: TimelineEntry[];
+	transcriptStore?: FleetTranscriptStore;
 	zoomRender?: (force?: boolean) => void;
 	// The /af-agents-history node for the current dispatch, so delegate children parsed
 	// from the event file can attach to it as the root parent of their subtree.
@@ -337,6 +343,7 @@ interface ResearchState {
 	proc?: ChildProcess;
 	killedByOperator?: boolean;
 	timeline: TimelineEntry[];
+	transcriptStore?: FleetTranscriptStore;
 	zoomRender?: (force?: boolean) => void;
 	histEntry?: HistoryEntry;
 }
@@ -347,6 +354,7 @@ interface Zoomable {
 	def: { name: string };
 	status: string;
 	timeline: TimelineEntry[];
+	transcriptStore?: FleetTranscriptStore;
 	zoomRender?: (force?: boolean) => void;
 }
 
@@ -859,16 +867,65 @@ function abbrevThinking(level: string): string {
 	return THINKING_ABBREV[level] ?? "";
 }
 
-// Coalesce a streaming text/thinking delta into the timeline: extend the trailing
-// entry when it's the same kind, otherwise start a new one.
-function appendTimelineText(timeline: TimelineEntry[], kind: "text" | "thinking", delta: string) {
+const MAX_LIVE_TIMELINE_ENTRIES = 500;
+const MAX_LIVE_ENTRY_CHARS = 64 * 1024;
+
+type TimelineTarget = {
+	timeline: TimelineEntry[];
+	transcriptStore?: FleetTranscriptStore;
+	transcriptPending?: TimelineEntry;
+	transcriptFlushTimer?: ReturnType<typeof setTimeout>;
+	zoomRender?: (force?: boolean) => void;
+};
+
+function flushTimelineStore(target: TimelineTarget): void {
+	if (target.transcriptFlushTimer) clearTimeout(target.transcriptFlushTimer);
+	target.transcriptFlushTimer = undefined;
+	if (!target.transcriptPending) return;
+	target.transcriptStore?.append(target.transcriptPending as any);
+	target.transcriptPending = undefined;
+}
+
+/** Redact before both persistence and display, while keeping live memory bounded. */
+function appendTimelineEvent(target: TimelineTarget, event: TimelineEntry): TimelineEntry {
+	flushTimelineStore(target);
+	const safe = redactTimelineEvent(event) as TimelineEntry;
+	target.transcriptStore?.append(safe as any);
+	target.timeline.push({ ...safe, content: safe.content.slice(-MAX_LIVE_ENTRY_CHARS) });
+	if (target.timeline.length > MAX_LIVE_TIMELINE_ENTRIES) target.timeline.splice(0, target.timeline.length - MAX_LIVE_TIMELINE_ENTRIES);
+	return safe;
+}
+
+// Coalesce streaming deltas in the bounded live window; the append-only store
+// still receives every redacted delta, so compacting memory cannot lose history.
+function appendTimelineText(target: TimelineTarget, kind: "text" | "thinking", delta: string) {
 	if (!delta) return;
-	const last = timeline[timeline.length - 1];
-	if (last && last.kind === kind) {
-		last.content += delta;
-	} else {
-		timeline.push({ kind, title: kind === "text" ? "Assistant" : "Thinking", content: delta, timestamp: Date.now() });
+	const safe = redactTimelineEvent({ kind, title: kind === "text" ? "Assistant" : "Thinking", content: delta, timestamp: Date.now() }) as TimelineEntry;
+	if (target.transcriptPending?.kind === kind) target.transcriptPending.content += safe.content;
+	else {
+		flushTimelineStore(target);
+		target.transcriptPending = { ...safe };
 	}
+	if (!target.transcriptFlushTimer) {
+		target.transcriptFlushTimer = setTimeout(() => {
+			flushTimelineStore(target);
+			target.zoomRender?.();
+		}, 100);
+		try { (target.transcriptFlushTimer as any).unref?.(); } catch {}
+	}
+	let remaining = safe.content;
+	while (remaining) {
+		const last = target.timeline[target.timeline.length - 1];
+		if (last && last.kind === kind && last.content.length < MAX_LIVE_ENTRY_CHARS) {
+			const room = MAX_LIVE_ENTRY_CHARS - last.content.length;
+			last.content += remaining.slice(0, room);
+			remaining = remaining.slice(room);
+		} else {
+			target.timeline.push({ ...safe, content: remaining.slice(0, MAX_LIVE_ENTRY_CHARS) });
+			remaining = remaining.slice(MAX_LIVE_ENTRY_CHARS);
+		}
+	}
+	if (target.timeline.length > MAX_LIVE_TIMELINE_ENTRIES) target.timeline.splice(0, target.timeline.length - MAX_LIVE_TIMELINE_ENTRIES);
 }
 
 // ── Zoom overlay (Phase 3) ───────────────────────
@@ -2693,6 +2750,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		// dirs (delegate children's events + sessions).
 		try { rmSync(safePathWithin(sessionDir, "findings"), { recursive: true, force: true }); } catch {}
 		try { rmSync(safePathWithin(sessionDir, "delegations"), { recursive: true, force: true }); } catch {}
+		try { rmSync(safePathWithin(sessionDir, "transcripts"), { recursive: true, force: true }); } catch {}
 		// Artifacts are NOT ephemeral, and deleting them here is what made a
 		// post-mortem record eleven specialist returns and two reviews as NOT
 		// RECOVERABLE: the next session's `builder-run1.md` reused the same path as
@@ -3241,6 +3299,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				startedAt,
 				elapsed: 0,
 				timeline: [],
+				transcriptStore: createFleetTranscriptStore(safePathWithin(sessionDir, "transcripts", `${safeAgentKey(state.def.name)}-${safeAgentKey(e.id)}.jsonl`)),
 				histEntry,
 			});
 			return;
@@ -3248,7 +3307,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		const child = state.delegations.get(e.id);
 		if (!child) return;
 		if (e.t === "timeline") {
-			appendTimelineText(child.timeline, e.kind === "thinking" ? "thinking" : "text", e.delta || "");
+			appendTimelineText(child, e.kind === "thinking" ? "thinking" : "text", e.delta || "");
 			if (e.kind !== "thinking") {
 				const trailing = child.timeline[child.timeline.length - 1];
 				if (trailing?.kind === "text") {
@@ -3259,20 +3318,32 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		} else if (e.t === "model_fallback") {
 			child.model = e.to || child.model;
 			child.lastWork = `model fallback: ${e.from || "override"} → ${e.to || "original"}`;
-			child.timeline.push({
+			appendTimelineEvent(child, {
 				kind: "text",
 				title: "Model fallback",
 				content: `${e.from || "override"} failed before work began; retrying with ${e.to || "original"}. ${e.reason || ""}`.trim(),
 				timestamp: Date.now(),
 			});
 			child.zoomRender?.();
-		} else if (e.t === "tool") {
+		} else if (e.t === "tool" || e.t === "tool_start") {
 			child.toolCount++;
-			child.timeline.push({
-				kind: "tool",
+			appendTimelineEvent(child, {
+				kind: "tool-start",
 				title: `Tool: ${e.name || "tool"}`,
 				content: e.args || "",
-				timestamp: Date.now(),
+				timestamp: e.ts || Date.now(),
+				...(e.callId ? { callId: e.callId } : {}),
+			});
+			child.zoomRender?.();
+		} else if (e.t === "tool_result") {
+			appendTimelineEvent(child, {
+				kind: "tool-result",
+				title: `Result: ${e.name || "tool"}`,
+				content: e.output || "",
+				timestamp: e.ts || Date.now(),
+				...(e.callId ? { callId: e.callId } : {}),
+				status: e.isError ? "error" : "success",
+				...(typeof e.durationMs === "number" ? { durationMs: e.durationMs } : {}),
 			});
 			child.zoomRender?.();
 		} else if (e.t === "usage") {
@@ -3324,7 +3395,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			}
 			if (dirty) updateWidget();
 		};
-		const timer = setInterval(drain, 1000);
+		const timer = setInterval(drain, 2000);
 		try { (timer as any).unref?.(); } catch {}
 		let watcher: fs.FSWatcher | null = null;
 		try { watcher = fs.watch(dir, () => drain()); } catch {}
@@ -3607,7 +3678,9 @@ ${externalBlockedProtocol()}
 		state.runCount++;
 		state.killedByOperator = false;
 		state.restarting = false;
+		flushTimelineStore(state);
 		state.timeline = [];
+		state.transcriptStore = createFleetTranscriptStore(safePathWithin(sessionDir, "transcripts", `${safeAgentKey(state.def.name)}-run${state.runCount}.jsonl`));
 		state.delegationsWatcher?.close();
 		state.delegationsWatcher = undefined;
 		state.delegations = undefined;
@@ -3643,7 +3716,7 @@ ${externalBlockedProtocol()}
 			state.elapsed = Date.now() - startTime;
 			state.status = opts?.idle ? "idle" : exitCode === 0 ? "done" : "error";
 			state.lastWork = output.split("\n").filter((l: string) => l.trim()).pop() || "";
-			if (output.trim()) appendTimelineText(state.timeline, "text", output);
+			if (output.trim()) appendTimelineText(state, "text", output);
 			updateWidget();
 			state.zoomRender?.(true);
 			historyEnd(histEntry, state.status);
@@ -3806,7 +3879,8 @@ ${externalBlockedProtocol()}
 		if (delegationActive) {
 			const delegationDir = safePathWithin(sessionDir, "delegations", agentKey);
 			try { rmSync(delegationDir, { recursive: true, force: true }); } catch {}
-			mkdirSync(delegationDir, { recursive: true });
+			mkdirSync(delegationDir, { recursive: true, mode: 0o700 });
+			try { chmodSync(delegationDir, 0o700); } catch {}
 			extensions.push(delegateExtPath!);
 			effectiveTools = `${state.def.tools},delegate`;
 			delegateEnv = {
@@ -3958,29 +4032,40 @@ ${externalBlockedProtocol()}
 				void monitorStart?.then(task => monitorBridge?.appendOutputFor(task, delta));
 				fullText += delta;
 				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
-				appendTimelineText(state.timeline, "text", delta);
+				appendTimelineText(state, "text", delta);
 				updateWidget();
 				state.zoomRender?.();
 			},
 			onThinkingDelta: (delta) => {
 				if (!wantThinking) return;
-				appendTimelineText(state.timeline, "thinking", delta);
+				appendTimelineText(state, "thinking", delta);
 				state.zoomRender?.();
 			},
-			onToolStart: (toolName, argStr) => {
+			onToolStart: (toolName, argStr, callId) => {
 				state.toolCount++;
-				state.timeline.push({
-					kind: "tool",
+				appendTimelineEvent(state, {
+					kind: "tool-start",
 					title: `Tool: ${toolName}`,
 					content: argStr,
 					timestamp: Date.now(),
+					...(callId ? { callId } : {}),
 				});
 				updateWidget();
 				state.zoomRender?.();
 				const violation = driftMonitor?.onToolStart(toolName, argStr);
 				if (violation) escalateDrift(violation);
 			},
-			onToolEnd: (toolName, _id, isError) => {
+			onToolEnd: (toolName, callId, isError, resultText, durationMs) => {
+				appendTimelineEvent(state, {
+					kind: "tool-result",
+					title: `Result: ${toolName}`,
+					content: resultText ?? "",
+					timestamp: Date.now(),
+					...(callId ? { callId } : {}),
+					status: isError ? "error" : "success",
+					...(durationMs == null ? {} : { durationMs }),
+				});
+				state.zoomRender?.();
 				const violation = driftMonitor?.onToolEnd(toolName, isError);
 				if (violation) escalateDrift(violation);
 			},
@@ -4324,7 +4409,9 @@ ${externalBlockedProtocol()}
 		state.elapsed = 0;
 		state.lastWork = "";
 		state.killedByOperator = false;
+		flushTimelineStore(state);
 		state.timeline = [];
+		state.transcriptStore = createFleetTranscriptStore(safePathWithin(sessionDir, "transcripts", `research-r${state.id}-turn${state.turnCount}.jsonl`));
 		updateResearchWidget();
 
 		const histEntry = historyStart("research", `Research r${state.id}`);
@@ -4380,24 +4467,37 @@ ${externalBlockedProtocol()}
 			onTextDelta: (delta) => {
 				fullText += delta;
 				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
-				appendTimelineText(state.timeline, "text", delta);
+				appendTimelineText(state, "text", delta);
 				updateResearchWidget();
 				state.zoomRender?.();
 			},
 			onThinkingDelta: (delta) => {
 				if (!wantThinking) return;
-				appendTimelineText(state.timeline, "thinking", delta);
+				appendTimelineText(state, "thinking", delta);
 				state.zoomRender?.();
 			},
-			onToolStart: (toolName, argStr) => {
+			onToolStart: (toolName, argStr, callId) => {
 				state.toolCount++;
-				state.timeline.push({
-					kind: "tool",
+				appendTimelineEvent(state, {
+					kind: "tool-start",
 					title: `Tool: ${toolName}`,
 					content: argStr,
 					timestamp: Date.now(),
+					...(callId ? { callId } : {}),
 				});
 				updateResearchWidget();
+				state.zoomRender?.();
+			},
+			onToolEnd: (toolName, callId, isError, resultText, durationMs) => {
+				appendTimelineEvent(state, {
+					kind: "tool-result",
+					title: `Result: ${toolName}`,
+					content: resultText ?? "",
+					timestamp: Date.now(),
+					...(callId ? { callId } : {}),
+					status: isError ? "error" : "success",
+					...(durationMs == null ? {} : { durationMs }),
+				});
 				state.zoomRender?.();
 			},
 			onUsage: (usage) => {
@@ -7007,22 +7107,80 @@ ${externalBlockedProtocol()}
 		return normalizeFleetDetailInput(data, key);
 	}
 
-	async function openFleetDetail(row: FleetRow, ctx: any): Promise<void> {
+	async function openFleetDetail(row: FleetRow, ctx: any, initialVerbose = false): Promise<boolean> {
 		const target = row.kind === "research" ? researchStates.get(parseResearchHandle(row.key)!) : row.kind === "delegate" ? findDelegationChild(row.key)?.child : agentStates.get(row.key);
 		const resources = createPanelResources();
 		let detailRow = row;
 		let modelPicker: { choices: FleetModelChoice[]; index: number; scrollOffset: number } | null = null;
-		let scrollOffset = 0, selectedIndex = 0, expandedIndex: number | null = null, followTail = true, lastRender = 0;
-		const timeline = () => liveTimeline(target);
+		let scrollOffset = 0, selectedIndex = 0, expandedIndex: number | null = null, followTail = true, verbose = initialVerbose, lastRender = 0;
+		const transcriptPath = target?.transcriptStore?.path;
+		let transcriptRecords: FleetTranscriptRecord[] | null = transcriptPath
+			? readFleetTranscriptTail(transcriptPath, { limit: 2000 }).records
+			: null;
+		const compactRecords = (records: readonly FleetTranscriptRecord[]): TimelineEntry[] => {
+			const entries: TimelineEntry[] = [];
+			for (const { event } of records) {
+				const current = event as TimelineEntry;
+				const last = entries[entries.length - 1];
+				const merge = last && last.kind === current.kind
+					&& (current.kind === "text" || current.kind === "thinking" || (last.callId && last.callId === current.callId));
+				if (merge && last.content.length < MAX_LIVE_ENTRY_CHARS) {
+					const room = MAX_LIVE_ENTRY_CHARS - last.content.length;
+					last.content += current.content.slice(0, room);
+					if (current.content.length > room) entries.push({ ...current, content: current.content.slice(room) });
+				} else entries.push({ ...current });
+			}
+			return entries;
+		};
+		const timeline = () => transcriptRecords ? compactRecords(transcriptRecords) : [...liveTimeline(target)] as TimelineEntry[];
+		const syncTranscriptTail = () => {
+			if (!transcriptPath || !transcriptRecords || !followTail) return;
+			const after = transcriptRecords[transcriptRecords.length - 1]?.endOffset ?? 0;
+			const page = readFleetTranscript(transcriptPath, { after, limit: 500 });
+			if (page.records.length > 0) transcriptRecords.push(...page.records);
+			if (transcriptRecords.length > 2000) transcriptRecords.splice(0, transcriptRecords.length - 2000);
+		};
+		const loadOlderTranscript = () => {
+			if (!transcriptPath || !transcriptRecords) return 0;
+			const before = transcriptRecords[0]?.startOffset ?? 0;
+			if (before <= 0) return 0;
+			const older = readFleetTranscriptBefore(transcriptPath, { before, limit: 500 }).records;
+			transcriptRecords.unshift(...older);
+			if (transcriptRecords.length > 2000) transcriptRecords.splice(2000);
+			return compactRecords(older).length;
+		};
+		const loadNewerTranscript = (): number => {
+			if (!transcriptPath || !transcriptRecords) return 0;
+			const after = transcriptRecords[transcriptRecords.length - 1]?.endOffset ?? 0;
+			const newer = readFleetTranscript(transcriptPath, { after, limit: 500 }).records;
+			if (newer.length === 0) return 0;
+			transcriptRecords.push(...newer);
+			const overflow = Math.max(0, transcriptRecords.length - 2000);
+			const removed = overflow > 0 ? compactRecords(transcriptRecords.slice(0, overflow)).length : 0;
+			if (overflow > 0) transcriptRecords.splice(0, overflow);
+			return removed;
+		};
+		const reloadTranscriptTail = () => {
+			if (!transcriptPath) return;
+			transcriptRecords = readFleetTranscriptTail(transcriptPath, { limit: 2000 }).records;
+		};
 		try { await ctx.ui.custom((tui: any, theme: any, _kb: any, done: () => void) => {
 			if (target) target.zoomRender = (force?: boolean) => { const now = Date.now(); if (force || now - lastRender > 80) { lastRender = now; tui.requestRender(); } };
+			resources.every(2000, () => tui.requestRender());
 			return {
 				render: (w: number) => {
 					const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS);
 					if (modelPicker) return renderFleetModelPicker(detailRow.name, modelPicker.choices, modelPicker, w, body, theme);
+					syncTranscriptTail();
 					const entries = timeline();
-					if (followTail) scrollOffset = Math.max(0, detailContent(entries, w, expandedIndex).length - body);
-					return renderFleetDetail(detailRow, entries, scrollOffset, w, body, theme, expandedIndex);
+					if (followTail) {
+						selectedIndex = Math.max(0, entries.length - 1);
+						scrollOffset = Math.max(0, detailContent(entries, w, expandedIndex, verbose, selectedIndex).length - body);
+					}
+					const liveRow = detailRow.status === "running" && detailRow.startedAt != null
+						? { ...detailRow, elapsed: Date.now() - detailRow.startedAt }
+						: detailRow;
+					return renderFleetDetail(liveRow, entries, scrollOffset, w, body, theme, expandedIndex, verbose, selectedIndex);
 				},
 				handleInput: async (data: string) => {
 					const input = matchedFleetDetailInput(data);
@@ -7041,10 +7199,22 @@ ${externalBlockedProtocol()}
 						tui.requestRender();
 						return;
 					}
-					const entries = timeline();
-					const state = { scrollOffset, selectedIndex, expandedIndex, followTail };
-					const action = detailTransition(input, state, entries, body, detailContent(entries, tui.terminal?.columns ?? 80, expandedIndex).length);
-					({ scrollOffset, selectedIndex, expandedIndex, followTail } = state);
+					if ((input === "\u001b[A" || input === "k" || input === "\u001b[5~" || input === "\u001b[H") && scrollOffset === 0) {
+						const added = loadOlderTranscript();
+						selectedIndex += added;
+					}
+					if (input === "\u001b[F") reloadTranscriptTail();
+					let entries = timeline();
+					if (!followTail && (input === "\u001b[B" || input === "j" || input === "\u001b[6~") && selectedIndex >= entries.length - 1) {
+						selectedIndex = Math.max(0, selectedIndex - loadNewerTranscript());
+						entries = timeline();
+					}
+					const width = tui.terminal?.columns ?? 80;
+					const state = { scrollOffset, selectedIndex, expandedIndex, followTail, verbose };
+					const content = detailContent(entries, width, expandedIndex, verbose, selectedIndex);
+					const offsets = detailEntryOffsets(entries, width, expandedIndex, verbose);
+					const action = detailTransition(input, state, entries, body, content.length, offsets);
+					({ scrollOffset, selectedIndex, expandedIndex, followTail, verbose } = state);
 					if (action === "close") done();
 					else if (action === "copy") {
 						const item = entries[selectedIndex];
@@ -7062,6 +7232,7 @@ ${externalBlockedProtocol()}
 				dispose: () => resources.dispose(),
 			};
 		}, FULLSCREEN_OVERLAY); } finally { resources.dispose(); if (target) target.zoomRender = undefined; }
+		return verbose;
 	}
 	async function restartFleetRow(selected: FleetRow, ctx: any): Promise<void> {
 		if (modelWorkBlockedByRosterRecovery(ctx)) return;
@@ -7112,6 +7283,7 @@ ${externalBlockedProtocol()}
 		const selection: Selection = { index: 0 };
 		let scrollOffset = 0;
 		let filtering = false;
+		let detailVerbose = false;
 		let confirm: DashboardConfirm = null;
 		let substitutionPicker: FleetSubstitutionPickerState | null = startSubstitution
 			? { stage: "source", choices: substitutionSourceChoices(), index: 0, scrollOffset: 0 }
@@ -7192,7 +7364,7 @@ ${externalBlockedProtocol()}
 						else substitutionPicker = { stage: "source", choices, index: 0, scrollOffset: 0 };
 					} else if (intent && typeof intent === "object" && "open" in intent) {
 						const selected = rows.find(r => r.key === intent.open) ?? rows[selection.index];
-						if (selected) await openFleetDetail(selected, ctx);
+						if (selected) detailVerbose = await openFleetDetail(selected, ctx, detailVerbose);
 					} else if (intent && typeof intent === "object" && "kill" in intent) {
 						const selected = rows.find(r => r.key === intent.kill);
 						if (!selected) ctx.ui.notify("Selected fleet row no longer exists.", "warning");

@@ -144,11 +144,11 @@ export function compactWidgetsEnabled(viewMode: "compact" | "off"): boolean {
 
 type PanelResources = ReturnType<typeof createPanelResources>;
 
-/** Register the 1s elapsed/status ticker and return a disposer that tears it down. */
+/** Register the 2s recovery/elapsed ticker; live events request immediate renders. */
 export function attachFleetDashboardTicker(
 	resources: PanelResources,
 	requestRender: () => void,
-	intervalMs = 1000,
+	intervalMs = 2000,
 ): () => void {
 	resources.every(intervalMs, requestRender);
 	return () => resources.dispose();

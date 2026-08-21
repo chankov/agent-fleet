@@ -51,8 +51,8 @@ if (mode === 'normal') {
   emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'partial ' } });
   setInterval(() => {}, 1000);
 } else if (mode === 'tool-errors') {
-  start('e1', 'bash'); emit({ type: 'tool_execution_end', toolCallId: 'e1', toolName: 'bash', isError: true });
-  start('e2', 'bash'); emit({ type: 'tool_execution_end', toolCallId: 'e2', toolName: 'bash', result: { isError: false } });
+  start('e1', 'bash'); emit({ type: 'tool_execution_end', toolCallId: 'e1', toolName: 'bash', isError: true, result: { content: [{ type: 'text', text: 'stderr one' }] } });
+  start('e2', 'bash'); emit({ type: 'tool_execution_end', toolCallId: 'e2', toolName: 'bash', result: { isError: false, content: [{ type: 'text', text: 'stdout two' }] } });
   start('e3', 'bash'); end('e3', 'bash');
   done();
 } else if (mode === 'model-fallback') {
@@ -443,16 +443,19 @@ test('onControl terminate classifies an external drift stop and preserves partia
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('onToolEnd surfaces error flags from either event shape and omits unknown', async () => {
+test('onToolEnd surfaces complete result text, error flags, and measured duration', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-tool-errors-'));
   try {
     createFakePi(tmp);
     const seen = [];
     const result = await spawnPiAgent(
       options(tmp, { FAKE_PI_MODE: 'tool-errors' }),
-      { onToolEnd: (tool, _id, isError) => seen.push([tool, isError]) },
+      { onToolEnd: (tool, _id, isError, output, durationMs) => seen.push([tool, isError, output, durationMs]) },
     );
     assert.equal(result.exitCode, 0);
-    assert.deepEqual(seen, [['bash', true], ['bash', false], ['bash', undefined]]);
+    assert.deepEqual(seen.map(([tool, isError, output]) => [tool, isError, output]), [
+      ['bash', true, 'stderr one'], ['bash', false, 'stdout two'], ['bash', undefined, ''],
+    ]);
+    assert.ok(seen.every(([, , , durationMs]) => typeof durationMs === 'number' && durationMs >= 0));
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });

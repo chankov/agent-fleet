@@ -36,6 +36,7 @@ import { Type } from "@sinclair/typebox";
 import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
 import { spawnPiAgentWithModelFallback, killPiTree } from "./spawn.ts";
+import { redactSecrets } from "../lib/fleet-transcript-store.ts";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
 import {
 	delegateBudgetRefusal,
@@ -157,9 +158,15 @@ export default function (pi: ExtensionAPI) {
 		for (const child of liveChildren) killPiTree(child, "SIGTERM");
 	});
 
+	const redactValue = (value: unknown): unknown => {
+		if (typeof value === "string") return redactSecrets(value);
+		if (Array.isArray(value)) return value.map(redactValue);
+		if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, redactValue(nested)]));
+		return value;
+	};
 	const emit = (event: Record<string, unknown>) => {
 		try {
-			appendFileSync(safePathWithin(config.eventDir, "events.jsonl"), JSON.stringify(event) + "\n", "utf-8");
+			appendFileSync(safePathWithin(config.eventDir, "events.jsonl"), JSON.stringify(redactValue(event)) + "\n", { encoding: "utf-8", mode: 0o600 });
 		} catch {}
 	};
 
@@ -356,9 +363,13 @@ export default function (pi: ExtensionAPI) {
 					},
 					onTextDelta: (delta) => queueDelta("text", delta),
 					onThinkingDelta: (delta) => queueDelta("thinking", delta),
-					onToolStart: (toolName, argStr) => {
+					onToolStart: (toolName, argStr, callId) => {
 						flushTimeline();
-						emit({ t: "tool", id: childId, name: toolName, args: argStr.slice(0, 500) });
+						emit({ t: "tool_start", id: childId, name: toolName, args: argStr, callId, ts: Date.now() });
+					},
+					onToolEnd: (toolName, callId, isError, resultText, durationMs) => {
+						flushTimeline();
+						emit({ t: "tool_result", id: childId, name: toolName, output: resultText ?? "", callId, isError: isError === true, durationMs, ts: Date.now() });
 					},
 					onUsage: (usage, source) => {
 						if (source === "message_end") {

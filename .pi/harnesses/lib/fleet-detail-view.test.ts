@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { DETAIL_CHROME_ROWS, detailContent, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker } from "./fleet-detail-view.ts";
+import { DETAIL_CHROME_ROWS, detailContent, detailEntryOffsets, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker } from "./fleet-detail-view.ts";
 
 const theme = { fg: (_: string, s: string) => s, bold: (s: string) => s };
 const row = { key: "a", name: "Architect", kind: "specialist" as const, depth: 0, status: "running" as const, model: "opus", backend: "native" as const, contextPct: 42, contextTokens: 42_000, elapsed: 1_000, toolCount: 3, lastWork: "work", hasTimeline: true };
@@ -24,12 +24,52 @@ test("expanded tool content determines the scroll bound", () => {
 	assert.match(renderFleetDetail(row, entries, state.scrollOffset, 80, 2, theme, 0).join("\n"), /four/);
 });
 
-test("detail transitions scroll, follow tail, expand, copy, and close", () => {
-	const state = { scrollOffset: 0, selectedIndex: 2, expandedIndex: null as number | null, followTail: false };
+test("detail transitions scroll, follow tail, verbose, expand, copy, and close", () => {
+	const state = { scrollOffset: 0, selectedIndex: 2, expandedIndex: null as number | null, followTail: false, verbose: false };
 	assert.equal(detailTransition("\r", state, timeline, 4), null); assert.equal(state.expandedIndex, 2);
+	assert.equal(detailTransition("v", state, timeline, 4), null); assert.equal(state.verbose, true);
 	assert.equal(detailTransition("\u0003", state, timeline, 4), "copy"); assert.equal(detailTransition("\u001b[F", state, timeline, 4), null); assert.equal(state.followTail, true); assert.ok(state.scrollOffset > 0);
 	assert.equal(detailTransition("m", state, timeline, 4), "model");
 	assert.equal(detailTransition("\u001b", state, timeline, 4), "close");
+});
+
+test("verbose detail wraps complete assistant, thinking, tool args and tool results", () => {
+	const entries = [
+		{ kind: "text" as const, title: "Assistant", content: "alpha beta gamma delta epsilon", timestamp: 1 },
+		{ kind: "thinking" as const, title: "Thinking", content: "reasoning line one\nreasoning line two", timestamp: 2 },
+		{ kind: "tool-start" as const, title: "Tool: bash", content: "{\"command\":\"printf a-very-long-command\"}", timestamp: 3, callId: "c1" },
+		{ kind: "tool-result" as const, title: "Result: bash", content: "stdout first\nstdout second", timestamp: 4, callId: "c1", status: "success" as const, durationMs: 1250 },
+	];
+	const content = detailContent(entries, 24, null, true, 3);
+	const joined = content.join("\n");
+	for (const expected of ["alpha", "epsilon", "reasoning line one", "reasoning line two", "printf", "stdout first", "stdout second", "success", "1.25s"]) assert.match(joined, new RegExp(expected));
+	assert.ok(content.every(line => Array.from(line).length <= 24));
+	assert.deepEqual(detailEntryOffsets(entries, 24, null, true).map(item => item.index), [0, 1, 2, 3]);
+	const rendered = renderFleetDetail(row, entries, 0, 24, 12, theme, null, true, 3).join("\n");
+	assert.match(rendered, /Verbose/);
+	assert.match(rendered, /v compact/);
+});
+
+test("compact detail remains one line per entry unless a tool is expanded", () => {
+	const entries = [{ kind: "tool-start" as const, title: "Tool: bash", content: "one\ntwo", timestamp: 1 }];
+	assert.equal(detailContent(entries, 80, null, false).length, 1);
+	assert.equal(detailContent(entries, 80, 0, false).length, 3);
+});
+
+test("verbose navigation uses wrapped entry offsets and manual movement pauses tail follow", () => {
+	const entries = [
+		{ kind: "text" as const, title: "A", content: "one ".repeat(20), timestamp: 1 },
+		{ kind: "text" as const, title: "B", content: "two", timestamp: 2 },
+	];
+	const offsets = detailEntryOffsets(entries, 20, null, true);
+	const content = detailContent(entries, 20, null, true);
+	const state = { scrollOffset: 0, selectedIndex: 0, expandedIndex: null as number | null, followTail: true, verbose: true };
+	detailTransition("\u001b[B", state, entries, 3, content.length, offsets);
+	assert.equal(state.selectedIndex, 1);
+	assert.equal(state.followTail, false);
+	assert.equal(state.scrollOffset, Math.max(0, offsets[1].start - 2));
+	detailTransition("\u001b[F", state, entries, 3, content.length, offsets);
+	assert.equal(state.followTail, true);
 });
 
 test("model choices expose every valid Pi model with stable specs", () => {

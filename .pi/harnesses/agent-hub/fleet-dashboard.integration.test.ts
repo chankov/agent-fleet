@@ -39,7 +39,13 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.doesNotMatch(source, /startedAt:\s*state\.status === "idle" \? undefined : Date\.now\(\) - state\.elapsed/);
 	assert.match(source, /dashboardTransition\(/);
 	assert.match(source, /press \$\{confirm\.action === "kill" \? "x" : "r"\} again/);
-	assert.match(source, /openFleetDetail\(selected, ctx\)/);
+	assert.match(source, /openFleetDetail\(selected, ctx, detailVerbose\)/);
+	assert.match(source, /resources\.every\(2000, \(\) => tui\.requestRender\(\)\)/);
+	assert.match(source, /createFleetTranscriptStore\(/);
+	assert.match(source, /readFleetTranscriptTail\(/);
+	assert.match(source, /readFleetTranscriptBefore\(/);
+	assert.match(source, /MAX_LIVE_TIMELINE_ENTRIES = 500/);
+	assert.match(source, /kind: "tool-result"/);
 	assert.match(source, /detailTransition\(/);
 	assert.match(source, /if \(modelPicker\) return renderFleetModelPicker/);
 	assert.match(source, /action === "model"[\s\S]*?loadFleetDetailModelChoices/);
