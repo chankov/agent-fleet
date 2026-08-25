@@ -1,6 +1,6 @@
 ---
 name: incremental-implementation
-description: Delivers changes incrementally. Use when implementing any feature or change that touches more than one file. Use when you're about to write a large amount of code at once, or when a task feels too big to land in one step.
+description: Delivers changes incrementally and grills unspecified forks instead of silently picking among them. Use when implementing any feature or change that touches more than one file. Use when you're about to write a large amount of code at once, or when a task feels too big to land in one step.
 ---
 
 # Incremental Implementation
@@ -160,6 +160,12 @@ NOTICED BUT NOT TOUCHING:
 → Want me to create tasks for these?
 ```
 
+### Rule 0.6: Grill unspecified forks; do not re-ask settled ones
+
+A plan does not freeze every decision. Before (and during) a slice, if a load-bearing choice is **not** already explicit in the task, plan, PRD, chat, prompt, or rules — multiple valid approaches, a contradiction, or several existing code patterns — read [`../_internal/grilling.md`](../_internal/grilling.md) and ask one question at a time, with a recommended option. Wait. Do not pick silently and do not re-confirm what those sources already stated.
+
+If grilling produces zero questions, proceed with the slice.
+
 ### Rule 1: One Thing at a Time
 
 Each increment changes one logical thing. Don't mix concerns:
@@ -238,6 +244,7 @@ After each increment, verify:
 - [ ] Type checking passes (`npx tsc --noEmit`)
 - [ ] Linting passes (`npm run lint`)
 - [ ] The new functionality works as expected
+- [ ] Unspecified load-bearing forks were grilled (or grilling found none); already-stated requirements were not re-asked
 - [ ] The Standard Slice Summary was presented to the user
 - [ ] Explicit user approval was received before starting the next slice
 - [ ] The agent did not run `git add`, `git commit`, `git reset`, or `git restore` during this slice (whatever the user staged or committed between slices is preserved as-is)
@@ -255,6 +262,8 @@ After each increment, verify:
 | "This refactor is small enough to include" | Refactors mixed with features make both harder to review and debug. Separate them. |
 | "I'll just stage it to make their life easier" | Don't. The user explicitly controls staging and commits. Do not run any git state-changing command — and do not "tidy up" by unstaging or resetting what the user staged between slices. |
 | "They didn't answer but it's obviously fine, I'll continue" | No. Silence is not approval. Wait for an explicit response before starting the next slice. |
+| "The plan didn't specify which existing pattern to follow, I'll just pick one" | That is an unspecified fork. Grill it. The programmer needs to know which variant was chosen and why. |
+| "I'll re-confirm the PRD acceptance criteria before coding" | Already-stated requirements are not re-asked. Grill only what is still open. |
 | "Let me run the build command again just to be sure" | After a successful run, repeating the same command adds nothing unless the code has changed since. Run it again after subsequent edits, not as reassurance. |
 
 ## Red Flags
@@ -268,6 +277,8 @@ After each increment, verify:
 - Staging or committing changes on the user's behalf
 - Unstaging, resetting, restoring, or stashing changes the user staged or committed between slices ("enforcing" an unstaged working tree is not the agent's job)
 - Building abstractions before the third use case demands it
+- Silently picking among several valid approaches or existing code patterns
+- Re-asking a requirement already explicit in the task, plan, PRD, chat, or rules
 - Touching files outside the task scope "while I'm here"
 - Creating new utility files for one-time operations
 - Running the same build/test command twice in a row without any intervening code change

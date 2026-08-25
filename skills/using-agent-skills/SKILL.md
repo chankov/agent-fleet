@@ -49,17 +49,13 @@ Task arrives
 
 These behaviors apply at all times, across all skills. They are non-negotiable.
 
-### 1. Surface Assumptions
+### 1. Surface Assumptions — grill unspecified forks
 
-Before implementing anything non-trivial, explicitly state your assumptions:
+Whenever a decision must be taken — planning **or** implementation — follow [`../_internal/grilling.md`](../_internal/grilling.md):
 
-```
-ASSUMPTIONS I'M MAKING:
-1. [assumption about requirements]
-2. [assumption about architecture]
-3. [assumption about scope]
-→ Correct me now or I'll proceed with these.
-```
+- **Already stated** in chat, prompt, PRD, spec, plan, or rules → do not re-ask. Treat as accepted.
+- **Unspecified and load-bearing** (multiple valid ways, contradiction, competing code patterns) → grill one question at a time, with a recommended option, and **wait**. Do not "proceed unless corrected."
+- **Non-load-bearing working detail** (which test file to open first) → state it and continue unless redirected.
 
 Don't silently fill in ambiguous requirements. The most common failure mode is making wrong assumptions and running with them unchecked. Surface uncertainty early — it's cheaper than rework.
 
@@ -124,12 +120,14 @@ These are the subtle errors that look like productivity but create problems:
 2. Not managing your own confusion — plowing ahead when lost
 3. Not surfacing inconsistencies you notice
 4. Not presenting tradeoffs on non-obvious decisions
-5. Being sycophantic ("Of course!") to approaches with clear problems
-6. Overcomplicating code and APIs
-7. Modifying code or comments orthogonal to the task
-8. Removing things you don't fully understand
-9. Building without a spec because "it's obvious"
-10. Skipping verification because "it looks right"
+5. Re-asking a requirement that was already explicit in chat, PRD, or rules
+6. Silently picking among several valid approaches or existing code patterns
+7. Being sycophantic ("Of course!") to approaches with clear problems
+8. Overcomplicating code and APIs
+9. Modifying code or comments orthogonal to the task
+10. Removing things you don't fully understand
+11. Building without a spec because "it's obvious"
+12. Skipping verification because "it looks right"
 
 ## Skill Rules
 

@@ -69,18 +69,13 @@ Writing a spec without reading what already exists leads to duplication, contrad
 
 Then start with a high-level vision. Ask the human clarifying questions until requirements are concrete.
 
-**Grilling mode:** If the user asks to grill a concept/spec, or a requirement depends on unconfirmed design choices, read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md) before locking the spec. Resolve decisions one at a time; fold each answer into Success Criteria, Boundaries, Proposed decisions, or Open Questions.
+**Grilling (required before locking the spec):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Skip anything already explicit in chat, prompt, PRD, or rules — do not re-confirm it. Grill every remaining unconfirmed design choice (multiple valid ways, contradiction, competing code patterns) one question at a time, with a recommended option. Fold each answer into Success Criteria, Boundaries, Proposed decisions, or Open Questions. If nothing is open, note that grilling found no unspecified forks and continue.
 
-**Surface assumptions immediately.** Before writing any spec content, list what you're assuming:
+**Surface assumptions immediately.** Before writing any spec content, classify what you would otherwise assume:
 
-```
-ASSUMPTIONS I'M MAKING:
-1. This is a web application (not native mobile)
-2. Authentication uses session-based cookies (not JWT)
-3. The database is PostgreSQL (based on existing Prisma schema)
-4. We're targeting modern browsers only (no IE11)
-→ Correct me now or I'll proceed with these.
-```
+- Already explicit in chat, prompt, or rules → do not re-ask.
+- Confirmed in code, tests, or trusted docs (e.g. PostgreSQL because the Prisma schema is already Postgres) → do not re-ask; mark Confirmed.
+- Load-bearing and still open (native vs web, cookies vs JWT when neither is mandated) → grill per the helper above and **wait**. Do not dump a list and proceed unless corrected.
 
 Don't silently fill in ambiguous requirements. The spec's entire purpose is to surface misunderstandings *before* code gets written — assumptions are the most dangerous form of misunderstanding.
 
@@ -244,6 +239,8 @@ The spec is a living document, not a one-time artifact:
 - Implementing features not mentioned in any spec or task list
 - Making architectural decisions without documenting them
 - Skipping the spec because "it's obvious what to build"
+- Re-asking a requirement already explicit in chat, prompt, or rules
+- Locking a spec that silently picks among several valid approaches
 
 ## Verification
 
@@ -251,7 +248,9 @@ Before proceeding to implementation, confirm:
 
 - [ ] The spec covers all six core areas
 - [ ] The human has reviewed and approved the spec
-- [ ] If grilling was invoked, each load-bearing decision is recorded as accepted, rejected, or deferred
+- [ ] Grilling ran before the spec was locked (inventory of load-bearing decisions)
+- [ ] Already-stated requirements (chat, prompt, rules) were not re-asked
+- [ ] Each remaining load-bearing decision is recorded as accepted, rejected, or deferred
 - [ ] Success criteria are specific and testable
 - [ ] Boundaries (Always/Ask First/Never) are defined
 - [ ] The spec is saved to its output location (see Output Location)

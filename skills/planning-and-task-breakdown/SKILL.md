@@ -1,6 +1,6 @@
 ---
 name: planning-and-task-breakdown
-description: Breaks work into ordered tasks. Use when you have a spec or clear requirements and need to break work into implementable tasks. Use when a task feels too large to start, when you need to estimate scope, when parallel work is possible, or when the user wants to grill a plan before implementation.
+description: Breaks work into ordered tasks and grills unspecified design forks before writing them. Use when you have a spec or clear requirements and need to break work into implementable tasks. Use when a task feels too large to start, when you need to estimate scope, when parallel work is possible, or when more than one valid approach exists and the plan must lock a choice.
 ---
 
 # Planning and Task Breakdown
@@ -16,9 +16,9 @@ Decompose work into small, verifiable tasks with explicit acceptance criteria. G
 - Work needs to be parallelized across multiple agents or sessions
 - You need to communicate scope to a human
 - The implementation order isn't obvious
-- The user asks to grill or stress-test a draft plan before implementation
+- More than one valid approach, a contradiction, or competing code patterns must be locked before tasks are written
 
-**When NOT to use:** Single-file changes with obvious scope, or when the spec already contains well-defined tasks.
+**When NOT to use:** Single-file changes with obvious scope, or when the spec already contains well-defined tasks. Skipping a plan file does **not** skip grilling: if the change can be done several ways and none is mandated, ask before coding.
 
 ## Proportionality gate (check before writing anything)
 
@@ -37,6 +37,7 @@ Rules that follow from this:
 - **Plan the ask, not the neighbourhood.** Adjacent problems you notice go in a short "Out of scope / noticed" list at the end for the human to decide on. They do not become tasks.
 - **Split by phase when the phases have different owners.** Repository work, cloud/infrastructure preparation, deployment, and retirement belong in separate plans: bundling them means the whole plan is blocked on whichever phase stalls, and every review re-reads all of it.
 - **Review findings do not silently enlarge the plan.** When a plan revision adds requirements nobody asked for, say so explicitly and let the human accept or drop them.
+- **Unspecified forks still get grilled.** Skipping a plan file does not skip a load-bearing choice. Already-stated requirements (chat, prompt, PRD, rules) are not re-asked.
 
 ## Output Location
 
@@ -65,7 +66,7 @@ Before writing any code, operate in read-only mode:
 
 **Do NOT write code during planning.** The output is a plan document, not implementation.
 
-**Grilling mode:** If the user asks to grill/stress-test the plan, or Step 1 reveals a load-bearing assumption, read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md) before writing tasks. Resolve decisions one at a time; update Architecture Decisions, Risks, and Open Questions with accepted, rejected, or deferred choices.
+**Grilling (required before writing tasks):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Inventory load-bearing decisions. Skip anything already explicit in chat, prompt, PRD, spec, or rules. Grill every remaining fork (multiple valid ways, contradiction, competing code patterns) one question at a time, with a recommended option. Do not write tasks while a load-bearing choice is still silently assumed. Update Architecture Decisions, Risks, and Open Questions with accepted, rejected, or deferred choices. If nothing is open, note that grilling found no unspecified forks and continue.
 
 ### Step 2: Identify the Dependency Graph
 
@@ -226,6 +227,9 @@ When multiple agents or sessions are available:
 | "The tasks are obvious" | Write them down anyway. Explicit tasks surface hidden dependencies and forgotten edge cases. |
 | "Planning is overhead" | Planning is the task. Implementation without a plan is just typing. |
 | "I can hold it all in my head" | Context windows are finite. Written plans survive session boundaries and compaction. |
+| "The PRD already covers everything, no need to grill" | Then grilling produces zero questions. Still run the inventory so silent forks do not slip through. |
+| "I'll pick the obvious variant and note it in Architecture Decisions" | If more than one variant exists and none was mandated, it is not obvious to the programmer who was not in the room. Ask, then record the choice. |
+| "Re-confirming the PRD points shows thoroughness" | Re-asking settled requirements wastes the user and implies the agent did not read them. Skip them. |
 
 ## Red Flags
 
@@ -235,6 +239,9 @@ When multiple agents or sessions are available:
 - All tasks touches more than 8+ files
 - No checkpoints between tasks
 - Dependency order isn't considered
+- Writing tasks that silently pick a library, pattern, or behavior not mandated in chat/PRD/rules
+- Re-asking a requirement already explicit in chat, prompt, PRD, spec, or rules
+- Leaving an unspecified fork as an Open Question without asking
 
 ## Verification
 
@@ -246,7 +253,9 @@ Before starting implementation, confirm:
 - [ ] No task touches more than ~5 files
 - [ ] Checkpoints exist between major phases
 - [ ] The human has reviewed and approved the plan
-- [ ] If grilling was invoked, each load-bearing decision has an accepted/rejected/deferred status in the plan
+- [ ] Grilling ran before tasks were written (inventory of load-bearing decisions)
+- [ ] Already-stated requirements (chat, prompt, PRD, spec, rules) were not re-asked
+- [ ] Each remaining load-bearing decision has an accepted/rejected/deferred status in the plan
 - [ ] No open questions left (All are resolved/answered/commented)
 
 ## See Also

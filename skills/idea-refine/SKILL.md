@@ -88,7 +88,7 @@ Read `frameworks.md` in this skill directory for additional ideation frameworks 
 
 After the user reacts to Phase 1 (indicates which ideas resonate, pushes back, adds context), shift to convergent mode.
 
-**Grilling mode:** If the user asks to "grill" or stress-test a specific plan/design, read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md) and use that one-question-at-a-time decision interview before producing the one-pager. Treat the answers as inputs to Key Assumptions, MVP Scope, Not Doing, and Open Questions.
+**Grilling:** When converging on a direction — and whenever the user asks to "grill" or stress-test a plan/design — read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Skip points already explicit in chat, prompt, PRD, or rules. Grill remaining unspecified forks one question at a time, with a recommended option, before producing the one-pager. Treat the answers as inputs to Key Assumptions, MVP Scope, Not Doing, and Open Questions.
 
 1. **Cluster** the ideas that resonated into 2-3 distinct directions. Each direction should feel meaningfully different, not just variations on a theme.
 
@@ -176,7 +176,7 @@ After completing an ideation session:
 - [ ] The target user and success criteria are defined
 - [ ] Multiple directions were explored, not just the first idea
 - [ ] Hidden assumptions are explicitly listed with validation strategies
-- [ ] If grilling was invoked, decisions were resolved one at a time and reflected in the one-pager
+- [ ] Unspecified forks were grilled one at a time (or grilling found none); already-stated points were not re-asked; decisions are reflected in the one-pager
 - [ ] A "Not Doing" list makes trade-offs explicit
 - [ ] The output is a concrete artifact (markdown one-pager), not just conversation
 - [ ] The user confirmed the final direction before any implementation work

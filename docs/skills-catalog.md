@@ -23,7 +23,7 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [planning-and-task-breakdown](../skills/planning-and-task-breakdown/SKILL.md) | Decompose specs into small, verifiable tasks with acceptance criteria and dependency ordering | You have a spec and need implementable units |
+| [planning-and-task-breakdown](../skills/planning-and-task-breakdown/SKILL.md) | Decompose specs into small, verifiable tasks with acceptance criteria, dependency ordering, and grilling of unspecified forks (never re-asking what chat/PRD/rules already stated) | You have a spec and need implementable units |
 
 ## Build - Write the code
 
