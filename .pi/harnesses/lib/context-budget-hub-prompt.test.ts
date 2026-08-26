@@ -34,7 +34,6 @@ function representativeParts(posture: "operator" | "orchestrator", herdr: boolea
 		ambiguityRule: "- NEVER proceed past an ambiguity by guessing.",
 		agentCatalog: agentCards.map((card) => card.text).join("\n\n"),
 		researchCatalog: researchCards.map((card) => card.text).join("\n\n"),
-		dispatcherPersonaPrompt: undefined,
 		agentCards,
 		researchCards,
 	};

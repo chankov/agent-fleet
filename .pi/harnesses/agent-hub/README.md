@@ -332,8 +332,6 @@ Every borrowed idea from another harness passes one test before it lands: *does 
     delegated.
   - `test-engineer` — `coverage-scout`+`conventions` (spark) inventory gaps and test patterns;
     test writing is never delegated.
-- **Dispatcher persona gate** — optional `persona-gate: on` can require an orchestrator persona at
-  session start; by default the dispatcher starts without the gate.
 - **Default damage-control guardrails** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` harness before `agent-hub`, so dispatcher tool calls are checked against
   `.pi/damage-control-rules.yaml` and a blocked call feeds back instead of aborting the turn. A
@@ -888,9 +886,7 @@ pool-scope boundary is enforced identically.
 Each session registers a coms identity at start-up, resolved in this precedence order:
 
 1. **CLI flags** — `--name`, `--purpose`, `--project`, `--color`, `--explicit`
-2. **Dispatcher persona frontmatter** — `name`, `description` (→ purpose), `color` from the
-   selected `kind: orchestrator` persona (see [persona sync](#persona--coms-purpose-sync))
-3. **Defaults** — auto-generated name `hub-<id>`, purpose `agent-hub dispatcher`, project
+2. **Defaults** — auto-generated name `hub-<id>`, purpose `agent-hub dispatcher`, project
    `default`, a deterministic color derived from the session id
 
 Names are de-duplicated per project (`resolveUniqueName`), so two hubs that both want `architect`
@@ -1018,13 +1014,10 @@ A live "pool" widget lists connected peers with name, model, and live context us
 ping cycle; a keepalive cycle re-writes this session's own registry entry (and self-heals it if an
 external prune removed it). Both timers are `unref`'d so they never hold the process open.
 
-### Persona → coms purpose sync
+### Purpose
 
-The dispatcher persona gate fires *after* coms init, so the identity's `purpose` starts from the
-flag/frontmatter/default and is then reconciled to the chosen persona: `syncComsPurpose()` maps the
-selected `kind: orchestrator` persona to `"<Name> — <description>"` and re-writes the live registry
-entry — **unless** `--purpose` was passed explicitly (an explicit flag always wins). Switching or
-resetting the persona via `/af-persona` re-syncs.
+The coms identity `purpose` is the `--purpose` CLI flag when set, otherwise the default
+`agent-hub dispatcher`. There is no runtime dispatcher-persona picker.
 
 ### Graceful degradation
 
@@ -1041,11 +1034,8 @@ Coms tools are active only when coms is ready, Herdr tools only in a live Herdr 
 only when registered. Posture switching recomputes this list live without touching session state.
 
 `set_assertions` / `update_assertion` / `get_assertions` are the always-on Verification Contract ledger tools (see
-[What it does](#what-it-does)); like `dispatch_agent` / `spawn_research` they are part of the
-orchestration surface the dispatcher persona never narrows.
-
-The dispatcher persona is **flavor-only** (decision G4 / 9) — it enriches the role but never narrows
-this tool set, so coms and dispatch stay available regardless of the chosen persona.
+[What it does](#what-it-does)); like `dispatch_agent` / `spawn_research` they stay on the
+orchestration surface in both postures.
 
 ## Optional Hermes local monitor transport
 

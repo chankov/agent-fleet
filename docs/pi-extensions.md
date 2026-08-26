@@ -193,8 +193,6 @@ harnesses:
   assertions — see the [`orchestration-verification`](../skills/orchestration-verification/SKILL.md)
   skill, which the `orchestrator` persona drives. Advisory in this phase (surfaced, not a hard
   dispatch refusal).
-- **Persona gate** — requires an orchestrator persona at startup unless disabled in the local
-  override file; the chosen persona also feeds the coms purpose when no explicit `--purpose` is set.
 - **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls. `/af-context` is a separate read-only full-screen context-budget view: provider totals/cache fields are authoritative, component estimates are labelled heuristic or provider-scaled, stable prompt and volatile-state cost are separated, loaded-but-excluded and inactive packs visibly cost zero, and fleet members use separate model-window denominators. It also shows live pressure phase, measured usage, the 80%/90% thresholds, episode, and last recovery outcome. It never reveals or persists raw prompts, schemas, conversation content, error bodies, or compaction summaries.
 - **Automatic capability packs** — no activation command is needed. Intent, posture, tier, pending work, and runtime state resolve the model-visible tools before the turn; readiness alone does not make coms/Herdr visible. Ambiguous fleet, peer, or workspace use asks once before its first side effect. The compact pack is transient when explicitly requested or pressure is imminent; ordinary task packs persist until `set_task_tier(new_task: true)`. Managed children receive selected replacement prompts/manifests (`--no-skills` and `--no-context-files` where applicable), not inherited global context.
 - **One-click budget continuation** — turn and task refusals ask one localized Yes/No `ask_user` question. Yes renews the budget in the same tool loop, without a typed `continue` or slash command. Task continuation opens an audited tranche while preserving task tier, assertions, capability packs, blockers, label, and progress; genuinely different work uses `set_task_tier(new_task: true)`. Turn and task active-time clocks both exclude human wait time.
@@ -212,7 +210,7 @@ harnesses:
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
   `/af-handoff`, and peer-as-subagent flows.
 - **No-coms mode** — `just fleet --no-coms` keeps direct operator work, native delegation,
-  research helpers, persona gate, and controls, but starts without embedded coms. `/af-handoff`
+  research helpers, and controls, but starts without embedded coms. `/af-handoff`
   remains registered and explains why it cannot run. Legacy `--solo` maps to this flag with a warning.
 - **Optional Hermes local monitor transport** — uses `AGENT_FLEET_PROFILE_ID`, the absolute
   `AGENT_FLEET_MONITOR_RUNTIME_DIR`, and the Herdr `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`

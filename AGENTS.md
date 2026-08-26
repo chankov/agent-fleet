@@ -91,7 +91,7 @@ This repo has three composable layers. They have different jobs and should not b
 
 Composition rule: **the user (or a slash command) is the orchestrator. Personas do not invoke other personas.** A persona may invoke skills.
 
-The multi-persona pattern this repo endorses in a plain session is **parallel fan-out with a merge step** — used by `/af-ship` to run `code-reviewer`, `security-auditor`, and `test-engineer` concurrently and synthesize their reports. Do not build a "router" persona that decides which other persona to call; that's the job of slash commands and intent mapping. The `agent-hub` harness is the sanctioned exception: the dedicated `orchestrator` persona dispatches specialists under a Verification Contract, with that orchestration living in the harness rather than a peer persona calling another.
+The multi-persona pattern this repo endorses in a plain session is **parallel fan-out with a merge step** — used by `/af-ship` to run `code-reviewer`, `security-auditor`, and `test-engineer` concurrently and synthesize their reports. Do not build a "router" persona that decides which other persona to call; that's the job of slash commands and intent mapping. The `agent-hub` harness is the sanctioned exception: the generated dispatcher prompt dispatches specialists under a Verification Contract, with that orchestration living in the harness rather than a peer persona calling another.
 
 See [docs/agents.md](docs/agents.md) for the decision matrix and [references/orchestration-patterns.md](references/orchestration-patterns.md) for the full pattern catalog.
 

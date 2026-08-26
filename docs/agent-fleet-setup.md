@@ -202,7 +202,7 @@ targets an end-of-session compound pass writes lessons to.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `language` | `English` | User-facing language the dispatcher uses for every `ask_user` question, every `context` field, and every summary. Specialist task strings always stay in English regardless. |
-| `persona-gate` | `off` | When `on`, blocks input at session start until an orchestrator persona is picked. |
+| `persona-gate` | — | **Removed.** Ignored with a doctor warning; dispatcher flavor is no longer selectable. Use `/af-work-mode` / `/af-posture` for operator vs orchestrator. Delete the key. |
 | `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). If the override reports a model/provider error or aborted request before producing text or starting a tool (including a local-model memory-limit failure), agent-hub restores the child session and retries once with the original frontmatter model; it does not fallback after work starts, cancellation, timeout, drift stop, or process-spawn failure. |
 | `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/af-agent-model` and `/af-models` profiles (comma-separated pi model specs). |
 | `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/af-agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |

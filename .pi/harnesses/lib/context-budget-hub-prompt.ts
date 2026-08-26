@@ -24,7 +24,6 @@ export interface HubPromptParts {
 	researchCatalog: string;
 	/** Changes per turn: tier, budgets, active counters, and pending state only. */
 	stateCapsule?: string;
-	dispatcherPersonaPrompt?: string;
 }
 
 export const HUB_HERDR_SECTION = `
@@ -77,7 +76,7 @@ ${parts.comsSection}${parts.herdrSection}${parts.compactionSection ?? ""}
 ${parts.hardRules}
 ${parts.ambiguityRule}
 - Keep each dispatch focused and use the returned evidence before reporting completion.`;
-	return parts.dispatcherPersonaPrompt ? `${parts.dispatcherPersonaPrompt}\n\n${policy}` : policy;
+	return policy;
 }
 
 export interface NamedHubPart { id: string; text: string; category: ContextCategory; persistence?: ContextBudgetComponent["persistence"]; source?: string; }
@@ -85,7 +84,7 @@ export interface NamedHubPart { id: string; text: string; category: ContextCateg
 export function namedHubLedgerParts(input: {
 	intro: string; languageLines: string; teamMembers: string; agentCards: readonly { id: string; text: string }[];
 	dispatchSection: string; modeSection: string; verificationSection: string; researchCards: readonly { id: string; text: string }[];
-	researchCatalog: string; comsSection: string; herdrSection: string; compactionSection?: string; stateCapsule?: string; dispatcherPersonaPrompt?: string;
+	researchCatalog: string; comsSection: string; herdrSection: string; compactionSection?: string; stateCapsule?: string;
 }): NamedHubPart[] {
 	return [
 		{ id: "hub/policy/posture", text: input.intro, category: "system", persistence: "fixed", source: "posture.ts" },
@@ -100,7 +99,6 @@ export function namedHubLedgerParts(input: {
 		{ id: "hub/policy/coms", text: input.comsSection, category: "protocol", persistence: "fixed", source: "coms" },
 		{ id: "hub/policy/workspace", text: input.herdrSection, category: "protocol", persistence: "fixed", source: "herdr" },
 		{ id: "hub/policy/compaction", text: input.compactionSection ?? "", category: "protocol", persistence: "fixed", source: "compaction" },
-		{ id: "hub/persona", text: input.dispatcherPersonaPrompt ?? "", category: "persona", persistence: "session", source: "dispatcher-persona" },
 	];
 }
 

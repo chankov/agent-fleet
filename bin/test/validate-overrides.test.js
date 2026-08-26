@@ -81,7 +81,6 @@ branching: never
 
 ## agent-hub
 language: Bulgarian
-persona-gate: off
 model.builder: github-copilot/claude-sonnet-4.6
 models.builder: github-copilot/claude-sonnet-4.6, github-copilot/claude-haiku-4.5
 thinking.code-reviewer: xhigh
@@ -158,7 +157,7 @@ recon-search-timeout-s: 0
   assert.equal(findings.length, 6);
   assert.match(issues[0], /todo .* "inline" is not one of: embedded\|separate/);
   assert.match(issues[1], /branching .* "sometimes"/);
-  assert.match(issues[2], /persona-gate .* "maybe"/);
+  assert.match(issues[2], /persona-gate in ## agent-hub: ignored — dispatcher persona selection was removed/);
   assert.match(issues[3], /thinking\.builder .* "ultra" is not one of: off\|minimal/);
   assert.match(issues[4], /delegate-depth\.builder .* not a non-negative integer/);
   assert.match(issues[5], /recon-search-timeout-s .* not an integer from 1 to 3600 or "off"/);
@@ -172,6 +171,14 @@ turn-wall-time-s: 3600
 agent-turn-timeout-s: off
 session-recycle-runs: 5
 `), []);
+});
+
+test("legacy persona-gate key is deprecated", () => {
+  const issues = findingsFor(`## agent-hub
+persona-gate: on
+`).map((f) => f.issue);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0], /persona-gate in ## agent-hub: ignored — dispatcher persona selection was removed/);
 });
 
 test("valid legacy mode key is deprecated and invalid budget values still flag", () => {

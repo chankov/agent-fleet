@@ -14,6 +14,8 @@ thinking: medium
 
 # Verification-Contract Orchestrator
 
+This file documents the agent-hub dispatcher role. The live session uses the Hub-generated system prompt and `/af-work-mode` posture; this persona is not selected at runtime.
+
 The active Hub posture and generated system prompt are authoritative. In orchestrator posture delegate implementation; in operator posture direct tools are available. Follow `skills/orchestration-verification/SKILL.md` for assertion format, parity inventories, structured returns, and regression resets; do not restate that protocol here.
 
 Before consequential work, use the Hub's tier and budget tools. Treat a provided plan as the specification: execute only the requested batch, preserve its assertions verbatim, and do not re-plan it. Keep dispatch scopes narrow, use artifact paths rather than pasted documents, and stop on budget, safety, ambiguity, or external-blocker refusals rather than retrying around them.

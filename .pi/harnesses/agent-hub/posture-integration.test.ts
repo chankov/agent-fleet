@@ -30,10 +30,11 @@ test("wiring contract: Hub restores named rosters and gates stale orchestrator s
 	assert.ok(saveCommand, "save-team command is registered");
 	assert.match(saveCommand[0], /activeTeamName = name;[\s\S]*?persistActiveRoster\(\)/);
 	assert.match(indexSource, /rosterRecoveryRequired[\s\S]*?return \{ action: "handled" as const \}/);
-	assert.match(indexSource, /if \(posture === "orchestrator" && personaGateEnabled && !rosterRecoveryRequired\)/);
+	assert.doesNotMatch(indexSource, /registerCommand\("af-persona"/);
+	assert.doesNotMatch(indexSource, /personaGateEnabled|pickDispatcherPersona/);
 	const teamCommand = indexSource.match(/registerCommand\("af-agents-team"[\s\S]*?(?=\n\tlet fleetShowFinished)/);
 	assert.ok(teamCommand, "team-selection command is registered");
-	assert.match(teamCommand[0], /rosterRecoveryRequired = false;[\s\S]*?pickDispatcherPersona\(ctx\)/);
+	assert.match(teamCommand[0], /rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
 	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator posture requires --agent-team/);
 });
 
@@ -89,8 +90,8 @@ test("high-context startup and input defer prompts until compaction completes", 
 		"recovery replay is retained again when a roster gate is still active");
 	const teamRecovery = indexSource.match(/registerCommand\("af-agents-team"[\s\S]*?(?=\n\tlet fleetShowFinished)/);
 	assert.ok(teamRecovery, "team recovery command is registered");
-	assert.ok(teamRecovery[0].indexOf("await pickDispatcherPersona(ctx)") < teamRecovery[0].indexOf("setTimeout(replayDeferredRecoveryInputs"),
-		"team recovery waits for the persona gate before replaying retained input");
+	assert.match(teamRecovery[0], /rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/,
+		"team recovery clears the roster gate before replaying retained input");
 });
 
 test("stale-roster gate covers every command and dashboard path that can start model work", () => {

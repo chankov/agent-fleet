@@ -3,7 +3,7 @@
  *
  * The merged harness (plan: docs/plans/agent-hub-multi-agent-harness.md). It is
  * `agent-team` (dispatcher grid + per-agent model + kill/restart + /af-zoom +
- * read-only research helpers + dispatcher persona gate) with the `coms` P2P layer
+ * read-only research helpers) with the `coms` P2P layer
  * EMBEDDED in the same extension — not stacked as a second `-e`, which would
  * double-register the --name/--purpose/... CLI flags and abort startup.
  *
@@ -42,7 +42,6 @@
  * Finished research helpers are auto-pruned: auto-research pipe helpers as soon
  * as they finish (findings persist as files under findings/), manual/persona
  * helpers beyond the `research-keep` most recent (default 4, overrides file).
- *   /af-persona              — select/reset the dispatcher persona
  *   /af-handoff <peer>       — hand the session off to a coms peer (summarized brief)
  *   /af-coms                 — refresh the coms peer pool (--all / --project <name>)
  *   /af-compound [focus]     — end-of-session compound-learning pass: confirm this
@@ -438,7 +437,6 @@ function extractNeedsResearch(output: string): string[] {
 // alias; when both are present their keys merge, later lines winning).
 // Supported keys:
 //   language: <name>           — user-facing language. Default: English.
-//   persona-gate: on|off       — block input until a dispatcher persona is picked.
 //   model.<persona>: <spec>    — replace the persona's default model for this project.
 //   models.<persona>: <a>, <b> — replace the persona's model candidate list.
 //   thinking.<persona>: <level> — replace the persona's thinking level for this
@@ -486,7 +484,6 @@ function extractNeedsResearch(output: string): string[] {
 
 interface AgentTeamOverrides {
 	language: string;
-	personaGate: boolean;
 	personaModels: Record<string, string>;
 	personaModelLists: Record<string, string[]>;
 	personaThinking: Record<string, string>;
@@ -515,7 +512,6 @@ interface AgentTeamOverrides {
 
 const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	language: "English",
-	personaGate: false,
 	personaModels: {},
 	personaModelLists: {},
 	personaThinking: {},
@@ -574,7 +570,6 @@ function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		const key = kv[1].toLowerCase();
 		const value = kv[2].trim();
 		if (key === "language" && value) result.language = value;
-		if (key === "persona-gate") result.personaGate = /^(on|true|yes|1)$/i.test(value);
 		if (key === "rules" && value) {
 			result.rulesDirs = value.split(",").map(s => s.trim()).filter(Boolean);
 		}
@@ -1896,9 +1891,8 @@ export default function (pi: ExtensionAPI) {
 	// If the endpoint bind or registry write fails, the harness degrades to a
 	// coms-less dispatcher rather than aborting.
 	let comsReady = false;
-	// Purpose shown to peers. An explicit --purpose CLI flag pins it; otherwise the
-	// active dispatcher persona's description drives it (syncComsPurpose), falling
-	// back to comsBasePurpose when no persona is selected.
+	// Purpose shown to peers. An explicit --purpose CLI flag pins it; otherwise
+	// comsBasePurpose is used.
 	let comsBasePurpose = "agent-hub dispatcher";
 	let comsPurposeExplicit = false;
 
@@ -1962,7 +1956,7 @@ export default function (pi: ExtensionAPI) {
 		if (!currentOrchestratorEntry) {
 			currentOrchestratorEntry = pushHistory(
 				"orchestrator",
-				dispatcherPersona ? displayName(dispatcherPersona.name) : "Dispatcher",
+				"Dispatcher",
 				null,
 				currentTurnStartedAt,
 			);
@@ -2462,17 +2456,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		if (!line) return;
 		try { widgetCtx?.ui?.setStatus("assertions", line); } catch {}
 	}
-
-	// ── Dispatcher persona gate (Phase 6) ──
-	// Every agent runs a declared persona; the dispatcher's is sourced from an
-	// orchestrator persona file (frontmatter `kind: orchestrator`). The gate blocks
-	// input until one is picked. It is FLAVOR-ONLY: the chosen persona's body is
-	// merged INTO the orchestrator prompt and NEVER narrows the tool surface
-	// (dispatch_agent/ask_user are always preserved — decision G4).
-	let orchestratorPersonas: AgentDef[] = [];
-	let dispatcherPersona: AgentDef | null = null;
-	let personaGateEnabled = false;
-	let personaGateSatisfied = true;
 
 	// Candidate models a persona may switch to: the default `model:` plus the
 	// `models:` list, deduped, order preserved.
@@ -4819,10 +4802,10 @@ ${externalBlockedProtocol()}
 		});
 	}
 
-	// ── Embedded coms: registry refresh + persona→purpose sync ──
+	// ── Embedded coms: registry refresh ──
 
-	// Re-write this agent's registry entry with a fresh live-status snapshot. Shared
-	// by the keepalive heartbeat and syncComsPurpose so peers see current values.
+	// Re-write this agent's registry entry with a fresh live-status snapshot so
+	// the keepalive heartbeat keeps peers current.
 	function writeLiveRegistry(): void {
 		if (!identity) return;
 		try {
@@ -4838,20 +4821,6 @@ ${externalBlockedProtocol()}
 		} catch {
 			// best-effort
 		}
-	}
-
-	// Keep the coms purpose in sync with the active dispatcher persona so peers see a
-	// meaningful description (decision: map peer identity onto persona description). An
-	// explicit --purpose CLI flag always wins; otherwise the persona's name+description
-	// becomes the purpose, falling back to comsBasePurpose when no persona is set.
-	function syncComsPurpose(): void {
-		if (!identity || !comsReady || comsPurposeExplicit) return;
-		const next = dispatcherPersona
-			? `${displayName(dispatcherPersona.name)} — ${dispatcherPersona.description}`.trim()
-			: comsBasePurpose;
-		if (next === identity.purpose) return;
-		identity.purpose = next;
-		writeLiveRegistry();
 	}
 
 	// ── Embedded coms: ping + pool helpers ──
@@ -6875,34 +6844,6 @@ ${externalBlockedProtocol()}
 		].join("\n");
 	}
 
-	// ── Dispatcher persona picker (blocking gate) ──
-	// Mirrors purpose-gate's blocking loop, but over a select of orchestrator
-	// personas instead of a free-text purpose. Loops until one is picked; the
-	// on/off setting (and turning it off) is the only way to skip.
-	async function pickDispatcherPersona(ctx: any) {
-		while (!dispatcherPersona) {
-			const options = orchestratorPersonas.map(p => `${displayName(p.name)} — ${p.description}`);
-			const choice = await ctx.ui.select("Select dispatcher persona", options);
-			if (choice === undefined) {
-				ctx.ui.notify(
-					"A dispatcher persona is required. Set `persona-gate: off` under `## agent-hub` in .ai/agent-fleet-overrides.md to skip.",
-					"warning",
-				);
-				continue;
-			}
-			const idx = options.indexOf(choice);
-			dispatcherPersona = orchestratorPersonas[idx] || null;
-		}
-		personaGateSatisfied = true;
-		// Reflect the chosen persona into the coms identity so peers see who we are.
-		syncComsPurpose();
-		// Flavor-only: do NOT call setActiveTools(persona.tools) — the dispatcher's
-		// orchestration surface must be preserved (decision G4). The persona only
-		// flavors the system prompt, applied in before_agent_start.
-		ctx.ui.setStatus("dispatcher-persona", `Persona: ${displayName(dispatcherPersona.name)}`);
-		ctx.ui.notify(`Dispatcher persona: ${displayName(dispatcherPersona.name)}`, "success");
-	}
-
 	// ── Commands ─────────────────────────────────
 
 	pi.registerCommand("af-agents-team", {
@@ -6941,9 +6882,6 @@ ${externalBlockedProtocol()}
 			persistActiveRoster();
 			resolveIncomingCapabilities("");
 			applyPostureTools();
-			if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
-				await pickDispatcherPersona(ctx);
-			}
 			setTimeout(replayDeferredRecoveryInputs, 0);
 			updateWidget();
 			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
@@ -7582,9 +7520,6 @@ ${externalBlockedProtocol()}
 			rosterRecoveryRequired = false;
 			rosterRecoveryDiagnostic = "";
 			setTimeout(replayDeferredRecoveryInputs, 0);
-		}
-		if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
-			await pickDispatcherPersona(ctx);
 		}
 		resolveIncomingCapabilities("");
 		applyPostureTools();
@@ -8717,39 +8652,6 @@ ${externalBlockedProtocol()}
 		},
 	});
 
-	pi.registerCommand("af-persona", {
-		description: "Select or reset the dispatcher persona (orchestrator flavor)",
-		handler: async (_args, ctx) => {
-			widgetCtx = ctx;
-			if (orchestratorPersonas.length === 0) {
-				ctx.ui.notify(
-					"No orchestrator personas found. Add a persona file with `kind: orchestrator` in agents/ or .pi/agents/.",
-					"warning",
-				);
-				return;
-			}
-			const options = [
-				"Reset to default (no persona)",
-				...orchestratorPersonas.map(p => `${displayName(p.name)} — ${p.description}`),
-			];
-			const choice = await ctx.ui.select("Select dispatcher persona", options);
-			if (choice === undefined) return;
-			if (choice === options[0]) {
-				dispatcherPersona = null;
-				ctx.ui.setStatus("dispatcher-persona", "Persona: Default");
-				ctx.ui.notify("Dispatcher persona reset to default", "success");
-				syncComsPurpose();
-				return;
-			}
-			const idx = options.indexOf(choice) - 1;
-			dispatcherPersona = orchestratorPersonas[idx] || null;
-			// Flavor-only — never narrows tools (decision G4).
-			ctx.ui.setStatus("dispatcher-persona", `Persona: ${displayName(dispatcherPersona!.name)}`);
-			ctx.ui.notify(`Dispatcher persona: ${displayName(dispatcherPersona!.name)}`, "success");
-			syncComsPurpose();
-		},
-	});
-
 	// ── Embedded coms: /af-coms + /af-handoff ──
 
 	// Completions over live peer names for /af-handoff.
@@ -9178,7 +9080,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			ambiguityRule,
 			agentCatalog,
 			researchCatalog,
-			dispatcherPersonaPrompt: dispatcherPersona?.systemPrompt,
 		});
 		// Ledger is metadata-only and never written back into the replacement prompt.
 		lastHubLedger = recordHubLedger(systemPrompt, namedHubLedgerParts({
@@ -9195,7 +9096,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			comsSection,
 			herdrSection,
 			compactionSection,
-			dispatcherPersonaPrompt: dispatcherPersona?.systemPrompt,
 		})).concat(CAPABILITY_PACKS.map(pack => {
 			const status = capabilityResolution.active.includes(pack) ? "active"
 				: capabilityResolution.provisional.includes(pack) ? "provisional"
@@ -9362,7 +9262,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		if (!automaticCompactionRunning) setTimeout(replayDeferredRecoveryInputs, 0);
 	});
 
-	// ── Persona gate: block input until a dispatcher persona is picked ──
 	function incomingText(event: unknown): string {
 		const value = event as { text?: unknown; message?: unknown; input?: unknown } | null;
 		if (typeof value?.text === "string") return value.text;
@@ -9413,10 +9312,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		// before_agent_start, so this local resolver changes the same request's surface.
 		resolveIncomingCapabilities(incomingText(event));
 		applyPostureTools();
-		if (posture === "orchestrator" && personaGateEnabled && !personaGateSatisfied) {
-			ctx.ui.notify("Pick a dispatcher persona first (see the select dialog).", "warning");
-			return { action: "handled" as const };
-		}
 		return { action: "continue" as const };
 	});
 
@@ -9833,17 +9728,9 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			);
 		}
 
-		// Dispatcher persona gate (Phase 6 / requirement 1). Orchestrator personas are
-		// persona files tagged `kind: orchestrator` (decision G5 — keeps builder
-		// out of the dispatcher picker). The gate is enabled only when turned on AND at
-		// least one orchestrator persona exists, so it never blocks with nothing to pick.
-		orchestratorPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "orchestrator");
 		// Research personas (kind: research) — spawnable read-only via spawn_research and
 		// the /af-research command, independent of team membership.
 		researchPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "research");
-		dispatcherPersona = null;
-		personaGateEnabled = overrides.personaGate && orchestratorPersonas.length > 0;
-		personaGateSatisfied = !personaGateEnabled;
 
 		// Explicit CLI selection wins; otherwise restore only the canonical team name
 		// and re-resolve it against current teams.yaml/persona files. An explicit
@@ -9913,11 +9800,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		const askUserLabel = askUserAvailable
 			? "available (via pi-ask-user)"
 			: "NOT AVAILABLE — run `pi install npm:pi-ask-user`";
-		const personaGateLabel = personaGateEnabled
-			? `ON — pick an orchestrator persona to begin (${orchestratorPersonas.length} available)`
-			: orchestratorPersonas.length === 0
-				? "off (no `kind: orchestrator` personas found)"
-				: "off (set `persona-gate: on` to enable)";
 		const comsLabel = comsReady && identity
 			? `📡 ${identity.name}@${identity.project} — peers via coms_list; /af-handoff <peer> to delegate`
 			: soloMode
@@ -9941,7 +9823,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			`Dispatch backends: ${dispatchLabel}\n` +
 			`User-facing language: ${userLanguage} (override in .ai/agent-fleet-overrides.md)\n` +
 			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n` +
-			`Persona gate: ${personaGateLabel}\n` +
 			`Coms: ${comsLabel}\n` +
 			`Fleet: ${fleetLabel}\n\n` +
 			`/af-work-mode [posture]  Operator | Orchestrator (Alt+M)\n` +
@@ -9962,20 +9843,12 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			`/af-research-cont rN ... Resume a finished research helper\n` +
 			`/af-research-rm rN       Remove a research helper (kill if running)\n` +
 			`/af-research-clear       Remove all research helpers\n` +
-			`/af-persona              Select/reset the dispatcher persona\n` +
 			`/af-coms [--all|--project N] Refresh the coms peer pool\n` +
 			`/af-handoff <peer>       Hand the session off to a coms peer\n` +
 			`/af-compound [focus]     Capture session lessons into the project rules/docs`,
 			"info",
 		);
-		_ctx.ui.setStatus("dispatcher-persona", personaGateEnabled ? "Persona: (pick one)" : "Persona: Default");
 		updateWidget();
-
-		// The persona gate restricts only orchestrator posture. Operators can work
-		// directly and choose a dispatcher persona later without being blocked.
-		if (posture === "orchestrator" && personaGateEnabled && !rosterRecoveryRequired) {
-			void pickDispatcherPersona(_ctx);
-		}
 
 		// Footer: model (thinking) | team | context bar, with the pi-voice-stt
 		// recording indicator on a second line below it (when recording).
