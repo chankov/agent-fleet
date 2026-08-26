@@ -1,0 +1,2 @@
+# Generated release snapshots; exclude them from repository-wide agent searches.
+.versions/
