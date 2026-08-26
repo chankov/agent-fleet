@@ -30,6 +30,8 @@ export function mergeOverrides(existing, scan) {
 export function planOverrides(workspace, scan) {
   const path = join(workspace, OVERRIDES_REL_PATH);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
+  // A configured overrides file is human-owned; setup must never touch it.
+  if (existing.trim() !== "") return { path, text: existing, write: false };
   const text = mergeOverrides(existing, scan);
   return { path, text, write: text !== existing };
 }

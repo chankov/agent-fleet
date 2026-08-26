@@ -58,6 +58,22 @@ test("A7 fresh non-interactive setup, ephemeral desired flags, dry-run, migratio
   assert.equal(result.status, 0, result.stderr); // legacy install aliases retain raw-item compatibility.
 });
 
+test("setup preserves an existing configured overrides file byte-for-byte", (context) => {
+  const ws = workspace();
+  context.after(() => rmSync(ws, { recursive: true, force: true }));
+  const overridesPath = join(ws, ".ai", "agent-fleet-overrides.md");
+  const original = "# Team-specific configuration\n\n## agent-hub\nlanguage: Bulgarian\nmodel.builder: custom/builder-model\nmodels.recon: custom/recon-model\ndocs: handbook.md\n";
+  mkdirSync(join(ws, ".ai"), { recursive: true });
+  writeFileSync(overridesPath, original);
+  writeFileSync(join(ws, "README.md"), "# Project\n");
+  mkdirSync(join(ws, "docs"));
+
+  const result = setup(ws, "--preset", "default", "--features", "none", "--yes");
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(overridesPath, "utf8"), original);
+});
+
 test("setup --json --yes applies and dry-run remains write-free", () => {
   const applyWorkspace = workspace();
   let result = setup(applyWorkspace, "--preset", "default", "--features", "none", "--json", "--yes");
