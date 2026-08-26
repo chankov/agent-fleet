@@ -73,7 +73,7 @@ Pick this only when **independent** investigations can run in parallel and produ
 
 - `/ship` → fans out to `code-reviewer` + `security-auditor` + `test-engineer` in parallel, then synthesizes their reports into a go/no-go decision
 
-This fan-out is the endorsed pattern for a plain session. The `agent-hub` harness adds a dispatcher model on top: the generated hub prompt (operator or orchestrator posture via `/af-work-mode`) spawns specialist subagents under a Verification Contract (see [CLAUDE.md](../CLAUDE.md) and the [agent-hub harness](../.pi/harnesses/agent-hub/)). See [references/orchestration-patterns.md](../references/orchestration-patterns.md) for the full pattern catalog and anti-patterns.
+This fan-out is the endorsed pattern for a plain session. The `agent-hub` harness adds a dispatcher model on top: the generated hub prompt (operator or orchestrator work mode via `/af-work-mode`) spawns specialist subagents under a Verification Contract (see [CLAUDE.md](../CLAUDE.md) and the [agent-hub harness](../.pi/harnesses/agent-hub/)). See [references/orchestration-patterns.md](../references/orchestration-patterns.md) for the full pattern catalog and anti-patterns.
 
 ## Decision matrix
 

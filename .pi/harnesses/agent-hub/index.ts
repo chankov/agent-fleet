@@ -36,8 +36,7 @@
  *   /af-research <task>      — spawn a read-only research helper (@persona, --model)
  *   /af-agents-cont rN ...   — resume a finished research helper (alias: /af-research-cont)
  *   /af-work-mode [operator|orchestrator]
- *                           — posture picker (alias of /af-posture; Alt+M)
- *   /af-posture [operator|orchestrator] — show/switch direct vs delegate-only
+ *                           — work mode picker (Alt+M)
  *
  * Finished research helpers are auto-pruned: auto-research pipe helpers as soon
  * as they finish (findings persist as files under findings/), manual/persona
@@ -50,7 +49,7 @@
  *
  * Shortcuts:
  *   Alt+A                 — open the Fleet Dashboard
- *   Alt+M                 — open the posture picker (operator | orchestrator)
+ *   Alt+M                 — open the work mode picker (operator | orchestrator)
  *   Alt+Shift+A           — toggle the compact running-agents widget
  *   Alt+] / Alt+[         — compact view: mark next/previous running subagent
  *   Alt+\                 — compact view: zoom the marked subagent (Q/Esc closes)
@@ -118,14 +117,14 @@ import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredRet
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
-import { NATIVE_ROSTER_ENTRY_TYPE, parsePosture, persistedNativeRosterState, posturePrompt, resolvePostureTools, resolveSessionPosture, resolveSessionRoster, type Posture } from "./posture.ts";
+import { NATIVE_ROSTER_ENTRY_TYPE, WORK_MODE_ENTRY_TYPE, persistedNativeRosterState, workModePrompt, resolveWorkModeTools, resolveSessionWorkMode, resolveSessionRoster, type WorkMode } from "./work-mode.ts";
 import {
-	compactPosture,
-	executionPairBlockedByRoster,
+	compactWorkMode,
+	workModeChangeBlockedByRoster,
 	parseWorkModeArgs,
-	posturePickerOptions,
+	workModePickerOptions,
 	selectedPickerValue,
-} from "./execution-profile.ts";
+} from "./work-mode-controls.ts";
 import { CAPABILITY_PACKS, latestPersistedCapabilityState, persistedCapabilityState, resolveCapabilityPacks, type CapabilityPack, type CapabilityResolution, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationGate, confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type CapabilityConfirmationState, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
@@ -1848,7 +1847,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag("color", { description: "Coms: hex color #RRGGBB (else frontmatter or palette fallback)", type: "string", default: undefined });
 	pi.registerFlag("explicit", { description: "Coms: hide from auto-discovery; addressable only by exact name", type: "boolean", default: false });
 	pi.registerFlag("solo", { description: "Run without the coms layer (fixed specialists + research only — `just fleet hub --solo`)", type: "boolean", default: false });
-	pi.registerFlag("posture", { description: "Fleet main-agent posture: operator|orchestrator", type: "string", default: undefined });
+	pi.registerFlag("work-mode", { description: "Fleet main-agent work mode: operator|orchestrator", type: "string", default: undefined });
 	pi.registerFlag("agent-team", { description: "Internal: activate a named native roster from .pi/agents/teams.yaml", type: "string", default: undefined });
 
 	// ── Embedded coms: peer state ──
@@ -2205,8 +2204,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	let runHistoryKeep: number | null = DEFAULT_RUN_HISTORY_KEEP;
 	// ── Drift watchdog (drift-watchdog.js) ──
 	// Hub-wide setting from the overrides file, live-switchable via /af-watchdog;
-	// per-agent overrides ("on"/"off") win over it. In operator posture a
-	// dispatch_agent `watchdog` param wins over both. In orchestrator posture the
+	// per-agent overrides ("on"/"off") win over it. In operator work mode a
+	// dispatch_agent `watchdog` param wins over both. In orchestrator work mode the
 	// watchdog auto-arms unless hub or per-agent is explicitly off; dispatch
 	// `watchdog: false` cannot disarm it.
 	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
@@ -2282,7 +2281,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		externalBlockerRefusedOnce = false;
 		turnDispatchFingerprints.clear();
 		resolveIncomingCapabilities("", true);
-		applyPostureTools();
+		applyWorkModeTools();
 		updateModeStatus();
 	}
 	function hubAuditIdentity(ctx?: ExtensionContext) {
@@ -2899,8 +2898,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		if (state.status === "running") {
 			return { ok: false, message: `${displayName(state.def.name)} is running — wait for it to finish or /af-agents-kill it first` };
 		}
-		if (orchestratorNeedsRoster(posture, agentStates.size - 1)) {
-			return { ok: false, message: `${displayName(state.def.name)} is the last team member — switch to operator posture or add a replacement before dropping it` };
+		if (orchestratorNeedsRoster(workMode, agentStates.size - 1)) {
+			return { ok: false, message: `${displayName(state.def.name)} is the last team member — switch to operator work mode or add a replacement before dropping it` };
 		}
 		agentStates.delete(key);
 		if (agentStates.size === 0) activeTeamName = "";
@@ -3913,7 +3912,7 @@ ${externalBlockedProtocol()}
 
 		// ── Drift watchdog: layer-1 rules on the live stream, judge on escalation ──
 		// Precedence: dispatch param > per-agent /af-watchdog override > hub setting.
-		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting, posture);
+		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting, workMode);
 		// The hub ORDERS every specialist to write its deliverable under the session
 		// artifacts tree, which no dispatcher `scope:` ever lists — so those paths are
 		// implicitly in scope. Both path forms: the specialist may use either.
@@ -6744,7 +6743,7 @@ ${externalBlockedProtocol()}
 	// and warn the user to `pi install npm:pi-ask-user` if it's missing.
 
 	let askUserAvailable = false;
-	let posture: Posture = "operator";
+	let workMode: WorkMode = "operator";
 	let rosterRecoveryRequired = false;
 	let rosterRecoveryDiagnostic = "";
 	let baselineTools: string[] = [];
@@ -6753,7 +6752,7 @@ ${externalBlockedProtocol()}
 	let capabilityConfirmation: CapabilityConfirmationState = {};
 	let contextPressureState: ContextPressureState = createContextPressureState();
 	let capabilityResolution: CapabilityResolution = resolveCapabilityPacks({
-		posture, userText: "", taskPacks: [], comsReady: false, herdrReady: false,
+		workMode, userText: "", taskPacks: [], comsReady: false, herdrReady: false,
 		pendingOperations: [], contextState: "normal",
 	});
 
@@ -6780,7 +6779,7 @@ ${externalBlockedProtocol()}
 
 	function resolveIncomingCapabilities(userText: string, newTask = false): void {
 		capabilityResolution = resolveCapabilityPacks({
-			posture,
+			workMode,
 			userText,
 			taskTier: taskTier === "trivial" || taskTier === "small" || taskTier === "feature" || taskTier === "project" ? taskTier : undefined,
 			taskPacks: taskCapabilityPacks,
@@ -6809,9 +6808,9 @@ ${externalBlockedProtocol()}
 		return { content: [{ type: "text" as const, text: gate.message }], details: { status: "provisional_confirmation_required", confirmation: gate.status, pack } };
 	}
 
-	function applyPostureTools(): void {
-		pi.setActiveTools(resolvePostureTools({
-			posture,
+	function applyWorkModeTools(): void {
+		pi.setActiveTools(resolveWorkModeTools({
+			workMode,
 			baselineTools,
 			comsReady,
 			herdrReady: herdrFleetReady,
@@ -6820,13 +6819,13 @@ ${externalBlockedProtocol()}
 		}));
 	}
 
-	function updatePostureStatus(ctx: ExtensionContext): void {
-		ctx.ui.setStatus("hub-posture", `Posture: ${posture}`);
+	function updateWorkModeStatus(ctx: ExtensionContext): void {
+		ctx.ui.setStatus("hub-work-mode", `Work Mode: ${workMode}`);
 	}
 
 	function modelWorkBlockedByRosterRecovery(ctx: ExtensionContext): boolean {
-		if (posture !== "orchestrator" || !rosterRecoveryRequired) return false;
-		const message = `${rosterRecoveryDiagnostic || "No valid native roster is active."} Select one with /af-agents-team, restart with --agent-team <name>, or switch explicitly with /af-posture operator.`;
+		if (workMode !== "orchestrator" || !rosterRecoveryRequired) return false;
+		const message = `${rosterRecoveryDiagnostic || "No valid native roster is active."} Select one with /af-agents-team, restart with --agent-team <name>, or switch explicitly with /af-work-mode operator.`;
 		ctx.ui.notify(message, "error");
 		// Print/JSON modes do not render extension notifications. Never include the
 		// blocked prompt or command arguments in this metadata-only diagnostic.
@@ -6834,10 +6833,10 @@ ${externalBlockedProtocol()}
 		return true;
 	}
 
-	function postureStatusText(): string {
+	function workModeStatusText(): string {
 		return [
-			`Posture: ${posture}`,
-			`Direct tools: ${posture === "operator" ? "enabled" : "disabled"}`,
+			`Work Mode: ${workMode}`,
+			`Direct tools: ${workMode === "operator" ? "enabled" : "disabled"}`,
 			`Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`,
 			`Coms: ${comsReady ? `ready${identity ? ` (${identity.name}@${identity.project})` : ""}` : "unavailable"}`,
 			`Herdr: ${herdrFleetReady ? "ready" : "unavailable"}`,
@@ -6881,7 +6880,7 @@ ${externalBlockedProtocol()}
 			rosterRecoveryDiagnostic = "";
 			persistActiveRoster();
 			resolveIncomingCapabilities("");
-			applyPostureTools();
+			applyWorkModeTools();
 			setTimeout(replayDeferredRecoveryInputs, 0);
 			updateWidget();
 			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
@@ -7501,10 +7500,10 @@ ${externalBlockedProtocol()}
 	});
 
 	function rosterRefusalMessage(): string {
-		return "Orchestrator posture requires at least one native specialist. Add one with /af-agents-add or select /af-agents-team first.";
+		return "Orchestrator work mode requires at least one native specialist. Add one with /af-agents-add or select /af-agents-team first.";
 	}
 
-	function watchdogArmedNote(next: Posture): string {
+	function watchdogArmedNote(next: WorkMode): string {
 		if (next !== "orchestrator") return "";
 		const armed = resolveWatchdogActive(undefined, undefined, watchdogSetting, next);
 		return armed
@@ -7512,74 +7511,49 @@ ${externalBlockedProtocol()}
 			: "\nDrift watchdog: off (explicit hub setting).";
 	}
 
-	async function commitPosture(next: Posture, ctx: ExtensionContext): Promise<"ok" | "unchanged" | "roster"> {
+	async function commitWorkMode(next: WorkMode, ctx: ExtensionContext): Promise<"ok" | "unchanged" | "roster"> {
 		if (orchestratorNeedsRoster(next, agentStates.size)) return "roster";
-		if (next === posture) return "unchanged";
-		posture = next;
-		if (posture === "operator") {
+		if (next === workMode) return "unchanged";
+		workMode = next;
+		if (workMode === "operator") {
 			rosterRecoveryRequired = false;
 			rosterRecoveryDiagnostic = "";
 			setTimeout(replayDeferredRecoveryInputs, 0);
 		}
 		resolveIncomingCapabilities("");
-		applyPostureTools();
-		updatePostureStatus(ctx);
-		pi.appendEntry("agent-hub-posture", { posture });
+		applyWorkModeTools();
+		updateWorkModeStatus(ctx);
+		pi.appendEntry(WORK_MODE_ENTRY_TYPE, { workMode });
 		return "ok";
 	}
 
-	async function applyPostureSelection(next: Posture, ctx: ExtensionContext, deprecatedFrom?: string): Promise<void> {
-		if (executionPairBlockedByRoster(posture, next, agentStates.size)) {
+	async function applyWorkModeSelection(next: WorkMode, ctx: ExtensionContext): Promise<void> {
+		if (workModeChangeBlockedByRoster(workMode, next, agentStates.size)) {
 			ctx.ui.notify(rosterRefusalMessage(), "warning");
 			return;
 		}
-		const result = await commitPosture(next, ctx);
+		const result = await commitWorkMode(next, ctx);
 		if (result === "roster") {
 			ctx.ui.notify(rosterRefusalMessage(), "warning");
 			return;
 		}
-		const deprecation = deprecatedFrom
-			? `"${deprecatedFrom}" is no longer an execution mode; mapped to ${next} posture.\n`
-			: "";
 		ctx.ui.notify(
-			`${deprecation}${postureStatusText()}\nPrompt and tools update on the next model call.${watchdogArmedNote(next)}`,
+			`${workModeStatusText()}\nPrompt and tools update on the next model call.${watchdogArmedNote(next)}`,
 			result === "ok" ? "success" : "info",
 		);
 	}
 
-	async function openPosturePicker(ctx: ExtensionContext): Promise<void> {
-		const picker = posturePickerOptions(posture);
+	async function openWorkModePicker(ctx: ExtensionContext): Promise<void> {
+		const picker = workModePickerOptions(workMode);
 		const choice = await ctx.ui.select(picker.title, picker.options);
-		const next = selectedPickerValue(picker.options, choice, picker.postures);
+		const next = selectedPickerValue(picker.options, choice, picker.workModes);
 		if (!next) return;
-		await applyPostureSelection(next, ctx);
+		await applyWorkModeSelection(next, ctx);
 	}
 
-	// ── /af-posture: direct operator ↔ restricted orchestrator ──
-	pi.registerCommand("af-posture", {
-		description: "Show or set the Fleet posture: operator (direct tools) | orchestrator (delegate-only)",
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const requested = (args || "").trim();
-			if (!requested) {
-				if (ctx.hasUI && typeof ctx.ui.select === "function") {
-					await openPosturePicker(ctx);
-					return;
-				}
-				ctx.ui.notify(`${postureStatusText()}\nSwitch with /af-posture operator|orchestrator`, "info");
-				return;
-			}
-			const next = parsePosture(requested);
-			if (!next) {
-				ctx.ui.notify(`Unknown posture "${requested}" — expected operator|orchestrator.`, "error");
-				return;
-			}
-			await applyPostureSelection(next, ctx);
-		},
-	});
-
+	// ── /af-work-mode: direct operator ↔ restricted orchestrator ──
 	pi.registerCommand("af-work-mode", {
-		description: "Show or set Fleet posture (operator | orchestrator). Alt+M opens the picker.",
+		description: "Show or set Fleet work mode (operator | orchestrator). Alt+M opens the picker.",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const parsed = parseWorkModeArgs(args);
@@ -7588,17 +7562,17 @@ ${externalBlockedProtocol()}
 				return;
 			}
 			if (parsed.action === "apply") {
-				await applyPostureSelection(parsed.posture, ctx, parsed.deprecatedFrom);
+				await applyWorkModeSelection(parsed.workMode, ctx);
 				return;
 			}
 			if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
 				ctx.ui.notify(
-					`${postureStatusText()}\nSwitch with /af-work-mode operator|orchestrator`,
+					`${workModeStatusText()}\nSwitch with /af-work-mode operator|orchestrator`,
 					"info",
 				);
 				return;
 			}
-			await openPosturePicker(ctx);
+			await openWorkModePicker(ctx);
 		},
 	});
 
@@ -7762,17 +7736,17 @@ ${externalBlockedProtocol()}
 		},
 	});
 	pi.registerShortcut("alt+m", {
-		description: "Open posture picker",
+		description: "Open work mode picker",
 		handler: (ctx) => {
 			widgetCtx = ctx;
 			if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
 				ctx.ui.notify(
-					`${postureStatusText()}\nSwitch with /af-work-mode operator|orchestrator`,
+					`${workModeStatusText()}\nSwitch with /af-work-mode operator|orchestrator`,
 					"info",
 				);
 				return;
 			}
-			void openPosturePicker(ctx);
+			void openWorkModePicker(ctx);
 		},
 	});
 	pi.registerShortcut("alt+shift+a", {
@@ -8826,7 +8800,7 @@ ${externalBlockedProtocol()}
 			if (!outcome) return;
 			capabilityConfirmation[pack] = outcome;
 			resolveIncomingCapabilities("");
-			applyPostureTools();
+			applyWorkModeTools();
 		}
 	});
 
@@ -8877,9 +8851,9 @@ ${externalBlockedProtocol()}
 	// in this one production path so its ledger describes the exact next replacement.
 	function buildHubSystemPrompt(forTurn: boolean): { systemPrompt: string } {
 		if (forTurn) {
-		// Re-assert the selected posture for every turn so prompt and tool policy stay
+		// Re-assert the selected work mode for every turn so prompt and tool policy stay
 		// synchronized after commands or runtime capability changes.
-		applyPostureTools();
+		applyWorkModeTools();
 		// Open a fresh dispatcher turn for /af-agents-history. The orchestrator entry is
 		// created lazily (only if this turn actually dispatches), so chat-only turns
 		// add no history rows. Defensively close any entry a prior turn left open
@@ -9054,7 +9028,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 `
 			: "";
 
-		const postureText = posturePrompt(posture);
+		const workModeText = workModePrompt(workMode);
 		const herdrSection = workspaceActive && herdrFleetReady ? HUB_HERDR_SECTION : "";
 		const compactionSection = compactionActive ? `
 ## Context recovery
@@ -9062,7 +9036,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 - \`request_compaction\` is available for explicit recovery. Automatic recovery preserves task state and continues from the compaction summary.
 ` : "";
 		const systemPrompt = assembleHubSystemPrompt({
-			intro: postureText.intro,
+			intro: workModeText.intro,
 			toolList,
 			languageLines,
 			activeTeamName,
@@ -9076,14 +9050,14 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			comsSection,
 			herdrSection,
 			compactionSection,
-			hardRules: postureText.hardRules,
+			hardRules: workModeText.hardRules,
 			ambiguityRule,
 			agentCatalog,
 			researchCatalog,
 		});
 		// Ledger is metadata-only and never written back into the replacement prompt.
 		lastHubLedger = recordHubLedger(systemPrompt, namedHubLedgerParts({
-			intro: postureText.intro,
+			intro: workModeText.intro,
 			languageLines,
 			teamMembers,
 			agentCards,
@@ -9161,7 +9135,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		contextPressureState = decision.state;
 		updateContextPressureStatus(ctx);
 		resolveIncomingCapabilities("");
-		applyPostureTools();
+		applyWorkModeTools();
 		if (decision.action !== "none" || previousPhase !== decision.state.phase) {
 			recordContextPressure(source, decision.action, decision.reason);
 		}
@@ -9179,7 +9153,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		contextPressureState = decision.state;
 		if (currentCtx) updateContextPressureStatus(currentCtx);
 		resolveIncomingCapabilities("");
-		applyPostureTools();
+		applyWorkModeTools();
 		recordContextPressure("session_compact", decision.action, decision.reason);
 	}
 
@@ -9218,7 +9192,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 				contextPressureState = failed.state;
 				updateContextPressureStatus(ctx);
 				resolveIncomingCapabilities("");
-				applyPostureTools();
+				applyWorkModeTools();
 				recordContextPressure("compaction_callback", failed.action, failed.reason);
 				if (ctx.hasUI) ctx.ui.notify(`Automatic compaction failed: ${error.message}. Deferred input is retained; run /compact or switch to a larger-context model.`, "error");
 			},
@@ -9311,7 +9285,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		// Pi routes normal, resumed, and remote prompts through this hook before
 		// before_agent_start, so this local resolver changes the same request's surface.
 		resolveIncomingCapabilities(incomingText(event));
-		applyPostureTools();
+		applyWorkModeTools();
 		return { action: "continue" as const };
 	});
 
@@ -9327,8 +9301,8 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		deferredRecoveryInputs.length = 0;
 		rosterRecoveryRequired = false;
 		rosterRecoveryDiagnostic = "";
-		// Capture the configured surface before Agent Hub applies either posture.
-		// Operator mode restores this baseline (minus gated Hub-owned tools).
+		// Capture the configured surface before Agent Hub applies either work mode.
+		// Operator work mode restores this baseline (minus gated Hub-owned tools).
 		baselineTools = pi.getActiveTools();
 		accessApprovalRouter.reset();
 		// Clear widgets + any research helpers from a previous session
@@ -9734,14 +9708,14 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 
 		// Explicit CLI selection wins; otherwise restore only the canonical team name
 		// and re-resolve it against current teams.yaml/persona files. An explicit
-		// operator posture suppresses an ambient persisted roster unless --agent-team
+		// Operator work mode suppresses an ambient persisted roster unless --agent-team
 		// was also supplied.
 		agentStates.clear();
 		activeTeamName = "";
 		comsMissNotified.clear();
 		recomputeGrid();
 		const sessionEntries = _ctx.sessionManager.getEntries();
-		const explicitPosture = pi.getFlag("posture");
+		const explicitWorkMode = pi.getFlag("work-mode");
 		const explicitRoster = pi.getFlag("agent-team");
 		const hasExplicitRoster = typeof explicitRoster === "string" && explicitRoster.trim() !== "";
 		const startupRoster = resolveSessionRoster({
@@ -9749,29 +9723,29 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			entries: sessionEntries,
 			explicitRoster,
 			availablePersonas: allAgentDefs.map(def => def.name),
-			includePersisted: !(explicitPosture === "operator" && !hasExplicitRoster),
+			includePersisted: !(explicitWorkMode === "operator" && !hasExplicitRoster),
 		});
-		posture = resolveSessionPosture({
+		workMode = resolveSessionWorkMode({
 			entries: sessionEntries,
-			explicitPosture,
+			explicitWorkMode,
 			hasExplicitRoster: startupRoster.source === "explicit",
 		});
 		if (startupRoster.roster) {
 			activateTeam(startupRoster.roster.name);
 			persistActiveRoster();
 		}
-		rosterRecoveryRequired = orchestratorNeedsRoster(posture, agentStates.size);
+		rosterRecoveryRequired = orchestratorNeedsRoster(workMode, agentStates.size);
 		rosterRecoveryDiagnostic = rosterRecoveryRequired
-			? startupRoster.diagnostic || "Persisted orchestrator posture has no native roster."
+			? startupRoster.diagnostic || "Persisted orchestrator work mode has no native roster."
 			: "";
 		if (startupRoster.diagnostic) {
 			_ctx.ui.notify(
-				`${startupRoster.diagnostic} ${rosterRecoveryRequired ? "Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --posture operator." : "Continuing without that roster."}`,
+				`${startupRoster.diagnostic} ${rosterRecoveryRequired ? "Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --work-mode operator." : "Continuing without that roster."}`,
 				rosterRecoveryRequired ? "error" : "warning",
 			);
 		} else if (rosterRecoveryRequired) {
 			_ctx.ui.notify(
-				`${rosterRecoveryDiagnostic} Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --posture operator.`,
+				`${rosterRecoveryDiagnostic} Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --work-mode operator.`,
 				"error",
 			);
 		}
@@ -9782,18 +9756,18 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		askUserAvailable = pi.getAllTools().some(t => t.name === "ask_user");
 
 		// Fleet tools are available only inside a herdr pane with a live server.
-		// The posture policy adds gated groups without activating unavailable tools.
+		// The work mode policy adds gated groups without activating unavailable tools.
 		herdrFleetReady = herdrPaneId() !== null && (await herdrAvailable()) !== null;
 		const persistedCapabilities = latestPersistedCapabilityState(_ctx.sessionManager.getEntries());
 		taskCapabilityPacks = persistedCapabilities?.taskPacks ?? [];
 		taskProvisionalPacks = persistedCapabilities?.provisional ?? [];
 		capabilityConfirmation = persistedCapabilities?.confirmation ?? {};
 		resolveIncomingCapabilities("");
-		applyPostureTools();
+		applyWorkModeTools();
 		if (observeContextPressure(_ctx, "session_start") === "compact-now") {
 			setTimeout(() => runAutomaticCompaction(_ctx, "session_start"), 0);
 		}
-		updatePostureStatus(_ctx);
+		updateWorkModeStatus(_ctx);
 
 		_ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`);
 		const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
@@ -9817,7 +9791,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 				? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /af-dispatch-policy for status)`
 				: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)";
 		_ctx.ui.notify(
-			`Posture: ${posture} (${posture === "operator" ? "direct tools enabled" : "delegate-only"})\n` +
+			`Work Mode: ${workMode} (${workMode === "operator" ? "direct tools enabled" : "delegate-only"})\n` +
 			`Native roster: ${activeTeamName || "(none)"} (${agentStates.size}${members ? `: ${members}` : ""})\n` +
 			`Native roster sets loaded from: .pi/agents/teams.yaml\n` +
 			`Dispatch backends: ${dispatchLabel}\n` +
@@ -9825,8 +9799,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n` +
 			`Coms: ${comsLabel}\n` +
 			`Fleet: ${fleetLabel}\n\n` +
-			`/af-work-mode [posture]  Operator | Orchestrator (Alt+M)\n` +
-			`/af-posture [posture]    Show/switch operator|orchestrator posture\n` +
+			`/af-work-mode [mode]      Operator | Orchestrator (Alt+M)\n` +
 			`/af-agents-team          Select a team\n` +
 			`/af-agents-list          Open Fleet Dashboard\n` +
 			`/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
@@ -9867,7 +9840,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 
 				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think, activeTeamName);
-				const hint = theme.fg("dim", composeFleetFooterHint(viewMode, compactPosture(posture)));
+				const hint = theme.fg("dim", composeFleetFooterHint(viewMode, compactWorkMode(workMode)));
 				// The btw extension flips this global the first time a /af-btw command or
 				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.
 				const btwHint = (globalThis as { __btwActivated?: boolean }).__btwActivated

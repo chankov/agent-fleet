@@ -47,7 +47,11 @@ interface HubParseDefaults {
 }
 
 function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): FleetInvocation {
-	let posture: "operator" | "orchestrator" | undefined;
+	if (args.some(arg => arg === "--posture" || arg.startsWith("--posture="))) {
+		throw new Error("--posture was removed; use --work-mode operator|orchestrator.");
+	}
+
+	let workMode: "operator" | "orchestrator" | undefined;
 	let agents = defaults.defaultAgents;
 	let peers = defaults.forcedPeers;
 	let herdr = defaults.forceHerdr ?? false;
@@ -59,7 +63,7 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 	let projectSeen = false;
 	let agentsSeen = false;
 	let peersSeen = false;
-	let postureSeen = false;
+	let workModeSeen = false;
 	let herdrSeen = false;
 	let noComsSeen = false;
 	let browserSeen = false;
@@ -76,12 +80,12 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 			break;
 		}
 		switch (arg) {
-			case "--posture": {
-				if (postureSeen) throw new Error("--posture may only be provided once");
-				postureSeen = true;
-				const value = requireValue(args[++i], "--posture requires operator or orchestrator");
-				if (value !== "operator" && value !== "orchestrator") throw new Error("--posture requires operator or orchestrator");
-				posture = value;
+			case "--work-mode": {
+				if (workModeSeen) throw new Error("--work-mode may only be provided once");
+				workModeSeen = true;
+				const value = requireValue(args[++i], "--work-mode requires operator or orchestrator");
+				if (value !== "operator" && value !== "orchestrator") throw new Error("--work-mode requires operator or orchestrator");
+				workMode = value;
 				break;
 			}
 			case "--agents":
@@ -141,14 +145,14 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 		}
 	}
 
-	if (posture === "orchestrator" && !agents) throw new Error("--posture orchestrator requires --agents <roster>");
+	if (workMode === "orchestrator" && !agents) throw new Error("--work-mode orchestrator requires --agents <roster>");
 	const topology = herdr || peers !== undefined;
 	if (dryRun && !topology) throw new Error("--dry-run requires --herdr or --peers");
 
 	let invocation: FleetInvocation;
 	if (topology) {
 		const forwarded = [
-			...(posture ? ["--posture", posture] : []),
+			...(workMode ? ["--work-mode", workMode] : []),
 			...(agents ? [defaults.legacyAgents ? "--legacy-agents" : "--agents", agents] : []),
 			...(noComs ? ["--no-coms"] : []),
 			...(browser ? ["--browser"] : []),
@@ -165,7 +169,7 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 				bool(browser),
 				bool(voice),
 				bool(allExtensions),
-				...(posture ? ["--posture", posture] : []),
+				...(workMode ? ["--work-mode", workMode] : []),
 				...(agents ? ["--agent-team", agents] : []),
 				...rest,
 			],

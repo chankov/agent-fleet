@@ -6,60 +6,63 @@ import {
 	HERDR_TOOLS,
 	ORCHESTRATION_TOOLS,
 	latestPersistedNativeRoster,
-	latestPersistedPosture,
-	parsePosture,
+	latestPersistedWorkMode,
+	parseWorkMode,
 	persistedNativeRosterState,
-	posturePrompt,
-	resolvePostureTools,
-	resolveSessionPosture,
+	workModePrompt,
+	resolveWorkModeTools,
+	resolveSessionWorkMode,
 	resolveSessionRoster,
-	resolveStartupPosture,
-} from "./posture.ts";
+	resolveStartupWorkMode,
+} from "./work-mode.ts";
 
-test("parsePosture accepts only operator and orchestrator", () => {
-	assert.equal(parsePosture("operator"), "operator");
-	assert.equal(parsePosture("orchestrator"), "orchestrator");
-	assert.equal(parsePosture(" operator "), "operator");
-	assert.equal(parsePosture("builder"), null);
-	assert.equal(parsePosture(undefined), null);
+test("parseWorkMode accepts only operator and orchestrator", () => {
+	assert.equal(parseWorkMode("operator"), "operator");
+	assert.equal(parseWorkMode("orchestrator"), "orchestrator");
+	assert.equal(parseWorkMode(" operator "), "operator");
+	assert.equal(parseWorkMode("builder"), null);
+	assert.equal(parseWorkMode(undefined), null);
 });
 
-test("startup posture honors explicit posture before roster implication", () => {
-	assert.equal(resolveStartupPosture({}), "operator");
-	assert.equal(resolveStartupPosture({ hasExplicitRoster: false }), "operator");
-	assert.equal(resolveStartupPosture({ hasExplicitRoster: true }), "orchestrator");
+test("startup work mode honors explicit work mode before roster implication", () => {
+	assert.equal(resolveStartupWorkMode({}), "operator");
+	assert.equal(resolveStartupWorkMode({ hasExplicitRoster: false }), "operator");
+	assert.equal(resolveStartupWorkMode({ hasExplicitRoster: true }), "orchestrator");
 	assert.equal(
-		resolveStartupPosture({ explicitPosture: "operator", hasExplicitRoster: true }),
+		resolveStartupWorkMode({ explicitWorkMode: "operator", hasExplicitRoster: true }),
 		"operator",
 	);
 	assert.equal(
-		resolveStartupPosture({ explicitPosture: "orchestrator", hasExplicitRoster: false }),
+		resolveStartupWorkMode({ explicitWorkMode: "orchestrator", hasExplicitRoster: false }),
 		"orchestrator",
 	);
 	assert.throws(
-		() => resolveStartupPosture({ explicitPosture: "builder" }),
-		/Unknown posture "builder"/,
+		() => resolveStartupWorkMode({ explicitWorkMode: "builder" }),
+		/Unknown work mode "builder"/,
 	);
 });
 
-test("latest persisted posture restores session state and ignores malformed entries", () => {
+test("latest persisted work mode restores canonical and legacy session state", () => {
 	const entries = [
-		{ type: "custom", customType: "agent-hub-posture", data: { posture: "operator" } },
+		{ type: "custom", customType: "agent-hub-work-mode", data: { workMode: "operator" } },
 		{ type: "message", role: "user", content: "ignore" },
-		{ type: "custom", customType: "agent-hub-posture", data: { posture: "builder" } },
+		{ type: "custom", customType: "agent-hub-work-mode", data: { workMode: "builder" } },
 		{ type: "custom", customType: "agent-hub-posture", data: { posture: "orchestrator" } },
 	];
-	assert.equal(latestPersistedPosture(entries), "orchestrator");
-	assert.equal(latestPersistedPosture([]), null);
+	assert.equal(latestPersistedWorkMode(entries), "orchestrator");
+	assert.equal(latestPersistedWorkMode([
+		{ type: "custom", customType: "agent-hub-posture", data: { posture: "operator" } },
+	]), "operator");
+	assert.equal(latestPersistedWorkMode([]), null);
 });
 
-test("session posture restores state unless an explicit CLI posture overrides it", () => {
+test("session work mode restores state unless an explicit CLI work mode overrides it", () => {
 	const entries = [
-		{ type: "custom", customType: "agent-hub-posture", data: { posture: "orchestrator" } },
+		{ type: "custom", customType: "agent-hub-work-mode", data: { workMode: "orchestrator" } },
 	];
-	assert.equal(resolveSessionPosture({ entries }), "orchestrator");
-	assert.equal(resolveSessionPosture({ entries, explicitPosture: "operator" }), "operator");
-	assert.equal(resolveSessionPosture({ entries: [], hasExplicitRoster: true }), "orchestrator");
+	assert.equal(resolveSessionWorkMode({ entries }), "orchestrator");
+	assert.equal(resolveSessionWorkMode({ entries, explicitWorkMode: "operator" }), "operator");
+	assert.equal(resolveSessionWorkMode({ entries: [], hasExplicitRoster: true }), "orchestrator");
 });
 
 test("native roster metadata restores only versioned team names", () => {
@@ -110,21 +113,21 @@ test("session roster restores current team configuration and fails closed when i
 	assert.equal(stale.source, "persisted");
 });
 
-test("posture prompt permits direct work only for operators", () => {
-	const operator = posturePrompt("operator");
+test("work mode prompt permits direct work only for operators", () => {
+	const operator = workModePrompt("operator");
 	assert.match(operator.intro, /Fleet operator/);
 	assert.match(operator.hardRules, /MAY read, execute, edit, and write directly/);
 	assert.doesNotMatch(operator.hardRules, /NEVER try to read, write, or execute/);
 
-	const orchestrator = posturePrompt("orchestrator");
+	const orchestrator = workModePrompt("orchestrator");
 	assert.match(orchestrator.intro, /dispatcher agent/);
 	assert.match(orchestrator.hardRules, /NEVER try to read, write, or execute/);
 	assert.doesNotMatch(orchestrator.hardRules, /herdr_spawn_pane/);
 });
 
 test("operator preserves coding and approved extension tools while gating Hub capabilities", () => {
-	const tools = resolvePostureTools({
-		posture: "operator",
+	const tools = resolveWorkModeTools({
+		workMode: "operator",
 		baselineTools: [
 			"read", "bash", "edit", "write", "bowser", "ask_user",
 			"coms_send", "herdr_spawn_peer", "dispatch_agent",
@@ -144,8 +147,8 @@ test("operator preserves coding and approved extension tools while gating Hub ca
 });
 
 test("operator adds only runtime-ready coms and Herdr groups", () => {
-	const tools = resolvePostureTools({
-		posture: "operator",
+	const tools = resolveWorkModeTools({
+		workMode: "operator",
 		baselineTools: ["read", "coms_send", "herdr_spawn_peer"],
 		comsReady: true,
 		herdrReady: true,
@@ -157,8 +160,8 @@ test("operator adds only runtime-ready coms and Herdr groups", () => {
 });
 
 test("orchestrator excludes direct and unrelated extension tools", () => {
-	const tools = resolvePostureTools({
-		posture: "orchestrator",
+	const tools = resolveWorkModeTools({
+		workMode: "orchestrator",
 		baselineTools: ["read", "bash", "edit", "write", "bowser", "ask_user"],
 		comsReady: true,
 		herdrReady: true,
@@ -174,9 +177,9 @@ test("orchestrator excludes direct and unrelated extension tools", () => {
 });
 
 test("ask_user remains gated even when present in the baseline", () => {
-	for (const posture of ["operator", "orchestrator"] as const) {
-		const tools = resolvePostureTools({
-			posture,
+	for (const workMode of ["operator", "orchestrator"] as const) {
+		const tools = resolveWorkModeTools({
+			workMode,
 			baselineTools: ["read", "ask_user"],
 			comsReady: false,
 			herdrReady: false,

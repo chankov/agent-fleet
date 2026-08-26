@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { posturePrompt } from "../agent-hub/posture.ts";
+import { workModePrompt } from "../agent-hub/work-mode.ts";
 import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger, type HubPromptParts } from "./context-budget-hub-prompt.ts";
 
-function representativeParts(posture: "operator" | "orchestrator", herdr: boolean): HubPromptParts & {
+function representativeParts(workMode: "operator" | "orchestrator", herdr: boolean): HubPromptParts & {
 	agentCards: { id: string; text: string }[];
 	researchCards: { id: string; text: string }[];
 } {
-	const pose = posturePrompt(posture);
+	const pose = workModePrompt(workMode);
 	const agentCards = [
 		{ id: "builder", text: "### Builder\n**Dispatch as:** `builder`\nImplements slices.\n**Tools:** read,write" },
 		{ id: "reviewer", text: "### Reviewer\n**Dispatch as:** `reviewer`\nReviews code.\n**Tools:** read" },
@@ -39,7 +39,7 @@ function representativeParts(posture: "operator" | "orchestrator", herdr: boolea
 	};
 }
 
-test("compact stable policy preserves posture, backend, ambiguity, and evidence invariants", () => {
+test("compact stable policy preserves work mode, backend, ambiguity, and evidence invariants", () => {
 	const operator = assembleHubSystemPrompt(representativeParts("operator", false));
 	const orchestrator = assembleHubSystemPrompt(representativeParts("orchestrator", false));
 	assert.notEqual(operator, orchestrator);

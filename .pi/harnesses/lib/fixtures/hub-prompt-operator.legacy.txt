@@ -40,7 +40,7 @@ personas is usually the wrong answer.
 - Research helpers are ephemeral and read-only, so they are always safe to run.
 
 ## Hard Rules
-- You MAY read, execute, edit, and write directly in operator posture.
+- You MAY read, execute, edit, and write directly in operator work mode.
 - Use direct tools for focused work when they are the simplest path; delegate when specialization, parallelism, or independent verification adds value.
 - Give concurrent writable agents explicit non-overlapping scopes and inspect overlap warnings before proceeding.
 - NEVER proceed past an ambiguity by guessing.

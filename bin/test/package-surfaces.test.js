@@ -203,7 +203,7 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
         ],
         { cwd: workspace, encoding: "utf8" },
       );
-      assert.match(fleetHelp, /Agent Fleet — one guarded Hub runtime, two postures, independent topology/, `${method}: installed fleet entrypoint must load`);
+      assert.match(fleetHelp, /Agent Fleet — one guarded Hub runtime, two work modes, independent topology/, `${method}: installed fleet entrypoint must load`);
 
       if (method === "copy") writeFileSync(join(workspace, "systemd", "user-owned.service"), "[Unit]\n");
       removeClosure(root, workspace, owned);

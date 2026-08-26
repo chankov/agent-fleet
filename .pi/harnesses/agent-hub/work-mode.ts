@@ -1,5 +1,8 @@
-export const POSTURES = ["operator", "orchestrator"] as const;
-export type Posture = (typeof POSTURES)[number];
+export const WORK_MODES = ["operator", "orchestrator"] as const;
+export type WorkMode = (typeof WORK_MODES)[number];
+
+export const WORK_MODE_ENTRY_TYPE = "agent-hub-work-mode";
+const LEGACY_POSTURE_ENTRY_TYPE = "agent-hub-posture";
 
 export const FLEET_TOOLS = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust"] as const;
 export const VERIFICATION_TOOLS = ["set_assertions", "update_assertion", "get_assertions"] as const;
@@ -22,44 +25,50 @@ const HUB_OWNED_TOOLS = new Set<string>([
 	...CONDITIONAL_TOOLS,
 ]);
 
-export function parsePosture(value: unknown): Posture | null {
+export function parseWorkMode(value: unknown): WorkMode | null {
 	if (typeof value !== "string") return null;
 	const normalized = value.trim();
-	return POSTURES.includes(normalized as Posture) ? normalized as Posture : null;
+	return WORK_MODES.includes(normalized as WorkMode) ? normalized as WorkMode : null;
 }
 
-export function resolveStartupPosture(options: {
-	explicitPosture?: unknown;
+export function resolveStartupWorkMode(options: {
+	explicitWorkMode?: unknown;
 	hasExplicitRoster?: boolean;
-}): Posture {
-	if (options.explicitPosture !== undefined) {
-		const explicit = parsePosture(options.explicitPosture);
-		if (!explicit) throw new Error(`Unknown posture "${String(options.explicitPosture)}"; expected operator|orchestrator.`);
+}): WorkMode {
+	if (options.explicitWorkMode !== undefined) {
+		const explicit = parseWorkMode(options.explicitWorkMode);
+		if (!explicit) throw new Error(`Unknown work mode "${String(options.explicitWorkMode)}"; expected operator|orchestrator.`);
 		return explicit;
 	}
 	return options.hasExplicitRoster ? "orchestrator" : "operator";
 }
 
-export function latestPersistedPosture(entries: readonly unknown[]): Posture | null {
+/** Restores canonical work-mode entries and legacy posture entries from older sessions. */
+export function latestPersistedWorkMode(entries: readonly unknown[]): WorkMode | null {
 	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i] as { type?: unknown; customType?: unknown; data?: { posture?: unknown } } | null;
-		if (entry?.type !== "custom" || entry.customType !== "agent-hub-posture") continue;
-		const persisted = parsePosture(entry.data?.posture);
+		const entry = entries[i] as { type?: unknown; customType?: unknown; data?: { workMode?: unknown; posture?: unknown } } | null;
+		if (entry?.type !== "custom") continue;
+		const value = entry.customType === WORK_MODE_ENTRY_TYPE
+			? entry.data?.workMode
+			: entry.customType === LEGACY_POSTURE_ENTRY_TYPE
+				? entry.data?.posture
+				: undefined;
+		const persisted = parseWorkMode(value);
 		if (persisted) return persisted;
 	}
 	return null;
 }
 
-export function resolveSessionPosture(options: {
+export function resolveSessionWorkMode(options: {
 	entries: readonly unknown[];
-	explicitPosture?: unknown;
+	explicitWorkMode?: unknown;
 	hasExplicitRoster?: boolean;
-}): Posture {
-	if (options.explicitPosture !== undefined) {
-		return resolveStartupPosture({ explicitPosture: options.explicitPosture });
+}): WorkMode {
+	if (options.explicitWorkMode !== undefined) {
+		return resolveStartupWorkMode({ explicitWorkMode: options.explicitWorkMode });
 	}
-	return latestPersistedPosture(options.entries)
-		?? resolveStartupPosture({ hasExplicitRoster: options.hasExplicitRoster });
+	return latestPersistedWorkMode(options.entries)
+		?? resolveStartupWorkMode({ hasExplicitRoster: options.hasExplicitRoster });
 }
 
 export const NATIVE_ROSTER_STATE_VERSION = 1 as const;
@@ -118,11 +127,11 @@ export function resolveSessionRoster(options: {
 	return { source, roster: { name, members }, diagnostic: null };
 }
 
-export function posturePrompt(posture: Posture): { intro: string; hardRules: string } {
-	if (posture === "operator") {
+export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: string } {
+	if (workMode === "operator") {
 		return {
 			intro: "You are the Fleet operator. You may work on the codebase directly and may also coordinate specialist agents when delegation adds value.",
-			hardRules: `- You MAY read, execute, edit, and write directly in operator posture.
+			hardRules: `- You MAY read, execute, edit, and write directly in operator work mode.
 - Use direct tools for focused work when they are the simplest path; delegate when specialization, parallelism, or independent verification adds value.
 - Give concurrent writable agents explicit non-overlapping scopes and inspect overlap warnings before proceeding.`,
 		};
@@ -134,8 +143,8 @@ export function posturePrompt(posture: Posture): { intro: string; hardRules: str
 	};
 }
 
-export function resolvePostureTools(options: {
-	posture: Posture;
+export function resolveWorkModeTools(options: {
+	workMode: WorkMode;
 	baselineTools: readonly string[];
 	comsReady: boolean;
 	herdrReady: boolean;
@@ -144,7 +153,7 @@ export function resolvePostureTools(options: {
 	capabilityPacks?: readonly ("core" | "fleet" | "verification" | "peer" | "workspace" | "compaction")[];
 }): string[] {
 	const packs = new Set(options.capabilityPacks ?? ["core", "fleet", "verification", "peer", "workspace"]);
-	const tools = options.posture === "operator" && packs.has("core")
+	const tools = options.workMode === "operator" && packs.has("core")
 		? options.baselineTools.filter(name => !HUB_OWNED_TOOLS.has(name))
 		: [];
 

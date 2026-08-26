@@ -13,7 +13,7 @@ test("hub footer places the linked version before model, thinking suffix, and te
 	);
 });
 
-test("fleet footer identifies the dashboard shortcut, posture, and compact-widget state", () => {
+test("fleet footer identifies the dashboard shortcut, work mode, and compact-widget state", () => {
 	assert.equal(composeFleetFooterHint("compact"), "Alt+A fleet · Alt+Shift+A widget:compact");
 	assert.equal(
 		composeFleetFooterHint("compact", "Operator"),

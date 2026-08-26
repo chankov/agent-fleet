@@ -63,7 +63,7 @@ just fleet doctor    # confirm the workspace is whole
 
 ```bash
 just fleet doctor    # exit 0 = nothing to repair, 2 = repairable findings
-just fleet           # Hub in operator posture, empty native roster
+just fleet           # Hub in operator work mode, empty native roster
 ```
 
 From here on `just fleet setup`, `just fleet doctor`, and `just fleet uninstall`

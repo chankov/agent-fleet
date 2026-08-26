@@ -180,21 +180,21 @@ each past release actually shipped, and reconciliation diffs against them.
 ## 4. One unified `just fleet` runtime
 
 Pi Fleet startup is now a single guarded Agent Hub runtime. Bare `just fleet`
-loads Fleet Core plus Agent Hub in **operator** posture: direct coding tools
-preserved, native roster empty. Execution posture, native specialists, workspace
+loads Fleet Core plus Agent Hub in **operator** work mode: direct coding tools
+preserved, native roster empty. Work Mode, native specialists, workspace
 topology, project scope, and communication capabilities are now selected
 independently:
 
 ```bash
 just fleet                                       # operator, empty native roster
 just fleet --agents frontend                     # native roster; orchestrator inferred
-just fleet --posture operator --agents frontend  # direct work plus the same roster
+just fleet --work-mode operator --agents frontend  # direct work plus the same roster
 just fleet --no-coms                             # direct/native work, no peer messaging
 just fleet --herdr --project af                  # one Hub pane, no standing peers
 just fleet --agents frontend --peers frontend --project af
 ```
 
-New in the same change: live `/af-posture` switching, on-demand native roster
+New in the same change: live `/af-work-mode` switching, on-demand native roster
 growth (`/af-agents-add`), deterministic `dispatch_agent` routing through
 `backend: auto|native|coms`, and same-project dynamic Pi or Claude Code peer
 spawning through Herdr.

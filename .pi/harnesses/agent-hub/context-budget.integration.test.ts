@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { posturePrompt } from "./posture.ts";
+import { workModePrompt } from "./work-mode.ts";
 import { assembleHubSystemPrompt, namedHubLedgerParts, recordHubLedger } from "../lib/context-budget-hub-prompt.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const collector = readFileSync(new URL("./context-budget-snapshot.ts", import.meta.url), "utf8");
 const childPrompt = readFileSync(new URL("../lib/context-budget-child-prompt.ts", import.meta.url), "utf8");
 
-test("af-context is registered read-only in both operator and orchestrator postures", () => {
+test("af-context is registered read-only in both operator and orchestrator work modes", () => {
 	assert.match(source, /pi\.registerCommand\("af-context",[\s\S]*?openContextBudget\(ctx\)/);
 	assert.match(source, /async function openContextBudget[\s\S]*?ctx\.ui\.custom[\s\S]*?FULLSCREEN_OVERLAY/);
 	assert.match(source, /async function openContextBudget[\s\S]*?createPanelResources\(\)[\s\S]*?resources\.every\(1000,[\s\S]*?dispose: \(\) => resources\.dispose\(\)/);
@@ -19,8 +19,8 @@ test("af-context is registered read-only in both operator and orchestrator postu
 	assert.equal(source.slice(registerIdx - 80, registerIdx).includes("orchestrator") || source.slice(registerIdx - 80, registerIdx).includes("operator"), false);
 	assert.match(source, /openFleetDashboard/);
 	assert.doesNotMatch(source, /openFleetDashboard[\s\S]{0,200}af-context|af-context[\s\S]{0,200}openFleetDashboard/);
-	for (const posture of ["operator", "orchestrator"] as const) {
-		const pose = posturePrompt(posture);
+	for (const workMode of ["operator", "orchestrator"] as const) {
+		const pose = workModePrompt(workMode);
 		const prompt = assembleHubSystemPrompt({
 			intro: pose.intro,
 			toolList: "tools",

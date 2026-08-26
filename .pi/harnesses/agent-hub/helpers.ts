@@ -61,8 +61,8 @@ export function resolveStartupRoster(
 	return { name, members: [...teams[name]] };
 }
 
-export function orchestratorNeedsRoster(posture: string, rosterSize: number): boolean {
-	return posture === "orchestrator" && rosterSize < 1;
+export function orchestratorNeedsRoster(workMode: string, rosterSize: number): boolean {
+	return workMode === "orchestrator" && rosterSize < 1;
 }
 
 // Normalize a dispatcher-supplied agent name to the persona-slug key space:

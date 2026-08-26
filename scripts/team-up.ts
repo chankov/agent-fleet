@@ -221,7 +221,7 @@ async function main(): Promise<void> {
 	let hubBrowser: boolean;
 	let hubAllExtensions: boolean;
 	let hubNoComs: boolean;
-	let hubPosture: "operator" | "orchestrator" | undefined;
+	let hubWorkMode: "operator" | "orchestrator" | undefined;
 	let hubAgentTeam: string | undefined;
 	try {
 		dryRun = booleanFlag(argv, "--dry-run");
@@ -229,11 +229,11 @@ async function main(): Promise<void> {
 		hubBrowser = booleanFlag(argv, "--browser");
 		hubAllExtensions = booleanFlag(argv, "--all-extensions");
 		hubNoComs = booleanFlag(argv, "--no-coms");
-		const posture = flagValue(argv, "--posture");
-		if (posture && posture !== "operator" && posture !== "orchestrator") {
-			throw new Error("--posture requires operator or orchestrator");
+		const workMode = flagValue(argv, "--work-mode");
+		if (workMode && workMode !== "operator" && workMode !== "orchestrator") {
+			throw new Error("--work-mode requires operator or orchestrator");
 		}
-		hubPosture = posture ?? undefined;
+		hubWorkMode = workMode ?? undefined;
 		const canonicalAgents = flagValue(argv, "--agents");
 		const legacyAgents = flagValue(argv, "--legacy-agents");
 		if (canonicalAgents && legacyAgents) throw new Error("--agents and --legacy-agents are mutually exclusive");
@@ -246,11 +246,11 @@ async function main(): Promise<void> {
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
-	if (!hub && (hubBrowser || hubAllExtensions || hubNoComs || hubPosture || hubAgentTeam)) {
-		die("--posture/--agents/--no-coms/--browser/--all-extensions apply to the hub pane and therefore require --hub");
+	if (!hub && (hubBrowser || hubAllExtensions || hubNoComs || hubWorkMode || hubAgentTeam)) {
+		die("--work-mode/--agents/--no-coms/--browser/--all-extensions apply to the hub pane and therefore require --hub");
 	}
-	if (hubPosture === "orchestrator" && !hubAgentTeam) {
-		die("--posture orchestrator requires --agents <roster>");
+	if (hubWorkMode === "orchestrator" && !hubAgentTeam) {
+		die("--work-mode orchestrator requires --agents <roster>");
 	}
 	let conductor: ConductorBackend | null;
 	try {
@@ -297,7 +297,7 @@ async function main(): Promise<void> {
 	// reads them, and a peer is not a hub.
 	const monitorEnv = dryRun ? null : resolveMonitorEnv();
 	const hubOptions = {
-		posture: hubPosture,
+		workMode: hubWorkMode,
 		agentTeam: hubAgentTeam,
 		noComs: hubNoComs,
 		browser: hubBrowser,

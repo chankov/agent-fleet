@@ -45,7 +45,7 @@ const KNOWN_SECTIONS = {
   "agent-hub": {
     keys: {
       "language": null,
-      "persona-gate": (value) => `ignored — dispatcher persona selection was removed; use /af-work-mode for operator|orchestrator posture. Remove this key (was "${value}")`,
+      "persona-gate": (value) => `ignored — dispatcher persona selection was removed; use /af-work-mode for operator|orchestrator work mode. Remove this key (was "${value}")`,
       "rules": checkFolders("rules"),
       "docs": checkPaths("docs entry point"),
       "recon-search-timeout-s": oneOfIntegerOrOff(1, 3600),

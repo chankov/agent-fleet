@@ -101,7 +101,7 @@ test("dry run: hub project labels workspace and sends the project to hub plus ev
 	assert.deepEqual(parsed.layout.second.second.command, ["just", "_peer", "documenter", "b", "m/x", "", "acme"]);
 });
 
-test("dry run: unified Hub topology threads posture, native roster, capabilities, and no-coms", () => {
+test("dry run: unified Hub topology threads work mode, native roster, capabilities, and no-coms", () => {
 	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, [
@@ -124,13 +124,13 @@ test("dry run: unified Hub topology threads posture, native roster, capabilities
 	]);
 
 	const explicitOperator = dryRun([
-		"--team", "frontend", "--hub", "--posture", "operator", "--agents", "frontend",
+		"--team", "frontend", "--hub", "--work-mode", "operator", "--agents", "frontend",
 		"--no-coms", "--browser", "--all-extensions", "--project", "af",
 	], peersYaml);
 	assert.equal(explicitOperator.status, 0, explicitOperator.stderr);
 	const parsed = parseDryLayout(explicitOperator.stdout);
 	assert.deepEqual(parsed.layout.first.command, [
-		"just", "fleet", "--posture", "operator", "--agents", "frontend", "--no-coms",
+		"just", "fleet", "--work-mode", "operator", "--agents", "frontend", "--no-coms",
 		"--browser", "--all-extensions", "--project", "af",
 	]);
 	for (const command of paneCommands(parsed.layout)) {

@@ -1,12 +1,12 @@
 # agent-hub
 
 The unified Agent Fleet runtime for pi, with [`coms`](../coms/README.md) **embedded**. Bare
-`just fleet` loads Fleet Core and starts `agent-hub` in **operator** posture with direct coding
+`just fleet` loads Fleet Core and starts `agent-hub` in **operator** work mode with direct coding
 and orchestration tools, but no standing native roster. The same live session can switch to
-**orchestrator** posture, which removes direct coding tools and drives native specialists under
+**orchestrator** work mode, which removes direct coding tools and drives native specialists under
 the Verification Contract. Fleet Core loads first: [`damage-control-continue`](../damage-control-continue/README.md),
 [`ask-user-remote`](../ask-user-remote/README.md), STT, Compact & Continue, BTW, and the update
-checker. Both postures can adjust the native roster, run research, collaborate with Pi/Claude
+checker. Both work modes can adjust the native roster, run research, collaborate with Pi/Claude
 peers, and hand the session to a visible coms peer.
 
 > Consolidates the retired `agent-team` dispatcher into this harness and embeds the ported `coms`
@@ -17,34 +17,33 @@ peers, and hand the session to a visible coms peer.
 
 **Optional phone control:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live peers for the experimental [Codex Android conductor](../../../docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch `just fleet conductor codex <team>` for the same peers. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
 
-## Posture, roster, and topology
+## Work Mode, roster, and topology
 
 These are independent runtime axes:
 
-- **Posture** — `/af-posture operator|orchestrator` switches prompt and active tools without
-  restarting or losing session state. Operator keeps `read`, `bash`, `edit`, `write`, approved
-  extension tools, and orchestration. Orchestrator withholds direct coding tools but keeps
-  dispatch, research, assertions, roster controls, `ask_user`, ready coms, and ready Herdr tools.
-  In orchestrator posture, raw Herdr panes are auxiliary-process orchestration—not a route around
-  delegation for reading, editing, testing, or implementing code. With no argument, `/af-posture`
-  opens a two-option picker.
+- **Work Mode** — `/af-work-mode operator|orchestrator` switches prompt and active tools without
+  restarting or losing session state; `/af-work-mode` without an argument and **Alt+M** open the
+  two-option picker. Operator keeps `read`, `bash`, `edit`, `write`, approved extension tools, and
+  orchestration. Orchestrator withholds direct coding tools but keeps dispatch, research, assertions,
+  roster controls, `ask_user`, ready coms, and ready Herdr tools. In orchestrator work mode, raw
+  Herdr panes are auxiliary-process orchestration—not a route around delegation for reading,
+  editing, testing, or implementing code.
 - **Native roster** — local headless Pi specialists from `.pi/agents/teams.yaml`. Bare Fleet starts
   empty; select one with `--agents frontend` or add one live with `/af-agents-add code-reviewer`.
 - **Peer topology** — separate long-lived Pi or Claude Code processes from `peers.yaml`, connected
   by coms and optionally placed in sibling Herdr panes. `--peers frontend` selects a standing
   preset; `--herdr` creates a Hub-only workspace through the empty `base` preset.
-- **Posture shortcuts** — `/af-work-mode` and **Alt+M** switch operator vs orchestrator. Orchestrator
-  still requires a native roster. Budgets, nested delegation, and Verification Contract rigor follow
-  the **task tier**, not a session execution mode.
+Orchestrator still requires a native roster. Budgets, nested delegation, and Verification Contract
+rigor follow the **task tier**, not Work Mode.
 
-All Hub slash commands, including `/af-handoff`, are registered in both postures. A command whose
+All Hub slash commands, including `/af-handoff`, are registered in both work modes. A command whose
 runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
 disables only embedded coms; direct operator work and native dispatch remain available.
 
 ### Automatic capability surfaces
 
-Capability packs load **automatically** from the current request, posture, task tier, pending work,
-and runtime state; there is no activation command. `core` is always present. Orchestrator posture
+Capability packs load **automatically** from the current request, work mode, task tier, pending work,
+and runtime state; there is no activation command. `core` is always present. Orchestrator work mode
 always includes `fleet`; explicit delegation/research, acceptance work, an existing coms peer, a
 Herdr pane/watcher request, and explicit or imminent compaction respectively add `fleet`,
 `verification`, `peer`, `workspace`, and `compaction`. A ready coms or Herdr runtime is only
@@ -55,7 +54,7 @@ and records its reason in the state capsule and `/af-context`. Before that pack'
 the Hub asks one focused `ask_user` confirmation. Confirming promotes it for the task; reject or
 cancel removes it and leaves no message, child, or pane behind. Active task packs persist through
 follow-up turns so a workflow does not lose tools. They shrink only through
-`set_task_tier(new_task: true)` (apart from mandatory posture and pending-operation leases), never
+`set_task_tier(new_task: true)` (apart from mandatory work mode and pending-operation leases), never
 merely because the next message sounds different.
 
 `/af-context` separates stable replacement-prompt cost from the volatile state capsule and active
@@ -94,20 +93,19 @@ fallback, or switch to a model with a larger context window:
 
 A resumed orchestrator session can also require roster recovery. The Hub persists only the selected
 team name and resolves it again against the current `.pi/agents/teams.yaml` and persona files. If the
-team is missing, renamed, empty, or stale, the Hub preserves orchestrator posture, keeps direct coding
+team is missing, renamed, empty, or stale, the Hub preserves orchestrator work mode, keeps direct coding
 tools unavailable, and blocks model input rather than inventing a roster or silently downgrading.
 Recover with one of these explicit choices:
 
 ```text
 /af-agents-team                 # select a currently valid team in the live session
-/af-posture operator            # explicitly leave delegate-only posture
-/af-work-mode operator          # restore direct tools
+/af-work-mode operator          # explicitly leave delegate-only work mode and restore direct tools
 just fleet --agents <name>      # restart through the public Fleet CLI
-just fleet --posture operator   # restart explicitly as an operator
+just fleet --work-mode operator   # restart explicitly as an operator
 ```
 
-For a direct Pi launch, the roster flag is `--agent-team <name>` and the posture flag is
-`--posture operator`; explicit startup flags take precedence over persisted selections. Fix stale
+For a direct Pi launch, the roster flag is `--agent-team <name>` and the work mode flag is
+`--work-mode operator`; explicit startup flags take precedence over persisted selections. Fix stale
 team/persona declarations before selecting them.
 
 The Pi session JSONL under `~/.pi/agent/sessions/` is the authoritative append-only conversation and
@@ -147,7 +145,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 `agent-hub` is the supported home for the former standalone dispatcher features:
 
 - **Dispatcher grid** — a live dashboard of the active, dynamically adjustable native roster from `.pi/agents/teams.yaml`.
-- **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic in either posture. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
+- **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic in either work mode. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
 - **Research helpers** — `spawn_research` and `/af-research` launch read-only helper agents. Managed research children use a replacement read-only prompt with `--no-skills` and `--no-context-files`; managed specialists receive a selected context manifest (persona, applicable policy paths, and named skill paths) rather than inherited global skill/context loading. Two
   `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple
@@ -379,9 +377,9 @@ are hidden, and the coms pool widget collapses too, so an idle session collapses
 and footer. **`Alt+Shift+A`** toggles that widget on or off; the footer reports
 `Alt+A fleet · Alt+M Operator · Alt+Shift+A widget:compact|off`.
 
-### Posture picker
+### Work Mode picker
 
-Press **`Alt+M`** or run **`/af-work-mode`** / **`/af-posture`** to open the posture picker:
+Press **`Alt+M`** or run **`/af-work-mode`** to open the work mode picker:
 **operator** (direct tools) or **orchestrator** (delegate-only). Arrow keys move, Enter applies,
 and Esc cancels with no change. Orchestrator requires a native roster. On macOS, the outer
 terminal must send Option as Meta or Alt+M will not reach the Hub.
@@ -797,11 +795,11 @@ drives the cards — not post-hoc:
   partial output preserved) and the dispatch result instructs: re-dispatch ONCE with a
   corrected, narrowed task — never the same task unchanged.
 
-Enablement is dynamic. In **operator** posture, precedence is the `watchdog: true|false`
+Enablement is dynamic. In **operator** work mode, precedence is the `watchdog: true|false`
 param on a single `dispatch_agent` call → a per-agent override (`/af-watchdog builder
 on|off|clear`) → the hub-wide setting (`/af-watchdog on|off|auto`, default `auto`, project
 default via the `watchdog:` overrides key): `on`/`auto` arm and `off` disarms. In
-**orchestrator** posture, hub `auto`/`on` auto-arms; dispatch `watchdog: false` cannot
+**orchestrator** work mode, hub `auto`/`on` auto-arms; dispatch `watchdog: false` cannot
 disarm it. Opt out with hub `/af-watchdog off` (or override `watchdog: off`), or a per-agent
 `off`. Read-only research helpers are not monitored — they already run under the per-tool
 watchdog + turn deadline and cannot write.
@@ -1029,13 +1027,13 @@ Orchestration, research helpers, and the grid keep working.
 ### Tool surface
 
 `setActiveTools` always preserves the orchestration surface and adds runtime-ready capabilities.
-Operator posture also preserves the baseline direct/extension tools; orchestrator posture does not.
+Operator work mode also preserves the baseline direct/extension tools; orchestrator work mode does not.
 Coms tools are active only when coms is ready, Herdr tools only in a live Herdr pane, and `ask_user`
-only when registered. Posture switching recomputes this list live without touching session state.
+only when registered. Work mode switching recomputes this list live without touching session state.
 
 `set_assertions` / `update_assertion` / `get_assertions` are the always-on Verification Contract ledger tools (see
 [What it does](#what-it-does)); like `dispatch_agent` / `spawn_research` they stay on the
-orchestration surface in both postures.
+orchestration surface in both work modes.
 
 ## Optional Hermes local monitor transport
 
@@ -1089,7 +1087,7 @@ lease or socket loss and must never persist or log the token.
 ```bash
 # Unified Fleet interface (Fleet Core + Agent Hub are loaded together)
 just fleet
-just fleet --posture operator --agents frontend --project myrepo
+just fleet --work-mode operator --agents frontend --project myrepo
 just fleet --agents frontend --peers frontend --project myrepo
 
 # equivalent direct guarded launch

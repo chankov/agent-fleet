@@ -50,12 +50,12 @@ default:
 
 # ---------------------------------------------------------------- unified Fleet interface
 
-# Agent Fleet — one guarded Hub runtime, two postures, independent topology.
+# Agent Fleet — one guarded Hub runtime, two work modes, independent topology.
 #
 # UNIFIED HUB (recommended default)
 #   just fleet                              # operator + empty native roster
 #   just fleet --agents frontend            # orchestrator + native roster
-#   just fleet --posture operator --agents frontend
+#   just fleet --work-mode operator --agents frontend
 #   just fleet --no-coms                    # direct/native work, no peer messaging
 #   just fleet --browser                    # add live Chrome DevTools tools
 #   just fleet --voice                      # load installed push-to-talk STT

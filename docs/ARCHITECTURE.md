@@ -26,20 +26,20 @@ harness. Three independent choices shape that runtime:
 
 | Axis | Choices | What it controls |
 | --- | --- | --- |
-| **Posture** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes direct coding tools and keeps dispatch, research, assertions, `ask_user`, and available coms/Herdr tools. `/af-posture` and `/af-work-mode` / **Alt+M** switch this axis. |
-| **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Roster changes do not change posture in a live session. |
-| **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change posture or the native roster. |
+| **Work Mode** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes direct coding tools and keeps dispatch, research, assertions, `ask_user`, and available coms/Herdr tools. `/af-work-mode` and **Alt+M** switch this axis. |
+| **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Roster changes do not change work mode in a live session. |
+| **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change work mode or the native roster. |
 
-Bare `just fleet` therefore means operator posture, an empty native roster, and
-the current terminal. At startup an explicit `--posture` wins; otherwise
+Bare `just fleet` therefore means operator work mode, an empty native roster, and
+the current terminal. At startup an explicit `--work-mode` wins; otherwise
 `--agents <roster>` implies orchestrator; otherwise operator is used. An
-orchestrator startup requires a roster. `/af-posture` and `/af-work-mode` /
-**Alt+M** switch only posture in the live session, and `/af-agents-*` changes
+orchestrator startup requires a roster. `/af-work-mode` and **Alt+M** switch
+only work mode in the live session, and `/af-agents-*` changes
 only the native roster. Dispatch, research, nested delegation, and Verification
 Contract rigor follow the **task tier** (`trivial`/`small`/`feature`/`project`),
 not a session execution mode.
 
-All Hub-owned slash commands remain registered in both postures. Capability packs are resolved automatically from explicit task intent, posture, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory posture and pending-operation leases remain.
+All Hub-owned slash commands remain registered in both work modes. Capability packs are resolved automatically from explicit task intent, work mode, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain.
 
 `/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. Managed specialists and research children use explicit replacement prompts/context manifests with selected persona, policy, and skill paths instead of inherited global skills/context files. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an active roster, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
 
@@ -61,9 +61,9 @@ error bodies, or summaries.
 
 A persisted native roster is also metadata, not copied configuration: only its team name is stored
 and it is re-resolved against current teams and persona definitions. A stale or absent roster in a
-resumed orchestrator session fails closed—posture remains orchestrator, direct tools remain removed,
+resumed orchestrator session fails closed—work mode remains orchestrator, direct tools remain removed,
 and model input is blocked until `/af-agents-team`, an explicit `--agent-team <name>` restart, or an
-explicit operator selection resolves it. Explicit CLI posture and roster selections retain
+explicit operator selection resolves it. Explicit CLI work mode and roster selections retain
 precedence.
 
 Pi's session JSONL is the authoritative append-only record for rebuilding a session, including
@@ -92,7 +92,7 @@ flowchart TD
     You(["You · Hermes inbound relay · Codex outbound conductor on your phone"])
 
     subgraph HUBL["HUB — guarded runtime  (bare just fleet)"]
-        Hub["agent-hub harness<br/>operator or orchestrator posture · routes tasks<br/>owns the Verification Contract on disk · keeps research dumps out of its own context"]
+        Hub["agent-hub harness<br/>operator or orchestrator work mode · routes tasks<br/>owns the Verification Contract on disk · keeps research dumps out of its own context"]
     end
 
     subgraph TEAML["OPTIONAL NATIVE ROSTER  (.pi/agents/teams.yaml)"]
@@ -222,7 +222,7 @@ observed in-flight from the JSON event stream — deterministic rules (out-of-sc
 against the declared `scope` globs, tool-call loops, consecutive failures, tool-call cap)
 escalate to a one-shot cheap LLM judge whose DRIFTING/STUCK verdict terminates the run as
 `drift_stop` (exit 125, partial output preserved); enabled per hub/agent/dispatch
-(`watchdog` key, `/af-watchdog`, `watchdog` param). Orchestrator posture auto-arms the
+(`watchdog` key, `/af-watchdog`, `watchdog` param). Orchestrator work mode auto-arms the
 watchdog when the hub setting is `auto`/`on`; a dispatch `watchdog: false` cannot disarm it
 there. Hub or per-agent `off` remains the opt-out. Two rules about scope: the session's
 own `artifacts/`, `findings/`, and `delegations/` subtrees are implicitly in scope (the

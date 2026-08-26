@@ -10,7 +10,7 @@ import {
 } from "./capability-packs.ts";
 
 const base = (overrides: Partial<CapabilityResolutionInput> = {}): CapabilityResolutionInput => ({
-	posture: "operator",
+	workMode: "operator",
 	userText: "hello",
 	taskPacks: [],
 	comsReady: false,
@@ -33,7 +33,7 @@ const explicitIntentCases: Array<{
 	}> = [
 		{ name: "greeting exposes core only", active: ["core"] },
 		{ name: "operator direct work avoids fleet", input: { userText: "Fix the parser and run its tests." }, active: ["core"] },
-		{ name: "orchestrator always has fleet", input: { posture: "orchestrator" }, active: ["core", "fleet"] },
+		{ name: "orchestrator always has fleet", input: { workMode: "orchestrator" }, active: ["core", "fleet"] },
 		{ name: "explicit delegation enables fleet", input: { userText: "Delegate this to a specialist." }, active: ["core", "fleet"] },
 		{ name: "explicit research enables fleet", input: { userText: "Spawn a research helper for this." }, active: ["core", "fleet"] },
 		{ name: "feature acceptance work enables verification", input: { userText: "Implement this feature.", taskTier: "feature" }, active: ["core", "verification"] },
@@ -137,9 +137,9 @@ test("task packs are monotonic and pending operations lease active packs", () =>
 	assert.equal(leased.reasons.peer, "pending-operation");
 });
 
-test("explicit new-task reset safely drops stale packs but preserves current posture and pending leases", () => {
+test("explicit new-task reset safely drops stale packs but preserves current work mode and pending leases", () => {
 	const reset = resolveCapabilityPacks(base({
-		posture: "orchestrator",
+		workMode: "orchestrator",
 		taskPacks: ["fleet", "verification", "peer", "workspace"],
 		pendingOperations: [{ pack: "peer", kind: "message" }],
 		comsReady: true,
@@ -148,7 +148,7 @@ test("explicit new-task reset safely drops stale packs but preserves current pos
 	}));
 	assert.deepEqual(reset.active, ["core", "fleet", "peer"]);
 	assert.deepEqual(reset.nextTaskPacks, ["fleet", "peer"]);
-	assert.equal(reset.reasons.fleet, "posture-required");
+	assert.equal(reset.reasons.fleet, "work-mode-required");
 	assert.equal(reset.reasons.peer, "pending-operation");
 });
 
@@ -163,10 +163,10 @@ test("persisted capability metadata is compact, restores only valid state, and e
 });
 
 test("all output packs are known and peer/workspace are never active without readiness", () => {
-	for (const posture of ["operator", "orchestrator"] as const) {
+	for (const workMode of ["operator", "orchestrator"] as const) {
 		for (const comsReady of [false, true]) {
 			for (const herdrReady of [false, true]) {
-				const result = resolveCapabilityPacks(base({ posture, comsReady, herdrReady, userText: "delegate, coms peer, Herdr pane" }));
+				const result = resolveCapabilityPacks(base({ workMode, comsReady, herdrReady, userText: "delegate, coms peer, Herdr pane" }));
 				for (const pack of [...result.active, ...result.provisional]) {
 					assert.ok(CAPABILITY_PACKS.includes(pack));
 					if (pack === "peer") assert.equal(comsReady, true);

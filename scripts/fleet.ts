@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { parseFleetCommand } from "./lib/fleet-command.ts";
 import { resolveMonitorEnv } from "./lib/monitor-env.ts";
 
-const HELP = `Agent Fleet — one guarded Hub runtime, two postures, independent topology
+const HELP = `Agent Fleet — one guarded Hub runtime, two work modes, independent topology
 
 SET UP A NEW REPOSITORY
   npx @chankov/agent-fleet@latest setup
@@ -30,22 +30,22 @@ FLEET CORE — loaded in every Pi mode
   BTW side sessions · update checker (voice is opt-in with --voice)
 
 UNIFIED HUB
-  just fleet [--posture operator|orchestrator] [--agents <roster>]
+  just fleet [--work-mode operator|orchestrator] [--agents <roster>]
              [--herdr] [--peers <preset>] [--no-coms] [PI_ARGS...]
-      Bare Fleet always loads Agent Hub in operator posture. Operator keeps
+      Bare Fleet always loads Agent Hub in operator work mode. Operator keeps
       read/bash/edit/write plus orchestration; the initial native roster is empty.
       --agents selects .pi/agents/teams.yaml and implies orchestrator unless an
-      explicit --posture operator is supplied. --no-coms leaves direct/native work
+      explicit --work-mode operator is supplied. --no-coms leaves direct/native work
       available while coms, peer dispatch, and handoff refuse actionably.
 
-POSTURE AND ROSTER
-  /af-posture                    # report posture and capability state
+WORK MODE AND ROSTER
+  /af-work-mode                 # report work mode and capability state
   /af-agents-add code-reviewer  # add a native Pi specialist at runtime
-  /af-posture orchestrator      # remove direct coding tools; keep orchestration
-  /af-posture operator          # restore the approved direct tool surface
+  /af-work-mode orchestrator    # remove direct coding tools; keep orchestration
+  /af-work-mode operator        # restore the approved direct tool surface
 
-  Posture is independent from the native roster and peer topology. Budgets follow task tier.
-  All Hub slash commands, including /af-handoff, stay registered in both postures;
+  Work mode is independent from the native roster and peer topology. Budgets follow task tier.
+  All Hub slash commands, including /af-handoff, stay registered in both work modes;
   actions whose coms/Herdr capability is unavailable return remediation guidance.
 
   Explicit dispatch backend examples (inside the Hub):

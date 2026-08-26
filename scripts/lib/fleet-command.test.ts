@@ -11,12 +11,12 @@ import { parseFleetCommand } from "./fleet-command.ts";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function assertCompleteFleetGuide(output: string): void {
-	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "UNIFIED HUB", "POSTURE AND ROSTER", "HERDR TOPOLOGY", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
+	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "UNIFIED HUB", "WORK MODE AND ROSTER", "HERDR TOPOLOGY", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
 		assert.match(output, new RegExp(section));
 	}
 	assert.match(output, /just fleet\s+# Hub\/operator, empty native roster/);
 	assert.match(output, /just fleet --agents frontend --peers frontend --project af/);
-	assert.match(output, /\/af-posture orchestrator/);
+	assert.match(output, /\/af-work-mode orchestrator/);
 	assert.match(output, /\/af-agents-add code-reviewer/);
 	assert.match(output, /backend: "native"/);
 	assert.match(output, /herdr_spawn_peer\(\{ name: "code-reviewer" \}\)/);
@@ -50,14 +50,14 @@ test("bare just routes to the complete Fleet guide", (context) => {
 	assertCompleteFleetGuide(result.stdout);
 });
 
-test("bare fleet selects the Hub in operator posture with an empty roster", () => {
+test("bare fleet selects the Hub in operator work mode with an empty roster", () => {
 	assert.deepEqual(parseFleetCommand([]), {
 		recipe: "_fleet-hub",
 		args: ["false", "false", "false", "false"],
 	});
 });
 
-test("canonical Hub flags preserve Pi argv and explicit posture precedence", () => {
+test("canonical Hub flags preserve Pi argv and explicit work mode precedence", () => {
 	assert.deepEqual(parseFleetCommand(["--browser", "--all-extensions", "--model", "openai/gpt"]), {
 		recipe: "_fleet-hub",
 		args: ["false", "true", "false", "true", "--model", "openai/gpt"],
@@ -66,9 +66,9 @@ test("canonical Hub flags preserve Pi argv and explicit posture precedence", () 
 		recipe: "_fleet-hub",
 		args: ["false", "false", "false", "false", "--agent-team", "frontend", "--model", "m/x"],
 	});
-	assert.deepEqual(parseFleetCommand(["--posture", "operator", "--agents", "frontend", "--project", "af"]), {
+	assert.deepEqual(parseFleetCommand(["--work-mode", "operator", "--agents", "frontend", "--project", "af"]), {
 		recipe: "_fleet-hub",
-		args: ["false", "false", "false", "false", "--posture", "operator", "--agent-team", "frontend", "--project", "af"],
+		args: ["false", "false", "false", "false", "--work-mode", "operator", "--agent-team", "frontend", "--project", "af"],
 	});
 });
 
@@ -81,9 +81,9 @@ test("canonical topology flags select Hub-only, peer-preset, and combined Herdr 
 		recipe: "_fleet-hub-team",
 		args: ["frontend", "--project", "af"],
 	});
-	assert.deepEqual(parseFleetCommand(["--agents", "frontend", "--peers", "frontend", "--posture", "operator"]), {
+	assert.deepEqual(parseFleetCommand(["--agents", "frontend", "--peers", "frontend", "--work-mode", "operator"]), {
 		recipe: "_fleet-hub-team",
-		args: ["frontend", "--posture", "operator", "--agents", "frontend"],
+		args: ["frontend", "--work-mode", "operator", "--agents", "frontend"],
 	});
 	assert.deepEqual(parseFleetCommand(["--peers", "review", "--dry-run", "--no-coms"]), {
 		recipe: "_fleet-hub-team-dry",
@@ -221,8 +221,11 @@ test("fleet rejects unknown modes, invalid canonical combinations, and duplicate
 	assert.throws(() => parseFleetCommand(["team"]), /team requires/);
 	assert.throws(() => parseFleetCommand(["snapshot"]), /snapshot requires/);
 	assert.throws(() => parseFleetCommand(["conductor"]), /conductor requires/);
-	assert.throws(() => parseFleetCommand(["--posture", "invalid"]), /operator or orchestrator/);
-	assert.throws(() => parseFleetCommand(["--posture", "orchestrator"]), /requires --agents/);
+	assert.throws(() => parseFleetCommand(["--work-mode", "invalid"]), /operator or orchestrator/);
+	assert.throws(() => parseFleetCommand(["--work-mode", "orchestrator"]), /requires --agents/);
+	for (const retiredPostureArgs of [["--posture", "operator"], ["--posture=operator"], ["--", "--posture", "operator"]]) {
+		assert.throws(() => parseFleetCommand(retiredPostureArgs), /--posture was removed; use --work-mode/);
+	}
 	assert.throws(() => parseFleetCommand(["--agents"]), /--agents requires/);
 	assert.throws(() => parseFleetCommand(["--peers", "a", "--peers", "b"]), /--peers may only/);
 	assert.throws(() => parseFleetCommand(["--no-coms", "--solo"]), /only be provided once/);

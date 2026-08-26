@@ -112,7 +112,7 @@ export function teamWorkspaceLabel(
 }
 
 export interface HubCommandOptions {
-	posture?: "operator" | "orchestrator";
+	workMode?: "operator" | "orchestrator";
 	agentTeam?: string;
 	noComs?: boolean;
 	browser?: boolean;
@@ -134,7 +134,7 @@ export function hubCommand(
 	validateProject(project);
 	if (options.agentTeam) validateTeamName(options.agentTeam);
 	const command = ["just", "fleet"];
-	if (options.posture) command.push("--posture", options.posture);
+	if (options.workMode) command.push("--work-mode", options.workMode);
 	if (options.agentTeam) command.push("--agents", options.agentTeam);
 	if (options.noComs) command.push("--no-coms");
 	if (options.browser) command.push("--browser");

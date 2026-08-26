@@ -87,7 +87,7 @@ export function namedHubLedgerParts(input: {
 	researchCatalog: string; comsSection: string; herdrSection: string; compactionSection?: string; stateCapsule?: string;
 }): NamedHubPart[] {
 	return [
-		{ id: "hub/policy/posture", text: input.intro, category: "system", persistence: "fixed", source: "posture.ts" },
+		{ id: "hub/policy/work-mode", text: input.intro, category: "system", persistence: "fixed", source: "work-mode.ts" },
 		{ id: "hub/policy/language", text: input.languageLines, category: "protocol", persistence: "fixed", source: "hub-policy" },
 		{ id: "hub/roster-header", text: input.teamMembers, category: "roster", persistence: "session", source: "active-roster" },
 		...input.agentCards.map(card => ({ id: `hub/roster/${card.id}`, text: card.text, category: "roster" as const, persistence: "session" as const, source: "agent-persona" })),

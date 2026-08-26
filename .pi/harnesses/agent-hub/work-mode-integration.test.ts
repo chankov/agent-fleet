@@ -1,4 +1,4 @@
-// Static wiring contracts for the large Hub entrypoint. Live posture behavior is
+// Static wiring contracts for the large Hub entrypoint. Live work mode behavior is
 // exercised through a real offline Pi RPC process in extension-loader.test.ts.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -7,19 +7,19 @@ import test from "node:test";
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
-test("wiring contract: Hub registers posture controls without conditional commands", () => {
-	assert.match(indexSource, /registerFlag\("posture"/);
-	assert.match(indexSource, /registerCommand\("af-posture"/);
-	assert.match(indexSource, /registerCommand\("af-work-mode"/);
+test("wiring contract: Hub registers one work-mode command without conditional commands", () => {
+	assert.match(indexSource, /registerFlag\("work-mode"/);
+	assert.equal((indexSource.match(/registerCommand\("af-work-mode"/g) ?? []).length, 1);
+	assert.doesNotMatch(indexSource, /registerCommand\("af-posture"/);
 	assert.match(indexSource, /registerCommand\("af-handoff"/);
-	assert.doesNotMatch(indexSource, /if \(posture === [^)]+\)\s*\{\s*pi\.registerCommand/);
+	assert.doesNotMatch(indexSource, /if \(workMode === [^)]+\)\s*\{\s*pi\.registerCommand/);
 });
 
-test("wiring contract: Hub persists and restores posture entries", () => {
-	assert.match(indexSource, /appendEntry\("agent-hub-posture"/);
-	assert.match(indexSource, /resolveSessionPosture\(\{/);
+test("wiring contract: Hub persists and restores work-mode entries", () => {
+	assert.match(indexSource, /appendEntry\(WORK_MODE_ENTRY_TYPE/);
+	assert.match(indexSource, /resolveSessionWorkMode\(\{/);
 	assert.match(indexSource, /const sessionEntries = _ctx\.sessionManager\.getEntries\(\)/);
-	assert.match(indexSource, /resolveSessionPosture\(\{[\s\S]*?entries: sessionEntries/);
+	assert.match(indexSource, /resolveSessionWorkMode\(\{[\s\S]*?entries: sessionEntries/);
 });
 
 test("wiring contract: Hub restores named rosters and gates stale orchestrator sessions", () => {
@@ -35,7 +35,7 @@ test("wiring contract: Hub restores named rosters and gates stale orchestrator s
 	const teamCommand = indexSource.match(/registerCommand\("af-agents-team"[\s\S]*?(?=\n\tlet fleetShowFinished)/);
 	assert.ok(teamCommand, "team-selection command is registered");
 	assert.match(teamCommand[0], /rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
-	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator posture requires --agent-team/);
+	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator workMode requires --agent-team/);
 });
 
 test("wiring contract: every fleet action assumes a tier before its persona gate", () => {
@@ -48,21 +48,21 @@ test("wiring contract: every fleet action assumes a tier before its persona gate
 	assert.match(researchTool[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(persona \|\| ""\)/);
 });
 
-test("wiring contract: Hub applies posture tools at startup and live switches", () => {
-	const applications = indexSource.match(/applyPostureTools\(\)/g) ?? [];
+test("wiring contract: Hub applies work mode tools at startup and live switches", () => {
+	const applications = indexSource.match(/applyWorkModeTools\(\)/g) ?? [];
 	assert.ok(applications.length >= 3, `expected definition plus startup and command applications, got ${applications.length}`);
-	assert.match(indexSource, /resolvePostureTools\(/);
-	assert.match(indexSource, /async function applyPostureSelection\(/);
-	assert.match(indexSource, /async function openPosturePicker\(/);
-	assert.match(indexSource, /registerCommand\("af-work-mode"[\s\S]*?openPosturePicker/);
-	assert.match(indexSource, /registerShortcut\("alt\+m"[\s\S]*?openPosturePicker/);
+	assert.match(indexSource, /resolveWorkModeTools\(/);
+	assert.match(indexSource, /async function applyWorkModeSelection\(/);
+	assert.match(indexSource, /async function openWorkModePicker\(/);
+	assert.match(indexSource, /registerCommand\("af-work-mode"[\s\S]*?openWorkModePicker/);
+	assert.match(indexSource, /registerShortcut\("alt\+m"[\s\S]*?openWorkModePicker/);
 	assert.doesNotMatch(indexSource, /registerCommand\("af-hub-mode"/);
 });
 
-test("wiring contract: orchestrator persona defers authority to active posture", () => {
-	assert.match(personaSource, /active Hub posture/i);
-	assert.match(personaSource, /operator posture/i);
-	assert.match(personaSource, /orchestrator posture/i);
+test("wiring contract: orchestrator persona defers authority to active work mode", () => {
+	assert.match(personaSource, /active Hub work mode/i);
+	assert.match(personaSource, /operator work mode/i);
+	assert.match(personaSource, /orchestrator work mode/i);
 });
 
 test("same-turn pressure aborts after a large tool result and compacts only after the run settles", () => {
@@ -113,7 +113,7 @@ test("same-turn lifecycle has one pre-model surface assembly point for normal an
 	assert.ok(inputHook, "incoming normal and remote messages share Pi's input hook");
 	assert.ok(beforeHook, "all model turns share the before_agent_start hook");
 	// Registration order is intentionally irrelevant: Pi invokes input before model startup.
-	assert.match(indexSource, /pi\.on\("input", async \(event, ctx\) => \{[\s\S]*?resolveIncomingCapabilities\(incomingText\(event\)\);[\s\S]*?applyPostureTools\(\)/);
-	assert.match(indexSource, /function buildHubSystemPrompt\(forTurn: boolean\)[\s\S]*?if \(forTurn\) \{[\s\S]*?applyPostureTools\(\)/);
+	assert.match(indexSource, /pi\.on\("input", async \(event, ctx\) => \{[\s\S]*?resolveIncomingCapabilities\(incomingText\(event\)\);[\s\S]*?applyWorkModeTools\(\)/);
+	assert.match(indexSource, /function buildHubSystemPrompt\(forTurn: boolean\)[\s\S]*?if \(forTurn\) \{[\s\S]*?applyWorkModeTools\(\)/);
 	assert.doesNotMatch(indexSource, /classification model|classify.*model request|sendMessage\([\s\S]{0,100}classif/i);
 });

@@ -56,7 +56,7 @@ function startRpcProbe(
 	delete env.HERDR_PANE_ID;
 	delete env.HERDR_WORKSPACE_ID;
 	const stack = [extensionPaths[0], extensionPaths[1], ...(options.beforeHubExtensions ?? []), extensionPaths[2]];
-	const fleetArgs = options.fleetArgs ?? ["--solo", "--posture", "operator", "--agent-team", "default"];
+	const fleetArgs = options.fleetArgs ?? ["--solo", "--work-mode", "operator", "--agent-team", "default"];
 	const child = spawn(piExecutable, [
 		"--mode", "rpc", "--no-session", "--no-extensions",
 		...stack.flatMap(extensionPath => ["-e", extensionPath]),
@@ -90,7 +90,7 @@ function startRpcProbe(
 	});
 
 	function request(command: Record<string, unknown>): Promise<any> {
-		const id = `posture-rpc-${++sequence}`;
+		const id = `work-mode-rpc-${++sequence}`;
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
 				pending.delete(id);
@@ -156,7 +156,7 @@ export default function (pi) {
   });
 }
 `);
-		const result = spawnSync(piExecutable, ["--mode", "rpc", "--no-session", "--no-extensions", ...extensionPaths.flatMap(extensionPath => ["-e", extensionPath]), "-e", probePath, "--solo", "--posture", "operator"], {
+		const result = spawnSync(piExecutable, ["--mode", "rpc", "--no-session", "--no-extensions", ...extensionPaths.flatMap(extensionPath => ["-e", extensionPath]), "-e", probePath, "--solo", "--work-mode", "operator"], {
 			cwd: repoRoot, encoding: "utf8", env: { ...process.env, PI_OFFLINE: "1", TOOL_CAPTURE: capturePath },
 		});
 		assertExtensionStackLoaded(result);
@@ -368,7 +368,7 @@ export default function (pi) {
 	}
 });
 
-test("legacy orchestrator state without a roster loads fail-closed and blocks provider input", () => {
+test("legacy orchestrator posture state without a roster loads fail-closed and blocks provider input", () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-roster-recovery-"));
 	try {
 		const seedPath = join(workspace, "seed-legacy-posture.ts");
@@ -408,7 +408,7 @@ export default function (pi) {
 			env: { ...process.env, PI_OFFLINE: "1", ROSTER_CAPTURE: statePath, PROVIDER_CALLED: providerPath },
 		});
 		assertExtensionStackLoaded(result);
-		assert.match(`${result.stdout}\n${result.stderr}`, /Persisted orchestrator posture has no native roster/);
+		assert.match(`${result.stdout}\n${result.stderr}`, /Persisted orchestrator work mode has no native roster/);
 		assert.equal(existsSync(providerPath), false, "fail-closed input must not reach the provider");
 		const state = JSON.parse(readFileSync(statePath, "utf8"));
 		for (const direct of ["read", "bash", "edit", "write"]) assert.ok(!state.tools.includes(direct), `${direct} must remain unavailable`);
@@ -420,7 +420,7 @@ export default function (pi) {
 	}
 });
 
-test("legacy no-roster recovery blocks slash commands that could start model work", async () => {
+test("legacy posture recovery blocks slash commands that could start model work", async () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-roster-command-gate-"));
 	const seedPath = join(workspace, "seed-legacy-posture.ts");
 	const probePath = join(workspace, "roster-command-provider.ts");
@@ -453,7 +453,7 @@ export default function (pi) {
 			"/af-handoff reviewer",
 			"/af-compound",
 		]) {
-			await rpc.notificationAfter(command, "Persisted orchestrator posture has no native roster.");
+			await rpc.notificationAfter(command, "Persisted orchestrator work mode has no native roster.");
 		}
 		assert.equal(existsSync(providerPath), false, "no guarded command may reach the parent provider");
 	} finally {
@@ -462,37 +462,37 @@ export default function (pi) {
 	}
 });
 
-test("runtime posture activates operator tools and restricts orchestrator tools", () => {
-	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-posture-runtime-"));
+test("runtime work mode activates operator tools and restricts orchestrator tools", () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-work-mode-runtime-"));
 	try {
 		const capturePath = join(workspace, "active-tools.json");
 		const probePath = join(workspace, "probe.ts");
 		writeFileSync(probePath, `
 import { writeFileSync } from "node:fs";
 export default function (pi) {
-  pi.on("session_start", () => writeFileSync(process.env.POSTURE_CAPTURE, JSON.stringify(pi.getActiveTools())));
+  pi.on("session_start", () => writeFileSync(process.env.WORK_MODE_CAPTURE, JSON.stringify(pi.getActiveTools())));
 }
 `);
-		for (const posture of ["operator", "orchestrator"]) {
+		for (const workMode of ["operator", "orchestrator"]) {
 			const result = spawnSync(
 				piExecutable,
 				[
 					"--mode", "rpc", "--no-session", "--no-extensions",
 					...extensionPaths.flatMap(extensionPath => ["-e", extensionPath]),
-					"-e", probePath, "--solo", "--posture", posture,
-					...(posture === "orchestrator" ? ["--agent-team", "default"] : []),
+					"-e", probePath, "--solo", "--work-mode", workMode,
+					...(workMode === "orchestrator" ? ["--agent-team", "default"] : []),
 				],
 				{
 					cwd: repoRoot,
 					encoding: "utf8",
-					env: { ...process.env, PI_OFFLINE: "1", POSTURE_CAPTURE: capturePath },
+					env: { ...process.env, PI_OFFLINE: "1", WORK_MODE_CAPTURE: capturePath },
 				},
 			);
 			assertExtensionStackLoaded(result);
-			if (posture === "operator") assert.match(result.stdout, /Native roster: \(none\) \(0\)/);
+			if (workMode === "operator") assert.match(result.stdout, /Native roster: \(none\) \(0\)/);
 			else assert.match(result.stdout, /Native roster: default \([1-9][0-9]*\)/);
 			const active = JSON.parse(readFileSync(capturePath, "utf8"));
-			if (posture === "operator") {
+			if (workMode === "operator") {
 				for (const tool of ["read", "bash", "edit", "write"]) assert.ok(active.includes(tool), `${tool} should be active`);
 				for (const tool of ["dispatch_agent", "spawn_research", "set_assertions"]) assert.ok(!active.includes(tool), `${tool} should be inactive on greeting`);
 			} else {
@@ -505,8 +505,8 @@ export default function (pi) {
 	}
 });
 
-test("live posture switching changes tools without restarting and keeps Hub commands", async () => {
-	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-live-posture-rpc-"));
+test("live work mode switching changes tools without restarting and keeps Hub commands", async () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-live-work-mode-rpc-"));
 	const probePath = join(workspace, "probe-active-tools.ts");
 	writeFileSync(probePath, `
 export default function (pi) {
@@ -521,9 +521,10 @@ export default function (pi) {
 		const initialCommands = await rpc.request({ type: "get_commands" });
 		assert.equal(initialCommands.success, true, JSON.stringify(initialCommands));
 		const initialNames = initialCommands.data.commands.map((command: { name: string }) => command.name);
-		for (const name of ["af-posture", "af-work-mode", "af-handoff", "af-agents-add", "probe-active-tools"]) {
+		for (const name of ["af-work-mode", "af-handoff", "af-agents-add", "probe-active-tools"]) {
 			assert.ok(initialNames.includes(name), `${name} should remain registered`);
 		}
+		assert.ok(!initialNames.includes("af-posture"), "the duplicate posture command must be removed");
 
 		const operator = await rpc.activeTools();
 		for (const tool of ["read", "bash", "edit", "write", "ask_user"]) assert.ok(operator.includes(tool), `${tool} should be active for operator`);
@@ -538,7 +539,7 @@ export default function (pi) {
 		const delegated = await rpc.activeTools();
 		for (const tool of ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust"]) assert.ok(delegated.includes(tool), `${tool} should activate from the incoming prompt`);
 
-		assert.equal((await rpc.request({ type: "prompt", message: "/af-posture orchestrator" })).success, true);
+		assert.equal((await rpc.request({ type: "prompt", message: "/af-work-mode orchestrator" })).success, true);
 		const orchestrator = await rpc.activeTools();
 		for (const tool of ["read", "bash", "edit", "write"]) {
 			assert.ok(!orchestrator.includes(tool), `${tool} should be inactive for orchestrator`);
@@ -548,11 +549,12 @@ export default function (pi) {
 
 		const switchedCommands = await rpc.request({ type: "get_commands" });
 		const switchedNames = switchedCommands.data.commands.map((command: { name: string }) => command.name);
-		for (const name of ["af-posture", "af-work-mode", "af-handoff", "af-agents-add"]) {
-			assert.ok(switchedNames.includes(name), `${name} should survive posture switching`);
+		for (const name of ["af-work-mode", "af-handoff", "af-agents-add"]) {
+			assert.ok(switchedNames.includes(name), `${name} should survive work-mode switching`);
 		}
+		assert.ok(!switchedNames.includes("af-posture"));
 
-		assert.equal((await rpc.request({ type: "prompt", message: "/af-posture operator" })).success, true);
+		assert.equal((await rpc.request({ type: "prompt", message: "/af-work-mode operator" })).success, true);
 		const restored = await rpc.activeTools();
 		for (const tool of ["read", "bash", "edit", "write", "dispatch_agent", "spawn_research"]) assert.ok(restored.includes(tool), `${tool} should remain available while the task fleet pack is retained`);
 	} finally {
@@ -603,7 +605,7 @@ export default function (pi) {
 	}
 });
 
-test("work-mode command switches posture and refuses orchestrator without a roster", async () => {
+test("work-mode command switches work mode and refuses orchestrator without a roster", async () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-work-mode-rpc-"));
 	const probePath = join(workspace, "probe-work-mode.ts");
 	writeFileSync(probePath, `
@@ -613,10 +615,10 @@ export default function (pi) {
     handler: async (_args, ctx) => ctx.ui.notify("ACTIVE_TOOLS:" + JSON.stringify(pi.getActiveTools()), "info"),
   });
   pi.registerCommand("probe-work-mode", {
-    description: "Test-only posture probe",
+    description: "Test-only work mode probe",
     handler: async (_args, ctx) => {
       const entries = ctx.sessionManager.getEntries()
-        .filter(entry => entry.type === "custom" && (entry.customType === "agent-hub-mode" || entry.customType === "agent-hub-posture"));
+        .filter(entry => entry.type === "custom" && (entry.customType === "agent-hub-mode" || entry.customType === "agent-hub-work-mode"));
       ctx.ui.notify("WORK_MODE_ENTRIES:" + JSON.stringify(entries), "info");
     },
   });
@@ -634,7 +636,7 @@ export default function (pi) {
 		}
 		const afterOperator = JSON.parse(await withRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
 		assert.ok(!afterOperator.some((entry: any) => entry.customType === "agent-hub-mode"));
-		assert.ok(!afterOperator.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data?.posture === "orchestrator"));
+		assert.ok(!afterOperator.some((entry: any) => entry.customType === "agent-hub-work-mode" && entry.data?.workMode === "orchestrator"));
 
 		assert.equal((await withRoster.request({ type: "prompt", message: "/af-work-mode orchestrator" })).success, true);
 		const orchestrator = await withRoster.activeTools();
@@ -645,19 +647,14 @@ export default function (pi) {
 			assert.ok(orchestrator.includes(tool), `${tool} should remain active for orchestrator`);
 		}
 		const afterOrch = JSON.parse(await withRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
-		assert.ok(afterOrch.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data?.posture === "orchestrator"));
+		assert.ok(afterOrch.some((entry: any) => entry.customType === "agent-hub-work-mode" && entry.data?.workMode === "orchestrator"));
 		assert.ok(!afterOrch.some((entry: any) => entry.customType === "agent-hub-mode"));
 
-		assert.equal((await withRoster.request({ type: "prompt", message: "/af-work-mode fast" })).success, true);
-		const afterFastAlias = await withRoster.activeTools();
-		for (const tool of ["read", "bash", "edit", "write"]) {
-			assert.ok(afterFastAlias.includes(tool), `${tool} should return with deprecated fast → operator`);
-		}
 	} finally {
 		await withRoster.close();
 	}
 
-	const noRoster = startRpcProbe(probePath, [], { fleetArgs: ["--solo", "--posture", "operator"] });
+	const noRoster = startRpcProbe(probePath, [], { fleetArgs: ["--solo", "--work-mode", "operator"] });
 	try {
 		assert.equal((await noRoster.request({ type: "prompt", message: "/af-work-mode orchestrator" })).success, true);
 		const stillOperator = await noRoster.activeTools();
@@ -665,7 +662,7 @@ export default function (pi) {
 			assert.ok(stillOperator.includes(tool), `${tool} should remain after refused orchestrator profile`);
 		}
 		const refused = JSON.parse(await noRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
-		assert.ok(!refused.some((entry: any) => entry.customType === "agent-hub-posture" && entry.data?.posture === "orchestrator"));
+		assert.ok(!refused.some((entry: any) => entry.customType === "agent-hub-work-mode" && entry.data?.workMode === "orchestrator"));
 
 		assert.equal((await noRoster.request({ type: "prompt", message: "/af-work-mode operator" })).success, true);
 		const tools = await noRoster.activeTools();

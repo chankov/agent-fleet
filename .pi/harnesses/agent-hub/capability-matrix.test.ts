@@ -2,19 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { resolveCapabilityPacks, type CapabilityResolutionInput } from "./capability-packs.ts";
-import { COMS_TOOLS, FLEET_TOOLS, HERDR_TOOLS, resolvePostureTools, VERIFICATION_TOOLS } from "./posture.ts";
+import { COMS_TOOLS, FLEET_TOOLS, HERDR_TOOLS, resolveWorkModeTools, VERIFICATION_TOOLS } from "./work-mode.ts";
 import { confirmationGate, type CapabilityConfirmationState } from "./capability-confirmation.ts";
 
 const baseline = ["read", "bash", "edit", "write"];
 const base = (overrides: Partial<CapabilityResolutionInput> = {}): CapabilityResolutionInput => ({
-	posture: "operator", userText: "hello", taskPacks: [], comsReady: false, herdrReady: false,
+	workMode: "operator", userText: "hello", taskPacks: [], comsReady: false, herdrReady: false,
 	pendingOperations: [], contextState: "normal", ...overrides,
 });
 
 function surface(input: Partial<CapabilityResolutionInput> = {}) {
 	const resolution = resolveCapabilityPacks(base(input));
-	const tools = resolvePostureTools({
-		posture: input.posture ?? "operator", baselineTools: baseline,
+	const tools = resolveWorkModeTools({
+		workMode: input.workMode ?? "operator", baselineTools: baseline,
 		comsReady: input.comsReady ?? false, herdrReady: input.herdrReady ?? false,
 		askUserAvailable: true, capabilityPacks: [...resolution.active, ...resolution.provisional],
 	});
@@ -37,7 +37,7 @@ test("end-to-end deterministic capability matrix exposes only the intended profi
 	assert.ok(FLEET_TOOLS.every(tool => fleet.tools.includes(tool)));
 	assert.ok(absent(fleet.tools, [...VERIFICATION_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS]));
 
-	const orchestrator = surface({ posture: "orchestrator" });
+	const orchestrator = surface({ workMode: "orchestrator" });
 	assert.ok(FLEET_TOOLS.every(tool => orchestrator.tools.includes(tool)));
 	assert.ok(absent(orchestrator.tools, baseline));
 

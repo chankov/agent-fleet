@@ -312,7 +312,7 @@ Lifecycle, approval flow, examples, recovery, and security boundaries: **[Codex 
 
 ## agent-hub: a thin-context dispatcher for pi
 
-Every public Pi Fleet session is now one `agent-hub` runtime with two postures. Bare `just fleet` starts in **operator** posture: direct `read`/`bash`/`edit`/`write`, orchestration tools, embedded `coms`, and an empty native roster. **Orchestrator** posture removes direct coding tools and drives specialist subagents — planner, builder, reviewer, test-engineer, documenter — under the Verification Contract. Both postures keep the same Hub commands, research helpers, peer collaboration, and `damage-control-continue` guardrails.
+Every public Pi Fleet session is now one `agent-hub` runtime with two work modes. Bare `just fleet` starts in **operator** work mode: direct `read`/`bash`/`edit`/`write`, orchestration tools, embedded `coms`, and an empty native roster. **Orchestrator** work mode removes direct coding tools and drives specialist subagents — planner, builder, reviewer, test-engineer, documenter — under the Verification Contract. Both work modes keep the same Hub commands, research helpers, peer collaboration, and `damage-control-continue` guardrails.
 
 ![The agent-hub dispatcher fanning one request out to six peers over coms and awaiting each reply, with every peer's presence dashboard beside it](docs/assets/agent-hub-dispatch.png)
 
@@ -329,13 +329,13 @@ What makes it different is what it **doesn't** put in front of the dispatcher LL
 ```bash
 just fleet                                      # operator; empty native roster
 just fleet --agents frontend                    # native roster; orchestrator inferred
-just fleet --posture operator --agents frontend # direct work plus the same roster
+just fleet --work-mode operator --agents frontend # direct work plus the same roster
 just fleet --no-coms                            # direct/native work; no peer messaging
 
-# live posture and roster changes preserve the session
+# live work mode and roster changes preserve the session
 /af-agents-add code-reviewer
 /af-work-mode orchestrator      # Alt+M picker
-/af-posture operator
+/af-work-mode operator
 
 # Herdr topology (requires a running server — https://herdr.dev)
 just fleet --herdr --project af
@@ -344,7 +344,7 @@ just fleet --agents frontend --peers frontend --project af
 
 Native specialists are local headless Pi subprocesses; standing peers are separate Pi or Claude Code processes in sibling Herdr panes. They can share a name without ambiguity: `dispatch_agent(..., backend: "native")` always starts the local Pi specialist, `backend: "coms"` requires the live peer, and `backend: "auto"` follows `.pi/agents/dispatch-policy.yaml`.
 
-From a Hub pane, add a declared Claude reviewer with `herdr_spawn_peer({ name: "code-reviewer" })`, then use `coms_send` + `coms_await`; the peer is locked to the Hub's project. `/af-handoff code-reviewer` works in either posture when that peer is visible in the coms pool. Herdr operations require a live Herdr server; peer messaging/handoff require coms readiness. All Hub slash commands remain registered in both postures and unavailable capabilities refuse with remediation instead of disappearing.
+From a Hub pane, add a declared Claude reviewer with `herdr_spawn_peer({ name: "code-reviewer" })`, then use `coms_send` + `coms_await`; the peer is locked to the Hub's project. `/af-handoff code-reviewer` works in either work mode when that peer is visible in the coms pool. Herdr operations require a live Herdr server; peer messaging/handoff require coms readiness. All Hub slash commands remain registered in both work modes and unavailable capabilities refuse with remediation instead of disappearing.
 
 Compatibility forms (`just fleet hub`, `just fleet team <preset>`, and `--solo`) remain accepted during migration and print canonical replacements; use `--no-coms` instead of `--solo`.
 

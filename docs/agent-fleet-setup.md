@@ -24,7 +24,7 @@ large.
 ## Unified Fleet runtime configuration
 
 A Pi workspace has one public runtime entry point. Bare Fleet loads Fleet Core
-plus Agent Hub in **operator** posture, in the current terminal, with no native
+plus Agent Hub in **operator** work mode, in the current terminal, with no native
 specialists active:
 
 ```bash
@@ -32,13 +32,13 @@ just fleet
 just fleet --project af
 ```
 
-Posture, native roster, and peer topology are separate controls:
+Work mode, native roster, and peer topology are separate controls:
 
 ```bash
 # Direct tools plus an available native roster.
-just fleet --posture operator --agents frontend --project af
+just fleet --work-mode operator --agents frontend --project af
 
-# A roster implies orchestrator when posture is not explicit.
+# A roster implies orchestrator when work mode is not explicit.
 just fleet --agents frontend --project af
 
 # Herdr Hub-only and Hub-plus-peer topologies.
@@ -46,8 +46,8 @@ just fleet --herdr --project af
 just fleet --agents frontend --peers frontend --project af
 ```
 
-Startup precedence is deterministic: explicit `--posture` wins; otherwise an
-explicit `--agents` roster implies `orchestrator`; otherwise posture is
+Startup precedence is deterministic: explicit `--work-mode` wins; otherwise an
+explicit `--agents` roster implies `orchestrator`; otherwise work mode is
 `operator`. An orchestrator startup must name a roster. `--herdr` affects only
 placement, while `--peers <preset>` implies Herdr and starts the selected peer
 preset. Neither topology option selects a native roster.
@@ -64,7 +64,7 @@ The configuration files have distinct ownership:
 | `.pi/agents/teams.yaml` | Named **native rosters** of Pi personas available to `dispatch_agent`. Bare Fleet ignores YAML ordering and starts empty; select one with `--agents`, `/af-agents-team`, or add individuals with `/af-agents-add`. |
 | `.pi/agents/peers.yaml` | Named **standing peer presets** and each peer's runner (`pi` or `claude-code`), persona, model, extensions, and optional declared `env_file`. Select a preset with `--peers`; dynamic `herdr_spawn_peer` uses the same declaration resolver. |
 | `.pi/agents/dispatch-policy.yaml` | Routing used only when `dispatch_agent.backend` is `auto`: native/coms preference, fallback, grace period, and peer reply timeout. |
-| `.ai/agent-fleet-overrides.md` (`## agent-hub`) | Project-specific Hub language, model overrides, rule/doc roots, budget ceilings, watchdog, and related execution policy. It does not choose startup posture or topology. |
+| `.ai/agent-fleet-overrides.md` (`## agent-hub`) | Project-specific Hub language, model overrides, rule/doc roots, budget ceilings, watchdog, and related execution policy. It does not choose startup work mode or topology. |
 
 For deterministic routing, `backend: "native"` always starts the local Pi
 specialist even if a same-name peer is visible. `backend: "coms"` requires a
@@ -83,7 +83,7 @@ Capability flags and runtime gates fail closed:
 - `--browser` adds the browser extension surface and `--all-extensions` opts
   into the complete approved extension set. Missing optional dependencies do
   not grant tools merely because a flag was supplied.
-- Hub-owned slash commands remain registered in both postures. A missing coms
+- Hub-owned slash commands remain registered in both work modes. A missing coms
   runtime, Herdr connection, target peer, or native roster produces a
   capability refusal rather than a missing command.
 
@@ -116,10 +116,10 @@ synthetic entries to recover from context pressure.
 
 A resumed orchestrator session may instead be blocked because its persisted team name no longer
 resolves against the current `.pi/agents/teams.yaml` and persona files. This is a fail-closed roster
-recovery gate: orchestrator posture and its direct-tool restrictions remain in force. Choose a valid
+recovery gate: orchestrator work mode and its direct-tool restrictions remain in force. Choose a valid
 team with `/af-agents-team`, restart publicly with `just fleet --agents <name>`, or explicitly choose
-operator posture with `/af-posture operator` / `just fleet --posture operator`. Direct Pi launches
-use `--agent-team <name>` or `--posture operator`. Explicit startup flags win over persisted state;
+operator work mode with `/af-work-mode operator` / `just fleet --work-mode operator`. Direct Pi launches
+use `--agent-team <name>` or `--work-mode operator`. Explicit startup flags win over persisted state;
 fix missing or renamed team/persona declarations before selecting them.
 
 ## The overrides file — `.ai/agent-fleet-overrides.md`
@@ -202,7 +202,7 @@ targets an end-of-session compound pass writes lessons to.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `language` | `English` | User-facing language the dispatcher uses for every `ask_user` question, every `context` field, and every summary. Specialist task strings always stay in English regardless. |
-| `persona-gate` | — | **Removed.** Ignored with a doctor warning; dispatcher flavor is no longer selectable. Use `/af-work-mode` / `/af-posture` for operator vs orchestrator. Delete the key. |
+| `persona-gate` | — | **Removed.** Ignored with a doctor warning; dispatcher flavor is no longer selectable. Use `/af-work-mode` for operator vs orchestrator. Delete the key. |
 | `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). If the override reports a model/provider error or aborted request before producing text or starting a tool (including a local-model memory-limit failure), agent-hub restores the child session and retries once with the original frontmatter model; it does not fallback after work starts, cancellation, timeout, drift stop, or process-spawn failure. |
 | `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/af-agent-model` and `/af-models` profiles (comma-separated pi model specs). |
 | `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/af-agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |
@@ -218,7 +218,7 @@ targets an end-of-session compound pass writes lessons to.
 | `turn-wall-time-s` | tier default (900/900/3600/5400) | Active-time ceiling, in seconds, per user turn; time blocked in `ask_user` is excluded. Once exceeded, further dispatch/research calls refuse until the one-click continuation is accepted or a new user turn begins. Positive integer or `off` (stays at the tier). |
 | `agent-turn-timeout-s` | tier default (600/600/1800/1800) | Whole-run deadline, in seconds, for each spawned specialist, research helper, and nested delegate child (unlike `recon-search-timeout-s`, this bounds the entire run). On expiry the run terminates as `turn_timeout` (exit 124) with partial output preserved. Positive integer or `off` (stays at the tier). |
 | `session-recycle-runs` | tier default (3/3/5/5) | Recycle a specialist's accumulated session (fresh spawn instead of `-c` resume) after this many resumed runs. Context is also always recycled at ≥60% measured context (input + cacheRead + cacheWrite). Positive integer or `off` (stays at the tier recycle count; context threshold still applies). |
-| `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Orchestrator posture auto-arms when the setting is `auto`/`on` and ignores a dispatch `watchdog: false`. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
+| `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Orchestrator work mode auto-arms when the setting is `auto`/`on` and ignores a dispatch `watchdog: false`. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
 | `watchdog-judge-model` | researcher persona's model | pi model spec for the one-shot drift judge (e.g. `openai-codex/gpt-5.3-codex-spark`). Falls back to the researcher persona's resolved model, then the dispatcher's. |
 
 Example — switch the dispatcher to Bulgarian, pin the builder to sonnet, raise the

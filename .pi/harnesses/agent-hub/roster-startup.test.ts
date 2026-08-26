@@ -28,7 +28,7 @@ test("unknown startup roster refuses with available team names", () => {
 	);
 });
 
-test("orchestrator posture cannot be entered or left with an empty roster", () => {
+test("orchestrator work mode cannot be entered or left with an empty roster", () => {
 	assert.equal(orchestratorNeedsRoster("operator", 0), false);
 	assert.equal(orchestratorNeedsRoster("operator", 1), false);
 	assert.equal(orchestratorNeedsRoster("orchestrator", 0), true);
