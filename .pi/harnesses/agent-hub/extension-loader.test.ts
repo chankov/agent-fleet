@@ -447,8 +447,6 @@ export default function (pi) {
 	});
 	try {
 		for (const command of [
-			"/af-research inspect the workspace",
-			"/af-agents-cont r1 continue",
 			"/af-agents-restart builder",
 			"/af-handoff reviewer",
 			"/af-compound",
@@ -521,10 +519,12 @@ export default function (pi) {
 		const initialCommands = await rpc.request({ type: "get_commands" });
 		assert.equal(initialCommands.success, true, JSON.stringify(initialCommands));
 		const initialNames = initialCommands.data.commands.map((command: { name: string }) => command.name);
-		for (const name of ["af-work-mode", "af-handoff", "af-agents-add", "probe-active-tools"]) {
+		for (const name of ["af-work-mode", "af-handoff", "af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart", "probe-active-tools"]) {
 			assert.ok(initialNames.includes(name), `${name} should remain registered`);
 		}
-		assert.ok(!initialNames.includes("af-posture"), "the duplicate posture command must be removed");
+		for (const removed of ["af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
+			assert.ok(!initialNames.includes(removed), `${removed} should be removed`);
+		}
 
 		const operator = await rpc.activeTools();
 		for (const tool of ["read", "bash", "edit", "write", "ask_user"]) assert.ok(operator.includes(tool), `${tool} should be active for operator`);
@@ -549,10 +549,12 @@ export default function (pi) {
 
 		const switchedCommands = await rpc.request({ type: "get_commands" });
 		const switchedNames = switchedCommands.data.commands.map((command: { name: string }) => command.name);
-		for (const name of ["af-work-mode", "af-handoff", "af-agents-add"]) {
+		for (const name of ["af-work-mode", "af-handoff", "af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart"]) {
 			assert.ok(switchedNames.includes(name), `${name} should survive work-mode switching`);
 		}
-		assert.ok(!switchedNames.includes("af-posture"));
+		for (const removed of ["af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
+			assert.ok(!switchedNames.includes(removed), `${removed} should stay removed after switching`);
+		}
 
 		assert.equal((await rpc.request({ type: "prompt", message: "/af-work-mode operator" })).success, true);
 		const restored = await rpc.activeTools();

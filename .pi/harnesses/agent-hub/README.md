@@ -147,16 +147,20 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 - **Dispatcher grid** — a live dashboard of the active, dynamically adjustable native roster from `.pi/agents/teams.yaml`.
 - **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic in either work mode. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
-- **Research helpers** — `spawn_research` and `/af-research` launch read-only helper agents. Managed research children use a replacement read-only prompt with `--no-skills` and `--no-context-files`; managed specialists receive a selected context manifest (persona, applicable policy paths, and named skill paths) rather than inherited global skill/context loading. Two
-  `kind: research` personas ship by default: `researcher` (fast `gpt-5.3-codex-spark`) for simple
-  reads and `deep-researcher` (`gpt-5.5` / xhigh) for hard, cross-cutting investigation. The
-  orchestrator routes by persona; each persona's model + thinking level is shown in its catalog.
+- **Research helpers** — the dispatcher invokes `spawn_research` automatically for read-only
+  investigation; specialists can trigger the separate automatic `NEEDS_RESEARCH:` pipe described
+  below. Managed research children use a replacement read-only prompt with `--no-skills` and
+  `--no-context-files`; managed specialists receive a selected context manifest (persona, applicable
+  policy paths, and named skill paths) rather than inherited global skill/context loading. Two
+  `kind: research` personas ship by default: `researcher` (`gpt-5.6-luna`, low thinking) for simple
+  reads and `deep-researcher` (`grok-4.6`, medium thinking) for hard, cross-cutting investigation.
+  The dispatcher routes by persona; each persona's model + thinking level is shown in its catalog.
   Finished helpers are **auto-pruned** so the research row doesn't grow without bound: auto-research
-  pipe helpers disappear as soon as they finish (their findings persist as `findings/*.md` files and
-  their handles are never resumed), while manual/persona helpers keep only the `research-keep` most
-  recently finished (default 4 — resumable via `/af-agents-cont rN`; older cards, and their session
-  files, are dropped oldest-first). Set `research-keep: <n>|all` in the overrides file to change
-  the cap. Running helpers are never pruned and `rN` handles are never reused.
+  pipe helpers disappear as soon as they finish (their findings persist as `findings/*.md` files),
+  while durable helpers keep only the `research-keep` most recently finished (default 4) for
+  dashboard inspection or a fresh `/af-agents-restart rN`; older cards and session files are dropped
+  oldest-first. Set `research-keep: <n>|all` in the overrides file to change the cap. Running helpers
+  are never pruned and `rN` handles are never reused.
 - **Human handoff path** — `ask_user` is exposed by the `ask-user-remote` wrapper (capturing stock
   `pi-ask-user` and optionally racing a `user-remote` bridge), so specialists can bubble decisions
   back through the dispatcher.
@@ -226,14 +230,13 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 - **Agent controls** — `/af-zoom` inspects a live agent timeline; `/af-agents-history` replays the run as a
   timeline (orchestrator turns, dispatches, research helpers) with per-agent durations, parallel-run
   markers, and a grand total; kill/restart controls manage running child agents; per-agent `model:`
-  fields select models from team config. The `agents-*` commands address **both target kinds** —
+  fields select models from team config. The retained `agents-*` commands address **both target kinds** —
   team specialists by persona name, research helpers by `rN` handle (mirroring `/af-zoom`):
   `/af-agents-kill <name|rN|all>` SIGTERMs a specialist (keeping its standing card), while on a
   research helper it kills **and removes** the card + session — helpers are disposable by design
   (`all` clears every helper); `/af-agents-restart <name|rN>` re-runs the last task fresh (a research
-  helper must be finished first); `/af-agents-cont rN <prompt>` resumes a finished helper's session.
-  The old `/af-research-rm` and `/af-research-clear` spellings remain as aliases of the kill semantics,
-  `/af-research-cont` of `/af-agents-cont`.
+  helper must be finished first). Research spawning and follow-up reconnaissance are automated through
+  `spawn_research` and `NEEDS_RESEARCH:`; there are no dedicated research lifecycle slash commands.
   Restartable team specialists at or above 70% context render
   their context percentage with a warning marker/color in dashboard and compact views, and their next
   `dispatch_agent` result adds a `/af-agents-restart <persona>` hint. Research helpers are not warned,
@@ -265,8 +268,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `.ai/agent-fleet-overrides.md` replace a persona's default model / candidate list.
   Research personas (`researcher` / `deep-researcher`, `kind: research`) are switchable the same
   way — `/af-agent-model <persona>` and `/af-agent-model-thinking <persona>` accept them alongside team
-  members. Since research helpers are spawned fresh on each `/af-research` / `spawn_research`, the
-  switch lands on their next spawn (there is no running instance to `/af-agents-restart`).
+  members. Since research helpers are spawned fresh through `spawn_research`, the switch lands on
+  their next spawn (there is no running instance to `/af-agents-restart`).
   `/af-agent-models-substitute [<source> <target>]` saves a runtime source → target mapping for
   the current session. With no arguments it opens the same two-step visual picker as `m` in Fleet
   Dashboard: first choose a source from every model configured across persona defaults, candidates,
@@ -526,9 +529,9 @@ The same section also tunes research-helper retention:
 research-keep: 8
 ```
 
-`research-keep:` caps how many **finished** manual/persona research helpers stay resumable
-(LRU by finish time, default 4; `all` disables the cap). Auto-research pipe helpers are
-always pruned as soon as they finish, regardless of this key.
+`research-keep:` caps how many **finished** durable/persona research helpers remain available
+for dashboard inspection or fresh restart (LRU by finish time, default 4; `all` disables the cap).
+Auto-research pipe helpers are always pruned as soon as they finish, regardless of this key.
 
 ### Bounded local-disk searches
 

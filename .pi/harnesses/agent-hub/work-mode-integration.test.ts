@@ -10,8 +10,12 @@ const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", im
 test("wiring contract: Hub registers one work-mode command without conditional commands", () => {
 	assert.match(indexSource, /registerFlag\("work-mode"/);
 	assert.equal((indexSource.match(/registerCommand\("af-work-mode"/g) ?? []).length, 1);
-	assert.doesNotMatch(indexSource, /registerCommand\("af-posture"/);
-	assert.match(indexSource, /registerCommand\("af-handoff"/);
+	for (const removed of ["af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
+		assert.doesNotMatch(indexSource, new RegExp(`registerCommand\\("${removed}"`));
+	}
+	for (const retained of ["af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart", "af-handoff"]) {
+		assert.match(indexSource, new RegExp(`registerCommand\\("${retained}"`));
+	}
 	assert.doesNotMatch(indexSource, /if \(workMode === [^)]+\)\s*\{\s*pi\.registerCommand/);
 });
 
@@ -98,8 +102,6 @@ test("stale-roster gate covers every command and dashboard path that can start m
 	const guardedBlocks = [
 		/function handlePrompt\([\s\S]*?modelWorkBlockedByRosterRecovery\(currentCtx\)/,
 		/function restartFleetRow\([\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/registerCommand\("af-research"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/const researchContHandler[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 		/registerCommand\("af-agents-restart"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 		/registerCommand\("af-handoff"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 		/registerCommand\("af-compound"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,

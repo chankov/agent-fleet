@@ -28,18 +28,15 @@
  *   /af-agents-kill <name|rN|all> — SIGTERM a frozen specialist (and its delegation
  *                           tree); on a research helper it kills AND removes the
  *                           card + session ("all" clears every research helper)
- *                           (aliases: /af-research-rm rN, /af-research-clear)
  *   /af-agents-restart <name|rN> — kill + re-run its last task fresh (research: must
  *                           be finished; runs on a fresh session)
  *   /af-zoom <name|rN|child> — scrollable read-only view of an agent's stream
  *                           (team member, research helper rN, or delegate child id)
- *   /af-research <task>      — spawn a read-only research helper (@persona, --model)
- *   /af-agents-cont rN ...   — resume a finished research helper (alias: /af-research-cont)
  *   /af-work-mode [operator|orchestrator]
  *                           — work mode picker (Alt+M)
  *
  * Finished research helpers are auto-pruned: auto-research pipe helpers as soon
- * as they finish (findings persist as files under findings/), manual/persona
+ * as they finish (findings persist as files under findings/), dispatcher/persona
  * helpers beyond the `research-keep` most recent (default 4, overrides file).
  *   /af-handoff <peer>       — hand the session off to a coms peer (summarized brief)
  *   /af-coms                 — refresh the coms peer pool (--all / --project <name>)
@@ -317,10 +314,10 @@ interface AgentState {
 // Keyed by a numeric id surfaced to the operator as the handle `rN`. Ephemeral by
 // construction: session files live under the same dir as team sessions and are wiped
 // on session_start; finished helpers are auto-pruned per the retention policy
-// (research-retention.js — auto-pipe helpers immediately, older manual ones beyond
-// the `research-keep` cap); `/af-agents-kill rN` (alias `/af-research-rm`) kills AND
-// removes one by hand. Resumable via `/af-agents-cont` (alias `/af-research-cont`,
-// subcont-style, bumping turnCount) while retained.
+// (research-retention.js — auto-pipe helpers immediately, older durable ones beyond
+// the `research-keep` cap); `/af-agents-kill rN` kills AND removes one by hand.
+// Retained finished helpers remain inspectable and can be re-run fresh with
+// `/af-agents-restart rN`.
 interface ResearchState {
 	id: number;
 	def: AgentDef;        // a `kind: research` persona, or a synthesized def for anon helpers
@@ -359,7 +356,7 @@ interface Zoomable {
 // One node in the /af-agents-history tree: an orchestrator (dispatcher) turn, a
 // dispatched specialist, a research helper, or a delegate sub-sub-agent. `parent`
 // links a node to the one that launched it (null = top level — an orchestrator
-// turn, or a turn-less manual /af-research). `endedAt` is null while the node is still
+// turn, or a turn-less slash-command restart). `endedAt` is null while the node is still
 // running, so the overlay can tick its duration live. Parallelism is derived at
 // render time from overlapping [startedAt, endedAt] ranges among siblings.
 type HistoryKind = "orchestrator" | "agent" | "research" | "delegate";
@@ -452,8 +449,8 @@ function extractNeedsResearch(output: string): string[] {
 //                              orientation): canonical files (e.g. Docs/AGENTS.md) or
 //                              doc folders. Specialists and research helpers read the
 //                              ones relevant to their task; context, not compliance.
-//   research-keep: <n>|all     — how many finished manual/persona research helpers
-//                              to retain for /af-agents-cont resume (LRU, default 4);
+//   research-keep: <n>|all     — how many finished durable/persona research helpers
+//                              to retain for inspection/restart (LRU, default 4);
 //                              "all" disables pruning. Auto-research pipe helpers
 //                              are always pruned as soon as they finish.
 //   recon-search-timeout-s: <1..3600>|off — parent-side deadline for each
@@ -1948,7 +1945,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// Lazily open (and return) the orchestrator entry for the active turn. Returns
-	// null outside a turn (e.g. a manual /af-research), so that helper renders as a
+	// null outside a turn (e.g. a slash-command restart), so that helper renders as a
 	// top-level, turn-less row instead of attaching to a stale dispatcher entry.
 	function ensureOrchestratorEntry(): HistoryEntry | null {
 		if (!turnActive) return null;
@@ -4373,8 +4370,8 @@ ${externalBlockedProtocol()}
 
 	// Spawn (or resume) a read-only research helper. Mirrors dispatchAgent's stream
 	// handling but is forced read-only (RESEARCH_TOOLS), drives the research widget, and
-	// resolves with the findings — the CALLER decides what to do with them (the
-	// spawn_research tool returns them inline; the /af-research command delivers a follow-up).
+	// resolves with the findings — the CALLER decides what to do with them. The
+	// spawn_research tool returns them inline; command-driven restarts deliver a follow-up.
 	async function spawnResearch(
 		state: ResearchState,
 		prompt: string,
@@ -4538,7 +4535,7 @@ ${externalBlockedProtocol()}
 			};
 		}
 
-		// Operator kill (via /af-agents-kill rN|all or its research-* aliases).
+		// Operator kill via /af-agents-kill rN|all.
 		// Resolve gracefully so a spawn_research tool call awaiting this helper
 		// doesn't hang.
 		if (state.killedByOperator) {
@@ -4587,8 +4584,8 @@ ${externalBlockedProtocol()}
 		return { output, exitCode: code ?? 1, elapsed: state.elapsed };
 	}
 
-	// Deliver a /af-research result back to the dispatcher as a follow-up turn (the human
-	// kicked it off via slash command, so there is no awaiting tool call to return to).
+	// Deliver a command-driven research restart back to the dispatcher as a follow-up
+	// turn; there is no awaiting tool call to return to.
 	function deliverResearchFollowUp(state: ResearchState, result: { output: string; exitCode: number; elapsed: number }) {
 		const truncated = result.output.length > 8000
 			? result.output.slice(0, 8000) + "\n\n... [truncated]"
@@ -5633,8 +5630,8 @@ ${externalBlockedProtocol()}
 					details: { status: "task_budget_refused", reason: taskRefusal.reason },
 				};
 			}
-			// Turn-budget gate (dispatcher-initiated research only — the auto-research
-			// pipe and the /af-research command are exempt).
+			// Turn-budget gate for dispatcher-initiated research. The automatic
+			// NEEDS_RESEARCH pipe is exempt from this per-turn budget.
 			const budgetRefusal = checkTurnBudget(
 				"research",
 				{ dispatches: turnDispatchCount, research: turnResearchCount },
@@ -8061,7 +8058,7 @@ ${externalBlockedProtocol()}
 			// Research helpers spawn fresh each time, so the switch lands on their
 			// next spawn; team members apply on next dispatch (restartable now).
 			const applyHint = (def.kind || "").toLowerCase() === "research"
-				? "applies on next /af-research or spawn_research"
+				? "applies on next spawn_research"
 				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
 			ctx.ui.notify(`${displayName(def.name)} → ${effectivePicked} (${applyHint})`, "success");
 			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
@@ -8135,7 +8132,7 @@ ${externalBlockedProtocol()}
 			// Research helpers spawn fresh each time, so the switch lands on their
 			// next spawn; team members apply on next dispatch (restartable now).
 			const applyHint = (def.kind || "").toLowerCase() === "research"
-				? "applies on next /af-research or spawn_research"
+				? "applies on next spawn_research"
 				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
 			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "success");
 		},
@@ -8247,81 +8244,6 @@ ${externalBlockedProtocol()}
 		},
 	});
 
-	// Completions for /af-research: research-persona names prefixed with @.
-	const researchPersonaCompletions = (prefix: string): AutocompleteItem[] | null => {
-		const items = researchPersonas.map(d => ({
-			value: `@${d.name}`,
-			label: `@${d.name} — ${d.description.slice(0, 50)}`,
-		}));
-		if (items.length === 0) return null;
-		const p = prefix.toLowerCase();
-		const filtered = items.filter(i => i.value.toLowerCase().startsWith(p));
-		return filtered.length > 0 ? filtered : items;
-	};
-
-	// /af-research [@persona] [--model <spec>] <task> — spawn a read-only helper. Fire-and-
-	// forget: the result is delivered to the dispatcher as a follow-up turn.
-	pi.registerCommand("af-research", {
-		description: "Spawn a read-only research helper: /af-research [@persona] [--model <spec>] <task>",
-		getArgumentCompletions: researchPersonaCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			if (modelWorkBlockedByRosterRecovery(ctx)) return;
-			let rest = (args ?? "").trim();
-			let personaName: string | undefined;
-			let modelArg: string | undefined;
-
-			// Strip leading @persona / --model flags (order-tolerant), rest is the task.
-			for (;;) {
-				const sp = rest.indexOf(" ");
-				const tok = sp === -1 ? rest : rest.slice(0, sp);
-				if (tok.startsWith("@") && tok.length > 1) {
-					personaName = tok.slice(1);
-					rest = sp === -1 ? "" : rest.slice(sp + 1).trim();
-				} else if (tok === "--model") {
-					const after = sp === -1 ? "" : rest.slice(sp + 1).trim();
-					const sp2 = after.indexOf(" ");
-					modelArg = sp2 === -1 ? after : after.slice(0, sp2);
-					rest = sp2 === -1 ? "" : after.slice(sp2 + 1).trim();
-				} else if (tok.startsWith("--model=") && tok.length > 8) {
-					modelArg = tok.slice(8);
-					rest = sp === -1 ? "" : rest.slice(sp + 1).trim();
-				} else {
-					break;
-				}
-			}
-
-			const task = rest;
-			if (!task) {
-				ctx.ui.notify("Usage: /af-research [@persona] [--model <spec>] <task>", "error");
-				return;
-			}
-
-			let def: AgentDef;
-			let isPersona = false;
-			if (personaName) {
-				const found = researchPersonas.find(d => d.name.toLowerCase() === personaName!.toLowerCase());
-				if (!found) {
-					const available = researchPersonas.map(d => `@${d.name}`).join(", ") || "(none)";
-					ctx.ui.notify(`No research persona "@${personaName}". Available: ${available}`, "error");
-					return;
-				}
-				def = found;
-				isPersona = true;
-			} else {
-				def = anonResearchDef();
-			}
-
-			const resolvedModel = resolveResearchModel(def, isPersona ? undefined : modelArg, ctx);
-			const state = createResearchState(def, isPersona, resolvedModel);
-			updateResearchWidget();
-			ctx.ui.notify(`Research r${state.id} (${isPersona ? displayName(def.name) : "ad-hoc"}, read-only) started…`, "info");
-
-			// Fire-and-forget; deliver findings as a follow-up turn when done.
-			spawnResearch(state, task, ctx).then(result => deliverResearchFollowUp(state, result));
-		},
-	});
-
 	// Completions over research handles, annotated with status.
 	const researchHandleCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = Array.from(researchStates.values()).map(s => ({
@@ -8335,52 +8257,7 @@ ${externalBlockedProtocol()}
 
 	// ── Unified subagent commands ────────────────
 	// Team specialists are addressed by persona name, research helpers by their rN
-	// handle — one command family covers both (mirroring /af-zoom's target resolution).
-	// The research-* commands remain as aliases of their agents-* counterparts.
-
-	// Resume a finished helper on its existing session. Shared by /af-agents-cont and
-	// its /af-research-cont alias.
-	const researchContHandler = async (args: string | undefined, ctx: any) => {
-		widgetCtx = ctx;
-		if (modelWorkBlockedByRosterRecovery(ctx)) return;
-		const trimmed = (args ?? "").trim();
-		const sp = trimmed.indexOf(" ");
-		if (sp === -1) {
-			ctx.ui.notify("Usage: /af-agents-cont rN <prompt>", "error");
-			return;
-		}
-		const rid = parseResearchHandle(trimmed.slice(0, sp));
-		const prompt = trimmed.slice(sp + 1).trim();
-		const state = rid != null ? researchStates.get(rid) : undefined;
-		if (!state) {
-			ctx.ui.notify(`No research helper "${trimmed.slice(0, sp)}". Use /af-research to start one.`, "error");
-			return;
-		}
-		if (!prompt) {
-			ctx.ui.notify("Usage: /af-agents-cont rN <prompt>", "error");
-			return;
-		}
-		if (state.status === "running") {
-			ctx.ui.notify(`Research r${state.id} is still running — wait for it to finish.`, "warning");
-			return;
-		}
-		state.turnCount++;
-		updateResearchWidget();
-		ctx.ui.notify(`Continuing research r${state.id} (Turn ${state.turnCount})…`, "info");
-		spawnResearch(state, prompt, ctx).then(result => deliverResearchFollowUp(state, result));
-	};
-
-	pi.registerCommand("af-agents-cont", {
-		description: "Continue a finished research helper: /af-agents-cont rN <prompt>",
-		getArgumentCompletions: researchHandleCompletions,
-		handler: researchContHandler,
-	});
-
-	pi.registerCommand("af-research-cont", {
-		description: "Continue a finished research helper (alias of /af-agents-cont): /af-research-cont rN <prompt>",
-		getArgumentCompletions: researchHandleCompletions,
-		handler: researchContHandler,
-	});
+	// handle — one command family covers kill/restart controls and timeline inspection.
 
 	// Remove one research helper (SIGTERM if running) — the state, its card, and
 	// its session file. Team specialists are standing and cannot be removed.
@@ -8397,7 +8274,7 @@ ${externalBlockedProtocol()}
 		updateResearchWidget();
 	}
 
-	// Remove all helpers (SIGTERM any running). Shared by /af-agents-kill all and /af-research-clear.
+	// Remove all helpers (SIGTERM any running) for /af-agents-kill all.
 	function clearResearchHelpers(ctx: any) {
 		let killed = 0;
 		const total = researchStates.size;
@@ -8417,31 +8294,6 @@ ${externalBlockedProtocol()}
 			: `Cleared ${total} research helper${total !== 1 ? "s" : ""}${killed > 0 ? ` (${killed} killed)` : ""}.`;
 		ctx.ui.notify(msg, total === 0 ? "info" : "success");
 	}
-
-	// /af-research-rm — alias of /af-agents-kill rN (kill on a research handle removes).
-	pi.registerCommand("af-research-rm", {
-		description: "Remove a research helper (alias of /af-agents-kill rN): /af-research-rm rN",
-		getArgumentCompletions: researchHandleCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const rid = parseResearchHandle((args ?? "").trim());
-			const state = rid != null ? researchStates.get(rid) : undefined;
-			if (!state) {
-				ctx.ui.notify(`Usage: /af-research-rm rN. Known: ${Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ") || "none"}`, "error");
-				return;
-			}
-			removeResearchHelper(state, ctx);
-		},
-	});
-
-	// /af-research-clear — alias of /af-agents-kill all.
-	pi.registerCommand("af-research-clear", {
-		description: "Remove all research helpers (alias of /af-agents-kill all)",
-		handler: async (_args, ctx) => {
-			widgetCtx = ctx;
-			clearResearchHelpers(ctx);
-		},
-	});
 
 	pi.registerCommand("af-dispatch-policy", {
 		description: "Show dispatch backend routing (dispatch-policy.yaml) for the active team",
@@ -8549,9 +8401,8 @@ ${externalBlockedProtocol()}
 			widgetCtx = ctx;
 			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			const name = args?.trim();
-			// An rN handle re-runs a finished helper's last task on a fresh session
-			// (unlike /af-agents-cont, which resumes the existing one). A running helper
-			// can't be restarted mid-flight — spawnResearch's promise is held by its
+			// An rN handle re-runs a finished helper's last task on a fresh session.
+			// A running helper can't be restarted mid-flight — spawnResearch's promise is held by its
 			// original caller, and /af-agents-kill removes the helper outright.
 			const rid = name ? parseResearchHandle(name) : null;
 			if (rid != null) {
@@ -8562,7 +8413,7 @@ ${externalBlockedProtocol()}
 					return;
 				}
 				if (rState.status === "running") {
-					ctx.ui.notify(`Research r${rState.id} is still running — wait for it to finish (or /af-agents-kill r${rState.id} to discard it and /af-research the task again).`, "warning");
+					ctx.ui.notify(`Research r${rState.id} is still running — wait for it to finish, or use /af-agents-kill r${rState.id} to discard it; a new research request will spawn a fresh helper.`, "warning");
 					return;
 				}
 				if (!rState.task) {
@@ -9702,8 +9553,8 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			);
 		}
 
-		// Research personas (kind: research) — spawnable read-only via spawn_research and
-		// the /af-research command, independent of team membership.
+		// Research personas (kind: research) — spawnable read-only via spawn_research,
+		// independent of team membership.
 		researchPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "research");
 
 		// Explicit CLI selection wins; otherwise restore only the canonical team name
@@ -9809,13 +9660,9 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 			`/af-models [profile]     Apply a named model profile to the team\n` +
 			`/af-agent-models-substitute [src tgt] Pick/save a session-wide source → target model substitution\n` +
 			`/af-dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)\n` +
-			`/af-agents-kill <name>   SIGTERM a frozen specialist (and its delegate children)\n` +
-			`/af-agents-restart <name> Kill + re-run its last task fresh\n` +
+			`/af-agents-kill <name|rN|all> Kill a frozen specialist or remove research helper(s)\n` +
+			`/af-agents-restart <name|rN> Kill + re-run its last task fresh\n` +
 			`/af-zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream\n` +
-			`/af-research <task>      Spawn a read-only research helper (@persona, --model)\n` +
-			`/af-research-cont rN ... Resume a finished research helper\n` +
-			`/af-research-rm rN       Remove a research helper (kill if running)\n` +
-			`/af-research-clear       Remove all research helpers\n` +
 			`/af-coms [--all|--project N] Refresh the coms peer pool\n` +
 			`/af-handoff <peer>       Hand the session off to a coms peer\n` +
 			`/af-compound [focus]     Capture session lessons into the project rules/docs`,

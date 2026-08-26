@@ -180,8 +180,9 @@ harnesses:
   running agents; **`Alt+Shift+A`** toggles it on/off. See the
   [agent-hub README](../.pi/harnesses/agent-hub/README.md#fleet-dashboard-and-detail) for
   keys and action semantics.
-- **Specialist delegation** — `dispatch_agent` for writable child-agent work and
-  `spawn_research` / `/af-research` for read-only investigation.
+- **Specialist delegation** — `dispatch_agent` for writable child-agent work. Read-only
+  investigation is automated through dispatcher-invoked `spawn_research` and the specialists'
+  `NEEDS_RESEARCH:` pipe; dedicated research lifecycle slash commands are not registered.
 - **Verification Contract** — the dispatcher owns a ledger of checkable acceptance assertions
   built before any builder runs, via the `set_assertions` / `update_assertion` tools. Each
   assertion is tagged (`test` | `runtime-ui` | `code-grep` | `manual`) and advanced only on
