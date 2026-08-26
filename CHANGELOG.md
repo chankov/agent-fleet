@@ -1,5 +1,12 @@
 # Agent Fleet changelog
 
+## 1.0.4
+
+### Patch Changes
+
+- 7730d44: Add Compact/Verbose Fleet Detail logs with immediate event-driven refresh and a two-second recovery ticker. Local specialists, research helpers, and delegate children now expose wrapped assistant output, provider-emitted thinking, tool arguments, complete textual tool results, status, and duration. Per-run JSONL transcripts are owner-only, bounded in live memory, and redact common secret formats before persistence and display.
+- 6885455: Make grilling of unspecified design forks mandatory during planning, spec writing, and implementation. Already-stated requirements in chat, prompts, PRDs, and rules are not re-asked; remaining multiple-valid-way, contradiction, and competing-code-pattern choices wait for an explicit decision.
+
 ## 1.0.3
 
 ### Patch Changes
