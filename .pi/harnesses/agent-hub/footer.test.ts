@@ -6,10 +6,10 @@ import { composeFleetFooterHint, composeHubFooterLeft, renderHubFooterLeft } fro
 // rebuilt from linkify(), so a change to the link format fails here.
 const LINKED = "\x1b]8;;https://github.com/chankov/agent-fleet\x07agent fleet\x1b]8;;\x07";
 
-test("hub footer places the linked version before model, thinking suffix, and team", () => {
+test("hub footer places the linked version before model and thinking suffix", () => {
 	assert.equal(
-		composeHubFooterLeft("1.2.3", "gpt-5.5", " (xh)", "full"),
-		`${LINKED} v1.2.3 · gpt-5.5 (xh) · full`,
+		composeHubFooterLeft("1.2.3", "gpt-5.5", " (xh)"),
+		`${LINKED} v1.2.3 · gpt-5.5 (xh)`,
 	);
 });
 
@@ -26,10 +26,10 @@ test("fleet footer identifies the dashboard shortcut, work mode, and compact-wid
 });
 
 test("hub footer has no dangling version separator when adjacent metadata is unavailable", () => {
-	assert.equal(composeHubFooterLeft(null, "gpt-5.5", "", "full"), "gpt-5.5 · full");
+	assert.equal(composeHubFooterLeft(null, "gpt-5.5", ""), "gpt-5.5");
 });
 
-test("hub footer keeps the active team accent while dimming the prepended version and model", () => {
+test("hub footer dims the prepended version and model metadata", () => {
 	const calls: Array<[string, string]> = [];
 	const theme = {
 		fg(color: string, text: string): string {
@@ -39,12 +39,8 @@ test("hub footer keeps the active team accent while dimming the prepended versio
 	};
 
 	assert.equal(
-		renderHubFooterLeft(theme, "1.2.3", "gpt-5.5", " (xh)", "full"),
-		`<dim> ${LINKED} v1.2.3 · gpt-5.5 (xh)</dim><muted> · </muted><accent>full</accent>`,
+		renderHubFooterLeft(theme, "1.2.3", "gpt-5.5", " (xh)"),
+		`<dim> ${LINKED} v1.2.3 · gpt-5.5 (xh)</dim>`,
 	);
-	assert.deepEqual(calls, [
-		["dim", ` ${LINKED} v1.2.3 · gpt-5.5 (xh)`],
-		["muted", " · "],
-		["accent", "full"],
-	]);
+	assert.deepEqual(calls, [["dim", ` ${LINKED} v1.2.3 · gpt-5.5 (xh)`]]);
 });

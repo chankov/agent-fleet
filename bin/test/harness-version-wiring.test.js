@@ -16,9 +16,10 @@ test("all three target entrypoints import and register their local version modul
 	}
 });
 
-test("agent-hub custom footer renders the local version before model and team", () => {
+test("agent-hub custom footer renders the local version before model without the team", () => {
 	const source = readFileSync(join(root, ".pi", "harnesses", "agent-hub", "index.ts"), "utf8");
-	assert.match(source, /renderHubFooterLeft\(theme, HARNESS_VERSION, model, think, activeTeamName\)/);
+	assert.match(source, /renderHubFooterLeft\(theme, HARNESS_VERSION, model, think\)/);
+	assert.doesNotMatch(source, /renderHubFooterLeft\([^)]*activeTeamName/);
 });
 
 test("version registration from stacked owners deduplicates on one common key", async () => {

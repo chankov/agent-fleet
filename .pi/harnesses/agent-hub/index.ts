@@ -9823,7 +9823,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		);
 		updateWidget();
 
-		// Footer: model (thinking) | team | context bar, with the pi-voice-stt
+		// Footer: version | model (thinking) | context bar, with the pi-voice-stt
 		// recording indicator on a second line below it (when recording).
 		_ctx.ui.setFooter((_tui, theme, footerData) => ({
 			dispose: () => {},
@@ -9839,7 +9839,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 				const filled = Math.round(pct / 10);
 				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 
-				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think, activeTeamName);
+				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think);
 				const hint = theme.fg("dim", composeFleetFooterHint(viewMode, compactWorkMode(workMode)));
 				// The btw extension flips this global the first time a /af-btw command or
 				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.

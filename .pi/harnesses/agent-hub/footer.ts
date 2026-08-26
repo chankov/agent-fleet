@@ -8,9 +8,8 @@ export function composeHubFooterLeft(
 	version: string | null,
 	model: string,
 	thinkingSuffix: string,
-	team: string,
 ): string {
-	return [version ? formatVersionLabel(version) : "", `${model}${thinkingSuffix}`, team]
+	return [version ? formatVersionLabel(version) : "", `${model}${thinkingSuffix}`]
 		.filter(Boolean)
 		.join(" · ");
 }
@@ -25,12 +24,7 @@ export function renderHubFooterLeft(
 	version: string | null,
 	model: string,
 	thinkingSuffix: string,
-	team: string,
 ): string {
-	const metadata = [version ? formatVersionLabel(version) : "", `${model}${thinkingSuffix}`]
-		.filter(Boolean)
-		.join(" · ");
-	const dimMetadata = theme.fg("dim", ` ${metadata}`);
-	const separator = metadata && team ? theme.fg("muted", " · ") : "";
-	return dimMetadata + separator + (team ? theme.fg("accent", team) : "");
+	const metadata = composeHubFooterLeft(version, model, thinkingSuffix);
+	return theme.fg("dim", ` ${metadata}`);
 }
