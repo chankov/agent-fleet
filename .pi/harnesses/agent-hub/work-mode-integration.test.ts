@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const comsCoreSource = readFileSync(new URL("../lib/coms-core.ts", import.meta.url), "utf8");
 const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
 test("wiring contract: Hub registers one work-mode command without conditional commands", () => {
@@ -99,8 +100,9 @@ test("high-context startup and input defer prompts until compaction completes", 
 });
 
 test("stale-roster gate covers every command and dashboard path that can start model work", () => {
+	assert.match(comsCoreSource, /function handlePrompt\([\s\S]*?deps\.acceptInbound/);
+	assert.match(indexSource, /acceptInbound: \(\) => currentCtx && modelWorkBlockedByRosterRecovery\(currentCtx\)/);
 	const guardedBlocks = [
-		/function handlePrompt\([\s\S]*?modelWorkBlockedByRosterRecovery\(currentCtx\)/,
 		/function restartFleetRow\([\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 		/registerCommand\("af-agents-restart"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 		/registerCommand\("af-handoff"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,

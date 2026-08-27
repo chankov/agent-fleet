@@ -132,16 +132,19 @@ import { DEFAULT_RESEARCH_KEEP, parseResearchKeep, selectResearchPrunable } from
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
 import { createAccessApprovalRouter } from "./access-approval.ts";
 import { chmodSync, readdirSync, readFileSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync, rmSync } from "fs";
-import {
-	HerdrAgentWatch,
-	HerdrPresence,
-	herdrPaneId,
-	herdrPresenceAvailable,
-	peerNameFrom,
-	type HerdrAgentInfo,
-} from "../lib/herdr-presence.ts";
+import { herdrPaneId } from "../lib/herdr-presence.ts";
 import { herdr as herdrApi, herdrAvailable } from "../lib/herdr-client.ts";
-import { buildLiveRegistryEntry, type ComsRegistryEntry } from "../lib/coms-registry-entry.ts";
+import {
+	abbreviateModel,
+	createComsPeer,
+	hexFg,
+	nowIso,
+	readAllRegistryEntries,
+	readAllRegistryEntriesAcrossProjects,
+	type ComsIdentity,
+	type RegistryEntry as ComsRegistryEntry,
+	TIMEOUT_MS,
+} from "../lib/coms-core.ts";
 import { FULLSCREEN_OVERLAY, bodyRows, clampScroll, fitToHeight } from "../lib/fleet-overlay.ts";
 import { createPanelResources } from "../lib/fleet-panel.ts";
 import { buildFleetRows, fleetTiming, summarise, unionMs, type DelegateInput, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput } from "../lib/fleet-read-model.ts";
@@ -167,7 +170,6 @@ import { parseEnvFile, resolveEnvFilePath } from "../../../scripts/lib/herdr-lay
 import { worktreeTag } from "../../../scripts/lib/team-project.ts";
 import { STAGGER_ENV_VAR, WARMUP_SECONDS, oauthNeedsWarmup } from "../../../scripts/lib/spawn-stagger.ts";
 import { join, resolve } from "path";
-import * as net from "node:net";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -1351,487 +1353,6 @@ function resolveDelegateExtension(cwd: string): string | null {
 	return existsSync(local) ? local : null;
 }
 
-// ━━ Embedded coms: Constants ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-const COMS_DIR = process.env.PI_COMS_DIR || path.join(os.homedir(), ".pi", "coms");
-const MAX_HOPS = Number(process.env.PI_COMS_MAX_HOPS) || 5;
-const TIMEOUT_MS = Number(process.env.PI_COMS_TIMEOUT_MS) || 1_800_000;
-const PING_INTERVAL_MS = Number(process.env.PI_COMS_PING_INTERVAL_MS) || 10_000;
-const KEEPALIVE_INTERVAL_MS = 30_000;
-const LINE_CAP_BYTES = 64 * 1024;
-
-const FALLBACK_PALETTE = [
-	"#72F1B8", "#36F9F6", "#FF7EDB", "#FEDE5D",
-	"#C792EA", "#FF8B39", "#4D9DE0", "#FFAA8B",
-];
-
-// ━━ Embedded coms: Types ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-type EnvelopeType = "prompt" | "response" | "ping";
-
-interface Envelope {
-	type: EnvelopeType;
-	msg_id: string;
-	sender_session: string;
-	sender_endpoint: string;
-	hops: number;
-	timestamp: string;
-}
-
-interface PromptEnvelope extends Envelope {
-	type: "prompt";
-	prompt: string;
-	sender_name: string;
-	sender_cwd: string;
-	conversation_id?: string | null;
-	response_schema?: object | null;
-	reply_timeout_ms?: number | null;
-}
-
-interface ResponseEnvelope extends Envelope {
-	type: "response";
-	response: any;
-	error?: string | null;
-}
-
-interface PingEnvelope extends Envelope {
-	type: "ping";
-}
-
-interface AgentCard {
-	name: string;
-	purpose: string;
-	model: string;
-	color: string;
-	context_used_pct: number;
-	queue_depth: number;
-	pane_id?: string | null;
-	status?: "idle" | "working" | "booting";
-}
-
-interface Pong {
-	type: "pong";
-	msg_id: string;
-	agent_card: AgentCard;
-}
-
-// The registry shape and the heartbeat builder are shared with the standalone
-// coms harness — see ../lib/coms-registry-entry.ts. Both used to keep their own
-// copy of this literal, and both refreshed `started_at` every 30 seconds.
-type RegistryEntry = ComsRegistryEntry;
-
-interface PendingReply {
-	resolve: (value: any) => void;
-	reject: (err: Error) => void;
-	timer: NodeJS.Timeout | null;
-	promise: Promise<{ response?: any; error?: string | null }>;
-	result?: { response?: any; error?: string | null };
-	target_name?: string;
-	created_at: string;
-}
-
-interface InboundContext {
-	msg_id: string;
-	hops: number;
-	sender_endpoint: string;
-	sender_session: string;
-	response_schema?: object | null;
-	fulfilled: boolean;
-}
-
-// ━━ Embedded coms: Helpers ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-function ulid(): string {
-	const time = Date.now();
-	const rand = crypto.randomBytes(10);
-	let timeStr = "";
-	let t = time;
-	for (let i = 9; i >= 0; i--) {
-		timeStr = CROCKFORD[t % 32] + timeStr;
-		t = Math.floor(t / 32);
-	}
-	let randStr = "";
-	let bits = 0;
-	let value = 0;
-	for (const byte of rand) {
-		value = (value << 8) | byte;
-		bits += 8;
-		while (bits >= 5) {
-			bits -= 5;
-			randStr += CROCKFORD[(value >> bits) & 31];
-		}
-	}
-	return (timeStr + randStr).slice(0, 26);
-}
-
-function hexFg(hex: string, s: string): string {
-	const r = parseInt(hex.slice(1, 3), 16);
-	const g = parseInt(hex.slice(3, 5), 16);
-	const b = parseInt(hex.slice(5, 7), 16);
-	return `\x1b[38;2;${r};${g};${b}m${s}\x1b[39m`;
-}
-
-function isValidHex(hex: string): boolean {
-	return /^#[0-9a-fA-F]{6}$/.test(hex);
-}
-
-function fallbackColor(sessionId: string): string {
-	const h = crypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 8);
-	return FALLBACK_PALETTE[Number(BigInt("0x" + h)) % FALLBACK_PALETTE.length];
-}
-
-function parseComsFrontmatter(raw: string): { name?: string; description?: string; color?: string; body: string } {
-	const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-	if (!match) return { body: raw };
-	const frontmatter: Record<string, string> = {};
-	for (const line of match[1].split("\n")) {
-		const idx = line.indexOf(":");
-		if (idx > 0) {
-			const key = line.slice(0, idx).trim();
-			let val = line.slice(idx + 1).trim();
-			// strip surrounding quotes for values like color: "#36F9F6"
-			if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-				val = val.slice(1, -1);
-			}
-			frontmatter[key] = val;
-		}
-	}
-	return {
-		name: frontmatter.name,
-		description: frontmatter.description,
-		color: frontmatter.color,
-		body: match[2],
-	};
-}
-
-function makeEndpoint(sessionId: string): string {
-	if (process.platform === "win32") {
-		return `\\\\.\\pipe\\pi-coms-${sessionId}`;
-	}
-	return path.join(COMS_DIR, "sockets", `${sessionId}.sock`);
-}
-
-function nowIso(): string {
-	return new Date().toISOString();
-}
-
-function abbreviateModel(model: string): string {
-	let m = model || "";
-	if (m.startsWith("claude-")) m = m.slice("claude-".length);
-	if (m.length > 14) m = m.slice(0, 14);
-	return m;
-}
-
-// ━━ Embedded coms: CLI flag shape (read via pi.registerFlag/pi.getFlag) ━━
-
-interface CliFlags {
-	name?: string;
-	purpose?: string;
-	project?: string;
-	color?: string;
-	explicit?: boolean;
-}
-
-function readCliFlags(pi: ExtensionAPI): CliFlags {
-	// Identity flags are declared via pi.registerFlag at extension load time so
-	// pi's CLI parser accepts them; here we just read them back.
-	const name = pi.getFlag("name") as string | undefined;
-	const purpose = pi.getFlag("purpose") as string | undefined;
-	const project = pi.getFlag("project") as string | undefined;
-	const color = pi.getFlag("color") as string | undefined;
-	const explicit = pi.getFlag("explicit") as boolean | undefined;
-	return {
-		name: name && name.length > 0 ? name : undefined,
-		purpose: purpose && purpose.length > 0 ? purpose : undefined,
-		project: project && project.length > 0 ? project : undefined,
-		color: color && color.length > 0 ? color : undefined,
-		explicit: explicit === true,
-	};
-}
-
-// ━━ Embedded coms: Registry I/O ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function projectAgentsDir(project: string): string {
-	return path.join(COMS_DIR, "projects", project, "agents");
-}
-
-function registryFilePath(project: string, name: string): string {
-	return path.join(projectAgentsDir(project), `${name}.json`);
-}
-
-function writeRegistryAtomic(entry: RegistryEntry, project: string): string {
-	const dir = projectAgentsDir(project);
-	fs.mkdirSync(dir, { recursive: true });
-	const final = registryFilePath(project, entry.name);
-	const tmp = `${final}.tmp`;
-	fs.writeFileSync(tmp, JSON.stringify(entry, null, 2));
-	fs.renameSync(tmp, final);
-	return final;
-}
-
-function readAllRegistryEntries(project: string): RegistryEntry[] {
-	const dir = projectAgentsDir(project);
-	if (!fs.existsSync(dir)) return [];
-	const out: RegistryEntry[] = [];
-	let files: string[];
-	try {
-		files = fs.readdirSync(dir);
-	} catch {
-		return [];
-	}
-	for (const f of files) {
-		if (!f.endsWith(".json")) continue;
-		try {
-			const raw = fs.readFileSync(path.join(dir, f), "utf-8");
-			const parsed = JSON.parse(raw) as RegistryEntry;
-			if (parsed && typeof parsed.session_id === "string") {
-				out.push(parsed);
-			}
-		} catch {
-			// skip malformed
-		}
-	}
-	return out;
-}
-
-function readAllRegistryEntriesAcrossProjects(): RegistryEntry[] {
-	const root = path.join(COMS_DIR, "projects");
-	let projects: string[];
-	try {
-		projects = fs.readdirSync(root);
-	} catch {
-		return [];
-	}
-	const out: RegistryEntry[] = [];
-	for (const p of projects) {
-		try {
-			if (!fs.statSync(path.join(root, p)).isDirectory()) continue;
-		} catch {
-			continue;
-		}
-		out.push(...readAllRegistryEntries(p));
-	}
-	return out;
-}
-
-function removeRegistryEntry(project: string, name: string): void {
-	try {
-		fs.unlinkSync(registryFilePath(project, name));
-	} catch {
-		// best-effort
-	}
-}
-
-function pruneDeadEntries(project: string): RegistryEntry[] {
-	const entries = readAllRegistryEntries(project);
-	const live: RegistryEntry[] = [];
-	for (const entry of entries) {
-		try {
-			process.kill(entry.pid, 0);
-			live.push(entry);
-		} catch (e: any) {
-			if (e && e.code === "ESRCH") {
-				removeRegistryEntry(project, entry.name);
-			} else {
-				// EPERM means the process exists but we can't signal it — treat as live.
-				live.push(entry);
-			}
-		}
-	}
-	return live;
-}
-
-function resolveUniqueName(project: string, desiredName: string): string {
-	// Returns a name that doesn't collide with any LIVE registered agent.
-	// pruneDeadEntries auto-removes ESRCH entries; we only care about live ones.
-	const liveEntries = pruneDeadEntries(project);
-	const liveNames = new Set(liveEntries.map(e => e.name));
-	if (!liveNames.has(desiredName)) return desiredName;
-	let n = 2;
-	while (liveNames.has(`${desiredName}${n}`)) n++;
-	return `${desiredName}${n}`;
-}
-
-function pruneDeadEntriesAllProjects(): RegistryEntry[] {
-	const root = path.join(COMS_DIR, "projects");
-	let projects: string[];
-	try {
-		projects = fs.readdirSync(root);
-	} catch {
-		return [];
-	}
-	const out: RegistryEntry[] = [];
-	for (const p of projects) {
-		try {
-			if (!fs.statSync(path.join(root, p)).isDirectory()) continue;
-		} catch {
-			continue;
-		}
-		out.push(...pruneDeadEntries(p));
-	}
-	return out;
-}
-
-// ━━ Embedded coms: Transport ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function probeStaleSocket(endpoint: string): Promise<"in_use" | "stale"> {
-	return new Promise((resolve) => {
-		const sock = net.createConnection({ path: endpoint });
-		let settled = false;
-		const finish = (verdict: "in_use" | "stale") => {
-			if (settled) return;
-			settled = true;
-			try { sock.destroy(); } catch { /* ignore */ }
-			resolve(verdict);
-		};
-		const timer = setTimeout(() => finish("stale"), 250);
-		sock.once("connect", () => {
-			clearTimeout(timer);
-			finish("in_use");
-		});
-		sock.once("error", (err: any) => {
-			clearTimeout(timer);
-			if (err && err.code === "ECONNREFUSED") {
-				finish("stale");
-			} else {
-				// ENOENT or other — treat as stale (file may be gone or unusable)
-				finish("stale");
-			}
-		});
-	});
-}
-
-async function bindEndpoint(
-	endpoint: string,
-	connHandler: (socket: net.Socket) => void,
-): Promise<net.Server> {
-	if (process.platform !== "win32" && fs.existsSync(endpoint)) {
-		const verdict = await probeStaleSocket(endpoint);
-		if (verdict === "in_use") {
-			throw new Error(`coms: endpoint already in use (${endpoint})`);
-		}
-		try {
-			fs.unlinkSync(endpoint);
-		} catch {
-			// best-effort
-		}
-	}
-	return await new Promise<net.Server>((resolve, reject) => {
-		const server = net.createServer(connHandler);
-		server.once("error", reject);
-		server.listen(endpoint, () => {
-			server.removeListener("error", reject);
-			resolve(server);
-		});
-	});
-}
-
-function readOneLine(socket: net.Socket): Promise<string> {
-	return new Promise((resolve, reject) => {
-		let buf = "";
-		let settled = false;
-		const onData = (chunk: Buffer) => {
-			buf += chunk.toString("utf-8");
-			if (buf.length > LINE_CAP_BYTES) {
-				if (settled) return;
-				settled = true;
-				socket.removeListener("data", onData);
-				reject(new Error("line too large"));
-				return;
-			}
-			const nl = buf.indexOf("\n");
-			if (nl >= 0) {
-				if (settled) return;
-				settled = true;
-				socket.removeListener("data", onData);
-				resolve(buf.slice(0, nl));
-			}
-		};
-		socket.on("data", onData);
-		socket.once("error", (err) => {
-			if (settled) return;
-			settled = true;
-			reject(err);
-		});
-		socket.once("close", () => {
-			if (settled) return;
-			settled = true;
-			reject(new Error("connection closed before line received"));
-		});
-	});
-}
-
-function sendEnvelope(endpoint: string, envelope: Envelope | Pong | { type: string; msg_id?: string; [k: string]: any }): Promise<any> {
-	return new Promise((resolve, reject) => {
-		const sock = net.createConnection({ path: endpoint });
-		let settled = false;
-		const fail = (err: Error) => {
-			if (settled) return;
-			settled = true;
-			try { sock.destroy(); } catch { /* ignore */ }
-			reject(err);
-		};
-		sock.once("error", fail);
-		sock.once("connect", async () => {
-			try {
-				sock.write(JSON.stringify(envelope) + "\n");
-				const line = await readOneLine(sock);
-				const parsed = JSON.parse(line);
-				try { sock.end(); } catch { /* ignore */ }
-				if (settled) return;
-				settled = true;
-				if (parsed && parsed.type === "nack") {
-					reject(new Error(parsed.error || "nack"));
-				} else {
-					resolve(parsed);
-				}
-			} catch (err) {
-				fail(err instanceof Error ? err : new Error(String(err)));
-			}
-		});
-	});
-}
-
-// ━━ Embedded coms: System-prompt frontmatter scan ━━━━━━━━━━━━━━━━━━━━━━━━
-
-function findSystemPromptPath(argv: string[]): string | null {
-	// Prefer --system-prompt (overwrite). Fall back to --append-system-prompt.
-	// These flags are pi-builtin (not extension-registered) so we still scan
-	// argv directly. First match wins per preference order.
-	const scan = (flag: string): string | null => {
-		for (let i = 0; i < argv.length; i++) {
-			if (argv[i] === flag && i + 1 < argv.length) {
-				const candidate = argv[i + 1];
-				if (candidate.endsWith(".md")) {
-					try {
-						if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-							return candidate;
-						}
-					} catch {
-						// fall through
-					}
-				}
-			}
-		}
-		return null;
-	};
-	return scan("--system-prompt") ?? scan("--append-system-prompt");
-}
-
-function readFrontmatterFromArgv(argv: string[]): { name?: string; description?: string; color?: string } {
-	const p = findSystemPromptPath(argv);
-	if (!p) return {};
-	try {
-		const raw = fs.readFileSync(p, "utf-8");
-		const { name, description, color } = parseComsFrontmatter(raw);
-		return { name, description, color };
-	} catch {
-		return {};
-	}
-}
-
 // ── Extension ────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -1847,50 +1368,31 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag("work-mode", { description: "Fleet main-agent work mode: operator|orchestrator", type: "string", default: undefined });
 	pi.registerFlag("agent-team", { description: "Internal: activate a named native roster from .pi/agents/teams.yaml", type: "string", default: undefined });
 
-	// ── Embedded coms: peer state ──
-	let identity: {
-		session_id: string;
-		name: string;
-		purpose: string;
-		color: string;
-		project: string;
-		explicit: boolean;
-		cwd: string;
-		model: string;
-		endpoint: string;
-		registryFile: string;
-		// Set once, at registration. The heartbeat reads it; nothing rewrites it.
-		started_at: string;
-	} | null = null;
-	const peerCards: Map<string, AgentCard & { staleCount: number }> = new Map();
-	const pendingReplies: Map<string, PendingReply> = new Map();
-	const inboundQueue: Map<string, InboundContext> = new Map();
-	let server: net.Server | null = null;
+	// ── Embedded coms: shared peer state ──
+	let currentCtx: ExtensionContext | null = null;
+	const coms = createComsPeer({
+		pi,
+		getContext: () => currentCtx,
+		onPeersChanged: () => { if (currentCtx?.hasUI) installPoolWidget(currentCtx); },
+		acceptInbound: () => currentCtx && modelWorkBlockedByRosterRecovery(currentCtx)
+			? "orchestrator roster recovery required"
+			: null,
+		handleCustomEnvelope: (socket, envelope) => {
+			if (envelope.type !== "access_request") return false;
+			void accessApprovalRouter.handle(socket, envelope as AccessRequest);
+			return true;
+		},
+	});
+	let identity: ComsIdentity | null = null;
+	const peerCards = coms.peerCards;
+	const pendingReplies = coms.pendingReplies;
+	const inboundQueue = coms.inboundQueue;
+	let comsReady = false;
 	let monitorLifecycle: ReturnType<typeof createMonitorLifecycle> | null = null;
 	let monitorHubId: string | null = null;
 	let monitorTurnId: string | null = null;
 	let monitorBridge: ReturnType<typeof createMonitorSessionBridge> | null = null;
 	let monitorOwnerId: string | undefined;
-	let pingTimer: NodeJS.Timeout | null = null;
-	let keepaliveTimer: NodeJS.Timeout | null = null;
-	// herdr presence backend (active when this session runs inside a herdr
-	// pane and the server answers ping). The envelope transport and the file
-	// registry are untouched — herdr only replaces the presence/ping layer.
-	let herdrPresence: HerdrPresence | null = null;
-	let herdrWatch: HerdrAgentWatch | null = null;
-	let turnState: "idle" | "working" = "idle";
-	let includeExplicit = false;
-	let displayProject: string | null = null;
-	let currentCtx: ExtensionContext | null = null;
-	let currentInbound: InboundContext | null = null;
-	// comsReady gates the coms_* tools + the peer section of the dispatcher prompt.
-	// If the endpoint bind or registry write fails, the harness degrades to a
-	// coms-less dispatcher rather than aborting.
-	let comsReady = false;
-	// Purpose shown to peers. An explicit --purpose CLI flag pins it; otherwise
-	// comsBasePurpose is used.
-	let comsBasePurpose = "agent-hub dispatcher";
-	let comsPurposeExplicit = false;
 
 	// ── Damage-control exemptions + access escalation state ──
 	// exemptionsFile is the session-scoped shared exemptions file: /af-allow
@@ -3433,23 +2935,15 @@ ${externalBlockedProtocol()}
 			buildRulesProtocol() + buildDocsProtocol();
 
 		const prompt = appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs) + dispatchProtocol;
-		const msg_id = ulid();
-		const env: PromptEnvelope = {
-			type: "prompt",
-			msg_id,
-			sender_session: identity.session_id,
-			sender_endpoint: identity.endpoint,
-			sender_name: identity.name,
-			sender_cwd: identity.cwd,
-			hops: currentInbound ? currentInbound.hops + 1 : 0,
-			timestamp: nowIso(),
-			prompt,
-			conversation_id: null,
-			response_schema: null,
-			reply_timeout_ms: timeoutMs,
-		};
+		let sent: Awaited<ReturnType<typeof coms.send>>;
 		try {
-			await sendEnvelope(peer.endpoint, env);
+			sent = await coms.send({
+				target: peer.name,
+				prompt,
+				conversation_id: null,
+				response_schema: null,
+				reply_timeout_ms: timeoutMs,
+			}, { dispatched_as: state.def.name });
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			if (allowNativeFallback) {
@@ -3458,25 +2952,12 @@ ${externalBlockedProtocol()}
 			}
 			return { output: `coms dispatch to "${peer.name}" failed: ${msg} (fallback: none).`, exitCode: 1, elapsed: 0 };
 		}
-
-		// Same pending-reply mechanics as coms_send, with the member's timeout.
-		let resolveFn!: (v: { response?: any; error?: string | null }) => void;
-		let rejectFn!: (e: Error) => void;
-		const promise = new Promise<{ response?: any; error?: string | null }>((res, rej) => {
-			resolveFn = res;
-			rejectFn = rej;
-		});
-		const entry: PendingReply = { resolve: resolveFn, reject: rejectFn, timer: null, promise, target_name: peer.name, created_at: nowIso() };
+		const msg_id = sent.msg_id;
+		const entry = pendingReplies.get(msg_id)!;
 		const timeoutPromise = new Promise<{ error: string }>((resolve) => {
 			entry.timer = setTimeout(() => resolve({ error: "timeout" }), timeoutMs);
 			try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
 		});
-		pendingReplies.set(msg_id, entry);
-		try {
-			pi.appendEntry("coms-log", { event: "outbound_prompt", msg_id, target: peer.name, hops: env.hops, dispatched_as: state.def.name });
-		} catch {
-			// best-effort
-		}
 
 		// /af-agents-kill and /af-agents-restart on a coms-backed run only abandon the
 		// wait — the standing peer keeps running its turn in its own pane.
@@ -4599,248 +4080,9 @@ ${externalBlockedProtocol()}
 		}, { deliverAs: "followUp", triggerTurn: true });
 	}
 
-	// ── Embedded coms: connection handlers ──
-
-	function ackOk(socket: net.Socket, msg_id: string): void {
-		try {
-			socket.write(JSON.stringify({ type: "ack", msg_id }) + "\n");
-		} catch {
-			// ignore
-		}
-		try { socket.end(); } catch { /* ignore */ }
-	}
-
-	function nack(socket: net.Socket, msg_id: string, error: string): void {
-		try {
-			socket.write(JSON.stringify({ type: "nack", msg_id, error }) + "\n");
-		} catch {
-			// ignore
-		}
-		try { socket.end(); } catch { /* ignore */ }
-	}
-
-	function handlePrompt(socket: net.Socket, env: PromptEnvelope): void {
-		if (currentCtx && modelWorkBlockedByRosterRecovery(currentCtx)) {
-			nack(socket, env.msg_id, "orchestrator roster recovery required");
-			return;
-		}
-		// 1. Hop limit check
-		if (typeof env.hops !== "number" || env.hops >= MAX_HOPS) {
-			nack(socket, env.msg_id, "hops exceeded");
-			return;
-		}
-
-		// 2. Insert into inbound queue
-		const inbound: InboundContext = {
-			msg_id: env.msg_id,
-			hops: env.hops,
-			sender_endpoint: env.sender_endpoint,
-			sender_session: env.sender_session,
-			response_schema: env.response_schema ?? null,
-			fulfilled: false,
-		};
-		inboundQueue.set(env.msg_id, inbound);
-
-		// 3. Track the current inbound so that any coms_send issued during the
-		//    resulting LLM turn inherits the right hop count.
-		currentInbound = inbound;
-
-		// 4. Inject as a follow-up message into the receiver's next turn.
-		try {
-			pi.sendMessage(
-				{
-					customType: "coms-inbound",
-					content: `[from ${env.sender_name} @ ${env.sender_cwd}]\n\n${env.prompt}`,
-					display: true,
-					details: {
-						msg_id: env.msg_id,
-						sender_session: env.sender_session,
-						response_schema: env.response_schema ?? null,
-					},
-				},
-				{ deliverAs: "followUp", triggerTurn: true },
-			);
-		} catch (err) {
-			// If sendMessage fails, drop the inbound and nack.
-			inboundQueue.delete(env.msg_id);
-			currentInbound = null;
-			nack(socket, env.msg_id, "internal error");
-			return;
-		}
-
-		// 5. Ack + audit log
-		ackOk(socket, env.msg_id);
-		try {
-			pi.appendEntry("coms-log", {
-				event: "inbound_prompt",
-				msg_id: env.msg_id,
-				sender: env.sender_session,
-				hops: env.hops,
-			});
-		} catch {
-			// best-effort
-		}
-	}
-
-	function handleResponse(socket: net.Socket, env: ResponseEnvelope): void {
-		const pending = pendingReplies.get(env.msg_id);
-		if (pending) {
-			if (pending.timer) {
-				try { clearTimeout(pending.timer); } catch { /* ignore */ }
-				pending.timer = null;
-			}
-			pending.result = { response: env.response, error: env.error ?? null };
-			try {
-				pending.resolve(pending.result);
-			} catch {
-				// ignore
-			}
-			// Note: do NOT delete the entry here — coms_get poll may still want it.
-		} else {
-			try {
-				pi.appendEntry("coms-log", { event: "orphan_response", msg_id: env.msg_id });
-			} catch {
-				// best-effort
-			}
-		}
-		ackOk(socket, env.msg_id);
-	}
-
-	function handlePing(socket: net.Socket, env: PingEnvelope): void {
-		const ctx = currentCtx;
-		const ident = identity;
-		const pct = ctx ? Math.round(ctx.getContextUsage()?.percent ?? 0) : 0;
-		const card: AgentCard = {
-			name: ident?.name ?? "unknown",
-			purpose: ident?.purpose ?? "",
-			model: ctx?.model?.id ?? ident?.model ?? "unknown",
-			color: ident?.color ?? "#36F9F6",
-			context_used_pct: pct,
-			queue_depth: inboundQueue.size,
-			pane_id: herdrPaneId() ?? null,
-			status: turnState === "working" || inboundQueue.size > 0 ? "working" : "idle",
-		};
-		const pong: Pong = { type: "pong", msg_id: env.msg_id, agent_card: card };
-		try {
-			socket.write(JSON.stringify(pong) + "\n");
-		} catch {
-			// ignore
-		}
-		try { socket.end(); } catch { /* ignore */ }
-	}
-
-	function isValidEnvelope(obj: any): obj is Envelope {
-		return (
-			obj &&
-			typeof obj === "object" &&
-			typeof obj.type === "string" &&
-			typeof obj.msg_id === "string" &&
-			typeof obj.sender_session === "string" &&
-			typeof obj.sender_endpoint === "string"
-		);
-	}
-
-	// A headless child's protected-path block is routed to the serialized,
-	// fail-closed approval controller. The socket remains open until a decision.
-	function handleAccessRequest(socket: net.Socket, req: AccessRequest): void {
-		void accessApprovalRouter.handle(socket, req);
-	}
-
-	function connHandler(socket: net.Socket): void {
-		let buf = "";
-		let handled = false;
-		const onData = (chunk: Buffer) => {
-			if (handled) return;
-			buf += chunk.toString("utf-8");
-			if (buf.length > LINE_CAP_BYTES) {
-				handled = true;
-				socket.removeListener("data", onData);
-				nack(socket, "", "malformed envelope");
-				return;
-			}
-			const nl = buf.indexOf("\n");
-			if (nl < 0) return;
-			handled = true;
-			socket.removeListener("data", onData);
-			const line = buf.slice(0, nl);
-			let parsed: any;
-			try {
-				parsed = JSON.parse(line);
-			} catch {
-				nack(socket, "", "malformed envelope");
-				return;
-			}
-			if (!isValidEnvelope(parsed)) {
-				const mid = parsed && typeof parsed.msg_id === "string" ? parsed.msg_id : "";
-				nack(socket, mid, "malformed envelope");
-				return;
-			}
-			try {
-				if (parsed.type === "prompt") {
-					handlePrompt(socket, parsed as PromptEnvelope);
-				} else if (parsed.type === "response") {
-					handleResponse(socket, parsed as ResponseEnvelope);
-				} else if (parsed.type === "ping") {
-					handlePing(socket, parsed as PingEnvelope);
-				} else if (parsed.type === "access_request") {
-					handleAccessRequest(socket, parsed as AccessRequest);
-				} else {
-					nack(socket, parsed.msg_id, "unknown type");
-				}
-			} catch {
-				nack(socket, parsed.msg_id, "internal error");
-			}
-		};
-		socket.on("data", onData);
-		socket.once("error", () => {
-			// connection failures during handshake — drop quietly
-			try { socket.destroy(); } catch { /* ignore */ }
-		});
-	}
-
-	// ── Embedded coms: registry refresh ──
-
-	// Re-write this agent's registry entry with a fresh live-status snapshot so
-	// the keepalive heartbeat keeps peers current.
-	function writeLiveRegistry(): void {
-		if (!identity) return;
-		try {
-			const ctx = currentCtx;
-			const live: RegistryEntry = buildLiveRegistryEntry(identity, {
-				now: nowIso(),
-				pid: process.pid,
-				model: ctx?.model?.id,
-				contextUsedPct: ctx?.getContextUsage()?.percent,
-				queueDepth: inboundQueue.size,
-			});
-			writeRegistryAtomic(live, identity.project);
-		} catch {
-			// best-effort
-		}
-	}
-
-	// ── Embedded coms: ping + pool helpers ──
-
-	async function pingPeer(endpoint: string): Promise<AgentCard | null> {
-		if (!identity) return null;
-		const env: PingEnvelope = {
-			type: "ping",
-			msg_id: ulid(),
-			sender_session: identity.session_id,
-			sender_endpoint: identity.endpoint,
-			hops: 0,
-			timestamp: nowIso(),
-		};
-		try {
-			const resp = await sendEnvelope(endpoint, env);
-			if (resp && resp.type === "pong" && resp.agent_card) {
-				return resp.agent_card as AgentCard;
-			}
-		} catch {
-			// ignore — peer unreachable
-		}
-		return null;
-	}
+	// ── Embedded coms: shared registry, transport, and pool core ──
+	const peersInScope = () => coms.peersInScope();
+	const resolveTarget = (target: string) => coms.resolveTarget(target);
 
 	let cachedRegistryProject: string | undefined;
 	let cachedRegistryEntries: ComsRegistryEntry[] = [];
@@ -4848,7 +4090,7 @@ ${externalBlockedProtocol()}
 	const scrubFleetText = (text: string) => text.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
 	/** Build the one peer source consumed by both the compact pool and dashboard. */
 	function fleetPeerInputs(formatModel: (model: string) => string = (model) => model): PeerInput[] {
-		const projectFilter = displayProject ?? identity?.project ?? "default";
+		const projectFilter = coms.scope.displayProject ?? identity?.project ?? "default";
 		if (cachedRegistryProject !== projectFilter || Date.now() - cachedRegistryAt > 1000) {
 			cachedRegistryProject = projectFilter;
 			cachedRegistryEntries = projectFilter === "*" ? readAllRegistryEntriesAcrossProjects() : readAllRegistryEntries(projectFilter);
@@ -4869,7 +4111,7 @@ ${externalBlockedProtocol()}
 		// Registry-only entries have not answered a ping, so the read model owns their pending status.
 		for (const entry of registryEntries) {
 			if (identity && entry.session_id === identity.session_id) continue;
-			if (!includeExplicit && entry.explicit) continue;
+			if (!coms.scope.includeExplicit && entry.explicit) continue;
 			if (seenSessions.has(entry.session_id) || seenNames.has(entry.name)) continue;
 			peers.push({ key: `peer:${entry.session_id}`, name: scrubFleetText(entry.name), model: formatModel(entry.model), lastWork: scrubFleetText(entry.purpose), colorHex: entry.color, pending: true });
 		}
@@ -4973,140 +4215,6 @@ ${externalBlockedProtocol()}
 		} catch {
 			// non-fatal
 		}
-	}
-
-	async function refreshPool(): Promise<void> {
-		if (!identity) return;
-		const peers = peersInScope();
-
-		const results = await Promise.allSettled(peers.map(async (peer) => {
-			const pingEnv: PingEnvelope = {
-				type: "ping",
-				msg_id: ulid(),
-				sender_session: identity!.session_id,
-				sender_endpoint: identity!.endpoint,
-				hops: 0,
-				timestamp: nowIso(),
-			};
-			const reply = await sendEnvelope(peer.endpoint, pingEnv);
-			return { peer, pong: reply as Pong };
-		}));
-
-		const seenSessions = new Set<string>();
-		let changed = false;
-
-		for (const r of results) {
-			if (r.status === "fulfilled" && r.value.pong && r.value.pong.agent_card) {
-				const { peer, pong } = r.value;
-				seenSessions.add(peer.session_id);
-				const prev = peerCards.get(peer.session_id);
-				const next = { ...pong.agent_card, staleCount: 0 };
-				if (!prev || JSON.stringify({ ...prev, staleCount: 0 }) !== JSON.stringify(next)) {
-					peerCards.set(peer.session_id, next);
-					changed = true;
-				}
-			}
-		}
-
-		for (const [sid, card] of peerCards.entries()) {
-			if (identity && sid === identity.session_id) continue;
-			if (!seenSessions.has(sid)) {
-				card.staleCount = (card.staleCount ?? 0) + 1;
-				if (card.staleCount > 6) {
-					peerCards.delete(sid);
-				}
-				changed = true;
-			}
-		}
-
-		if (changed && currentCtx?.hasUI) {
-			installPoolWidget(currentCtx);
-		}
-	}
-
-	function listProjects(): string[] {
-		const root = path.join(COMS_DIR, "projects");
-		try {
-			return fs.readdirSync(root).filter((d) => {
-				try { return fs.statSync(path.join(root, d)).isDirectory(); } catch { return false; }
-			});
-		} catch {
-			return [];
-		}
-	}
-
-	// The peers currently in scope — exactly what the coms pool widget shows: live
-	// (pruned) registry entries in the displayed project (displayProject, or the home
-	// project; "*" only when the human widened via /af-coms --project *), excluding self
-	// and — unless /af-coms --all set includeExplicit — explicit peers. This is the
-	// SECURITY BOUNDARY for every coms op: list, send, and handoff resolve only within
-	// it. Widening it is a deliberate human action via /af-coms, never something the LLM
-	// can do on its own. Single source of truth — reused by the widget refresh, the
-	// handoff completions, coms_list, and resolveTarget so they can never diverge.
-	function peersInScope(): RegistryEntry[] {
-		if (!identity) return [];
-		const filter = displayProject ?? identity.project;
-		const live = filter === "*" ? pruneDeadEntriesAllProjects() : pruneDeadEntries(filter);
-		return live.filter(
-			(e) => e.session_id !== identity!.session_id && (includeExplicit || !e.explicit),
-		);
-	}
-
-	// Join herdr's live pane states back to the coms registry: a herdr agent
-	// that advertises a coms peer name maps to that peer's registry entry
-	// (which carries the full card a pane annotation has no room for).
-	// Pool-scope semantics are preserved — only entries from peersInScope()
-	// become cards; peers outside herdr panes stay visible as registry-only
-	// "pending" rows exactly like an unpinged peer in the files backend.
-	function herdrSyncPeerCards(agents: HerdrAgentInfo[]): void {
-		if (!identity) return;
-		const liveNames = new Set<string>();
-		for (const a of agents) {
-			const peerName = peerNameFrom(a);
-			if (peerName) liveNames.add(peerName);
-		}
-		let changed = false;
-		const liveSessions = new Set<string>();
-		for (const entry of peersInScope()) {
-			if (!liveNames.has(entry.name)) continue;
-			liveSessions.add(entry.session_id);
-			const next = {
-				name: entry.name,
-				purpose: entry.purpose,
-				model: entry.model,
-				color: entry.color,
-				context_used_pct: entry.context_used_pct ?? 0,
-				queue_depth: entry.queue_depth ?? 0,
-				staleCount: 0,
-			};
-			const prev = peerCards.get(entry.session_id);
-			if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
-				peerCards.set(entry.session_id, next);
-				changed = true;
-			}
-		}
-		for (const sid of [...peerCards.keys()]) {
-			if (sid === identity.session_id) continue;
-			if (!liveSessions.has(sid)) {
-				peerCards.delete(sid);
-				changed = true;
-			}
-		}
-		if (changed && currentCtx?.hasUI) {
-			installPoolWidget(currentCtx);
-		}
-	}
-
-	function resolveTarget(target: string): RegistryEntry | null {
-		// Scoped to the connected pool only (peersInScope): you can reach exactly the
-		// peers the widget shows. Match by name first (preferred, human-facing), then by
-		// session_id. A peer outside the current scope is intentionally NOT resolved — the
-		// human must widen scope via /af-coms --project / --all first. This closes the old
-		// cross-project leak where a name match fell through to scanning every project.
-		const scope = peersInScope();
-		const byName = scope.find((e) => e.name === target);
-		if (byName) return byName;
-		return scope.find((e) => e.session_id === target) ?? null;
 	}
 
 	// ── dispatch_agent Tool (registered at top level) ──
@@ -6049,81 +5157,20 @@ ${externalBlockedProtocol()}
 			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /af-coms --all." })),
 		}),
 		async execute(_callId, params) {
-			if (!identity) {
-				return {
-					content: [{ type: "text" as const, text: "coms not initialised." }],
-					details: { agents: [], project: null },
-				};
-			}
-			// Clamp discovery to the human-set pool scope (displayProject + includeExplicit,
-			// driven by /af-coms). The LLM's project/include_explicit may NARROW within that
-			// scope but can never widen it — cross-project or explicit discovery requires a
-			// deliberate /af-coms --project / --all from the human. So coms_list returns exactly
-			// the pool, the same boundary coms_send enforces.
-			const scopeProject = displayProject ?? identity.project;
-			let projects: string[];
-			let widened = false;
-			if (scopeProject === "*") {
-				projects = params.project && params.project !== "*" ? [params.project] : listProjects();
-			} else {
-				projects = [scopeProject];
-				if (params.project && params.project !== scopeProject) widened = true;
-			}
-			// include_explicit may only narrow (turn OFF); it cannot reveal explicit peers
-			// unless the human already did via /af-coms --all.
-			const includeExp = includeExplicit && params.include_explicit !== false;
-			if (params.include_explicit === true && !includeExplicit) widened = true;
-
-			const collected: { entry: RegistryEntry; project: string }[] = [];
-			for (const proj of projects) {
-				for (const entry of pruneDeadEntries(proj)) {
-					if (entry.explicit && !includeExp) continue;
-					if (entry.session_id === identity.session_id) continue;
-					collected.push({ entry, project: proj });
-				}
-			}
-
-			// Ping each peer in parallel for live context usage.
-			const pongs = await Promise.allSettled(collected.map((c) => pingPeer(c.entry.endpoint)));
-
-			const agents = collected.map((c, i) => {
-				const r = pongs[i];
-				const pong = r.status === "fulfilled" ? r.value : null;
-				return {
-					name: c.entry.name,
-					session_id: c.entry.session_id,
-					purpose: c.entry.purpose,
-					model: c.entry.model,
-					cwd: c.entry.cwd,
-					project: c.project,
-					alive: pong != null,
-					context_used_pct: pong ? pong.context_used_pct : null,
-					pane_id: pong?.pane_id ?? null,
-					status: pong?.status ?? null,
-					queue_depth: pong ? pong.queue_depth : null,
-					color: c.entry.color,
-				};
-			});
-
-			const notice = widened
-				? `\n\n(Discovery is scoped to "${scopeProject}"${includeExplicit ? "" : ", explicit peers hidden"}. ` +
+			if (!identity) return { content: [{ type: "text" as const, text: "coms not initialised." }], details: { agents: [], project: null } };
+			const result = await coms.list(params);
+			const notice = result.widenRequested
+				? `\n\n(Discovery is scoped to "${result.project}"${coms.scope.includeExplicit ? "" : ", explicit peers hidden"}. ` +
 				  `Widening to other projects or revealing --explicit peers is a human action via ` +
 				  `/af-coms --project <name> or /af-coms --all.)`
 				: "";
-
-			const lines = agents.length === 0
-				? "No peer agents in your pool."
-				: agents.map((a) => {
-					const ctxStr = a.context_used_pct != null ? ` ${a.context_used_pct}%` : " ?%";
-					const live = a.alive ? "●" : "✗";
-					const state = a.alive ? (a.status ?? "unknown") : "unreachable";
-					return `${live} ${a.name} (${a.model})${ctxStr} [${state}${a.pane_id ? ` pane ${a.pane_id}` : ""}]${a.purpose ? ` — ${a.purpose}` : ""}`;
-				}).join("\n");
-
-			return {
-				content: [{ type: "text" as const, text: `${agents.length} peer(s) in pool (project ${scopeProject}):\n${lines}${notice}` }],
-				details: { agents, project: scopeProject, scoped: true, widenRequested: widened },
-			};
+			const lines = result.agents.length === 0 ? "No peer agents in your pool." : result.agents.map(agent => {
+				const context = agent.context_used_pct != null ? ` ${agent.context_used_pct}%` : " ?%";
+				const state = agent.alive ? agent.status ?? "unknown" : "unreachable";
+				return `${agent.alive ? "●" : "✗"} ${agent.name} (${agent.model})${context} [${state}${agent.pane_id ? ` pane ${agent.pane_id}` : ""}]${agent.purpose ? ` — ${agent.purpose}` : ""}`;
+			}).join("\n");
+			return { content: [{ type: "text" as const, text: `${result.agents.length} peer(s) in pool (project ${result.project}):
+${lines}${notice}` }], details: result };
 		},
 		renderCall(args, theme) {
 			const proj = (args as any).project;
@@ -6167,90 +5214,24 @@ ${externalBlockedProtocol()}
 		async execute(_callId, params) {
 			const confirmationRefusal = provisionalCapabilityRefusal("peer");
 			if (confirmationRefusal) return confirmationRefusal;
-			if (!identity) {
-				throw new Error("coms not initialised");
-			}
 			const target = resolveTarget(params.target);
-			if (!target) {
-				// Refuse without confirming whether the peer exists outside the pool — that
-				// existence is itself cross-project metadata. Point at the human-controlled
-				// widening path instead.
-				const scope = displayProject ?? identity.project;
-				throw new Error(
-					`coms: no connected peer "${params.target}" in your pool (project ${scope}). ` +
-					`Only peers shown in the coms pool are reachable. If you expected this peer, ask the ` +
-					`human to widen scope with /af-coms --project <name> or /af-coms --all, then retry.`,
-				);
-			}
-			const hops = currentInbound ? currentInbound.hops + 1 : 0;
-			if (hops >= MAX_HOPS) {
-				throw new Error(`coms: hop limit reached (${hops} >= ${MAX_HOPS})`);
-			}
 			let outboundPrompt = String(params.prompt || "");
-			const handoffAppendAuthorized = !!(
-				pendingHandoff &&
-				pendingHandoff.target === target.name &&
-				params.handoff_token === pendingHandoff.token
-			);
-			if (handoffAppendAuthorized) {
-				outboundPrompt = appendMachineHandoffSections(outboundPrompt);
-			}
-
-			const msg_id = ulid();
-			const env: PromptEnvelope = {
-				type: "prompt",
-				msg_id,
-				sender_session: identity.session_id,
-				sender_endpoint: identity.endpoint,
-				sender_name: identity.name,
-				sender_cwd: identity.cwd,
-				hops,
-				timestamp: nowIso(),
+			const handoffAppendAuthorized = !!(target && pendingHandoff && pendingHandoff.target === target.name && params.handoff_token === pendingHandoff.token);
+			if (handoffAppendAuthorized) outboundPrompt = appendMachineHandoffSections(outboundPrompt);
+			const sent = await coms.send({
+				target: params.target,
 				prompt: outboundPrompt,
 				conversation_id: params.conversation_id ?? null,
 				response_schema: (params.response_schema as object | undefined) ?? null,
 				reply_timeout_ms: params.reply_timeout_ms ?? null,
-			};
-
-			// Send the envelope synchronously and wait for the receiver's ack.
-			await sendEnvelope(target.endpoint, env);
-			markPeerAddressed(target.name);
-			if (handoffAppendAuthorized) pendingHandoff = null;
-
-			// Register a pending entry whose promise the receiver-side handleResponse
-			// (or the timeout below) will settle.
-			let resolveFn!: (v: { response?: any; error?: string | null }) => void;
-			let rejectFn!: (e: Error) => void;
-			const promise = new Promise<{ response?: any; error?: string | null }>((res, rej) => {
-				resolveFn = res;
-				rejectFn = rej;
 			});
-			const entry: PendingReply = {
-				resolve: resolveFn,
-				reject: rejectFn,
-				timer: null,
-				promise,
-				target_name: target.name,
-				created_at: nowIso(),
-			};
-			// A local wait deadline does not convert unfinished remote work into an
-			// error. Keep the entry pending so a later await can collect the response.
-			pendingReplies.set(msg_id, entry);
-
-			try {
-				pi.appendEntry("coms-log", {
-					event: "outbound_prompt",
-					msg_id,
-					target: target.name,
-					hops,
-				});
-			} catch {
-				// best-effort
-			}
-
+			markPeerAddressed(sent.target);
+			if (handoffAppendAuthorized) pendingHandoff = null;
 			return {
-				content: [{ type: "text" as const, text: `coms_send → ${target.name}\nmsg_id ${msg_id}\nhops ${hops}` }],
-				details: { msg_id, target: target.name, target_session: target.session_id, hops },
+				content: [{ type: "text" as const, text: `coms_send → ${sent.target}
+msg_id ${sent.msg_id}
+hops ${sent.hops}` }],
+				details: { msg_id: sent.msg_id, target: sent.target, target_session: sent.target_session, hops: sent.hops },
 			};
 		},
 		renderCall(args, theme) {
@@ -6290,27 +5271,16 @@ ${externalBlockedProtocol()}
 			msg_id: Type.String({ description: "msg_id returned by coms_send." }),
 		}),
 		async execute(_callId, params) {
-			const entry = pendingReplies.get(params.msg_id);
-			if (!entry) {
-				return {
-					content: [{ type: "text" as const, text: `coms_get: unknown msg_id ${params.msg_id}` }],
-					details: { status: "error", error: "unknown msg_id" },
-				};
-			}
-			if (entry.result) {
-				const r = entry.result;
-				const text = r.error
-					? `coms_get: error — ${r.error}`
-					: `coms_get: complete\n${typeof r.response === "string" ? r.response : JSON.stringify(r.response, null, 2)}`;
-				return {
-					content: [{ type: "text" as const, text }],
-					details: { status: "complete", response: r.response, error: r.error ?? null },
-				};
-			}
-			return {
-				content: [{ type: "text" as const, text: `coms_get: pending` }],
-				details: { status: "pending" },
-			};
+			const result = coms.get(params.msg_id);
+			const text = result.status === "error"
+				? `coms_get: unknown msg_id ${params.msg_id}`
+				: result.status === "pending"
+					? "coms_get: pending"
+					: result.error
+						? `coms_get: error — ${result.error}`
+						: `coms_get: complete
+${typeof result.response === "string" ? result.response : JSON.stringify(result.response, null, 2)}`;
+			return { content: [{ type: "text" as const, text }], details: result };
 		},
 		renderCall(args, theme) {
 			const id = (args as any).msg_id ?? "?";
@@ -6336,40 +5306,16 @@ ${externalBlockedProtocol()}
 			timeout_ms: Type.Optional(Type.Number({ description: "Override the default timeout (ms)." })),
 		}),
 		async execute(_callId, params) {
-			const entry = pendingReplies.get(params.msg_id);
-			if (!entry) {
+			const result = await coms.await(params.msg_id, typeof params.timeout_ms === "number" && params.timeout_ms > 0 ? params.timeout_ms : TIMEOUT_MS);
+			if (result.status === "pending") return { content: [{ type: "text" as const, text: "coms_await: pending — wait budget exhausted; the peer may still complete" }], details: { status: "pending" } };
+			if (result.status === "error") {
+				const unknown = result.error === "unknown msg_id";
 				return {
-					content: [{ type: "text" as const, text: `coms_await: unknown msg_id ${params.msg_id}` }],
-					details: { error: "unknown msg_id" },
+					content: [{ type: "text" as const, text: unknown ? `coms_await: unknown msg_id ${params.msg_id}` : `coms_await: error — ${result.error}` }],
+					details: unknown ? { error: "unknown msg_id" } : { status: "error", error: result.error },
 				};
 			}
-			const timeoutMs = typeof params.timeout_ms === "number" && params.timeout_ms > 0
-				? params.timeout_ms
-				: TIMEOUT_MS;
-
-			const timed = new Promise<{ error: string }>((resolve) => {
-				const t = setTimeout(() => resolve({ error: "timeout" }), timeoutMs);
-				try { (t as any).unref?.(); } catch { /* ignore */ }
-			});
-
-			const winner = await Promise.race([entry.promise, timed]);
-			if ((winner as any).error === "timeout") {
-				return {
-					content: [{ type: "text" as const, text: "coms_await: pending — wait budget exhausted; the peer may still complete" }],
-					details: { status: "pending" },
-				};
-			}
-			if ((winner as any).error) {
-				return {
-					content: [{ type: "text" as const, text: `coms_await: error — ${(winner as any).error}` }],
-					details: { status: "error", error: (winner as any).error },
-				};
-			}
-			const resp = (winner as any).response;
-			return {
-				content: [{ type: "text" as const, text: typeof resp === "string" ? resp : JSON.stringify(resp, null, 2) }],
-				details: { response: resp },
-			};
+			return { content: [{ type: "text" as const, text: typeof result.response === "string" ? result.response : JSON.stringify(result.response, null, 2) }], details: { response: result.response } };
 		},
 		renderCall(args, theme) {
 			const id = (args as any).msg_id ?? "?";
@@ -8494,21 +7440,7 @@ ${externalBlockedProtocol()}
 		description: "Force-refresh the coms pool widget (or filter with --all / --project <name>)",
 		handler: async (args, ctx) => {
 			if (!comsReady) { ctx.ui.notify("coms is not active in this session.", "warning"); return; }
-			const trimmed = (args ?? "").trim();
-			if (trimmed.includes("--all")) {
-				includeExplicit = !includeExplicit;
-				try { ctx.ui.notify(`coms: include_explicit = ${includeExplicit}`, "info"); } catch { /* ignore */ }
-			}
-			const projectMatch = trimmed.match(/--project\s+(\S+)/);
-			if (projectMatch) {
-				displayProject = projectMatch[1];
-				try { ctx.ui.notify(`coms: displaying project ${displayProject}`, "info"); } catch { /* ignore */ }
-			}
-			if (herdrWatch) {
-				await herdrWatch.start(); // re-list + resubscribe + sync cards
-			} else {
-				await refreshPool();
-			}
+			await coms.updateScope((args ?? "").trim(), ctx);
 		},
 	});
 
@@ -8516,26 +7448,18 @@ ${externalBlockedProtocol()}
 	// The herdr sidebar mirrors turn state (idle ↔ working) push-style;
 	// context % rides the keepalive refresh.
 	pi.on("before_agent_start", async () => {
-		turnState = "working";
+		await coms.setTurnState("working");
 		if (monitorBridge && monitorTurnId) monitorBridge.finishParent(monitorTurnId, "completed");
 		if (monitorBridge && monitorHubId) {
 			monitorTurnId = `hub-turn-${monitorHubId}-${crypto.randomUUID()}`;
 			monitorBridge.startParent({ id: monitorTurnId, hubInstanceId: monitorHubId, checkoutId: currentCtx?.cwd || process.cwd() });
 		} else monitorTurnId = null;
-		if (herdrPresence && identity) {
-			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
-			void herdrPresence.report("working", { name: identity.name, project: identity.project, contextUsedPct: pct, queueDepth: inboundQueue.size });
-		}
 	});
 	pi.on("agent_end", async () => {
-		turnState = "idle";
+		await coms.setTurnState("idle");
 		if (monitorBridge && monitorTurnId) {
 			monitorBridge.finishParent(monitorTurnId, "completed");
 			monitorTurnId = null;
-		}
-		if (herdrPresence && identity) {
-			const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
-			void herdrPresence.report("idle", { name: identity.name, project: identity.project, contextUsedPct: pct, queueDepth: inboundQueue.size });
 		}
 	});
 
@@ -9303,116 +8227,12 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		const soloMode = pi.getFlag("solo") === true;
 		if (!comsReady && !soloMode) {
 			try {
-				const flags = readCliFlags(pi);
-				const fm = readFrontmatterFromArgv(process.argv);
-				const project = flags.project || "default";
-				const explicit = flags.explicit === true;
-				const session_id = ulid();
-				const defaultName = `hub-${session_id.slice(-6)}`;
-				// pi's built-in `--name` (session display name) shadows the `--name` flag
-				// the embedded coms layer registers, so `flags.name` (getFlag) stays empty
-				// when a user passes `--name`. Recover it via getSessionName() — it ranks
-				// like the CLI flag (above frontmatter), so `just fleet hub --name foo` is honored.
-				const sessionName = typeof pi.getSessionName === "function" ? (pi.getSessionName() || undefined) : undefined;
-				const desiredName = flags.name || sessionName || fm.name || defaultName;
-				const name = resolveUniqueName(project, desiredName);
-				if (name !== desiredName) {
-					try { pi.appendEntry("coms-log", { event: "name_collision", desired: desiredName, assigned: name, project }); } catch { /* best-effort */ }
-				}
-				comsPurposeExplicit = !!flags.purpose;
-				comsBasePurpose = flags.purpose || fm.description || "agent-hub dispatcher";
-				const purpose = comsBasePurpose;
-
-				// Color: --color CLI flag > frontmatter color > deterministic fallback.
-				let color = fallbackColor(session_id);
-				if (fm.color && isValidHex(fm.color)) color = fm.color;
-				if (flags.color && isValidHex(flags.color)) color = flags.color;
-
-				const endpoint = makeEndpoint(session_id);
-				const cwd = _ctx.cwd || process.cwd();
-				const model = _ctx.model?.id ?? "unknown";
-
-				fs.mkdirSync(path.join(COMS_DIR, "projects", project, "agents"), { recursive: true });
-				if (process.platform !== "win32") {
-					fs.mkdirSync(path.join(COMS_DIR, "sockets"), { recursive: true });
-					try { fs.chmodSync(COMS_DIR, 0o700); } catch { /* best-effort */ }
-				}
-
-				server = await bindEndpoint(endpoint, connHandler);
-
-				const started_at = nowIso();
-				const entry: RegistryEntry = {
-					session_id, name, purpose, model, color,
-					pid: process.pid, endpoint, cwd,
-					started_at, explicit, version: 1,
-				};
-				const registryFile = writeRegistryAtomic(entry, project);
-
-				identity = { session_id, name, purpose, color, project, explicit, cwd, model, endpoint, registryFile, started_at };
-				includeExplicit = false;
-				displayProject = project;
+				identity = await coms.connect({ ctx: _ctx, defaultNamePrefix: "hub", defaultPurpose: "agent-hub dispatcher" });
 				comsReady = true;
-				try { pi.appendEntry("coms-log", { event: "boot", session_id, name, project }); } catch { /* best-effort */ }
-
 				try {
-					_ctx.ui.setStatus("coms", `📡 ${name}@${project}`);
+					_ctx.ui.setStatus("coms", `📡 ${identity.name}@${identity.project}`);
 					installPoolWidget(_ctx);
 				} catch { /* hasUI may be false — non-fatal */ }
-
-				// Presence backend: herdr (push events, no polling) when this
-				// session runs inside a herdr pane with a live server; the files
-				// ping loop otherwise. The registry keepalive runs in BOTH — it
-				// carries the full agent card (purpose, model, colour) that a
-				// pane annotation is no place for, and keeps us discoverable
-				// to peers running outside herdr panes.
-				const useHerdr = await herdrPresenceAvailable();
-				if (useHerdr) {
-					const paneId = herdrPaneId()!;
-					herdrPresence = new HerdrPresence({
-						paneId,
-						source: `coms:${session_id}`,
-						// A herdr that rejects our annotation dialect used to
-						// be invisible: presence swallows errors, so the
-						// sidebar simply stayed blank and every watcher saw
-						// "detached" forever.
-						onError: (err, dialect) => {
-							try {
-								pi.appendEntry("coms-log", { event: "presence_dialect_rejected", dialect, reason: err?.message ?? String(err) });
-							} catch { /* best-effort */ }
-						},
-					});
-					void herdrPresence.report("idle", { name, project, contextUsedPct: 0, queueDepth: 0 });
-					herdrWatch = new HerdrAgentWatch({
-						ownPaneId: paneId,
-						onChange: (agents) => herdrSyncPeerCards(agents),
-					});
-					void herdrWatch.start();
-					try { pi.appendEntry("coms-log", { event: "presence_backend", backend: "herdr", pane: paneId }); } catch { /* best-effort */ }
-				} else {
-					pingTimer = setInterval(() => { refreshPool().catch(() => {}); }, PING_INTERVAL_MS);
-					try { (pingTimer as any).unref?.(); } catch { /* ignore */ }
-				}
-				keepaliveTimer = setInterval(() => {
-					if (!identity) return;
-					try {
-						const missingBeforeWrite = !fs.existsSync(identity.registryFile);
-						writeLiveRegistry();
-						if (missingBeforeWrite) {
-							try { pi.appendEntry("coms-log", { event: "self_heal", session_id: identity.session_id, reason: "registry file missing" }); } catch { /* best-effort */ }
-							if (!fs.existsSync(identity.registryFile)) writeLiveRegistry();
-						}
-					} catch { /* best-effort */ }
-					// herdr backend: refresh our sidebar entry and re-join peer
-					// cards against the registry heartbeats just written.
-					if (herdrPresence && identity) {
-						const pct = Math.round(currentCtx?.getContextUsage()?.percent ?? 0);
-						void herdrPresence.report(turnState, { name: identity.name, project: identity.project, contextUsedPct: pct, queueDepth: inboundQueue.size });
-					}
-					if (herdrWatch) herdrSyncPeerCards(herdrWatch.current());
-				}, KEEPALIVE_INTERVAL_MS);
-				try { (keepaliveTimer as any).unref?.(); } catch { /* ignore */ }
-
-				if (!useHerdr) refreshPool().catch(() => {});
 			} catch (err) {
 				comsReady = false;
 				try { _ctx.ui?.notify?.(`📡 coms: init failed — ${err instanceof Error ? err.message : String(err)} (coms tools disabled)`, "error"); } catch { /* ignore */ }
@@ -9739,75 +8559,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		const peerSweep = unaddressedPeerSweep(Array.from(hubSpawnedPeers.values()));
 		if (peerSweep) ctx.ui.notify(peerSweep.message, "warning");
 
-		const inbound = [...inboundQueue.values()].reverse().find((i) => !i.fulfilled);
-		if (!inbound || !identity) return;
-
-		// Walk the session branch for the most recent assistant message text.
-		let lastAssistantText = "";
-		for (const entry of ctx.sessionManager.getBranch()) {
-			if (entry.type === "message" && entry.message.role === "assistant") {
-				const m = entry.message as any;
-				if (typeof m.content === "string") {
-					lastAssistantText = m.content;
-				} else if (Array.isArray(m.content)) {
-					lastAssistantText = m.content
-						.filter((b: any) => b && b.type === "text")
-						.map((b: any) => b.text)
-						.join("\n");
-				}
-			}
-		}
-
-		let payload: any = lastAssistantText;
-		let error: string | null = null;
-		if (inbound.response_schema && typeof inbound.response_schema === "object") {
-			try {
-				payload = JSON.parse(lastAssistantText);
-			} catch {
-				error = "response not valid JSON";
-				payload = null;
-			}
-		}
-
-		const respEnv: ResponseEnvelope = {
-			type: "response",
-			msg_id: inbound.msg_id,
-			sender_session: identity.session_id,
-			sender_endpoint: identity.endpoint,
-			hops: 0,
-			timestamp: nowIso(),
-			response: payload,
-			error,
-		};
-
-		try {
-			await sendEnvelope(inbound.sender_endpoint, respEnv);
-			try {
-				pi.appendEntry("coms-log", {
-					event: "outbound_response",
-					msg_id: inbound.msg_id,
-					error,
-				});
-			} catch {
-				// best-effort
-			}
-		} catch (e: any) {
-			try {
-				pi.appendEntry("coms-log", {
-					event: "outbound_response_failed",
-					msg_id: inbound.msg_id,
-					reason: e?.message ?? String(e),
-				});
-			} catch {
-				// best-effort
-			}
-		}
-
-		inbound.fulfilled = true;
-		inboundQueue.delete(inbound.msg_id);
-		if (currentInbound && currentInbound.msg_id === inbound.msg_id) {
-			currentInbound = null;
-		}
+		await coms.respond(ctx);
 	});
 
 	// ── Embedded coms: clean shutdown ──
@@ -9817,14 +8569,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 	async function cleanShutdown(): Promise<void> {
 		if (shuttingDown) return;
 		shuttingDown = true;
-		if (pingTimer) { try { clearInterval(pingTimer); } catch { /* ignore */ } pingTimer = null; }
-		if (keepaliveTimer) { try { clearInterval(keepaliveTimer); } catch { /* ignore */ } keepaliveTimer = null; }
-		if (herdrWatch) { try { herdrWatch.stop(); } catch { /* ignore */ } herdrWatch = null; }
-		if (herdrPresence) { try { void herdrPresence.release(); } catch { /* ignore */ } herdrPresence = null; }
-		if (server) {
-			try { server.close(); } catch { /* ignore */ }
-			server = null;
-		}
+		await coms.shutdown();
 		if (monitorBridge) { try { await monitorBridge.cancelAllWaitOnly(); } catch { /* ignore */ } }
 		if (monitorLifecycle) {
 			try { await monitorLifecycle.stop(); } catch { /* ignore */ }
@@ -9833,15 +8578,6 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		monitorBridge?.reset();
 		monitorBridge?.stop();
 		monitorBridge = null;
-		if (identity) {
-			if (process.platform !== "win32") {
-				try { fs.unlinkSync(identity.endpoint); } catch { /* ignore */ }
-			}
-			try { removeRegistryEntry(identity.project, identity.name); } catch { /* ignore */ }
-			try {
-				pi.appendEntry("coms-log", { event: "shutdown", session_id: identity.session_id });
-			} catch { /* best-effort */ }
-		}
 		if (exemptionsFile) {
 			// Session-scoped by definition — remove so grants never leak into the next session.
 			try { fs.unlinkSync(exemptionsFile); } catch { /* ignore */ }
