@@ -1,7 +1,7 @@
 // Static wiring contracts for the large Hub entrypoint. Live work mode behavior is
 // exercised through a real offline Pi RPC process in extension-loader.test.ts.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
@@ -9,6 +9,14 @@ const workModeCommandSource = readFileSync(new URL("./commands/work-mode.ts", im
 const handoffCommandSource = readFileSync(new URL("./commands/handoff.ts", import.meta.url), "utf8");
 const compoundCommandSource = readFileSync(new URL("./commands/compound.ts", import.meta.url), "utf8");
 const commandContextSource = readFileSync(new URL("./commands/context.ts", import.meta.url), "utf8");
+const dispatchAgentToolSource = readFileSync(new URL("./tools/dispatch-agent.ts", import.meta.url), "utf8");
+const spawnResearchToolSource = readFileSync(new URL("./tools/spawn-research.ts", import.meta.url), "utf8");
+const setTaskTierToolSource = readFileSync(new URL("./tools/set-task-tier.ts", import.meta.url), "utf8");
+const teamAdjustToolSource = readFileSync(new URL("./tools/team-adjust.ts", import.meta.url), "utf8");
+const verificationContractToolSource = readFileSync(new URL("./tools/verification-contract.ts", import.meta.url), "utf8");
+const comsToolsSource = readFileSync(new URL("./tools/coms-tools.ts", import.meta.url), "utf8");
+const fleetToolsSource = readFileSync(new URL("./tools/fleet-tools.ts", import.meta.url), "utf8");
+const toolContextSource = readFileSync(new URL("./tools/context.ts", import.meta.url), "utf8");
 const agentsTeamCommandSource = readFileSync(new URL("./commands/agents-team.ts", import.meta.url), "utf8");
 const agentsSaveCommandSource = readFileSync(new URL("./commands/agents-save.ts", import.meta.url), "utf8");
 const agentsRestartCommandSource = readFileSync(new URL("./commands/agents-restart.ts", import.meta.url), "utf8");
@@ -96,14 +104,42 @@ test("wiring contract: Hub restores named rosters and gates stale orchestrator s
 	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator workMode requires --agent-team/);
 });
 
+test("wiring contract: extracted Hub tools use typed modules and one flat registrar list", () => {
+	const toolModules = [
+		[dispatchAgentToolSource, "registerDispatchAgent", 1],
+		[spawnResearchToolSource, "registerSpawnResearch", 1],
+		[setTaskTierToolSource, "registerSetTaskTier", 1],
+		[teamAdjustToolSource, "registerTeamAdjust", 1],
+		[verificationContractToolSource, "registerVerificationContract", 3],
+		[comsToolsSource, "registerComsTools", 4],
+		[fleetToolsSource, "registerFleetTools", 5],
+	] as const;
+	assert.equal(toolModules.length, 7);
+	for (const [source, registrar, count] of toolModules) {
+		assert.match(source, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, toolCtx: ToolContext\\)`));
+		assert.equal((source.match(/registerTool\(\{/g) ?? []).length, count, registrar);
+	}
+	const extractedNames = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust", "set_assertions", "update_assertion", "get_assertions", "coms_list", "coms_send", "coms_get", "coms_await", "herdr_spawn_peer", "herdr_spawn_pane", "herdr_read_pane", "herdr_close_pane", "herdr_notify"];
+	assert.equal(extractedNames.length, 16);
+	for (const name of extractedNames) assert.doesNotMatch(indexSource, new RegExp(`name: "${name}"`));
+	assert.equal((indexSource.match(/registerTool\(\{/g) ?? []).length, 0);
+	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerTeamAdjust\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);/);
+	assert.equal(existsSync(new URL("./tools/ask-user.ts", import.meta.url)), false);
+	assert.match(toolContextSource, /export interface ToolContext/);
+	for (const callback of ["executeDispatchAgent", "executeSpawnResearch", "executeSetTaskTier", "executeTeamAdjust", "executeSetAssertions", "executeUpdateAssertion", "executeGetAssertions", "executeComsList", "executeComsSend", "executeComsGet", "executeComsAwait", "executeHerdrSpawnPeer", "executeHerdrSpawnPane", "executeHerdrReadPane", "executeHerdrClosePane", "executeHerdrNotify"]) {
+		assert.match(toolContextSource, new RegExp(`${callback}: ToolExecutor<`));
+	}
+	assert.match(toolContextSource, /getAssertionCount\(\): number/);
+});
+
 test("wiring contract: every fleet action assumes a tier before its persona gate", () => {
 	assert.match(indexSource, /function ensureTaskTier\(\): void \{[\s\S]*?taskTier = DEFAULT_TASK_TIER;[\s\S]*?taskTierAssumed = true;[\s\S]*?turnReport\.tier = taskTier;[\s\S]*?updateModeStatus\(\)/);
-	const dispatchTool = indexSource.match(/name: "dispatch_agent",[\s\S]*?(?=\n\t\}\);\n\n\t\/\/ ── spawn_research Tool)/);
-	const researchTool = indexSource.match(/name: "spawn_research",[\s\S]*?(?=\n\t\/\/ ── set_task_tier Tool)/);
-	assert.ok(dispatchTool, "dispatch_agent tool is registered");
-	assert.ok(researchTool, "spawn_research tool is registered");
-	assert.match(dispatchTool[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(agent\)/);
-	assert.match(researchTool[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(persona \|\| ""\)/);
+	const dispatchExecution = indexSource.match(/async function executeDispatchAgent\([\s\S]*?(?=\n\t+async function executeSpawnResearch)/);
+	const researchExecution = indexSource.match(/async function executeSpawnResearch\([\s\S]*?(?=\n\t+\/\/ ── Extracted tool execution wiring)/);
+	assert.ok(dispatchExecution, "dispatch_agent execution remains in the composition root");
+	assert.ok(researchExecution, "spawn_research execution remains in the composition root");
+	assert.match(dispatchExecution[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(agent\)/);
+	assert.match(researchExecution[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(persona \|\| ""\)/);
 });
 
 test("wiring contract: Hub applies work mode tools at startup and live switches", () => {

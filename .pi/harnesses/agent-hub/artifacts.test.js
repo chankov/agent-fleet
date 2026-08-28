@@ -169,14 +169,16 @@ test("input artifact section injects path plus one-line preview, not file bodies
 });
 
 test("dispatch_agent and spawn_research tool schemas expose optional artifacts", () => {
-	const index = readFileSync(new URL("./index.ts", import.meta.url), "utf-8");
-	assert.match(index, /name: "dispatch_agent"[\s\S]*artifacts: Type\.Optional\(Type\.Array\(Type\.String/);
-	assert.match(index, /name: "spawn_research"[\s\S]*artifacts: Type\.Optional\(Type\.Array\(Type\.String/);
+	const dispatchAgent = readFileSync(new URL("./tools/dispatch-agent.ts", import.meta.url), "utf-8");
+	const spawnResearch = readFileSync(new URL("./tools/spawn-research.ts", import.meta.url), "utf-8");
+	assert.match(dispatchAgent, /name: "dispatch_agent"[\s\S]*artifacts: Type\.Optional\(Type\.Array\(Type\.String/);
+	assert.match(spawnResearch, /name: "spawn_research"[\s\S]*artifacts: Type\.Optional\(Type\.Array\(Type\.String/);
 });
 
 test("handoff appendix is guarded by a matching handoff token", () => {
 	const index = readFileSync(new URL("./index.ts", import.meta.url), "utf-8");
-	assert.match(index, /handoff_token: Type\.Optional/);
+	const comsTools = readFileSync(new URL("./tools/coms-tools.ts", import.meta.url), "utf-8");
+	assert.match(comsTools, /name: "coms_send"[\s\S]*handoff_token: Type\.Optional/);
 	assert.match(index, /pendingHandoff\.target === target\.name[\s\S]*params\.handoff_token === pendingHandoff\.token/);
 	assert.match(index, /if \(handoffAppendAuthorized\) pendingHandoff = null/);
 	assert.match(index, /## Verification ledger \(verbatim, machine-appended\)/);

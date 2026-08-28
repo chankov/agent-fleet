@@ -63,7 +63,6 @@
 
 import type { ExtensionAPI, ExtensionContext, ImageContent, Theme } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme, copyToClipboard } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import {
 	Text, Box, Container, Spacer, Markdown, matchesKey, Key,
 	type AutocompleteItem, truncateToWidth, visibleWidth,
@@ -98,11 +97,8 @@ import { MAX_OPEN_ASSERTIONS, validateAssertionBatch } from "./assertion-ledger.
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
 import {
 	PANE_PROMPT_TIMEOUT_MS,
-	PEER_READY_TIMEOUT_MS,
 	launchPeerInPane,
-	peerReadyDelayMs,
 	peerReadyVerdict,
-	spawnStaggerSeconds,
 	unaddressedPeerSweep,
 } from "../lib/spawned-peers.js";
 import { contextPct, estimatePromptTokens, overWindowDiagnostic, resolveContextWindow, shouldRecycleBeforeSpawn } from "./context-window.js";
@@ -143,6 +139,14 @@ import { registerComs } from "./commands/coms.ts";
 import { registerHandoff } from "./commands/handoff.ts";
 import { registerCompound } from "./commands/compound.ts";
 import type { CommandContext } from "./commands/context.ts";
+import { registerDispatchAgent } from "./tools/dispatch-agent.ts";
+import { registerSpawnResearch } from "./tools/spawn-research.ts";
+import { registerSetTaskTier } from "./tools/set-task-tier.ts";
+import { registerTeamAdjust } from "./tools/team-adjust.ts";
+import { registerVerificationContract } from "./tools/verification-contract.ts";
+import { registerComsTools } from "./tools/coms-tools.ts";
+import { paneTail, peerManifest, peerPersonaExists, registerFleetTools, spawnDelaySeconds, STAGGER_ENV_VAR, waitForPeerRegistration } from "./tools/fleet-tools.ts";
+import type { ComsAwaitParams, ComsGetParams, ComsListParams, ComsSendParams, DispatchAgentParams, HerdrClosePaneParams, HerdrNotifyParams, HerdrReadPaneParams, HerdrSpawnPaneParams, HerdrSpawnPeerParams, SetAssertionsParams, SetTaskTierParams, SpawnResearchParams, TeamAdjustParams, ToolContext, ToolExecutionResult, ToolUpdate, UpdateAssertionParams } from "./tools/context.ts";
 import { CAPABILITY_PACKS, latestPersistedCapabilityState, persistedCapabilityState, resolveCapabilityPacks, type CapabilityPack, type CapabilityResolution, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationGate, confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type CapabilityConfirmationState, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
@@ -189,11 +193,9 @@ import {
 } from "../lib/context-budget-child-prompt.ts";
 import { parseEnvFile, resolveEnvFilePath } from "../../../scripts/lib/herdr-layout.ts";
 import { worktreeTag } from "../../../scripts/lib/team-project.ts";
-import { STAGGER_ENV_VAR, WARMUP_SECONDS, oauthNeedsWarmup } from "../../../scripts/lib/spawn-stagger.ts";
 import { join, resolve } from "path";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
@@ -4238,27 +4240,9 @@ ${externalBlockedProtocol()}
 		}
 	}
 
-	// ── dispatch_agent Tool (registered at top level) ──
+	// ── Extracted tool execution wiring ──
 
-	pi.registerTool({
-		name: "dispatch_agent",
-		label: "Dispatch Agent",
-		description: "Dispatch one focused task to a listed specialist; it returns evidence.",
-		parameters: Type.Object({
-			agent: Type.String({ description: "Agent name (case-insensitive)" }),
-			task: Type.String({ description: "Task description for the agent to execute" }),
-			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path; the specialist reads it." }))),
-			scope: Type.Optional(Type.Array(Type.String({ description: "Advisory writable-file globs; violations are reported, never reverted." }))),
-			watchdog: Type.Optional(Type.Boolean({ description: "Override this dispatch's drift watchdog." })),
-			review_reason: Type.Optional(Type.String({ description: "Why a docs-only review is needed." })),
-			backend: Type.Optional(Type.Union([
-				Type.Literal("auto"),
-				Type.Literal("native"),
-				Type.Literal("coms"),
-			], { description: "auto policy; native local; coms requires its live peer (no fallback)." })),
-		}),
-
-		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+		async function executeDispatchAgent(_toolCallId: string, params: DispatchAgentParams, _signal: AbortSignal | undefined, onUpdate: ToolUpdate, ctx: ExtensionContext): Promise<ToolExecutionResult> {
 			const confirmationRefusal = provisionalCapabilityRefusal("fleet");
 			if (confirmationRefusal) return confirmationRefusal;
 			const { task, artifacts, scope, watchdog, review_reason, backend = "auto" } = params as { agent: string; task: string; artifacts?: string[]; scope?: string[]; watchdog?: boolean; review_reason?: string; backend?: "auto" | "native" | "coms" };
@@ -4652,77 +4636,9 @@ ${externalBlockedProtocol()}
 			} finally {
 				if (writableTracked) activeWritableDispatches = Math.max(0, activeWritableDispatches - 1);
 			}
-		},
+		}
 
-		renderCall(args, theme) {
-			const agentName = (args as any).agent || "?";
-			const task = (args as any).task || "";
-			const preview = task.length > 60 ? task.slice(0, 57) + "..." : task;
-			return new Text(
-				theme.fg("toolTitle", theme.bold("dispatch_agent ")) +
-				theme.fg("accent", agentName) +
-				theme.fg("dim", " — ") +
-				theme.fg("muted", preview),
-				0, 0,
-			);
-		},
-
-		renderResult(result, options, theme) {
-			const details = result.details as any;
-			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
-			}
-
-			// Streaming/partial result while agent is still running
-			if (options.isPartial || details.status === "dispatching") {
-				return new Text(
-					theme.fg("accent", `● ${details.agent || "?"}`) +
-					theme.fg("dim", " working..."),
-					0, 0,
-				);
-			}
-
-			const icon = details.status === "done" ? "✓" : "✗";
-			const color = details.status === "done" ? "success" : "error";
-			const elapsed = typeof details.elapsed === "number" ? Math.round(details.elapsed / 1000) : 0;
-			const header = theme.fg(color, `${icon} ${details.agent}`) +
-				theme.fg("dim", ` ${elapsed}s`);
-
-			const questions: string[] = Array.isArray(details.questions) ? details.questions : [];
-			const questionsBlock = questions.length > 0
-				? "\n" + theme.fg("warning", `⚠ ${questions.length} ASK_USER question(s) raised — surface via ask_user`)
-				: "";
-
-			if (options.expanded && details.fullOutput) {
-				const output = details.fullOutput.length > 4000
-					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
-					: details.fullOutput;
-				return new Text(header + questionsBlock + "\n" + theme.fg("muted", output), 0, 0);
-			}
-
-			return new Text(header + questionsBlock, 0, 0);
-		},
-	});
-
-	// ── spawn_research Tool (dispatcher → read-only helper) ──
-	// The dispatcher fans out research (decision 8): dispatched specialists are
-	// sandboxed (--no-extensions, no dispatch tool) and cannot spawn their own helpers,
-	// so when one needs reconnaissance the DISPATCHER runs this, collects the findings,
-	// and folds them into the specialist's task. Always read-only → safe to run without
-	// ask_user gating.
-	pi.registerTool({
-		name: "spawn_research",
-		label: "Spawn Research",
-		description: "Run a read-only (read/grep/find/ls) helper and return findings.",
-		parameters: Type.Object({
-			task: Type.String({ description: "Investigation and expected findings." }),
-			persona: Type.Optional(Type.String({ description: "Research persona; omit for ad-hoc." })),
-			model: Type.Optional(Type.String({ description: "Anonymous-helper model; ignored with persona." })),
-			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path." }))),
-		}),
-
-		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+		async function executeSpawnResearch(_toolCallId: string, params: SpawnResearchParams, _signal: AbortSignal | undefined, onUpdate: ToolUpdate, ctx: ExtensionContext): Promise<ToolExecutionResult> {
 			const confirmationRefusal = provisionalCapabilityRefusal("fleet");
 			if (confirmationRefusal) return confirmationRefusal;
 			const { task, persona, model, artifacts } = params as { task: string; persona?: string; model?: string; artifacts?: string[] };
@@ -4858,65 +4774,13 @@ ${externalBlockedProtocol()}
 					details: { handle: `r${state.id}`, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" },
 				};
 			}
-		},
+		}
 
-		renderCall(args, theme) {
-			const persona = (args as any).persona;
-			const task = (args as any).task || "";
-			const preview = task.length > 60 ? task.slice(0, 57) + "..." : task;
-			return new Text(
-				theme.fg("toolTitle", theme.bold("spawn_research ")) +
-				theme.fg("accent", persona ? `@${persona}` : "ad-hoc") +
-				theme.fg("dim", " — ") +
-				theme.fg("muted", preview),
-				0, 0,
-			);
-		},
+	// ── Extracted tool execution wiring ──
 
-		renderResult(result, options, theme) {
-			const details = result.details as any;
-			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
-			}
-			if (options.isPartial || details.status === "spawning") {
-				return new Text(
-					theme.fg("accent", `● ${details.handle || "research"}`) +
-					theme.fg("dim", " researching..."),
-					0, 0,
-				);
-			}
-			const icon = details.status === "done" ? "✓" : "✗";
-			const color = details.status === "done" ? "success" : "error";
-			const elapsed = typeof details.elapsed === "number" ? Math.round(details.elapsed / 1000) : 0;
-			const header = theme.fg(color, `${icon} ${details.handle || "research"}`) +
-				theme.fg("dim", ` read-only ${elapsed}s`);
-			if (options.expanded && details.fullOutput) {
-				const output = details.fullOutput.length > 4000
-					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
-					: details.fullOutput;
-				return new Text(header + "\n" + theme.fg("muted", output), 0, 0);
-			}
-			return new Text(header, 0, 0);
-		},
-	});
+	const TEAM_ADJUST_ROSTER_CAP = 8;
 
-	// ── set_task_tier Tool (complexity triage) ──
-	// The dispatcher classifies each TASK before its first dispatch; the declared
-	// tier *is* the budget envelope (run-budget.js). Skipping it makes the first
-	// dispatch assume DEFAULT_TASK_TIER.
-
-	pi.registerTool({
-		name: "set_task_tier",
-		label: "Set Task Tier",
-		description:
-			"Classify the CURRENT TASK before your first dispatch: trivial (one obvious, low-risk change — 1 dispatch), small (a contained change, no planning pipeline — 2 dispatches), feature (a normal multi-step feature — 8 dispatches), project (a large effort — 12 dispatches). Nested delegation is off at trivial/small. The tier persists across user messages and moves by ratchet: LOWERING it is always free, RAISING it requires `reason` naming what the ask turned out to contain. Pass `new_task: true` only when the human has moved on to a genuinely different piece of work — it also resets the task budget.",
-		parameters: Type.Object({
-			tier: Type.String({ description: "One of: trivial | small | feature | project" }),
-			reason: Type.Optional(Type.String({ description: "One line on why this tier fits the ask. REQUIRED when raising the tier above the current one." })),
-			new_task: Type.Optional(Type.Boolean({ description: "The human moved on to a different piece of work: clears the task budget, the tier, and the duplicate guard. Not for a correction or a follow-up on the same work." })),
-		}),
-		async execute(_callId, params, _signal, _onUpdate, _ctx) {
+		async function executeSetTaskTier(_callId: string, params: SetTaskTierParams, _signal: AbortSignal | undefined, _onUpdate: ToolUpdate, _ctx: ExtensionContext): Promise<ToolExecutionResult> {
 			const { tier, reason, new_task } = params as { tier: string; reason?: string; new_task?: boolean };
 			// An explicit new-task reset is the lifecycle escape hatch and clears
 			// provisional decisions; it must not itself require the old task's consent.
@@ -4959,34 +4823,9 @@ ${externalBlockedProtocol()}
 				}],
 				details: { status: "ok", tier: change.tier, escalated: change.escalated, newTask: !!new_task },
 			};
-		},
-		renderCall(args, theme) {
-			return new Text(
-				theme.fg("toolTitle", theme.bold("set_task_tier ")) +
-				theme.fg("accent", String((args as any).tier || "?")) +
-				theme.fg("dim", (args as any).reason ? ` — ${String((args as any).reason).slice(0, 60)}` : ""),
-				0, 0,
-			);
-		},
-	});
+		}
 
-	// ── team_adjust Tool (dispatcher-driven roster changes, gated) ──
-	// The dispatcher may restructure its own team mid-session — but never when the
-	// current tier has nested delegation off, never past the roster cap, and the
-	// human is notified of every change.
-	const TEAM_ADJUST_ROSTER_CAP = 8;
-
-	pi.registerTool({
-		name: "team_adjust",
-		label: "Team Adjust",
-		description:
-			"Add or drop a specialist persona in the ACTIVE team (the roster you can dispatch to). Use sparingly, when the current roster genuinely cannot serve the task (e.g. add security-auditor for a security-sensitive change, drop an unused specialist). Not available at trivial/small tiers. The human sees every change and can revert with /af-agents-add /af-agents-drop.",
-		parameters: Type.Object({
-			action: Type.String({ description: "add | drop" }),
-			agent: Type.String({ description: "Persona name (case-insensitive), e.g. security-auditor" }),
-			reason: Type.String({ description: "One line on why the roster must change for this task." }),
-		}),
-		async execute(_callId, params, _signal, _onUpdate, ctx) {
+		async function executeTeamAdjust(_callId: string, params: TeamAdjustParams, _signal: AbortSignal | undefined, _onUpdate: ToolUpdate, ctx: ExtensionContext): Promise<ToolExecutionResult> {
 			const confirmationRefusal = provisionalCapabilityRefusal("fleet");
 			if (confirmationRefusal) return confirmationRefusal;
 			const { action, agent, reason } = params as { action: string; agent: string; reason: string };
@@ -5016,38 +4855,9 @@ ${externalBlockedProtocol()}
 				content: [{ type: "text" as const, text: `${result.message}. Active team: ${roster}.` }],
 				details: { status: result.ok ? "ok" : "refused", roster },
 			};
-		},
-		renderCall(args, theme) {
-			return new Text(
-				theme.fg("toolTitle", theme.bold("team_adjust ")) +
-				theme.fg("accent", `${String((args as any).action || "?")} ${String((args as any).agent || "?")}`) +
-				theme.fg("dim", (args as any).reason ? ` — ${String((args as any).reason).slice(0, 50)}` : ""),
-				0, 0,
-			);
-		},
-	});
+		}
 
-	// ── Verification Contract tools (assertion ledger) ──
-	// set_assertions builds/rebuilds the ledger before dispatching; update_assertion
-	// records a gate outcome. Both persist to disk and refresh the one-line status;
-	// neither blocks a dispatch (advisory). See skills/orchestration-verification.
-
-	pi.registerTool({
-		name: "set_assertions",
-		label: "Set Assertions",
-		description: `Replace this task's checkable assertion ledger (max ${MAX_OPEN_ASSERTIONS}); dispatch only evidence-gated work.`,
-		parameters: Type.Object({
-			assertions: Type.Array(
-				Type.Object({
-					id: Type.String({ description: "Stable id (A1, A2)." }),
-					tag: Type.String({ description: "test | runtime-ui | code-grep | manual." }),
-					text: Type.String({ description: "One pass condition." }),
-					source: Type.String({ description: "Requirement origin." }),
-				}),
-				{ description: `Replacement list; soft cap ${MAX_OPEN_ASSERTIONS}.` },
-			),
-		}),
-		async execute(_callId, params, _signal, _onUpdate, ctx) {
+		async function executeSetAssertions(_callId: string, params: SetAssertionsParams, _signal: AbortSignal | undefined, _onUpdate: ToolUpdate, ctx: ExtensionContext): Promise<ToolExecutionResult> {
 			const input = (params as { assertions: Array<{ id: string; tag: string; text: string; source?: string }> }).assertions;
 			const verdict = validateAssertionBatch(input);
 			if (!verdict.ok) {
@@ -5066,27 +4876,9 @@ ${externalBlockedProtocol()}
 				content: [{ type: "text" as const, text: verdict.warning ? `${head}\n\n${verdict.warning}` : head }],
 				details: { count: assertions.length, capWarning: Boolean(verdict.warning) },
 			};
-		},
-		renderCall(args, theme) {
-			const n = Array.isArray((args as any).assertions) ? (args as any).assertions.length : 0;
-			return new Text(
-				theme.fg("toolTitle", theme.bold("set_assertions ")) +
-				theme.fg("muted", `${n} assertion(s)`),
-				0, 0,
-			);
-		},
-	});
+		}
 
-	pi.registerTool({
-		name: "update_assertion",
-		label: "Update Assertion",
-		description: "Record a verification result. proven requires named evidence; unproven/failed are not done.",
-		parameters: Type.Object({
-			id: Type.String({ description: "Assertion id to update, e.g. A2." }),
-			status: Type.String({ description: "One of: proven | unproven | failed." }),
-			evidence: Type.Optional(Type.String({ description: "Named evidence for proven/failed — test name, command output, file:line, or runtime observation." })),
-		}),
-		async execute(_callId, params, _signal, _onUpdate, _ctx) {
+		async function executeUpdateAssertion(_callId: string, params: UpdateAssertionParams, _signal: AbortSignal | undefined, _onUpdate: ToolUpdate, _ctx: ExtensionContext): Promise<ToolExecutionResult> {
 			const { id, status, evidence } = params as { id: string; status: string; evidence?: string };
 			const wanted = String(status).trim().toLowerCase();
 			if (!["proven", "unproven", "failed"].includes(wanted)) {
@@ -5127,26 +4919,9 @@ ${externalBlockedProtocol()}
 				content: [{ type: "text" as const, text: `${a.id} → ${a.status}${a.evidence ? ` (${a.evidence})` : ""}. ${tail}` }],
 				details: { id: a.id, status: a.status },
 			};
-		},
-		renderCall(args, theme) {
-			const id = (args as any).id || "";
-			const status = (args as any).status || "";
-			return new Text(
-				theme.fg("toolTitle", theme.bold("update_assertion ")) +
-				theme.fg("accent", id) +
-				theme.fg("dim", " → ") +
-				theme.fg("muted", status),
-				0, 0,
-			);
-		},
-	});
+		}
 
-	pi.registerTool({
-		name: "get_assertions",
-		label: "Get Assertions",
-		description: "Read the full assertion ledger, especially after compaction. Read-only.",
-		parameters: Type.Object({}),
-		async execute(_callId, _params, _signal, _onUpdate, _ctx) {
+		async function executeGetAssertions(_callId: string, _params: Record<string, never>, _signal: AbortSignal | undefined, _onUpdate: ToolUpdate, _ctx: ExtensionContext): Promise<ToolExecutionResult> {
 			if (assertions.length === 0) {
 				return {
 					content: [{ type: "text" as const, text: "Ledger is empty. Call set_assertions to build the acceptance assertions before dispatching." }],
@@ -5157,27 +4932,9 @@ ${externalBlockedProtocol()}
 				content: [{ type: "text" as const, text: renderAssertionLedgerText() }],
 				details: { count: assertions.length },
 			};
-		},
-		renderCall(_args, theme) {
-			return new Text(
-				theme.fg("toolTitle", theme.bold("get_assertions ")) +
-				theme.fg("muted", `${assertions.length} assertion(s)`),
-				0, 0,
-			);
-		},
-	});
+		}
 
-	// ── Embedded coms tools (dispatcher ⇄ peers) ──
-
-	pi.registerTool({
-		name: "coms_list",
-		label: "Coms List",
-		description: "List peers in the human-scoped pool; this tool cannot widen discovery.",
-		parameters: Type.Object({
-			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /af-coms displays — a widening request is ignored." })),
-			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /af-coms --all." })),
-		}),
-		async execute(_callId, params) {
+		async function executeComsList(_callId: string, params: ComsListParams): Promise<ToolExecutionResult> {
 			if (!identity) return { content: [{ type: "text" as const, text: "coms not initialised." }], details: { agents: [], project: null } };
 			const result = await coms.list(params);
 			const notice = result.widenRequested
@@ -5192,47 +4949,9 @@ ${externalBlockedProtocol()}
 			}).join("\n");
 			return { content: [{ type: "text" as const, text: `${result.agents.length} peer(s) in pool (project ${result.project}):
 ${lines}${notice}` }], details: result };
-		},
-		renderCall(args, theme) {
-			const proj = (args as any).project;
-			const filter = proj ? ` ${proj}` : "";
-			return new Text(
-				theme.fg("toolTitle", theme.bold("coms_list")) + theme.fg("dim", filter),
-				0, 0,
-			);
-		},
-		renderResult(result, options, theme) {
-			const details = result.details as any;
-			const agents: any[] = details?.agents ?? [];
-			const header = theme.fg("accent", `📡 ${agents.length} peer(s)`);
-			if (!options.expanded || agents.length === 0) {
-				return new Text(header, 0, 0);
-			}
-			const rows = agents.map((a) => {
-				const dot = a.alive ? theme.fg("success", "●") : theme.fg("error", "✗");
-				const pct = a.context_used_pct != null ? `${a.context_used_pct}%` : "?%";
-				const state = a.alive ? (a.status ?? "unknown") : "unreachable";
-				const stateFg = state === "idle" ? "success" : state === "working" ? "warning" : "dim";
-				return `${dot} ${theme.fg("accent", a.name)} ${theme.fg("dim", a.model)} ${theme.fg("warning", pct)} ` +
-					`${theme.fg(stateFg as any, state)}${a.pane_id ? theme.fg("dim", ` ${a.pane_id}`) : ""}`;
-			}).join("\n");
-			return new Text(header + "\n" + rows, 0, 0);
-		},
-	});
+		}
 
-	pi.registerTool({
-		name: "coms_send",
-		label: "Coms Send",
-		description: "Send to an in-pool peer; use its msg_id with coms_get or coms_await.",
-		parameters: Type.Object({
-			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /af-coms --project or /af-coms --all." }),
-			prompt: Type.String({ description: "The prompt to send." }),
-			handoff_token: Type.Optional(Type.String({ description: "Internal /af-handoff token. Only include when the /af-handoff follow-up explicitly gives you one; it authorizes the machine-appended ledger/artifact appendix." })),
-			conversation_id: Type.Optional(Type.String()),
-			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
-			reply_timeout_ms: Type.Optional(Type.Number({ description: "Receiver-side reply deadline in ms; pass the same budget used for coms_await. Clamped by the receiver." })),
-		}),
-		async execute(_callId, params) {
+		async function executeComsSend(_callId: string, params: ComsSendParams): Promise<ToolExecutionResult> {
 			const confirmationRefusal = provisionalCapabilityRefusal("peer");
 			if (confirmationRefusal) return confirmationRefusal;
 			const target = resolveTarget(params.target);
@@ -5254,44 +4973,9 @@ msg_id ${sent.msg_id}
 hops ${sent.hops}` }],
 				details: { msg_id: sent.msg_id, target: sent.target, target_session: sent.target_session, hops: sent.hops },
 			};
-		},
-		renderCall(args, theme) {
-			const tgt = (args as any).target ?? "?";
-			const prompt = (args as any).prompt ?? "";
-			const preview = prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt;
-			return new Text(
-				theme.fg("toolTitle", theme.bold("coms_send ")) +
-				theme.fg("accent", tgt) +
-				theme.fg("dim", " — ") +
-				theme.fg("muted", preview),
-				0, 0,
-			);
-		},
-		renderResult(result, _options, theme) {
-			const d = result.details as any;
-			if (!d) {
-				const t = result.content[0];
-				return new Text(t?.type === "text" ? t.text : "", 0, 0);
-			}
-			return new Text(
-				theme.fg("success", "→ ") +
-				theme.fg("accent", d.target) +
-				theme.fg("dim", `  msg_id `) +
-				theme.fg("warning", d.msg_id),
-				0, 0,
-			);
-		},
-	});
+		}
 
-	pi.registerTool({
-		name: "coms_get",
-		label: "Coms Get",
-		description:
-			"Non-blocking poll of a pending coms_send reply. Returns status pending|complete|error and (when complete) the response.",
-		parameters: Type.Object({
-			msg_id: Type.String({ description: "msg_id returned by coms_send." }),
-		}),
-		async execute(_callId, params) {
+		async function executeComsGet(_callId: string, params: ComsGetParams): Promise<ToolExecutionResult> {
 			const result = coms.get(params.msg_id);
 			const text = result.status === "error"
 				? `coms_get: unknown msg_id ${params.msg_id}`
@@ -5302,31 +4986,9 @@ hops ${sent.hops}` }],
 						: `coms_get: complete
 ${typeof result.response === "string" ? result.response : JSON.stringify(result.response, null, 2)}`;
 			return { content: [{ type: "text" as const, text }], details: result };
-		},
-		renderCall(args, theme) {
-			const id = (args as any).msg_id ?? "?";
-			return new Text(
-				theme.fg("toolTitle", theme.bold("coms_get ")) + theme.fg("warning", id),
-				0, 0,
-			);
-		},
-		renderResult(result, _options, theme) {
-			const d = result.details as any;
-			const status = d?.status ?? "?";
-			const color = status === "complete" ? "success" : status === "pending" ? "warning" : "error";
-			return new Text(theme.fg(color, status), 0, 0);
-		},
-	});
+		}
 
-	pi.registerTool({
-		name: "coms_await",
-		label: "Coms Await",
-		description: "Wait for a pending coms_send reply; timeout leaves it pending.",
-		parameters: Type.Object({
-			msg_id: Type.String({ description: "msg_id returned by coms_send." }),
-			timeout_ms: Type.Optional(Type.Number({ description: "Override the default timeout (ms)." })),
-		}),
-		async execute(_callId, params) {
+		async function executeComsAwait(_callId: string, params: ComsAwaitParams): Promise<ToolExecutionResult> {
 			const result = await coms.await(params.msg_id, typeof params.timeout_ms === "number" && params.timeout_ms > 0 ? params.timeout_ms : TIMEOUT_MS);
 			if (result.status === "pending") return { content: [{ type: "text" as const, text: "coms_await: pending — wait budget exhausted; the peer may still complete" }], details: { status: "pending" } };
 			if (result.status === "error") {
@@ -5337,21 +4999,36 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 				};
 			}
 			return { content: [{ type: "text" as const, text: typeof result.response === "string" ? result.response : JSON.stringify(result.response, null, 2) }], details: { response: result.response } };
-		},
-		renderCall(args, theme) {
-			const id = (args as any).msg_id ?? "?";
-			return new Text(
-				theme.fg("toolTitle", theme.bold("coms_await ")) + theme.fg("warning", id),
-				0, 0,
-			);
-		},
-		renderResult(result, _options, theme) {
-			const d = result.details as any;
-			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
-			if (d?.status === "pending") return new Text(theme.fg("warning", "⏳ pending"), 0, 0);
-			return new Text(theme.fg("success", "✓ response received"), 0, 0);
-		},
-	});
+		}
+
+	const toolCtx: ToolContext = {
+		executeDispatchAgent,
+		executeSpawnResearch,
+		executeSetTaskTier,
+		executeTeamAdjust,
+		executeSetAssertions,
+		executeUpdateAssertion,
+		executeGetAssertions,
+		executeComsList,
+		executeComsSend,
+		executeComsGet,
+		executeComsAwait,
+		executeHerdrSpawnPeer,
+		executeHerdrSpawnPane,
+		executeHerdrReadPane,
+		executeHerdrClosePane,
+		executeHerdrNotify,
+		getAssertionCount: () => assertions.length,
+	};
+
+	// Keep the extracted tool surface flat and greppable in this composition root.
+	registerDispatchAgent(pi, toolCtx);
+	registerSpawnResearch(pi, toolCtx);
+	registerSetTaskTier(pi, toolCtx);
+	registerTeamAdjust(pi, toolCtx);
+	registerVerificationContract(pi, toolCtx);
+	registerComsTools(pi, toolCtx);
+	registerFleetTools(pi, toolCtx);
 
 	// ── Fleet (herdr) tools ─────────────────────
 	//
@@ -5375,323 +5052,171 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		if (entry) entry.addressed = true;
 	};
 
-	/** Bounded wait for a spawned peer to register in the coms pool. */
-	async function waitForPeerRegistration(name: string, timeoutMs = PEER_READY_TIMEOUT_MS): Promise<{ found: boolean; waitedMs: number }> {
-		const wanted = String(name).toLowerCase();
-		const started = Date.now();
-		for (let attempt = 0; ; attempt++) {
-			const live = comsReady && identity ? peersInScope() : [];
-			if (live.some(e => e.name.toLowerCase() === wanted)) {
-				return { found: true, waitedMs: Date.now() - started };
-			}
-			const remaining = timeoutMs - (Date.now() - started);
-			if (remaining <= 0) return { found: false, waitedMs: Date.now() - started };
-			await new Promise(r => setTimeout(r, Math.min(peerReadyDelayMs(attempt), remaining)));
-		}
-	}
-
 	/** When the last hub-spawned pi peer was launched — input to the stale-token stagger. */
 	let lastHubPiSpawnAt: number | null = null;
 
-	/** Last lines of a pane, for reporting why a spawn failed. Never throws. */
-	async function paneTail(paneId: string, lines = 12): Promise<string> {
+	async function executeHerdrSpawnPeer(_callId: string, params: HerdrSpawnPeerParams): Promise<ToolExecutionResult> {
+		const confirmationRefusal = provisionalCapabilityRefusal("workspace");
+		if (confirmationRefusal) return confirmationRefusal;
+		if (!herdrFleetReady) {
+			return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+		}
+		const ownPane = herdrPaneId();
+		if (!ownPane) {
+			return { content: [{ type: "text" as const, text: "not inside a herdr pane." }], details: { error: "no pane" } };
+		}
+		if (!comsReady || !identity) {
+			return {
+				content: [{ type: "text" as const, text: "Cannot spawn an addressable peer while coms is unavailable. Start without --solo/--no-coms, or use herdr_spawn_pane for a non-peer command." }],
+				details: { error: "no coms" },
+			};
+		}
 		try {
-			const { read } = await herdrApi.paneRead({ pane_id: paneId, lines });
-			return read?.text ?? "";
-		} catch {
-			return "";
+			const cwd = currentCtx?.cwd ?? process.cwd();
+			const plan = buildHubPeerSpawnPlan(params, {
+				project: identity.project,
+				peersYaml: peerManifest(cwd),
+				personaExists: (persona) => peerPersonaExists(cwd, persona),
+				worktreeTag: worktreeTag(cwd),
+			});
+			if (peersInScope().some(peer => peer.name.toLowerCase() === plan.name.toLowerCase())) {
+				throw new Error(`Peer "${plan.name}" is already visible in project "${identity.project}"; use coms_send instead of spawning a duplicate.`);
+			}
+			const env: Record<string, string> = {};
+			if (plan.envFile) {
+				const envPath = resolveEnvFilePath(plan.envFile, cwd);
+				if (!fs.existsSync(envPath)) throw new Error(`env_file not found: ${plan.envFile} (resolved: ${envPath})`);
+				Object.assign(env, parseEnvFile(fs.readFileSync(envPath, "utf-8"), plan.envFile));
+			}
+			const delay = plan.runner === "pi" ? spawnDelaySeconds(lastHubPiSpawnAt) : 0;
+			if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
+			const launched = await launchHubPeerInPane(plan, {
+				client: herdrApi,
+				targetPaneId: ownPane,
+				cwd,
+				env,
+				waitForRegistration: (name, timeoutMs) => waitForPeerRegistration(
+					name,
+					() => comsReady && identity !== null,
+					() => peersInScope().map(peer => peer.name),
+					timeoutMs,
+				),
+				paneTail,
+				onLaunched: (paneId) => {
+					hubSpawnedPeers.set(plan.name.toLowerCase(), { name: plan.name, paneId, addressed: false });
+					if (plan.runner === "pi") lastHubPiSpawnAt = Date.now();
+				},
+			});
+			const promptNote = launched.promptSeen
+				? ""
+				: `\n⚠ pane ${launched.paneId} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
+			return {
+				content: [{ type: "text" as const, text: `spawned ${plan.kind} in pane ${launched.paneId} (${plan.name}): ${plan.command.join(" ")}${promptNote}\n\n${launched.verdict.message}` }],
+				details: {
+					pane_id: launched.paneId,
+					name: plan.name,
+					kind: plan.kind,
+					runner: plan.runner,
+					project: plan.project,
+					prompt_seen: launched.promptSeen,
+					env_file: plan.envFile ?? null,
+					...launched.verdict,
+				},
+			};
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			return { content: [{ type: "text" as const, text: `herdr_spawn_peer failed before readiness: ${m}` }], details: { error: m } };
 		}
 	}
 
-	/** Manifest and persona probes supplied to the shared Fleet peer resolver. */
-	function peerManifest(cwd: string): string {
+	async function executeHerdrSpawnPane(_callId: string, params: HerdrSpawnPaneParams): Promise<ToolExecutionResult> {
+		const confirmationRefusal = provisionalCapabilityRefusal("workspace");
+		if (confirmationRefusal) return confirmationRefusal;
+		if (!herdrFleetReady) {
+			return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+		}
+		const ownPane = herdrPaneId();
+		if (!ownPane) {
+			return { content: [{ type: "text" as const, text: "not inside a herdr pane." }], details: { error: "no pane" } };
+		}
 		try {
-			return fs.readFileSync(path.join(cwd, ".pi", "agents", "peers.yaml"), "utf-8");
-		} catch {
-			return "";
+			const cwd = currentCtx?.cwd ?? process.cwd();
+			const argv = ["bash", "-lc", params.command];
+			const { pane } = await herdrApi.paneSplit({
+				target_pane_id: ownPane,
+				direction: params.direction ?? "right",
+				cwd,
+				focus: false,
+			});
+			try { await herdrApi.paneRename(pane.pane_id, params.name); } catch { /* cosmetic */ }
+			const launch = await launchPeerInPane(herdrApi, pane.pane_id, argv);
+			const promptNote = launch.promptSeen
+				? ""
+				: `\n⚠ pane ${pane.pane_id} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
+			return {
+				content: [{ type: "text" as const, text: `spawned raw pane ${pane.pane_id} (${params.name}): ${params.command}${promptNote}` }],
+				details: { pane_id: pane.pane_id, name: params.name, prompt_seen: launch.promptSeen },
+			};
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			return { content: [{ type: "text" as const, text: `herdr_spawn_pane failed: ${m}` }], details: { error: m } };
 		}
 	}
 
-	function peerPersonaExists(cwd: string, persona: string): boolean {
-		return (
-			fs.existsSync(path.join(cwd, "agents", `${persona}.md`)) ||
-			fs.existsSync(path.join(cwd, ".pi", "agents", `${persona}.md`))
+	async function executeHerdrReadPane(_callId: string, params: HerdrReadPaneParams): Promise<ToolExecutionResult> {
+		if (!herdrFleetReady) {
+			return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+		}
+		const lines = Math.min(Math.max(1, params.lines ?? 60), 200);
+		try {
+			const { read } = await herdrApi.paneRead({ pane_id: params.pane_id, lines });
+			return { content: [{ type: "text" as const, text: read.text || "(pane is empty)" }], details: { pane_id: params.pane_id, lines } };
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			return { content: [{ type: "text" as const, text: `herdr_read_pane failed: ${m}` }], details: { error: m } };
+		}
+	}
+
+	async function executeHerdrClosePane(_callId: string, params: HerdrClosePaneParams): Promise<ToolExecutionResult> {
+		const confirmationRefusal = provisionalCapabilityRefusal("workspace");
+		if (confirmationRefusal) return confirmationRefusal;
+		if (!herdrFleetReady) {
+			return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+		}
+		const ctx = currentCtx;
+		if (!ctx?.hasUI) {
+			return { content: [{ type: "text" as const, text: "no UI to confirm the close — refused." }], details: { error: "no ui" } };
+		}
+		const ok = await ctx.ui.confirm(
+			"herdr_close_pane",
+			`Close pane ${params.pane_id}? Reason: ${params.reason}\nThis kills the process running in it.`,
 		);
-	}
-
-	/** Seconds this spawn should sleep before launching pi (stale-OAuth lock race). */
-	function spawnDelaySeconds(): number {
-		let authRaw: string | undefined;
-		try {
-			authRaw = fs.readFileSync(path.join(os.homedir(), ".pi", "agent", "auth.json"), "utf-8");
-		} catch {
-			authRaw = undefined;
+		if (!ok) {
+			return { content: [{ type: "text" as const, text: `human declined closing ${params.pane_id} — adapt and continue.` }], details: { declined: true } };
 		}
-		return spawnStaggerSeconds({
-			needed: oauthNeedsWarmup(authRaw),
-			lastSpawnAt: lastHubPiSpawnAt,
-			now: Date.now(),
-			warmupSeconds: WARMUP_SECONDS,
-		});
+		try {
+			await herdrApi.paneClose(params.pane_id);
+			return { content: [{ type: "text" as const, text: `closed ${params.pane_id}` }], details: { closed: params.pane_id } };
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			return { content: [{ type: "text" as const, text: `herdr_close_pane failed: ${m}` }], details: { error: m } };
+		}
 	}
 
-	pi.registerTool({
-		name: "herdr_spawn_peer",
-		label: "Herdr Spawn Peer",
-		description: "Spawn a reusable sibling coms peer from its declared or compatible override settings; wait for peer_ready.",
-		parameters: Type.Object({
-			name: Type.String({ description: "Peer and pane name." }),
-			runner: Type.Optional(Type.Union([Type.Literal("pi"), Type.Literal("claude-code")], { description: "Runner override." })),
-			persona: Type.Optional(Type.String({ description: "Pi persona override." })),
-			no_persona: Type.Optional(Type.Boolean({ description: "Use persona-less Fleet Core." })),
-			model: Type.Optional(Type.String({ description: "Model override." })),
-			extensions: Type.Optional(Type.String({ description: "Pi extensions." })),
-			browser: Type.Optional(Type.Boolean({ description: "Enable browser." })),
-			all_extensions: Type.Optional(Type.Boolean({ description: "All extensions (Fleet Core only)." })),
-			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction." })),
-		}),
-		async execute(_callId, params) {
-			const confirmationRefusal = provisionalCapabilityRefusal("workspace");
-			if (confirmationRefusal) return confirmationRefusal;
-			if (!herdrFleetReady) {
-				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
-			}
-			const ownPane = herdrPaneId();
-			if (!ownPane) {
-				return { content: [{ type: "text" as const, text: "not inside a herdr pane." }], details: { error: "no pane" } };
-			}
-			if (!comsReady || !identity) {
-				return {
-					content: [{ type: "text" as const, text: "Cannot spawn an addressable peer while coms is unavailable. Start without --solo/--no-coms, or use herdr_spawn_pane for a non-peer command." }],
-					details: { error: "no coms" },
-				};
-			}
-			try {
-				const cwd = currentCtx?.cwd ?? process.cwd();
-				const plan = buildHubPeerSpawnPlan(params, {
-					project: identity.project,
-					peersYaml: peerManifest(cwd),
-					personaExists: (persona) => peerPersonaExists(cwd, persona),
-					worktreeTag: worktreeTag(cwd),
-				});
-				if (peersInScope().some(peer => peer.name.toLowerCase() === plan.name.toLowerCase())) {
-					throw new Error(`Peer "${plan.name}" is already visible in project "${identity.project}"; use coms_send instead of spawning a duplicate.`);
-				}
-				const env: Record<string, string> = {};
-				if (plan.envFile) {
-					const envPath = resolveEnvFilePath(plan.envFile, cwd);
-					if (!fs.existsSync(envPath)) throw new Error(`env_file not found: ${plan.envFile} (resolved: ${envPath})`);
-					Object.assign(env, parseEnvFile(fs.readFileSync(envPath, "utf-8"), plan.envFile));
-				}
-				const delay = plan.runner === "pi" ? spawnDelaySeconds() : 0;
-				if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
-				const launched = await launchHubPeerInPane(plan, {
-					client: herdrApi,
-					targetPaneId: ownPane,
-					cwd,
-					env,
-					waitForRegistration: waitForPeerRegistration,
-					paneTail,
-					onLaunched: (paneId) => {
-						hubSpawnedPeers.set(plan.name.toLowerCase(), { name: plan.name, paneId, addressed: false });
-						if (plan.runner === "pi") lastHubPiSpawnAt = Date.now();
-					},
-				});
-				const promptNote = launched.promptSeen
-					? ""
-					: `\n⚠ pane ${launched.paneId} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
-				return {
-					content: [{ type: "text" as const, text: `spawned ${plan.kind} in pane ${launched.paneId} (${plan.name}): ${plan.command.join(" ")}${promptNote}\n\n${launched.verdict.message}` }],
-					details: {
-						pane_id: launched.paneId,
-						name: plan.name,
-						kind: plan.kind,
-						runner: plan.runner,
-						project: plan.project,
-						prompt_seen: launched.promptSeen,
-						env_file: plan.envFile ?? null,
-						...launched.verdict,
-					},
-				};
-			} catch (err) {
-				const m = err instanceof Error ? err.message : String(err);
-				return { content: [{ type: "text" as const, text: `herdr_spawn_peer failed before readiness: ${m}` }], details: { error: m } };
-			}
-		},
-		renderCall(args, theme) {
-			const a = args as any;
-			return new Text(
-				theme.fg("toolTitle", theme.bold("herdr_spawn_peer ")) + theme.fg("accent", a.name ?? "?") + theme.fg("dim", a.runner ? ` (${a.runner})` : ""),
-				0, 0,
-			);
-		},
-		renderResult(result, _options, theme) {
-			const d = result.details as any;
-			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
-			if (d?.peer_ready === false) return new Text(theme.fg("error", `✗ ${d?.pane_id ?? "peer failed"}`), 0, 0);
-			return new Text(theme.fg("success", `✓ ${d?.pane_id ?? "spawned"}`), 0, 0);
-		},
-	});
-
-	pi.registerTool({
-		name: "herdr_spawn_pane",
-		label: "Herdr Spawn Pane",
-		description: "Spawn a raw auxiliary command in a sibling pane, not a coms peer.",
-		parameters: Type.Object({
-			name: Type.String({ description: "Human-visible pane label." }),
-			command: Type.String({ description: "Raw shell command executed with bash -lc." }),
-			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction (default right)." })),
-		}),
-		async execute(_callId, params) {
-			const confirmationRefusal = provisionalCapabilityRefusal("workspace");
-			if (confirmationRefusal) return confirmationRefusal;
-			if (!herdrFleetReady) {
-				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
-			}
-			const ownPane = herdrPaneId();
-			if (!ownPane) {
-				return { content: [{ type: "text" as const, text: "not inside a herdr pane." }], details: { error: "no pane" } };
-			}
-			try {
-				const cwd = currentCtx?.cwd ?? process.cwd();
-				const argv = ["bash", "-lc", params.command];
-				const { pane } = await herdrApi.paneSplit({
-					target_pane_id: ownPane,
-					direction: params.direction ?? "right",
-					cwd,
-					focus: false,
-				});
-				try { await herdrApi.paneRename(pane.pane_id, params.name); } catch { /* cosmetic */ }
-				const launch = await launchPeerInPane(herdrApi, pane.pane_id, argv);
-				const promptNote = launch.promptSeen
-					? ""
-					: `\n⚠ pane ${pane.pane_id} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
-				return {
-					content: [{ type: "text" as const, text: `spawned raw pane ${pane.pane_id} (${params.name}): ${params.command}${promptNote}` }],
-					details: { pane_id: pane.pane_id, name: params.name, prompt_seen: launch.promptSeen },
-				};
-			} catch (err) {
-				const m = err instanceof Error ? err.message : String(err);
-				return { content: [{ type: "text" as const, text: `herdr_spawn_pane failed: ${m}` }], details: { error: m } };
-			}
-		},
-		renderCall(args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold("herdr_spawn_pane ")) + theme.fg("accent", (args as any).name ?? "?"), 0, 0);
-		},
-		renderResult(result, _options, theme) {
-			const d = result.details as any;
-			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
-			return new Text(theme.fg("success", `✓ ${d?.pane_id ?? "spawned"}`), 0, 0);
-		},
-	});
-
-	pi.registerTool({
-		name: "herdr_read_pane",
-		label: "Herdr Read Pane",
-		description: "Read up to 200 recent pane lines; use coms for bridged peers.",
-		parameters: Type.Object({
-			pane_id: Type.String({ description: "Pane id, e.g. w3:p2 (see herdr_spawn_peer result or the sidebar)." }),
-			lines: Type.Optional(Type.Number({ description: "Line cap, default 60, max 200." })),
-		}),
-		async execute(_callId, params) {
-			if (!herdrFleetReady) {
-				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
-			}
-			const lines = Math.min(Math.max(1, params.lines ?? 60), 200);
-			try {
-				const { read } = await herdrApi.paneRead({ pane_id: params.pane_id, lines });
-				return { content: [{ type: "text" as const, text: read.text || "(pane is empty)" }], details: { pane_id: params.pane_id, lines } };
-			} catch (err) {
-				const m = err instanceof Error ? err.message : String(err);
-				return { content: [{ type: "text" as const, text: `herdr_read_pane failed: ${m}` }], details: { error: m } };
-			}
-		},
-		renderCall(args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold("herdr_read_pane ")) + theme.fg("warning", (args as any).pane_id ?? "?"), 0, 0);
-		},
-		renderResult(result, _options, theme) {
-			const d = result.details as any;
-			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
-			return new Text(theme.fg("success", `✓ read ${d?.pane_id}`), 0, 0);
-		},
-	});
-
-	pi.registerTool({
-		name: "herdr_close_pane",
-		label: "Herdr Close Pane",
-		description: "Close a Hub-spawned pane. Destructive: always asks the human.",
-		parameters: Type.Object({
-			pane_id: Type.String({ description: "Pane id to close." }),
-			reason: Type.String({ description: "One line shown to the human: why this pane can die." }),
-		}),
-		async execute(_callId, params) {
-			const confirmationRefusal = provisionalCapabilityRefusal("workspace");
-			if (confirmationRefusal) return confirmationRefusal;
-			if (!herdrFleetReady) {
-				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
-			}
-			const ctx = currentCtx;
-			if (!ctx?.hasUI) {
-				return { content: [{ type: "text" as const, text: "no UI to confirm the close — refused." }], details: { error: "no ui" } };
-			}
-			const ok = await ctx.ui.confirm(
-				"herdr_close_pane",
-				`Close pane ${params.pane_id}? Reason: ${params.reason}\nThis kills the process running in it.`,
-			);
-			if (!ok) {
-				return { content: [{ type: "text" as const, text: `human declined closing ${params.pane_id} — adapt and continue.` }], details: { declined: true } };
-			}
-			try {
-				await herdrApi.paneClose(params.pane_id);
-				return { content: [{ type: "text" as const, text: `closed ${params.pane_id}` }], details: { closed: params.pane_id } };
-			} catch (err) {
-				const m = err instanceof Error ? err.message : String(err);
-				return { content: [{ type: "text" as const, text: `herdr_close_pane failed: ${m}` }], details: { error: m } };
-			}
-		},
-		renderCall(args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold("herdr_close_pane ")) + theme.fg("error", (args as any).pane_id ?? "?"), 0, 0);
-		},
-		renderResult(result, _options, theme) {
-			const d = result.details as any;
-			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
-			if (d?.declined) return new Text(theme.fg("warning", "✗ declined by human"), 0, 0);
-			return new Text(theme.fg("success", `✓ closed`), 0, 0);
-		},
-	});
-
-	pi.registerTool({
-		name: "herdr_notify",
-		label: "Herdr Notify",
-		description: "Notify an away human; never replaces ask_user.",
-		parameters: Type.Object({
-			title: Type.String({ description: "Notification title." }),
-			body: Type.Optional(Type.String({ description: "Notification body." })),
-		}),
-		async execute(_callId, params) {
-			const confirmationRefusal = provisionalCapabilityRefusal("workspace");
-			if (confirmationRefusal) return confirmationRefusal;
-			if (!herdrFleetReady) {
-				return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
-			}
-			try {
-				await herdrApi.notificationShow({ title: params.title, body: params.body ?? "" });
-				return { content: [{ type: "text" as const, text: `notified: ${params.title}` }], details: { title: params.title } };
-			} catch (err) {
-				const m = err instanceof Error ? err.message : String(err);
-				return { content: [{ type: "text" as const, text: `herdr_notify failed: ${m}` }], details: { error: m } };
-			}
-		},
-		renderCall(args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold("herdr_notify ")) + theme.fg("accent", (args as any).title ?? ""), 0, 0);
-		},
-		renderResult(result, _options, theme) {
-			const d = result.details as any;
-			if (d?.error) return new Text(theme.fg("error", `✗ ${d.error}`), 0, 0);
-			return new Text(theme.fg("success", "✓ notified"), 0, 0);
-		},
-	});
-
+	async function executeHerdrNotify(_callId: string, params: HerdrNotifyParams): Promise<ToolExecutionResult> {
+		const confirmationRefusal = provisionalCapabilityRefusal("workspace");
+		if (confirmationRefusal) return confirmationRefusal;
+		if (!herdrFleetReady) {
+			return { content: [{ type: "text" as const, text: "herdr is not available in this session." }], details: { error: "no herdr" } };
+		}
+		try {
+			await herdrApi.notificationShow({ title: params.title, body: params.body ?? "" });
+			return { content: [{ type: "text" as const, text: `notified: ${params.title}` }], details: { title: params.title } };
+		} catch (err) {
+			const m = err instanceof Error ? err.message : String(err);
+			return { content: [{ type: "text" as const, text: `herdr_notify failed: ${m}` }], details: { error: m } };
+		}
+	}
 	// ── ask_user Tool (dispatcher → human) ──
 	//
 	// We do NOT register `ask_user` here. The recommended companion package

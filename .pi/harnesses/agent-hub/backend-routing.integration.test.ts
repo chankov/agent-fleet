@@ -5,18 +5,19 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const dispatchAgentToolSource = readFileSync(new URL("./tools/dispatch-agent.ts", import.meta.url), "utf8");
 
 test("wiring contract: dispatch_agent exposes the explicit backend enum", () => {
-	assert.match(source, /backend: Type\.Optional\(Type\.Union\(\[/);
+	assert.match(dispatchAgentToolSource, /backend: Type\.Optional\(Type\.Union\(\[/);
 	for (const backend of ["auto", "native", "coms"]) {
-		assert.match(source, new RegExp(`Type\\.Literal\\("${backend}"\\)`));
+		assert.match(dispatchAgentToolSource, new RegExp(`Type\\.Literal\\("${backend}"\\)`));
 	}
 });
 
 test("wiring contract: requested backend reaches initial and resumed dispatches", () => {
 	assert.match(source, /const \{ task, artifacts, scope, watchdog, review_reason, backend = "auto" \}/);
 	assert.match(source, /dispatchAgent\(agent, dispatchedTask, ctx, inputArtifacts, scopeGlobs, watchdog, backend\)/);
-	assert.match(source, /dispatchAgent\(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog, backend\)/);
+	assert.match(source, /dispatchAgent\(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog, backend, true\)/);
 });
 
 test("wiring contract: explicit coms refusal precedes native spawn", () => {
