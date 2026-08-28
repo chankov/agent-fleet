@@ -118,10 +118,31 @@ import { NATIVE_ROSTER_ENTRY_TYPE, WORK_MODE_ENTRY_TYPE, persistedNativeRosterSt
 import {
 	compactWorkMode,
 	workModeChangeBlockedByRoster,
-	parseWorkModeArgs,
 	workModePickerOptions,
 	selectedPickerValue,
 } from "./work-mode-controls.ts";
+import { registerWorkMode } from "./commands/work-mode.ts";
+import { registerAgentsTeam } from "./commands/agents-team.ts";
+import { registerAgentsList } from "./commands/agents-list.ts";
+import { registerAgentsHistory } from "./commands/agents-history.ts";
+import { registerAgentsAdd } from "./commands/agents-add.ts";
+import { registerAgentsDrop } from "./commands/agents-drop.ts";
+import { registerAgentsSave } from "./commands/agents-save.ts";
+import { registerAgentsKill } from "./commands/agents-kill.ts";
+import { registerAgentsRestart } from "./commands/agents-restart.ts";
+import { registerContextCommand } from "./commands/context-command.ts";
+import { registerHubReport } from "./commands/hub-report.ts";
+import { registerZoom } from "./commands/zoom.ts";
+import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
+import { registerAgentModel } from "./commands/agent-model.ts";
+import { registerAgentModelThinking } from "./commands/agent-model-thinking.ts";
+import { registerModels } from "./commands/models.ts";
+import { registerAgentModelsSubstitute } from "./commands/agent-models-substitute.ts";
+import { registerWatchdog } from "./commands/watchdog.ts";
+import { registerComs } from "./commands/coms.ts";
+import { registerHandoff } from "./commands/handoff.ts";
+import { registerCompound } from "./commands/compound.ts";
+import type { CommandContext } from "./commands/context.ts";
 import { CAPABILITY_PACKS, latestPersistedCapabilityState, persistedCapabilityState, resolveCapabilityPacks, type CapabilityPack, type CapabilityResolution, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationGate, confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type CapabilityConfirmationState, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
@@ -5788,9 +5809,12 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 
 	// ── Commands ─────────────────────────────────
 
-	pi.registerCommand("af-agents-team", {
-		description: "Select a team to work with",
-		handler: async (_args, ctx) => {
+	const commandCtx: CommandContext = {
+		setWidgetContext: ctx => { widgetCtx = ctx; },
+		applyWorkModeSelection,
+		getWorkModeStatusText: workModeStatusText,
+		openWorkModePicker,
+		handleAgentsTeam: async (_args, ctx) => {
 			widgetCtx = ctx;
 			const teamNames = Object.keys(teams);
 			if (teamNames.length === 0) {
@@ -5829,7 +5853,616 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
 			ctx.ui.notify(`Team: ${name} — ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`, "info");
 		},
-	});
+		handleAgentsList: async (_args, _ctx) => {
+			widgetCtx = _ctx;
+			await openFleetDashboard(_ctx);
+		},
+		handleAgentsHistory: async (_args, ctx) => {
+			widgetCtx = ctx;
+			await openHistory(ctx);
+		},
+		handleAgentsAdd: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (names.length === 0) {
+				const available = allAgentDefs
+					.filter(d => !agentStates.has(d.name.toLowerCase()))
+					.map(d => d.name).sort().join(", ") || "(all personas are already in the team)";
+				ctx.ui.notify(`Usage: /af-agents-add <persona> [<persona>…]\nNot in the team yet: ${available}`, "info");
+				return;
+			}
+			const results = names.map(n => rosterAdd(n));
+			const level = results.some(r => r.ok) ? "success" : "error";
+			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
+			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
+		},
+		handleAgentsDrop: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (names.length === 0) {
+				ctx.ui.notify(`Usage: /af-agents-drop <persona> [<persona>…]\nActive team: ${Array.from(agentStates.values()).map(s => s.def.name).join(", ")}`, "info");
+				return;
+			}
+			const results = names.map(n => rosterDrop(n));
+			const level = results.some(r => r.ok) ? "success" : "error";
+			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
+			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
+		},
+		handleAgentsSave: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = (args || "").trim();
+			if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
+				ctx.ui.notify("Usage: /af-agents-save <team-name> (letters, digits, hyphens, underscores)", "error");
+				return;
+			}
+			const members = Array.from(agentStates.values()).map(s => s.def.name);
+			if (members.length === 0) {
+				ctx.ui.notify("The active team is empty — nothing to save.", "error");
+				return;
+			}
+			const teamsPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "teams.yaml");
+			let raw = "";
+			try { raw = existsSync(teamsPath) ? readFileSync(teamsPath, "utf-8") : ""; } catch {}
+			try {
+				mkdirSync(join(ctx.cwd || process.cwd(), ".pi", "agents"), { recursive: true });
+				writeFileSync(teamsPath, upsertTeamInYaml(raw, name, members), "utf-8");
+			} catch (err) {
+				ctx.ui.notify(`Could not write ${teamsPath}: ${err instanceof Error ? err.message : String(err)}`, "error");
+				return;
+			}
+			teams[name] = members;
+			activeTeamName = name;
+			persistActiveRoster();
+			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
+			ctx.ui.notify(`Team "${name}" saved to .pi/agents/teams.yaml — ${members.join(", ")}`, "success");
+		},
+		handleAgentsKill: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = args?.trim();
+			// "all" clears every research helper (kill any running). Team specialists
+			// are standing — never touched by "all".
+			if (name?.toLowerCase() === "all") {
+				clearResearchHelpers(ctx);
+				return;
+			}
+			// An rN handle targets a research helper. Research helpers are disposable
+			// by design, so kill also REMOVES — the card, the state, and the session
+			// file go with the process (a finished helper is simply removed).
+			const rid = name ? parseResearchHandle(name) : null;
+			if (rid != null) {
+				const rState = researchStates.get(rid);
+				if (!rState) {
+					const known = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
+					ctx.ui.notify(`No research helper "${name}". Known: ${known || "none"}`, "error");
+					return;
+				}
+				removeResearchHelper(rState, ctx);
+				return;
+			}
+			const state = name ? agentStates.get(name.toLowerCase()) : undefined;
+			if (!state) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
+					...Array.from(researchStates.values()).map(s => `r${s.id}`),
+				].join(", ");
+				ctx.ui.notify(`Usage: /af-agents-kill <name|rN|all>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			if (state.status !== "running" || (!state.proc && !state.comsAbort)) {
+				ctx.ui.notify(`${displayName(state.def.name)} is not running — nothing to kill.`, "warning");
+				return;
+			}
+			// Coms-backed run: no local process to SIGTERM — only the wait can be
+			// released; the standing peer keeps running its turn in its own pane.
+			if (!state.proc) {
+				void cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "wait_only_cancelled" } });
+				ctx.ui.notify(`Abandoning ${displayName(state.def.name)}'s coms dispatch (the peer pane keeps running)...`, "info");
+				return;
+			}
+			// Branch A: SIGTERM the child's process group (killPiTree) so any live
+			// delegate children die with it. The close handler resolves the awaited
+			// dispatch with a "do not auto-retry" message, unblocking the dispatcher.
+			state.killedByOperator = true;
+			cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree });
+			ctx.ui.notify(`Killing ${displayName(state.def.name)}...`, "info");
+		},
+		handleAgentsRestart: async (args, ctx) => {
+			widgetCtx = ctx;
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
+			const name = args?.trim();
+			// An rN handle re-runs a finished helper's last task on a fresh session.
+			// A running helper can't be restarted mid-flight — spawnResearch's promise is held by its
+			// original caller, and /af-agents-kill removes the helper outright.
+			const rid = name ? parseResearchHandle(name) : null;
+			if (rid != null) {
+				const rState = researchStates.get(rid);
+				if (!rState) {
+					const known = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
+					ctx.ui.notify(`No research helper "${name}". Known: ${known || "none"}`, "error");
+					return;
+				}
+				if (rState.status === "running") {
+					ctx.ui.notify(`Research r${rState.id} is still running — wait for it to finish, or use /af-agents-kill r${rState.id} to discard it; a new research request will spawn a fresh helper.`, "warning");
+					return;
+				}
+				if (!rState.task) {
+					ctx.ui.notify(`Research r${rState.id} has no previous task to restart.`, "warning");
+					return;
+				}
+				rState.sessionFile = null;
+				rState.turnCount = 1;
+				updateResearchWidget();
+				ctx.ui.notify(`Restarting research r${rState.id} (fresh)...`, "info");
+				spawnResearch(rState, rState.task, ctx).then(result => deliverResearchFollowUp(rState, result));
+				return;
+			}
+			const state = name ? agentStates.get(name.toLowerCase()) : undefined;
+			if (!state) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
+					...Array.from(researchStates.values()).map(s => `r${s.id}`),
+				].join(", ");
+				ctx.ui.notify(`Usage: /af-agents-restart <name|rN>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			const task = state.task;
+			if (!task) {
+				ctx.ui.notify(`${displayName(state.def.name)} has no previous task to restart.`, "warning");
+				return;
+			}
+			// If it's mid-run, kill it and wait for the child to actually exit before
+			// re-dispatching (dispatchAgent rejects a re-entry while status is running).
+			// A coms-backed run has no process — abandoning the wait is the "kill".
+			if (state.status === "running" && (state.proc || state.comsAbort)) {
+				let resolveTermination!: () => void;
+				const terminated = new Promise<void>(res => { resolveTermination = res; });
+				state.onTerminate = resolveTermination;
+				if (state.proc) {
+					state.killedByOperator = true;
+					state.restarting = true;
+					killPiTree(state.proc);
+				} else {
+					await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "restart" } });
+				}
+				await terminated;
+			}
+			// Re-run fresh: a frozen session file may be inconsistent, so drop it (no -c).
+			// The file itself still reaches pi via --session, so an unusable one is
+			// quarantined by dispatchAgent's session preflight, not here.
+			state.sessionFile = null;
+			ctx.ui.notify(`Restarting ${displayName(state.def.name)} (fresh)...`, "info");
+			const result = await dispatchAgent(state.def.name, task, ctx);
+			// The original dispatch_agent tool call already returned, so deliver the
+			// fresh result to the dispatcher as a follow-up turn (subagent-widget style).
+			const truncated = result.output.length > 8000
+				? result.output.slice(0, 8000) + "\n\n... [truncated]"
+				: result.output;
+			const status = result.exitCode === 0 ? "completed" : "failed";
+			pi.sendMessage({
+				customType: "agent-restart-result",
+				content: `[${displayName(state.def.name)}] restarted by operator and ${status} in ${Math.round(result.elapsed / 1000)}s.\n\n${truncated}`,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+		},
+		handleContext: async (_args, ctx) => {
+			widgetCtx = ctx;
+			await openContextBudget(ctx);
+		},
+		handleHubReport: async (_args, ctx) => {
+			widgetCtx = ctx;
+			const fmtTok = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+			const renderReport = (label: string, r: TurnReport): string => {
+				const billed = r.dispatches.reduce((n, d) => n + d.billed, 0);
+				const out = r.dispatches.reduce((n, d) => n + d.out, 0);
+				const rows = r.dispatches.map(d => `  ${d.agent}: ${d.status} in ${Math.round(d.elapsed / 1000)}s · ${fmtTok(d.billed)} billed / ${fmtTok(d.out)} out`);
+				return [
+					`${label} — tier ${r.tier ?? "(unset)"} · ${r.dispatches.length} dispatch(es) · ${r.research} research · ` +
+						`${fmtTok(billed)} billed / ${fmtTok(out)} out · ${r.recycles} recycle(s) · ${r.driftStops} drift stop(s) · ${r.refusals} refusal(s)`,
+					...rows,
+				].join("\n");
+			};
+			const lines: string[] = [];
+			if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) {
+				lines.push(renderReport("Current turn", turnReport));
+			}
+			if (lastTurnReport) lines.push(renderReport("Last turn", lastTurnReport));
+			lines.push(
+				`Session — ${sessionTotals.turns} dispatching turn(s) · ${sessionTotals.dispatches} dispatch(es) · ${sessionTotals.research} research · ` +
+				`${fmtTok(sessionTotals.billed)} billed / ${fmtTok(sessionTotals.out)} out · ${sessionTotals.recycles} recycle(s) · ` +
+				`${sessionTotals.driftStops} drift stop(s) · ${sessionTotals.refusals} refusal(s)`,
+			);
+			const sweep = unaddressedPeerSweep(Array.from(hubSpawnedPeers.values()));
+			if (sweep) lines.push(sweep.message);
+			ctx.ui.notify(lines.join("\n\n"), "info");
+		},
+		handleZoom: async (args, ctx) => {
+			widgetCtx = ctx;
+			const arg = args?.trim() || "";
+			const rid = parseResearchHandle(arg);
+			const target: Zoomable | undefined = rid != null
+				? researchStates.get(rid)
+				: arg
+					? agentStates.get(arg.toLowerCase()) ?? findDelegationChild(arg)?.child
+					: undefined;
+			if (!target) {
+				const teamKnown = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+				const researchKnown = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
+				const childKnown = Array.from(agentStates.values())
+					.flatMap(s => Array.from(s.delegations?.keys() || [])).join(", ");
+				const known = [teamKnown, researchKnown, childKnown].filter(Boolean).join(", ");
+				ctx.ui.notify(`Usage: /af-zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			const rowKey = (rid != null ? `r${rid}` : arg).toLowerCase();
+			const row = fleetRows(true).find(r => r.key.toLowerCase() === rowKey);
+			if (row) await openFleetDetail(row, ctx);
+			else await openZoom(target, ctx);
+		},
+		handleDispatchPolicy: async (_args, ctx) => {
+			widgetCtx = ctx;
+			const live = new Set(comsReady && identity ? peersInScope().map(e => e.name.toLowerCase()) : []);
+			const lines = Array.from(agentStates.values()).map(s => {
+				const key = s.def.name.toLowerCase();
+				const sub = dispatchPolicy.substitutions[key];
+				const prefer = sub ? sub.prefer : dispatchPolicy.default === "coms" ? "coms" : "native";
+				if (prefer !== "coms") return `${displayName(s.def.name)}: native`;
+				const fb = sub?.fallback === "none" ? "coms-required" : "coms, fallback native";
+				return `${displayName(s.def.name)}: ${fb} — peer ${live.has(key) ? "LIVE" : "not in pool"}`;
+			});
+			const policyPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "dispatch-policy.yaml");
+			const src = existsSync(policyPath) ? ".pi/agents/dispatch-policy.yaml" : "(no dispatch-policy.yaml — all native)";
+			ctx.ui.notify(
+				`Dispatch backends — ${src}, default: ${dispatchPolicy.default}\n${lines.join("\n") || "(no active team)"}\n` +
+				`Routing is decided per dispatch against the live coms pool (/af-coms to refresh).`,
+				"info",
+			);
+		},
+		handleAgentModel: async (args, ctx) => {
+			widgetCtx = ctx;
+			const arg = (args || "").trim().toLowerCase();
+
+			// Dot form: <persona>.<role> targets a delegate sub-role. Candidates are
+			// the role's declared model (default) + the parent's candidate list.
+			if (arg.includes(".")) {
+				const dot = arg.indexOf(".");
+				const personaName = arg.slice(0, dot);
+				const roleName = arg.slice(dot + 1);
+				const parent = agentStates.get(personaName);
+				const roles = parent?.def.subagents || {};
+				const roleKey = Object.keys(roles).find(r => r.toLowerCase() === roleName);
+				if (!parent || !roleKey) {
+					const valid = Array.from(agentStates.values()).flatMap(s =>
+						Object.keys(s.def.subagents || {}).map(r => `${s.def.name}.${r}`));
+					ctx.ui.notify(
+						`No sub-role "${arg}". Valid targets: ${valid.join(", ") || "none (no persona declares subagents:)"}`,
+						"error",
+					);
+					return;
+				}
+				const role = roles[roleKey];
+				const overrideKey = `${personaName}.${roleKey.toLowerCase()}`;
+				const candidates: string[] = [];
+				for (const m of [role.model, ...allowedModels(parent.def)]) {
+					if (m && !candidates.includes(m)) candidates.push(m);
+				}
+				const current = resolvedSubagentModel(parent.def.name, roleKey, role.model);
+				const options = candidates.map(m => {
+					const tags = [m === role.model ? "default" : "", m === current ? "current" : ""].filter(Boolean);
+					return tags.length ? `${m} (${tags.join(", ")})` : m;
+				});
+				const label = `${displayName(parent.def.name)}.${roleKey}`;
+				const choice = await ctx.ui.select(`Model for ${label}`, options);
+				if (choice === undefined) return;
+				const picked = candidates[options.indexOf(choice)];
+				const effectivePicked = substitutedModel(picked) ?? picked;
+				if (effectivePicked === current) {
+					ctx.ui.notify(`${label} is already on ${effectivePicked}`, "info");
+					return;
+				}
+				if (picked === role.model) {
+					subagentModelOverrides.delete(overrideKey);
+				} else {
+					subagentModelOverrides.set(overrideKey, picked);
+				}
+				updateWidget();
+				ctx.ui.notify(
+					`${label} → ${effectivePicked} (applies on next dispatch of ${parent.def.name})`,
+					"success",
+				);
+				return;
+			}
+
+			const name = arg;
+			// Team member (live state) OR a research persona — both switchable.
+			const def = name ? switchablePersonaDef(name) : undefined;
+			if (!def) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => s.def.name),
+					...researchPersonas.map(d => d.name),
+				].join(", ");
+				ctx.ui.notify(`Usage: /af-agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
+				return;
+			}
+			if (!def.models || def.models.length === 0) {
+				ctx.ui.notify(
+					`${displayName(def.name)} declares no model candidates — add a \`models:\` list to ${def.file} or a \`models.${def.name}:\` override in .ai/agent-fleet-overrides.md.`,
+					"warning",
+				);
+				return;
+			}
+			const candidates = allowedModels(def);
+			const current = resolvedModel(def);
+			// A persona without a frontmatter default runs on the dispatcher's model —
+			// offer that as an explicit candidate so the override can be cleared.
+			const DISPATCHER_DEFAULT = "(dispatcher's model)";
+			if (!def.model) candidates.unshift(DISPATCHER_DEFAULT);
+			const options = candidates.map(m => {
+				const isDefault = def.model ? m === def.model : m === DISPATCHER_DEFAULT;
+				const isCurrent = current ? m === current : m === DISPATCHER_DEFAULT;
+				const tags = [isDefault ? "default" : "", isCurrent ? "current" : ""].filter(Boolean);
+				return tags.length ? `${m} (${tags.join(", ")})` : m;
+			});
+			const choice = await ctx.ui.select(`Model for ${displayName(def.name)}`, options);
+			if (choice === undefined) return;
+			const picked = candidates[options.indexOf(choice)];
+			const effectivePicked = picked === DISPATCHER_DEFAULT ? picked : (substitutedModel(picked) ?? picked);
+			const pickedIsCurrent = current ? effectivePicked === current : picked === DISPATCHER_DEFAULT;
+			if (pickedIsCurrent) {
+				ctx.ui.notify(`${displayName(def.name)} is already on ${effectivePicked}`, "info");
+				return;
+			}
+			if (picked === def.model || picked === DISPATCHER_DEFAULT) {
+				modelOverrides.delete(name);
+			} else {
+				modelOverrides.set(name, picked);
+			}
+			updateWidget();
+			// Research helpers spawn fresh each time, so the switch lands on their
+			// next spawn; team members apply on next dispatch (restartable now).
+			const applyHint = (def.kind || "").toLowerCase() === "research"
+				? "applies on next spawn_research"
+				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
+			ctx.ui.notify(`${displayName(def.name)} → ${effectivePicked} (${applyHint})`, "success");
+			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
+				ctx.ui.notify(
+					`Note: ${displayName(def.name)} prefers a coms peer (dispatch-policy.yaml) — this model override only applies to native(-fallback) runs; the peer keeps its own model.`,
+					"info",
+				);
+			}
+		},
+		handleAgentModelThinking: async (args, ctx) => {
+			widgetCtx = ctx;
+			const name = (args || "").trim().toLowerCase();
+			// Team member (live state) OR a research persona — both switchable.
+			const def = name ? switchablePersonaDef(name) : undefined;
+			if (!def) {
+				const known = [
+					...Array.from(agentStates.values()).map(s => s.def.name),
+					...researchPersonas.map(d => d.name),
+				].join(", ");
+				ctx.ui.notify(`Usage: /af-agent-model-thinking <persona>. Known: ${known || "none"}`, "error");
+				return;
+			}
+			const defaultLevel = resolveThinkingLevel(def.thinking);
+			const current = resolveThinkingLevel(resolvedThinking(def));
+			const levels = [...THINKING_LEVELS];
+			const options = levels.map(l => {
+				const tags = [l === defaultLevel ? "default" : "", l === current ? "current" : ""].filter(Boolean);
+				return tags.length ? `${l} (${tags.join(", ")})` : l;
+			});
+			const choice = await ctx.ui.select(`Thinking level for ${displayName(def.name)}`, options);
+			if (choice === undefined) return;
+			const picked = levels[options.indexOf(choice)];
+			if (picked === current) {
+				ctx.ui.notify(`${displayName(def.name)} is already on thinking: ${picked}`, "info");
+				return;
+			}
+			if (picked === defaultLevel) {
+				thinkingOverrides.delete(name);
+			} else {
+				thinkingOverrides.set(name, picked);
+			}
+			updateWidget();
+			// Research helpers spawn fresh each time, so the switch lands on their
+			// next spawn; team members apply on next dispatch (restartable now).
+			const applyHint = (def.kind || "").toLowerCase() === "research"
+				? "applies on next spawn_research"
+				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
+			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "success");
+		},
+		handleModels: async (args, ctx) => {
+			widgetCtx = ctx;
+			const names = Object.keys(modelProfiles);
+			if (names.length === 0) {
+				ctx.ui.notify("No model profiles loaded — define .pi/agents/model-profiles.yaml (invalid profiles are dropped at session start).", "warning");
+				return;
+			}
+			let profileName = (args || "").trim();
+			if (!profileName) {
+				const options = names.map(n =>
+					`${n} — ${Object.entries(modelProfiles[n]).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
+				);
+				const choice = await ctx.ui.select("Select model profile", options);
+				if (choice === undefined) return;
+				profileName = names[options.indexOf(choice)];
+			}
+			const profile = modelProfiles[profileName];
+			if (!profile) {
+				ctx.ui.notify(`No profile "${profileName}". Known: ${names.join(", ")}`, "error");
+				return;
+			}
+			const applied: string[] = [];
+			for (const [persona, model] of Object.entries(profile)) {
+				const def = allAgentDefs.find(d => d.name.toLowerCase() === persona);
+				if (!def) continue; // validated at session start; defensive
+				if (model === def.model) modelOverrides.delete(persona);
+				else modelOverrides.set(persona, model);
+				applied.push(`${displayName(persona)} → ${shortModel(model)}`);
+			}
+			updateWidget();
+			ctx.ui.notify(`Profile "${profileName}": ${applied.join(", ")} (applies on next dispatch)`, "success");
+		},
+		handleAgentModelsSubstitute: async (args, ctx) => {
+			widgetCtx = ctx;
+			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (tokens.length === 0) {
+				if (allKnownModels().length === 0) {
+					ctx.ui.notify("No configured persona or sub-role models are available as substitution sources.", "warning");
+					return;
+				}
+				await openFleetDashboard(ctx, true);
+				return;
+			}
+			if (tokens.length !== 2) {
+				ctx.ui.notify("Usage: /af-agent-models-substitute [<source> <target>]", "error");
+				return;
+			}
+			await applySessionModelSubstitution(tokens[0], tokens[1], ctx);
+		},
+		handleWatchdog: async (args, ctx) => {
+			widgetCtx = ctx;
+			const parts = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (parts.length === 0) {
+				const perAgent = watchdogAgentOverrides.size > 0
+					? Array.from(watchdogAgentOverrides.entries()).map(([k, v]) => `${k}: ${v}`).join(", ")
+					: "(none)";
+				ctx.ui.notify(
+					`Drift watchdog: ${watchdogSetting} (hub-wide)\nPer-agent overrides: ${perAgent}\n` +
+					`Judge model: ${watchdogJudgeModel || "(researcher persona's, else dispatcher's)"}\n` +
+					`Usage: /af-watchdog on|off|auto — or /af-watchdog <agent> on|off|clear`,
+					"info",
+				);
+				return;
+			}
+			if (parts.length === 1) {
+				const setting = normalizeWatchdogSetting(parts[0]);
+				if (!setting) {
+					ctx.ui.notify(`Unknown setting "${parts[0]}" — expected one of: ${WATCHDOG_SETTINGS.join(", ")} (or /af-watchdog <agent> on|off|clear)`, "error");
+					return;
+				}
+				watchdogSetting = setting;
+				ctx.ui.notify(`Drift watchdog → ${setting} (applies from the next dispatch)`, "success");
+				return;
+			}
+			const agentKey = normalizeAgentInput(parts[0]);
+			const value = parts[1].toLowerCase();
+			if (!agentStates.has(agentKey)) {
+				ctx.ui.notify(`"${parts[0]}" is not in the active team (${Array.from(agentStates.values()).map(s => s.def.name).join(", ")})`, "error");
+				return;
+			}
+			if (value === "clear") {
+				watchdogAgentOverrides.delete(agentKey);
+				ctx.ui.notify(`Drift watchdog override cleared for ${agentKey} (hub-wide setting "${watchdogSetting}" applies)`, "success");
+				return;
+			}
+			if (value !== "on" && value !== "off") {
+				ctx.ui.notify(`Per-agent watchdog must be on, off, or clear — got "${parts[1]}"`, "error");
+				return;
+			}
+			watchdogAgentOverrides.set(agentKey, value);
+			ctx.ui.notify(`Drift watchdog for ${agentKey} → ${value} (overrides the hub-wide "${watchdogSetting}")`, "success");
+		},
+		handleComs: async (args, ctx) => {
+			if (!comsReady) { ctx.ui.notify("coms is not active in this session.", "warning"); return; }
+			await coms.updateScope((args ?? "").trim(), ctx);
+		},
+		handleHandoff: async (args, ctx) => {
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
+			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /af-handoff unavailable.", "warning"); return; }
+			const target = (args ?? "").trim();
+			if (!target) {
+				ctx.ui.notify("Usage: /af-handoff <peer>. See the coms pool for live peer names.", "error");
+				return;
+			}
+			const peer = resolveTarget(target);
+			if (!peer) {
+				ctx.ui.notify(`coms: no live peer "${target}". Use /af-coms to refresh the pool.`, "error");
+				return;
+			}
+			const handoffToken = crypto.randomBytes(8).toString("hex");
+			pendingHandoff = { target: peer.name, token: handoffToken };
+			pi.sendMessage({
+				customType: "coms-handoff",
+				content:
+					`HANDOFF REQUEST → peer "${peer.name}".\n\n` +
+					`Compose a SELF-CONTAINED handoff brief (the peer does NOT share your context): state the ` +
+					`overall goal, what's been done so far, key decisions and constraints, the current status, ` +
+					`and the concrete next steps you want the peer to take. Then call ` +
+					`coms_send(target: "${peer.name}", handoff_token: "${handoffToken}", prompt: <the brief only; the hub appends the verification ledger and artifact index in code only when this token matches>), coms_await its msg_id, and relay ` +
+					`the peer's reply to me in ${userLanguage}.`,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+			ctx.ui.notify(`Handoff to ${peer.name}: asking the dispatcher to compose a brief…`, "info");
+		},
+		handleCompound: async (args, ctx) => {
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
+			if (!agentStates.has("documenter")) {
+				ctx.ui.notify(
+					"compound: the documenter persona is not in the active team — switch with /af-agents-team (e.g. default or release), then re-run /af-compound.",
+					"warning",
+				);
+				return;
+			}
+			const focus = (args ?? "").trim();
+			const rulesLine = projectRulesDirs.length > 0
+				? projectRulesDirs.join(", ")
+				: "(none declared in .ai/agent-fleet-overrides.md — the documenter must locate an existing rules tree or, failing that, propose lessons without writing)";
+			const docsLine = projectDocsPaths.length > 0
+				? projectDocsPaths.join(", ")
+				: "(none declared)";
+			pi.sendMessage({
+				customType: "compound-learning",
+				content:
+					`COMPOUND REQUEST — capture this session's lessons into the project's rules and docs (compound-learning pass).\n\n` +
+					`1. From THIS session's context, compose a candidate-lessons brief: user corrections, review findings that recurred, ` +
+					`wrong assumptions that cost rework, debugging root causes, and changes that invalidated existing docs. At most 5 lessons; ` +
+					`each is one imperative sentence plus a one-line Why (the failure it prevents) and a one-line Evidence (what happened this session). ` +
+					`${focus ? `Focus especially on: ${focus}. ` : ""}` +
+					`If nothing rises to a lesson, tell the user there is nothing worth compounding and stop.\n` +
+					`2. Confirm the list with the user in ${userLanguage} (ask_user when available) — they approve, trim, or reword. Do not dispatch before this confirmation.\n` +
+					`3. Dispatch the documenter with a SELF-CONTAINED task (it shares none of your context) containing: the approved lessons verbatim ` +
+					`(with Why + Evidence); the project rule folders: ${rulesLine}; the docs entry points: ${docsLine}; the assertion ledger path ` +
+					`.pi/agent-sessions/assertions.json (when it exists); and the instruction to read skills/compound-learning/SKILL.md and follow it exactly — ` +
+					`dedupe index-first against the existing rule tree, minimal diffs on existing files, caps of 5 lessons / 1 new file. State that the user ` +
+					`already approved this lesson list, so it may apply without a second gate. Pass the relevant review/return/evidence artifact paths via the ` +
+					`dispatch's artifacts array — paths only, never pasted bodies.\n` +
+					`4. Relay the documenter's file-by-file result to me in ${userLanguage}.`,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+			ctx.ui.notify("Compound: asking the dispatcher to compose the candidate-lessons brief…", "info");
+		},
+		getAgentsKillCompletions: prefix => agentsKillCompletions(prefix),
+		getZoomCompletions: prefix => zoomCompletions(prefix),
+		getAgentModelCompletions: prefix => agentModelCompletions(prefix),
+		getAgentModelThinkingCompletions: prefix => agentThinkingCompletions(prefix),
+		getModelProfileCompletions: prefix => modelProfileCompletions(prefix),
+		getSubstituteCompletions: prefix => substituteCompletions(prefix),
+		getComsPeerCompletions: prefix => comsPeerCompletions(prefix),
+		getSubagentTargetCompletions: prefix => subagentTargetCompletions(prefix),
+	};
+
+	// Keep the complete command surface flat and greppable in this composition root.
+	registerAgentsTeam(pi, commandCtx);
+	registerAgentsList(pi, commandCtx);
+	registerAgentsHistory(pi, commandCtx);
+	registerContextCommand(pi, commandCtx);
+	registerWorkMode(pi, commandCtx);
+	registerWatchdog(pi, commandCtx);
+	registerAgentsAdd(pi, commandCtx);
+	registerAgentsDrop(pi, commandCtx);
+	registerAgentsSave(pi, commandCtx);
+	registerHubReport(pi, commandCtx);
+	registerZoom(pi, commandCtx);
+	registerAgentModel(pi, commandCtx);
+	registerAgentModelThinking(pi, commandCtx);
+	registerModels(pi, commandCtx);
+	registerAgentModelsSubstitute(pi, commandCtx);
+	registerDispatchPolicy(pi, commandCtx);
+	registerAgentsKill(pi, commandCtx);
+	registerAgentsRestart(pi, commandCtx);
+	registerComs(pi, commandCtx);
+	registerHandoff(pi, commandCtx);
+	registerCompound(pi, commandCtx);
 
 	let fleetShowFinished = false;
 	let fleetFilter = "";
@@ -6285,14 +6918,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		} finally { resources.dispose(); }
 	}
 
-	pi.registerCommand("af-agents-list", {
-		description: "Open Fleet Dashboard",
-		handler: async (_args, _ctx) => {
-			widgetCtx = _ctx;
-			await openFleetDashboard(_ctx);
-		},
-	});
-
 	// Open the read-only /af-agents-history overlay. Mirrors openZoom's chrome and adds
 	// a 1s tick so running durations advance live; `historyRender` lets a new
 	// dispatch refresh the panel the instant it starts/ends.
@@ -6319,14 +6944,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 			historyRender = null;
 		}
 	}
-
-	pi.registerCommand("af-agents-history", {
-		description: "Timeline of agent execution — orchestrator turns, dispatches, research helpers, durations, and a grand total",
-		handler: async (_args, ctx) => {
-			widgetCtx = ctx;
-			await openHistory(ctx);
-		},
-	});
 
 	function toolSchemaChars(toolList: string): number {
 		const names = toolList.split(",").map(name => name.trim()).filter(Boolean);
@@ -6437,11 +7054,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		} finally { resources.dispose(); }
 	}
 
-	pi.registerCommand("af-context", {
-		description: "Open a read-only full-screen context budget diagnostic",
-		handler: async (_args, ctx) => { widgetCtx = ctx; await openContextBudget(ctx); },
-	});
-
 	function rosterRefusalMessage(): string {
 		return "Orchestrator work mode requires at least one native specialist. Add one with /af-agents-add or select /af-agents-team first.";
 	}
@@ -6493,178 +7105,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		if (!next) return;
 		await applyWorkModeSelection(next, ctx);
 	}
-
-	// ── /af-work-mode: direct operator ↔ restricted orchestrator ──
-	pi.registerCommand("af-work-mode", {
-		description: "Show or set Fleet work mode (operator | orchestrator). Alt+M opens the picker.",
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const parsed = parseWorkModeArgs(args);
-			if (!parsed.ok) {
-				ctx.ui.notify(parsed.error, "error");
-				return;
-			}
-			if (parsed.action === "apply") {
-				await applyWorkModeSelection(parsed.workMode, ctx);
-				return;
-			}
-			if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
-				ctx.ui.notify(
-					`${workModeStatusText()}\nSwitch with /af-work-mode operator|orchestrator`,
-					"info",
-				);
-				return;
-			}
-			await openWorkModePicker(ctx);
-		},
-	});
-
-	pi.registerCommand("af-watchdog", {
-		description: "Drift watchdog: /af-watchdog [on|off|auto] hub-wide, /af-watchdog <agent> [on|off|clear] per agent, no args to show",
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const parts = (args || "").trim().split(/\s+/).filter(Boolean);
-			if (parts.length === 0) {
-				const perAgent = watchdogAgentOverrides.size > 0
-					? Array.from(watchdogAgentOverrides.entries()).map(([k, v]) => `${k}: ${v}`).join(", ")
-					: "(none)";
-				ctx.ui.notify(
-					`Drift watchdog: ${watchdogSetting} (hub-wide)\nPer-agent overrides: ${perAgent}\n` +
-					`Judge model: ${watchdogJudgeModel || "(researcher persona's, else dispatcher's)"}\n` +
-					`Usage: /af-watchdog on|off|auto — or /af-watchdog <agent> on|off|clear`,
-					"info",
-				);
-				return;
-			}
-			if (parts.length === 1) {
-				const setting = normalizeWatchdogSetting(parts[0]);
-				if (!setting) {
-					ctx.ui.notify(`Unknown setting "${parts[0]}" — expected one of: ${WATCHDOG_SETTINGS.join(", ")} (or /af-watchdog <agent> on|off|clear)`, "error");
-					return;
-				}
-				watchdogSetting = setting;
-				ctx.ui.notify(`Drift watchdog → ${setting} (applies from the next dispatch)`, "success");
-				return;
-			}
-			const agentKey = normalizeAgentInput(parts[0]);
-			const value = parts[1].toLowerCase();
-			if (!agentStates.has(agentKey)) {
-				ctx.ui.notify(`"${parts[0]}" is not in the active team (${Array.from(agentStates.values()).map(s => s.def.name).join(", ")})`, "error");
-				return;
-			}
-			if (value === "clear") {
-				watchdogAgentOverrides.delete(agentKey);
-				ctx.ui.notify(`Drift watchdog override cleared for ${agentKey} (hub-wide setting "${watchdogSetting}" applies)`, "success");
-				return;
-			}
-			if (value !== "on" && value !== "off") {
-				ctx.ui.notify(`Per-agent watchdog must be on, off, or clear — got "${parts[1]}"`, "error");
-				return;
-			}
-			watchdogAgentOverrides.set(agentKey, value);
-			ctx.ui.notify(`Drift watchdog for ${agentKey} → ${value} (overrides the hub-wide "${watchdogSetting}")`, "success");
-		},
-	});
-
-	pi.registerCommand("af-agents-add", {
-		description: "Add persona(s) to the active team without switching teams: /af-agents-add <name> [<name>…]",
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const names = (args || "").trim().split(/\s+/).filter(Boolean);
-			if (names.length === 0) {
-				const available = allAgentDefs
-					.filter(d => !agentStates.has(d.name.toLowerCase()))
-					.map(d => d.name).sort().join(", ") || "(all personas are already in the team)";
-				ctx.ui.notify(`Usage: /af-agents-add <persona> [<persona>…]\nNot in the team yet: ${available}`, "info");
-				return;
-			}
-			const results = names.map(n => rosterAdd(n));
-			const level = results.some(r => r.ok) ? "success" : "error";
-			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
-			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
-		},
-	});
-
-	pi.registerCommand("af-agents-drop", {
-		description: "Drop persona(s) from the active team: /af-agents-drop <name> [<name>…]",
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const names = (args || "").trim().split(/\s+/).filter(Boolean);
-			if (names.length === 0) {
-				ctx.ui.notify(`Usage: /af-agents-drop <persona> [<persona>…]\nActive team: ${Array.from(agentStates.values()).map(s => s.def.name).join(", ")}`, "info");
-				return;
-			}
-			const results = names.map(n => rosterDrop(n));
-			const level = results.some(r => r.ok) ? "success" : "error";
-			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
-			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
-		},
-	});
-
-	pi.registerCommand("af-agents-save", {
-		description: "Persist the CURRENT roster as a named team in .pi/agents/teams.yaml: /af-agents-save <team-name>",
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const name = (args || "").trim();
-			if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
-				ctx.ui.notify("Usage: /af-agents-save <team-name> (letters, digits, hyphens, underscores)", "error");
-				return;
-			}
-			const members = Array.from(agentStates.values()).map(s => s.def.name);
-			if (members.length === 0) {
-				ctx.ui.notify("The active team is empty — nothing to save.", "error");
-				return;
-			}
-			const teamsPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "teams.yaml");
-			let raw = "";
-			try { raw = existsSync(teamsPath) ? readFileSync(teamsPath, "utf-8") : ""; } catch {}
-			try {
-				mkdirSync(join(ctx.cwd || process.cwd(), ".pi", "agents"), { recursive: true });
-				writeFileSync(teamsPath, upsertTeamInYaml(raw, name, members), "utf-8");
-			} catch (err) {
-				ctx.ui.notify(`Could not write ${teamsPath}: ${err instanceof Error ? err.message : String(err)}`, "error");
-				return;
-			}
-			teams[name] = members;
-			activeTeamName = name;
-			persistActiveRoster();
-			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
-			ctx.ui.notify(`Team "${name}" saved to .pi/agents/teams.yaml — ${members.join(", ")}`, "success");
-		},
-	});
-
-	pi.registerCommand("af-hub-report", {
-		description: "Per-turn cost report: dispatches, research, tokens, recycles, drift stops (last turn + session totals)",
-		handler: async (_args, ctx) => {
-			widgetCtx = ctx;
-			const fmtTok = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
-			const renderReport = (label: string, r: TurnReport): string => {
-				const billed = r.dispatches.reduce((n, d) => n + d.billed, 0);
-				const out = r.dispatches.reduce((n, d) => n + d.out, 0);
-				const rows = r.dispatches.map(d => `  ${d.agent}: ${d.status} in ${Math.round(d.elapsed / 1000)}s · ${fmtTok(d.billed)} billed / ${fmtTok(d.out)} out`);
-				return [
-					`${label} — tier ${r.tier ?? "(unset)"} · ${r.dispatches.length} dispatch(es) · ${r.research} research · ` +
-						`${fmtTok(billed)} billed / ${fmtTok(out)} out · ${r.recycles} recycle(s) · ${r.driftStops} drift stop(s) · ${r.refusals} refusal(s)`,
-					...rows,
-				].join("\n");
-			};
-			const lines: string[] = [];
-			if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) {
-				lines.push(renderReport("Current turn", turnReport));
-			}
-			if (lastTurnReport) lines.push(renderReport("Last turn", lastTurnReport));
-			lines.push(
-				`Session — ${sessionTotals.turns} dispatching turn(s) · ${sessionTotals.dispatches} dispatch(es) · ${sessionTotals.research} research · ` +
-				`${fmtTok(sessionTotals.billed)} billed / ${fmtTok(sessionTotals.out)} out · ${sessionTotals.recycles} recycle(s) · ` +
-				`${sessionTotals.driftStops} drift stop(s) · ${sessionTotals.refusals} refusal(s)`,
-			);
-			// A spawned peer that never received work is a running pane nobody is
-			// using — the digest is where it stops being invisible.
-			const sweep = unaddressedPeerSweep(Array.from(hubSpawnedPeers.values()));
-			if (sweep) lines.push(sweep.message);
-			ctx.ui.notify(lines.join("\n\n"), "info");
-		},
-	});
 
 	// Alt+A toggles the agent view between the full dashboard grid (above the
 	// editor) and the compact running-agents list (below the editor). alt+a has no
@@ -6832,37 +7272,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		}
 	}
 
-	pi.registerCommand("af-zoom", {
-		description: "Scrollable read-only view of an agent's stream: /af-zoom <name|rN>",
-		getArgumentCompletions: zoomCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const arg = args?.trim() || "";
-			// A research handle (rN/#N/N) targets a research helper; a delegate child
-			// id (e.g. "quality-1") targets a nested child; anything else is a team
-			// member name. All satisfy Zoomable, so the same overlay renders each.
-			const rid = parseResearchHandle(arg);
-			const target: Zoomable | undefined = rid != null
-				? researchStates.get(rid)
-				: arg
-					? agentStates.get(arg.toLowerCase()) ?? findDelegationChild(arg)?.child
-					: undefined;
-			if (!target) {
-				const teamKnown = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
-				const researchKnown = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
-				const childKnown = Array.from(agentStates.values())
-					.flatMap(s => Array.from(s.delegations?.keys() || [])).join(", ");
-				const known = [teamKnown, researchKnown, childKnown].filter(Boolean).join(", ");
-				ctx.ui.notify(`Usage: /af-zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
-				return;
-			}
-			const rowKey = (rid != null ? `r${rid}` : arg).toLowerCase();
-			const row = fleetRows(true).find(r => r.key.toLowerCase() === rowKey);
-			if (row) await openFleetDetail(row, ctx);
-			else await openZoom(target, ctx);
-		},
-	});
-
 	// Completions for /af-agent-model: persona names plus a `persona.role` entry per
 	// declared delegate sub-role, labeled with the model currently in effect.
 	const agentModelCompletions = (prefix: string): AutocompleteItem[] | null => {
@@ -6898,124 +7307,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 	// candidates. Session-lifetime: the choice resets on session_start and takes
 	// effect on the persona's NEXT dispatch (/af-agents-restart applies it
 	// immediately). Nothing outside the declared lists is ever selectable.
-	pi.registerCommand("af-agent-model", {
-		description: "Switch a persona's or sub-role's model from its declared candidates: /af-agent-model <persona>[.<role>]",
-		getArgumentCompletions: agentModelCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const arg = (args || "").trim().toLowerCase();
-
-			// Dot form: <persona>.<role> targets a delegate sub-role. Candidates are
-			// the role's declared model (default) + the parent's candidate list.
-			if (arg.includes(".")) {
-				const dot = arg.indexOf(".");
-				const personaName = arg.slice(0, dot);
-				const roleName = arg.slice(dot + 1);
-				const parent = agentStates.get(personaName);
-				const roles = parent?.def.subagents || {};
-				const roleKey = Object.keys(roles).find(r => r.toLowerCase() === roleName);
-				if (!parent || !roleKey) {
-					const valid = Array.from(agentStates.values()).flatMap(s =>
-						Object.keys(s.def.subagents || {}).map(r => `${s.def.name}.${r}`));
-					ctx.ui.notify(
-						`No sub-role "${arg}". Valid targets: ${valid.join(", ") || "none (no persona declares subagents:)"}`,
-						"error",
-					);
-					return;
-				}
-				const role = roles[roleKey];
-				const overrideKey = `${personaName}.${roleKey.toLowerCase()}`;
-				const candidates: string[] = [];
-				for (const m of [role.model, ...allowedModels(parent.def)]) {
-					if (m && !candidates.includes(m)) candidates.push(m);
-				}
-				const current = resolvedSubagentModel(parent.def.name, roleKey, role.model);
-				const options = candidates.map(m => {
-					const tags = [m === role.model ? "default" : "", m === current ? "current" : ""].filter(Boolean);
-					return tags.length ? `${m} (${tags.join(", ")})` : m;
-				});
-				const label = `${displayName(parent.def.name)}.${roleKey}`;
-				const choice = await ctx.ui.select(`Model for ${label}`, options);
-				if (choice === undefined) return;
-				const picked = candidates[options.indexOf(choice)];
-				const effectivePicked = substitutedModel(picked) ?? picked;
-				if (effectivePicked === current) {
-					ctx.ui.notify(`${label} is already on ${effectivePicked}`, "info");
-					return;
-				}
-				if (picked === role.model) {
-					subagentModelOverrides.delete(overrideKey);
-				} else {
-					subagentModelOverrides.set(overrideKey, picked);
-				}
-				updateWidget();
-				ctx.ui.notify(
-					`${label} → ${effectivePicked} (applies on next dispatch of ${parent.def.name})`,
-					"success",
-				);
-				return;
-			}
-
-			const name = arg;
-			// Team member (live state) OR a research persona — both switchable.
-			const def = name ? switchablePersonaDef(name) : undefined;
-			if (!def) {
-				const known = [
-					...Array.from(agentStates.values()).map(s => s.def.name),
-					...researchPersonas.map(d => d.name),
-				].join(", ");
-				ctx.ui.notify(`Usage: /af-agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
-				return;
-			}
-			if (!def.models || def.models.length === 0) {
-				ctx.ui.notify(
-					`${displayName(def.name)} declares no model candidates — add a \`models:\` list to ${def.file} or a \`models.${def.name}:\` override in .ai/agent-fleet-overrides.md.`,
-					"warning",
-				);
-				return;
-			}
-			const candidates = allowedModels(def);
-			const current = resolvedModel(def);
-			// A persona without a frontmatter default runs on the dispatcher's model —
-			// offer that as an explicit candidate so the override can be cleared.
-			const DISPATCHER_DEFAULT = "(dispatcher's model)";
-			if (!def.model) candidates.unshift(DISPATCHER_DEFAULT);
-			const options = candidates.map(m => {
-				const isDefault = def.model ? m === def.model : m === DISPATCHER_DEFAULT;
-				const isCurrent = current ? m === current : m === DISPATCHER_DEFAULT;
-				const tags = [isDefault ? "default" : "", isCurrent ? "current" : ""].filter(Boolean);
-				return tags.length ? `${m} (${tags.join(", ")})` : m;
-			});
-			const choice = await ctx.ui.select(`Model for ${displayName(def.name)}`, options);
-			if (choice === undefined) return;
-			const picked = candidates[options.indexOf(choice)];
-			const effectivePicked = picked === DISPATCHER_DEFAULT ? picked : (substitutedModel(picked) ?? picked);
-			const pickedIsCurrent = current ? effectivePicked === current : picked === DISPATCHER_DEFAULT;
-			if (pickedIsCurrent) {
-				ctx.ui.notify(`${displayName(def.name)} is already on ${effectivePicked}`, "info");
-				return;
-			}
-			if (picked === def.model || picked === DISPATCHER_DEFAULT) {
-				modelOverrides.delete(name);
-			} else {
-				modelOverrides.set(name, picked);
-			}
-			updateWidget();
-			// Research helpers spawn fresh each time, so the switch lands on their
-			// next spawn; team members apply on next dispatch (restartable now).
-			const applyHint = (def.kind || "").toLowerCase() === "research"
-				? "applies on next spawn_research"
-				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
-			ctx.ui.notify(`${displayName(def.name)} → ${effectivePicked} (${applyHint})`, "success");
-			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
-				ctx.ui.notify(
-					`Note: ${displayName(def.name)} prefers a coms peer (dispatch-policy.yaml) — this model override only applies to native(-fallback) runs; the peer keeps its own model.`,
-					"info",
-				);
-			}
-		},
-	});
-
 	// Completions for /af-agent-model-thinking: persona names labeled with the
 	// thinking level currently in effect.
 	const agentThinkingCompletions = (prefix: string): AutocompleteItem[] | null => {
@@ -7039,51 +7330,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 	// the choice resets on session_start and takes effect on the persona's NEXT
 	// dispatch (/af-agents-restart applies it immediately). Selecting the frontmatter
 	// default clears the override.
-	pi.registerCommand("af-agent-model-thinking", {
-		description: "Switch a persona's thinking level from pi's --thinking levels: /af-agent-model-thinking <persona>",
-		getArgumentCompletions: agentThinkingCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const name = (args || "").trim().toLowerCase();
-			// Team member (live state) OR a research persona — both switchable.
-			const def = name ? switchablePersonaDef(name) : undefined;
-			if (!def) {
-				const known = [
-					...Array.from(agentStates.values()).map(s => s.def.name),
-					...researchPersonas.map(d => d.name),
-				].join(", ");
-				ctx.ui.notify(`Usage: /af-agent-model-thinking <persona>. Known: ${known || "none"}`, "error");
-				return;
-			}
-			const defaultLevel = resolveThinkingLevel(def.thinking);
-			const current = resolveThinkingLevel(resolvedThinking(def));
-			const levels = [...THINKING_LEVELS];
-			const options = levels.map(l => {
-				const tags = [l === defaultLevel ? "default" : "", l === current ? "current" : ""].filter(Boolean);
-				return tags.length ? `${l} (${tags.join(", ")})` : l;
-			});
-			const choice = await ctx.ui.select(`Thinking level for ${displayName(def.name)}`, options);
-			if (choice === undefined) return;
-			const picked = levels[options.indexOf(choice)];
-			if (picked === current) {
-				ctx.ui.notify(`${displayName(def.name)} is already on thinking: ${picked}`, "info");
-				return;
-			}
-			if (picked === defaultLevel) {
-				thinkingOverrides.delete(name);
-			} else {
-				thinkingOverrides.set(name, picked);
-			}
-			updateWidget();
-			// Research helpers spawn fresh each time, so the switch lands on their
-			// next spawn; team members apply on next dispatch (restartable now).
-			const applyHint = (def.kind || "").toLowerCase() === "research"
-				? "applies on next spawn_research"
-				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
-			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "success");
-		},
-	});
-
 	// Completions for /af-models: profile names with their persona → model summary.
 	const modelProfileCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = Object.entries(modelProfiles).map(([name, entries]) => ({
@@ -7097,43 +7343,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 
 	// /af-models [profile] — apply a named model profile (a validated macro over the
 	// personas' declared candidates). Bare /af-models opens a picker.
-	pi.registerCommand("af-models", {
-		description: "Apply a model profile to the team: /af-models [profile]",
-		getArgumentCompletions: modelProfileCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const names = Object.keys(modelProfiles);
-			if (names.length === 0) {
-				ctx.ui.notify("No model profiles loaded — define .pi/agents/model-profiles.yaml (invalid profiles are dropped at session start).", "warning");
-				return;
-			}
-			let profileName = (args || "").trim();
-			if (!profileName) {
-				const options = names.map(n =>
-					`${n} — ${Object.entries(modelProfiles[n]).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
-				);
-				const choice = await ctx.ui.select("Select model profile", options);
-				if (choice === undefined) return;
-				profileName = names[options.indexOf(choice)];
-			}
-			const profile = modelProfiles[profileName];
-			if (!profile) {
-				ctx.ui.notify(`No profile "${profileName}". Known: ${names.join(", ")}`, "error");
-				return;
-			}
-			const applied: string[] = [];
-			for (const [persona, model] of Object.entries(profile)) {
-				const def = allAgentDefs.find(d => d.name.toLowerCase() === persona);
-				if (!def) continue; // validated at session start; defensive
-				if (model === def.model) modelOverrides.delete(persona);
-				else modelOverrides.set(persona, model);
-				applied.push(`${displayName(persona)} → ${shortModel(model)}`);
-			}
-			updateWidget();
-			ctx.ui.notify(`Profile "${profileName}": ${applied.join(", ")} (applies on next dispatch)`, "success");
-		},
-	});
-
 	// Every configured model source across persona defaults/candidates, retained
 	// fallbacks, and delegate sub-roles. Active mapping keys remain visible so the
 	// operator can replace a session substitution even if the roster changes.
@@ -7168,28 +7377,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 
 	// Bare command opens the exact same source → available-target picker as `m` in
 	// Fleet Dashboard. The two-argument form remains available for scripting.
-	pi.registerCommand("af-agent-models-substitute", {
-		description: "Save a session-wide model substitution: /af-agent-models-substitute [<source> <target>]",
-		getArgumentCompletions: substituteCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
-			if (tokens.length === 0) {
-				if (allKnownModels().length === 0) {
-					ctx.ui.notify("No configured persona or sub-role models are available as substitution sources.", "warning");
-					return;
-				}
-				await openFleetDashboard(ctx, true);
-				return;
-			}
-			if (tokens.length !== 2) {
-				ctx.ui.notify("Usage: /af-agent-models-substitute [<source> <target>]", "error");
-				return;
-			}
-			await applySessionModelSubstitution(tokens[0], tokens[1], ctx);
-		},
-	});
-
 	// Completions over research handles, annotated with status.
 	const researchHandleCompletions = (prefix: string): AutocompleteItem[] | null => {
 		const items = Array.from(researchStates.values()).map(s => ({
@@ -7241,29 +7428,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		ctx.ui.notify(msg, total === 0 ? "info" : "success");
 	}
 
-	pi.registerCommand("af-dispatch-policy", {
-		description: "Show dispatch backend routing (dispatch-policy.yaml) for the active team",
-		handler: async (_args, ctx) => {
-			widgetCtx = ctx;
-			const live = new Set(comsReady && identity ? peersInScope().map(e => e.name.toLowerCase()) : []);
-			const lines = Array.from(agentStates.values()).map(s => {
-				const key = s.def.name.toLowerCase();
-				const sub = dispatchPolicy.substitutions[key];
-				const prefer = sub ? sub.prefer : dispatchPolicy.default === "coms" ? "coms" : "native";
-				if (prefer !== "coms") return `${displayName(s.def.name)}: native`;
-				const fb = sub?.fallback === "none" ? "coms-required" : "coms, fallback native";
-				return `${displayName(s.def.name)}: ${fb} — peer ${live.has(key) ? "LIVE" : "not in pool"}`;
-			});
-			const policyPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "dispatch-policy.yaml");
-			const src = existsSync(policyPath) ? ".pi/agents/dispatch-policy.yaml" : "(no dispatch-policy.yaml — all native)";
-			ctx.ui.notify(
-				`Dispatch backends — ${src}, default: ${dispatchPolicy.default}\n${lines.join("\n") || "(no active team)"}\n` +
-				`Routing is decided per dispatch against the live coms pool (/af-coms to refresh).`,
-				"info",
-			);
-		},
-	});
-
 	// Completions over both target kinds: team persona names + research handles
 	// (rN), each annotated with status — for the unified /af-agents-kill and
 	// /af-agents-restart.
@@ -7285,144 +7449,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	pi.registerCommand("af-agents-kill", {
-		description: "Kill a running specialist, or kill & remove research helper(s): /af-agents-kill <name|rN|all>",
-		getArgumentCompletions: agentsKillCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			const name = args?.trim();
-			// "all" clears every research helper (kill any running). Team specialists
-			// are standing — never touched by "all".
-			if (name?.toLowerCase() === "all") {
-				clearResearchHelpers(ctx);
-				return;
-			}
-			// An rN handle targets a research helper. Research helpers are disposable
-			// by design, so kill also REMOVES — the card, the state, and the session
-			// file go with the process (a finished helper is simply removed).
-			const rid = name ? parseResearchHandle(name) : null;
-			if (rid != null) {
-				const rState = researchStates.get(rid);
-				if (!rState) {
-					const known = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
-					ctx.ui.notify(`No research helper "${name}". Known: ${known || "none"}`, "error");
-					return;
-				}
-				removeResearchHelper(rState, ctx);
-				return;
-			}
-			const state = name ? agentStates.get(name.toLowerCase()) : undefined;
-			if (!state) {
-				const known = [
-					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
-					...Array.from(researchStates.values()).map(s => `r${s.id}`),
-				].join(", ");
-				ctx.ui.notify(`Usage: /af-agents-kill <name|rN|all>. Known: ${known || "none"}`, "error");
-				return;
-			}
-			if (state.status !== "running" || (!state.proc && !state.comsAbort)) {
-				ctx.ui.notify(`${displayName(state.def.name)} is not running — nothing to kill.`, "warning");
-				return;
-			}
-			// Coms-backed run: no local process to SIGTERM — only the wait can be
-			// released; the standing peer keeps running its turn in its own pane.
-			if (!state.proc) {
-				void cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "wait_only_cancelled" } });
-				ctx.ui.notify(`Abandoning ${displayName(state.def.name)}'s coms dispatch (the peer pane keeps running)...`, "info");
-				return;
-			}
-			// Branch A: SIGTERM the child's process group (killPiTree) so any live
-			// delegate children die with it. The close handler resolves the awaited
-			// dispatch with a "do not auto-retry" message, unblocking the dispatcher.
-			state.killedByOperator = true;
-			cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree });
-			ctx.ui.notify(`Killing ${displayName(state.def.name)}...`, "info");
-		},
-	});
-
-	pi.registerCommand("af-agents-restart", {
-		description: "Kill and re-run a specialist's (or re-run a finished research helper's) last task fresh: /af-agents-restart <name|rN>",
-		getArgumentCompletions: subagentTargetCompletions,
-		handler: async (args, ctx) => {
-			widgetCtx = ctx;
-			if (modelWorkBlockedByRosterRecovery(ctx)) return;
-			const name = args?.trim();
-			// An rN handle re-runs a finished helper's last task on a fresh session.
-			// A running helper can't be restarted mid-flight — spawnResearch's promise is held by its
-			// original caller, and /af-agents-kill removes the helper outright.
-			const rid = name ? parseResearchHandle(name) : null;
-			if (rid != null) {
-				const rState = researchStates.get(rid);
-				if (!rState) {
-					const known = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
-					ctx.ui.notify(`No research helper "${name}". Known: ${known || "none"}`, "error");
-					return;
-				}
-				if (rState.status === "running") {
-					ctx.ui.notify(`Research r${rState.id} is still running — wait for it to finish, or use /af-agents-kill r${rState.id} to discard it; a new research request will spawn a fresh helper.`, "warning");
-					return;
-				}
-				if (!rState.task) {
-					ctx.ui.notify(`Research r${rState.id} has no previous task to restart.`, "warning");
-					return;
-				}
-				rState.sessionFile = null;
-				rState.turnCount = 1;
-				updateResearchWidget();
-				ctx.ui.notify(`Restarting research r${rState.id} (fresh)...`, "info");
-				spawnResearch(rState, rState.task, ctx).then(result => deliverResearchFollowUp(rState, result));
-				return;
-			}
-			const state = name ? agentStates.get(name.toLowerCase()) : undefined;
-			if (!state) {
-				const known = [
-					...Array.from(agentStates.values()).map(s => displayName(s.def.name)),
-					...Array.from(researchStates.values()).map(s => `r${s.id}`),
-				].join(", ");
-				ctx.ui.notify(`Usage: /af-agents-restart <name|rN>. Known: ${known || "none"}`, "error");
-				return;
-			}
-			const task = state.task;
-			if (!task) {
-				ctx.ui.notify(`${displayName(state.def.name)} has no previous task to restart.`, "warning");
-				return;
-			}
-			// If it's mid-run, kill it and wait for the child to actually exit before
-			// re-dispatching (dispatchAgent rejects a re-entry while status is running).
-			// A coms-backed run has no process — abandoning the wait is the "kill".
-			if (state.status === "running" && (state.proc || state.comsAbort)) {
-				let resolveTermination!: () => void;
-				const terminated = new Promise<void>(res => { resolveTermination = res; });
-				state.onTerminate = resolveTermination;
-				if (state.proc) {
-					state.killedByOperator = true;
-					state.restarting = true;
-					killPiTree(state.proc);
-				} else {
-					await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "restart" } });
-				}
-				await terminated;
-			}
-			// Re-run fresh: a frozen session file may be inconsistent, so drop it (no -c).
-			// The file itself still reaches pi via --session, so an unusable one is
-			// quarantined by dispatchAgent's session preflight, not here.
-			state.sessionFile = null;
-			ctx.ui.notify(`Restarting ${displayName(state.def.name)} (fresh)...`, "info");
-			const result = await dispatchAgent(state.def.name, task, ctx);
-			// The original dispatch_agent tool call already returned, so deliver the
-			// fresh result to the dispatcher as a follow-up turn (subagent-widget style).
-			const truncated = result.output.length > 8000
-				? result.output.slice(0, 8000) + "\n\n... [truncated]"
-				: result.output;
-			const status = result.exitCode === 0 ? "completed" : "failed";
-			pi.sendMessage({
-				customType: "agent-restart-result",
-				content: `[${displayName(state.def.name)}] restarted by operator and ${status} in ${Math.round(result.elapsed / 1000)}s.\n\n${truncated}`,
-				display: true,
-			}, { deliverAs: "followUp", triggerTurn: true });
-		},
-	});
-
 	// ── Embedded coms: /af-coms + /af-handoff ──
 
 	// Completions over live peer names for /af-handoff.
@@ -7435,14 +7461,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		const filtered = items.filter(i => i.value.toLowerCase().startsWith(p));
 		return filtered.length > 0 ? filtered : items;
 	};
-
-	pi.registerCommand("af-coms", {
-		description: "Force-refresh the coms pool widget (or filter with --all / --project <name>)",
-		handler: async (args, ctx) => {
-			if (!comsReady) { ctx.ui.notify("coms is not active in this session.", "warning"); return; }
-			await coms.updateScope((args ?? "").trim(), ctx);
-		},
-	});
 
 	// ━━ herdr presence: turn-state reporting ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 	// The herdr sidebar mirrors turn state (idle ↔ working) push-style;
@@ -7466,86 +7484,12 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 	// /af-handoff <peer> — hand the session off to a coms peer. Per decision G1 we do NOT
 	// extract the compaction summary; instead we ask the dispatcher LLM (next turn) to
 	// compose a SELF-CONTAINED brief and coms_send it, then await + relay the reply.
-	pi.registerCommand("af-handoff", {
-		description: "Hand the session off to a coms peer (the dispatcher composes a self-contained brief): /af-handoff <peer>",
-		getArgumentCompletions: comsPeerCompletions,
-		handler: async (args, ctx) => {
-			if (modelWorkBlockedByRosterRecovery(ctx)) return;
-			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /af-handoff unavailable.", "warning"); return; }
-			const target = (args ?? "").trim();
-			if (!target) {
-				ctx.ui.notify("Usage: /af-handoff <peer>. See the coms pool for live peer names.", "error");
-				return;
-			}
-			const peer = resolveTarget(target);
-			if (!peer) {
-				ctx.ui.notify(`coms: no live peer "${target}". Use /af-coms to refresh the pool.`, "error");
-				return;
-			}
-			const handoffToken = crypto.randomBytes(8).toString("hex");
-			pendingHandoff = { target: peer.name, token: handoffToken };
-			pi.sendMessage({
-				customType: "coms-handoff",
-				content:
-					`HANDOFF REQUEST → peer "${peer.name}".\n\n` +
-					`Compose a SELF-CONTAINED handoff brief (the peer does NOT share your context): state the ` +
-					`overall goal, what's been done so far, key decisions and constraints, the current status, ` +
-					`and the concrete next steps you want the peer to take. Then call ` +
-					`coms_send(target: "${peer.name}", handoff_token: "${handoffToken}", prompt: <the brief only; the hub appends the verification ledger and artifact index in code only when this token matches>), coms_await its msg_id, and relay ` +
-					`the peer's reply to me in ${userLanguage}.`,
-				display: true,
-			}, { deliverAs: "followUp", triggerTurn: true });
-			ctx.ui.notify(`Handoff to ${peer.name}: asking the dispatcher to compose a brief…`, "info");
-		},
-	});
-
 	// /af-compound [focus] — end-of-session compound-learning pass. Mirrors /af-handoff's
 	// shape: the dispatcher LLM (which saw the whole session) composes the
 	// candidate-lessons brief itself, gates it on the user, then dispatches the
 	// documenter to land the approved lessons per skills/compound-learning/SKILL.md.
 	// The rules/docs targets come from the overrides file; artifacts travel as
 	// paths through the dispatch's `artifacts` array, never as pasted bodies.
-	pi.registerCommand("af-compound", {
-		description: "Capture this session's lessons into the project's rules/docs via the documenter: /af-compound [focus]",
-		handler: async (args, ctx) => {
-			if (modelWorkBlockedByRosterRecovery(ctx)) return;
-			if (!agentStates.has("documenter")) {
-				ctx.ui.notify(
-					"compound: the documenter persona is not in the active team — switch with /af-agents-team (e.g. default or release), then re-run /af-compound.",
-					"warning",
-				);
-				return;
-			}
-			const focus = (args ?? "").trim();
-			const rulesLine = projectRulesDirs.length > 0
-				? projectRulesDirs.join(", ")
-				: "(none declared in .ai/agent-fleet-overrides.md — the documenter must locate an existing rules tree or, failing that, propose lessons without writing)";
-			const docsLine = projectDocsPaths.length > 0
-				? projectDocsPaths.join(", ")
-				: "(none declared)";
-			pi.sendMessage({
-				customType: "compound-learning",
-				content:
-					`COMPOUND REQUEST — capture this session's lessons into the project's rules and docs (compound-learning pass).\n\n` +
-					`1. From THIS session's context, compose a candidate-lessons brief: user corrections, review findings that recurred, ` +
-					`wrong assumptions that cost rework, debugging root causes, and changes that invalidated existing docs. At most 5 lessons; ` +
-					`each is one imperative sentence plus a one-line Why (the failure it prevents) and a one-line Evidence (what happened this session). ` +
-					`${focus ? `Focus especially on: ${focus}. ` : ""}` +
-					`If nothing rises to a lesson, tell the user there is nothing worth compounding and stop.\n` +
-					`2. Confirm the list with the user in ${userLanguage} (ask_user when available) — they approve, trim, or reword. Do not dispatch before this confirmation.\n` +
-					`3. Dispatch the documenter with a SELF-CONTAINED task (it shares none of your context) containing: the approved lessons verbatim ` +
-					`(with Why + Evidence); the project rule folders: ${rulesLine}; the docs entry points: ${docsLine}; the assertion ledger path ` +
-					`.pi/agent-sessions/assertions.json (when it exists); and the instruction to read skills/compound-learning/SKILL.md and follow it exactly — ` +
-					`dedupe index-first against the existing rule tree, minimal diffs on existing files, caps of 5 lessons / 1 new file. State that the user ` +
-					`already approved this lesson list, so it may apply without a second gate. Pass the relevant review/return/evidence artifact paths via the ` +
-					`dispatch's artifacts array — paths only, never pasted bodies.\n` +
-					`4. Relay the documenter's file-by-file result to me in ${userLanguage}.`,
-				display: true,
-			}, { deliverAs: "followUp", triggerTurn: true });
-			ctx.ui.notify("Compound: asking the dispatcher to compose the candidate-lessons brief…", "info");
-		},
-	});
-
 	// ── ask_user wait tracking (for /af-agents-history real-work) ──
 	// pi-ask-user blocks the dispatcher turn while the human answers. Bracket each
 	// ask_user call with its tool_execution start/end so /af-agents-history can subtract

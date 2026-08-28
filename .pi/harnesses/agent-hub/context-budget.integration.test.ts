@@ -5,16 +5,18 @@ import { workModePrompt } from "./work-mode.ts";
 import { assembleHubSystemPrompt, namedHubLedgerParts, recordHubLedger } from "../lib/context-budget-hub-prompt.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const contextCommandSource = readFileSync(new URL("./commands/context-command.ts", import.meta.url), "utf8");
 const collector = readFileSync(new URL("./context-budget-snapshot.ts", import.meta.url), "utf8");
 const childPrompt = readFileSync(new URL("../lib/context-budget-child-prompt.ts", import.meta.url), "utf8");
 
 test("af-context is registered read-only in both operator and orchestrator work modes", () => {
-	assert.match(source, /pi\.registerCommand\("af-context",[\s\S]*?openContextBudget\(ctx\)/);
+	assert.match(source, /registerContextCommand\(pi, commandCtx\)/);
+	assert.match(contextCommandSource, /registerCommand\("af-context"[\s\S]*?handleContext/);
 	assert.match(source, /async function openContextBudget[\s\S]*?ctx\.ui\.custom[\s\S]*?FULLSCREEN_OVERLAY/);
 	assert.match(source, /async function openContextBudget[\s\S]*?createPanelResources\(\)[\s\S]*?resources\.every\(1000,[\s\S]*?dispose: \(\) => resources\.dispose\(\)/);
-	const command = source.match(/async function openContextBudget[\s\S]*?\n\t}\n\n\tpi\.registerCommand\("af-context"/)?.[0] ?? "";
+	const command = source.match(/async function openContextBudget[\s\S]*?\n\t}\n\n\tfunction rosterRefusalMessage/)?.[0] ?? "";
 	assert.doesNotMatch(command, /sendMessage|appendEntry|compact|triggerTurn|sessionManager\.append|writeFile/);
-	const registerIdx = source.indexOf('pi.registerCommand("af-context"');
+	const registerIdx = source.indexOf("registerContextCommand(pi, commandCtx)");
 	assert.ok(registerIdx > 0);
 	assert.equal(source.slice(registerIdx - 80, registerIdx).includes("orchestrator") || source.slice(registerIdx - 80, registerIdx).includes("operator"), false);
 	assert.match(source, /openFleetDashboard/);
@@ -75,7 +77,7 @@ test("af-context is registered read-only in both operator and orchestrator work 
 });
 
 test("af-context normalizes runtime navigation keys while preserving raw context commands", () => {
-	const command = source.match(/async function openContextBudget[\s\S]*?\n\t}\n\n\tpi\.registerCommand\("af-context"/)?.[0] ?? "";
+	const command = source.match(/async function openContextBudget[\s\S]*?\n\t}\n\n\tfunction rosterRefusalMessage/)?.[0] ?? "";
 	for (const [key, ansi] of [["up", "\\u001b[A"], ["down", "\\u001b[B"], ["pageUp", "\\u001b[5~"], ["pageDown", "\\u001b[6~"], ["enter", "\\r"], ["escape", "\\u001b"]]) {
 		assert.ok(command.includes(`if (matchesKey(data, Key.${key})) return "${ansi}";`));
 	}

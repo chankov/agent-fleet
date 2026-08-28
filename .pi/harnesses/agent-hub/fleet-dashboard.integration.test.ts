@@ -6,6 +6,9 @@ import { gridColumnsForItems, gridColumnsForSize, renderCardGrid } from "../lib/
 import { renderFleetDashboard } from "../lib/fleet-dashboard-view.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const agentsListCommandSource = readFileSync(new URL("./commands/agents-list.ts", import.meta.url), "utf8");
+const zoomCommandSource = readFileSync(new URL("./commands/zoom.ts", import.meta.url), "utf8");
+const agentModelsSubstituteCommandSource = readFileSync(new URL("./commands/agent-models-substitute.ts", import.meta.url), "utf8");
 
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
 const specialist = (key: string, status: "idle" | "running") => ({ key, name: key[0].toUpperCase() + key.slice(1), status, model: "model", backend: "native" as const, contextPct: 0, contextTokens: 0, elapsed: 0, toolCount: 0, lastWork: "available", hasTimeline: true });
@@ -87,13 +90,19 @@ test("task lifecycle closes at agent_end and task-reset mutations are auditable"
 test("shortcuts, command, compact toggle, footer, and pool use the separate fleet flow", () => {
 	// A12 — each named route/key/hint individually
 	assert.match(source, /registerShortcut\("alt\+a"[\s\S]*?void openFleetDashboard\(ctx\)/);
-	assert.match(source, /pi\.registerCommand\("af-agents-list"[\s\S]*?await openFleetDashboard\(_ctx\)/);
-	assert.match(source, /registerCommand\("af-agent-models-substitute"[\s\S]*?tokens\.length === 0[\s\S]*?openFleetDashboard\(ctx, true\)/);
+	assert.match(source, /registerAgentsList\(pi, commandCtx\)/);
+	assert.match(agentsListCommandSource, /registerCommand\("af-agents-list"[\s\S]*?handleAgentsList/);
+	assert.match(source, /handleAgentsList: async \(_args, _ctx\) => \{[\s\S]*?await openFleetDashboard\(_ctx\)/);
+	assert.match(source, /registerAgentModelsSubstitute\(pi, commandCtx\)/);
+	assert.match(agentModelsSubstituteCommandSource, /registerCommand\("af-agent-models-substitute"[\s\S]*?getSubstituteCompletions[\s\S]*?handleAgentModelsSubstitute/);
+	assert.match(source, /handleAgentModelsSubstitute: async \(args, ctx\) => \{[\s\S]*?tokens\.length === 0[\s\S]*?openFleetDashboard\(ctx, true\)/);
 	assert.match(source, /registerShortcut\("alt\+m"[\s\S]*?void openWorkModePicker\(ctx\)/);
 	assert.match(source, /registerShortcut\("alt\+shift\+a"[\s\S]*?viewMode = viewMode === "compact" \? "off" : "compact"/);
 	assert.ok(source.includes('registerShortcut("alt+\\\\",'));
 	assert.match(source, /registerShortcut\("alt\+\\\\"[\s\S]*?await openFleetDetail\(row, ctx\)/);
-	assert.match(source, /pi\.registerCommand\("af-zoom"[\s\S]*?const rowKey = \(rid != null \? `r\$\{rid\}` : arg\)\.toLowerCase\(\)[\s\S]*?r\.key\.toLowerCase\(\) === rowKey/);
+	assert.match(source, /registerZoom\(pi, commandCtx\)/);
+	assert.match(zoomCommandSource, /registerCommand\("af-zoom"[\s\S]*?getZoomCompletions[\s\S]*?handleZoom/);
+	assert.match(source, /handleZoom: async \(args, ctx\) => \{[\s\S]*?const rowKey = \(rid != null \? `r\$\{rid\}` : arg\)\.toLowerCase\(\)[\s\S]*?r\.key\.toLowerCase\(\) === rowKey/);
 	assert.match(source, /function findDelegationChild[\s\S]*?candidate\.id\.toLowerCase\(\) === lower/);
 	assert.match(source, /const hint = theme\.fg\("dim", composeFleetFooterHint\(viewMode, compactWorkMode\(workMode\)\)\);/);
 	assert.doesNotMatch(source, /theme\.fg\("muted", "Alt\+A "\) \+ theme\.fg\("dim", composeFleetFooterHint/);

@@ -5,18 +5,71 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const workModeCommandSource = readFileSync(new URL("./commands/work-mode.ts", import.meta.url), "utf8");
+const handoffCommandSource = readFileSync(new URL("./commands/handoff.ts", import.meta.url), "utf8");
+const compoundCommandSource = readFileSync(new URL("./commands/compound.ts", import.meta.url), "utf8");
+const commandContextSource = readFileSync(new URL("./commands/context.ts", import.meta.url), "utf8");
+const agentsTeamCommandSource = readFileSync(new URL("./commands/agents-team.ts", import.meta.url), "utf8");
+const agentsSaveCommandSource = readFileSync(new URL("./commands/agents-save.ts", import.meta.url), "utf8");
+const agentsRestartCommandSource = readFileSync(new URL("./commands/agents-restart.ts", import.meta.url), "utf8");
+const agentsCommandSources = [
+	"agents-add", "agents-drop", "agents-kill", "agents-restart",
+].map(name => readFileSync(new URL(`./commands/${name}.ts`, import.meta.url), "utf8"));
+const commandModules = [
+	["agents-team", "registerAgentsTeam"],
+	["agents-list", "registerAgentsList"],
+	["agents-history", "registerAgentsHistory"],
+	["context-command", "registerContextCommand"],
+	["work-mode", "registerWorkMode"],
+	["watchdog", "registerWatchdog"],
+	["agents-add", "registerAgentsAdd"],
+	["agents-drop", "registerAgentsDrop"],
+	["agents-save", "registerAgentsSave"],
+	["hub-report", "registerHubReport"],
+	["zoom", "registerZoom"],
+	["agent-model", "registerAgentModel"],
+	["agent-model-thinking", "registerAgentModelThinking"],
+	["models", "registerModels"],
+	["agent-models-substitute", "registerAgentModelsSubstitute"],
+	["dispatch-policy", "registerDispatchPolicy"],
+	["agents-kill", "registerAgentsKill"],
+	["agents-restart", "registerAgentsRestart"],
+	["coms", "registerComs"],
+	["handoff", "registerHandoff"],
+	["compound", "registerCompound"],
+] as const;
 const comsCoreSource = readFileSync(new URL("../lib/coms-core.ts", import.meta.url), "utf8");
 const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
+test("wiring contract: all 21 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 21);
+	for (const [file, registrar] of commandModules) {
+		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
+		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));
+		assert.equal((commandSource.match(/registerCommand\("af-/g) ?? []).length, 1, file);
+	}
+	assert.equal((indexSource.match(/registerCommand\("af-/g) ?? []).length, 0);
+	const flatCalls = commandModules.map(([, registrar]) => `${registrar}\\(pi, commandCtx\\);`).join("\\s*");
+	assert.match(indexSource, new RegExp(flatCalls));
+});
+
 test("wiring contract: Hub registers one work-mode command without conditional commands", () => {
 	assert.match(indexSource, /registerFlag\("work-mode"/);
-	assert.equal((indexSource.match(/registerCommand\("af-work-mode"/g) ?? []).length, 1);
+	assert.match(indexSource, /registerWorkMode\(pi, commandCtx\)/);
+	assert.equal((workModeCommandSource.match(/registerCommand\("af-work-mode"/g) ?? []).length, 1);
+	assert.match(workModeCommandSource, /registerWorkMode\(pi: ExtensionAPI, commandCtx: CommandContext\)/);
+	assert.match(commandContextSource, /setWidgetContext\(ctx: ExtensionContext\)/);
+	assert.match(commandContextSource, /getWorkModeStatusText\(\): string/);
 	for (const removed of ["af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
 		assert.doesNotMatch(indexSource, new RegExp(`registerCommand\\("${removed}"`));
 	}
-	for (const retained of ["af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart", "af-handoff"]) {
-		assert.match(indexSource, new RegExp(`registerCommand\\("${retained}"`));
+	for (const retained of ["af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart"]) {
+		assert.ok(agentsCommandSources.some(source => source.includes(`registerCommand(\"${retained}\"`)), `${retained} is registered`);
 	}
+	assert.match(indexSource, /registerHandoff\(pi, commandCtx\)/);
+	assert.match(handoffCommandSource, /registerCommand\("af-handoff"[\s\S]*?getComsPeerCompletions[\s\S]*?handleHandoff/);
+	assert.match(indexSource, /registerCompound\(pi, commandCtx\)/);
+	assert.match(compoundCommandSource, /registerCommand\("af-compound"[\s\S]*?handleCompound/);
 	assert.doesNotMatch(indexSource, /if \(workMode === [^)]+\)\s*\{\s*pi\.registerCommand/);
 });
 
@@ -31,15 +84,15 @@ test("wiring contract: Hub restores named rosters and gates stale orchestrator s
 	assert.match(indexSource, /resolveSessionRoster\(\{/);
 	assert.match(indexSource, /hasExplicitRoster: startupRoster\.source === "explicit"/);
 	assert.match(indexSource, /appendEntry\(NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState\(/);
-	const saveCommand = indexSource.match(/registerCommand\("af-agents-save"[\s\S]*?(?=\n\tpi\.registerCommand\("af-hub-report")/);
-	assert.ok(saveCommand, "save-team command is registered");
-	assert.match(saveCommand[0], /activeTeamName = name;[\s\S]*?persistActiveRoster\(\)/);
+	assert.match(indexSource, /registerAgentsSave\(pi, commandCtx\)/);
+	assert.match(agentsSaveCommandSource, /registerCommand\("af-agents-save"[\s\S]*?handleAgentsSave/);
+	assert.match(indexSource, /handleAgentsSave: async \(args, ctx\) => \{[\s\S]*?activeTeamName = name;[\s\S]*?persistActiveRoster\(\)/);
 	assert.match(indexSource, /rosterRecoveryRequired[\s\S]*?return \{ action: "handled" as const \}/);
 	assert.doesNotMatch(indexSource, /registerCommand\("af-persona"/);
 	assert.doesNotMatch(indexSource, /personaGateEnabled|pickDispatcherPersona/);
-	const teamCommand = indexSource.match(/registerCommand\("af-agents-team"[\s\S]*?(?=\n\tlet fleetShowFinished)/);
-	assert.ok(teamCommand, "team-selection command is registered");
-	assert.match(teamCommand[0], /rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
+	assert.match(indexSource, /registerAgentsTeam\(pi, commandCtx\)/);
+	assert.match(agentsTeamCommandSource, /registerCommand\("af-agents-team"[\s\S]*?handleAgentsTeam/);
+	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
 	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator workMode requires --agent-team/);
 });
 
@@ -59,7 +112,7 @@ test("wiring contract: Hub applies work mode tools at startup and live switches"
 	assert.match(indexSource, /resolveWorkModeTools\(/);
 	assert.match(indexSource, /async function applyWorkModeSelection\(/);
 	assert.match(indexSource, /async function openWorkModePicker\(/);
-	assert.match(indexSource, /registerCommand\("af-work-mode"[\s\S]*?openWorkModePicker/);
+	assert.match(workModeCommandSource, /registerCommand\("af-work-mode"[\s\S]*?openWorkModePicker/);
 	assert.match(indexSource, /registerShortcut\("alt\+m"[\s\S]*?openWorkModePicker/);
 	assert.doesNotMatch(indexSource, /registerCommand\("af-hub-mode"/);
 });
@@ -93,9 +146,7 @@ test("high-context startup and input defer prompts until compaction completes", 
 		"any observed compaction success clears a stale pending request");
 	assert.match(indexSource, /if \(replayingDeferredRecoveryInput && modelWorkBlockedByRosterRecovery\(ctx\)\)[\s\S]*?deferredRecoveryInputs\.push/,
 		"recovery replay is retained again when a roster gate is still active");
-	const teamRecovery = indexSource.match(/registerCommand\("af-agents-team"[\s\S]*?(?=\n\tlet fleetShowFinished)/);
-	assert.ok(teamRecovery, "team recovery command is registered");
-	assert.match(teamRecovery[0], /rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/,
+	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/,
 		"team recovery clears the roster gate before replaying retained input");
 });
 
@@ -104,11 +155,12 @@ test("stale-roster gate covers every command and dashboard path that can start m
 	assert.match(indexSource, /acceptInbound: \(\) => currentCtx && modelWorkBlockedByRosterRecovery\(currentCtx\)/);
 	const guardedBlocks = [
 		/function restartFleetRow\([\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/registerCommand\("af-agents-restart"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/registerCommand\("af-handoff"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/registerCommand\("af-compound"[\s\S]*?handler: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
+		/handleAgentsRestart: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
+		/handleHandoff: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
+		/handleCompound: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 	];
 	for (const pattern of guardedBlocks) assert.match(indexSource, pattern);
+	assert.match(agentsRestartCommandSource, /registerCommand\("af-agents-restart"[\s\S]*?handleAgentsRestart/);
 });
 
 test("same-turn lifecycle has one pre-model surface assembly point for normal and resumed remote turns", () => {
