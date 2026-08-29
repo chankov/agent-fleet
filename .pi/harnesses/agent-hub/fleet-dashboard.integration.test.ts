@@ -74,7 +74,11 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(gridSource, /const cols = gridColumnsForItems\(deps\.getGridCols\(\), states\.length\);/, "research rendering defensively rejects zero columns");
 	assert.match(gridSource, /const grid = renderCardGrid\(/, "research cards use the tested non-empty grid renderer");
 	assert.equal(((source + gridSource).match(/compactWidgetsEnabled\(/g) ?? []).length, 5, "all production compact-widget guards use the shared predicate");
-	assert.match(gridSource, /function shortModel\(model: string \| undefined\)/, "grid keeps its local model formatter");
+	assert.doesNotMatch(source, /declare const (?:shortModel|thinkingSuffix|modelWithThinking)/, "runtime formatters cannot be ambient-only declarations");
+	assert.match(source, /function shortModel\(model: string \| undefined\)[\s\S]*?function thinkingSuffix\(rawThinking: string \| undefined\)[\s\S]*?function modelWithThinking\(def: AgentDef\)/, "composition root owns the shared model presentation helpers");
+	assert.match(source, /createGridUI\(\{[\s\S]*?displayName, resolvedThinking, shortModel, thinkingSuffix, modelWithThinking,/, "grid receives the shared runtime helpers explicitly");
+	assert.doesNotMatch(gridSource, /function (?:shortModel|thinkingSuffix|modelWithThinking)\(/, "grid does not duplicate shared presentation semantics");
+	assert.match(gridSource, /deps\.shortModel\([\s\S]*?deps\.thinkingSuffix\([\s\S]*?deps\.modelWithThinking\(/, "extracted grid calls its injected formatters");
 	assert.match(source, /import \{[\s\S]*?abbreviateModel,[\s\S]*?\} from "\.\.\/lib\/coms-core\.ts"/, "coms model abbreviation remains separate");
 	// confirmation window is owned by the pure controller
 	const dash = readFileSync(new URL("../lib/fleet-dashboard-view.ts", import.meta.url), "utf8");

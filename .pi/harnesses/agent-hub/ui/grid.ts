@@ -18,10 +18,10 @@ export interface GridUIContext {
 	isRunningWidgetInstalled(): boolean;
 	markRunningWidgetInstalled(): void;
 	displayName(name: string): string;
-	resolvedModel(def: GridAgentDef): string | undefined;
 	resolvedThinking(def: GridAgentDef): string | undefined;
-	resolveThinkingLevel(raw?: string): string;
-	abbrevThinking(level: string): string;
+	shortModel(model: string | undefined): string;
+	thinkingSuffix(rawThinking: string | undefined): string;
+	modelWithThinking(def: GridAgentDef): string;
 	contextWarnThreshold: number;
 }
 
@@ -33,21 +33,6 @@ function truncateCardText(text: string, maxWidth: number): string {
 	if (visibleWidth(text) <= width) return text;
 	if (width <= 3) return ".".repeat(width);
 	return `${truncateToWidth(text, width - 3)}...`;
-}
-
-function shortModel(model: string | undefined): string {
-	return model ? model.split("/").pop()! : "default";
-}
-
-// A " (code)" thinking badge for display, or "" when the level is off.
-function thinkingSuffix(rawThinking: string | undefined, deps: GridUIContext): string {
-	const code = deps.abbrevThinking(deps.resolveThinkingLevel(rawThinking));
-	return code ? ` (${code})` : "";
-}
-
-// The model + thinking badge a persona would dispatch with: "gpt-5.5 (xh)".
-function modelWithThinking(def: GridAgentDef, deps: GridUIContext): string {
-	return shortModel(deps.resolvedModel(def)) + thinkingSuffix(deps.resolvedThinking(def), deps);
 }
 
 function contextPressure(contextPct: number, deps: GridUIContext): boolean {
@@ -172,7 +157,7 @@ function renderResearchCard(state: GridResearchState, colWidth: number, theme: a
 	const headerLine = renderCardHeaderLine(
 		`r${state.id} ${label}${turnStr}`,
 		state.contextPct,
-		shortModel(state.model) + thinkingSuffix(deps.resolvedThinking(state.def), deps),
+		deps.shortModel(state.model) + deps.thinkingSuffix(deps.resolvedThinking(state.def)),
 		status.text,
 		status.color,
 		w,
@@ -276,7 +261,7 @@ export function createGridUI(deps: GridUIContext) {
 					name: deps.displayName(a.def.name),
 					ctx: a.contextPct,
 					ctxWarn: contextPressure(a.contextPct, deps),
-					model: a.lastBackend === "coms" ? `⇄coms ${shortModel(a.comsPeerModel)}` : modelWithThinking(a.def, deps),
+					model: a.lastBackend === "coms" ? `⇄coms ${deps.shortModel(a.comsPeerModel)}` : deps.modelWithThinking(a.def),
 					status: cardStatus(a.status, a.elapsed),
 				})),
 			...Array.from(deps.getResearchStates().values())
@@ -286,7 +271,7 @@ export function createGridUI(deps: GridUIContext) {
 					name: `r${s.id} ${s.persona ? deps.displayName(s.def.name) : "research"}`,
 					ctx: s.contextPct,
 					ctxWarn: false,
-					model: shortModel(s.model) + thinkingSuffix(deps.resolvedThinking(s.def), deps),
+					model: deps.shortModel(s.model) + deps.thinkingSuffix(deps.resolvedThinking(s.def)),
 					status: cardStatus(s.status, s.elapsed),
 				})),
 		];

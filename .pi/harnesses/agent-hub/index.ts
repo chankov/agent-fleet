@@ -932,8 +932,6 @@ function scanAgentDirs(cwd: string): AgentDef[] {
 
 // Persona names whose read-only tools receive the research watchdog policy.
 const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
-// Existing native fallback-status formatting resolves this lazily inside its callback.
-declare const shortModel: (model: string) => string;
 
 // The delegate extension injected into specialists that declare `subagents:`.
 // It lives next to this file; fall back to the conventional project path when
@@ -1941,6 +1939,25 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		return { ok: true, message: `${displayName(state.def.name)} dropped from the active team${fileNote}` };
 	}
 
+	// ── Shared model presentation ─────────────────
+	// These formatters serve the extracted grid and the remaining composition-root
+	// call sites. Keep one implementation so cards, fleet rows, menus, fallback
+	// notices, and the footer retain the same presentation semantics.
+	function shortModel(model: string | undefined): string {
+		return model ? model.split("/").pop()! : "default";
+	}
+
+	// A " (code)" thinking badge for display, or "" when the level is off.
+	function thinkingSuffix(rawThinking: string | undefined): string {
+		const code = abbrevThinking(resolveThinkingLevel(rawThinking));
+		return code ? ` (${code})` : "";
+	}
+
+	// The model + thinking badge a persona would dispatch with: "gpt-5.5 (xh)".
+	function modelWithThinking(def: AgentDef): string {
+		return shortModel(resolvedModel(def)) + thinkingSuffix(resolvedThinking(def));
+	}
+
 	// ── Grid Rendering ───────────────────────────
 	const gridUI = createGridUI({
 		getWidgetContext: () => widgetCtx,
@@ -1952,7 +1969,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		setMarkedAgent: value => { markedAgent = value; },
 		isRunningWidgetInstalled: () => runningWidgetInstalled,
 		markRunningWidgetInstalled: () => { runningWidgetInstalled = true; },
-		displayName, resolvedModel, resolvedThinking, resolveThinkingLevel, abbrevThinking,
+		displayName, resolvedThinking, shortModel, thinkingSuffix, modelWithThinking,
 		contextWarnThreshold: CONTEXT_WARN_THRESHOLD,
 	});
 	const { updateWidget, updateResearchWidget, switchableAgents, clampMarker } = gridUI;
