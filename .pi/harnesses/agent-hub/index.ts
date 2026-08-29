@@ -68,7 +68,7 @@ import {
 	type AutocompleteItem, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
-import { spawnPiAgent, spawnPiAgentWithModelFallback, killPiTree, type PiRunControl, type SpawnPiAgentCallbacks, type SpawnPiAgentOptions, type Termination } from "./spawn.ts";
+import { spawnPiAgent, spawnPiAgentWithModelFallback, killPiTree, type Termination } from "./spawn.ts";
 import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "./research-watchdog.ts";
 import { composeFleetFooterHint, renderHubFooterLeft } from "./footer.ts";
 import { HARNESS_VERSION, registerVersionStatus } from "./version.ts";
@@ -86,12 +86,12 @@ import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
-import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
-import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, closeTaskClock, contextOverflowDiagnostic, createTaskClock, isReviewPersona, openTaskClock, remainingTaskResearch, resetTaskClock, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, shouldRecycleSession, taskClockElapsedMs } from "./run-budget.js";
+import { applyModelOverride, clampDelegateDepth, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, blockingFindingCap, budgetStatusLine, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, closeTaskClock, createTaskClock, isReviewPersona, openTaskClock, remainingTaskResearch, resetTaskClock, resolveTaskBudget, resolveTurnBudget, reviewBudgetClause, reviewRoundCap, taskClockElapsedMs } from "./run-budget.js";
 import { buildBudgetContinuationAudit, buildHubAuditIdentity, buildTaskResetAudit } from "./hub-state-audit.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
-import { checkExternalBlockerGate, externalBlockedProtocol, extractExternalBlockers } from "./external-blocker.js";
+import { checkExternalBlockerGate, extractExternalBlockers } from "./external-blocker.js";
 import { DEFAULT_RUN_HISTORY_KEEP, appendRunIndex, buildRunMeta, makeRunId, normalizeRunHistoryKeep, pruneRunDirs, RUN_INDEX_FILENAME, RUNS_DIRNAME } from "./run-namespace.js";
 import { MAX_OPEN_ASSERTIONS, validateAssertionBatch } from "./assertion-ledger.js";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
@@ -101,12 +101,12 @@ import {
 	peerReadyVerdict,
 	unaddressedPeerSweep,
 } from "../lib/spawned-peers.js";
-import { contextPct, estimatePromptTokens, overWindowDiagnostic, resolveContextWindow, shouldRecycleBeforeSpawn } from "./context-window.js";
-import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, buildJudgePrompt, createDriftMonitor, hubOwnedScopeGlobs, normalizeWatchdogSetting, parseJudgeVerdict, resolveWatchdogActive } from "./drift-watchdog.js";
-import { forceQuarantineSession, isCorruptSessionExit, quarantineIfUnusable } from "./session-health.js";
-import { EXTRACTION_DEADLINE_MS, EXTRACTION_MODEL, buildExtractionPrompt, extractionSessionName, shouldExtractReturn } from "./return-extract.js";
+import { contextPct, estimatePromptTokens, resolveContextWindow } from "./context-window.js";
+import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, normalizeWatchdogSetting, resolveWatchdogActive } from "./drift-watchdog.js";
+import { quarantineIfUnusable } from "./session-health.js";
+import { shouldExtractReturn } from "./return-extract.js";
 import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "./artifacts.js";
-import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn, parseStructuredReturn } from "./return-contract.js";
+import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "./return-contract.js";
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
@@ -170,10 +170,15 @@ import {
 	type RegistryEntry as ComsRegistryEntry,
 	TIMEOUT_MS,
 } from "../lib/coms-core.ts";
-import { FULLSCREEN_OVERLAY, bodyRows, clampScroll, fitToHeight } from "../lib/fleet-overlay.ts";
+import { FULLSCREEN_OVERLAY, bodyRows, clampScroll } from "../lib/fleet-overlay.ts";
 import { createPanelResources } from "../lib/fleet-panel.ts";
+import { createGridUI } from "./ui/grid.ts";
+import { openZoom, type TimelineEntry, type Zoomable } from "./ui/zoom.ts";
+import { openHistory } from "./ui/history.ts";
+import { createExecutionHistoryStore, type HistoryEntry } from "./ui/history-store.ts";
+import { createDispatchComs, createDispatchNative, createDispatchObservability, type DelegationChild } from "./dispatch-core.ts";
 import { buildFleetRows, fleetTiming, summarise, unionMs, type DelegateInput, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput } from "../lib/fleet-read-model.ts";
-import { attachFleetDashboardTicker, compactWidgetsEnabled, gridColumnsForItems, gridColumnsForSize, liveTimeline, renderCardGrid, resolveFleetKill, resolveFleetRestart } from "../lib/fleet-dashboard-ops.ts";
+import { attachFleetDashboardTicker, compactWidgetsEnabled, gridColumnsForSize, liveTimeline, resolveFleetKill, resolveFleetRestart } from "../lib/fleet-dashboard-ops.ts";
 import { dashboardTransition, renderFleetDashboard, FLEET_CHROME_ROWS, type DashboardConfirm } from "../lib/fleet-dashboard-view.ts";
 import { detailContent, detailEntryOffsets, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker, DETAIL_CHROME_ROWS, type FleetDetailKey, type FleetModelChoice } from "../lib/fleet-detail-view.ts";
 import { createFleetTranscriptStore, readFleetTranscript, readFleetTranscriptBefore, readFleetTranscriptTail, redactTimelineEvent, type FleetTranscriptRecord, type FleetTranscriptStore } from "../lib/fleet-transcript-store.ts";
@@ -228,46 +233,6 @@ interface AgentDef {
 	thinking?: string;
 	systemPrompt: string;
 	file: string;
-}
-
-// One entry in an agent's zoom timeline (Phase 3). Consecutive text/thinking
-// deltas are coalesced into the trailing entry of the same kind; each tool call
-// is its own entry.
-interface TimelineEntry {
-	kind: "text" | "tool" | "thinking" | "tool-start" | "tool-result";
-	title: string;
-	content: string;
-	timestamp: number;
-	callId?: string;
-	status?: "success" | "error";
-	durationMs?: number;
-}
-
-// A delegate child (or grandchild) of a dispatched specialist, reconstructed
-// from the JSONL events delegate.ts appends to the dispatch's delegation dir.
-// Satisfies Zoomable (def/status/timeline/zoomRender) so /af-zoom <child-id>
-// opens the same overlay specialists get; `parent` is "root" for direct
-// children or another child's id for sub-sub-agents.
-interface DelegationChild {
-	id: string;
-	parent: string;
-	role: string;
-	model: string;
-	tools: string;
-	def: { name: string };
-	status: "running" | "done" | "error";
-	toolCount: number;
-	tokens: number;
-	lastWork: string;
-	startedAt: number;
-	elapsed: number;
-	timeline: TimelineEntry[];
-	transcriptStore?: FleetTranscriptStore;
-	zoomRender?: (force?: boolean) => void;
-	// The /af-agents-history node for this delegate child, set on its spawn event so
-	// the exit event can close it. Lets a delegating specialist's row subtract the
-	// time it spent awaiting its own sub-sub-agents.
-	histEntry?: HistoryEntry;
 }
 
 interface InputArtifactPreview {
@@ -366,47 +331,6 @@ interface ResearchState {
 	transcriptStore?: FleetTranscriptStore;
 	zoomRender?: (force?: boolean) => void;
 	histEntry?: HistoryEntry;
-}
-
-// The subset of state `/af-zoom` needs. Both AgentState (standing team) and ResearchState
-// (read-only helpers) satisfy it, so the same ZoomUI overlay renders either one.
-interface Zoomable {
-	def: { name: string };
-	status: string;
-	timeline: TimelineEntry[];
-	transcriptStore?: FleetTranscriptStore;
-	zoomRender?: (force?: boolean) => void;
-}
-
-// One node in the /af-agents-history tree: an orchestrator (dispatcher) turn, a
-// dispatched specialist, a research helper, or a delegate sub-sub-agent. `parent`
-// links a node to the one that launched it (null = top level — an orchestrator
-// turn, or a turn-less slash-command restart). `endedAt` is null while the node is still
-// running, so the overlay can tick its duration live. Parallelism is derived at
-// render time from overlapping [startedAt, endedAt] ranges among siblings.
-type HistoryKind = "orchestrator" | "agent" | "research" | "delegate";
-interface HistoryEntry {
-	kind: HistoryKind;
-	name: string;
-	startedAt: number;
-	endedAt: number | null;
-	status: "running" | "done" | "error" | "idle";
-	parent: HistoryEntry | null;
-	// Extra "awaiting, not working" intervals to subtract from this node's real work
-	// on top of its children — currently the time a dispatcher turn spent blocked on
-	// `ask_user` (the human is away, the model isn't working). Orchestrator-only.
-	awaitIntervals?: Array<[number, number]>;
-}
-
-// Format a millisecond duration the way /af-agents-history shows it: plain seconds
-// under a minute ("42sec"), m:ss above it ("10:20min" for 620s). Used for every
-// per-agent row and the footer total.
-function fmtDuration(ms: number): string {
-	const totalSec = Math.max(0, Math.round(ms / 1000));
-	if (totalSec < 60) return `${totalSec}sec`;
-	const m = Math.floor(totalSec / 60);
-	const s = totalSec % 60;
-	return `${m}:${String(s).padStart(2, "0")}min`;
 }
 
 // ── Display Name Helper ──────────────────────────
@@ -964,7 +888,6 @@ const CONTEXT_WARN_THRESHOLD = 70;
 
 // Conservative delegation budgets: one delegate layer only, with four total
 // child spawns reserved tree-wide for a dispatch.
-const DELEGATE_CALL_BUDGET = DELEGATE_TREE_SPAWN_BUDGET;
 
 // System prompt for an ad-hoc (anonymous) research helper — one with no persona file.
 const ANON_RESEARCH_PROMPT = `# Research Helper
@@ -977,360 +900,6 @@ well-cited findings the rest of the team can act on.`;
 function parseResearchHandle(arg: string): number | null {
 	const m = arg.trim().match(/^#?r?(\d+)$/i);
 	return m ? parseInt(m[1], 10) : null;
-}
-
-const ZOOM_CHROME_ROWS = 5;
-
-class ZoomUI {
-	private selectedIndex = 0;
-	private expandedIndex: number | null = null;
-	private scrollOffset = 0;
-	private followTail = true;
-	private autoExpandedTailIndex: number | null = null;
-
-	constructor(
-		private state: Zoomable,
-		private onDone: () => void,
-		private notify: (message: string, type?: "info" | "success" | "warning" | "error") => void,
-	) {}
-
-	handleInput(data: string, tui: any): void {
-		const n = this.state.timeline.length;
-		if (matchesKey(data, Key.up)) {
-			this.followTail = false;
-			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-		} else if (matchesKey(data, Key.down)) {
-			this.selectedIndex = Math.min(n - 1, this.selectedIndex + 1);
-			if (this.selectedIndex >= n - 1) this.followTail = true;
-		} else if (matchesKey(data, Key.enter)) {
-			this.expandedIndex = this.expandedIndex === this.selectedIndex ? null : this.selectedIndex;
-			if (this.followTail && this.selectedIndex >= n - 1) this.autoExpandedTailIndex = this.selectedIndex;
-		} else if (matchesKey(data, Key.space) || matchesKey(data, Key.ctrl("c"))) {
-			void this.copySelected();
-		} else if (matchesKey(data, Key.escape) || matchesKey(data, "q") || matchesKey(data, Key.shift("q"))) {
-			this.onDone();
-			return;
-		}
-		tui.requestRender();
-	}
-
-	private async copySelected(): Promise<void> {
-		const item = this.state.timeline[this.selectedIndex];
-		if (!item) return;
-		try {
-			await copyToClipboard(item.content);
-			this.notify("Copied selected zoom row", "success");
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			this.notify(`Failed to copy selected zoom row: ${message}`, "error");
-		}
-	}
-
-	// Render one timeline entry (card + trailing spacer) to its exact lines, so the
-	// scroll math and viewport capping can use real heights — an expanded markdown
-	// entry is many lines, a collapsed one is two. Mirrors the old inline card build.
-	private renderItemBlock(item: TimelineEntry, absoluteIndex: number, width: number, theme: any, mdTheme: any): string[] {
-		const isSelected = absoluteIndex === this.selectedIndex;
-		const isExpanded = isSelected && absoluteIndex === this.expandedIndex;
-
-		const cardBox = new Box(1, 0, (s: string) => isSelected ? theme.bg("selectedBg", s) : s);
-
-		let icon = "○", color = "dim";
-		if (item.kind === "text") { icon = "🤖"; color = "accent"; }
-		else if (item.kind === "tool") { icon = "🛠️"; color = "warning"; }
-		else if (item.kind === "thinking") { icon = "💭"; color = "dim"; }
-
-		cardBox.addChild(new Text(`${theme.fg(color, icon)} ${theme.bold(item.title)}`, 0, 0));
-
-		if (isExpanded) {
-			cardBox.addChild(new Spacer(1));
-			cardBox.addChild(new Markdown(item.content || "(empty)", 2, 0, mdTheme));
-		} else {
-			const flat = (item.content || "").replace(/\s+/g, " ").trim();
-			const preview = truncateToWidth(flat, Math.max(0, width - 8));
-			cardBox.addChild(new Text(theme.fg("dim", "  " + (preview || "…")), 0, 0));
-		}
-
-		const block = new Container();
-		block.addChild(cardBox);
-		block.addChild(new Spacer(1));
-		return block.render(width);
-	}
-
-	// Height-aware scroll: scroll the viewport so the selected entry's FULL height
-	// fits in the content budget. Entries above the selection may be tall (expanded
-	// markdown), so a per-entry-is-one-line assumption clipped the last/expanded
-	// entry below the fold — this counts real line heights instead.
-	private ensureVisible(heights: number[], contentHeight: number) {
-		if (this.selectedIndex < this.scrollOffset) this.scrollOffset = this.selectedIndex;
-		const sumToSelected = (from: number): number => {
-			let s = 0;
-			for (let i = from; i <= this.selectedIndex; i++) s += heights[i] ?? 0;
-			return s;
-		};
-		// Push the top of the window down until the selected entry fits (or it is
-		// the only entry shown, in which case the overlay clips a too-tall entry).
-		while (this.scrollOffset < this.selectedIndex && sumToSelected(this.scrollOffset) > contentHeight) {
-			this.scrollOffset++;
-		}
-		if (this.scrollOffset < 0) this.scrollOffset = 0;
-	}
-
-	render(width: number, contentHeight: number, theme: any): string[] {
-		const items = this.state.timeline;
-		// Live tail-follow: keep the selection pinned to the newest entry as the
-		// stream grows, until the user scrolls up. Auto-expand each new tail entry
-		// once so the latest message opens full, while still allowing Enter to collapse it.
-		if (this.followTail && items.length > 0) {
-			this.selectedIndex = items.length - 1;
-			if (this.autoExpandedTailIndex !== this.selectedIndex) {
-				this.expandedIndex = this.selectedIndex;
-				this.autoExpandedTailIndex = this.selectedIndex;
-			}
-		}
-		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, items.length - 1));
-
-		const mdTheme = getPiMdTheme();
-		const st = this.state.status;
-		const statusColor = st === "error" ? "error" : st === "running" ? "warning" : "success";
-
-		// Chrome (border + header + footer) is rendered separately from the body so
-		// the body can be windowed to an exact line budget — header and footer always
-		// stay visible no matter how tall the expanded entries are.
-		const top = new Container();
-		top.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-		top.addChild(new Text(
-			`${theme.fg("accent", theme.bold(" ZOOM"))} ${theme.fg("dim", "|")} ${theme.bold(displayName(this.state.def.name))} ${theme.fg("dim", "|")} ${theme.fg(statusColor, st)} ${theme.fg("dim", "|")} ${theme.fg("success", String(items.length))} events`,
-			1, 0,
-		));
-		top.addChild(new Spacer(1));
-		const topLines = top.render(width);
-
-		const bottom = new Container();
-		bottom.addChild(new Text(theme.fg("dim", " ↑/↓ Navigate • Enter Collapse/Expand • Space/Ctrl+C Copy • Q/Esc Close • live"), 1, 0));
-		bottom.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-		const bottomLines = bottom.render(width);
-		const bodyHeight = Math.max(0, contentHeight + ZOOM_CHROME_ROWS - topLines.length - bottomLines.length);
-
-		let bodyLines: string[];
-		if (items.length === 0) {
-			bodyLines = [theme.fg("dim", "  No activity captured yet.")];
-		} else {
-			const blocks = items.map((item, i) => this.renderItemBlock(item, i, width, theme, mdTheme));
-			const heights = blocks.map(b => b.length);
-			this.ensureVisible(heights, bodyHeight);
-			bodyLines = [];
-			for (let i = this.scrollOffset; i < blocks.length; i++) {
-				// Always show the first windowed entry (the selected one fits by
-				// construction); stop before a later entry would overflow the budget.
-				if (bodyLines.length > 0 && bodyLines.length + heights[i] > bodyHeight) break;
-				bodyLines.push(...blocks[i]);
-			}
-		}
-
-		return fitToHeight([...topLines, ...fitToHeight(bodyLines, bodyHeight), ...bottomLines], contentHeight + ZOOM_CHROME_ROWS);
-	}
-}
-
-// Read-only scrollable overlay for /af-agents-history. Renders the execution log as a
-// timeline: orchestrator (dispatcher) turns at depth 0, the specialists they
-// dispatched indented beneath, and parallel siblings deeper still with a "│→"
-// connector. Every row shows a live duration; the footer carries the grand total.
-// Shares the zoom overlay's chrome (bordered header/footer, windowed body) and is
-// re-rendered on a 1s tick so running durations advance while it is open.
-const HISTORY_CHROME_ROWS = 6;
-
-class HistoryUI {
-	private scrollOffset = 0;
-	private followTail = true;
-
-	constructor(
-		private getEntries: () => HistoryEntry[],
-		private getLabel: () => string,
-		private onDone: () => void,
-	) {}
-
-	handleInput(data: string, tui: any): void {
-		if (matchesKey(data, Key.up)) {
-			this.followTail = false;
-			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-		} else if (matchesKey(data, Key.down)) {
-			this.followTail = false;
-			this.scrollOffset++;
-		} else if (matchesKey(data, "g") || matchesKey(data, Key.shift("g"))) {
-			this.followTail = true; // jump back to the live tail
-		} else if (matchesKey(data, Key.escape) || matchesKey(data, "q") || matchesKey(data, Key.shift("q"))) {
-			this.onDone();
-			return;
-		}
-		tui.requestRender();
-	}
-
-	private statusGlyph(e: HistoryEntry, theme: any): string {
-		if (e.status === "running") return theme.fg("warning", "●");
-		if (e.status === "done") return theme.fg("success", "✓");
-		if (e.status === "error") return theme.fg("error", "✗");
-		return theme.fg("dim", "⊘");
-	}
-
-	// Pad a styled left segment to the full width with a right-aligned duration.
-	// Width math uses visibleWidth (ANSI-aware); the styled string is only truncated
-	// when it would actually overflow, so colors stay intact in the common case.
-	private rowLine(styledLeft: string, dur: string, width: number, theme: any): string {
-		const budget = Math.max(0, width - dur.length - 2);
-		let left = styledLeft;
-		let w = visibleWidth(styledLeft);
-		if (w > budget) {
-			left = truncateToWidth(styledLeft, budget);
-			w = visibleWidth(left);
-		}
-		const gap = Math.max(1, width - w - dur.length - 1);
-		return ` ${left}${" ".repeat(gap)}${dur ? theme.fg("dim", dur) : ""}`;
-	}
-
-	// A node's *real work*: its own span minus the time it spent awaiting — both its
-	// children (the union of their runs) and, for a dispatcher, any `ask_user` waits
-	// (`awaitIntervals`). All clipped to the node's own window and unioned together,
-	// so overlapping awaits are never subtracted twice. A leaf with no awaits returns
-	// its full span; a dispatcher blocked on six concurrent agents (or on the human)
-	// is credited only for the time it was actually working between/around the awaits.
-	private realWorkMs(entry: HistoryEntry, kids: HistoryEntry[], now: number): number {
-		const start = entry.startedAt;
-		const end = entry.endedAt ?? now;
-		const span = end - start;
-		const intervals: Array<[number, number]> = [];
-		for (const k of kids) {
-			const s = Math.max(k.startedAt, start);
-			const e = Math.min(k.endedAt ?? now, end);
-			if (e > s) intervals.push([s, e]);
-		}
-		for (const [s0, e0] of entry.awaitIntervals ?? []) {
-			const s = Math.max(s0, start);
-			const e = Math.min(e0, end);
-			if (e > s) intervals.push([s, e]);
-		}
-		if (intervals.length === 0) return Math.max(0, span);
-		return Math.max(0, span - unionMs(intervals));
-	}
-
-	// Group entries by parent (children sorted by start time). Shared by buildRows
-	// (tree walk) and render (footer total), so the tree is built once per frame.
-	private groupByParent(entries: HistoryEntry[]): Map<HistoryEntry | null, HistoryEntry[]> {
-		const childrenOf = new Map<HistoryEntry | null, HistoryEntry[]>();
-		for (const e of entries) {
-			const arr = childrenOf.get(e.parent) ?? [];
-			arr.push(e);
-			childrenOf.set(e.parent, arr);
-		}
-		for (const arr of childrenOf.values()) arr.sort((a, b) => a.startedAt - b.startedAt);
-		return childrenOf;
-	}
-
-	// Build the display rows by walking the parent→child tree. Siblings are sorted by
-	// start time; those whose runs overlap form a "wave" and are marked parallel
-	// (a "│→" connector). Indentation tracks tree depth, so delegate sub-sub-agents
-	// nest under the specialist that spawned them.
-	private buildRows(childrenOf: Map<HistoryEntry | null, HistoryEntry[]>, width: number, theme: any, now: number): string[] {
-		// Mark parallel waves within each sibling group.
-		const parallel = new Set<HistoryEntry>();
-		for (const arr of childrenOf.values()) {
-			let waveStart = 0;
-			let waveMaxEnd = -Infinity;
-			const flush = (endIdx: number) => {
-				if (endIdx - waveStart >= 2) {
-					for (let i = waveStart; i < endIdx; i++) parallel.add(arr[i]);
-				}
-			};
-			for (let i = 0; i < arr.length; i++) {
-				const end = arr[i].endedAt ?? now;
-				if (i === waveStart) {
-					waveMaxEnd = end;
-				} else if (arr[i].startedAt < waveMaxEnd) {
-					waveMaxEnd = Math.max(waveMaxEnd, end);
-				} else {
-					flush(i);
-					waveStart = i;
-					waveMaxEnd = end;
-				}
-			}
-			flush(arr.length);
-		}
-
-		const rows: string[] = [];
-		const walk = (entry: HistoryEntry, depth: number) => {
-			const kids = childrenOf.get(entry) ?? [];
-			const dur = fmtDuration(this.realWorkMs(entry, kids, now));
-			const glyph = this.statusGlyph(entry, theme);
-			const isPar = parallel.has(entry);
-			const pad = "  ".repeat(depth);
-			const connector = isPar ? theme.fg("accent", "│→ ") : "";
-			let label: string;
-			if (entry.kind === "orchestrator") {
-				label = `${theme.bold(theme.fg("accent", entry.name))} ${theme.fg("dim", "(dispatcher)")}`;
-			} else if (entry.kind === "delegate") {
-				label = `${theme.fg("dim", entry.name)} ${theme.fg("dim", "(delegate)")}`;
-			} else {
-				label = isPar ? theme.fg("muted", entry.name) : entry.name;
-			}
-			rows.push(this.rowLine(`${pad}${connector}${glyph} ${label}`, dur, width, theme));
-			for (const child of kids) walk(child, depth + 1);
-		};
-		for (const top of childrenOf.get(null) ?? []) walk(top, 0);
-		return rows;
-	}
-
-	render(width: number, contentHeight: number, theme: any): string[] {
-		const entries = this.getEntries();
-		const now = Date.now();
-		const runningCount = entries.filter(e => e.status === "running" && e.kind !== "orchestrator").length;
-
-		const top = new Container();
-		top.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-		top.addChild(new Text(
-			`${theme.fg("accent", theme.bold(" AGENTS HISTORY"))} ${theme.fg("dim", "|")} ${theme.bold(this.getLabel())} ${theme.fg("dim", "|")} ${theme.fg("warning", String(runningCount))} running`,
-			1, 0,
-		));
-		top.addChild(new Spacer(1));
-		const topLines = top.render(width);
-
-		const childrenOf = this.groupByParent(entries);
-
-		// Footer total = the real work of everyone: the dispatched specialists' and
-		// research helpers' full runtime PLUS each dispatcher turn's own work (its span
-		// minus the time it awaited agents and the human via ask_user). Wall-clock is
-		// intentionally NOT shown — it would fold in the idle gaps between turns.
-		const runEntries = entries.filter(e => e.kind === "agent" || e.kind === "research");
-		const dispatchers = entries.filter(e => e.kind === "orchestrator");
-		let summaryLine = theme.fg("dim", " No agent activity yet.");
-		if (runEntries.length > 0 || dispatchers.length > 0) {
-			const agentMs = runEntries.reduce((n, e) => n + ((e.endedAt ?? now) - e.startedAt), 0);
-			const dispatcherMs = dispatchers.reduce((n, e) => n + this.realWorkMs(e, childrenOf.get(e) ?? [], now), 0);
-			summaryLine =
-				theme.fg("success", theme.bold(` Σ real work ${fmtDuration(agentMs + dispatcherMs)}`)) +
-				theme.fg("dim", ` · ${runEntries.length} runs  (agents ${fmtDuration(agentMs)} + dispatchers ${fmtDuration(dispatcherMs)})`);
-		}
-
-		const bottom = new Container();
-		bottom.addChild(new Text(summaryLine, 1, 0));
-		bottom.addChild(new Text(theme.fg("dim", " ↑/↓ Scroll • G Live tail • Q/Esc Close"), 1, 0));
-		bottom.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-		const bottomLines = bottom.render(width);
-
-		const rows = this.buildRows(childrenOf, width, theme, now);
-		const bodyHeight = Math.max(0, contentHeight + HISTORY_CHROME_ROWS - topLines.length - bottomLines.length);
-
-		let bodyLines: string[];
-		if (rows.length === 0) {
-			bodyLines = [theme.fg("dim", "  No dispatches yet — history fills as agents run.")];
-		} else {
-			const maxOffset = Math.max(0, rows.length - bodyHeight);
-			if (this.followTail) this.scrollOffset = maxOffset;
-			this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxOffset));
-			bodyLines = rows.slice(this.scrollOffset, this.scrollOffset + bodyHeight);
-		}
-
-		return fitToHeight([...topLines, ...fitToHeight(bodyLines, bodyHeight), ...bottomLines], contentHeight + HISTORY_CHROME_ROWS);
-	}
 }
 
 function scanAgentDirs(cwd: string): AgentDef[] {
@@ -1363,6 +932,8 @@ function scanAgentDirs(cwd: string): AgentDef[] {
 
 // Persona names whose read-only tools receive the research watchdog policy.
 const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
+// Existing native fallback-status formatting resolves this lazily inside its callback.
+declare const shortModel: (model: string) => string;
 
 // The delegate extension injected into specialists that declare `subagents:`.
 // It lives next to this file; fall back to the conventional project path when
@@ -1443,82 +1014,9 @@ export default function (pi: ExtensionAPI) {
 	let researchKeep = DEFAULT_RESEARCH_KEEP;
 
 	// ── Execution history (/af-agents-history) ──────────
-	// A tree of every dispatch: orchestrator (dispatcher) turns, the specialists they
-	// dispatch, research helpers, and delegate sub-sub-agents. Orchestrator entries
-	// are created lazily — only when a turn actually dispatches something — so
-	// chat-only turns leave no noise. Each node's displayed duration is its *real
-	// work* (its span minus the time it spent awaiting children), so a dispatcher
-	// blocked on its agents isn't double-counted. Running nodes (endedAt=null) tick
-	// live while the overlay is open via `historyRender`. Reset on session_start.
-	const executionHistory: HistoryEntry[] = [];
-	let currentOrchestratorEntry: HistoryEntry | null = null;
-	let turnActive = false;
-	let currentTurnStartedAt = 0;
-	let historyRender: (() => void) | null = null;
-	// ask_user wait tracking (so the dispatcher's real work excludes time the human
-	// was away): each ask_user call's [start, end] from the tool_execution events,
-	// keyed by tool-call id while open. Intervals that close before the turn's
-	// orchestrator entry exists are buffered here, then seeded onto it.
-	const askUserStarts = new Map<string, number>();
-	const turnAskUserIntervals: Array<[number, number]> = [];
-
-	function pushHistory(kind: HistoryKind, name: string, parent: HistoryEntry | null, startedAt: number): HistoryEntry {
-		const entry: HistoryEntry = { kind, name, startedAt, endedAt: null, status: "running", parent };
-		executionHistory.push(entry);
-		historyRender?.();
-		return entry;
-	}
-
-	// Lazily open (and return) the orchestrator entry for the active turn. Returns
-	// null outside a turn (e.g. a slash-command restart), so that helper renders as a
-	// top-level, turn-less row instead of attaching to a stale dispatcher entry.
-	function ensureOrchestratorEntry(): HistoryEntry | null {
-		if (!turnActive) return null;
-		if (!currentOrchestratorEntry) {
-			currentOrchestratorEntry = pushHistory(
-				"orchestrator",
-				"Dispatcher",
-				null,
-				currentTurnStartedAt,
-			);
-			// Carry over any ask_user waits that closed before this entry existed.
-			if (turnAskUserIntervals.length) {
-				currentOrchestratorEntry.awaitIntervals = [...turnAskUserIntervals];
-				turnAskUserIntervals.length = 0;
-			}
-		}
-		return currentOrchestratorEntry;
-	}
-
-	function historyStart(kind: "agent" | "research", name: string): HistoryEntry {
-		return pushHistory(kind, name, ensureOrchestratorEntry(), Date.now());
-	}
-
-	function historyDescendantOf(node: HistoryEntry, ancestor: HistoryEntry): boolean {
-		let p = node.parent;
-		while (p) {
-			if (p === ancestor) return true;
-			p = p.parent;
-		}
-		return false;
-	}
-
-	function historyEnd(entry: HistoryEntry, status: HistoryEntry["status"], endedAt?: number): void {
-		entry.endedAt = endedAt ?? Date.now();
-		entry.status = status;
-		// When a specialist/orchestrator ends, close any still-running descendant
-		// (e.g. a delegate child whose exit event never landed) so it stops extending
-		// and skewing the parent's real-work subtraction. Delegate ends never sweep.
-		if (entry.kind !== "delegate") {
-			for (const e of executionHistory) {
-				if (e.endedAt === null && historyDescendantOf(e, entry)) {
-					e.endedAt = entry.endedAt;
-					if (e.status === "running") e.status = status === "error" ? "error" : "done";
-				}
-			}
-		}
-		historyRender?.();
-	}
+	// The typed store owns entries and turn/ask_user bookkeeping; index.ts owns
+	// composition and wires lifecycle events to its explicit API.
+	const executionHistory = createExecutionHistoryStore();
 
 	let researchPersonas: AgentDef[] = [];
 	let allAgentDefs: AgentDef[] = [];
@@ -1668,7 +1166,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// ── Per-turn budgets (run-budget.js) ──
 	// Envelopes follow task tier. Override keys are a ceiling (min with the tier).
 	// Counters reset in before_agent_start, or after an explicit one-click
-	// continuation. currentTurnStartedAt (above) is the active-time base; ask_user
+	// continuation. executionHistory.turnStartedAt() is the active-time base; ask_user
 	// waits are subtracted.
 	let budgetOverrides: AgentTeamOverrides["budgetOverrides"] = {};
 	let turnDispatchCount = 0;
@@ -1749,13 +1247,13 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	 */
 	function taskActiveElapsedMs(now = Date.now()): number {
 		let openWait = 0;
-		for (const startedAt of askUserStarts.values()) openWait += Math.max(0, now - startedAt);
+		openWait = executionHistory.openAskUserWaitMs(now);
 		return taskClockElapsedMs(taskClock, now, openWait);
 	}
 	function turnBudgetActiveElapsedMs(now = Date.now()): number {
 		let openWait = 0;
-		for (const startedAt of askUserStarts.values()) openWait += Math.max(0, now - startedAt);
-		return turnBudgetActiveMs(currentTurnStartedAt, now, turnBudgetAskUserWaitMs, openWait);
+		openWait = executionHistory.openAskUserWaitMs(now);
+		return turnBudgetActiveMs(executionHistory.turnStartedAt(), now, turnBudgetAskUserWaitMs, openWait);
 	}
 	function armBudgetContinuation(kind: BudgetContinuationKind, reason: string): void {
 		pendingBudgetContinuation = { kind, reason };
@@ -1764,7 +1262,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	function renewTurnBudgetWindow(now = Date.now()): void {
 		turnDispatchCount = 0;
 		turnResearchCount = 0;
-		currentTurnStartedAt = now;
+		executionHistory.renewTurnStartedAt(now);
 		turnBudgetAskUserWaitMs = 0;
 		turnDispatchFingerprints.clear();
 		turnContinuationCount++;
@@ -2444,1356 +1942,122 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	}
 
 	// ── Grid Rendering ───────────────────────────
-
-	const CARD_HEIGHT = 4;
-
-	function truncateCardText(text: string, maxWidth: number): string {
-		const width = Math.max(0, maxWidth);
-		if (width === 0) return "";
-		if (visibleWidth(text) <= width) return text;
-		if (width <= 3) return ".".repeat(width);
-		return `${truncateToWidth(text, width - 3)}...`;
-	}
-
-	function shortModel(model: string | undefined): string {
-		return model ? model.split("/").pop()! : "default";
-	}
-
-	// A " (code)" thinking badge for display, or "" when the level is off.
-	function thinkingSuffix(rawThinking: string | undefined): string {
-		const code = abbrevThinking(resolveThinkingLevel(rawThinking));
-		return code ? ` (${code})` : "";
-	}
-
-	// The model + thinking badge a persona would dispatch with: "gpt-5.5 (xh)".
-	function modelWithThinking(def: AgentDef): string {
-		return shortModel(resolvedModel(def)) + thinkingSuffix(resolvedThinking(def));
-	}
-
-	function contextPressure(contextPct: number): boolean {
-		return contextPct >= CONTEXT_WARN_THRESHOLD;
-	}
-
-	function contextLabel(contextPct: number, warn = false): string {
-		return `${warn ? "⚠" : ""}${Math.ceil(contextPct)}%`;
-	}
-
-	function cardStatus(status: "idle" | "running" | "done" | "error", elapsed: number): { color: string; text: string } {
-		const color = status === "idle" ? "dim"
-			: status === "running" ? "accent"
-			: status === "done" ? "success" : "error";
-		const icon = status === "idle" ? "○"
-			: status === "running" ? "●"
-			: status === "done" ? "✓" : "✗";
-		const time = status !== "idle" ? ` ${Math.round(elapsed / 1000)}s` : "";
-		return { color, text: `${icon} ${status}${time}` };
-	}
-
-	function renderCardHeaderLine(
-		nameRaw: string,
-		contextPct: number,
-		modelRaw: string,
-		statusRaw: string,
-		statusColor: string,
-		w: number,
-		theme: any,
-		warnContext = false,
-	): string {
-		const indent = w > 0 ? " " : "";
-		const contentWidth = Math.max(0, w - visibleWidth(indent));
-		if (contentWidth === 0) return "";
-
-		const rightRaw = `${modelRaw} ${statusRaw}`;
-		const rightWidth = visibleWidth(rightRaw);
-		const renderRight = () => theme.fg("dim", `${modelRaw} `) + theme.fg(statusColor, statusRaw);
-
-		if (rightWidth === contentWidth) return indent + renderRight();
-		if (rightWidth > contentWidth) return indent + theme.fg("dim", truncateCardText(rightRaw, contentWidth));
-
-		const leftBudget = Math.max(0, contentWidth - rightWidth - 1);
-		const ctxRaw = contextLabel(contextPct, warnContext);
-		const ctxWidth = visibleWidth(ctxRaw);
-		let leftVisible = 0;
-		let leftStyled = "";
-
-		if (leftBudget >= ctxWidth) {
-			const nameBudget = Math.max(0, leftBudget - ctxWidth - 1);
-			const nameText = truncateCardText(nameRaw, nameBudget);
-			const ctxStyle = warnContext ? "warning" : "dim";
-			if (nameText) {
-				leftStyled = theme.fg("accent", theme.bold(nameText)) + theme.fg(ctxStyle, ` ${ctxRaw}`);
-				leftVisible = visibleWidth(`${nameText} ${ctxRaw}`);
-			} else {
-				leftStyled = theme.fg(ctxStyle, ctxRaw);
-				leftVisible = ctxWidth;
-			}
-		} else {
-			const ctxText = truncateCardText(ctxRaw, leftBudget);
-			leftStyled = theme.fg(warnContext ? "warning" : "dim", ctxText);
-			leftVisible = visibleWidth(ctxText);
-		}
-
-		const gap = " ".repeat(Math.max(1, contentWidth - leftVisible - rightWidth));
-		return indent + leftStyled + gap + renderRight();
-	}
-
-	function renderWorkLine(workRaw: string, w: number, theme: any): string {
-		const indent = w > 0 ? " " : "";
-		const maxWorkWidth = Math.max(0, Math.min(50, w - visibleWidth(indent)));
-		return indent + theme.fg("muted", truncateCardText(workRaw, maxWorkWidth));
-	}
-
-	function renderBorderedLine(content: string, w: number, theme: any): string {
-		return theme.fg("dim", "│")
-			+ content
-			+ " ".repeat(Math.max(0, w - visibleWidth(content)))
-			+ theme.fg("dim", "│");
-	}
-
-	// One-line agent summary for compact view: " Name   42%  gpt-5.5 (xh)  ● running 12s".
-	// nameWidth aligns the name column across the running set; the styled line is
-	// truncated to the widget width so ANSI runs never overflow. `model` already
-	// carries the thinking badge (modelWithThinking); pass "" to omit it.
-	function renderCompactLine(
-		nameRaw: string,
-		contextPct: number,
-		model: string,
-		status: { color: string; text: string },
-		nameWidth: number,
-		width: number,
-		theme: any,
-		marked = false,
-		warnContext = false,
-	): string {
-		const vis = visibleWidth(nameRaw);
-		const name = vis >= nameWidth ? nameRaw : nameRaw + " ".repeat(nameWidth - vis);
-		const ctx = contextLabel(contextPct, warnContext).padStart(4);
-		// The marked row (compact-view switcher) gets a `›` lead + a full-width
-		// selectedBg highlight, mirroring ZoomUI's selected-row treatment.
-		const lead = marked ? theme.fg("accent", "›") : " ";
-		const line = lead
-			+ theme.fg("accent", theme.bold(name))
-			+ "  " + theme.fg(warnContext ? "warning" : "dim", ctx)
-			+ (model ? "  " + theme.fg("dim", model) : "")
-			+ "  " + theme.fg(status.color, status.text);
-		const truncated = truncateToWidth(line, width);
-		if (!marked) return truncated;
-		const pad = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
-		return theme.bg("selectedBg", truncated + pad);
-	}
-
-	// One nested row per delegate child: "├ quality-1  sonnet-4.6 3.4k ● running 12s".
-	// Sub-sub-agents (parent !== "root") get an extra indent.
-	function renderChildLine(c: DelegationChild, w: number, theme: any): string {
-		const indent = w > 0 ? " " : "";
-		const contentWidth = Math.max(0, w - visibleWidth(indent));
-		if (contentWidth === 0) return "";
-		const status = cardStatus(c.status, c.status === "running" ? Date.now() - c.startedAt : c.elapsed);
-		const leftRaw = `${c.parent !== "root" ? "  " : ""}├ ${c.id}`;
-		const rightRaw = `${shortModel(c.model)} ${formatTokens(c.tokens)} ${status.text}`;
-		const rightWidth = visibleWidth(rightRaw);
-		if (rightWidth >= contentWidth) {
-			return indent + theme.fg("dim", truncateCardText(rightRaw, contentWidth));
-		}
-		const leftText = truncateCardText(leftRaw, Math.max(0, contentWidth - rightWidth - 1));
-		const gap = " ".repeat(Math.max(1, contentWidth - visibleWidth(leftText) - rightWidth));
-		return indent
-			+ theme.fg("muted", leftText)
-			+ gap
-			+ theme.fg("dim", `${shortModel(c.model)} ${formatTokens(c.tokens)} `)
-			+ theme.fg(status.color, status.text);
-	}
-
-	// Cap on nested rows per card; beyond it a "+N more" summary line renders.
-	const MAX_CHILD_ROWS = 6;
-
-	// A research-helper card. Mirrors renderCard's compact two-line layout while
-	// keeping the `rN` handle + persona/anon label + turn in the name slot.
-	function renderResearchCard(state: ResearchState, colWidth: number, theme: any): string[] {
-		const w = Math.max(0, colWidth - 2);
-		const status = cardStatus(state.status, state.elapsed);
-		const label = state.persona ? displayName(state.def.name) : "research";
-		const turnStr = state.turnCount > 1 ? ` ·T${state.turnCount}` : "";
-		const headerLine = renderCardHeaderLine(
-			`r${state.id} ${label}${turnStr}`,
-			state.contextPct,
-			shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
-			status.text,
-			status.color,
-			w,
-			theme,
-		);
-		const workRaw = state.lastWork || state.task || state.def.description;
-
-		return [
-			theme.fg("dim", "┌" + "─".repeat(Math.max(0, w)) + "┐"),
-			renderBorderedLine(headerLine, w, theme),
-			renderBorderedLine(renderWorkLine(workRaw, w, theme), w, theme),
-			theme.fg("dim", "└" + "─".repeat(Math.max(0, w)) + "┘"),
-		];
-	}
-
-	function updateWidget() {
-		if (!widgetCtx) return;
-		installRunningWidget();
-
-		widgetCtx.ui.setWidget("agent-team", (_tui: any, theme: any) => {
-			const text = new Text("", 0, 1);
-
-			return {
-				render(width: number): string[] {
-					// The full fleet list is now a separate overlay; this legacy widget is retired.
-					return [];
-
-				},
-				invalidate() {
-					text.invalidate();
-				},
-			};
-		});
-	}
-
-	// Research helpers render in their own widget row, labelled "research", below the
-	// team grid. The widget is removed entirely when no helpers exist so it takes no
-	// space on a fresh session.
-	function updateResearchWidget() {
-		if (!widgetCtx) return;
-		if (researchStates.size === 0) {
-			widgetCtx.ui.setWidget("agent-research", undefined);
-			return;
-		}
-		widgetCtx.ui.setWidget("agent-research", (_tui: any, theme: any) => {
-			const text = new Text("", 0, 1);
-
-			return {
-				render(width: number): string[] {
-					const states = Array.from(researchStates.values());
-					if (states.length === 0) {
-						text.setText("");
-						return text.render(width);
-					}
-
-					// Compact mode hides the research grid; running helpers are folded
-					// into the belowEditor "agent-running" widget instead.
-					if (!compactWidgetsEnabled(viewMode)) return [];
-
-					const cols = gridColumnsForItems(gridCols, states.length);
-					const gap = 1;
-					const colWidth = Math.floor((width - gap * (cols - 1)) / cols);
-					const labelText = "── research ";
-					const header = theme.fg("dim", labelText + "─".repeat(Math.max(0, width - labelText.length)));
-					const grid = renderCardGrid(
-						states,
-						cols,
-						CARD_HEIGHT,
-						s => renderResearchCard(s, colWidth, theme),
-						" ".repeat(gap),
-						" ".repeat(Math.max(0, colWidth)),
-					);
-					text.setText([header, ...grid].join("\n"));
-					return text.render(width);
-				},
-				invalidate() {
-					text.invalidate();
-				},
-			};
-		});
-	}
-
-	// The compact running-agents widget, rendered BELOW the editor (between the
-	// input box and the footer). Registered once; it re-renders on every frame
-	// driven by the existing updateWidget/updateResearchWidget refreshes, reading
-	// live state + viewMode each time. In dashboard mode it renders nothing. In
-	// compact mode it lists only *running* team specialists and research helpers,
-	// one line each — idle/done agents are omitted.
-	// Ordered list of switchable subagents for the compact-view marker: running team
-	// specialists then running research helpers. main is the session under the input
-	// box, so it is never listed. Each entry's `key` matches /af-zoom resolution
-	// (lowercase persona name for team, `rN` for research), so Alt+\ can resolve it.
-	function switchableAgents(): { key: string; name: string; ctx: number; ctxWarn: boolean; model: string; status: { color: string; text: string } }[] {
-		return [
-			...Array.from(agentStates.values())
-				.filter(a => a.status === "running")
-				.map(a => ({
-					key: a.def.name.toLowerCase(),
-					name: displayName(a.def.name),
-					ctx: a.contextPct,
-					ctxWarn: contextPressure(a.contextPct),
-					model: a.lastBackend === "coms" ? `⇄coms ${shortModel(a.comsPeerModel)}` : modelWithThinking(a.def),
-					status: cardStatus(a.status, a.elapsed),
-				})),
-			...Array.from(researchStates.values())
-				.filter(s => s.status === "running")
-				.map(s => ({
-					key: `r${s.id}`,
-					name: `r${s.id} ${s.persona ? displayName(s.def.name) : "research"}`,
-					ctx: s.contextPct,
-					ctxWarn: false,
-					model: shortModel(s.model) + thinkingSuffix(resolvedThinking(s.def)),
-					status: cardStatus(s.status, s.elapsed),
-				})),
-		];
-	}
-
-	// Keep markedAgent pointing at a still-running entry: if the marked one is gone
-	// (finished/killed), clamp to the nearest surviving entry, or null when empty.
-	// Called from the cycle shortcuts and before a zoom.
-	function clampMarker() {
-		const keys = switchableAgents().map(a => a.key);
-		if (keys.length === 0) { markedAgent = null; return; }
-		if (markedAgent && keys.includes(markedAgent)) return;
-		markedAgent = keys[0];
-	}
-
-	function installRunningWidget() {
-		if (!widgetCtx || runningWidgetInstalled) return;
-		runningWidgetInstalled = true;
-		widgetCtx.ui.setWidget("agent-running", (_tui: any, theme: any) => ({
-			invalidate() {},
-			render(width: number): string[] {
-				if (!compactWidgetsEnabled(viewMode)) return [];
-				const running = switchableAgents();
-				if (running.length === 0) return [];
-				const nameWidth = Math.min(24, Math.max(...running.map(r => visibleWidth(r.name))));
-				return running.map(r => renderCompactLine(r.name, r.ctx, r.model, r.status, nameWidth, width, theme, r.key === markedAgent, r.ctxWarn));
-			},
-		}), { placement: "belowEditor" });
-	}
+	const gridUI = createGridUI({
+		getWidgetContext: () => widgetCtx,
+		getViewMode: () => viewMode,
+		getGridCols: () => gridCols,
+		getAgentStates: () => agentStates,
+		getResearchStates: () => researchStates,
+		getMarkedAgent: () => markedAgent,
+		setMarkedAgent: value => { markedAgent = value; },
+		isRunningWidgetInstalled: () => runningWidgetInstalled,
+		markRunningWidgetInstalled: () => { runningWidgetInstalled = true; },
+		displayName, resolvedModel, resolvedThinking, resolveThinkingLevel, abbrevThinking,
+		contextWarnThreshold: CONTEXT_WARN_THRESHOLD,
+	});
+	const { updateWidget, updateResearchWidget, switchableAgents, clampMarker } = gridUI;
 
 	// ── Delegation observability ─────────────────
-	// delegate.ts (running inside the specialist) appends JSONL events to
-	// <sessionDir>/delegations/<agentKey>/events.jsonl. The hub tails that file
-	// (fs.watch for responsiveness + a 1s poll fallback) and rebuilds child
-	// states for the nested card rows, /af-zoom, and the spend rollup.
-
-	function formatTokens(n: number): string {
-		if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-		if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-		return `${n}`;
-	}
-
-	function updateDelegatedSpendStatus() {
-		if (!widgetCtx || delegatedTokens <= 0) return;
-		try { widgetCtx.ui.setStatus("delegated-spend", `Δ delegated: ${formatTokens(delegatedTokens)} tok`); } catch {}
-	}
-
-	function handleDelegationEvent(state: AgentState, e: any) {
-		if (!state.delegations || typeof e?.id !== "string") return;
-		if (e.t === "spawn") {
-			const startedAt = e.ts || Date.now();
-			const parentId = typeof e.parent === "string" ? e.parent : "root";
-			// Attach to the /af-agents-history tree: a "root" child hangs off the
-			// specialist's own dispatch node; a deeper grandchild hangs off the
-			// already-recorded parent child. Falls back to the specialist node.
-			const parentEntry = parentId !== "root"
-				? state.delegations.get(parentId)?.histEntry ?? state.histEntry ?? null
-				: state.histEntry ?? null;
-			const histEntry = pushHistory("delegate", displayName(e.role || e.id), parentEntry, startedAt);
-			state.delegations.set(e.id, {
-				id: e.id,
-				parent: parentId,
-				role: e.role || e.id,
-				model: e.model || "",
-				tools: e.tools || "",
-				def: { name: e.id },
-				status: "running",
-				toolCount: 0,
-				tokens: 0,
-				lastWork: "",
-				startedAt,
-				elapsed: 0,
-				timeline: [],
-				transcriptStore: createFleetTranscriptStore(safePathWithin(sessionDir, "transcripts", `${safeAgentKey(state.def.name)}-${safeAgentKey(e.id)}.jsonl`)),
-				histEntry,
-			});
-			return;
-		}
-		const child = state.delegations.get(e.id);
-		if (!child) return;
-		if (e.t === "timeline") {
-			appendTimelineText(child, e.kind === "thinking" ? "thinking" : "text", e.delta || "");
-			if (e.kind !== "thinking") {
-				const trailing = child.timeline[child.timeline.length - 1];
-				if (trailing?.kind === "text") {
-					child.lastWork = trailing.content.split("\n").filter((l) => l.trim()).pop() || "";
-				}
-			}
-			child.zoomRender?.();
-		} else if (e.t === "model_fallback") {
-			child.model = e.to || child.model;
-			child.lastWork = `model fallback: ${e.from || "override"} → ${e.to || "original"}`;
-			appendTimelineEvent(child, {
-				kind: "text",
-				title: "Model fallback",
-				content: `${e.from || "override"} failed before work began; retrying with ${e.to || "original"}. ${e.reason || ""}`.trim(),
-				timestamp: Date.now(),
-			});
-			child.zoomRender?.();
-		} else if (e.t === "tool" || e.t === "tool_start") {
-			child.toolCount++;
-			appendTimelineEvent(child, {
-				kind: "tool-start",
-				title: `Tool: ${e.name || "tool"}`,
-				content: e.args || "",
-				timestamp: e.ts || Date.now(),
-				...(e.callId ? { callId: e.callId } : {}),
-			});
-			child.zoomRender?.();
-		} else if (e.t === "tool_result") {
-			appendTimelineEvent(child, {
-				kind: "tool-result",
-				title: `Result: ${e.name || "tool"}`,
-				content: e.output || "",
-				timestamp: e.ts || Date.now(),
-				...(e.callId ? { callId: e.callId } : {}),
-				status: e.isError ? "error" : "success",
-				...(typeof e.durationMs === "number" ? { durationMs: e.durationMs } : {}),
-			});
-			child.zoomRender?.();
-		} else if (e.t === "usage") {
-			const add = (e.input || 0) + (e.output || 0);
-			child.tokens += add;
-			delegatedTokens += add;
-			updateDelegatedSpendStatus();
-		} else if (e.t === "exit") {
-			child.status = e.code === 0 ? "done" : "error";
-			child.elapsed = e.elapsed || (Date.now() - child.startedAt);
-			if (child.histEntry) historyEnd(child.histEntry, child.status, child.startedAt + child.elapsed);
-			child.zoomRender?.(true);
-		}
-	}
-
-	// Tail the dispatch's delegation event file. Returns a closer that drains
-	// one final time so post-completion events (exit, last usage) land.
-	function startDelegationWatch(state: AgentState, dir: string) {
-		state.delegations = new Map();
-		const eventsFile = join(dir, "events.jsonl");
-		let offset = 0;
-		let pending = "";
-		const drain = () => {
-			let size: number;
-			try { size = fs.statSync(eventsFile).size; } catch { return; }
-			if (size <= offset) return;
-			let chunk: string;
-			try {
-				const fd = fs.openSync(eventsFile, "r");
-				try {
-					const buf = Buffer.alloc(size - offset);
-					fs.readSync(fd, buf, 0, buf.length, offset);
-					chunk = buf.toString("utf-8");
-				} finally {
-					fs.closeSync(fd);
-				}
-			} catch { return; }
-			offset = size;
-			pending += chunk;
-			const lines = pending.split("\n");
-			pending = lines.pop() || "";
-			let dirty = false;
-			for (const line of lines) {
-				if (!line.trim()) continue;
-				try {
-					handleDelegationEvent(state, JSON.parse(line));
-					dirty = true;
-				} catch {}
-			}
-			if (dirty) updateWidget();
-		};
-		const timer = setInterval(drain, 2000);
-		try { (timer as any).unref?.(); } catch {}
-		let watcher: fs.FSWatcher | null = null;
-		try { watcher = fs.watch(dir, () => drain()); } catch {}
-		state.delegationsWatcher = {
-			close() {
-				clearInterval(timer);
-				try { watcher?.close(); } catch {}
-				drain();
-			},
-		};
-	}
+	const dispatchObservability = createDispatchObservability({
+		getSessionDir: () => sessionDir,
+		getDelegatedTokens: () => delegatedTokens,
+		setDelegatedTokens: value => { delegatedTokens = value; },
+		getWidgetContext: () => widgetCtx,
+		executionHistory,
+		displayName,
+		safeAgentKey,
+		safePathWithin,
+		createTranscriptStore: createFleetTranscriptStore,
+		appendTimelineText,
+		appendTimelineEvent,
+		updateWidget,
+	});
+	const { startDelegationWatch } = dispatchObservability;
 
 	// ── Dispatch Agent (returns Promise) ─────────
 
-	// ── Coms-backed dispatch (dispatch-policy.yaml) ──
-	// Serve a dispatch through a live same-name coms peer instead of spawning a
-	// native subagent. The dispatch protocols ride in the message BODY — a
-	// standing peer only ever receives a user prompt, never a system-prompt
-	// append. Returns the mapped result, or null when the envelope could not be
-	// delivered and the policy allows falling back to the native spawn path.
-	async function dispatchViaComs(
-		state: AgentState,
-		task: string,
-		peerName: string,
-		timeoutMs: number,
-		allowNativeFallback: boolean,
-		ctx: any,
-		inputArtifacts: InputArtifactPreview[],
-		scopeGlobs: string[],
-	): Promise<{ output: string; exitCode: number; elapsed: number; abandoned?: boolean; pending?: boolean } | null> {
-		const peer = resolveTarget(peerName);
-		if (!peer || !identity) {
-			if (allowNativeFallback) return null;
-			return { output: `coms dispatch failed: peer "${peerName}" left the pool (fallback: none).`, exitCode: 1, elapsed: 0 };
-		}
-		state.lastBackend = "coms";
-		state.comsPeerModel = peer.model;
-		state.contextPct = peer.context_used_pct ?? 0;
-		state.lastWork = `→ coms peer ${peer.name}...`;
-		updateWidget();
-
-		const agentKey = safeAgentKey(state.def.name);
-		const runNumber = state.runCount;
-		// Body-level equivalents of the native path's system-prompt protocols, so
-		// the downstream pipeline (ASK_USER extraction, structured return, artifact
-		// handoff) consumes a coms reply exactly like a subagent's final output.
-		const dispatchProtocol = `
-
----
-## Dispatch protocol (agent-hub)
-You are serving a dispatched task as a standing peer; the dispatcher only receives this reply, so make it your complete final answer.
-- Clarification: if you need a HUMAN decision (ambiguity, missing input, contradiction, or a destructive/irreversible next step), do NOT guess — include line(s) of the form \`ASK_USER: <one clear English question>\`; you will be re-dispatched with the answers.
-${externalBlockedProtocol()}
-- Deliverable-to-file: when your deliverable is a document (plan, review, critique, inventory, report) and your tools allow writing, write the full document to .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence) — never repo-root ./artifacts/... — and finish with the artifact-relative path (artifacts/<kind>/${agentKey}-run${runNumber}.md) plus a digest of at most 10 lines.
-- If the task includes acceptance assertions (A1, A2, ...), include the structured return from skills/orchestration-verification/SKILL.md.` +
-			buildRulesProtocol() + buildDocsProtocol();
-
-		const prompt = appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs) + dispatchProtocol;
-		let sent: Awaited<ReturnType<typeof coms.send>>;
-		try {
-			sent = await coms.send({
-				target: peer.name,
-				prompt,
-				conversation_id: null,
-				response_schema: null,
-				reply_timeout_ms: timeoutMs,
-			}, { dispatched_as: state.def.name });
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			if (allowNativeFallback) {
-				ctx.ui.notify(`${displayName(state.def.name)}: coms peer unreachable (${msg}) — falling back to a native subagent.`, "warning");
-				return null;
-			}
-			return { output: `coms dispatch to "${peer.name}" failed: ${msg} (fallback: none).`, exitCode: 1, elapsed: 0 };
-		}
-		const msg_id = sent.msg_id;
-		const entry = pendingReplies.get(msg_id)!;
-		const timeoutPromise = new Promise<{ error: string }>((resolve) => {
-			entry.timer = setTimeout(() => resolve({ error: "timeout" }), timeoutMs);
-			try { (entry.timer as any).unref?.(); } catch { /* ignore */ }
-		});
-
-		// /af-agents-kill and /af-agents-restart on a coms-backed run only abandon the
-		// wait — the standing peer keeps running its turn in its own pane.
-		let abandoned = false;
-		const abortPromise = new Promise<{ error: string }>(res => {
-			state.comsAbort = () => {
-				abandoned = true;
-				res({ error: "abandoned" });
-			};
-		});
-		const outcome = await Promise.race([entry.promise, abortPromise, timeoutPromise]);
-		state.comsAbort = undefined;
-		if (entry.timer) {
-			try { clearTimeout(entry.timer); } catch { /* ignore */ }
-			entry.timer = null;
-		}
-		// A timeout leaves the correlation entry live: the peer may still finish,
-		// and coms_get/coms_await must be able to collect that late response.
-		if (outcome.error !== "timeout") pendingReplies.delete(msg_id);
-
-		// Refresh the context badge from the peer's registry heartbeat.
-		const after = resolveTarget(peer.name);
-		if (after?.context_used_pct !== undefined) state.contextPct = after.context_used_pct;
-
-		if (abandoned) {
-			return {
-				output: `Dispatch to coms peer "${peer.name}" was abandoned by the operator. The peer may still be working in its own pane — do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
-				exitCode: 1,
-				elapsed: 0,
-				abandoned: true,
-			};
-		}
-		const err = outcome.error;
-		if (err === "timeout") {
-			return {
-				output: `coms dispatch pending after ${Math.round(timeoutMs / 1000)}s (msg_id ${msg_id}). The peer may still complete; use coms_get/coms_await with this msg_id instead of re-dispatching.`,
-				exitCode: 1,
-				elapsed: 0,
-				pending: true,
-			};
-		}
-		if (err) {
-			return {
-				output: `coms peer "${peer.name}" returned an error: ${err}`,
-				exitCode: 1,
-				elapsed: 0,
-			};
-		}
-		const response = (outcome as { response?: any }).response;
-		return {
-			output: typeof response === "string" ? response : JSON.stringify(response, null, 2),
-			exitCode: 0,
-			elapsed: 0,
-		};
-	}
-
-	// One-shot drift judge (drift-watchdog.js layer 2): a cheap model reads the
-	// original task + recent tool trail and answers ON_TRACK/DRIFTING/STUCK. It
-	// runs WHILE the specialist keeps working; only a negative verdict stops the
-	// run. Judge failures fail open — a broken judge must never kill good work.
-	async function runDriftJudge(
-		input: {
-			agentLabel: string;
-			agentKey: string;
-			task: string;
-			scopeGlobs: string[];
-			hubOwnedGlobs: string[];
-			trail: string[];
-			violation: { rule: string; terminal?: boolean; detail: string };
+	// ── Extracted coms dispatch, drift judge, and return extraction ──
+	const dispatchComs = createDispatchComs({
+		getIdentity: () => identity,
+		resolveTarget: target => coms.resolveTarget(target),
+		send: (params, auditExtra) => coms.send(params, auditExtra),
+		getPendingReply: msgId => pendingReplies.get(msgId),
+		deletePendingReply: msgId => { pendingReplies.delete(msgId); },
+		getSessionDir: () => sessionDir,
+		getWatchdogJudgeModel: () => watchdogJudgeModel,
+		getResearcherModel: () => {
+			const researcherDef = allAgentDefs.find(def => def.name.toLowerCase() === "researcher");
+			return researcherDef ? resolvedModel(researcherDef) ?? null : null;
 		},
-		ctx: any,
-	): Promise<{ verdict: string; reason: string } | null> {
-		const researcherDef = allAgentDefs.find(d => d.name.toLowerCase() === "researcher");
-		const model = watchdogJudgeModel
-			?? (researcherDef ? resolvedModel(researcherDef) : null)
-			?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
-		const judgeSession = safePathWithin(sessionDir, `drift-judge-${input.agentKey}.json`);
-		try { unlinkSync(judgeSession); } catch {}
-		try {
-			const res = await spawnPiAgent({
-				model,
-				tools: "read",
-				thinking: "off",
-				appendSystemPrompt: "You are a strict, terse runtime watchdog. Answer with exactly one VERDICT line.",
-				sessionFile: judgeSession,
-				prompt: buildJudgePrompt({
-					agent: input.agentLabel,
-					task: input.task,
-					scopeGlobs: input.scopeGlobs,
-					hubOwnedGlobs: input.hubOwnedGlobs,
-					trail: input.trail,
-					violation: input.violation,
-				}),
-				detached: true,
-				turnDeadlineMs: 60_000,
-			});
-			if (res.spawnError || res.exitCode !== 0) return null;
-			return parseJudgeVerdict(res.output);
-		} catch {
-			return null;
-		} finally {
-			try { unlinkSync(judgeSession); } catch {}
-		}
-	}
+		displayName,
+		safeAgentKey,
+		safePathWithin,
+		appendInputArtifacts,
+		appendDeclaredScope,
+		buildRulesProtocol,
+		buildDocsProtocol,
+		updateWidget,
+		spawnPiAgent,
+	});
+	const { dispatchViaComs, runDriftJudge, runReturnExtraction } = dispatchComs;
 
-	// One cheap read-only pass that restates an already-written report in the
-	// structured schema. Runs only when nothing parsed and assertions were tracked
-	// (shouldExtractReturn): the alternative is discarding a whole run's evidence
-	// over a formatting miss. Bounded — one attempt, own deadline, own throwaway
-	// session, never counted against the turn budget — and the caller labels the
-	// result so extracted evidence never passes for declared evidence.
-	async function runReturnExtraction(returnPath: string, assertionIds: string[], _ctx: any): Promise<any | null> {
-		const extractSession = safePathWithin(sessionDir, extractionSessionName(returnPath));
-		try { unlinkSync(extractSession); } catch {}
-		try {
-			const res = await spawnPiAgent({
-				model: EXTRACTION_MODEL,
-				tools: "read",
-				thinking: "off",
-				appendSystemPrompt: "You restate an existing report in a fixed format. You never judge the work and never invent evidence.",
-				sessionFile: extractSession,
-				prompt: buildExtractionPrompt({ returnPath, assertionIds }),
-				detached: true,
-				turnDeadlineMs: EXTRACTION_DEADLINE_MS,
-			});
-			if (res.spawnError || res.exitCode !== 0) return null;
-			return parseStructuredReturn(res.output);
-		} catch {
-			return null;
-		} finally {
-			try { unlinkSync(extractSession); } catch {}
-		}
-	}
-
-	async function dispatchAgent(
-		agentName: string,
-		task: string,
-		ctx: any,
-		inputArtifacts: InputArtifactPreview[] = [],
-		scopeGlobs: string[] = [],
-		watchdogParam?: boolean,
-		requestedBackend: "auto" | "native" | "coms" = "auto",
-		preserveManifest = false,
-	): Promise<{
-		output: string;
-		exitCode: number;
-		elapsed: number;
-		billed?: number;
-		out?: number;
-		sessionReset?: { reason: string; quarantined: string | null; retried: boolean } | null;
-		pending?: boolean;
-	}> {
-		const key = normalizeAgentInput(agentName);
-		const state = agentStates.get(key);
-		if (!state) {
-			return Promise.resolve({
-				output: `Agent "${agentName}" not found. Available: ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`,
-				exitCode: 1,
-				elapsed: 0,
-			});
-		}
-
-		if (state.status === "running") {
-			return Promise.resolve({
-				output: `Agent "${displayName(state.def.name)}" is already running. Wait for it to finish.`,
-				exitCode: 1,
-				elapsed: 0,
-			});
-		}
-
-		state.status = "running";
-		state.task = task;
-		state.toolCount = 0;
-		state.elapsed = 0;
-		state.lastWork = "";
-		state.lastBackend = undefined;
-		state.comsPeerModel = undefined;
-		state.runCount++;
-		state.killedByOperator = false;
-		state.restarting = false;
-		flushTimelineStore(state);
-		state.timeline = [];
-		state.transcriptStore = createFleetTranscriptStore(safePathWithin(sessionDir, "transcripts", `${safeAgentKey(state.def.name)}-run${state.runCount}.jsonl`));
-		state.delegationsWatcher?.close();
-		state.delegationsWatcher = undefined;
-		state.delegations = undefined;
-		updateWidget();
-
-		const histEntry = historyStart("agent", displayName(state.def.name));
-		state.histEntry = histEntry;
-		const agentKey = safeAgentKey(state.def.name);
-		const runNumber = state.runCount;
-		const monitorKey = monitorKeyForAgent(state.def.name, state.runCount);
-		const monitorStart = monitorTurnId
-			? monitorBridge?.startChild({ key: monitorKey, id: `run-${agentKey}-${state.runCount}`, generation: 1, parentId: monitorTurnId, specialist: agentKey }, process.env)
-			: undefined;
-		const startTime = Date.now();
-		state.timer = setInterval(() => {
-			state.elapsed = Date.now() - startTime;
-			updateWidget();
-		}, 1000);
-
-		// ── Backend routing (dispatch-policy.yaml) ──
-		// Decided per dispatch, never at team activation: the hub and its peers
-		// boot in parallel (`just fleet team`), so a member's coms peer may register
-		// at any point. A coms-preferring member with a live same-name pool peer
-		// is served by that peer; everything downstream (return contract, ASK_USER,
-		// research pipe, history) consumes the same result shape either way.
-		const finishRun = async (output: string, exitCode: number, opts?: { idle?: boolean; pending?: boolean; notice?: string }) => {
-			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(
-				task,
-				output,
-				opts?.pending ? "blocked" : exitCode === 0 ? "completed" : "failed",
-			));
-			clearInterval(state.timer);
-			state.elapsed = Date.now() - startTime;
-			state.status = opts?.idle ? "idle" : exitCode === 0 ? "done" : "error";
-			state.lastWork = output.split("\n").filter((l: string) => l.trim()).pop() || "";
-			if (output.trim()) appendTimelineText(state, "text", output);
-			updateWidget();
-			state.zoomRender?.(true);
-			historyEnd(histEntry, state.status);
-			if (opts?.notice) {
-				ctx.ui.notify(opts.notice, state.status === "done" ? "success" : state.status === "idle" ? "info" : "error");
-			}
-			const onTerminate = state.onTerminate;
-			state.onTerminate = undefined;
-			onTerminate?.();
-			return { output, exitCode, elapsed: state.elapsed, ...(opts?.pending ? { pending: true } : {}) };
-		};
-
-		const personaKey = state.def.name.toLowerCase();
-		const livePeerNames = () => (comsReady && identity ? peersInScope().map(e => e.name) : []);
-		let route: any = resolveDispatchBackend({
-			agentName: state.def.name,
-			policy: dispatchPolicy,
-			livePeerNames: livePeerNames(),
-			requestedBackend,
-		});
-		if (route.backend === "invalid") {
-			return finishRun(`Invalid dispatch backend "${route.requestedBackend}". Expected auto|native|coms.`, 1);
-		}
-		if (route.backend === "coms-unavailable") {
-			return finishRun(explicitComsRefusal(displayName(state.def.name)), 1);
-		}
-		if (route.backend === "await-coms") {
-			// coms-required member (fallback: none) whose peer is not live yet:
-			// poll the pool through the grace window, then refuse with guidance.
-			const graceS = route.grace_s;
-			const deadline = Date.now() + graceS * 1000;
-			state.lastWork = `waiting for coms peer (≤${graceS}s)...`;
-			updateWidget();
-			while (Date.now() < deadline && route.backend !== "coms") {
-				await new Promise(res => setTimeout(res, 1000));
-				route = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames(), requestedBackend });
-			}
-			if (route.backend !== "coms") {
-				return finishRun(comsRequiredRefusal(displayName(state.def.name), graceS), 1);
-			}
-		}
-		if (route.backend === "native" && route.comsMissedNotice && !comsMissNotified.has(personaKey)) {
-			comsMissNotified.add(personaKey);
-			ctx.ui.notify(route.comsMissedNotice, "warning");
-		}
-		if (route.backend === "coms") {
-			void monitorBridge?.registerWaitOnly(monitorKey, () => state.comsAbort?.());
-			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
-			const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
-			const comsRes = await dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
-			if (comsRes) {
-				histEntry.name = `${displayName(state.def.name)} (coms)`;
-				return finishRun(comsRes.output, comsRes.exitCode, {
-					idle: comsRes.abandoned || comsRes.pending,
-					pending: comsRes.pending,
-					notice: comsRes.abandoned
-						? `${displayName(state.def.name)} coms dispatch abandoned (the peer pane keeps running)`
-						: comsRes.pending
-							? `${displayName(state.def.name)} coms dispatch is pending (the peer pane keeps running)`
-							: `${displayName(state.def.name)} ${comsRes.exitCode === 0 ? "done" : "error"} in ${Math.round((Date.now() - startTime) / 1000)}s (coms peer)`,
-				});
-			}
-			// Envelope undeliverable + fallback allowed — continue as a plain native dispatch.
-		}
-		state.lastBackend = "native";
-		state.comsPeerModel = undefined;
-
-		// Per-agent model: a session override (/af-agent-model, /af-models) wins;
-		// otherwise the persona's frontmatter `model:` (a full pi spec, e.g.
-		// anthropic/claude-opus-4-7). Falls back to the dispatcher's model.
-		const model = resolvedModel(state.def)
-			?? (ctx.model
-				? `${ctx.model.provider}/${ctx.model.id}`
-				: "openrouter/google/gemini-3-flash-preview");
-		const fallbackCandidate = substitutedModel(fallbackModelFor(state.def, model));
-		const originalModelFallback = fallbackCandidate === model ? undefined : fallbackCandidate;
-
-		// THIS specialist's window, not the dispatcher's. Measuring a 49k local
-		// model against a hosted model's window is what produced readings like
-		// "315%" that nobody could act on.
-		const agentWindow = resolveContextWindow(model, { lookup: modelWindowLookup(ctx), fallbackWindow: contextWindow });
-
-		// Session file for this agent
-		const agentSessionFile = safePathWithin(sessionDir, `${agentKey}.json`);
-
-		// Session recycling: resuming an accumulated session re-bills its whole
-		// context on every model call, and that — not output — is where degraded
-		// sessions burned their tokens (85M of 102M observed tokens were cache
-		// reads). Past the run/context threshold, start fresh: the task text plus
-		// artifact paths must carry the state (they should anyway).
-		const turnBudget = currentBudget();
-		let sessionRecycled = false;
-		if (state.sessionFile && shouldRecycleSession(state.runsSinceFresh, state.contextPct, turnBudget)) {
-			try { unlinkSync(agentSessionFile); } catch {}
-			state.sessionFile = null;
-			state.runsSinceFresh = 0;
-			state.contextPct = 0;
-			state.contextTokens = 0;
-			sessionRecycled = true;
-			turnReport.recycles++;
-			sessionTotals.recycles++;
-			ctx.ui.notify(`${displayName(state.def.name)}: session recycled (stale context) — starting fresh`, "info");
-		} else {
-			// The reading recycling cannot act on: a fresh session already over a
-			// full window. Surfaced so a mis-resolved contextWindow stays
-			// distinguishable from a genuine single-run overflow.
-			const overflow = contextOverflowDiagnostic(state.runsSinceFresh, state.contextPct, {
-				agent: displayName(state.def.name),
-				model: resolvedModel(state.def) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unknown model"),
-			});
-			if (overflow) ctx.ui.notify(overflow, "warning");
-		}
-
-		// Session health preflight: `--session <file>` is passed on EVERY run, resume
-		// or not, so a single corrupt file bricks the persona — later dispatches die
-		// in ~1s with no output. Neither drop + re-add nor /af-agents-restart could
-		// recover it: both only clear the in-memory pointer while the bad file stays
-		// on disk and keeps reaching pi. So this check is unconditional, not gated on
-		// an intended resume — move the file aside and let the run start clean.
-		let sessionReset: { reason: string; quarantined: string | null; retried: boolean } | null = null;
-		{
-			const health = quarantineIfUnusable(agentSessionFile, sessionHealthIo);
-			if (!health.usable && health.reason) {
-				sessionReset = { reason: health.reason, quarantined: health.quarantined, retried: false };
-				state.sessionFile = null;
-				state.runsSinceFresh = 0;
-				state.contextPct = 0;
-				state.contextTokens = 0;
-				ctx.ui.notify(
-					`${displayName(state.def.name)}: unusable session file quarantined (${health.reason}) — starting fresh`,
-					"warning",
-				);
-			}
-		}
-
-		// Mid-turn delegation: a persona that declares `subagents:` gets the
-		// delegate extension injected (`-e delegate.ts`), the `delegate` tool
-		// added to its allowlist (pi filters extension tools too), and its
-		// declared roles/budgets serialized into AGENT_HUB_DELEGATE_CONFIG. The
-		// hub pre-creates and tails the dispatch's delegation event dir for the
-		// nested card rows. Personas without `subagents:` spawn exactly as before.
-		// Effective roles: each role's model replaced by its /af-agent-model
-		// "<persona>.<role>" session override when one exists. Serialized into the
-		// delegate config, so nested children inherit the switch for free.
-		const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
-			? Object.fromEntries(Object.entries(state.def.subagents).map(([role, r]) => {
-				const effective = resolvedSubagentModel(personaKey, role, r.model);
-				const configured = effective !== r.model ? applyModelOverride(r, effective) : r;
-				const fallback = substitutedModel(configured.fallbackModel);
-				return [role, fallback === configured.model ? { ...configured, fallbackModel: undefined } : { ...configured, fallbackModel: fallback }];
-			}))
-			: null;
-		// Nested delegation follows the task-tier envelope (off at trivial/small).
-		const delegationActive = turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
-		const safety = requireSafetyHarness(safetyHarnessPath);
-		if (!safety.ok) return finishRun(safety.error, 1);
-		const extensions = [...safety.extensions];
-		let effectiveTools = state.def.tools;
-		let delegateEnv: Record<string, string> | undefined;
-		if (delegationActive) {
-			const delegationDir = safePathWithin(sessionDir, "delegations", agentKey);
-			try { rmSync(delegationDir, { recursive: true, force: true }); } catch {}
-			mkdirSync(delegationDir, { recursive: true, mode: 0o700 });
-			try { chmodSync(delegationDir, 0o700); } catch {}
-			extensions.push(delegateExtPath!);
-			effectiveTools = `${state.def.tools},delegate`;
-			delegateEnv = {
-				AGENT_HUB_DELEGATE_CONFIG: JSON.stringify({
-					persona: state.def.name,
-					tag: "root",
-					roles: subagentRoles,
-					depth: clampDelegateDepth(state.def.delegateDepth ?? MAX_DELEGATE_DEPTH),
-					callBudget: DELEGATE_CALL_BUDGET,
-					remainingSpawns: DELEGATE_TREE_SPAWN_BUDGET,
-					parentTools: state.def.tools,
-					personaPrompt: state.def.systemPrompt,
-					eventDir: delegationDir,
-					damageControl: safetyHarnessPath || undefined,
-					delegateExt: delegateExtPath,
-					reconSearchTimeoutMs,
-					turnDeadlineMs: turnBudget.agentTurnMs,
-					cwd: ctx.cwd || process.cwd(),
-				}),
-			};
-			startDelegationWatch(state, delegationDir);
-		}
-
-		const manifest = preserveManifest && state.specialistManifest
-			? state.specialistManifest
-			: buildSpecialistContextManifest({
-				personaName: state.def.name,
-				personaPath: state.def.file,
-				personaPrompt: state.def.systemPrompt,
-				task,
-				rulesPaths: specialistProjectPolicyPaths(ctx.cwd || process.cwd()),
-				docsPaths: projectDocsPaths,
-				hasAssertions: extractAssertionIds(task).length > 0,
-				hasScope: scopeGlobs.length > 0,
-				hasArtifacts: inputArtifacts.length > 0,
-				delegateRoles: delegationActive ? Object.keys(subagentRoles!) : [],
-			});
-		state.specialistManifest = manifest;
-		const replacementSystemPrompt = nativeSpecialistSystemPrompt({ manifest, userLanguage, agentKey, runNumber });
-
-		// Per-agent thinking: the persona's `thinking:` frontmatter (or a
-		// /af-agent-model-thinking session override) sets the pi --thinking reasoning
-		// level. Non-off also enables thinking deltas in the JSON stream so `/af-zoom`
-		// can show the reasoning.
-		const thinkingLevel = resolveThinkingLevel(resolvedThinking(state.def));
-		const wantThinking = thinkingLevel !== "off";
-
-		// ── Drift watchdog: layer-1 rules on the live stream, judge on escalation ──
-		// Precedence: dispatch param > per-agent /af-watchdog override > hub setting.
-		const watchdogArmed = resolveWatchdogActive(watchdogParam, watchdogAgentOverrides.get(key), watchdogSetting, workMode);
-		// The hub ORDERS every specialist to write its deliverable under the session
-		// artifacts tree, which no dispatcher `scope:` ever lists — so those paths are
-		// implicitly in scope. Both path forms: the specialist may use either.
-		const hubOwnedGlobs = hubOwnedScopeGlobs(sessionDir, path.relative(ctx.cwd || process.cwd(), sessionDir));
-		const driftMonitor = watchdogArmed ? createDriftMonitor({ scopeGlobs, allowGlobs: hubOwnedGlobs }) : null;
-		let driftControl: PiRunControl | undefined;
-		let driftStop: { rule: string; detail: string; verdict: string; reason: string } | null = null;
-		// Advisory signals (scope) that the judge called drift: reported to the
-		// dispatcher, never fatal. The post-run scope gate reverts nothing, so the
-		// live rule watching the same thing must not kill either.
-		const driftAdvisories: { rule: string; detail: string; verdict: string; reason: string }[] = [];
-		let judgeBusy = false;
-		let judgeCooldownUntil = 0;
-		const escalateDrift = (violation: { rule: string; terminal?: boolean; detail: string }) => {
-			if (!driftMonitor || judgeBusy || driftStop || Date.now() < judgeCooldownUntil) return;
-			judgeBusy = true;
-			void runDriftJudge(
-				{ agentLabel: displayName(state.def.name), agentKey, task, scopeGlobs, hubOwnedGlobs, trail: driftMonitor.trail(), violation },
-				ctx,
-			).then(v => {
-				judgeBusy = false;
-				judgeCooldownUntil = Date.now() + 90_000;
-				if (!v || (v.verdict !== "drifting" && v.verdict !== "stuck")) return;
-				if (violation.terminal === false) {
-					driftAdvisories.push({ rule: violation.rule, detail: violation.detail, verdict: v.verdict, reason: v.reason });
-					return;
-				}
-				driftStop = { rule: violation.rule, detail: violation.detail, verdict: v.verdict, reason: v.reason };
-				driftControl?.terminate("drift_stop");
-			}).catch(() => { judgeBusy = false; });
-		};
-
-		// Spawn via the shared helper — first run creates the session, subsequent
-		// runs resume it (-c). Stream events drive the card + zoom timeline.
-		// `detached` puts the specialist in its own process group so /af-agents-kill
-		// can SIGTERM the whole delegation tree (killPiTree).
-		let fullText = "";
-		let runBilled = 0;
-		let runOut = 0;
-		let overWindowWarned = false;
-		const runPrompt = appendDeclaredScope(appendInputArtifacts(task, inputArtifacts), scopeGlobs);
-
-		// Pre-spawn overflow guard. The threshold check above runs on the PREVIOUS
-		// run's percentage; this one asks whether THIS prompt still fits before we
-		// pay for it. Recycling after the run is what made the post-mortem's
-		// warnings land 985s of billed work too late.
-		if (state.sessionFile && !sessionRecycled) {
-			const overflow = shouldRecycleBeforeSpawn({
-				priorTokens: state.contextTokens,
-				promptTokens: estimatePromptTokens(runPrompt) + estimatePromptTokens(replacementSystemPrompt),
-				window: agentWindow.window,
-			});
-			if (overflow) {
-				try { unlinkSync(agentSessionFile); } catch {}
-				state.sessionFile = null;
-				state.runsSinceFresh = 0;
-				state.contextPct = 0;
-				state.contextTokens = 0;
-				sessionRecycled = true;
-				turnReport.recycles++;
-				sessionTotals.recycles++;
-				ctx.ui.notify(
-					`${displayName(state.def.name)}: session recycled before spawn — ${overflow.message}. ` +
-					"Resuming would have overflowed the window mid-run; the task text and artifact paths carry the state.",
-					"info",
-				);
-			}
-		}
-
-		const spawnOptions: SpawnPiAgentOptions = {
-			model,
-			tools: effectiveTools,
-			thinking: thinkingLevel,
-			systemPrompt: replacementSystemPrompt,
-			noSkills: true,
-			noContextFiles: true,
-			sessionFile: agentSessionFile,
-			resume: !!state.sessionFile,
-			prompt: runPrompt,
-			cwd: ctx.cwd || process.cwd(),
-			extensions,
-			env: { ...guardrailEnv(agentKey), ...(delegateEnv || {}) },
-			detached: true,
-			// A research persona dispatched through a custom team is still a native
-			// research helper, so it receives the same per-tool watchdog.
-			...(RESEARCHER_PERSONAS.has(personaKey) ? { toolWatchdog: { timeoutMs: reconSearchTimeoutMs } } : {}),
-			// Whole-run deadline from the active mode's budget (null in strict mode).
-			turnDeadlineMs: turnBudget.agentTurnMs,
-		};
-		const spawnCallbacks: SpawnPiAgentCallbacks = {
-			onProcess: (p) => { state.proc = p; void monitorStart?.then(task => monitorBridge?.registerOwnedProcessFor(task, p)); },
-			onModelFallback: ({ from, to, reason }) => {
-				state.lastWork = `model fallback: ${shortModel(from)} → ${shortModel(to)}`;
-				ctx.ui.notify(`${displayName(state.def.name)}: overridden model ${from} failed before work began; retrying with persona model ${to} (${reason})`, "warning");
-				updateWidget();
-			},
-			...(driftMonitor ? { onControl: (c: PiRunControl) => { driftControl = c; } } : {}),
-			onTextDelta: (delta) => {
-				void monitorStart?.then(task => monitorBridge?.appendOutputFor(task, delta));
-				fullText += delta;
-				state.lastWork = fullText.split("\n").filter((l: string) => l.trim()).pop() || "";
-				appendTimelineText(state, "text", delta);
-				updateWidget();
-				state.zoomRender?.();
-			},
-			onThinkingDelta: (delta) => {
-				if (!wantThinking) return;
-				appendTimelineText(state, "thinking", delta);
-				state.zoomRender?.();
-			},
-			onToolStart: (toolName, argStr, callId) => {
-				state.toolCount++;
-				appendTimelineEvent(state, {
-					kind: "tool-start",
-					title: `Tool: ${toolName}`,
-					content: argStr,
-					timestamp: Date.now(),
-					...(callId ? { callId } : {}),
-				});
-				updateWidget();
-				state.zoomRender?.();
-				const violation = driftMonitor?.onToolStart(toolName, argStr);
-				if (violation) escalateDrift(violation);
-			},
-			onToolEnd: (toolName, callId, isError, resultText, durationMs) => {
-				appendTimelineEvent(state, {
-					kind: "tool-result",
-					title: `Result: ${toolName}`,
-					content: resultText ?? "",
-					timestamp: Date.now(),
-					...(callId ? { callId } : {}),
-					status: isError ? "error" : "success",
-					...(durationMs == null ? {} : { durationMs }),
-				});
-				state.zoomRender?.();
-				const violation = driftMonitor?.onToolEnd(toolName, isError);
-				if (violation) escalateDrift(violation);
-			},
-			onUsage: (usage, source) => {
-				// Sum per-message usage; the agent_end usage restates the LAST
-				// message, so it only counts when no message_end ever arrived.
-				if (source === "message_end" || (runBilled === 0 && runOut === 0)) {
-					runBilled += (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
-					runOut += usage.output || 0;
-				}
-				if (agentWindow.window > 0) {
-					// Real context = fresh input + cache reads + cache writes. Counting
-					// usage.input alone showed 1–20% while tens of thousands of cached
-					// tokens were re-sent per step, so the restart advice never fired.
-					state.contextTokens = (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
-					state.contextPct = contextPct(usage, agentWindow.window);
-					// Once per run: a reading over a full window is either a wrong
-					// window or a real overflow, and the source line is what tells
-					// them apart. Silent 315% readings are how this went unfixed.
-					if (state.contextPct >= 100 && !overWindowWarned) {
-						overWindowWarned = true;
-						ctx.ui.notify(
-							overWindowDiagnostic({
-								agent: displayName(state.def.name),
-								model,
-								pct: state.contextPct,
-								window: agentWindow.window,
-								source: agentWindow.source,
-							}),
-							"warning",
-						);
-					}
-					updateWidget();
-				}
-			},
-		};
-		notifyProviderQueue(model, displayName(state.def.name), ctx);
-		// One permit for the whole dispatch, corrupt-session retry included: the
-		// retry is the same run starting over, not a second request to schedule.
-		const res = await providerSemaphore.run(model, async () => {
-			let r = await spawnPiAgentWithModelFallback(spawnOptions, originalModelFallback, spawnCallbacks);
-
-			// Post-hoc corrupt-session detection: the preflight cannot model every
-			// reason pi refuses a session file. This signature — non-zero exit, no
-			// output at all, "not a valid pi session" on stderr — means the run never
-			// started, so exactly one retry on a clean session is safe and cannot
-			// duplicate work. Any other failure stays a failure.
-			if (!r.spawnError && isCorruptSessionExit({ code: r.exitCode, output: r.output, stderr: r.stderr })) {
-				const quarantine = forceQuarantineSession(agentSessionFile, sessionHealthIo);
-				state.sessionFile = null;
-				state.runsSinceFresh = 0;
-				state.contextPct = 0;
-				state.contextTokens = 0;
-				sessionReset = {
-					reason: quarantine.ok ? "pi rejected the session file" : quarantine.error!,
-					quarantined: quarantine.quarantined,
-					retried: quarantine.ok,
-				};
-				if (quarantine.ok) {
-					ctx.ui.notify(
-						`${displayName(state.def.name)}: pi rejected the session file — quarantined, retrying once from a clean session`,
-						"warning",
-					);
-					r = await spawnPiAgentWithModelFallback({ ...spawnOptions, resume: false }, originalModelFallback, spawnCallbacks);
-				} else {
-					ctx.ui.notify(
-						`${displayName(state.def.name)}: pi rejected the session file, but it could not be quarantined — clean retry refused (${quarantine.error})`,
-						"error",
-					);
-				}
-			}
-			return r;
-		});
-
-		clearInterval(state.timer);
-		state.elapsed = Date.now() - startTime;
-		state.proc = undefined;
-		// Stop tailing the delegation event file (one final drain inside close,
-		// so trailing exit/usage events land). Child states stay for /af-zoom.
-		state.delegationsWatcher?.close();
-		state.delegationsWatcher = undefined;
-
-		// The process could not be spawned at all (proc `error` event).
-		if (res.spawnError) {
-			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, `Error spawning agent: ${res.spawnError}`, "failed"));
-			state.status = "error";
-			state.lastWork = `Error: ${res.spawnError}`;
-			state.killedByOperator = false;
-			state.restarting = false;
-			updateWidget();
-			state.zoomRender?.(true);
-			historyEnd(histEntry, "error");
-			const onTerminate = state.onTerminate;
-			state.onTerminate = undefined;
-			onTerminate?.();
-			return {
-				output: `Error spawning agent: ${res.spawnError}`,
-				exitCode: 1,
-				elapsed: state.elapsed,
-			};
-		}
-
-		const full = res.output;
-		const code = res.exitCode;
-		if (res.termination) {
-			const reason = res.termination.reason;
-			const tool = res.termination.tool;
-			state.status = "error";
-			state.lastWork = reason === "tool_timeout"
-				? `tool_timeout: ${tool?.toolName || "tool"} (${tool?.toolCallId || "unknown"})`
-				: reason === "turn_timeout"
-					? `turn_timeout after ${Math.round(state.elapsed / 1000)}s`
-					: reason === "drift_stop"
-						? `drift_stop: ${driftStop?.verdict || "watchdog"} (${driftStop?.rule || "rule"})`
-						: "cancelled by caller";
-			updateWidget();
-			state.zoomRender?.(true);
-			historyEnd(histEntry, "error");
-			const onTerminate = state.onTerminate;
-			state.onTerminate = undefined;
-			onTerminate?.();
-			if (reason === "drift_stop") {
-				turnReport.driftStops++;
-				sessionTotals.driftStops++;
-				ctx.ui.notify(`${displayName(state.def.name)} stopped by the drift watchdog (${driftStop?.verdict || "verdict"}: ${driftStop?.reason || driftStop?.detail || "no reason"})`, "warning");
-			}
-			const explanation = reason === "tool_timeout"
-				? `exceeded its per-tool watchdog on ${tool?.toolName || "tool"} (${tool?.toolCallId || "unknown"})`
-				: reason === "turn_timeout"
-					? `exceeded the per-run deadline (${Math.round(state.elapsed / 1000)}s; agent-turn-timeout-s / mode budget). ` +
-						`Do NOT re-dispatch the same task unchanged — split it into smaller pieces, or ask the user to raise the deadline`
-					: reason === "drift_stop"
-						? `was stopped by the drift watchdog. Rule "${driftStop?.rule || "unknown"}" fired (${driftStop?.detail || "no detail"}); ` +
-							`judge verdict ${(driftStop?.verdict || "drifting").toUpperCase()}: ${driftStop?.reason || "(no reason given)"}. ` +
-							`Re-dispatch ONCE with a corrected, NARROWED task that addresses this verdict — never repeat the same task unchanged. ` +
-							`If you believe the watchdog is wrong, tell the user; they can disable it with /af-watchdog ${key} off`
-						: "was cancelled by its caller";
-			return {
-				output: `${reason}: agent ${displayName(state.def.name)} ${explanation}; terminationConfirmed=${res.termination.confirmed}.` +
-					(full.trim() ? `\n\nPartial output before termination:\n${full.slice(-2000)}` : ""),
-				exitCode: reason === "cancelled" ? 130 : reason === "drift_stop" ? 125 : 124,
-				elapsed: state.elapsed,
-				billed: runBilled,
-				out: runOut,
-			};
-		}
-
-		// Operator kill (Phase 2). The exit was a SIGTERM from /af-agents-kill or
-		// /af-agents-restart, not a real completion: free the card (status → idle),
-		// fire any restart waiter, and return a message that tells the dispatcher
-		// LLM not to auto-retry. /af-agents-restart handles the fresh re-dispatch.
-		if (state.killedByOperator) {
-			await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, "operator killed run", "cancelled"));
-			// !! (not `=== true`): TS otherwise narrows the field to the `false`
-			// assigned during setup — the concurrent /af-agents-restart mutation that
-			// makes this true is invisible to the checker across the await.
-			const wasRestart = !!state.restarting;
-			state.killedByOperator = false;
-			state.restarting = false;
-			state.status = "idle";
-			state.lastWork = wasRestart ? "(killed for restart)" : "(killed by operator)";
-			updateWidget();
-			state.zoomRender?.(true);
-			historyEnd(histEntry, "idle");
-			ctx.ui.notify(`${displayName(state.def.name)} killed by operator`, "info");
-			const onTerminate = state.onTerminate;
-			state.onTerminate = undefined;
-			onTerminate?.();
-			return {
-				output: wasRestart
-					? `Agent "${displayName(state.def.name)}" was killed by the operator for a restart. A fresh run is starting now; WAIT for the follow-up result before acting — do not re-dispatch this agent yourself.`
-					: `Agent "${displayName(state.def.name)}" was killed by the operator. Do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
-				exitCode: code ?? 143,
-				elapsed: state.elapsed,
-			};
-		}
-
-		await monitorStart?.then(task => monitorBridge?.finalizeChildFor(task, full, code === 0 ? "completed" : "failed"));
-		state.status = code === 0 ? "done" : "error";
-
-		// Mark session file as available for resume
-		if (code === 0) {
-			state.sessionFile = agentSessionFile;
-			state.runsSinceFresh++;
-		}
-
-		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
-		updateWidget();
-		state.zoomRender?.(true);
-		historyEnd(histEntry, state.status);
-
-		ctx.ui.notify(
-			`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
-			state.status === "done" ? "success" : "error"
-		);
-
-		// Let a restart waiter proceed even when the agent finished naturally
-		// between the operator's /af-agents-restart and the kill landing.
-		const onTerminate = state.onTerminate;
-		state.onTerminate = undefined;
-		onTerminate?.();
-
-		// On a non-zero exit, surface stderr so failures with no JSON output
-		// (e.g. a bad --model spec or a provider whose API key isn't configured)
-		// reach the dispatcher as a readable message instead of an empty result.
-		let output = full;
-		if (res.modelFallback) {
-			output = `(ℹ model fallback: ${res.modelFallback.from} failed before work began; retried once with original persona model ${res.modelFallback.to}.)\n\n${output}`;
-		}
-		if (code !== 0) {
-			const errText = res.stderr.trim();
-			const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
-			const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
-			output = full
-				? `${full}${errBlock}`
-				: `Agent "${displayName(state.def.name)}" exited with code ${code} and produced no output.${errBlock}`;
-		}
-		if (sessionRecycled) {
-			output = `(ℹ ${displayName(state.def.name)}'s session was recycled before this run — it has no memory of earlier dispatches; state must travel via task text/artifacts.)\n\n${output}`;
-		}
-		if (driftAdvisories.length > 0) {
-			output += `\n\n⚠ Drift advisory (run NOT stopped): ` +
-				driftAdvisories.map(a => `rule "${a.rule}" — ${a.detail}; judge said ${a.verdict.toUpperCase()}: ${a.reason || "(no reason)"}`).join(" | ") +
-				`\nReview whether the work still serves the task; nothing was reverted and nothing was killed.`;
-		}
-		if (sessionReset) {
-			// Named explicitly so a reset never reads as "the specialist failed" —
-			// that misreading is what turned a broken file into a dropped persona.
-			const resetSummary = sessionReset.retried
-				? `was unusable and was quarantined${sessionReset.quarantined ? ` to ${sessionReset.quarantined}` : ""} (${sessionReset.reason}). This run started from a clean session after one automatic retry — the agent has no memory of earlier dispatches, and this is NOT a reason to drop it from the team.`
-				: sessionReset.quarantined
-					? `was unusable and was quarantined to ${sessionReset.quarantined} (${sessionReset.reason}) before the run. This run started from a clean session — the agent has no memory of earlier dispatches.`
-					: `was rejected by pi but could not be quarantined (${sessionReset.reason}). No clean retry was attempted; fix the file permissions/path before retrying.`;
-			output = `(⚠ ${displayName(state.def.name)}'s session file ${resetSummary})\n\n${output}`;
-		}
-
-		return {
-			output,
-			exitCode: code ?? 1,
-			elapsed: state.elapsed,
-			billed: runBilled,
-			out: runOut,
-			sessionReset,
-		};
-	}
+	const nativeDispatch = createDispatchNative({
+		getAgentState: key => agentStates.get(key),
+		listAgentStates: () => Array.from(agentStates.values()),
+		getSessionDir: () => sessionDir,
+		getDispatchPolicy: () => dispatchPolicy,
+		isComsReady: () => comsReady,
+		getIdentity: () => identity,
+		peersInScope: () => peersInScope(),
+		wasComsMissNotified: personaKey => comsMissNotified.has(personaKey),
+		markComsMissNotified: personaKey => { comsMissNotified.add(personaKey); },
+		startMonitorChild: (input, env) => {
+			const monitorStart = monitorTurnId;
+			return monitorStart ? monitorBridge?.startChild({ ...input, parentId: monitorStart }, env) : undefined;
+		},
+		finalizeMonitorChild: (task, output, status) => monitorBridge?.finalizeChildFor(task, output, status),
+		registerMonitorWaitOnly: (monitorKey, state) => monitorBridge?.registerWaitOnly(monitorKey, () => state.comsAbort?.()),
+		registerMonitorProcess: (task, proc) => monitorBridge?.registerOwnedProcessFor(task, proc),
+		appendMonitorOutput: (task, delta) => monitorBridge?.appendOutputFor(task, delta),
+		getContextWindow: () => contextWindow,
+		currentBudget,
+		bumpRecycle: () => { turnReport.recycles++; sessionTotals.recycles++; },
+		bumpDriftStop: () => { turnReport.driftStops++; sessionTotals.driftStops++; },
+		getSessionHealthIo: () => sessionHealthIo,
+		getSafetyHarnessPath: () => safetyHarnessPath,
+		getDelegateExtensionPath: () => delegateExtPath,
+		getReconSearchTimeoutMs: () => reconSearchTimeoutMs,
+		getProjectDocsPaths: () => projectDocsPaths,
+		getUserLanguage: () => userLanguage,
+		getWatchdogSetting: () => watchdogSetting,
+		getWatchdogAgentOverride: key => watchdogAgentOverrides.get(key),
+		getWorkMode: () => workMode,
+		providerSemaphore,
+		executionHistory,
+		displayName,
+		shortModel: model => shortModel(model),
+		resolvedModel,
+		resolvedThinking,
+		resolveThinkingLevel,
+		resolvedSubagentModel,
+		substitutedModel,
+		modelWindowLookup,
+		specialistProjectPolicyPaths,
+		guardrailEnv,
+		appendInputArtifacts,
+		appendDeclaredScope,
+		flushTimelineStore,
+		appendTimelineText,
+		appendTimelineEvent,
+		createTranscriptStore: createFleetTranscriptStore,
+		updateWidget,
+		startDelegationWatch,
+		dispatchViaComs,
+		runDriftJudge,
+		notifyProviderQueue,
+		spawnPiAgentWithModelFallback,
+	});
+	const { dispatchAgent } = nativeDispatch;
 
 	// ── Research helpers (Phase 4) ───────────────
 
@@ -3897,7 +2161,7 @@ ${externalBlockedProtocol()}
 		state.transcriptStore = createFleetTranscriptStore(safePathWithin(sessionDir, "transcripts", `research-r${state.id}-turn${state.turnCount}.jsonl`));
 		updateResearchWidget();
 
-		const histEntry = historyStart("research", `Research r${state.id}`);
+		const histEntry = executionHistory.start("research", `Research r${state.id}`);
 		state.histEntry = histEntry;
 
 		const startTime = Date.now();
@@ -4010,7 +2274,7 @@ ${externalBlockedProtocol()}
 			state.killedByOperator = false;
 			updateResearchWidget();
 			state.zoomRender?.(true);
-			historyEnd(histEntry, "error");
+			executionHistory.end(histEntry, "error");
 			pruneResearch();
 			return {
 				output: `Error spawning research helper: ${res.spawnError}`,
@@ -4029,7 +2293,7 @@ ${externalBlockedProtocol()}
 			state.lastWork = outcome.lastWork;
 			updateResearchWidget();
 			state.zoomRender?.(true);
-			historyEnd(histEntry, "error");
+			executionHistory.end(histEntry, "error");
 			pruneResearch();
 			return {
 				output: outcome.output,
@@ -4049,7 +2313,7 @@ ${externalBlockedProtocol()}
 			state.lastWork = "(killed by operator)";
 			updateResearchWidget();
 			state.zoomRender?.(true);
-			historyEnd(histEntry, "idle");
+			executionHistory.end(histEntry, "idle");
 			pruneResearch();
 			return {
 				output: `Research helper r${state.id} was killed by the operator before it finished.`,
@@ -4064,7 +2328,7 @@ ${externalBlockedProtocol()}
 		state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 		updateResearchWidget();
 		state.zoomRender?.(true);
-		historyEnd(histEntry, state.status);
+		executionHistory.end(histEntry, state.status);
 		pruneResearch();
 
 		ctx.ui.notify(
@@ -5384,7 +3648,7 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		},
 		handleAgentsHistory: async (_args, ctx) => {
 			widgetCtx = ctx;
-			await openHistory(ctx);
+			await openHistory(ctx, executionHistory, () => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub"));
 		},
 		handleAgentsAdd: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -6443,32 +4707,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		} finally { resources.dispose(); }
 	}
 
-	// Open the read-only /af-agents-history overlay. Mirrors openZoom's chrome and adds
-	// a 1s tick so running durations advance live; `historyRender` lets a new
-	// dispatch refresh the panel the instant it starts/ends.
-	async function openHistory(ctx: any): Promise<void> {
-		const resources = createPanelResources();
-		try {
-			await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
-				const ui = new HistoryUI(
-					() => executionHistory,
-					() => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub"),
-					() => done(undefined),
-				);
-				historyRender = () => tui.requestRender();
-				resources.every(1000, () => tui.requestRender());
-				return {
-					render: (w: number) => ui.render(w, bodyRows(tui.terminal?.rows, HISTORY_CHROME_ROWS), theme),
-					handleInput: (data: string) => ui.handleInput(data, tui),
-					invalidate: () => {},
-					dispose: () => resources.dispose(),
-				};
-			}, FULLSCREEN_OVERLAY);
-		} finally {
-			resources.dispose();
-			historyRender = null;
-		}
-	}
 
 	function toolSchemaChars(toolList: string): number {
 		const names = toolList.split(",").map(name => name.trim()).filter(Boolean);
@@ -6766,36 +5004,6 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		return filtered.length > 0 ? filtered : items;
 	};
 
-	// Open the read-only zoom overlay over a live timeline. Shared by /af-zoom and the
-	// compact-view Alt+\ switcher. While open, `target.zoomRender` lets the stream
-	// parser refresh it on new events (throttled to ~12fps; force=true pushes the
-	// final frame on completion).
-	async function openZoom(target: Zoomable, ctx: any): Promise<void> {
-		const resources = createPanelResources();
-		let lastRender = 0;
-		try {
-			await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (r: unknown) => void) => {
-				const ui = new ZoomUI(target, () => done(undefined), (message, type) => ctx.ui.notify(message, type as any));
-				target.zoomRender = (force?: boolean) => {
-					const now = Date.now();
-					if (force || now - lastRender > 80) {
-						lastRender = now;
-						tui.requestRender();
-					}
-				};
-				resources.onDispose(() => { target.zoomRender = undefined; });
-				return {
-					render: (w: number) => ui.render(w, bodyRows(tui.terminal?.rows, ZOOM_CHROME_ROWS), theme),
-					handleInput: (data: string) => ui.handleInput(data, tui),
-					invalidate: () => {},
-					dispose: () => resources.dispose(),
-				};
-			}, FULLSCREEN_OVERLAY);
-		} finally {
-			resources.dispose();
-			target.zoomRender = undefined;
-		}
-	}
 
 	// Completions for /af-agent-model: persona names plus a `persona.role` entry per
 	// declared delegate sub-role, labeled with the model currently in effect.
@@ -7021,7 +5229,7 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 	// that "away from keyboard" time from the dispatcher's real work.
 	pi.on("tool_execution_start", async (event) => {
 		if (event.toolName !== "ask_user") return;
-		askUserStarts.set(event.toolCallId, Date.now());
+		executionHistory.startAskUser(event.toolCallId);
 		const kind = budgetContinuationKind(event.args?.context);
 		if (kind && pendingBudgetContinuation?.kind === kind) {
 			budgetContinuationAsks.set(event.toolCallId, {
@@ -7050,21 +5258,12 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 
 	pi.on("tool_execution_end", async (event) => {
 		if (event.toolName !== "ask_user") return;
-		const startedAt = askUserStarts.get(event.toolCallId);
-		askUserStarts.delete(event.toolCallId);
+		const endedAt = Date.now();
+		const waitMs = executionHistory.endAskUser(event.toolCallId, endedAt);
 		// The task clock bills active time only — the human's answer is not the
 		// fleet's work, and billing it is what would false-stop a steered session.
-		const endedAt = Date.now();
-		const waitMs = startedAt == null ? 0 : Math.max(0, endedAt - startedAt);
-		if (startedAt) taskClock = addTaskClockWait(taskClock, waitMs);
+		if (waitMs > 0) taskClock = addTaskClockWait(taskClock, waitMs);
 		turnBudgetAskUserWaitMs += waitMs;
-		if (startedAt != null) {
-			const interval: [number, number] = [startedAt, endedAt];
-			// Attach to the live dispatcher entry, or buffer until one is created this turn.
-			if (currentOrchestratorEntry) (currentOrchestratorEntry.awaitIntervals ??= []).push(interval);
-			else turnAskUserIntervals.push(interval);
-			historyRender?.();
-		}
 
 		// Renew only when this exact marked ask selected its first option. This uses
 		// Pi's tool events rather than wrapper internals, so it also works when the
@@ -7102,21 +5301,13 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		// created lazily (only if this turn actually dispatches), so chat-only turns
 		// add no history rows. Defensively close any entry a prior turn left open
 		// (e.g. an aborted turn where agent_end never fired).
-		if (currentOrchestratorEntry && currentOrchestratorEntry.endedAt === null) {
-			currentOrchestratorEntry.endedAt = Date.now();
-			if (currentOrchestratorEntry.status === "running") currentOrchestratorEntry.status = "done";
-		}
 		// Fold the turn that just ended into the task's active-time accumulator
 		// before the clock is re-based; inter-turn idle is never charged because
 		// no turn is open across it.
 		const turnStartedAt = Date.now();
 		closeTurnActiveTime(turnStartedAt);
 		taskClock = openTaskClock(taskClock, turnStartedAt);
-		turnActive = true;
-		currentTurnStartedAt = turnStartedAt;
-		currentOrchestratorEntry = null;
-		askUserStarts.clear();
-		turnAskUserIntervals.length = 0;
+		executionHistory.startTurn(turnStartedAt);
 		turnBudgetAskUserWaitMs = 0;
 		budgetContinuationAsks.clear();
 		if (pendingBudgetContinuation?.kind === "turn") pendingBudgetContinuation = null;
@@ -7556,13 +5747,8 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		researchStates.clear();
 		nextResearchId = 1;
 		// Wipe the /af-agents-history log from any previous session.
-		executionHistory.length = 0;
-		currentOrchestratorEntry = null;
-		turnActive = false;
-		currentTurnStartedAt = 0;
+		executionHistory.reset();
 		taskClock = createTaskClock();
-		askUserStarts.clear();
-		turnAskUserIntervals.length = 0;
 		turnBudgetAskUserWaitMs = 0;
 		turnContinuationCount = 0;
 		taskContinuationCount = 0;
@@ -8013,14 +6199,7 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 		// actual end event, so time awaiting the next user message is never charged.
 		const turnEndedAt = Date.now();
 		closeTurnActiveTime(turnEndedAt);
-		turnActive = false;
-		if (currentOrchestratorEntry) {
-			currentOrchestratorEntry.endedAt = turnEndedAt;
-			if (currentOrchestratorEntry.status === "running") currentOrchestratorEntry.status = "done";
-			currentOrchestratorEntry = null;
-			historyRender?.();
-		}
-		currentTurnStartedAt = 0;
+		executionHistory.endTurn(turnEndedAt);
 
 		// End-of-turn sweep: a peer spawned this turn and never sent to is still
 		// running. Named once per turn it stays unaddressed; the close itself is

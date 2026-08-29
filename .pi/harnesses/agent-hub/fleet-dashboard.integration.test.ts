@@ -6,6 +6,8 @@ import { gridColumnsForItems, gridColumnsForSize, renderCardGrid } from "../lib/
 import { renderFleetDashboard } from "../lib/fleet-dashboard-view.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const gridSource = readFileSync(new URL("./ui/grid.ts", import.meta.url), "utf8");
+const historyStoreSource = readFileSync(new URL("./ui/history-store.ts", import.meta.url), "utf8");
 const agentsListCommandSource = readFileSync(new URL("./commands/agents-list.ts", import.meta.url), "utf8");
 const zoomCommandSource = readFileSync(new URL("./commands/zoom.ts", import.meta.url), "utf8");
 const agentModelsSubstituteCommandSource = readFileSync(new URL("./commands/agent-models-substitute.ts", import.meta.url), "utf8");
@@ -69,16 +71,19 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(source, /attachFleetDashboardTicker\(/);
 	assert.match(source, /liveTimeline\(target\)/);
 	assert.match(source, /gridCols = gridColumnsForSize\(agentStates\.size\);/, "an empty specialist roster cannot zero the research grid");
-	assert.match(source, /const cols = gridColumnsForItems\(gridCols, states\.length\);/, "research rendering defensively rejects zero columns");
-	assert.match(source, /const grid = renderCardGrid\(/, "research cards use the tested non-empty grid renderer");
-	assert.equal((source.match(/compactWidgetsEnabled\(viewMode\)/g) ?? []).length, 5, "all production compact-widget guards use the shared predicate");
+	assert.match(gridSource, /const cols = gridColumnsForItems\(deps\.getGridCols\(\), states\.length\);/, "research rendering defensively rejects zero columns");
+	assert.match(gridSource, /const grid = renderCardGrid\(/, "research cards use the tested non-empty grid renderer");
+	assert.equal(((source + gridSource).match(/compactWidgetsEnabled\(/g) ?? []).length, 5, "all production compact-widget guards use the shared predicate");
+	assert.match(gridSource, /function shortModel\(model: string \| undefined\)/, "grid keeps its local model formatter");
+	assert.match(source, /import \{[\s\S]*?abbreviateModel,[\s\S]*?\} from "\.\.\/lib\/coms-core\.ts"/, "coms model abbreviation remains separate");
 	// confirmation window is owned by the pure controller
 	const dash = readFileSync(new URL("../lib/fleet-dashboard-view.ts", import.meta.url), "utf8");
 	assert.match(dash, /until: now \+ 2000/);
 });
 
 test("task lifecycle closes at agent_end and task-reset mutations are auditable", () => {
-	assert.match(source, /pi\.on\("agent_end"[\s\S]*?closeTurnActiveTime\(turnEndedAt\);[\s\S]*?turnActive = false;[\s\S]*?currentTurnStartedAt = 0;/);
+	assert.match(source, /pi\.on\("agent_end"[\s\S]*?closeTurnActiveTime\(turnEndedAt\);[\s\S]*?executionHistory\.endTurn\(turnEndedAt\);/);
+	assert.match(historyStoreSource, /endTurn\(endedAt = now\(\)\)[\s\S]*?turnActive = false;[\s\S]*?currentTurnStartedAt = 0;/);
 	assert.match(source, /taskClock = resetTaskClock\(taskClock, now\);/);
 	assert.doesNotMatch(source, /appendEntry\("agent-hub-mode"/);
 	assert.match(source, /appendEntry\("agent-hub-task-reset", buildTaskResetAudit\(/);
