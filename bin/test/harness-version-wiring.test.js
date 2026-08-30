@@ -12,14 +12,18 @@ test("all three target entrypoints import and register their local version modul
 	for (const name of targets) {
 		const source = readFileSync(join(root, ".pi", "harnesses", name, "index.ts"), "utf8");
 		assert.match(source, /from "\.\/version\.ts"/, name);
-		assert.match(source, /pi\.on\("session_start", async \([^)]*\) => \{\s*registerVersionStatus\(/, name);
+		if (name === "agent-hub") {
+			assert.match(source, /registerSessionStart\(pi, \{[\s\S]*?resetSession: \(_ctx\) => \{\s*registerVersionStatus\(_ctx\)/, name);
+		} else {
+			assert.match(source, /pi\.on\("session_start", async \([^)]*\) => \{\s*registerVersionStatus\(/, name);
+		}
 	}
 });
 
 test("agent-hub custom footer renders the local version before model without the team", () => {
-	const source = readFileSync(join(root, ".pi", "harnesses", "agent-hub", "index.ts"), "utf8");
-	assert.match(source, /renderHubFooterLeft\(theme, HARNESS_VERSION, model, think\)/);
-	assert.doesNotMatch(source, /renderHubFooterLeft\([^)]*activeTeamName/);
+	const source = readFileSync(join(root, ".pi", "harnesses", "agent-hub", "prompts", "session-start.ts"), "utf8");
+	assert.match(source, /deps\.renderLeft\(theme, deps\.version, model, think\)/);
+	assert.doesNotMatch(source, /renderLeft\([^)]*activeTeamName/);
 });
 
 test("version registration from stacked owners deduplicates on one common key", async () => {

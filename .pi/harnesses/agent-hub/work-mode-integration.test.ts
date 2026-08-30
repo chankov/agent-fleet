@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const sessionStartSource = readFileSync(new URL("./session-start.ts", import.meta.url), "utf8");
 const workModeCommandSource = readFileSync(new URL("./commands/work-mode.ts", import.meta.url), "utf8");
 const handoffCommandSource = readFileSync(new URL("./commands/handoff.ts", import.meta.url), "utf8");
 const compoundCommandSource = readFileSync(new URL("./commands/compound.ts", import.meta.url), "utf8");
@@ -175,7 +176,8 @@ test("pressure diagnostics stay metadata-only and feed status plus /af-context",
 });
 
 test("high-context startup and input defer prompts until compaction completes", () => {
-	assert.match(indexSource, /pi\.on\("session_start", async \(_event, _ctx\) => \{[\s\S]*?observeContextPressure\(_ctx, "session_start"\)/);
+	assert.match(sessionStartSource, /pi\.on\("session_start"[\s\S]*?runSessionStart\(ctx, deps\)/);
+	assert.match(indexSource, /resolveCapabilities: async \(_ctx\) => \{[\s\S]*?observeContextPressure\(_ctx, "session_start"\)/);
 	assert.match(indexSource, /pi\.on\("input", async \(event, ctx\) => \{[\s\S]*?deferredRecoveryInputs\.push[\s\S]*?action: "handled"/);
 	assert.match(indexSource, /function replayDeferredRecoveryInputs\([\s\S]*?pi\.sendUserMessage\(/);
 	assert.match(indexSource, /function markContextCompactionSucceeded\(\)[\s\S]*?automaticCompactionPending = false/,
@@ -201,11 +203,12 @@ test("stale-roster gate covers every command and dashboard path that can start m
 
 test("same-turn lifecycle has one pre-model surface assembly point for normal and resumed remote turns", () => {
 	const inputHook = indexSource.match(/pi\.on\("input", async \(event, ctx\) => \{[\s\S]*?\n\t\}\);/);
-	const beforeHook = indexSource.match(/pi\.on\("before_agent_start", async \(_event, _ctx\) => buildHubSystemPrompt\(true\)\);/);
+	const beforeHook = indexSource.match(/pi\.on\("before_agent_start", async \(\) => \{[\s\S]*?resetHubPromptTurn\(\);[\s\S]*?return buildHubSystemPrompt\(\);[\s\S]*?\}\);/);
 	assert.ok(inputHook, "incoming normal and remote messages share Pi's input hook");
 	assert.ok(beforeHook, "all model turns share the before_agent_start hook");
 	// Registration order is intentionally irrelevant: Pi invokes input before model startup.
 	assert.match(indexSource, /pi\.on\("input", async \(event, ctx\) => \{[\s\S]*?resolveIncomingCapabilities\(incomingText\(event\)\);[\s\S]*?applyWorkModeTools\(\)/);
-	assert.match(indexSource, /function buildHubSystemPrompt\(forTurn: boolean\)[\s\S]*?if \(forTurn\) \{[\s\S]*?applyWorkModeTools\(\)/);
+	assert.match(indexSource, /function resetHubPromptTurn\(\): void \{[\s\S]*?applyWorkModeTools\(\)/);
+	assert.match(indexSource, /function buildHubSystemPrompt\(\): \{ systemPrompt: string \} \{[\s\S]*?assembleHubPrompt\(hubPromptCtx\)/);
 	assert.doesNotMatch(indexSource, /classification model|classify.*model request|sendMessage\([\s\S]{0,100}classif/i);
 });

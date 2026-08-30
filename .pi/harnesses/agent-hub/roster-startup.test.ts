@@ -5,6 +5,7 @@ import test from "node:test";
 import { orchestratorNeedsRoster, resolveStartupRoster } from "./helpers.ts";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const sessionStartSource = readFileSync(new URL("./session-start.ts", import.meta.url), "utf8");
 
 test("startup roster is empty unless a team is explicitly requested", () => {
 	const teams = { default: ["builder"], Frontend: ["frontend-engineer", "test-engineer"] };
@@ -37,7 +38,8 @@ test("orchestrator work mode cannot be entered or left with an empty roster", ()
 
 test("Hub resolves explicit or persisted startup roster without falling back to the first YAML team", () => {
 	assert.match(indexSource, /registerFlag\("agent-team"/);
-	assert.match(indexSource, /const explicitRoster = pi\.getFlag\("agent-team"\)/);
-	assert.match(indexSource, /const startupRoster = resolveSessionRoster\(\{/);
+	assert.match(sessionStartSource, /"restoreRoster"[\s\S]*?"resolveCapabilities"/);
+	assert.match(indexSource, /restoreRoster: \(_ctx\) => \{[\s\S]*?const explicitRoster = pi\.getFlag\("agent-team"\)/);
+	assert.match(indexSource, /restoreRoster: \(_ctx\) => \{[\s\S]*?const startupRoster = resolveSessionRoster\(\{/);
 	assert.doesNotMatch(indexSource, /activateTeam\(teamNames\[0\]\)/);
 });

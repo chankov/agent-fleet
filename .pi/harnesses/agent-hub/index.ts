@@ -93,7 +93,7 @@ import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "./external-blocker.js";
 import { DEFAULT_RUN_HISTORY_KEEP, appendRunIndex, buildRunMeta, makeRunId, normalizeRunHistoryKeep, pruneRunDirs, RUN_INDEX_FILENAME, RUNS_DIRNAME } from "./run-namespace.js";
-import { MAX_OPEN_ASSERTIONS, validateAssertionBatch } from "./assertion-ledger.js";
+import { validateAssertionBatch } from "./assertion-ledger.js";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
 import {
 	PANE_PROMPT_TIMEOUT_MS,
@@ -110,7 +110,7 @@ import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredRet
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
-import { NATIVE_ROSTER_ENTRY_TYPE, WORK_MODE_ENTRY_TYPE, persistedNativeRosterState, workModePrompt, resolveWorkModeTools, resolveSessionWorkMode, resolveSessionRoster, type WorkMode } from "./work-mode.ts";
+import { NATIVE_ROSTER_ENTRY_TYPE, WORK_MODE_ENTRY_TYPE, persistedNativeRosterState, resolveWorkModeTools, resolveSessionWorkMode, resolveSessionRoster, type WorkMode } from "./work-mode.ts";
 import {
 	compactWorkMode,
 	workModeChangeBlockedByRoster,
@@ -186,7 +186,10 @@ import { reconcileSelection, type Selection } from "../lib/fleet-selection.ts";
 import { collectContextBudgetSnapshot, type LivePlane } from "./context-budget-snapshot.ts";
 import { CONTEXT_BUDGET_CHROME_ROWS, contextBudgetTransition, renderContextBudget, type ContextBudgetViewState } from "../lib/context-budget-view.ts";
 import { component, safeSchemaChars, type ContextBudgetComponent } from "../lib/context-budget.ts";
-import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger } from "../lib/context-budget-hub-prompt.ts";
+import { buildHubSystemPrompt as assembleHubPrompt } from "./prompts/system-prompt.ts";
+import type { HubPromptContext } from "./prompts/context.ts";
+import { buildSessionStartNotice, createSessionFooter } from "./prompts/session-start.ts";
+import { registerSessionStart } from "./session-start.ts";
 import {
 	delegateStandingParts,
 	buildSpecialistContextManifest,
@@ -4810,7 +4813,7 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		const collect = () => {
 			// Build the replacement prompt ledger now rather than waiting for the first
 			// before_agent_start hook; this is pure prompt construction, not a turn.
-			buildHubSystemPrompt(false);
+			buildHubSystemPrompt();
 			return collectContextBudgetSnapshot(ctx, {
 			ledger: lastHubLedger,
 			pressure: contextPressureDiagnostic(contextPressureState),
@@ -5307,10 +5310,8 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 
 	// ── System Prompt Override ───────────────────
 
-	// This is also called by /af-context before the first turn. Keep prompt assembly
-	// in this one production path so its ledger describes the exact next replacement.
-	function buildHubSystemPrompt(forTurn: boolean): { systemPrompt: string } {
-		if (forTurn) {
+	// Turn lifecycle mutation is deliberately separate from pure prompt assembly.
+	function resetHubPromptTurn(): void {
 		// Re-assert the selected work mode for every turn so prompt and tool policy stay
 		// synchronized after commands or runtime capability changes.
 		applyWorkModeTools();
@@ -5349,194 +5350,63 @@ ${typeof result.response === "string" ? result.response : JSON.stringify(result.
 		}
 		turnReport = freshTurnReport();
 		updateModeStatus();
-		}
-
-		const modelPacks = new Set<CapabilityPack>([...capabilityResolution.active, ...capabilityResolution.provisional]);
-		const fleetActive = modelPacks.has("fleet");
-		const verificationActive = modelPacks.has("verification");
-		const peerActive = modelPacks.has("peer");
-		const workspaceActive = modelPacks.has("workspace");
-		const compactionActive = modelPacks.has("compaction");
-		// Fleet roster and research policy are absent unless the fleet pack is model-visible.
-		const agentCards = fleetActive ? Array.from(agentStates.values())
-			.map(s => ({ id: s.def.name, text: `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}` })) : [];
-		const agentCatalog = agentCards.map(card => card.text).join("\n\n");
-
-		const teamMembers = fleetActive ? Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ") : "";
-
-		// Research personas (kind: research) the dispatcher can spawn read-only via
-		// spawn_research. Independent of team membership.
-		const researchCards = fleetActive ? researchPersonas.map(d => ({ id: d.name, text: `### ${displayName(d.name)}\n**Spawn as:** \`spawn_research(persona: "${d.name}")\`\n**Model:** ${resolvedModel(d) || "(dispatcher’s default)"} · **Thinking:** ${resolveThinkingLevel(resolvedThinking(d))}\n${d.description}` })) : [];
-		const researchCatalog = !fleetActive ? "" : researchCards.length > 0
-			? researchCards.map(card => card.text).join("\n\n")
-			: "(No research personas defined. Call `spawn_research` without `persona` for an ad-hoc read-only helper.)";
-
-		// Two flavors of the system prompt depending on whether ask_user is
-		// registered (i.e. pi-ask-user is installed). Without it the dispatcher
-		// must state assumptions explicitly instead of asking.
-		const askUserBlock = askUserAvailable
-			? `## When to call \`ask_user\` (non-negotiable triggers)
-- Requirements are ambiguous, incomplete, or contradictory.
-- Multiple valid approaches exist and the trade-off is preference-dependent
-  (architecture, library choice, naming, scope cuts).
-- A specialist returned an \`ASK_USER:\` marker — surface every one.
-- A specialist's output contradicts an earlier specialist's output, or contradicts
-  the user's stated requirement — ask the user to resolve it.
-- The next dispatch would be costly to undo (destructive edit, migration, mass
-  rename, production-facing change, secret/credential handling).
-- You're about to assume a value (path, version, flag, threshold) the user did
-  not specify.
-
-Calling \`ask_user\`:
-- Read the tool's own description for the exact parameter shape — different
-  installs ship slightly different schemas. Always pass \`question\` and, when
-  helpful, \`context\` (a 1–3 line summary of what you've already found).
-- Provide multiple-choice \`options\` whenever you can enumerate 2–6 valid
-  answers — it's faster for the user than free text.
-- Ask exactly **one** focused question per call. Do not bundle unrelated questions.`
-			: `## ask_user is NOT available in this session
-The \`pi-ask-user\` package is not installed, so you have no interactive way to
-ask the human. You MUST instead:
-- State every assumption explicitly in ${userLanguage} before dispatching.
-- Phrase it as: "Assuming X (because Y) — say STOP/correct if wrong, otherwise I'll proceed."
-- Wait for the user's next message before continuing on anything destructive.
-- For \`ASK_USER:\` markers raised by specialists, relay the question verbatim to
-  the user in ${userLanguage} and wait for their reply in the next turn.`;
-
-		const toolList = `these active packs: ${[...modelPacks].join(", ")}. Tools: ${pi.getActiveTools().map(name => `\`${name}\``).join(", ") || "(none)"}`;
-
-		const dispatchSection = !fleetActive ? "" : askUserAvailable
-			? `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
-  ways, call \`ask_user\` first. Never invent constraints or "reasonable defaults"
-  the user did not state.
-- Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
-  augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
-- For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
-- After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
-  the result \`details.questions\`). For each one: call \`ask_user\` in ${userLanguage},
-  then re-dispatch the specialist with the answer.`
-			: `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
-  ways, STATE your assumption explicitly in ${userLanguage} and wait for the user
-  to correct it. Never invent constraints or "reasonable defaults" silently.
-- Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
-  augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
-- For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
-- After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
-  the result \`details.questions\`). For each one: relay it verbatim to the user
-  in ${userLanguage} and wait for the reply before re-dispatching.`;
-
-		const ambiguityRule = askUserAvailable
-			? `- NEVER proceed past an ambiguity by guessing. Either call \`ask_user\`, or state
-  the assumption explicitly in ${userLanguage} and say you'll proceed unless corrected.`
-			: `- NEVER proceed past an ambiguity by guessing. State the assumption explicitly
-  in ${userLanguage} and wait for the user to confirm or correct.`;
-
-		const languageLines = askUserAvailable
-			? `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
-  write to the user, every \`ask_user\` question and \`context\` field — ${userLanguage}.
-- Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
-  personas are written in English; do not translate task descriptions for them.
-- When a specialist emits an \`ASK_USER:\` line in English, translate it to
-  ${userLanguage} before passing it through \`ask_user\`.${userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : ""}`
-			: `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
-  write to the user is ${userLanguage}.
-- Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
-  personas are written in English; do not translate task descriptions for them.
-- When a specialist emits an \`ASK_USER:\` line in English, translate it to
-  ${userLanguage} before relaying to the user.${userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : ""}`;
-
-		// ── Task triage + Verification Contract ──
-		// The hub ENFORCES budgets in code (dispatch_agent/spawn_research refuse
-		// past the task-tier envelope); the prompt teaches the dispatcher to plan
-		// within them instead of hitting them.
-		const budget = currentBudget();
-		const taskBudget = currentTaskBudget();
-		const cap = (n: number | null) => (n == null ? "unlimited" : String(n));
-		const capMin = (ms: number | null) => (ms == null ? "unlimited" : `${Math.round(ms / 60_000)} min`);
-		const capabilityState = [...capabilityResolution.active].map(pack => `${pack}:${capabilityResolution.reasons[pack]}`).join(", ");
-		const provisionalState = capabilityResolution.provisional.map(pack => `${pack}:${capabilityResolution.reasons[pack]}`).join(", ");
-		const stateCapsule = `## Current task state
-- tier: ${taskTier ?? DEFAULT_TASK_TIER}${taskTierAssumed ? "?" : ""}; turn dispatches: ${turnDispatchCount}; research: ${turnResearchCount}
-- task dispatches: ${taskDispatchCount}; research: ${taskResearchCount}; review rounds: ${taskReviewRounds}
-- packs active: ${capabilityState}; provisional: ${provisionalState || "none"}
-- provisional confirmation: ${capabilityResolution.provisional.filter(pack => capabilityConfirmation[pack as ConfirmableCapabilityPack] !== "declined").map(pack => `${pack} (${capabilityResolution.reasons[pack]}) → call ask_user exactly once with ${JSON.stringify(capabilityConfirmationQuestion(pack as ConfirmableCapabilityPack))}`).join("; ") || "none"}
-- budgets: dispatch ${cap(budget.maxDispatches)}, research ${cap(budget.maxResearch)}, task wall ${capMin(taskBudget.wallMs)}.`;
-
-		const stableModeSection = fleetActive ? `## Task triage (before dispatch)
-Call \`set_task_tier\` honestly: trivial/small work uses minimal ceremony; feature/project work uses the assertion ledger and a review gate. A provided plan is the specification, not consent to execute unrequested phases. Keep related plan work in coherent batches, pass a narrow scope, and treat a budget refusal as a stop-and-ask-human signal; code enforcement remains authoritative.` : "";
-
-		const fullVerificationContract = `## Verification Contract
-For non-trivial work, record at most ${MAX_OPEN_ASSERTIONS} narrow, sourced assertions before building and pass them verbatim to specialists. Advance only on named evidence; unproven/failed is not done. Runtime-UI claims require runtime observation. Use \`skills/orchestration-verification/SKILL.md\` for formats, parity inventories, and regression resets. After compaction, read the ledger before continuing.`;
-
-		const verificationSection = !verificationActive ? "" : fullVerificationContract;
-
-		// Peer section only when coms initialised. Decision G4: the coms_* tools are
-		// already in the active tool surface when ready; here we just teach the
-		// dispatcher how and when to reach for them.
-		const comsSection = peerActive && comsReady && identity
-			? `
-## Peer agents (coms)
-You are peer "${identity.name}" in project "${identity.project}". Use \`coms_list\` for the human-scoped pool and status; the Hub cannot widen it. Send one self-contained prompt, then await/get the returned msg_id without resending. Match send/await deadlines. Prefer team dispatch unless the task needs a standing peer, and never duplicate a dispatch to its same-name peer.
-`
-			: "";
-
-		const workModeText = workModePrompt(workMode);
-		const herdrSection = workspaceActive && herdrFleetReady ? HUB_HERDR_SECTION : "";
-		const compactionSection = compactionActive ? `
-## Context recovery
-- Context pressure is approaching or above the automatic recovery threshold. Keep tool output concise; redirect full test/package logs to files and inspect summaries or tails.
-- \`request_compaction\` is available for explicit recovery. Automatic recovery preserves task state and continues from the compaction summary.
-` : "";
-		const systemPrompt = assembleHubSystemPrompt({
-			intro: workModeText.intro,
-			toolList,
-			languageLines,
-			activeTeamName,
-			teamMembers,
-			dispatchSection,
-			userLanguage,
-			askUserBlock,
-			modeSection: stableModeSection,
-			verificationSection,
-			stateCapsule,
-			comsSection,
-			herdrSection,
-			compactionSection,
-			hardRules: workModeText.hardRules,
-			ambiguityRule,
-			agentCatalog,
-			researchCatalog,
-		});
-		// Ledger is metadata-only and never written back into the replacement prompt.
-		lastHubLedger = recordHubLedger(systemPrompt, namedHubLedgerParts({
-			intro: workModeText.intro,
-			languageLines,
-			teamMembers,
-			agentCards,
-			dispatchSection,
-			modeSection: stableModeSection,
-			verificationSection,
-			stateCapsule,
-			researchCards,
-			researchCatalog,
-			comsSection,
-			herdrSection,
-			compactionSection,
-		})).concat(CAPABILITY_PACKS.map(pack => {
-			const status = capabilityResolution.active.includes(pack) ? "active"
-				: capabilityResolution.provisional.includes(pack) ? "provisional"
-				: (pack === "peer" && comsReady) || (pack === "workspace" && herdrFleetReady) ? "ready-inactive"
-				: pack === "peer" || pack === "workspace" ? "unavailable" : "inactive";
-			return component({
-				id: `hub/capability/${pack}`, plane: "hub", category: "system", label: `Capability ${pack}: ${status}`,
-				source: capabilityResolution.reasons[pack], persistence: "turn", visibility: "ui-only", confidence: "exact-chars", chars: 0,
-			});
-		}));
-
-		return { systemPrompt };
 	}
 
-	pi.on("before_agent_start", async (_event, _ctx) => buildHubSystemPrompt(true));
+	const hubPromptCtx: HubPromptContext = {
+		getCapabilityResolution: () => capabilityResolution,
+		getActiveTools: () => pi.getActiveTools(),
+		getAgents: () => Array.from(agentStates.values()).map(state => ({
+			name: state.def.name,
+			displayName: displayName(state.def.name),
+			description: state.def.description,
+			tools: state.def.tools,
+		})),
+		getResearchPersonas: () => researchPersonas.map(def => ({
+			name: def.name,
+			displayName: displayName(def.name),
+			description: def.description,
+			model: resolvedModel(def),
+			thinking: resolveThinkingLevel(resolvedThinking(def)),
+		})),
+		getPromptState: () => ({
+			taskTier: taskTier ?? DEFAULT_TASK_TIER,
+			taskTierAssumed,
+			turnDispatchCount,
+			turnResearchCount,
+			taskDispatchCount,
+			taskResearchCount,
+			taskReviewRounds,
+			turnBudget: currentBudget(),
+			taskBudget: currentTaskBudget(),
+			provisionalConfirmations: capabilityResolution.provisional
+				.filter(pack => capabilityConfirmation[pack as ConfirmableCapabilityPack] !== "declined")
+				.map(pack => ({
+					pack,
+					reason: capabilityResolution.reasons[pack],
+					question: capabilityConfirmationQuestion(pack as ConfirmableCapabilityPack),
+				})),
+		}),
+		getWorkMode: () => workMode,
+		getActiveTeamName: () => activeTeamName,
+		getUserLanguage: () => userLanguage,
+		isAskUserAvailable: () => askUserAvailable,
+		isComsReady: () => comsReady,
+		getIdentity: () => identity,
+		isHerdrFleetReady: () => herdrFleetReady,
+	};
+
+	// This is also called by /af-context before the first turn. Keep prompt assembly
+	// in this one production path so its ledger describes the exact next replacement.
+	function buildHubSystemPrompt(): { systemPrompt: string } {
+		const built = assembleHubPrompt(hubPromptCtx);
+		lastHubLedger = built.ledger;
+		return { systemPrompt: built.systemPrompt };
+	}
+
+	pi.on("before_agent_start", async () => {
+		resetHubPromptTurn();
+		return buildHubSystemPrompt();
+	});
 
 	const AUTOMATIC_COMPACTION_INSTRUCTIONS = "Preserve the current goal, completed and open assertions, decisions, modified/read files, pending child or peer operations, blockers, and the concrete next step.";
 	type DeferredRecoveryInput = { text: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp" };
@@ -5743,75 +5613,103 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 
 	// ── Session Start ────────────────────────────
 
-	pi.on("session_start", async (_event, _ctx) => {
-		registerVersionStatus(_ctx);
-		contextPressureState = createContextPressureState();
-		updateContextPressureStatus(_ctx);
-		automaticCompactionPending = false;
-		automaticCompactionRunning = false;
-		deferredReplayAllowance = 0;
-		deferredRecoveryInputs.length = 0;
-		rosterRecoveryRequired = false;
-		rosterRecoveryDiagnostic = "";
-		// Capture the configured surface before Agent Hub applies either work mode.
-		// Operator work mode restores this baseline (minus gated Hub-owned tools).
-		baselineTools = pi.getActiveTools();
-		accessApprovalRouter.reset();
-		// Clear widgets + any research helpers from a previous session
-		for (const [, st] of Array.from(researchStates.entries())) {
-			if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); }
-		}
-		researchStates.clear();
-		nextResearchId = 1;
-		// Wipe the /af-agents-history log from any previous session.
-		executionHistory.reset();
-		taskClock = createTaskClock();
-		turnBudgetAskUserWaitMs = 0;
-		turnContinuationCount = 0;
-		taskContinuationCount = 0;
-		pendingBudgetContinuation = null;
-		budgetContinuationAsks.clear();
-		if (widgetCtx) {
-			widgetCtx.ui.setWidget("agent-team", undefined);
-			widgetCtx.ui.setWidget("agent-research", undefined);
-		}
-		// Stop tailing any delegation event files from a previous session.
-		for (const [, st] of Array.from(agentStates.entries())) {
-			st.delegationsWatcher?.close();
-			st.delegationsWatcher = undefined;
-		}
-		delegatedTokens = 0;
-		hubSpawnedPeers.clear();
-		widgetCtx = _ctx;
-		contextWindow = _ctx.model?.contextWindow || 0;
-		safetyHarnessPath = resolveSafetyHarness(_ctx.cwd);
-		if (!safetyHarnessPath) {
-			_ctx.ui.notify(
-				"damage-control-continue harness not found — native child dispatches will be refused. Install .pi/harnesses/damage-control-continue/.",
-				"error",
-			);
-		}
-		delegateExtPath = resolveDelegateExtension(_ctx.cwd);
-
-		const monitorConfig = monitorLifecycleConfig(process.env);
-		if (monitorBridge || monitorLifecycle) { try { await monitorBridge?.cancelAllWaitOnly(); await monitorLifecycle?.stop(); } finally { monitorBridge=null; monitorLifecycle=null; } }
-		if (monitorConfig) {
-			try {
-				fs.mkdirSync(monitorConfig.profilePath, { recursive: true, mode: 0o700 });
-				const stableHubId = stableMonitorHubId({ profileId: monitorConfig.profileId, checkout: _ctx.cwd || process.cwd(), workspaceId: process.env.HERDR_WORKSPACE_ID, paneId: process.env.HERDR_PANE_ID });
-				monitorHubId = stableHubId;
-				const store = new MonitorStore();
-				const monitorRegistry = new MonitorRegistry({ runtimeDir: monitorConfig.runtimeDir });
-				monitorLifecycle = createMonitorLifecycle({
-					registry: monitorRegistry,
-					treeKill: killPiTree,
-					wait: (proc: ChildProcess) => new Promise<boolean>((resolve) => proc.once("close", () => resolve(true))),
-					getRecoveryEvidence: async (task: any) => {
-						if (task?.ownerSessionId) {
-							const evidence = monitorRegistry.evidenceForOwner(task.ownerSessionId, task.hubInstanceId ?? stableHubId);
-							if (evidence.transient) return { transient: true };
-							const herdr = await monitorReconcileEvidence({
-								hubId: task.hubInstanceId ?? stableHubId,
+	let sessionOverrides: ReturnType<typeof parseAgentTeamOverrides> | undefined;
+	let sessionSoloMode = false;
+	registerSessionStart(pi, {
+		resetSession: (_ctx) => {
+			registerVersionStatus(_ctx);
+			contextPressureState = createContextPressureState();
+			updateContextPressureStatus(_ctx);
+			automaticCompactionPending = false;
+			automaticCompactionRunning = false;
+			deferredReplayAllowance = 0;
+			deferredRecoveryInputs.length = 0;
+			rosterRecoveryRequired = false;
+			rosterRecoveryDiagnostic = "";
+			// Capture the configured surface before Agent Hub applies either work mode.
+			// Operator work mode restores this baseline (minus gated Hub-owned tools).
+			baselineTools = pi.getActiveTools();
+			accessApprovalRouter.reset();
+			// Clear widgets + any research helpers from a previous session
+			for (const [, st] of Array.from(researchStates.entries())) {
+				if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); }
+			}
+			researchStates.clear();
+			nextResearchId = 1;
+			// Wipe the /af-agents-history log from any previous session.
+			executionHistory.reset();
+			taskClock = createTaskClock();
+			turnBudgetAskUserWaitMs = 0;
+			turnContinuationCount = 0;
+			taskContinuationCount = 0;
+			pendingBudgetContinuation = null;
+			budgetContinuationAsks.clear();
+			if (widgetCtx) {
+				widgetCtx.ui.setWidget("agent-team", undefined);
+				widgetCtx.ui.setWidget("agent-research", undefined);
+			}
+			// Stop tailing any delegation event files from a previous session.
+			for (const [, st] of Array.from(agentStates.entries())) {
+				st.delegationsWatcher?.close();
+				st.delegationsWatcher = undefined;
+			}
+			delegatedTokens = 0;
+			hubSpawnedPeers.clear();
+			widgetCtx = _ctx;
+			contextWindow = _ctx.model?.contextWindow || 0;
+			safetyHarnessPath = resolveSafetyHarness(_ctx.cwd);
+			if (!safetyHarnessPath) {
+				_ctx.ui.notify(
+					"damage-control-continue harness not found — native child dispatches will be refused. Install .pi/harnesses/damage-control-continue/.",
+					"error",
+				);
+			}
+			delegateExtPath = resolveDelegateExtension(_ctx.cwd);
+		},
+		restartMonitor: async (_ctx) => {
+			const monitorConfig = monitorLifecycleConfig(process.env);
+			if (monitorBridge || monitorLifecycle) { try { await monitorBridge?.cancelAllWaitOnly(); await monitorLifecycle?.stop(); } finally { monitorBridge=null; monitorLifecycle=null; } }
+			if (monitorConfig) {
+				try {
+					fs.mkdirSync(monitorConfig.profilePath, { recursive: true, mode: 0o700 });
+					const stableHubId = stableMonitorHubId({ profileId: monitorConfig.profileId, checkout: _ctx.cwd || process.cwd(), workspaceId: process.env.HERDR_WORKSPACE_ID, paneId: process.env.HERDR_PANE_ID });
+					monitorHubId = stableHubId;
+					const store = new MonitorStore();
+					const monitorRegistry = new MonitorRegistry({ runtimeDir: monitorConfig.runtimeDir });
+					monitorLifecycle = createMonitorLifecycle({
+						registry: monitorRegistry,
+						treeKill: killPiTree,
+						wait: (proc: ChildProcess) => new Promise<boolean>((resolve) => proc.once("close", () => resolve(true))),
+						getRecoveryEvidence: async (task: any) => {
+							if (task?.ownerSessionId) {
+								const evidence = monitorRegistry.evidenceForOwner(task.ownerSessionId, task.hubInstanceId ?? stableHubId);
+								if (evidence.transient) return { transient: true };
+								const herdr = await monitorReconcileEvidence({
+									hubId: task.hubInstanceId ?? stableHubId,
+									currentHubId: stableHubId,
+									paneId: process.env.HERDR_PANE_ID,
+									workspaceId: process.env.HERDR_WORKSPACE_ID,
+									herdr: {
+										pane: { get: async (id: string) => (await herdrApi.paneGet(id)).pane },
+										workspace: { get: async (id: string) => {
+											const panes = await herdrApi.paneList({ workspace_id: id });
+											return panes.panes.length ? { id } : null;
+										} },
+									},
+								});
+								return {
+									oldOwner: evidence.owner,
+									oldSocket: evidence.socket,
+									oldSession: evidence.session,
+									oldHerdr: herdr.herdr,
+									transient: herdr.transient,
+								};
+							}
+							return monitorReconcileEvidence({
+								owner: monitorLifecycle?.isAlive(),
+								socket: monitorLifecycle?.isAlive(),
+								session: true,
+								hubId: stableHubId,
 								currentHubId: stableHubId,
 								paneId: process.env.HERDR_PANE_ID,
 								workspaceId: process.env.HERDR_WORKSPACE_ID,
@@ -5823,389 +5721,329 @@ You are peer "${identity.name}" in project "${identity.project}". Use \`coms_lis
 									} },
 								},
 							});
-							return {
-								oldOwner: evidence.owner,
-								oldSocket: evidence.socket,
-								oldSession: evidence.session,
-								oldHerdr: herdr.herdr,
-								transient: herdr.transient,
-							};
-						}
-						return monitorReconcileEvidence({
-							owner: monitorLifecycle?.isAlive(),
-							socket: monitorLifecycle?.isAlive(),
-							session: true,
-							hubId: stableHubId,
-							currentHubId: stableHubId,
-							paneId: process.env.HERDR_PANE_ID,
-							workspaceId: process.env.HERDR_WORKSPACE_ID,
-							herdr: {
-								pane: { get: async (id: string) => (await herdrApi.paneGet(id)).pane },
-								workspace: { get: async (id: string) => {
-									const panes = await herdrApi.paneList({ workspace_id: id });
-									return panes.panes.length ? { id } : null;
-								} },
-							},
-						});
-					},
-				});
-				const eventJournal = new MonitorEventJournal({ file: path.join(monitorConfig.runtimeDir, `monitor-events-${stableHubId}.ndjson`) });
-				const invokeJournal = new MonitorInvokeJournal(path.join(monitorConfig.runtimeDir, `monitor-invokes-${stableHubId}.ndjson`));
-				monitorBridge = createMonitorSessionBridge({
-					events: eventJournal,
-					hubInstanceId: stableHubId,
-					onEventJournalError: (error: unknown) => _ctx.ui.notify(`Agent Fleet monitor event journal unavailable: ${error instanceof Error ? error.message : String(error)}`, "warning"),
-					runtime: new MonitorRuntime({
-						runtimeDir: monitorConfig.runtimeDir,
-						profileId: monitorConfig.profileId,
+						},
+					});
+					const eventJournal = new MonitorEventJournal({ file: path.join(monitorConfig.runtimeDir, `monitor-events-${stableHubId}.ndjson`) });
+					const invokeJournal = new MonitorInvokeJournal(path.join(monitorConfig.runtimeDir, `monitor-invokes-${stableHubId}.ndjson`));
+					monitorBridge = createMonitorSessionBridge({
+						events: eventJournal,
 						hubInstanceId: stableHubId,
-					}),
-					registerOwnedProcess: (_key: string, process: ChildProcess, task: any) => monitorLifecycle?.registerOwnedGeneration({
-						taskId: task.id,
-						generation: task.generation,
-						process,
-					}),
-					cancelOwnedProcess: (request: any) => monitorLifecycle?.lowLevelCancelOwnedGeneration(request) ?? {
-						cancelled: false,
-						reason: "unsupported",
-					},
-				});
-				const invoke = createMonitorInvokeAdmission({
-					journal: invokeJournal,
-					task: (id: string, generation: number) => monitorBridge?.snapshot().tasks.find((task: any) => task.id === id && task.generation === generation),
-					owner: () => monitorOwnerId,
-					queueDepth: () => inboundQueue.size,
-					queueLimit: 64,
-					enqueue: createWatchdogFollowUpEnqueue((message, options) => pi.sendMessage(message, options)),
-					publish: (kind: "action.requested" | "action.accepted" | "action.rejected" | "action.completed" | "hub.queue_depth_changed", task: any, extra?: any) => monitorBridge?.publishEvent(kind, task, extra),
-				});
-				const registration = await monitorLifecycle.startBridge(monitorBridge, {
-					profilePath: monitorConfig.profilePath, profileId: monitorConfig.profileId, hubInstanceId: stableHubId,
-					events: (request: any) => eventJournal.replay(request.afterSequence, request.limit, request.waitMs, request.signal), invoke,
-				});
-				monitorOwnerId = registration?.ownerId;
-			} catch (error) {
-				monitorLifecycle = null;
-				_ctx.ui.notify(`Agent Fleet monitor disabled: ${error instanceof Error ? error.message : String(error)}`, "warning");
+						onEventJournalError: (error: unknown) => _ctx.ui.notify(`Agent Fleet monitor event journal unavailable: ${error instanceof Error ? error.message : String(error)}`, "warning"),
+						runtime: new MonitorRuntime({
+							runtimeDir: monitorConfig.runtimeDir,
+							profileId: monitorConfig.profileId,
+							hubInstanceId: stableHubId,
+						}),
+						registerOwnedProcess: (_key: string, process: ChildProcess, task: any) => monitorLifecycle?.registerOwnedGeneration({
+							taskId: task.id,
+							generation: task.generation,
+							process,
+						}),
+						cancelOwnedProcess: (request: any) => monitorLifecycle?.lowLevelCancelOwnedGeneration(request) ?? {
+							cancelled: false,
+							reason: "unsupported",
+						},
+					});
+					const invoke = createMonitorInvokeAdmission({
+						journal: invokeJournal,
+						task: (id: string, generation: number) => monitorBridge?.snapshot().tasks.find((task: any) => task.id === id && task.generation === generation),
+						owner: () => monitorOwnerId,
+						queueDepth: () => inboundQueue.size,
+						queueLimit: 64,
+						enqueue: createWatchdogFollowUpEnqueue((message, options) => pi.sendMessage(message, options)),
+						publish: (kind: "action.requested" | "action.accepted" | "action.rejected" | "action.completed" | "hub.queue_depth_changed", task: any, extra?: any) => monitorBridge?.publishEvent(kind, task, extra),
+					});
+					const registration = await monitorLifecycle.startBridge(monitorBridge, {
+						profilePath: monitorConfig.profilePath, profileId: monitorConfig.profileId, hubInstanceId: stableHubId,
+						events: (request: any) => eventJournal.replay(request.afterSequence, request.limit, request.waitMs, request.signal), invoke,
+					});
+					monitorOwnerId = registration?.ownerId;
+				} catch (error) {
+					monitorLifecycle = null;
+					_ctx.ui.notify(`Agent Fleet monitor disabled: ${error instanceof Error ? error.message : String(error)}`, "warning");
+				}
 			}
-		}
-
-		// ── Embedded coms init ──
-		// Always refresh the ctx the coms handlers use. Bind the endpoint + register
-		// in the pool exactly once per process (guard on comsReady), so a /new session
-		// keeps the same peer identity rather than leaking a second socket. On any
-		// failure we degrade: comsReady stays false and the coms_* tools are withheld.
-		currentCtx = _ctx;
-		const soloMode = pi.getFlag("solo") === true;
-		if (!comsReady && !soloMode) {
-			try {
-				identity = await coms.connect({ ctx: _ctx, defaultNamePrefix: "hub", defaultPurpose: "agent-hub dispatcher" });
-				comsReady = true;
+		},
+		initializeComs: async (_ctx) => {
+			// ── Embedded coms init ──
+			// Always refresh the ctx the coms handlers use. Bind the endpoint + register
+			// in the pool exactly once per process (guard on comsReady), so a /new session
+			// keeps the same peer identity rather than leaking a second socket. On any
+			// failure we degrade: comsReady stays false and the coms_* tools are withheld.
+			currentCtx = _ctx;
+			sessionSoloMode = pi.getFlag("solo") === true;
+			if (!comsReady && !sessionSoloMode) {
 				try {
-					_ctx.ui.setStatus("coms", `📡 ${identity.name}@${identity.project}`);
-					installPoolWidget(_ctx);
-				} catch { /* hasUI may be false — non-fatal */ }
-			} catch (err) {
-				comsReady = false;
-				try { _ctx.ui?.notify?.(`📡 coms: init failed — ${err instanceof Error ? err.message : String(err)} (coms tools disabled)`, "error"); } catch { /* ignore */ }
-			}
-		}
-
-		// ── Damage-control shared exemptions file ──
-		// One per hub session (solo mode included). Exporting the path on our own
-		// process.env lets the co-loaded damage-control-continue mirror /af-allow
-		// session grants into the same file the spawned children read.
-		if (!exemptionsFile) {
-			exemptionsFile = exemptionsFilePath(identity?.session_id ?? `hub-solo-${process.pid}`);
-			process.env[EXEMPTIONS_FILE_ENV] = exemptionsFile;
-		}
-
-		// Wipe old agent session files so subagents start fresh
-		const sessDir = safePathWithin(_ctx.cwd, ".pi", "agent-sessions");
-		if (existsSync(sessDir)) {
-			for (const f of readdirSync(sessDir)) {
-				if (f.endsWith(".json")) {
-					try { unlinkSync(join(sessDir, f)); } catch {}
+					identity = await coms.connect({ ctx: _ctx, defaultNamePrefix: "hub", defaultPurpose: "agent-hub dispatcher" });
+					comsReady = true;
+					try {
+						_ctx.ui.setStatus("coms", `📡 ${identity.name}@${identity.project}`);
+						installPoolWidget(_ctx);
+					} catch { /* hasUI may be false — non-fatal */ }
+				} catch (err) {
+					comsReady = false;
+					try { _ctx.ui?.notify?.(`📡 coms: init failed — ${err instanceof Error ? err.message : String(err)} (coms tools disabled)`, "error"); } catch { /* ignore */ }
 				}
 			}
-		}
-
-		// Per-project overrides are parsed BEFORE loadAgents: loadAgents archives the
-		// previous session's artifacts, and that archive has to honor this project's
-		// `run-history-keep` — reading it afterwards would apply the retention one
-		// session late. Everything else the overrides drive is assigned below.
-		const overrides = parseAgentTeamOverrides(_ctx.cwd);
-		runHistoryKeep = overrides.runHistoryKeep;
-
-		loadAgents(_ctx.cwd);
-
-		// Surface non-fatal persona frontmatter warnings (skipped subagents roles,
-		// bad delegate_depth) once per session.
-		const fmWarnings = allAgentDefs.flatMap(d => (d.warnings || []).map(w => `${d.name}: ${w}`));
-		if (fmWarnings.length > 0) {
-			_ctx.ui.notify(`Persona frontmatter warnings:\n${fmWarnings.join("\n")}`, "warning");
-		}
-		if (!delegateExtPath && allAgentDefs.some(d => d.subagents)) {
-			_ctx.ui.notify(
-				"delegate.ts not found next to agent-hub — `subagents:` declarations are inert (specialists dispatch without a delegate tool).",
-				"warning",
-			);
-		}
-
-		// Apply the rest of the per-project overrides (user-facing language, persona
-		// gate, models) — parsed above, before loadAgents.
-		userLanguage = overrides.language;
-		researchKeep = overrides.researchKeep;
-		reconSearchTimeoutMs = overrides.reconSearchTimeoutMs;
-		budgetOverrides = overrides.budgetOverrides;
-		watchdogSetting = overrides.watchdogSetting;
-		watchdogJudgeModel = overrides.watchdogJudgeModel;
-		turnDispatchCount = 0;
-		turnResearchCount = 0;
-		// A new session is a new task by definition.
-		resetTaskWindow(null);
-		updateModeStatus();
-		if (overrides.warnings.length > 0) {
-			_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
-		}
-
-		// Project rule folders and doc entry points: keep the configured lists
-		// as-is (personas resolve them against the repo root), but warn once per
-		// missing path — a typo'd path would otherwise silently yield nothing.
-		projectRulesDirs = overrides.rulesDirs;
-		for (const dir of projectRulesDirs) {
-			if (!existsSync(join(_ctx.cwd, dir))) {
-				_ctx.ui.notify(`agent-fleet-overrides: rules folder "${dir}" not found in ${_ctx.cwd}`, "warning");
+		},
+		initializeExemptions: (_ctx) => {
+			// ── Damage-control shared exemptions file ──
+			// One per hub session (solo mode included). Exporting the path on our own
+			// process.env lets the co-loaded damage-control-continue mirror /af-allow
+			// session grants into the same file the spawned children read.
+			if (!exemptionsFile) {
+				exemptionsFile = exemptionsFilePath(identity?.session_id ?? `hub-solo-${process.pid}`);
+				process.env[EXEMPTIONS_FILE_ENV] = exemptionsFile;
 			}
-		}
-		projectDocsPaths = overrides.docsPaths;
-		for (const p of projectDocsPaths) {
-			if (!existsSync(join(_ctx.cwd, p))) {
-				_ctx.ui.notify(`agent-fleet-overrides: docs entry point "${p}" not found in ${_ctx.cwd}`, "warning");
-			}
-		}
-
-		// Model switching state resets each session; per-project overrides replace
-		// the persona defs' default model / candidate list before anything reads them.
-		modelOverrides.clear();
-		modelSubstitutions.clear();
-		subagentModelOverrides.clear();
-		thinkingOverrides.clear();
-		for (const def of allAgentDefs) {
-			const lower = def.name.toLowerCase();
-			if (overrides.personaModels[lower]) Object.assign(def, applyModelOverride(def, overrides.personaModels[lower]));
-			if (overrides.personaModelLists[lower]) def.models = overrides.personaModelLists[lower];
-			if (overrides.personaThinking[lower]) def.thinking = overrides.personaThinking[lower];
-			// Delegation overrides: replace/add individual sub-roles (other declared
-			// roles keep their frontmatter values) and the depth budget.
-			const subOv = overrides.personaSubagents[lower];
-			if (subOv) {
-				def.subagents = { ...(def.subagents || {}) };
-				for (const [role, r] of Object.entries(subOv)) {
-					const declared = def.subagents[role];
-					// A model-only override keeps the declared tool cap; an explicit
-					// tools= value replaces it. Either way the frontmatter model is
-					// retained as the one-shot runtime fallback.
-					def.subagents[role] = declared
-						? applyModelOverride({ ...declared, ...(r.tools ? { tools: r.tools } : {}) }, r.model)
-						: r;
+		},
+		loadAgents: (_ctx) => {
+			// Wipe old agent session files so subagents start fresh
+			const sessDir = safePathWithin(_ctx.cwd, ".pi", "agent-sessions");
+			if (existsSync(sessDir)) {
+				for (const f of readdirSync(sessDir)) {
+					if (f.endsWith(".json")) {
+						try { unlinkSync(join(sessDir, f)); } catch {}
+					}
 				}
 			}
-			if (overrides.personaDelegateDepth[lower] !== undefined) {
-				def.delegateDepth = overrides.personaDelegateDepth[lower];
-			}
-		}
 
-		// Validate model profiles against the (post-override) declared candidates.
-		// Any violation drops the whole profile — never a partial apply.
-		const profileErrors: string[] = [];
-		for (const [profileName, entries] of Object.entries(modelProfiles)) {
-			for (const [persona, model] of Object.entries(entries)) {
-				const def = allAgentDefs.find(d => d.name.toLowerCase() === persona);
-				if (!def) {
-					profileErrors.push(`profile "${profileName}": unknown persona "${persona}"`);
-				} else if (!allowedModels(def).includes(model)) {
-					profileErrors.push(`profile "${profileName}": ${persona} does not declare ${model} (model:/af-models: in ${def.file})`);
+			// Per-project overrides are parsed BEFORE loadAgents: loadAgents archives the
+			// previous session's artifacts, and that archive has to honor this project's
+			// `run-history-keep` — reading it afterwards would apply the retention one
+			// session late. Everything else the overrides drive is assigned below.
+			sessionOverrides = parseAgentTeamOverrides(_ctx.cwd);
+			runHistoryKeep = sessionOverrides.runHistoryKeep;
+
+			loadAgents(_ctx.cwd);
+
+			// Surface non-fatal persona frontmatter warnings (skipped subagents roles,
+			// bad delegate_depth) once per session.
+			const fmWarnings = allAgentDefs.flatMap(d => (d.warnings || []).map(w => `${d.name}: ${w}`));
+			if (fmWarnings.length > 0) {
+				_ctx.ui.notify(`Persona frontmatter warnings:\n${fmWarnings.join("\n")}`, "warning");
+			}
+			if (!delegateExtPath && allAgentDefs.some(d => d.subagents)) {
+				_ctx.ui.notify(
+					"delegate.ts not found next to agent-hub — `subagents:` declarations are inert (specialists dispatch without a delegate tool).",
+					"warning",
+				);
+			}
+		},
+		applyOverrides: (_ctx) => {
+			// Apply the rest of the per-project overrides (user-facing language, persona
+			// gate, models) — parsed above, before loadAgents.
+			const overrides = sessionOverrides;
+			if (!overrides) throw new Error("session_start applyOverrides ran before loadAgents");
+			userLanguage = overrides.language;
+			researchKeep = overrides.researchKeep;
+			reconSearchTimeoutMs = overrides.reconSearchTimeoutMs;
+			budgetOverrides = overrides.budgetOverrides;
+			watchdogSetting = overrides.watchdogSetting;
+			watchdogJudgeModel = overrides.watchdogJudgeModel;
+			turnDispatchCount = 0;
+			turnResearchCount = 0;
+			// A new session is a new task by definition.
+			resetTaskWindow(null);
+			updateModeStatus();
+			if (overrides.warnings.length > 0) {
+				_ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
+			}
+
+			// Project rule folders and doc entry points: keep the configured lists
+			// as-is (personas resolve them against the repo root), but warn once per
+			// missing path — a typo'd path would otherwise silently yield nothing.
+			projectRulesDirs = overrides.rulesDirs;
+			for (const dir of projectRulesDirs) {
+				if (!existsSync(join(_ctx.cwd, dir))) {
+					_ctx.ui.notify(`agent-fleet-overrides: rules folder "${dir}" not found in ${_ctx.cwd}`, "warning");
 				}
 			}
-		}
-		if (profileErrors.length > 0) {
-			const dropped = new Set(profileErrors.map(e => e.match(/^profile "([^"]+)"/)![1]));
-			for (const name of dropped) delete modelProfiles[name];
-			_ctx.ui.notify(
-				`model-profiles.yaml: dropped ${Array.from(dropped).map(n => `"${n}"`).join(", ")}:\n${profileErrors.join("\n")}`,
-				"error",
-			);
-		}
-
-		if (dispatchPolicyWarnings.length > 0) {
-			_ctx.ui.notify(
-				`dispatch-policy.yaml: ${dispatchPolicyWarnings.length} construct(s) dropped:\n${dispatchPolicyWarnings.join("\n")}`,
-				"warning",
-			);
-		}
-
-		// Research personas (kind: research) — spawnable read-only via spawn_research,
-		// independent of team membership.
-		researchPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "research");
-
-		// Explicit CLI selection wins; otherwise restore only the canonical team name
-		// and re-resolve it against current teams.yaml/persona files. An explicit
-		// Operator work mode suppresses an ambient persisted roster unless --agent-team
-		// was also supplied.
-		agentStates.clear();
-		activeTeamName = "";
-		comsMissNotified.clear();
-		recomputeGrid();
-		const sessionEntries = _ctx.sessionManager.getEntries();
-		const explicitWorkMode = pi.getFlag("work-mode");
-		const explicitRoster = pi.getFlag("agent-team");
-		const hasExplicitRoster = typeof explicitRoster === "string" && explicitRoster.trim() !== "";
-		const startupRoster = resolveSessionRoster({
-			teams,
-			entries: sessionEntries,
-			explicitRoster,
-			availablePersonas: allAgentDefs.map(def => def.name),
-			includePersisted: !(explicitWorkMode === "operator" && !hasExplicitRoster),
-		});
-		workMode = resolveSessionWorkMode({
-			entries: sessionEntries,
-			explicitWorkMode,
-			hasExplicitRoster: startupRoster.source === "explicit",
-		});
-		if (startupRoster.roster) {
-			activateTeam(startupRoster.roster.name);
-			persistActiveRoster();
-		}
-		rosterRecoveryRequired = orchestratorNeedsRoster(workMode, agentStates.size);
-		rosterRecoveryDiagnostic = rosterRecoveryRequired
-			? startupRoster.diagnostic || "Persisted orchestrator work mode has no native roster."
-			: "";
-		if (startupRoster.diagnostic) {
-			_ctx.ui.notify(
-				`${startupRoster.diagnostic} ${rosterRecoveryRequired ? "Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --work-mode operator." : "Continuing without that roster."}`,
-				rosterRecoveryRequired ? "error" : "warning",
-			);
-		} else if (rosterRecoveryRequired) {
-			_ctx.ui.notify(
-				`${rosterRecoveryDiagnostic} Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --work-mode operator.`,
-				"error",
-			);
-		}
-
-		// Probe for `ask_user` (registered by the `pi-ask-user` companion package
-		// when installed). Action methods like getAllTools are runtime-only, so
-		// this MUST happen at session_start, not at extension load.
-		askUserAvailable = pi.getAllTools().some(t => t.name === "ask_user");
-
-		// Fleet tools are available only inside a herdr pane with a live server.
-		// The work mode policy adds gated groups without activating unavailable tools.
-		herdrFleetReady = herdrPaneId() !== null && (await herdrAvailable()) !== null;
-		const persistedCapabilities = latestPersistedCapabilityState(_ctx.sessionManager.getEntries());
-		taskCapabilityPacks = persistedCapabilities?.taskPacks ?? [];
-		taskProvisionalPacks = persistedCapabilities?.provisional ?? [];
-		capabilityConfirmation = persistedCapabilities?.confirmation ?? {};
-		resolveIncomingCapabilities("");
-		applyWorkModeTools();
-		if (observeContextPressure(_ctx, "session_start") === "compact-now") {
-			setTimeout(() => runAutomaticCompaction(_ctx, "session_start"), 0);
-		}
-		updateWorkModeStatus(_ctx);
-
-		_ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`);
-		const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
-		const askUserLabel = askUserAvailable
-			? "available (via pi-ask-user)"
-			: "NOT AVAILABLE — run `pi install npm:pi-ask-user`";
-		const comsLabel = comsReady && identity
-			? `📡 ${identity.name}@${identity.project} — peers via coms_list; /af-handoff <peer> to delegate`
-			: soloMode
-				? "off (--solo: fixed specialists + research only)"
-				: "off (endpoint bind failed — coms tools disabled)";
-		const fleetLabel = herdrFleetReady
-			? "herdr — spawn/read/close panes + notify (herdr_* tools active)"
-			: "off (not inside a herdr pane, or no herdr server)";
-		const comsPreferred = Object.entries(dispatchPolicy.substitutions)
-			.filter(([, s]) => s.prefer === "coms")
-			.map(([n]) => n);
-		const dispatchLabel = dispatchPolicy.default === "coms"
-			? "coms default — any member with a live same-name pool peer is served by it (/af-dispatch-policy)"
-			: comsPreferred.length > 0
-				? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /af-dispatch-policy for status)`
-				: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)";
-		_ctx.ui.notify(
-			`Work Mode: ${workMode} (${workMode === "operator" ? "direct tools enabled" : "delegate-only"})\n` +
-			`Native roster: ${activeTeamName || "(none)"} (${agentStates.size}${members ? `: ${members}` : ""})\n` +
-			`Native roster sets loaded from: .pi/agents/teams.yaml\n` +
-			`Dispatch backends: ${dispatchLabel}\n` +
-			`User-facing language: ${userLanguage} (override in .ai/agent-fleet-overrides.md)\n` +
-			`ask_user: ${askUserLabel}; specialists bubble up via ASK_USER:\n` +
-			`Coms: ${comsLabel}\n` +
-			`Fleet: ${fleetLabel}\n\n` +
-			`/af-work-mode [mode]      Operator | Orchestrator (Alt+M)\n` +
-			`/af-agents-team          Select a team\n` +
-			`/af-agents-list          Open Fleet Dashboard\n` +
-			`/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total\n` +
-			`/af-context              Read-only full-screen context budget diagnostic\n` +
-			`/af-agent-model <persona>[.<role>] Switch a persona's or sub-role's model\n` +
-			`/af-agent-model-thinking <persona> Switch a persona's thinking level\n` +
-			`/af-models [profile]     Apply a named model profile to the team\n` +
-			`/af-agent-models-substitute [src tgt] Pick/save a session-wide source → target model substitution\n` +
-			`/af-dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)\n` +
-			`/af-agents-kill <name|rN|all> Kill a frozen specialist or remove research helper(s)\n` +
-			`/af-agents-restart <name|rN> Kill + re-run its last task fresh\n` +
-			`/af-zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream\n` +
-			`/af-coms [--all|--project N] Refresh the coms peer pool\n` +
-			`/af-handoff <peer>       Hand the session off to a coms peer\n` +
-			`/af-compound [focus]     Capture session lessons into the project rules/docs`,
-			"info",
-		);
-		updateWidget();
-
-		// Footer: version | model (thinking) | context bar, with the pi-voice-stt
-		// recording indicator on a second line below it (when recording).
-		_ctx.ui.setFooter((_tui, theme, footerData) => ({
-			dispose: () => {},
-			invalidate() {},
-			render(width: number): string[] {
-				const model = _ctx.model?.id || "no-model";
-				// Dispatcher's live thinking level as the same " (code)" badge subagents
-				// show after their model (off → no badge). Optional-chained so an older
-				// pi without getThinkingLevel just renders the model alone.
-				const think = thinkingSuffix(pi.getThinkingLevel?.());
-				const usage = _ctx.getContextUsage();
-				const pct = usage ? usage.percent : 0;
-				const filled = Math.round(pct / 10);
-				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
-
-				const left = renderHubFooterLeft(theme, HARNESS_VERSION, model, think);
-				const hint = theme.fg("dim", composeFleetFooterHint(viewMode, compactWorkMode(workMode)));
-				// The btw extension flips this global the first time a /af-btw command or
-				// Alt+' is used; surface its reopen shortcut right next to the Alt+A hint.
-				const btwHint = (globalThis as { __btwActivated?: boolean }).__btwActivated
-					? theme.fg("muted", "  ·  Alt+' ") + theme.fg("dim", "btw")
-					: "";
-				const right = hint + btwHint +
-					theme.fg("muted", "  ·  ") +
-					theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
-				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));
-
-				const lines = [truncateToWidth(left + pad + right, width)];
-
-				// The pi-voice-stt extension publishes its animated indicator via
-				// setStatus("voice-stt", …). The custom footer above replaces the
-				// built-in one (which would render it), so surface it here as a second
-				// line below the model line. Optional-chained for older pi runtimes.
-				const stt = footerData?.getExtensionStatuses?.().get("voice-stt");
-				if (stt && stt.trim()) {
-					// Recording → accent (live), transcribing → muted (working).
-					const color = /REC/.test(stt) ? "accent" : "muted";
-					lines.push(truncateToWidth(theme.fg(color, ` ${stt}`), width));
+			projectDocsPaths = overrides.docsPaths;
+			for (const p of projectDocsPaths) {
+				if (!existsSync(join(_ctx.cwd, p))) {
+					_ctx.ui.notify(`agent-fleet-overrides: docs entry point "${p}" not found in ${_ctx.cwd}`, "warning");
 				}
+			}
 
-				return lines;
-			},
-		}));
+			// Model switching state resets each session; per-project overrides replace
+			// the persona defs' default model / candidate list before anything reads them.
+			modelOverrides.clear();
+			modelSubstitutions.clear();
+			subagentModelOverrides.clear();
+			thinkingOverrides.clear();
+			for (const def of allAgentDefs) {
+				const lower = def.name.toLowerCase();
+				if (overrides.personaModels[lower]) Object.assign(def, applyModelOverride(def, overrides.personaModels[lower]));
+				if (overrides.personaModelLists[lower]) def.models = overrides.personaModelLists[lower];
+				if (overrides.personaThinking[lower]) def.thinking = overrides.personaThinking[lower];
+				// Delegation overrides: replace/add individual sub-roles (other declared
+				// roles keep their frontmatter values) and the depth budget.
+				const subOv = overrides.personaSubagents[lower];
+				if (subOv) {
+					def.subagents = { ...(def.subagents || {}) };
+					for (const [role, r] of Object.entries(subOv)) {
+						const declared = def.subagents[role];
+						// A model-only override keeps the declared tool cap; an explicit
+						// tools= value replaces it. Either way the frontmatter model is
+						// retained as the one-shot runtime fallback.
+						def.subagents[role] = declared
+							? applyModelOverride({ ...declared, ...(r.tools ? { tools: r.tools } : {}) }, r.model)
+							: r;
+					}
+				}
+				if (overrides.personaDelegateDepth[lower] !== undefined) {
+					def.delegateDepth = overrides.personaDelegateDepth[lower];
+				}
+			}
+
+			// Validate model profiles against the (post-override) declared candidates.
+			// Any violation drops the whole profile — never a partial apply.
+			const profileErrors: string[] = [];
+			for (const [profileName, entries] of Object.entries(modelProfiles)) {
+				for (const [persona, model] of Object.entries(entries)) {
+					const def = allAgentDefs.find(d => d.name.toLowerCase() === persona);
+					if (!def) {
+						profileErrors.push(`profile "${profileName}": unknown persona "${persona}"`);
+					} else if (!allowedModels(def).includes(model)) {
+						profileErrors.push(`profile "${profileName}": ${persona} does not declare ${model} (model:/af-models: in ${def.file})`);
+					}
+				}
+			}
+			if (profileErrors.length > 0) {
+				const dropped = new Set(profileErrors.map(e => e.match(/^profile "([^"]+)"/)![1]));
+				for (const name of dropped) delete modelProfiles[name];
+				_ctx.ui.notify(
+					`model-profiles.yaml: dropped ${Array.from(dropped).map(n => `"${n}"`).join(", ")}:\n${profileErrors.join("\n")}`,
+					"error",
+				);
+			}
+
+			if (dispatchPolicyWarnings.length > 0) {
+				_ctx.ui.notify(
+					`dispatch-policy.yaml: ${dispatchPolicyWarnings.length} construct(s) dropped:\n${dispatchPolicyWarnings.join("\n")}`,
+					"warning",
+				);
+			}
+
+			// Research personas (kind: research) — spawnable read-only via spawn_research,
+			// independent of team membership.
+			researchPersonas = allAgentDefs.filter(d => (d.kind || "").toLowerCase() === "research");
+		},
+		restoreRoster: (_ctx) => {
+			// Explicit CLI selection wins; otherwise restore only the canonical team name
+			// and re-resolve it against current teams.yaml/persona files. An explicit
+			// Operator work mode suppresses an ambient persisted roster unless --agent-team
+			// was also supplied.
+			agentStates.clear();
+			activeTeamName = "";
+			comsMissNotified.clear();
+			recomputeGrid();
+			const sessionEntries = _ctx.sessionManager.getEntries();
+			const explicitWorkMode = pi.getFlag("work-mode");
+			const explicitRoster = pi.getFlag("agent-team");
+			const hasExplicitRoster = typeof explicitRoster === "string" && explicitRoster.trim() !== "";
+			const startupRoster = resolveSessionRoster({
+				teams,
+				entries: sessionEntries,
+				explicitRoster,
+				availablePersonas: allAgentDefs.map(def => def.name),
+				includePersisted: !(explicitWorkMode === "operator" && !hasExplicitRoster),
+			});
+			workMode = resolveSessionWorkMode({
+				entries: sessionEntries,
+				explicitWorkMode,
+				hasExplicitRoster: startupRoster.source === "explicit",
+			});
+			if (startupRoster.roster) {
+				activateTeam(startupRoster.roster.name);
+				persistActiveRoster();
+			}
+			rosterRecoveryRequired = orchestratorNeedsRoster(workMode, agentStates.size);
+			rosterRecoveryDiagnostic = rosterRecoveryRequired
+				? startupRoster.diagnostic || "Persisted orchestrator work mode has no native roster."
+				: "";
+			if (startupRoster.diagnostic) {
+				_ctx.ui.notify(
+					`${startupRoster.diagnostic} ${rosterRecoveryRequired ? "Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --work-mode operator." : "Continuing without that roster."}`,
+					rosterRecoveryRequired ? "error" : "warning",
+				);
+			} else if (rosterRecoveryRequired) {
+				_ctx.ui.notify(
+					`${rosterRecoveryDiagnostic} Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --work-mode operator.`,
+					"error",
+				);
+			}
+		},
+		resolveCapabilities: async (_ctx) => {
+			// Probe for `ask_user` (registered by the `pi-ask-user` companion package
+			// when installed). Action methods like getAllTools are runtime-only, so
+			// this MUST happen at session_start, not at extension load.
+			askUserAvailable = pi.getAllTools().some(t => t.name === "ask_user");
+
+			// Fleet tools are available only inside a herdr pane with a live server.
+			// The work mode policy adds gated groups without activating unavailable tools.
+			herdrFleetReady = herdrPaneId() !== null && (await herdrAvailable()) !== null;
+			const persistedCapabilities = latestPersistedCapabilityState(_ctx.sessionManager.getEntries());
+			taskCapabilityPacks = persistedCapabilities?.taskPacks ?? [];
+			taskProvisionalPacks = persistedCapabilities?.provisional ?? [];
+			capabilityConfirmation = persistedCapabilities?.confirmation ?? {};
+			resolveIncomingCapabilities("");
+			applyWorkModeTools();
+			if (observeContextPressure(_ctx, "session_start") === "compact-now") {
+				setTimeout(() => runAutomaticCompaction(_ctx, "session_start"), 0);
+			}
+			updateWorkModeStatus(_ctx);
+		},
+		notifyStartup: (_ctx) => {
+			_ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`);
+			const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+			const askUserLabel = askUserAvailable
+				? "available (via pi-ask-user)"
+				: "NOT AVAILABLE — run `pi install npm:pi-ask-user`";
+			const comsLabel = comsReady && identity
+				? `📡 ${identity.name}@${identity.project} — peers via coms_list; /af-handoff <peer> to delegate`
+				: sessionSoloMode
+					? "off (--solo: fixed specialists + research only)"
+					: "off (endpoint bind failed — coms tools disabled)";
+			const fleetLabel = herdrFleetReady
+				? "herdr — spawn/read/close panes + notify (herdr_* tools active)"
+				: "off (not inside a herdr pane, or no herdr server)";
+			const comsPreferred = Object.entries(dispatchPolicy.substitutions)
+				.filter(([, s]) => s.prefer === "coms")
+				.map(([n]) => n);
+			const dispatchLabel = dispatchPolicy.default === "coms"
+				? "coms default — any member with a live same-name pool peer is served by it (/af-dispatch-policy)"
+				: comsPreferred.length > 0
+					? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /af-dispatch-policy for status)`
+					: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)";
+			_ctx.ui.notify(buildSessionStartNotice({
+				workMode,
+				activeTeamName,
+				agentCount: agentStates.size,
+				members,
+				dispatchLabel,
+				userLanguage,
+				askUserLabel,
+				comsLabel,
+				fleetLabel,
+			}), "info");
+		},
+		updateWidget: (_ctx) => {
+			updateWidget();
+		},
+		installFooter: (_ctx) => {
+			_ctx.ui.setFooter(createSessionFooter({
+				ctx: _ctx,
+				version: HARNESS_VERSION,
+				getModel: () => _ctx.model?.id || "no-model",
+				getThinkingLevel: () => pi.getThinkingLevel?.(),
+				thinkingSuffix,
+				getHint: () => composeFleetFooterHint(viewMode, compactWorkMode(workMode)),
+				renderLeft: renderHubFooterLeft,
+				truncateToWidth,
+				visibleWidth,
+			}));
+		},
 	});
 
 	// ── Embedded coms: respond to inbound peer prompts at turn end ──

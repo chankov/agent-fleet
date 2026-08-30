@@ -265,6 +265,26 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 
 ## Repository module map
 
+### Agent Hub composition
+
+`.pi/harnesses/agent-hub/index.ts` owns mutable Hub state and composes the extracted concerns without merging their context contracts:
+
+```text
+agent-hub/
+├── index.ts                  # composition root, mutable state, lifecycle wiring
+├── commands/                 # 21 typed /af-* command registrars
+├── tools/                    # 7 typed registrars for the 16 Hub tools
+├── dispatch-core.ts          # facade over native, coms, and observability dispatch
+├── dispatch-*.ts             # native preparation/spawn/completion and backend adapters
+├── ui/                       # grid, zoom, history UI and history state
+├── prompts/                  # data-oriented system/session templates + HubPromptContext
+├── session-start.ts          # typed, ordered session_start orchestration facade
+├── monitor-*.ts              # local monitor lifecycle, transport, and recovery
+└── *.test.{ts,js}            # registration, loader, parity, and behavior contracts
+```
+
+Cross-harness coms lifecycle remains shared in `.pi/harnesses/lib/coms-core.ts` and `coms-core-io.ts`; it is not owned by the Hub composition root.
+
 ```text
 .pi/                          # Pi runtime: harnesses, extensions, agents config, prompts
 skills/                       # Agent Fleet-native skills (shadow vendored names)

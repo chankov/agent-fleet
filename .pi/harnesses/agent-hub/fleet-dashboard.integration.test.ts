@@ -7,6 +7,7 @@ import { renderFleetDashboard } from "../lib/fleet-dashboard-view.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const gridSource = readFileSync(new URL("./ui/grid.ts", import.meta.url), "utf8");
+const sessionStartPromptSource = readFileSync(new URL("./prompts/session-start.ts", import.meta.url), "utf8");
 const historyStoreSource = readFileSync(new URL("./ui/history-store.ts", import.meta.url), "utf8");
 const agentsListCommandSource = readFileSync(new URL("./commands/agents-list.ts", import.meta.url), "utf8");
 const zoomCommandSource = readFileSync(new URL("./commands/zoom.ts", import.meta.url), "utf8");
@@ -113,8 +114,9 @@ test("shortcuts, command, compact toggle, footer, and pool use the separate flee
 	assert.match(zoomCommandSource, /registerCommand\("af-zoom"[\s\S]*?getZoomCompletions[\s\S]*?handleZoom/);
 	assert.match(source, /handleZoom: async \(args, ctx\) => \{[\s\S]*?const rowKey = \(rid != null \? `r\$\{rid\}` : arg\)\.toLowerCase\(\)[\s\S]*?r\.key\.toLowerCase\(\) === rowKey/);
 	assert.match(source, /function findDelegationChild[\s\S]*?candidate\.id\.toLowerCase\(\) === lower/);
-	assert.match(source, /const hint = theme\.fg\("dim", composeFleetFooterHint\(viewMode, compactWorkMode\(workMode\)\)\);/);
-	assert.doesNotMatch(source, /theme\.fg\("muted", "Alt\+A "\) \+ theme\.fg\("dim", composeFleetFooterHint/);
+	assert.match(source, /getHint: \(\) => composeFleetFooterHint\(viewMode, compactWorkMode\(workMode\)\)/);
+	assert.match(sessionStartPromptSource, /const hint = theme\.fg\("dim", deps\.getHint\(\)\);/);
+	assert.doesNotMatch(source + sessionStartPromptSource, /theme\.fg\("muted", "Alt\+A "\) \+ theme\.fg\("dim", composeFleetFooterHint/);
 	assert.match(source, /function fleetPeerInputs[\s\S]*?pending: true/);
 	assert.match(source, /function renderPool[\s\S]*?buildFleetRows\([\s\S]*?peers: fleetPeerInputs\(\)/);
 	assert.doesNotMatch(source, /function renderPool[\s\S]*?staleCount.*>= 3/);

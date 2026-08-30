@@ -40,3 +40,14 @@ test("only a marked first-option ask_user result renews a budget", () => {
 	assert.match(source, /continueTaskBudgetWindow/);
 	assert.match(source, /renewTurnBudgetWindow/);
 });
+
+test("prompt turn reset clears only the turn continuation window", () => {
+	const start = source.indexOf("function resetHubPromptTurn");
+	const end = source.indexOf("\n\tconst hubPromptCtx", start);
+	assert.ok(start >= 0 && end > start, "resetHubPromptTurn must remain composition-owned");
+	const body = source.slice(start, end);
+	assert.match(body, /budgetContinuationAsks\.clear\(\)/);
+	assert.match(body, /pendingBudgetContinuation\?\.kind === "turn"/);
+	assert.doesNotMatch(body, /pendingBudgetContinuation\?\.kind === "task"/);
+	assert.doesNotMatch(body, /resetTaskWindow|taskDispatchCount\s*=|taskResearchCount\s*=|taskReviewRounds\s*=/);
+});

@@ -51,8 +51,11 @@ const FORBIDDEN_INDEX_WIRING: ReadonlyArray<readonly [string, RegExp]> = [
 	["inline follow-up rendering outside the shared seam", /customType: "hermes-watchdog-invoke"/],
 ];
 
-test("agent-hub index initializes monitor lifecycle only from explicit valid fail-closed environment", () => {
-	const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+test("agent-hub session-start wiring initializes monitor lifecycle only from explicit valid fail-closed environment", () => {
+	const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+	const facadeSource = readFileSync(new URL("./session-start.ts", import.meta.url), "utf8");
+	const source = `${facadeSource}\n${indexSource}`;
+	assert.match(facadeSource, /"resetSession"[\s\S]*?"restartMonitor"[\s\S]*?"initializeComs"/);
 
 	for (const [label, pattern] of REQUIRED_INDEX_WIRING) {
 		assert.match(source, pattern, label);

@@ -5,6 +5,7 @@ import { workModePrompt } from "./work-mode.ts";
 import { assembleHubSystemPrompt, namedHubLedgerParts, recordHubLedger } from "../lib/context-budget-hub-prompt.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const promptSource = readFileSync(new URL("./prompts/system-prompt.ts", import.meta.url), "utf8");
 const contextCommandSource = readFileSync(new URL("./commands/context-command.ts", import.meta.url), "utf8");
 const collector = readFileSync(new URL("./context-budget-snapshot.ts", import.meta.url), "utf8");
 const childPrompt = readFileSync(new URL("../lib/context-budget-child-prompt.ts", import.meta.url), "utf8");
@@ -85,13 +86,28 @@ test("af-context normalizes runtime navigation keys while preserving raw context
 	for (const key of ["g", "G", "r", "q"]) assert.equal(command.includes(`matchesKey(data, "${key}")`), false);
 });
 
-test("live Hub and af-context use the same on-demand replacement prompt ledger before a turn", () => {
-	assert.match(source, /function buildHubSystemPrompt\(forTurn: boolean\)/);
-	assert.match(source, /const systemPrompt = assembleHubSystemPrompt\(/);
-	assert.match(source, /lastHubLedger = recordHubLedger\(systemPrompt, namedHubLedgerParts\(/);
-	assert.match(source, /buildHubSystemPrompt\(false\);[\s\S]*ledger: lastHubLedger/);
-	assert.match(source, /before_agent_start", async \(_event, _ctx\) => buildHubSystemPrompt\(true\)/);
-	assert.doesNotMatch(source, /return \{ systemPrompt:[\s\S]{0,40}ledger/);
+test("live Hub and af-context use the same extracted prompt and ledger before a turn", () => {
+	assert.match(promptSource, /export function buildHubSystemPrompt\(ctx: HubPromptContext\)/);
+	assert.match(promptSource, /const systemPrompt = assembleHubSystemPrompt\(/);
+	assert.match(promptSource, /const ledger = recordHubLedger\(systemPrompt, namedHubLedgerParts\(/);
+	assert.match(source, /function buildHubSystemPrompt\(\): \{ systemPrompt: string \} \{[\s\S]*assembleHubPrompt\(hubPromptCtx\)[\s\S]*lastHubLedger = built\.ledger/);
+	assert.match(source, /buildHubSystemPrompt\(\);[\s\S]*ledger: lastHubLedger/);
+	assert.match(source, /before_agent_start", async \(\) => \{[\s\S]*resetHubPromptTurn\(\);[\s\S]*return buildHubSystemPrompt\(\)/);
+	assert.doesNotMatch(source, /return \{ systemPrompt: built\.systemPrompt,[\s\S]{0,40}ledger/);
+});
+
+test("turn resets stay composition-owned and af-context remains side-effect free", () => {
+	assert.doesNotMatch(promptSource, /applyWorkModeTools|closeTurnActiveTime|openTaskClock|startTurn|turnDispatchCount\s*=|pendingBudgetContinuation|freshTurnReport|updateModeStatus/);
+	const reset = source.slice(source.indexOf("function resetHubPromptTurn"), source.indexOf("\n\tconst hubPromptCtx"));
+	for (const required of [
+		"applyWorkModeTools()", "closeTurnActiveTime(turnStartedAt)", "openTaskClock(taskClock, turnStartedAt)",
+		"executionHistory.startTurn(turnStartedAt)", "turnBudgetAskUserWaitMs = 0", "budgetContinuationAsks.clear()",
+		"turnDispatchCount = 0", "turnResearchCount = 0", "turnDispatchFingerprints.clear()",
+		"externalBlockerAcknowledged = true", "externalBlockerRefusedOnce = false", "turnReport = freshTurnReport()", "updateModeStatus()",
+	]) assert.ok(reset.includes(required), `turn reset preserves ${required}`);
+	const contextCommand = source.slice(source.indexOf("async function openContextBudget"), source.indexOf("\n\tfunction rosterRefusalMessage"));
+	assert.match(contextCommand, /buildHubSystemPrompt\(\)/);
+	assert.doesNotMatch(contextCommand, /resetHubPromptTurn/);
 });
 
 test("context collector remains metadata-only and peer windows are never fabricated", () => {
