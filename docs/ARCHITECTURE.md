@@ -271,15 +271,24 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 
 ```text
 agent-hub/
-├── index.ts                  # composition root, mutable state, lifecycle wiring
+├── index.ts                  # bounded composition root; constructs root-owned mutable ports
+├── types.ts                  # shared Hub agent/state contracts
+├── config/                   # agent/frontmatter, teams, profiles, dispatch policy, overrides
+├── context/                  # state, budgets, assertions/artifacts, session-health factories
 ├── commands/                 # 21 typed /af-* command registrars
-├── tools/                    # 7 typed registrars for the 16 Hub tools
+├── tools/                    # 16 tools plus dispatch/research execution orchestration
 ├── dispatch-core.ts          # facade over native, coms, and observability dispatch
 ├── dispatch-*.ts             # native preparation/spawn/completion and backend adapters
-├── ui/                       # grid, zoom, history UI and history state
+├── policy/                   # model, roster, capability, and work-mode decisions
+├── research/                 # helper runtime, spawn transitions, and controls
+├── ui/                       # grid, dashboard, detail, context, pool, zoom, and history
+├── input/                    # shortcuts and completion derivation
+├── lifecycle/                # turn, pressure, monitor, session, and shutdown orchestration
 ├── prompts/                  # data-oriented system/session templates + HubPromptContext
-├── session-start.ts          # typed, ordered session_start orchestration facade
-├── monitor-*.ts              # local monitor lifecycle, transport, and recovery
+├── session-start.ts          # typed ordered session_start step runner
+├── presentation.ts           # marker, name, thinking, and delegate-path helpers
+├── timeline.ts               # bounded transcript/timeline append helpers
+├── monitor-*.ts              # local monitor transport and recovery primitives
 └── *.test.{ts,js}            # registration, loader, parity, and behavior contracts
 ```
 

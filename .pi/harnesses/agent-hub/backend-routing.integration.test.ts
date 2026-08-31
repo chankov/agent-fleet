@@ -13,6 +13,7 @@ const dispatchNativePrepareSource = readFileSync(new URL("./dispatch-native-prep
 const dispatchNativeSpawnSource = readFileSync(new URL("./dispatch-native-spawn.ts", import.meta.url), "utf8");
 const dispatchNativeCompleteSource = readFileSync(new URL("./dispatch-native-complete.ts", import.meta.url), "utf8");
 const dispatchAgentToolSource = readFileSync(new URL("./tools/dispatch-agent.ts", import.meta.url), "utf8");
+const dispatchExecutionSource = readFileSync(new URL("./tools/dispatch-execution.ts", import.meta.url), "utf8");
 
 test("wiring contract: dispatch_agent exposes the explicit backend enum", () => {
 	assert.match(dispatchAgentToolSource, /backend: Type\.Optional\(Type\.Union\(\[/);
@@ -22,9 +23,8 @@ test("wiring contract: dispatch_agent exposes the explicit backend enum", () => 
 });
 
 test("wiring contract: requested backend reaches initial and resumed dispatches", () => {
-	assert.match(source, /const \{ task, artifacts, scope, watchdog, review_reason, backend = "auto" \}/);
-	assert.match(source, /dispatchAgent\(agent, dispatchedTask, ctx, inputArtifacts, scopeGlobs, watchdog, backend\)/);
-	assert.match(source, /dispatchAgent\(agent, resumePrompt, ctx, inputArtifacts, scopeGlobs, watchdog, backend, true\)/);
+	assert.match(dispatchExecutionSource, /dispatchAgent\(p\.agent, dispatchedTask, ctx, p\.inputArtifacts, p\.scopeGlobs, params\.watchdog, params\.backend \?\? "auto"\)/);
+	assert.match(dispatchExecutionSource, /dispatchAgent\(p\.agent, resume, ctx, p\.inputArtifacts, p\.scopeGlobs, params\.watchdog, params\.backend \?\? "auto", true\)/);
 });
 
 test("wiring contract: explicit coms refusal precedes native spawn", () => {

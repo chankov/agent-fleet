@@ -32,18 +32,20 @@ test("typed UDS output request returns only cursor-new bounded output and caps o
 	assert.deepEqual(await request(registration.socketPath, { type: "output", token: registration.token, taskId: "task", generation: 1, afterSequence: 1 }), { ok: true, output: { text: "two", sequence: 2, firstSequence: 1, truncated: false } });
 });
 
-test("index wires one explicit-env MonitorSessionBridge through turn, dispatch, process, delta, final, finish, snapshot, reset, and stop hooks", () => {
-	const source = readFileSync(new URL("../../.pi/harnesses/agent-hub/index.ts", import.meta.url), "utf8");
-	assert.match(source, /createMonitorSessionBridge/);
-	assert.match(source, /monitorLifecycleConfig\(process\.env\)[\s\S]*monitorBridge\s*=/);
+test("the Hub composition wires one explicit-env MonitorSessionBridge through turn, dispatch, process, delta, final, finish, snapshot, reset, and stop hooks", () => {
+	const indexSource = readFileSync(new URL("../../.pi/harnesses/agent-hub/index.ts", import.meta.url), "utf8");
+	const lifecycleSource = readFileSync(new URL("../../.pi/harnesses/agent-hub/lifecycle/monitor-session.ts", import.meta.url), "utf8");
+	const source = `${indexSource}\n${lifecycleSource}`;
+	assert.match(lifecycleSource, /createMonitorSessionBridge/);
+	assert.match(lifecycleSource, /monitorLifecycleConfig\(process\.env\)[\s\S]*const bridge\s*=/);
 	assert.match(source, /monitorBridge\??\.startParent/);
 	assert.match(source, /monitorBridge\??\.startChild/);
 	assert.match(source, /monitorBridge\??\.registerOwnedProcess/);
 	assert.match(source, /monitorBridge\??\.appendOutput/);
 	assert.match(source, /monitorBridge\??\.finalizeChild/);
-	assert.match(source, /monitorLifecycle\.startBridge\(monitorBridge/);
+	assert.match(source, /lifecycle\.startBridge\(bridge/);
 	assert.doesNotMatch(source, /snapshot:\s*\(\)\s*=>\s*\(\{\s*tasks:\s*\[\]\s*\}\)/);
-	assert.match(source, /monitorBridge\??\.reset\(\)/);
-	assert.match(source, /monitorBridge\??\.stop\(\)/);
+	assert.match(lifecycleSource, /bridge\?\.reset\(\)/);
+	assert.match(lifecycleSource, /bridge\?\.stop\(\)/);
 	assert.doesNotMatch(source, /hermes\s*\.\s*(?:rpc|workspace|lifecycle)/i);
 });

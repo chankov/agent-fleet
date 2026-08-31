@@ -66,8 +66,9 @@ test('package files include all harness TypeScript files', async () => {
 });
 
 test('agent-hub and standalone harness share the coms status and timeout contract', async () => {
-  const [hubSource, standaloneSource, coreSource] = await Promise.all([
+  const [hubSource, hubComsExecutionSource, standaloneSource, coreSource] = await Promise.all([
     readFile('.pi/harnesses/agent-hub/index.ts', 'utf-8'),
+    readFile('.pi/harnesses/agent-hub/tools/action-executors.ts', 'utf-8'),
     readFile('.pi/harnesses/coms/index.ts', 'utf-8'),
     readFile('.pi/harnesses/lib/coms-core.ts', 'utf-8'),
   ]);
@@ -76,7 +77,7 @@ test('agent-hub and standalone harness share the coms status and timeout contrac
   assert.match(coreSource, /reply_timeout_ms:\s*params\.reply_timeout_ms \?\? null/);
   assert.match(coreSource, /pane_id:\s*pong\?\.pane_id \?\? null/);
   assert.match(coreSource, /status:\s*pong\?\.status \?\? null/);
-  assert.match(hubSource, /details:\s*\{ status: "pending" \}/);
+  assert.match(hubComsExecutionSource, /details:\s*\{ status: "pending" \}/);
 });
 
 test('model overrides preserve the original model across repeated project and session switches', () => {

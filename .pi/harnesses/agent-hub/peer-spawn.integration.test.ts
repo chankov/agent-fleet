@@ -6,12 +6,13 @@ import test from "node:test";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const fleetToolsSource = readFileSync(new URL("./tools/fleet-tools.ts", import.meta.url), "utf8");
+const herdrExecutorsSource = readFileSync(new URL("./tools/herdr-executors.ts", import.meta.url), "utf8");
 
 test("wiring contract: Hub uses the shared same-project peer plan", () => {
-	assert.match(indexSource, /import \{ buildHubPeerSpawnPlan, launchHubPeerInPane \} from "\.\/peer-spawn-plan\.ts"/);
-	assert.match(indexSource, /buildHubPeerSpawnPlan\([\s\S]*?project:\s*identity\.project[\s\S]*?peersYaml:[\s\S]*?personaExists:/);
-	assert.match(indexSource, /launchHubPeerInPane\(plan,\s*\{/);
-	assert.match(indexSource, /waitForRegistration:\s*\(name, timeoutMs\) => waitForPeerRegistration\(/);
+	assert.match(herdrExecutorsSource, /import \{ buildHubPeerSpawnPlan, launchHubPeerInPane \} from "\.\.\/peer-spawn-plan\.ts"/);
+	assert.match(herdrExecutorsSource, /buildHubPeerSpawnPlan\([\s\S]*?project: identity\.project[\s\S]*?peersYaml:[\s\S]*?personaExists:/);
+	assert.match(herdrExecutorsSource, /launchHubPeerInPane\(plan, \{/);
+	assert.match(herdrExecutorsSource, /waitForRegistration: \(name, timeoutMs\) => waitForPeerRegistration\(/);
 	assert.match(fleetToolsSource, /export async function waitForPeerRegistration\(/);
 	assert.match(fleetToolsSource, /export function peerManifest\(/);
 	assert.match(fleetToolsSource, /export function peerPersonaExists\(/);
@@ -39,8 +40,8 @@ test("schema contract: raw pane spawn has no peer readiness semantics", () => {
 	assert.match(registration, /command:\s*Type\.String/);
 	assert.doesNotMatch(registration, /persona:\s*Type\./);
 	assert.doesNotMatch(registration, /waitForPeerRegistration|peer_ready\s*:|hubSpawnedPeers/);
-	const execution = indexSource.match(/async function executeHerdrSpawnPane\([\s\S]*?(?=\n\tasync function executeHerdrReadPane)/)?.[0] ?? "";
+	const execution = herdrExecutorsSource.match(/const executeHerdrSpawnPane[\s\S]*?(?=\n\tconst executeHerdrReadPane)/)?.[0] ?? "";
 	assert.match(execution, /const argv = \["bash", "-lc", params\.command\]/);
-	assert.match(execution, /launchPeerInPane\(herdrApi, pane\.pane_id, argv\)/);
+	assert.match(execution, /launchPeerInPane\(d\.herdr, pane\.pane_id, argv\)/);
 	assert.doesNotMatch(execution, /waitForPeerRegistration|peer_ready\s*:|hubSpawnedPeers/);
 });

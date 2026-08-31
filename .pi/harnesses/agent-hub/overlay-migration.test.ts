@@ -6,6 +6,9 @@ import { createExecutionHistoryStore } from "./ui/history-store.ts";
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const zoomSource = readFileSync(new URL("./ui/zoom.ts", import.meta.url), "utf8");
 const historySource = readFileSync(new URL("./ui/history.ts", import.meta.url), "utf8");
+const dashboardSource = readFileSync(new URL("./ui/fleet-dashboard.ts", import.meta.url), "utf8");
+const detailSource = readFileSync(new URL("./ui/detail-panel.ts", import.meta.url), "utf8");
+const contextBudgetSource = readFileSync(new URL("./ui/context-budget.ts", import.meta.url), "utf8");
 
 test("zoom and history use shared fullscreen geometry and disposable panel resources", () => {
 	assert.match(source, /import \{ openZoom, type TimelineEntry, type Zoomable \} from "\.\/ui\/zoom\.ts"/);
@@ -13,6 +16,10 @@ test("zoom and history use shared fullscreen geometry and disposable panel resou
 	for (const overlaySource of [zoomSource, historySource]) {
 		assert.match(overlaySource, /import \{ FULLSCREEN_OVERLAY, bodyRows, fitToHeight \} from "\.\.\/\.\.\/lib\/fleet-overlay\.ts"/);
 		assert.match(overlaySource, /import \{ createPanelResources \} from "\.\.\/\.\.\/lib\/fleet-panel\.ts"/);
+	}
+	for (const overlaySource of [zoomSource, historySource, dashboardSource, detailSource, contextBudgetSource]) {
+		assert.match(overlaySource, /FULLSCREEN_OVERLAY/);
+		assert.match(overlaySource, /createPanelResources/);
 		assert.match(overlaySource, /\}, FULLSCREEN_OVERLAY\);/);
 		assert.match(overlaySource, /dispose: \(\) => resources\.dispose\(\)/);
 	}

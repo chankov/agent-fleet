@@ -17,33 +17,30 @@ function request(socketPath: string, value: unknown): Promise<unknown> {
 	});
 }
 
-/**
- * Wiring `index.ts` must contain. Each entry is asserted on its own so a single
- * broken seam names itself instead of hiding inside one collapsed chain.
- */
-const REQUIRED_INDEX_WIRING: ReadonlyArray<readonly [string, RegExp]> = [
+/** Root and extracted lifecycle wiring must contain each seam independently. */
+const REQUIRED_MONITOR_WIRING: ReadonlyArray<readonly [string, RegExp]> = [
 	["lifecycle reads the validated environment", /monitorLifecycleConfig\(process\.env\)/],
 	["turn id starts null", /let monitorTurnId: string \| null = null/],
 	["turn id is minted per hub turn", /monitorTurnId = `hub-turn-\$\{monitorHubId\}-\$\{crypto\.randomUUID\(\)\}`/],
 	["turn start is captured before use", /const monitorStart = monitorTurnId/],
 	["parent turn is finished explicitly", /monitorBridge\.finishParent\(monitorTurnId, "completed"\)/],
-	["bridge is started through the lifecycle", /await monitorLifecycle\.startBridge\(monitorBridge/],
+	["bridge is started through the lifecycle", /await lifecycle\.startBridge\(bridge/],
 	["children are started on the bridge", /monitorBridge\?\.startChild/],
 	["children are finalized by task", /finalizeChildFor\(task/],
 	["output is appended by task", /appendOutputFor\(task/],
 	["owned processes are registered by task", /registerOwnedProcessFor\(task/],
 	["coms runs register a wait-only cancel", /registerWaitOnly\(monitorKey, \(\) => state\.comsAbort\?\.\(\)\)/],
 	["recovery evidence is owner-scoped", /getRecoveryEvidence: async \(task: any\)/],
-	["recovery evidence comes from the registry", /monitorRegistry\.evidenceForOwner\(task\.ownerSessionId/],
+	["recovery evidence comes from the registry", /registry\.evidenceForOwner\(task\.ownerSessionId/],
 	["event journal is constructed", /new MonitorEventJournal\(/],
 	["typed invoke admission is constructed", /createMonitorInvokeAdmission\(/],
 	["the follow-up enqueue uses the shared production seam", /enqueue: createWatchdogFollowUpEnqueue\(/],
-	["the session bridge is constructed", /monitorBridge = createMonitorSessionBridge/],
+	["the session bridge is constructed", /const bridge = createMonitorSessionBridge/],
 	["local owned-process cancellation passes the monitor key", /cancelLocalOwnedProcess\(\{ process: state\.proc, monitorBridge, monitorKey:/],
 ];
 
-/** Wiring `index.ts` must NOT contain, because it bypasses a task-scoped seam. */
-const FORBIDDEN_INDEX_WIRING: ReadonlyArray<readonly [string, RegExp]> = [
+/** Root and extracted lifecycle wiring must NOT bypass task-scoped seams. */
+const FORBIDDEN_MONITOR_WIRING: ReadonlyArray<readonly [string, RegExp]> = [
 	["non-null assertion on the turn id", /parentId: monitorTurnId!/],
 	["key-scoped output append", /monitorBridge\?\.appendOutput\(monitorKey/],
 	["key-scoped child finalization", /monitorBridge\?\.finalizeChild\(monitorKey/],
@@ -54,19 +51,20 @@ const FORBIDDEN_INDEX_WIRING: ReadonlyArray<readonly [string, RegExp]> = [
 test("agent-hub session-start wiring initializes monitor lifecycle only from explicit valid fail-closed environment", () => {
 	const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 	const facadeSource = readFileSync(new URL("./session-start.ts", import.meta.url), "utf8");
-	const source = `${facadeSource}\n${indexSource}`;
+	const lifecycleSource = readFileSync(new URL("./lifecycle/monitor-session.ts", import.meta.url), "utf8");
+	const source = `${facadeSource}\n${lifecycleSource}\n${indexSource}`;
 	assert.match(facadeSource, /"resetSession"[\s\S]*?"restartMonitor"[\s\S]*?"initializeComs"/);
 
-	for (const [label, pattern] of REQUIRED_INDEX_WIRING) {
+	for (const [label, pattern] of REQUIRED_MONITOR_WIRING) {
 		assert.match(source, pattern, label);
 	}
-	for (const [label, pattern] of FORBIDDEN_INDEX_WIRING) {
+	for (const [label, pattern] of FORBIDDEN_MONITOR_WIRING) {
 		assert.doesNotMatch(source, pattern, label);
 	}
 
 	assert.match(
 		source,
-		/oldOwner: evidence\.owner,[\s\S]*oldSocket: evidence\.socket,[\s\S]*oldSession: evidence\.session,[\s\S]*oldHerdr: herdr\.herdr/,
+		/oldOwner: evidence\.owner,[\s\S]*oldSocket: evidence\.socket,[\s\S]*oldSession: evidence\.session,[\s\S]*oldHerdr: reconciled\.herdr/,
 		"rollover evidence keeps owner, socket, session, and Herdr identity together",
 	);
 	assert.ok(

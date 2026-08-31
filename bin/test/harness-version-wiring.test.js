@@ -13,7 +13,7 @@ test("all three target entrypoints import and register their local version modul
 		const source = readFileSync(join(root, ".pi", "harnesses", name, "index.ts"), "utf8");
 		assert.match(source, /from "\.\/version\.ts"/, name);
 		if (name === "agent-hub") {
-			assert.match(source, /registerSessionStart\(pi, \{[\s\S]*?resetSession: \(_ctx\) => \{\s*registerVersionStatus\(_ctx\)/, name);
+			assert.match(source, /registerSessionOrchestration\(pi, \{[\s\S]*?resetSession:[\s\S]*?registerVersion: registerVersionStatus/, name);
 		} else {
 			assert.match(source, /pi\.on\("session_start", async \([^)]*\) => \{\s*registerVersionStatus\(/, name);
 		}

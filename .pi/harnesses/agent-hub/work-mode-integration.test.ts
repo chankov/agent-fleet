@@ -5,8 +5,20 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const budgetSource = readFileSync(new URL("./context/budgets.ts", import.meta.url), "utf8");
+const researchRuntimeSource = readFileSync(new URL("./research/runtime.ts", import.meta.url), "utf8");
+const researchSpawnSource = readFileSync(new URL("./research/spawn-run.ts", import.meta.url), "utf8");
 const sessionStartSource = readFileSync(new URL("./session-start.ts", import.meta.url), "utf8");
 const workModeCommandSource = readFileSync(new URL("./commands/work-mode.ts", import.meta.url), "utf8");
+const rosterPolicySource = readFileSync(new URL("./policy/roster.ts", import.meta.url), "utf8");
+const modelPolicySource = readFileSync(new URL("./policy/models.ts", import.meta.url), "utf8");
+const workModePolicySource = readFileSync(new URL("./policy/work-mode.ts", import.meta.url), "utf8");
+const fleetDashboardSource = readFileSync(new URL("./ui/fleet-dashboard.ts", import.meta.url), "utf8");
+const contextBudgetUiSource = readFileSync(new URL("./ui/context-budget.ts", import.meta.url), "utf8");
+const shortcutSource = readFileSync(new URL("./input/shortcuts.ts", import.meta.url), "utf8");
+const pressureLifecycleSource = readFileSync(new URL("./lifecycle/context-pressure.ts", import.meta.url), "utf8");
+const turnLifecycleSource = readFileSync(new URL("./lifecycle/turn-handlers.ts", import.meta.url), "utf8");
+const researchControlsSource = readFileSync(new URL("./research/controls.ts", import.meta.url), "utf8");
 const handoffCommandSource = readFileSync(new URL("./commands/handoff.ts", import.meta.url), "utf8");
 const compoundCommandSource = readFileSync(new URL("./commands/compound.ts", import.meta.url), "utf8");
 const commandContextSource = readFileSync(new URL("./commands/context.ts", import.meta.url), "utf8");
@@ -18,6 +30,8 @@ const verificationContractToolSource = readFileSync(new URL("./tools/verificatio
 const comsToolsSource = readFileSync(new URL("./tools/coms-tools.ts", import.meta.url), "utf8");
 const fleetToolsSource = readFileSync(new URL("./tools/fleet-tools.ts", import.meta.url), "utf8");
 const toolContextSource = readFileSync(new URL("./tools/context.ts", import.meta.url), "utf8");
+const executionOrchestrationSource = readFileSync(new URL("./tools/execution-orchestration.ts", import.meta.url), "utf8");
+const dispatchExecutionSource = readFileSync(new URL("./tools/dispatch-execution.ts", import.meta.url), "utf8");
 const agentsTeamCommandSource = readFileSync(new URL("./commands/agents-team.ts", import.meta.url), "utf8");
 const agentsSaveCommandSource = readFileSync(new URL("./commands/agents-save.ts", import.meta.url), "utf8");
 const agentsRestartCommandSource = readFileSync(new URL("./commands/agents-restart.ts", import.meta.url), "utf8");
@@ -82,26 +96,28 @@ test("wiring contract: Hub registers one work-mode command without conditional c
 	assert.doesNotMatch(indexSource, /if \(workMode === [^)]+\)\s*\{\s*pi\.registerCommand/);
 });
 
-test("wiring contract: Hub persists and restores work-mode entries", () => {
-	assert.match(indexSource, /appendEntry\(WORK_MODE_ENTRY_TYPE/);
-	assert.match(indexSource, /resolveSessionWorkMode\(\{/);
+test("wiring contract: work-mode policy persists while root restores session order", () => {
+	assert.match(workModePolicySource, /ports\.persist\(WORK_MODE_ENTRY_TYPE/);
+	assert.match(indexSource, /createWorkModePolicy\(\{/);
 	assert.match(indexSource, /const sessionEntries = _ctx\.sessionManager\.getEntries\(\)/);
-	assert.match(indexSource, /resolveSessionWorkMode\(\{[\s\S]*?entries: sessionEntries/);
+	assert.match(indexSource, /setRestoredWorkMode\(resolveSessionWorkMode\(\{[\s\S]*?entries: sessionEntries/);
 });
-
 test("wiring contract: Hub restores named rosters and gates stale orchestrator sessions", () => {
 	assert.match(indexSource, /resolveSessionRoster\(\{/);
 	assert.match(indexSource, /hasExplicitRoster: startupRoster\.source === "explicit"/);
-	assert.match(indexSource, /appendEntry\(NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState\(/);
+	assert.match(indexSource, /persist: team => pi\.appendEntry\(NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState\(team\)\)/);
+	assert.match(rosterPolicySource, /ports\.persist\(team\)/);
 	assert.match(indexSource, /registerAgentsSave\(pi, commandCtx\)/);
 	assert.match(agentsSaveCommandSource, /registerCommand\("af-agents-save"[\s\S]*?handleAgentsSave/);
 	assert.match(indexSource, /handleAgentsSave: async \(args, ctx\) => \{[\s\S]*?activeTeamName = name;[\s\S]*?persistActiveRoster\(\)/);
-	assert.match(indexSource, /rosterRecoveryRequired[\s\S]*?return \{ action: "handled" as const \}/);
+	assert.match(workModePolicySource, /rosterRecoveryRequired[\s\S]*?modelWorkBlockedByRosterRecovery/);
+	assert.match(indexSource, /modelWorkBlocked: modelWorkBlockedByRosterRecovery/);
+	assert.match(pressureLifecycleSource, /ports\.modelWorkBlocked\(ctx\)[\s\S]*?return \{ action: "handled" \}/);
 	assert.doesNotMatch(indexSource, /registerCommand\("af-persona"/);
 	assert.doesNotMatch(indexSource, /personaGateEnabled|pickDispatcherPersona/);
 	assert.match(indexSource, /registerAgentsTeam\(pi, commandCtx\)/);
 	assert.match(agentsTeamCommandSource, /registerCommand\("af-agents-team"[\s\S]*?handleAgentsTeam/);
-	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
+	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?clearRosterRecovery\(\);[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
 	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator workMode requires --agent-team/);
 });
 
@@ -133,27 +149,53 @@ test("wiring contract: extracted Hub tools use typed modules and one flat regist
 	assert.match(toolContextSource, /getAssertionCount\(\): number/);
 });
 
+test("wiring contract: research lifecycle is owned by the typed runtime with root-backed state ports", () => {
+	assert.match(researchRuntimeSource, /export interface ResearchRuntime</);
+	assert.match(researchRuntimeSource, /export function parseResearchHandle/);
+	for (const port of ["getResearchStates", "setResearchStates", "getNextResearchId", "setNextResearchId", "getResearchKeep", "setResearchKeep"]) {
+		assert.match(researchRuntimeSource, new RegExp(`${port}\\(`));
+		assert.match(indexSource, new RegExp(`${port}:`));
+	}
+	assert.match(indexSource, /createResearchRuntime<AgentDef>\(\{/);
+	assert.match(indexSource, /hubState: hubStateCtx, budget: budgetCtx, artifacts: assertionsArtifactsCtx/);
+	assert.match(indexSource, /guardrailEnv, notifyProviderQueue, spawnPiAgentWithModelFallback/);
+	assert.match(researchSpawnSource, /providerSemaphore\.run/);
+	for (const streamPort of ["appendTimelineText", "appendTimelineEvent", "executionHistory.end"]) assert.match(researchSpawnSource, new RegExp(streamPort.replace(".", "\\.")));
+	assert.match(researchSpawnSource, /artifacts\.appendInputArtifacts/);
+	assert.doesNotMatch(indexSource, /async function spawnResearch\(/);
+	assert.doesNotMatch(indexSource, /function createResearchState\(/);
+	assert.doesNotMatch(indexSource, /function pruneResearch\(/);
+});
+
 test("wiring contract: every fleet action assumes a tier before its persona gate", () => {
-	assert.match(indexSource, /function ensureTaskTier\(\): void \{[\s\S]*?taskTier = DEFAULT_TASK_TIER;[\s\S]*?taskTierAssumed = true;[\s\S]*?turnReport\.tier = taskTier;[\s\S]*?updateModeStatus\(\)/);
-	const dispatchExecution = indexSource.match(/async function executeDispatchAgent\([\s\S]*?(?=\n\t+async function executeSpawnResearch)/);
-	const researchExecution = indexSource.match(/async function executeSpawnResearch\([\s\S]*?(?=\n\t+\/\/ ── Extracted tool execution wiring)/);
-	assert.ok(dispatchExecution, "dispatch_agent execution remains in the composition root");
-	assert.ok(researchExecution, "spawn_research execution remains in the composition root");
-	assert.match(dispatchExecution[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(agent\)/);
-	assert.match(researchExecution[0], /ensureTaskTier\(\);[\s\S]*?preflightGate\(persona \|\| ""\)/);
+	assert.match(budgetSource, /ensureTaskTier\(\) \{[\s\S]*?setTaskTier\(DEFAULT_TASK_TIER\);[\s\S]*?setTaskTierAssumed\(true\);[\s\S]*?getTurnReport\(\)\.tier = DEFAULT_TASK_TIER;[\s\S]*?updateModeStatus\(\)/);
+	assert.match(executionOrchestrationSource, /export interface DispatchExecutionContext/);
+	assert.match(indexSource, /createToolExecutionOrchestration\(\{[\s\S]*?budget: budgetCtx, artifacts: assertionsArtifactsCtx, research: researchRuntime/);
+	assert.doesNotMatch(indexSource, /async function executeDispatchAgent|async function executeSpawnResearch/);
+	assert.match(dispatchExecutionSource, /function prepareDispatch[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, agent\)/);
+	assert.match(dispatchExecutionSource, /createResearchExecutor[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, params\.persona \|\| ""\)/);
 });
 
-test("wiring contract: Hub applies work mode tools at startup and live switches", () => {
-	const applications = indexSource.match(/applyWorkModeTools\(\)/g) ?? [];
-	assert.ok(applications.length >= 3, `expected definition plus startup and command applications, got ${applications.length}`);
-	assert.match(indexSource, /resolveWorkModeTools\(/);
-	assert.match(indexSource, /async function applyWorkModeSelection\(/);
-	assert.match(indexSource, /async function openWorkModePicker\(/);
+test("wiring contract: Hub applies extracted work mode tools at startup and live switches", () => {
+	const applications = (indexSource + pressureLifecycleSource + turnLifecycleSource).match(/applyWorkMode(?:Tools)?\(\)/g) ?? [];
+	assert.ok(applications.length >= 3, `expected startup, command, and lifecycle applications, got ${applications.length}`);
+	assert.match(workModePolicySource, /resolveWorkModeTools\(\{/);
+	assert.match(workModePolicySource, /async function applySelection\(/);
+	assert.match(workModePolicySource, /async function openPicker\(/);
 	assert.match(workModeCommandSource, /registerCommand\("af-work-mode"[\s\S]*?openWorkModePicker/);
-	assert.match(indexSource, /registerShortcut\("alt\+m"[\s\S]*?openWorkModePicker/);
-	assert.doesNotMatch(indexSource, /registerCommand\("af-hub-mode"/);
+	assert.match(indexSource, /registerInputShortcuts\(pi,/);
+	assert.match(shortcutSource, /registerShortcut\("alt\+m"[\s\S]*?openWorkModePicker/);
 });
 
+test("wiring contract: policy maps and mutations have one typed owner", () => {
+	for (const map of ["personaOverrides", "substitutions", "thinkingOverrides", "subagentOverrides"]) {
+		assert.match(modelPolicySource, new RegExp(`const ${map} = new Map`));
+		assert.doesNotMatch(indexSource, new RegExp(`const ${map} = new Map`));
+	}
+	assert.match(indexSource, /createModelPolicy<AgentDef>\(\{/);
+	assert.match(indexSource, /createRosterPolicy<AgentDef, AgentState>\(\{/);
+	assert.match(indexSource, /createWorkModePolicy\(\{/);
+});
 test("wiring contract: orchestrator persona defers authority to active work mode", () => {
 	assert.match(personaSource, /active Hub work mode/i);
 	assert.match(personaSource, /operator work mode/i);
@@ -161,30 +203,30 @@ test("wiring contract: orchestrator persona defers authority to active work mode
 });
 
 test("same-turn pressure aborts after a large tool result and compacts only after the run settles", () => {
-	assert.match(indexSource, /pi\.on\("message_end", async \(event, ctx\) => \{[\s\S]*?event\.message\.role !== "toolResult"[\s\S]*?observeContextPressure\(ctx, "message_end", projectedResultTokens\)[\s\S]*?ctx\.abort\(\)/);
-	assert.match(indexSource, /pi\.on\("turn_end", async \(_event, ctx\) => \{[\s\S]*?observeContextPressure\(ctx, "turn_end"\)/);
-	assert.match(indexSource, /pi\.on\("context", async \(_event, ctx\) => \{[\s\S]*?automaticCompactionPending[\s\S]*?ctx\.abort\(\)/);
-	assert.match(indexSource, /pi\.on\("agent_settled", async \(_event, ctx\) => \{[\s\S]*?runAutomaticCompaction\(ctx, "agent_settled"\)/);
-	assert.match(indexSource, /function runAutomaticCompaction\([\s\S]*?ctx\.compact\(/);
+	assert.match(indexSource, /pi\.on\("message_end"[\s\S]*?pressureLifecycle\.messageEnd/);
+	assert.match(pressureLifecycleSource, /messageEnd\(event, ctx\)[\s\S]*?event\.message\.role !== "toolResult"[\s\S]*?observe\(ctx, "message_end", projected\)[\s\S]*?ctx\.abort\(\)/);
+	assert.match(indexSource, /pi\.on\("turn_end"[\s\S]*?pressureLifecycle\.turnEnd/);
+	assert.match(pressureLifecycleSource, /context\(ctx\)[\s\S]*?automaticPending[\s\S]*?ctx\.abort\(\)/);
+	assert.match(indexSource, /pi\.on\("agent_settled"[\s\S]*?pressureLifecycle\.agentSettled/);
+	assert.match(pressureLifecycleSource, /const runCompaction[\s\S]*?ctx\.compact\(/);
 	assert.match(indexSource, /pi\.on\("session_compact", async/);
 });
 
 test("pressure diagnostics stay metadata-only and feed status plus /af-context", () => {
-	assert.match(indexSource, /pressure: contextPressureDiagnostic\(contextPressureState\)/);
-	assert.match(indexSource, /setStatus\("context-pressure",[\s\S]*?contextPressureState\.phase/);
-	assert.match(indexSource, /appendEntry\("agent-hub-context-pressure", \{[\s\S]*?warning_percent:[\s\S]*?automatic_percent:[\s\S]*?last_recovery_outcome:/);
+	assert.match(contextBudgetUiSource, /pressure: contextPressureDiagnostic\(deps\.getPressureState\(\)\)/);
+	assert.match(pressureLifecycleSource, /setStatus\("context-pressure",[\s\S]*?state\(\)\.pressure\.phase/);
+	assert.match(pressureLifecycleSource, /appendEntry\("agent-hub-context-pressure", \{[\s\S]*?warning_percent:[\s\S]*?automatic_percent:[\s\S]*?last_recovery_outcome:/);
 });
 
 test("high-context startup and input defer prompts until compaction completes", () => {
 	assert.match(sessionStartSource, /pi\.on\("session_start"[\s\S]*?runSessionStart\(ctx, deps\)/);
-	assert.match(indexSource, /resolveCapabilities: async \(_ctx\) => \{[\s\S]*?observeContextPressure\(_ctx, "session_start"\)/);
-	assert.match(indexSource, /pi\.on\("input", async \(event, ctx\) => \{[\s\S]*?deferredRecoveryInputs\.push[\s\S]*?action: "handled"/);
-	assert.match(indexSource, /function replayDeferredRecoveryInputs\([\s\S]*?pi\.sendUserMessage\(/);
-	assert.match(indexSource, /function markContextCompactionSucceeded\(\)[\s\S]*?automaticCompactionPending = false/,
-		"any observed compaction success clears a stale pending request");
-	assert.match(indexSource, /if \(replayingDeferredRecoveryInput && modelWorkBlockedByRosterRecovery\(ctx\)\)[\s\S]*?deferredRecoveryInputs\.push/,
-		"recovery replay is retained again when a roster gate is still active");
-	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?rosterRecoveryRequired = false;[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/,
+	assert.match(indexSource, /resolveCapabilities: async \(_ctx\) => \{[\s\S]*?pressureLifecycle\.observe\(_ctx, "session_start"\)/);
+	assert.match(indexSource, /pi\.on\("input"[\s\S]*?pressureLifecycle\.input/);
+	assert.match(pressureLifecycleSource, /state\(\)\.deferredInputs\.push[\s\S]*?action: "handled"/);
+	assert.match(pressureLifecycleSource, /const replayDeferred[\s\S]*?ports\.sendUserMessage\(/);
+	assert.match(pressureLifecycleSource, /const markSucceeded[\s\S]*?automaticPending = false/, "any observed compaction success clears a stale pending request");
+	assert.match(pressureLifecycleSource, /if \(replaying && ports\.modelWorkBlocked\(ctx\)\)[\s\S]*?deferredInputs\.push/, "recovery replay is retained again when a roster gate is still active");
+	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?clearRosterRecovery\(\);[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/,
 		"team recovery clears the roster gate before replaying retained input");
 });
 
@@ -192,23 +234,22 @@ test("stale-roster gate covers every command and dashboard path that can start m
 	assert.match(comsCoreSource, /function handlePrompt\([\s\S]*?deps\.acceptInbound/);
 	assert.match(indexSource, /acceptInbound: \(\) => currentCtx && modelWorkBlockedByRosterRecovery\(currentCtx\)/);
 	const guardedBlocks = [
-		/function restartFleetRow\([\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/handleAgentsRestart: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
+		/function restartRow\([\s\S]*?deps\.modelWorkBlocked\(ctx\)/,
+		/async handleRestart\(args, ctx\) \{[\s\S]*?ports\.modelWorkBlocked\(ctx\)/,
 		/handleHandoff: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 		/handleCompound: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 	];
-	for (const pattern of guardedBlocks) assert.match(indexSource, pattern);
+	assert.match(fleetDashboardSource, guardedBlocks[0]);
+	assert.match(researchControlsSource, guardedBlocks[1]);
+	for (const pattern of guardedBlocks.slice(2)) assert.match(indexSource, pattern);
 	assert.match(agentsRestartCommandSource, /registerCommand\("af-agents-restart"[\s\S]*?handleAgentsRestart/);
 });
 
 test("same-turn lifecycle has one pre-model surface assembly point for normal and resumed remote turns", () => {
-	const inputHook = indexSource.match(/pi\.on\("input", async \(event, ctx\) => \{[\s\S]*?\n\t\}\);/);
-	const beforeHook = indexSource.match(/pi\.on\("before_agent_start", async \(\) => \{[\s\S]*?resetHubPromptTurn\(\);[\s\S]*?return buildHubSystemPrompt\(\);[\s\S]*?\}\);/);
-	assert.ok(inputHook, "incoming normal and remote messages share Pi's input hook");
-	assert.ok(beforeHook, "all model turns share the before_agent_start hook");
-	// Registration order is intentionally irrelevant: Pi invokes input before model startup.
-	assert.match(indexSource, /pi\.on\("input", async \(event, ctx\) => \{[\s\S]*?resolveIncomingCapabilities\(incomingText\(event\)\);[\s\S]*?applyWorkModeTools\(\)/);
-	assert.match(indexSource, /function resetHubPromptTurn\(\): void \{[\s\S]*?applyWorkModeTools\(\)/);
+	assert.match(indexSource, /pi\.on\("input"[\s\S]*?pressureLifecycle\.input/, "incoming normal and remote messages share Pi's input hook");
+	assert.match(indexSource, /pi\.on\("before_agent_start"[\s\S]*?turnHandlers\.beforeAgentStart/, "all model turns share the before_agent_start hook");
+	assert.match(pressureLifecycleSource, /ports\.resolveCapabilities\(incomingText\(event\)\); ports\.applyWorkMode\(\)/);
+	assert.match(turnLifecycleSource, /const resetTurn[\s\S]*?ports\.applyWorkMode\(\)/);
 	assert.match(indexSource, /function buildHubSystemPrompt\(\): \{ systemPrompt: string \} \{[\s\S]*?assembleHubPrompt\(hubPromptCtx\)/);
 	assert.doesNotMatch(indexSource, /classification model|classify.*model request|sendMessage\([\s\S]{0,100}classif/i);
 });

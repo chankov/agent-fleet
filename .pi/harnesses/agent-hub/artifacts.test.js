@@ -177,10 +177,12 @@ test("dispatch_agent and spawn_research tool schemas expose optional artifacts",
 
 test("handoff appendix is guarded by a matching handoff token", () => {
 	const index = readFileSync(new URL("./index.ts", import.meta.url), "utf-8");
+	const artifactContext = readFileSync(new URL("./context/assertions-artifacts.ts", import.meta.url), "utf-8");
 	const comsTools = readFileSync(new URL("./tools/coms-tools.ts", import.meta.url), "utf-8");
+	const actionExecutors = readFileSync(new URL("./tools/action-executors.ts", import.meta.url), "utf-8");
 	assert.match(comsTools, /name: "coms_send"[\s\S]*handoff_token: Type\.Optional/);
-	assert.match(index, /pendingHandoff\.target === target\.name[\s\S]*params\.handoff_token === pendingHandoff\.token/);
-	assert.match(index, /if \(handoffAppendAuthorized\) pendingHandoff = null/);
-	assert.match(index, /## Verification ledger \(verbatim, machine-appended\)/);
-	assert.match(index, /## Artifact index/);
+	assert.match(actionExecutors, /pending\.target === target\.name[\s\S]*params\.handoff_token === pending\.token/);
+	assert.match(actionExecutors, /if \(authorized\) d\.hubState\.setPendingHandoff\(null\)/);
+	assert.match(artifactContext, /## Verification ledger \(verbatim, machine-appended\)/);
+	assert.match(artifactContext, /## Artifact index/);
 });
