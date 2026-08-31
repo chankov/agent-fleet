@@ -1,5 +1,38 @@
 # Agent Fleet changelog
 
+## 2.0.0
+
+### Major Changes
+
+- 3492f8d: Remove the manual research lifecycle slash commands `/af-research`, `/af-research-cont`, `/af-research-rm`, `/af-research-clear`, and `/af-agents-cont`. Read-only reconnaissance now enters through the dispatcher's bounded `spawn_research` tool or the automatic specialist `NEEDS_RESEARCH:` pipe; the existing add/drop, kill, and restart controls remain available.
+- 1fae5d7: Consolidate Fleet execution controls under Work Mode. Keep `/af-work-mode`, `Alt+M`, and `--work-mode`; remove `/af-posture`, `--posture`, and the deprecated fast/standard/strict mode aliases. Rename the runtime types, state, UI, tests, and documentation while retaining read-only compatibility for legacy persisted posture entries.
+- 6793d7e: Remove `/af-persona` and the `persona-gate` override. The hub dispatcher is the generated Fleet prompt using the Work Mode selected through `/af-work-mode`; leftover `persona-gate` keys are ignored and flagged by doctor. `agents/orchestrator.md` remains as the catalog description of that role.
+
+### Patch Changes
+
+- 196b2ec: Extract Agent Hub configuration and full session lifecycle orchestration so index.ts is a bounded composition root while preserving startup and shutdown order.
+
+  Closeout measurements:
+
+  - `wc -l .pi/harnesses/agent-hub/index.ts` → 1,850 lines.
+  - Unicode character count (`len(Path(...).read_text())`) → 99,182 characters; plan estimate `/ 4` → 24,795.5 tokens.
+  - Phase 6 production modules remain below 600 lines and extracted functions below 200 lines; registration remains 16 tools / 21 commands / 8 flags.
+
+- d3d6cd1: Extract the 21 agent-hub slash command registrars into dedicated command modules while preserving the existing command surface and behavior.
+- 196b2ec: Extract Agent Hub fleet dashboard, detail panel, and context-budget projections into bounded UI modules.
+- 65dfe30: Extract Agent Hub dispatch orchestration, grid and overlay UI, and execution-history state into explicit typed modules while preserving behavior and the registered surface.
+- 196b2ec: Extract Agent Hub pool presentation, shortcuts, completions, and research controls into explicit modules.
+- 196b2ec: Extract Agent Hub roster, model substitution, capability, and work-mode policy into typed policy modules.
+- 71ce9ef: Extract Agent Hub system-prompt templates and ordered session-start orchestration into explicit typed modules while preserving prompt text, startup behavior, and the registered surface.
+- 196b2ec: Extract Agent Hub research creation, retention, streaming, guarded spawn, and completion delivery into a typed research runtime.
+- 196b2ec: Extract Agent Hub mutable state, budget, assertion, artifact, and archive APIs behind explicit root-owned context ports.
+- 196b2ec: Extract Agent Hub dispatch and research tool execution orchestration behind narrow typed executor ports.
+- 27a0b61: Extract all 16 Agent Hub tool registrations into typed registrar modules while preserving the existing tool schemas and behavior.
+- 196b2ec: Extract Agent Hub context-pressure, compaction, deferred-input, and ordered turn lifecycle handlers behind explicit ports.
+- 74265fa: Add a registration-surface regression fixture and exclude generated version snapshots from code search results before decomposing the agent-hub entry point.
+- 5486704: `agent-fleet setup` no longer overwrites an existing `.ai/agent-fleet-overrides.md`.
+- 626a7bb: Deduplicate the standalone coms harness and Agent Hub by routing registry, transport, presence, discovery, messaging, and shutdown behavior through one shared coms core.
+
 ## 1.0.4
 
 ### Patch Changes
