@@ -1,5 +1,12 @@
 # Agent Fleet changelog
 
+## 2.0.1
+
+### Patch Changes
+
+- 8f36484: Add the headless deterministic workflow runtime, workflow drafting skill and generator, scoped TypeScript authoring gate, executable workflow documentation, and installer/package wiring.
+- e007380: Add numbered `just flow cleanup` and `just flow merge` branch maintenance, persisted source/result metadata, safe Worktrunk removal, and accepted-run squash merging back to the originating branch.
+
 ## 2.0.0
 
 ### Major Changes
