@@ -25,6 +25,61 @@ Options:
 
 Exit codes are `0` accepted, `1` failed/unaccepted, `2` invalid arguments or unknown flow, and `3` startup refusal. SIGINT/SIGTERM finalize the run trace and return `128 + signal`.
 
+## Clean up and merge flow branches
+
+Every run records its source branch and commit before creating `flow/<name>-<runId>`, then records whether the run was accepted or rejected. The reserved `cleanup` and `merge` subcommands use that metadata and [Worktrunk](https://worktrunk.dev) to manage completed branches.
+
+List branches and open the numbered prompt in a terminal:
+
+```bash
+just flow cleanup
+```
+
+Example output:
+
+```text
+Flow branches:
+  1. flow/scout-scout-demo  accepted  clean  ↑0 ↓0  target: main
+  2. flow/build-test-api-42  accepted  clean  ↑1 ↓0  target: feature/api
+
+Select with a number or full branch name.
+Clean up which flow branch?
+```
+
+Select by the displayed number or by its stable full name:
+
+```bash
+just flow cleanup 1
+just flow cleanup flow/scout-scout-demo
+```
+
+Normal cleanup calls `wt remove` without force. Worktrunk removes only clean work that is empty or already integrated; otherwise the command fails and keeps the branch. To intentionally discard a clean but unmerged branch, make that destructive intent explicit:
+
+```bash
+just flow cleanup 2 --discard
+```
+
+The wrapper never passes Worktrunk's worktree `--force` flag: a dirty worktree must be committed or stashed manually. In non-interactive automation, listing without a selector only prints options; a selected mutation also requires `--yes`:
+
+```bash
+just flow cleanup flow/scout-scout-demo --yes
+```
+
+Merge presents the same selector:
+
+```bash
+just flow merge
+just flow merge 2
+```
+
+Only an accepted run with a clean worktree can merge. The command invokes Worktrunk's standard `wt merge <target>` pipeline: squash to one commit, rebase onto the recorded source branch when necessary, run configured hooks, fast-forward the target, then remove the flow worktree and branch. If a selected branch is not checked out, Worktrunk first materializes its worktree. Old flow branches without source metadata require an explicit local target rather than a guess:
+
+```bash
+just flow merge flow/build-test-api-42 --target feature/api
+```
+
+Maintenance does not fetch remotes and does not delete `.pi/flow-sessions/<runId>`; traces remain as local execution evidence. `cleanup` and `merge` are reserved maintenance names and cannot be generated as workflow names.
+
 ## Shipped flows
 
 | Flow | Shape | Purpose |
@@ -47,7 +102,7 @@ The runtime currently uses its 1,800-second default timeout; `timeout-seconds:` 
 
 ## Safety and evidence
 
-Normal runs require a clean tree and create `flow/<name>-<runId>`. Every agent phase must receive an explicit writes policy from persona frontmatter or its call site; a missing policy is refused before spawn rather than silently treated as unrestricted. `writes: []` is repository read-only, and a non-empty list is an allowlist. Agent writes are checked after each phase against that policy and workflow `protectedGlobs`. `protectedGlobs` reject a path only when no `writes` glob matches it, so `writes: ["**"]` also permits a protected path. `*` stays within one path segment; `**` crosses directories. Out-of-policy changes introduced by the agent are rolled back and terminate the phase. Runtime reports remain writable even for repository-read-only agents. This enforcement exists only in flows; hub behavior is unchanged.
+Normal runs require a clean tree and create `flow/<name>-<runId>`. The branch stores its source branch, source commit, flow name, run id, and final acceptance as local Git metadata so maintenance can merge back without guessing. Every agent phase must receive an explicit writes policy from persona frontmatter or its call site; a missing policy is refused before spawn rather than silently treated as unrestricted. `writes: []` is repository read-only, and a non-empty list is an allowlist. Agent writes are checked after each phase against that policy and workflow `protectedGlobs`. `protectedGlobs` reject a path only when no `writes` glob matches it, so `writes: ["**"]` also permits a protected path. `*` stays within one path segment; `**` crosses directories. Out-of-policy changes introduced by the agent are rolled back and terminate the phase. Runtime reports remain writable even for repository-read-only agents. This enforcement exists only in flows; hub behavior is unchanged.
 
 Every run writes JSONL under `.pi/flow-sessions/<runId>/trace.jsonl`; this directory is gitignored and separate from hub sessions. Phase success and work acceptance are separate. `run.finish()` produces the exit code, final trace status, and banner from one decision so they cannot disagree.
 

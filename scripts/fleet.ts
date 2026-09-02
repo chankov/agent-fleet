@@ -25,6 +25,19 @@ QUICK START
   just fleet --agents frontend --peers frontend --project af
                                 # matching native roster + standing peers
 
+DETERMINISTIC FLOWS
+  just flow quality
+  just flow scout "where is authentication configured?"
+  just flow build-test "add the validated endpoint"
+      Run code-owned headless phase graphs on isolated flow/<name>-<runId> branches.
+
+  just flow cleanup       # list flow branches and prompt for a number
+  just flow cleanup 2     # safely remove empty/integrated selection 2
+  just flow merge         # list flow branches and prompt for a number
+  just flow merge 2       # squash-merge accepted selection 2, then remove it
+      Cleanup and merge require Worktrunk. Dirty worktrees are refused; merge
+      targets the source branch recorded when the run started. See docs/workflows.md.
+
 FLEET CORE — loaded in every Pi mode
   Damage Control Continue · local/remote ask_user · Compact & Continue
   BTW side sessions · update checker (voice is opt-in with --voice)

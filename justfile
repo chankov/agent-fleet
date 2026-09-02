@@ -76,6 +76,15 @@ default:
 #   just fleet team frontend --project af   # use canonical --agents/--peers flags
 #   just fleet team frontend --no-hub       # legacy peers-only topology
 #
+# DETERMINISTIC FLOWS AND BRANCH MAINTENANCE
+#   just flow scout "where is authentication configured?"
+#   just flow quality
+#   just flow build-test "add the validated endpoint"
+#   just flow cleanup                         # numbered selector
+#   just flow cleanup 2                       # safe Worktrunk removal
+#   just flow merge                           # numbered selector
+#   just flow merge 2                         # Worktrunk squash merge to recorded source
+#
 # TEAM LIFECYCLE
 #   just fleet snapshot frontend --project af
 #   just fleet down frontend --project af
@@ -107,7 +116,8 @@ default:
 fleet *args:
     @{{node_ts}} scripts/fleet.ts {{args}}
 
-# Headless workflow runner — exits 0 accepted; 1 rejected/failed; 2 invalid/unknown; 3 refused start.
+# Headless workflows plus `flow cleanup` / `flow merge` Worktrunk branch maintenance.
+# Exits 0 accepted/success; 1 rejected/failed; 2 invalid/unknown; 3 refused start.
 flow *args:
     @{{node_ts}} scripts/flow.ts {{args}}
 

@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 
 const PHASE_DOCSTRING = /\/\*\*\s*Phases:\s*([^\n*]+)[\s\S]*?\*\//;
 const SAFE_NAME = /^[a-z][a-z0-9-]*$/;
+const RESERVED_FLOW_NAMES = new Set(["cleanup", "merge"]);
 export type PhaseKind = "engineer" | "agent" | "code";
 export interface WorkflowShape { path: string; name: string; source: string; phases: string[]; kinds: PhaseKind[] }
 export interface CommandResult { status: number | null; stdout?: string; stderr?: string }
@@ -116,6 +117,7 @@ export function makeWorkflow(options: {
 	cwd: string; name: string; phases: string[]; workflowsDir?: string; runner?: CommandRunner;
 }): { outputPath: string; sourcePath: string; phases: string[] } {
 	if (!SAFE_NAME.test(options.name)) throw new Error(`Invalid workflow name: ${options.name}`);
+	if (RESERVED_FLOW_NAMES.has(options.name)) throw new Error(`Workflow name is reserved for maintenance: ${options.name}`);
 	const workflowsDir = resolve(options.workflowsDir ?? resolve(options.cwd, "scripts/workflows"));
 	const outputPath = resolve(workflowsDir, `wf-${options.name}.ts`);
 	if (existsSync(outputPath)) throw new Error(`Refusing to overwrite existing workflow: ${outputPath}`);

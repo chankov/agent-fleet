@@ -42,6 +42,7 @@ test("phase parsing preserves commas inside parentheses and selects the true nea
 	assert.deepEqual(phases, ["engineer(request)", "agent(builder)", "code(test)", "agent(builder-fix, bounded)", "code(commit)"]);
 	assert.equal(selectNearestWorkflow(readWorkflowShapes(workflows), phases).name, "gamma");
 	assert.throws(() => parsePhaseList("agent(builder, bounded"), /Unbalanced phase parentheses/);
+	assert.throws(() => makeWorkflow({ cwd: fixture().cwd, name: "cleanup", phases: ["code(cleanup)"], runner: greenRunner }), /reserved for maintenance/);
 });
 
 test("failed scoped typecheck refuses handoff and removes the draft", () => {

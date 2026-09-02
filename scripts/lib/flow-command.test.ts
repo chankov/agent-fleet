@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { executeFlow, resolveWorkflow, workflows } from "../flow.ts";
-import { parseFlowCommand } from "./flow-command.ts";
+import { parseFlowCommand, parseFlowMaintenanceCommand } from "./flow-command.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FLOW = resolve(ROOT, "scripts", "flow.ts");
@@ -31,6 +31,16 @@ test("flow command parsing preserves positional request and validates flags", ()
 	assert.throws(() => parseFlowCommand(["quality", "--run-id", "../x"]), /safe identifier/);
 });
 
+test("maintenance parsing keeps destructive intent explicit", () => {
+	assert.deepEqual(parseFlowMaintenanceCommand(["cleanup"]), { action: "cleanup", discard: false, yes: false });
+	assert.deepEqual(parseFlowMaintenanceCommand(["cleanup", "2", "--discard", "--yes"]), { action: "cleanup", selector: "2", discard: true, yes: true });
+	assert.deepEqual(parseFlowMaintenanceCommand(["merge", "flow/build-test-r1", "--target", "feature/api", "--yes"]), { action: "merge", selector: "flow/build-test-r1", target: "feature/api", discard: false, yes: true });
+	assert.throws(() => parseFlowMaintenanceCommand(["cleanup", "2", "--target", "main"]), /only with flow merge/);
+	assert.throws(() => parseFlowMaintenanceCommand(["merge", "2", "--discard"]), /only with flow cleanup/);
+	assert.throws(() => parseFlowMaintenanceCommand(["cleanup", "other"]), /full flow/);
+	assert.throws(() => parseFlowMaintenanceCommand(["merge", "1", "2"]), /Only one/);
+});
+
 test("generated workflow modules are reachable through the flow dispatcher with unique entry exports", async () => {
 	const cwd = repo();
 	const workflowsDir = join(cwd, "scripts", "workflows");
@@ -53,6 +63,18 @@ test("unknown or invalid invocation exits 2", () => {
 	try {
 		assert.equal(invoke(cwd, ["unknown"]).status, 2);
 		assert.equal(invoke(cwd, ["quality", "--wat"]).status, 2);
+		assert.equal(invoke(cwd, ["cleanup", "--target", "main"]).status, 2);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("maintenance CLI lists flow branches without mutating in non-interactive mode", () => {
+	const cwd = repo();
+	try {
+		execFileSync("git", ["branch", "flow/scout-old"], { cwd });
+		const result = invoke(cwd, ["cleanup"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /1\. flow\/scout-old/);
+		assert.match(execFileSync("git", ["branch", "--list", "flow/scout-old"], { cwd, encoding: "utf8" }), /flow\/scout-old/);
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 

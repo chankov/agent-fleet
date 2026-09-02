@@ -6,6 +6,15 @@ export class StartRefusedError extends Error {
 }
 export class GitOperationError extends Error {}
 
+export interface FlowBranchMetadata {
+	branch: string;
+	flowName?: string;
+	runId?: string;
+	baseBranch?: string;
+	baseCommit?: string;
+	result?: "accepted" | "rejected";
+}
+
 function git(cwd: string, args: string[]): string {
 	const result = spawnSync("git", args, { cwd, encoding: "utf8" });
 	if (result.status !== 0) throw new GitOperationError((result.stderr || result.stdout || `git ${args.join(" ")} failed`).trim());
@@ -28,9 +37,41 @@ export function flowBranchName(name: string, runId: string): string {
 	return `flow/${name}-${runId}`;
 }
 
+function configKey(branch: string, name: string): string { return `branch.${branch}.agentFleet${name}`; }
+function optionalGit(cwd: string, args: string[]): string | undefined {
+	try { return git(cwd, args); } catch { return undefined; }
+}
+function writeBranchConfig(cwd: string, branch: string, name: string, value: string): void {
+	git(cwd, ["config", "--local", "--replace-all", configKey(branch, name), value]);
+}
+
+export function readFlowBranchMetadata(branch: string, cwd = process.cwd()): FlowBranchMetadata {
+	const value = (name: string) => optionalGit(cwd, ["config", "--local", "--get", configKey(branch, name)]);
+	const flowName = value("FlowName"), runId = value("RunId"), baseBranch = value("BaseBranch"), baseCommit = value("BaseCommit"), result = value("Result");
+	return {
+		branch,
+		...(flowName ? { flowName } : {}), ...(runId ? { runId } : {}), ...(baseBranch ? { baseBranch } : {}), ...(baseCommit ? { baseCommit } : {}),
+		...(result === "accepted" || result === "rejected" ? { result } : {}),
+	};
+}
+
+export function recordFlowResult(branch: string, result: "accepted" | "rejected", cwd = process.cwd()): void {
+	writeBranchConfig(cwd, branch, "Result", result);
+}
+
 export function createFlowBranch(name: string, runId: string, cwd = process.cwd()): string {
 	const branch = flowBranchName(name, runId);
+	const baseBranch = optionalGit(cwd, ["branch", "--show-current"]);
+	const baseCommit = asStartRefusal(() => git(cwd, ["rev-parse", "HEAD"]));
 	asStartRefusal(() => git(cwd, ["switch", "-c", branch]));
+	try {
+		writeBranchConfig(cwd, branch, "FlowName", name);
+		writeBranchConfig(cwd, branch, "RunId", runId);
+		writeBranchConfig(cwd, branch, "BaseCommit", baseCommit);
+		if (baseBranch) writeBranchConfig(cwd, branch, "BaseBranch", baseBranch);
+	} catch (error) {
+		throw new GitOperationError(`Flow branch was created but its metadata could not be recorded: ${error instanceof Error ? error.message : String(error)}`);
+	}
 	return branch;
 }
 

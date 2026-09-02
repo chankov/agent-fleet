@@ -3,9 +3,10 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeRunId } from "../.pi/harnesses/agent-hub/run-namespace.js";
-import { parseFlowCommand, type FlowCommand } from "./lib/flow-command.ts";
+import { parseFlowCommand, parseFlowMaintenanceCommand, type FlowCommand } from "./lib/flow-command.ts";
+import { runFlowMaintenance } from "./lib/flow-maintenance.ts";
 import { loadEnv } from "./workflows/lib/env.ts";
-import { createFlowBranch, requireCleanTree, StartRefusedError } from "./workflows/lib/git.ts";
+import { createFlowBranch, recordFlowResult, requireCleanTree, StartRefusedError } from "./workflows/lib/git.ts";
 import { snapshot } from "./workflows/lib/permissions.ts";
 import { Run, type FinishResult } from "./workflows/lib/run.ts";
 import { buildTestWorkflow, buildTestWorkflowPreflight } from "./workflows/wf-build-test.ts";
@@ -58,8 +59,12 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 	workflow.preflight?.(cwd);
 	const runId = command.runId ?? makeRunId();
 	const repositoryBaseline = snapshot(cwd);
-	createFlowBranch(command.name, runId, cwd);
+	const branch = createFlowBranch(command.name, runId, cwd);
 	const run = new Run({ cwd, runId, command: options.command ?? process.argv, repositoryBaseline });
+	const persistResult = (result: FinishResult) => {
+		try { recordFlowResult(branch, result.status, cwd); }
+		catch (error) { console.error(`Warning: flow result metadata was not recorded: ${error instanceof Error ? error.message : String(error)}`); }
+	};
 	let interruption: FinishResult | undefined;
 	const onSignal = (signal: NodeJS.Signals) => {
 		if (interruption) return;
@@ -70,14 +75,18 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 	try {
 		const result = await workflow.run(run, { args: command.args, dryRun: command.dryRun, cwd });
 		const finalResult = interruption ?? result;
+		persistResult(finalResult);
 		console.error(finalResult.banner);
 		return finalResult;
 	} catch (error) {
 		if (!interruption) {
 			const message = error instanceof Error ? error.message : String(error);
-			console.error(run.abort(message).banner);
+			const rejected = run.abort(message);
+			persistResult(rejected);
+			console.error(rejected.banner);
 			throw error;
 		}
+		persistResult(interruption);
 		console.error(interruption.banner);
 		return interruption;
 	} finally {
@@ -87,6 +96,16 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
+	if (argv[0] === "cleanup" || argv[0] === "merge") {
+		let command;
+		try { command = parseFlowMaintenanceCommand(argv); }
+		catch (error) { console.error(error instanceof Error ? error.message : String(error)); return 2; }
+		try { return await runFlowMaintenance(command); }
+		catch (error) {
+			console.error(error instanceof Error ? error.message : String(error));
+			return Number((error as { exitCode?: number })?.exitCode ?? 1);
+		}
+	}
 	let parsed: FlowCommand;
 	try { parsed = parseFlowCommand(argv); }
 	catch (error) { console.error(error instanceof Error ? error.message : String(error)); return 2; }

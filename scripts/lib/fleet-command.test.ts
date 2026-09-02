@@ -11,11 +11,13 @@ import { parseFleetCommand } from "./fleet-command.ts";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function assertCompleteFleetGuide(output: string): void {
-	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "UNIFIED HUB", "WORK MODE AND ROSTER", "HERDR TOPOLOGY", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
+	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "DETERMINISTIC FLOWS", "UNIFIED HUB", "WORK MODE AND ROSTER", "HERDR TOPOLOGY", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
 		assert.match(output, new RegExp(section));
 	}
 	assert.match(output, /just fleet\s+# Hub\/operator, empty native roster/);
 	assert.match(output, /just fleet --agents frontend --peers frontend --project af/);
+	assert.match(output, /just flow cleanup 2/);
+	assert.match(output, /just flow merge 2/);
 	assert.match(output, /\/af-work-mode orchestrator/);
 	assert.match(output, /\/af-agents-add code-reviewer/);
 	assert.match(output, /backend: "native"/);

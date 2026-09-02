@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { commitAll, createFlowBranch, flowBranchName, isClean, requireCleanTree } from "./git.ts";
+import { commitAll, createFlowBranch, flowBranchName, isClean, readFlowBranchMetadata, recordFlowResult, requireCleanTree } from "./git.ts";
 import { snapshot } from "./permissions.ts";
 
 function repo(): string {
@@ -23,9 +23,15 @@ test("clean guard and deterministic flow branch", () => {
 	try {
 		assert.equal(isClean(cwd), true);
 		requireCleanTree(cwd);
+		const baseCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
 		const branch = createFlowBranch("quality", "run-1", cwd);
 		assert.equal(branch, flowBranchName("quality", "run-1"));
 		assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8" }).trim(), branch);
+		assert.deepEqual(readFlowBranchMetadata(branch, cwd), { branch, flowName: "quality", runId: "run-1", baseBranch: "main", baseCommit });
+		recordFlowResult(branch, "accepted", cwd);
+		assert.equal(readFlowBranchMetadata(branch, cwd).result, "accepted");
+		recordFlowResult(branch, "rejected", cwd);
+		assert.equal(readFlowBranchMetadata(branch, cwd).result, "rejected");
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 

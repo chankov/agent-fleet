@@ -6,8 +6,50 @@ export interface FlowCommand {
 	runId?: string;
 }
 
+export interface FlowMaintenanceCommand {
+	action: "cleanup" | "merge";
+	selector?: string;
+	target?: string;
+	discard: boolean;
+	yes: boolean;
+}
+
 const FLOW_NAME = /^[a-z][a-z0-9-]*$/;
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
+function safeRef(value: string): boolean {
+	return SAFE_REF.test(value) && !value.includes("..") && !value.includes("//") && !value.includes("@{") && !value.endsWith("/") && !value.endsWith(".");
+}
+
+export function parseFlowMaintenanceCommand(argv: string[]): FlowMaintenanceCommand {
+	const action = argv[0];
+	if (action !== "cleanup" && action !== "merge") throw new Error("Usage: flow <cleanup|merge> [number|flow/branch] [options]");
+	let selector: string | undefined, target: string | undefined, discard = false, yes = false;
+	for (let i = 1; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === "--discard") {
+			if (discard) throw new Error("--discard may only be provided once");
+			discard = true;
+		} else if (arg === "--yes") {
+			if (yes) throw new Error("--yes may only be provided once");
+			yes = true;
+		} else if (arg === "--target") {
+			if (target) throw new Error("--target may only be provided once");
+			const value = argv[++i];
+			if (!value || value.startsWith("--") || !safeRef(value)) throw new Error("--target requires a safe local branch name");
+			target = value;
+		} else if (arg.startsWith("--")) throw new Error(`Unknown flow maintenance option: ${arg}`);
+		else {
+			if (selector) throw new Error("Only one flow branch selector may be provided");
+			if (!/^\d+$/.test(arg) && (!arg.startsWith("flow/") || !safeRef(arg))) throw new Error("Selector must be a list number or a full flow/* branch name");
+			selector = arg;
+		}
+	}
+	if (action === "cleanup" && target) throw new Error("--target is valid only with flow merge");
+	if (action === "merge" && discard) throw new Error("--discard is valid only with flow cleanup");
+	return { action, ...(selector ? { selector } : {}), ...(target ? { target } : {}), discard, yes };
+}
 
 export function parseFlowCommand(argv: string[]): FlowCommand {
 	if (argv.length === 0) throw new Error("Usage: flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run]");

@@ -47,6 +47,27 @@ just fleet --agents default --peers docs --project af
                                                 # Hub + standing Herdr peers
 ```
 
+## Run and maintain deterministic flows
+
+When the workflow runtime is selected, `just flow` runs code-owned workflows outside the interactive hub:
+
+```bash
+just flow scout "where is authentication configured?"
+just flow quality
+just flow build-test "add the validated endpoint"
+```
+
+Each run creates a `flow/<name>-<runId>` branch. Use the numbered maintenance selector to remove an empty/integrated branch or squash-merge an accepted result back to the branch from which it started:
+
+```bash
+just flow cleanup       # list flow branches and prompt for a number
+just flow cleanup 1     # safely remove selection 1 through Worktrunk
+just flow merge         # list flow branches and prompt for a number
+just flow merge 2       # squash-merge selection 2 through Worktrunk
+```
+
+Maintenance requires [Worktrunk](https://worktrunk.dev). It refuses dirty worktrees, rejected runs, and unknown merge targets. See [workflows.md](workflows.md#clean-up-and-merge-flow-branches) for `--discard`, `--target`, full branch selectors, non-interactive `--yes`, and safety details.
+
 ## Update an existing install
 
 A pi session tells you when a newer version is published. To act on it:

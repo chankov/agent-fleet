@@ -107,6 +107,27 @@ just fleet --agents frontend --peers frontend --project af
                                                 # same Hub + standing peers in Herdr
 ```
 
+### Deterministic flows and branch maintenance
+
+The optional workflow runtime runs code-owned, headless graphs separately from the interactive Hub. Each run starts a `flow/<name>-<runId>` branch and records where it should merge back:
+
+```bash
+just flow scout "where is authentication configured?"
+just flow quality
+just flow build-test "add the validated endpoint"
+```
+
+Completed branches have a numbered Worktrunk-backed selector:
+
+```bash
+just flow cleanup       # show branches and prompt for a number
+just flow cleanup 1     # safely remove empty or integrated selection 1
+just flow merge         # show branches and prompt for a number
+just flow merge 2       # squash-merge accepted selection 2, then remove it
+```
+
+Dirty worktrees and rejected runs are not merged. See the [workflow guide](docs/workflows.md#clean-up-and-merge-flow-branches) for full branch selectors, `--target`, explicit `--discard`, and non-interactive `--yes`.
+
 ### Updating
 
 A pi session prints a banner when a newer version is published. Your preset and

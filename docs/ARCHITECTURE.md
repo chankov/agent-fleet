@@ -322,7 +322,7 @@ packages/hermes-bridge/       # future Hermes integration package
 
 ## Design rules
 
-- **Workflows are isolated from the Hub.** `just flow` owns deterministic phase order, retries, executable gates, post-hoc writes enforcement, and one acceptance decision. It uses the clean spawn/context seams but never routes through hub dispatch; flow traces live under `.pi/flow-sessions/`. A future `run_flow` hub tool is design-only and would call the dispatcher module directly, never shell through `just`.
+- **Workflows are isolated from the Hub.** `just flow` owns deterministic phase order, retries, executable gates, post-hoc writes enforcement, and one acceptance decision. It uses the clean spawn/context seams but never routes through hub dispatch; flow traces live under `.pi/flow-sessions/`. Flow branches retain source/result metadata, while the reserved `cleanup` and `merge` maintenance subcommands delegate safe removal and squash integration to Worktrunk. A future `run_flow` hub tool is design-only and would call the dispatcher module directly, never shell through `just`.
 - **Thin dispatcher context.** Nothing lands persistently in the dispatcher's
   context if it can live on disk or in a one-line status. Research findings,
   the Verification Contract ledger, and team snapshots are all disk-first.

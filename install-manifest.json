@@ -918,6 +918,7 @@
           "source": [
             "scripts/flow.ts",
             "scripts/lib/flow-command.ts",
+            "scripts/lib/flow-maintenance.ts",
             "scripts/workflows",
             "docs/workflows.md"
           ],
