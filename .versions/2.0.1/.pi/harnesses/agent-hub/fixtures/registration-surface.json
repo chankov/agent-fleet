@@ -1,0 +1,53 @@
+{
+  "tools": [
+    "coms_await",
+    "coms_get",
+    "coms_list",
+    "coms_send",
+    "dispatch_agent",
+    "get_assertions",
+    "herdr_close_pane",
+    "herdr_notify",
+    "herdr_read_pane",
+    "herdr_spawn_pane",
+    "herdr_spawn_peer",
+    "set_assertions",
+    "set_task_tier",
+    "spawn_research",
+    "team_adjust",
+    "update_assertion"
+  ],
+  "commands": [
+    "af-agent-model",
+    "af-agent-model-thinking",
+    "af-agent-models-substitute",
+    "af-agents-add",
+    "af-agents-drop",
+    "af-agents-history",
+    "af-agents-kill",
+    "af-agents-list",
+    "af-agents-restart",
+    "af-agents-save",
+    "af-agents-team",
+    "af-compound",
+    "af-coms",
+    "af-context",
+    "af-dispatch-policy",
+    "af-handoff",
+    "af-hub-report",
+    "af-models",
+    "af-watchdog",
+    "af-work-mode",
+    "af-zoom"
+  ],
+  "flags": [
+    "agent-team",
+    "color",
+    "explicit",
+    "name",
+    "project",
+    "purpose",
+    "solo",
+    "work-mode"
+  ]
+}
