@@ -650,6 +650,9 @@
           "strategy": "managed-region"
         }
       },
+      "companions": [
+        "companion:workflow-runtime"
+      ],
       "parents": [
         "pi-harness:agent-hub",
         "pi-harness:ask-user-remote",
@@ -897,6 +900,36 @@
       ],
       "parents": [
         "pi-extension:pi-voice-stt"
+      ]
+    },
+    {
+      "id": "companion:workflow-runtime",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Deterministic workflow runtime",
+      "summary": "Headless flow dispatcher, workflow graphs, scoped configuration, and operations guide",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "scripts/flow.ts",
+            "scripts/lib/flow-command.ts",
+            "scripts/workflows",
+            "docs/workflows.md"
+          ],
+          "sourceMode": "all",
+          "target": null,
+          "strategy": "copy-tree",
+          "preserveLayout": true
+        }
+      },
+      "parents": [
+        "companion:justfile-region",
+        "skill:drafting-workflows"
       ]
     },
     {
@@ -2046,6 +2079,31 @@
       ]
     },
     {
+      "id": "reference:workflow-authoring",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "workflow-authoring",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/workflow-authoring.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/workflow-authoring.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:drafting-workflows"
+      ]
+    },
+    {
       "id": "skill:api-and-interface-design",
       "kind": "skill",
       "group": "skills",
@@ -2328,6 +2386,32 @@
       },
       "companions": [
         "reference:orchestration-patterns"
+      ]
+    },
+    {
+      "id": "skill:drafting-workflows",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "meta",
+      "title": "drafting-workflows",
+      "summary": "Drafts deterministic Agent Fleet workflows by adapting the nearest existing flow and proving the draft compiles and d…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/drafting-workflows"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/drafting-workflows",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:workflow-runtime",
+        "reference:workflow-authoring"
       ]
     },
     {

@@ -280,7 +280,8 @@
     "hermes-plugin:agent-fleet-monitor": "plugin",
     "hermes-skill:hub-conductor": "skill",
     "hermes-skill:hub-liaison": "skill",
-    "hermes-skill:hub-watchdog": "skill"
+    "hermes-skill:hub-watchdog": "skill",
+    "skill:drafting-workflows": "meta"
   },
   "items": {
     "_comment": "Per-id overrides merged onto the derived item.",
@@ -589,6 +590,17 @@
         "just fleet conductor codex status   # reports requested systemd state only"
       ],
       "stability": "experimental"
+    },
+    "skill:drafting-workflows": {
+      "companions": [
+        "reference:workflow-authoring",
+        "companion:workflow-runtime"
+      ]
+    },
+    "companion:justfile-region": {
+      "companions": [
+        "companion:workflow-runtime"
+      ]
     }
   },
   "companions": {
@@ -745,6 +757,24 @@
         "put the API key in a gitignored .env under the env-var name stt.json references; never in stt.json itself",
         "the extension binds Alt+S only once a provider resolves — until then it is a no-op"
       ]
+    },
+    "companion:workflow-runtime": {
+      "title": "Deterministic workflow runtime",
+      "summary": "Headless flow dispatcher, workflow graphs, scoped configuration, and operations guide",
+      "agents": {
+        "pi": {
+          "source": [
+            "scripts/flow.ts",
+            "scripts/lib/flow-command.ts",
+            "scripts/workflows",
+            "docs/workflows.md"
+          ],
+          "sourceMode": "all",
+          "preserveLayout": true,
+          "target": null,
+          "strategy": "copy-tree"
+        }
+      }
     }
   },
   "externalPackages": {

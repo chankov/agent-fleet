@@ -2,6 +2,9 @@
 name: documenter
 description: Documentation and README generation
 tools: read,write,edit,grep,find,ls
+writes:
+  - docs/
+  - "**/*.md"
 model: openai-codex/gpt-5.6-terra
 models:
   - openai-codex/gpt-5.6-luna

@@ -9,6 +9,7 @@ the runtime responsibilities and where each module lives in the repository.
 | --- | --- | --- |
 | **Pi Coding Agent** | Primary local runtime — runs the dispatcher and specialist subagents | `.pi/harnesses/`, `.pi/extensions/`, `.pi/agents/`, `.pi/prompts/` |
 | **agent-hub** | Thin-context multi-agent harness: dispatcher + specialists + research helpers + Verification Contract | `.pi/harnesses/agent-hub/` |
+| **Workflows** | Headless, code-owned phase order, retries, gates, writes enforcement, and acceptance through `just flow` | `scripts/flow.ts`, `scripts/workflows/` — see [workflows.md](workflows.md) |
 | **Herdr** | Fleet/workspace control plane — spawns peer teams as tiled workspaces, presence via push events, snapshot/resume | [herdr.dev](https://herdr.dev); client in `.pi/harnesses/lib/herdr-client.ts`, layout in `scripts/lib/herdr-layout.ts` |
 | **coms** | Peer communication protocol/data plane — envelope-based P2P messaging between agents | Shared peer lifecycle in `.pi/harnesses/lib/coms-core.ts` and `coms-core-io.ts`; Pi registrations in `.pi/harnesses/coms/` and `agent-hub/`; wire helpers in `scripts/lib/coms-envelope.ts` and `scripts/coms-cli.ts` |
 | **Claude Code bridge** | Makes an interactive Claude Code pane a bidirectional coms peer | `scripts/coms-claude-bridge.ts`, `hooks/coms-stop-hook.mjs`, `skills/peer-coms/` — see [claude-code-coms-bridge.md](claude-code-coms-bridge.md) |
@@ -299,6 +300,7 @@ Cross-harness coms lifecycle remains shared in `.pi/harnesses/lib/coms-core.ts` 
 skills/                       # Agent Fleet-native skills (shadow vendored names)
 agents/                       # Personas/subagents used by Agent Fleet
 scripts/                      # CLI helpers, bridges, team + one-off peer launchers (pure logic in scripts/lib/)
+scripts/workflows/            # deterministic flow graphs + phase/gate/permission/quality runtime
 hermes/                       # Hermes-facing skills/integration assets
 codex/                        # Canonical Codex conductor contract (runtime copy lives outside checkout)
 systemd/user/                 # Owned user-unit template for Codex remote control
@@ -320,6 +322,7 @@ packages/hermes-bridge/       # future Hermes integration package
 
 ## Design rules
 
+- **Workflows are isolated from the Hub.** `just flow` owns deterministic phase order, retries, executable gates, post-hoc writes enforcement, and one acceptance decision. It uses the clean spawn/context seams but never routes through hub dispatch; flow traces live under `.pi/flow-sessions/`. A future `run_flow` hub tool is design-only and would call the dispatcher module directly, never shell through `just`.
 - **Thin dispatcher context.** Nothing lands persistently in the dispatcher's
   context if it can live on disk or in a one-line status. Research findings,
   the Verification Contract ledger, and team snapshots are all disk-first.

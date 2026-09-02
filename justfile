@@ -107,6 +107,10 @@ default:
 fleet *args:
     @{{node_ts}} scripts/fleet.ts {{args}}
 
+# Headless workflow runner — exits 0 accepted; 1 rejected/failed; 2 invalid/unknown; 3 refused start.
+flow *args:
+    @{{node_ts}} scripts/flow.ts {{args}}
+
 # Hidden Fleet Core launcher. Positional booleans are emitted only by fleet.ts.
 _fleet-core browser="false" voice="false" all_extensions="false" *args:
     discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; voice_ext=""; if [ "{{voice}}" = "true" ]; then voice_ext="{{fleet_voice_extension}}"; fi; pi $discovery {{fleet_core_extensions}} $browser_ext $voice_ext {{args}}

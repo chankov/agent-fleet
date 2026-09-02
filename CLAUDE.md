@@ -14,7 +14,8 @@ hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote c
 agents/       → 15 reusable agent personas, canonical pi frontmatter; installed as verbatim copies (no per-agent translation — pi is the only install target)
 hooks/        → Session lifecycle hooks
 scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; peer-launch single-peer `just fleet peer` launcher; scripts/lib/ pure fleet modules under node --test)
-justfile      → Recipes to launch pi with each harness
+scripts/workflows/ → Headless `just flow` graphs and their code-owned phase, envelope, gate, permission, quality, change-capture, trace, and scoped TypeScript runtime
+justfile      → Recipes to launch pi with each harness plus the single public `flow` entry point
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
 .github/workflows/release.yml → On merge to main: opens "Version Packages" PR or runs `changeset publish`
@@ -38,6 +39,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
 **Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md)
 **Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets — invoked via the agent-hub `/af-compound` command dispatching `documenter`)
+**Meta:** drafting-workflows (nearest-shape flow drafting with exact prompts and mandatory compile/dry-run gates)
 
 ## Conventions
 
@@ -56,6 +58,8 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 ## Commands
 
 - `npm test` — CLI smoke test (`--version`, `--help`) plus the `node --test` unit tests in `bin/test/`
+- `just flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run]` — headless deterministic workflow execution; exit `0` accepted, `1` failed/unaccepted, `2` invalid/unknown, and `3` startup refusal. Quality and build-test flows require `## workflows` → non-empty `quality:` in `.ai/agent-fleet-overrides.md`; see `docs/workflows.md`. Runtime traces stay under the gitignored `.pi/flow-sessions/`
+- `npx tsc -p scripts/workflows/tsconfig.json --noEmit` — scoped workflow-only TypeScript gate; it does not require edits under `.pi/harnesses/`
 - `node bin/cli.js <setup|doctor|uninstall>` — deterministic lifecycle; `setup --dry-run` prints a no-write JSON plan, `doctor` is read-only unless `--fix`, and normal uninstall preserves human config. Exit `0` is success/no-op, `1` failure, `2` doctor findings, and `3` unresolved setup conflicts. `init`, `install`, `upgrade`, and `update` are deprecated compatibility commands, not new documentation targets. No lifecycle command needs an agent or model
 - `node bin/build-manifest.js [--check]` — regenerate `install-manifest.json` from the tree (`--check` fails on drift; run it after adding any artifact)
 - `npm run pack:dry` — `npm pack --dry-run` to verify the tarball contents match `package.json`'s `files` allowlist

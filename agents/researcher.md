@@ -5,6 +5,8 @@ tools: read,grep,find,ls
 kind: research
 model: openai-codex/gpt-5.6-luna
 models:
+  - openai-codex/gpt-5.6-luna
+  - xai/grok-4.6
   - openai-codex/gpt-5.6-sol
   - openai-codex/gpt-5.6-terra
   - ollama/nemotron-3-ultra:cloud

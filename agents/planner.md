@@ -2,6 +2,8 @@
 name: planner
 description: Architecture and implementation planning — produces a written PLAN file with dependency-ordered tasks and acceptance criteria. Use when work spans multiple files or needs a task breakdown before building.
 tools: read,grep,find,ls,bash,write
+writes:
+  - docs/plans/
 model: openai-codex/gpt-5.6-sol
 models:
   - github-copilot/claude-fable-5
