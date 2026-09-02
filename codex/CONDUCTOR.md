@@ -35,7 +35,7 @@ The container is deliberately outside every repository. Codex may expose the
 container parent—not only its `workspace` child—as the managed writable root,
 but no checkout source is present there. Wrapper commands must still run from
 the `workspace` child. The canonical repository contract lives outside the runtime
-container at `codex/CONDUCTOR.md`. Setup creates a managed runtime copy that a
+container at `.pi/agent-fleet/codex/CONDUCTOR.md`. Setup creates a managed runtime copy that a
 fresh remote-created session must load:
 
 ```text

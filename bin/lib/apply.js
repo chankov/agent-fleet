@@ -208,6 +208,9 @@ function perform({ action, item, state, workspace, sourceRoot, method, agent, al
     case "refresh":
     case "repair": {
       requireItem(item, action.id);
+      const obsolete = retireObsoleteRecordedFiles({
+        item, recorded: state.items[action.id], workspace, sourceRoot, method,
+      });
       const files = materialize({ item, workspace, sourceRoot, method, agent });
       const retired = retireLegacyTargets({ item, workspace, sourceRoot, agent });
       state.items[action.id] = {
@@ -218,9 +221,14 @@ function perform({ action, item, state, workspace, sourceRoot, method, agent, al
         sourceRoot: item.binding.source?.[0] ?? null,
         ...files,
       };
+      const cleanup = [
+        obsolete.removed.length ? `retired ${obsolete.removed.join(", ")}` : "",
+        obsolete.kept.length ? `kept ${obsolete.kept.length} user-modified obsolete path(s)` : "",
+        retired.length ? `retired ${retired.join(", ")}` : "",
+      ].filter(Boolean);
       return {
         status: "applied",
-        detail: describeFiles(files) + (retired.length ? `; retired ${retired.join(", ")}` : ""),
+        detail: describeFiles(files) + (cleanup.length ? `; ${cleanup.join("; ")}` : ""),
       };
     }
 
@@ -315,9 +323,9 @@ function materialize({ item, workspace, sourceRoot, method, agent }) {
 
   for (const pair of pairs) {
     const targetAbs = insideWorkspace(workspace, pair.targetRel);
-    clearTarget(targetAbs);
 
     if (link) {
+      clearTarget(targetAbs);
       mkdirSync(dirname(targetAbs), { recursive: true });
       symlinkSync(pair.sourceAbs, targetAbs);
       files.push({ path: pair.targetRel, mode: "symlink", linkTarget: pair.sourceAbs });
@@ -325,6 +333,13 @@ function materialize({ item, workspace, sourceRoot, method, agent }) {
     }
 
     if (pair.isDir) {
+      // Refresh managed leaves in place rather than deleting the whole target
+      // directory: obsolete recorded leaves were handled above, while unknown
+      // or locally modified siblings are user-owned and must survive.
+      const found = inspectPath(targetAbs);
+      if (found.kind === "symlink" || (found.kind !== "absent" && !lstatSync(targetAbs).isDirectory())) {
+        clearTarget(targetAbs);
+      }
       for (const rel of walkTree(pair.sourceAbs)) {
         const dest = insideWorkspace(workspace, `${pair.targetRel}/${rel}`);
         mkdirSync(dirname(dest), { recursive: true });
@@ -334,12 +349,60 @@ function materialize({ item, workspace, sourceRoot, method, agent }) {
       continue;
     }
 
+    clearTarget(targetAbs);
     mkdirSync(dirname(targetAbs), { recursive: true });
     copyFileSync(pair.sourceAbs, targetAbs);
     files.push({ path: pair.targetRel, mode: "copy", sha256: hashFile(targetAbs) });
   }
 
   return { files };
+}
+
+/**
+ * Remove recorded leaves that disappeared from (or moved within) an item's
+ * current binding. Only byte-identical copies and owned/dangling symlinks are
+ * removed; locally modified paths become user-owned and are left untouched.
+ */
+function retireObsoleteRecordedFiles({ item, recorded, workspace, sourceRoot, method }) {
+  if (!recorded || !["copy-file", "copy-tree"].includes(item.binding.strategy)) {
+    return { removed: [], kept: [] };
+  }
+
+  const expected = new Set();
+  for (const pair of expandBinding(item.binding, sourceRoot)) {
+    if (method === "symlink" || !pair.isDir) expected.add(pair.targetRel);
+    else for (const rel of walkTree(pair.sourceAbs)) expected.add(`${pair.targetRel}/${rel}`);
+  }
+
+  const removed = [];
+  const kept = [];
+  for (const file of recorded.files ?? []) {
+    if (expected.has(file.path)) continue;
+    const abs = insideWorkspace(workspace, file.path);
+    const found = inspectPath(abs);
+    if (found.kind === "absent") continue;
+
+    if (found.kind === "symlink") {
+      const isRecordedLink = Boolean(file.linkTarget && found.linkTarget === file.linkTarget);
+      if (!found.dangling && !isRecordedLink && !linkPointsInside(sourceRoot, found.linkTarget)) {
+        kept.push(file.path);
+        continue;
+      }
+      unlinkSync(abs);
+      removed.push(file.path);
+      continue;
+    }
+
+    if (!file.sha256 || hashFile(abs) !== file.sha256) {
+      kept.push(file.path);
+      continue;
+    }
+    rmSync(abs, { recursive: true, force: true });
+    removed.push(file.path);
+  }
+
+  pruneEmptyDirs(workspace, removed);
+  return { removed, kept };
 }
 
 /**

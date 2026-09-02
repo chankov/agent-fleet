@@ -15,7 +15,7 @@ peers, and hand the session to a visible coms peer.
 > [extension catalog](../../../docs/pi-extensions.md) and the
 > [design plan](../../../docs/plans/agent-hub/).
 
-**Optional phone control:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live peers for the experimental [Codex Android conductor](../../../docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch `just fleet conductor codex <team>` for the same peers. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
+**Optional phone control:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live peers for the experimental [Codex Android conductor](https://github.com/chankov/agent-fleet/blob/main/docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch `just fleet conductor codex <team>` for the same peers. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
 
 ## Work Mode, roster, and topology
 

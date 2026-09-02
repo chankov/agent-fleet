@@ -28,9 +28,9 @@ function fixture(t: { after(fn: () => void): void }): { root: string; configPath
 	const comsDir = path.join(base, "coms");
 	const configPath = path.join(base, "config.json");
 	fs.mkdirSync(conductorCwd, { recursive: true });
-	fs.mkdirSync(path.join(root, "codex"), { recursive: true });
+	fs.mkdirSync(path.join(root, ".pi", "agent-fleet", "codex"), { recursive: true });
 	fs.mkdirSync(comsDir, { recursive: true });
-	fs.writeFileSync(path.join(root, "codex", "CONDUCTOR.md"), "# test\n");
+	fs.writeFileSync(path.join(root, ".pi", "agent-fleet", "codex", "CONDUCTOR.md"), "# test\n");
 	fs.writeFileSync(path.join(conductorCwd, "AGENTS.md"), "<!-- Managed by agent-fleet Codex conductor -->\n# test\n");
 	fs.writeFileSync(bin, "#!/bin/sh\n", { mode: 0o755 });
 	fs.writeFileSync(configPath, JSON.stringify({

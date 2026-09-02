@@ -2,14 +2,14 @@
 
 > **Experimental; verified with Codex CLI 0.144.6 on Linux.** The daemon is user-systemd-managed on the headless host, while manual pairing happens in the operator's interactive terminal. Revalidate the live gate after any Codex minor-version or mobile-client behavior change.
 
-The conductor is an outbound-initiated, singleton Codex remote-control service with a visible Herdr **control** pane. The pane displays user-systemd requested state; it never starts, stops, or owns the daemon. Based on the verified design boundary, closing its workspace leaves the enabled service running. Codex uses the dedicated advisory contract at [`../codex/CONDUCTOR.md`](../codex/CONDUCTOR.md); Hermes/Telegram remains the inbound `ask_user` route.
+The conductor is an outbound-initiated, singleton Codex remote-control service with a visible Herdr **control** pane. The pane displays user-systemd requested state; it never starts, stops, or owns the daemon. Based on the verified design boundary, closing its workspace leaves the enabled service running. The package source contract is [`../codex/CONDUCTOR.md`](../codex/CONDUCTOR.md); workspace setup installs its managed copy at `.pi/agent-fleet/codex/CONDUCTOR.md`. Hermes/Telegram remains the inbound `ask_user` route.
 
 ## Supported facts and limits
 
 - The pilot was validated with `codex-cli 0.144.6`. Public policy supports **only `0.144.x`**. Resolve the local binary with `command -v codex`; normal lifecycle state changes run a capability preflight, and `0.145.x` or later fail closed until reviewed.
 - The confirmed remote-control subcommands are `start`, `stop`, and `pair`.
 - The only approval modes are `untrusted`, `on-request`, and `never`. The only sandbox modes are `read-only`, `workspace-write`, and `danger-full-access`. **There is no `writes` mode.**
-- The verified posture is `on-request` with `workspace-write`. The runtime-only container is `$HOME/.local/state/agent-fleet/codex-conductor`, outside every checkout; wrapper commands execute from its `workspace` child. Codex 0.144.x/Android may expose the container parent as writable, but repository source and canonical `codex/CONDUCTOR.md` remain outside it. Setup places a managed `workspace/AGENTS.md` copy inside the container. The helper requests the configured `~/.pi/coms` directory as the only extra writable root. The mobile client's managed permission profile still requires a visible one-command escalation for `send`; this approval is mandatory. A remote thread that reports `approval_policy=never` must not delegate.
+- The verified posture is `on-request` with `workspace-write`. The runtime-only container is `$HOME/.local/state/agent-fleet/codex-conductor`, outside every checkout; wrapper commands execute from its `workspace` child. Codex 0.144.x/Android may expose the container parent as writable, but repository source and the managed `.pi/agent-fleet/codex/CONDUCTOR.md` remain outside it. Setup places a managed `workspace/AGENTS.md` copy inside the container. The helper requests the configured `~/.pi/coms` directory as the only extra writable root. The mobile client's managed permission profile still requires a visible one-command escalation for `send`; this approval is mandatory. A remote thread that reports `approval_policy=never` must not delegate.
 - Codex documents neither a foreground daemon lifecycle nor a websocket address/port. Do not configure, probe, document, or depend on a websocket port, PID, or health endpoint.
 - `systemd` state is not daemon health: `active (exited)` means that the requested start command succeeded, not that a paired client is usable.
 - Remote control is outbound-initiated and exclusive **as far as verified for this pilot**. It does not create inbound questions; use Hermes/Telegram for inbound `ask_user`.
@@ -38,7 +38,7 @@ node --experimental-strip-types scripts/codex-remote-control.ts preflight --code
 
 **Compatibility stop condition:** if the version is not `0.144.x`, a required subcommand is absent, or `on-request` plus `workspace-write` cannot be demonstrated for this remote-control path, stop. Do not use guessed flags, a port, or a fallback launcher.
 
-The loading mechanism uses a managed runtime contract at `$HOME/.local/state/agent-fleet/codex-conductor/workspace/AGENTS.md`, copied from canonical `codex/CONDUCTOR.md`. A fresh thread must prove that managed copy was loaded and that any mobile writable root remains inside the external user-state runtime container; cwd and environment markers alone remain insufficient.
+The loading mechanism uses a managed runtime contract at `$HOME/.local/state/agent-fleet/codex-conductor/workspace/AGENTS.md`, copied from `.pi/agent-fleet/codex/CONDUCTOR.md` in an installed workspace (or from package-source `codex/CONDUCTOR.md` in an Agent Fleet development checkout). A fresh thread must prove that managed copy was loaded and that any mobile writable root remains inside the external user-state runtime container; cwd and environment markers alone remain insufficient.
 
 ## Lifecycle
 

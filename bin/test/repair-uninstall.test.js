@@ -152,6 +152,32 @@ test("repair fixes breakage and refuses to touch content that is merely stale or
   assert.equal(readFileSync(join(workspace, ".pi/shared.yaml"), "utf8"), "shared\n");
 });
 
+test("setup retires obsolete recorded tree leaves and preserves modified ones", () => {
+  const sourceRoot = makeSource();
+  const workspace = tmp("ws");
+  const manifest = makeManifest();
+  write(sourceRoot, "skills/alpha/old.md", "managed alpha\n");
+  write(sourceRoot, "skills/beta/old.md", "managed beta\n");
+  install(workspace, sourceRoot, manifest);
+
+  rmSync(join(sourceRoot, "skills/alpha/old.md"));
+  rmSync(join(sourceRoot, "skills/beta/old.md"));
+  write(workspace, ".pi/skills/beta/old.md", "user beta\n");
+
+  const result = plan(workspace, sourceRoot, manifest, { verb: "install", profiles: ["full"] });
+  assert.equal(result.actions.find((action) => action.id === "skill:alpha")?.kind, "refresh");
+  assert.equal(result.actions.find((action) => action.id === "skill:beta")?.kind, "refresh");
+  const applied = applyPlan({ plan: result, manifest });
+  assert.equal(applied.exitCode, 0);
+  assert.equal(existsSync(join(workspace, ".pi/skills/alpha/old.md")), false);
+  assert.equal(readFileSync(join(workspace, ".pi/skills/beta/old.md"), "utf8"), "user beta\n");
+  assert.equal(
+    readState(workspace).items["skill:beta"].files.some((file) => file.path.endsWith("old.md")),
+    false,
+    "a preserved obsolete file becomes user-owned",
+  );
+});
+
 test("repair ignores breakage the state file does not own", () => {
   const sourceRoot = makeSource();
   const workspace = tmp("ws");

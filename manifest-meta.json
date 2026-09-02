@@ -599,11 +599,30 @@
     },
     "companion:justfile-region": {
       "companions": [
+        "companion:codex-conductor-contract",
         "companion:workflow-runtime"
+      ]
+    },
+    "companion:workflow-runtime": {
+      "companions": [
+        "companion:workflow-guide"
       ]
     }
   },
   "companions": {
+    "companion:codex-conductor-contract": {
+      "title": "Codex conductor runtime contract",
+      "summary": "Managed contract used by the optional Codex conductor recipes",
+      "agents": {
+        "pi": {
+          "source": [
+            "codex/CONDUCTOR.md"
+          ],
+          "target": ".pi/agent-fleet/codex/CONDUCTOR.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
     "companion:skills-internal-grilling": {
       "title": "skills/_internal/grilling.md",
       "summary": "Shared helper for the interview-style skills",
@@ -758,17 +777,29 @@
         "the extension binds Alt+S only once a provider resolves — until then it is a no-op"
       ]
     },
+    "companion:workflow-guide": {
+      "title": "Workflow runtime guide",
+      "summary": "Managed workflow map read by the drafting skill",
+      "agents": {
+        "pi": {
+          "source": [
+            "docs/workflows.md"
+          ],
+          "target": ".pi/agent-fleet/docs/workflows.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
     "companion:workflow-runtime": {
       "title": "Deterministic workflow runtime",
-      "summary": "Headless flow dispatcher, workflow graphs, scoped configuration, and operations guide",
+      "summary": "Headless flow dispatcher, workflow graphs, and scoped configuration",
       "agents": {
         "pi": {
           "source": [
             "scripts/flow.ts",
             "scripts/lib/flow-command.ts",
             "scripts/lib/flow-maintenance.ts",
-            "scripts/workflows",
-            "docs/workflows.md"
+            "scripts/workflows"
           ],
           "sourceMode": "all",
           "preserveLayout": true,

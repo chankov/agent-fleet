@@ -40,7 +40,20 @@ function touchedPaths(plan, manifest) {
     for (const file of action.files ?? []) if (file.path) paths.add(file.path);
     for (const path of action.paths ?? []) if (path) paths.add(path);
     const binding = catalogue.get(action.id)?.agents?.[plan.agent];
-    if (!binding?.target) continue;
+    if (!binding) continue;
+    if (binding.sourceMode === "all" && binding.preserveLayout) {
+      for (const rel of binding.source ?? []) {
+        const source = join(plan.sourceRoot, rel);
+        if (!existsSync(source)) continue;
+        if (binding.strategy === "copy-tree" && statSync(source).isDirectory()) {
+          for (const leaf of sourceLeaves(source)) paths.add(join(rel, leaf));
+        } else {
+          paths.add(rel);
+        }
+      }
+      continue;
+    }
+    if (!binding.target) continue;
     const source = (binding.source ?? []).map((path) => join(plan.sourceRoot, path)).find(existsSync);
     if (binding.strategy === "copy-tree" && source) {
       for (const leaf of sourceLeaves(source)) paths.add(join(binding.target, leaf));

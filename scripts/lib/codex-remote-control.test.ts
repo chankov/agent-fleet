@@ -36,11 +36,11 @@ function fixture(t: { after(fn: () => void): void }): { root: string; config: Li
 	const bin = path.join(root, "codex");
 	const comsDir = path.join(root, "coms");
 	const runtimeDir = path.join(root, "runtime", "codex-conductor");
-	fs.mkdirSync(path.join(repo, "codex"), { recursive: true });
+	fs.mkdirSync(path.join(repo, ".pi", "agent-fleet", "codex"), { recursive: true });
 	fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
 	fs.mkdirSync(path.join(runtimeDir, "workspace"), { recursive: true });
 	fs.mkdirSync(comsDir, { recursive: true });
-	fs.writeFileSync(path.join(repo, "codex", "CONDUCTOR.md"), "# test contract\nUse {{CODEX_CONDUCTOR_SCRIPT}}.\n");
+	fs.writeFileSync(path.join(repo, ".pi", "agent-fleet", "codex", "CONDUCTOR.md"), "# test contract\nUse {{CODEX_CONDUCTOR_SCRIPT}}.\n");
 	fs.writeFileSync(path.join(repo, "scripts", "codex-conductor.ts"), "// test wrapper\n");
 	fs.writeFileSync(path.join(runtimeDir, "workspace", "AGENTS.md"), "<!-- Managed by agent-fleet Codex conductor -->\n# test contract\n");
 	fs.writeFileSync(bin, "#!/bin/sh\n", { mode: 0o755 });
@@ -253,6 +253,20 @@ test("setup renders owned files, reloads, and enables without pairing or startin
 	]);
 	assert.equal(fake.calls.some(({ args }) => args.join(" ") === "remote-control pair" || args.join(" ") === "remote-control start"), false);
 	assert.equal(loadOwnedConfig(paths.configPath).codexBin, config.codexBin);
+});
+
+test("setup falls back to the package-source contract in an Agent Fleet development checkout", (t) => {
+	const { root, config } = fixture(t);
+	fs.rmSync(path.join(config.repoRoot, ".pi"), { recursive: true, force: true });
+	fs.mkdirSync(path.join(config.repoRoot, "codex"), { recursive: true });
+	fs.writeFileSync(path.join(config.repoRoot, "codex", "CONDUCTOR.md"), "# source contract\nUse {{CODEX_CONDUCTOR_SCRIPT}}.\n");
+	fs.rmSync(config.runtimeDir!, { recursive: true });
+
+	setup(config, runner().runner, { home: root, nodeBin: "/usr/bin/node", scriptPath: "/opt/scripts/codex-remote-control.ts" });
+	assert.match(
+		fs.readFileSync(path.join(config.runtimeDir!, "workspace", "AGENTS.md"), "utf8"),
+		/# source contract/,
+	);
 });
 
 test("setup refuses to overwrite an operator-owned workspace contract", (t) => {

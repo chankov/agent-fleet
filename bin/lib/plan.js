@@ -553,6 +553,8 @@ function describe(evaluation) {
   // notable to the confirmation screen. These are workspace-relative leaves.
   const files = evaluation.files ?? [];
   if (files.length > 0) out.files = files.map((f) => ({ path: f.path, state: f.state }));
+  const obsoletePaths = (evaluation.obsoleteFiles ?? []).map((file) => file.path);
+  if (obsoletePaths.length > 0) out.paths = obsoletePaths;
   return out;
 }
 

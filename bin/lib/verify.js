@@ -320,6 +320,21 @@ function evaluateItem({ item, binding, workspace, sourceRoot, baseRoot, recorded
     return { ...base, state: "gone", detail: "no source for this item in the current package" };
   }
 
+  // A generated tree can shrink or relocate between releases. Compare the
+  // current binding with the recorded inventory so setup can retire paths the
+  // new manifest no longer owns (for example product docs moved out of a
+  // target repository's docs/ tree). Modified obsolete files are preserved by
+  // apply(); listing them here also puts every possible deletion in the
+  // transaction journal before mutation starts.
+  const expectedPaths = new Set();
+  for (const pair of pairs) {
+    if (recorded?.method === "symlink" || !pair.isDir) expectedPaths.add(pair.targetRel);
+    else for (const rel of walkTree(pair.sourceAbs)) expectedPaths.add(`${pair.targetRel}/${rel}`);
+  }
+  const obsoleteFiles = (recorded?.files ?? []).filter((file) =>
+    !expectedPaths.has(file.path) && inspectPath(join(workspace, file.path)).kind !== "absent"
+  );
+
   const recordedHashes = new Map((recorded?.files ?? []).map((f) => [f.path, f.sha256]));
   const agent = agentOf(item, binding);
   const results = [];
@@ -384,12 +399,18 @@ function evaluateItem({ item, binding, workspace, sourceRoot, baseRoot, recorded
     if (absentPairs > 0) state = recorded ? "missing" : worstOf([state, "partial"]);
   }
 
+  if (obsoleteFiles.length > 0 && ["linked", "up-to-date"].includes(state)) state = "outdated";
+
   const out = {
     ...base,
     state,
     fileCount: results.reduce((n, r) => n + (r.fileCount ?? 0), 0),
-    changedCount: changed.length,
+    changedCount: changed.length + obsoleteFiles.length,
   };
+  if (obsoleteFiles.length > 0) {
+    out.obsoleteFiles = obsoleteFiles.map((file) => ({ path: file.path }));
+    out.detail = `${obsoleteFiles.length} previously managed path(s) are no longer in the current binding`;
+  }
   // A path this item used to install to that is still occupied. The runtime
   // does not know it is stale — pi will keep offering `/spec` from a legacy
   // `.pi/prompts/spec.md` — so it is reported rather than merely cleaned up on

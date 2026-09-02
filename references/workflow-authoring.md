@@ -263,7 +263,7 @@ npx tsc -p scripts/workflows/tsconfig.json --noEmit
 ## Package and install surface
 
 The npm package includes `scripts/flow.ts`, `scripts/lib/flow-command.ts`, `scripts/workflows/*.ts`, `scripts/workflows/lib/*.ts`, and the scoped tsconfig.
-It also includes the complete `skills/` and `references/` trees and explicitly allowlists `docs/workflows.md`; the drafting skill, generator, and authoring reference are therefore packaged with their runtime surfaces.
+It also includes the complete `skills/` and `references/` trees. The installer maps the workflow guide to `.pi/agent-fleet/docs/workflows.md`, so the drafting skill, generator, authoring reference, and managed guide are packaged without adding product documentation to the target repository's `docs/` tree.
 The install manifest is generated from `manifest-meta.json` and the repository tree.
 Workflow runtime files use preserved repository-relative paths because the justfile recipe imports them there.
 The drafting skill brings the authoring reference as a companion.

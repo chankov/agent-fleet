@@ -2,15 +2,11 @@
   "version": 1,
   "description": "Runtime closure refreshed with any pi harness selection. Paths are repository-relative and contain no user configuration or credentials.",
   "directories": [
-    "codex",
     "hermes/skills",
     "systemd"
   ],
   "files": [
     "justfile",
-    "docs/ARCHITECTURE.md",
-    "docs/codex-remote-conductor.md",
-    "docs/coms-hermes-bridge.md",
     "scripts/codex-conductor.ts",
     "scripts/codex-remote-control.ts",
     "scripts/coms-claude-bridge.ts",

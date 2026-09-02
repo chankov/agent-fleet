@@ -21,7 +21,7 @@ Do not use this skill to improvise an interactive hub dispatch. `just fleet` rem
 
 ### 1. Map, list, and stop
 
-Read the workflow map in `docs/workflows.md`, then list every available `scripts/workflows/wf-*.ts` with exactly one line containing its name and `Phases:` shape. **Stop and wait for the operator to select or describe the desired flow.**
+Read the managed workflow map in `.pi/agent-fleet/docs/workflows.md`, then list every available `scripts/workflows/wf-*.ts` with exactly one line containing its name and `Phases:` shape. **Stop and wait for the operator to select or describe the desired flow.**
 
 At this point:
 

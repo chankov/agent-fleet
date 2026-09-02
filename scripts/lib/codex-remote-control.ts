@@ -265,7 +265,9 @@ function installWorkspaceContract(config: LifecycleConfig): void {
 	const workspacePath = conductorWorkspacePath(config.runtimeDir!);
 	fs.mkdirSync(workspacePath, { recursive: true, mode: 0o700 });
 	fs.chmodSync(workspacePath, 0o700);
-	const sourcePath = path.join(config.repoRoot, "codex", "CONDUCTOR.md");
+	const managedSourcePath = path.join(config.repoRoot, ".pi", "agent-fleet", "codex", "CONDUCTOR.md");
+	const packageSourcePath = path.join(config.repoRoot, "codex", "CONDUCTOR.md");
+	const sourcePath = fs.existsSync(managedSourcePath) ? managedSourcePath : packageSourcePath;
 	const targetPath = path.join(workspacePath, "AGENTS.md");
 	if (fs.existsSync(targetPath) && !fs.readFileSync(targetPath, "utf8").startsWith(WORKSPACE_CONTRACT_MARKER)) {
 		fail(`Refusing to replace workspace contract not owned by agent-fleet: ${targetPath}`);

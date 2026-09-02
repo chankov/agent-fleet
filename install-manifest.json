@@ -548,6 +548,31 @@
       }
     },
     {
+      "id": "companion:codex-conductor-contract",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Codex conductor runtime contract",
+      "summary": "Managed contract used by the optional Codex conductor recipes",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "codex/CONDUCTOR.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agent-fleet/codex/CONDUCTOR.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "companion:justfile-region"
+      ]
+    },
+    {
       "id": "companion:damage-control-rules",
       "kind": "companion",
       "group": "companions",
@@ -586,12 +611,8 @@
       "agents": {
         "pi": {
           "source": [
-            "codex",
             "hermes/skills",
             "systemd",
-            "docs/ARCHITECTURE.md",
-            "docs/codex-remote-conductor.md",
-            "docs/coms-hermes-bridge.md",
             "scripts/codex-conductor.ts",
             "scripts/codex-remote-control.ts",
             "scripts/coms-claude-bridge.ts",
@@ -651,6 +672,7 @@
         }
       },
       "companions": [
+        "companion:codex-conductor-contract",
         "companion:workflow-runtime"
       ],
       "parents": [
@@ -903,12 +925,37 @@
       ]
     },
     {
+      "id": "companion:workflow-guide",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Workflow runtime guide",
+      "summary": "Managed workflow map read by the drafting skill",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "docs/workflows.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agent-fleet/docs/workflows.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "companion:workflow-runtime"
+      ]
+    },
+    {
       "id": "companion:workflow-runtime",
       "kind": "companion",
       "group": "companions",
       "subcategory": null,
       "title": "Deterministic workflow runtime",
-      "summary": "Headless flow dispatcher, workflow graphs, scoped configuration, and operations guide",
+      "summary": "Headless flow dispatcher, workflow graphs, and scoped configuration",
       "recommended": false,
       "stability": "stable",
       "consent": "file",
@@ -919,8 +966,7 @@
             "scripts/flow.ts",
             "scripts/lib/flow-command.ts",
             "scripts/lib/flow-maintenance.ts",
-            "scripts/workflows",
-            "docs/workflows.md"
+            "scripts/workflows"
           ],
           "sourceMode": "all",
           "target": null,
@@ -928,6 +974,9 @@
           "preserveLayout": true
         }
       },
+      "companions": [
+        "companion:workflow-guide"
+      ],
       "parents": [
         "companion:justfile-region",
         "skill:drafting-workflows"
