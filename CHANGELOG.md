@@ -1,5 +1,12 @@
 # Agent Fleet changelog
 
+## 2.0.2
+
+### Patch Changes
+
+- 7ebeb61: Add multi-model poll, debate, and merge (`/af-poll`, `/af-debate`, `just flow poll` / `just flow debate`) with `.pi/agents/voices.yaml` panels, `model-visibility` doctor findings, and optional integrator `--apply` behind a cross-process writer lease. Planner drops the `risk` delegate role in favor of `voice-1`/`voice-2`/`voice-3` for unresolved architectural forks at tier `feature`/`project`.
+- ebb740e: Stop copying Agent Fleet product runbooks into target repositories. Keep the workflow guide and Codex conductor contract under the managed `.pi/agent-fleet/` runtime tree, and safely retire unchanged files from their former repository-root locations during setup.
+
 ## 2.0.1
 
 ### Patch Changes
