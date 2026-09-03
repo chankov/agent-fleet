@@ -11,6 +11,7 @@ create	companion:skills-internal-grilling
 create	persona:builder
 create	persona:code-reviewer
 create	persona:test-engineer
+create	reference:communication-contract
 create	skill:incremental-implementation
 create	skill:using-agent-skills
 create	reference:definition-of-done
