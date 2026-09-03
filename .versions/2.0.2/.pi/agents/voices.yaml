@@ -1,0 +1,13 @@
+# Named model panels for poll/debate. There is no implicit default; pass --panel <name>.
+# One voice = name + fully-qualified provider/id. At most one integrator per panel.
+default:
+  - name: sol
+    model: openai-codex/gpt-5.6-sol
+    thinking: medium
+  - name: grok
+    model: xai/grok-4.6
+    thinking: medium
+  - name: opus
+    model: github-copilot/claude-opus-5
+    thinking: medium
+    integrator: true
