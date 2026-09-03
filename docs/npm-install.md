@@ -55,7 +55,7 @@ npx @chankov/agent-fleet@latest setup --preset default --features none --allow-e
 …or run them afterwards through the recipe setup just installed:
 
 ```bash
-just fleet deps      # npm install in .pi/extensions and .pi/harnesses
+just fleet deps      # npm install in .pi/extensions, .pi/harnesses, and scripts
 just fleet doctor    # confirm the workspace is whole
 ```
 

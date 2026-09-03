@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildFleetRows, type FleetSource } from "../lib/fleet-read-model.ts";
-import { gridColumnsForItems, gridColumnsForSize, renderCardGrid } from "../lib/fleet-dashboard-ops.ts";
 import { renderFleetDashboard } from "../lib/fleet-dashboard-view.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
@@ -27,6 +26,14 @@ const agentModelsSubstituteCommandSource = readFileSync(new URL("./commands/agen
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
 const specialist = (key: string, status: "idle" | "running") => ({ key, name: key[0].toUpperCase() + key.slice(1), status, model: "model", backend: "native" as const, contextPct: 0, contextTokens: 0, elapsed: 0, toolCount: 0, lastWork: "available", hasTimeline: true });
 
+test("running research appears in Fleet Dashboard rows and vanishes after settlement even with showFinished", () => {
+	const research = [{ key: "r1", name: "r1 research", status: "running" as const, model: "model", backend: "native" as const, contextPct: 0, contextTokens: null, elapsed: 1000, toolCount: 1, lastWork: "searching", hasTimeline: true }];
+	const live = buildFleetRows({ specialists: [], research, peers: [] }, { showFinished: true });
+	assert.deepEqual(live.map(row => row.key), ["r1"]);
+	const settled = buildFleetRows({ specialists: [], research: [], peers: [] }, { showFinished: true });
+	assert.equal(settled.some(row => row.kind === "research"), false);
+});
+
 test("fleet integration retains idle roster rows with coms and reconciles the same key on dispatch", () => {
 	const source: FleetSource = { specialists: [specialist("builder", "idle"), specialist("researcher", "idle")], research: [], peers: [{ key: "peer:coms", name: "Coms", model: "peer-model", lastWork: "available", pending: true }] };
 	const initial = buildFleetRows(source, { showFinished: false });
@@ -36,15 +43,6 @@ test("fleet integration retains idle roster rows with coms and reconciles the sa
 	const running = buildFleetRows({ ...source, specialists: [specialist("builder", "running"), specialist("researcher", "idle")] }, { showFinished: false });
 	assert.equal(running.filter(row => row.key === "builder").length, 1);
 	assert.equal(running.find(row => row.key === "builder")?.status, "running");
-});
-
-test("empty native roster renders one research card through the production grid helpers", () => {
-	const gridCols = gridColumnsForSize(0);
-	const states = [{ id: 1, task: "investigate" }];
-	const cols = gridColumnsForItems(gridCols, states.length);
-	assert.equal(cols, 1);
-	assert.doesNotThrow(() => renderCardGrid(states, cols, 1, state => [`r${state.id}: ${state.task}`]));
-	assert.deepEqual(renderCardGrid(states, cols, 1, state => [`r${state.id}: ${state.task}`]), ["r1: investigate"]);
 });
 
 test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, and wall time", () => {
@@ -83,19 +81,20 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(dashboardSource, /resolveFleetRestart\(/);
 	assert.match(dashboardSource, /attachFleetDashboardTicker\(/);
 	assert.match(detailSource, /liveTimeline\(target\)/);
-	assert.match(source, /gridCols = gridColumnsForSize\(agentStates\.size\);/, "an empty specialist roster cannot zero the research grid");
-	assert.match(gridSource, /const cols = gridColumnsForItems\(deps\.getGridCols\(\), states\.length\);/, "research rendering defensively rejects zero columns");
-	assert.match(gridSource, /const grid = renderCardGrid\(/, "research cards use the tested non-empty grid renderer");
-	assert.equal(((source + gridSource).match(/compactWidgetsEnabled\(/g) ?? []).length, 4, "composition and grid guards use the shared predicate");
+	assert.match(detailSource, /snapshotFleetDetailRow\(detailRow, target\)/);
+	assert.match(source, /gridCols = gridColumnsForSize\(agentStates\.size\);/);
+	assert.doesNotMatch(gridSource, /agent-research/);
+	assert.doesNotMatch(gridSource, /getResearchStates/);
+	assert.equal(((source + gridSource).match(/compactWidgetsEnabled\(/g) ?? []).length, 3, "composition and grid guards use the shared predicate");
 	assert.match(source, /isCompact: \(\) => compactWidgetsEnabled\(viewMode\)/, "extracted shortcuts and pool receive the shared predicate");
 	assert.match(shortcutSource, /ports\.isCompact\(\)/);
 	assert.doesNotMatch(uiSource, /function (?:shortModel|thinkingSuffix|modelWithThinking)\(/, "Phase 6.5 UI consumes the root-owned formatters");
 	assert.match(source, /createFleetDashboard<[\s\S]*?shortModel,[\s\S]*?thinkingSuffix,[\s\S]*?modelWithThinking,/, "dashboard receives shared runtime formatters explicitly");
 	assert.doesNotMatch(source, /declare const (?:shortModel|thinkingSuffix|modelWithThinking)/, "runtime formatters cannot be ambient-only declarations");
 	assert.match(source, /function shortModel\(model: string \| undefined\)[\s\S]*?function thinkingSuffix\(rawThinking: string \| undefined\)[\s\S]*?function modelWithThinking\(def: AgentDef\)/, "composition root owns the shared model presentation helpers");
-	assert.match(source, /createGridUI\(\{[\s\S]*?displayName, resolvedThinking, shortModel, thinkingSuffix, modelWithThinking,/, "grid receives the shared runtime helpers explicitly");
+	assert.match(source, /createGridUI\(\{[\s\S]*?displayName, shortModel, modelWithThinking,/, "grid receives the shared runtime helpers explicitly");
 	assert.doesNotMatch(gridSource, /function (?:shortModel|thinkingSuffix|modelWithThinking)\(/, "grid does not duplicate shared presentation semantics");
-	assert.match(gridSource, /deps\.shortModel\([\s\S]*?deps\.thinkingSuffix\([\s\S]*?deps\.modelWithThinking\(/, "extracted grid calls its injected formatters");
+	assert.match(gridSource, /deps\.shortModel\([\s\S]*?deps\.modelWithThinking\(/, "extracted grid calls its injected formatters");
 	assert.match(source, /import \{[\s\S]*?abbreviateModel,[\s\S]*?\} from "\.\.\/lib\/coms-core\.ts"/, "coms model abbreviation remains separate");
 	// confirmation window is owned by the pure controller
 	const dash = readFileSync(new URL("../lib/fleet-dashboard-view.ts", import.meta.url), "utf8");

@@ -9,6 +9,7 @@ import {
 	renderCardGrid,
 	resolveFleetKill,
 	resolveFleetRestart,
+	snapshotFleetDetailRow,
 } from "./fleet-dashboard-ops.ts";
 import { createPanelResources } from "./fleet-panel.ts";
 import { renderFleetDetail, type TimelineEntry } from "./fleet-detail-view.ts";
@@ -77,25 +78,22 @@ test("C3 resolveFleetKill gives explicit feedback for peer, delegate, and idle r
 
 // ── C4: confirmed restart outcomes ────────────────────────────────────────
 
-test("C4 resolveFleetRestart restarts supported specialist and research rows", () => {
+test("C4 resolveFleetRestart restarts specialists and refuses research rows", () => {
 	assert.deepEqual(
 		resolveFleetRestart(row("specialist", "Builder"), {
-			researchRestartable: () => false,
 			specialistRestartable: () => true,
 		}),
 		{ action: "restart-specialist", message: "Restarting Builder (fresh)..." },
 	);
-	assert.deepEqual(
-		resolveFleetRestart(row("research", "r1 explore"), {
-			researchRestartable: () => true,
-			specialistRestartable: () => false,
-		}),
-		{ action: "restart-research", message: "Restarting research r1 explore (fresh)..." },
-	);
+	const research = resolveFleetRestart(row("research", "r1 explore"), {
+		specialistRestartable: () => false,
+	});
+	assert.equal(research.action, "unsupported");
+	assert.match(research.message, /cannot be restarted; spawn a new helper instead/);
 });
 
-test("C4 resolveFleetRestart refuses peer, delegate, running research, and taskless rows", () => {
-	const deny = { researchRestartable: () => false, specialistRestartable: () => false };
+test("C4 resolveFleetRestart refuses peer, delegate, and taskless rows", () => {
+	const deny = { specialistRestartable: () => false };
 	const peer = resolveFleetRestart(row("peer", "Claude"), deny);
 	assert.equal(peer.action, "unsupported");
 	assert.match(peer.message, /Restart is unsupported for peer/);
@@ -103,10 +101,6 @@ test("C4 resolveFleetRestart refuses peer, delegate, running research, and taskl
 	const del = resolveFleetRestart(row("delegate", "child"), deny);
 	assert.equal(del.action, "unsupported");
 	assert.match(del.message, /Restart is unsupported for delegate/);
-
-	const busy = resolveFleetRestart(row("research", "r1"), deny);
-	assert.equal(busy.action, "unsupported");
-	assert.match(busy.message, /cannot be restarted while running or without a previous task/);
 
 	const none = resolveFleetRestart(row("specialist", "Builder"), deny);
 	assert.equal(none.action, "unsupported");
@@ -154,19 +148,32 @@ test("C6 liveTimeline follows re-dispatch array replacement through detail rende
 
 // ── C7: compact widget off ────────────────────────────────────────────────
 
-test("an empty specialist roster still reserves one grid column for research cards", () => {
+test("grid column helpers stay defensive for empty and tiny rosters", () => {
 	assert.equal(gridColumnsForSize(0), 1);
 	assert.equal(gridColumnsForSize(1), 1);
 	assert.equal(gridColumnsForSize(4), 2);
 	assert.equal(gridColumnsForSize(5), 3);
-	assert.equal(gridColumnsForItems(0, 1), 1, "one research card cannot be rendered with zero columns");
+	assert.equal(gridColumnsForItems(0, 1), 1);
 	assert.equal(gridColumnsForItems(Number.NaN, 1), 1);
 	assert.equal(gridColumnsForItems(3, 1), 1);
-	assert.doesNotThrow(() => renderCardGrid(["research"], 0, 1, card => [`[${card}]`]));
-	assert.deepEqual(renderCardGrid(["research"], 0, 1, card => [`[${card}]`]), ["[research]"]);
+	assert.doesNotThrow(() => renderCardGrid(["card"], 0, 1, card => [`[${card}]`]));
+	assert.deepEqual(renderCardGrid(["card"], 0, 1, card => [`[${card}]`]), ["[card]"]);
 });
 
-test("C7 compactWidgetsEnabled hides research/pool cards when viewMode is off", () => {
+test("snapshotFleetDetailRow freezes elapsed once the live target is no longer running", () => {
+	const row = { key: "r1", name: "r1 research", kind: "research" as const, status: "running" as const, startedAt: 1000, elapsed: 0, lastWork: "searching" };
+	const live = snapshotFleetDetailRow(row, { status: "running", lastWork: "still going" }, 2500);
+	assert.equal(live.status, "running");
+	assert.equal(live.elapsed, 1500);
+	assert.equal(live.lastWork, "still going");
+
+	const frozen = snapshotFleetDetailRow(row, { status: "done", elapsed: 1800, lastWork: "found it" }, 99999);
+	assert.equal(frozen.status, "done");
+	assert.equal(frozen.elapsed, 1800);
+	assert.equal(frozen.lastWork, "found it");
+});
+
+test("C7 compactWidgetsEnabled hides compact widgets when viewMode is off", () => {
 	assert.equal(compactWidgetsEnabled("compact"), true);
 	assert.equal(compactWidgetsEnabled("off"), false);
 

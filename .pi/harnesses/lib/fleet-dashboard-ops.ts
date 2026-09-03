@@ -18,7 +18,6 @@ export type KillOutcome =
 	| { action: "unsupported"; level: "warning"; message: string };
 
 export type RestartOutcome =
-	| { action: "restart-research"; message: string }
 	| { action: "restart-specialist"; message: string }
 	| { action: "unsupported"; level: "warning"; message: string };
 
@@ -61,7 +60,6 @@ export function resolveFleetKill(
 export function resolveFleetRestart(
 	selected: { key: string; kind: FleetKind; name: string },
 	lookup: {
-		researchRestartable: (key: string) => boolean;
 		specialistRestartable: (key: string) => boolean;
 	},
 ): RestartOutcome {
@@ -73,14 +71,11 @@ export function resolveFleetRestart(
 		};
 	}
 	if (selected.kind === "research") {
-		if (!lookup.researchRestartable(selected.key)) {
-			return {
-				action: "unsupported",
-				level: "warning",
-				message: `Research ${selected.name} cannot be restarted while running or without a previous task.`,
-			};
-		}
-		return { action: "restart-research", message: `Restarting research ${selected.name} (fresh)...` };
+		return {
+			action: "unsupported",
+			level: "warning",
+			message: `Research ${selected.name} cannot be restarted; spawn a new helper instead.`,
+		};
 	}
 	if (!lookup.specialistRestartable(selected.key)) {
 		return {
@@ -100,7 +95,7 @@ export function liveTimeline<T>(target: { timeline?: readonly T[] } | null | und
 	return target?.timeline ?? [];
 }
 
-/** A zero-member operator roster still needs a valid column for research cards. */
+/** Column count for a specialist card grid. Empty rosters still return a defensive 1. */
 export function gridColumnsForSize(size: number): number {
 	if (size <= 0) return 1;
 	return size <= 3 ? size : size === 4 ? 2 : 3;
@@ -137,9 +132,25 @@ export function renderCardGrid<T>(
 	return lines;
 }
 
-/** Compact below-editor / research-card widgets render only in compact mode. */
+/** Compact below-editor specialist widgets render only in compact mode. */
 export function compactWidgetsEnabled(viewMode: "compact" | "off"): boolean {
 	return viewMode === "compact";
+}
+
+/** Freeze an already-open Fleet detail row when its live target leaves "running". */
+export function snapshotFleetDetailRow<
+	T extends { status: string; startedAt?: number; elapsed: number; lastWork: string },
+>(detailRow: T, target: { status?: string; elapsed?: number; lastWork?: string } | null | undefined, now = Date.now()): T {
+	const status = (target?.status ?? detailRow.status) as T["status"];
+	if (status === "running" && detailRow.startedAt != null) {
+		return { ...detailRow, status, elapsed: now - detailRow.startedAt, lastWork: target?.lastWork || detailRow.lastWork };
+	}
+	return {
+		...detailRow,
+		status,
+		elapsed: target?.elapsed ?? detailRow.elapsed,
+		lastWork: target?.lastWork || detailRow.lastWork,
+	};
 }
 
 type PanelResources = ReturnType<typeof createPanelResources>;

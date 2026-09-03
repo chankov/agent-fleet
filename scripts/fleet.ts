@@ -129,7 +129,7 @@ LIFECYCLE
       features are remembered in .ai/agent-fleet.json, so a plain setup needs no
       flags; flags apply to one run unless --save-desired persists them.
   just fleet deps
-      Install only .pi/extensions and .pi/harnesses Node dependencies.
+      Install Node dependencies for .pi/extensions, .pi/harnesses, and scripts.
       Does not launch Pi, configure STT, install ffmpeg/Herdr, or pair Codex.
   just fleet doctor [--fix]
   just fleet uninstall --all --yes

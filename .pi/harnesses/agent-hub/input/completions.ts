@@ -45,7 +45,7 @@ export function createCompletionPresentation<TDef extends CompletionDef>(deps: C
 	const research = () => Array.from(deps.getResearch());
 	const agentNames = (prefix: string) => filter(agents().map(state => ({ value: state.def.name, label: `${deps.displayName(state.def.name)} (${state.status})` })), prefix);
 	const researchHandles = (prefix: string) => filter(research().map(state => ({ value: `r${state.id}`, label: `r${state.id} ${state.persona ? deps.displayName(state.def.name) : "research"} (${state.status})` })), prefix);
-	const subagentTargets = (prefix: string) => filter([...(agentNames("") ?? []), ...(researchHandles("") ?? [])], prefix);
+	const subagentTargets = agentNames;
 	return {
 		agentNames,
 		zoom: prefix => filter([
@@ -70,7 +70,7 @@ export function createCompletionPresentation<TDef extends CompletionDef>(deps: C
 		substitutions: prefix => filter(deps.getSubstitutionSources().map(choice => ({ value: choice.spec, label: choice.label })), prefix),
 		researchHandles,
 		subagentTargets,
-		agentsKill: prefix => filter(research().length > 0 ? [...(subagentTargets("") ?? []), { value: "all", label: "all — kill & remove every research helper" }] : subagentTargets("") ?? [], prefix),
+		agentsKill: prefix => filter(research().length > 0 ? [...(agentNames("") ?? []), ...(researchHandles("") ?? []), { value: "all", label: "all — kill & remove every live research helper" }] : agentNames("") ?? [], prefix),
 		comsPeers: prefix => filter(deps.getPeers().map(peer => ({ value: peer.name, label: `${peer.name} — ${peer.purpose || peer.model}` })), prefix),
 	};
 }

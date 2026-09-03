@@ -5,6 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   cpSync,
   existsSync,
   lstatSync,
@@ -255,8 +256,25 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
   try {
     const packed = JSON.parse(execFileSync("npm", ["pack", "--json"], { cwd: root, encoding: "utf8" }));
     const tarball = join(root, packed[0].filename);
-    const extracted = join(fixture, "package");
-    execFileSync("tar", ["-xzf", tarball, "-C", fixture]);
+    const extracted = join(fixture, "node_modules", "@chankov", "agent-fleet");
+    mkdirSync(extracted, { recursive: true });
+    execFileSync("tar", ["-xzf", tarball, "--strip-components=1", "-C", extracted]);
+    const fakeBin = join(fixture, "bin");
+    mkdirSync(fakeBin);
+    const fakePi = join(fakeBin, "pi");
+    writeFileSync(fakePi, `#!/bin/sh
+cat <<'EOF'
+provider model
+openai-codex gpt-5.6-sol
+openai-codex gpt-5.6-terra
+openai-codex gpt-5.6-luna
+openai-codex gpt-5.3-codex-spark
+xai grok-4.6
+github-copilot claude-opus-5
+EOF
+`);
+    chmodSync(fakePi, 0o755);
+    const doctorEnv = { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}` };
 
     for (const preset of ["default", "full"]) {
       const workspace = join(fixture, preset);
@@ -270,6 +288,27 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
       assert.equal(desired.preset, preset);
       if (preset === "default") assert.equal(existsSync(join(workspace, ".claude")), false);
       else assert.ok(existsSync(join(workspace, ".claude", "hooks", "coms-stop-hook.mjs")));
+      const workflowPackage = JSON.parse(readFileSync(join(workspace, "scripts", "package.json"), "utf8"));
+      assert.deepEqual(workflowPackage.dependencies, {
+        "@sinclair/typebox": "^0.34.49",
+        yaml: "^2.9.0",
+      });
+      assert.ok(existsSync(join(workspace, "scripts", "package-lock.json")));
+      assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /npm install --prefix scripts/);
+      for (const dependency of ["@sinclair/typebox", "yaml"]) {
+        const target = join(workspace, "scripts", "node_modules", dependency);
+        mkdirSync(dirname(target), { recursive: true });
+        cpSync(join(root, "node_modules", dependency), target, { recursive: true });
+      }
+      const flowHelp = execFileSync(process.execPath, [
+        "--experimental-strip-types", join(workspace, "scripts", "flow.ts"), "--help",
+      ], { cwd: workspace, encoding: "utf8" });
+      assert.equal(flowHelp, "", "installed flow entrypoint must load with script-local dependencies");
+
+      const doctor = JSON.parse(execFileSync(process.execPath, [
+        join(extracted, "bin", "cli.js"), "doctor", "--workspace", workspace, "--json",
+      ], { encoding: "utf8", env: doctorEnv }));
+      assert.equal(doctor.summary.outstanding, 0, `${preset}: installed-package doctor must run under node_modules`);
     }
   } finally {
     for (const file of readdirSync(root)) if (/^chankov-agent-fleet-.*\.tgz$/.test(file)) rmSync(join(root, file), { force: true });

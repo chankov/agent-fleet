@@ -12,7 +12,7 @@ export const SESSION_START_COMMANDS = [
 	"/af-agent-models-substitute [src tgt] Pick/save a session-wide source → target model substitution",
 	"/af-dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)",
 	"/af-agents-kill <name|rN|all> Kill a frozen specialist or remove research helper(s)",
-	"/af-agents-restart <name|rN> Kill + re-run its last task fresh",
+	"/af-agents-restart <name>     Kill + re-run a specialist's last task fresh",
 	"/af-zoom <name|rN|child> Scrollable view of an agent / research / delegate-child stream",
 	"/af-coms [--all|--project N] Refresh the coms peer pool",
 	"/af-handoff <peer>       Hand the session off to a coms peer",

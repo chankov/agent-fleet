@@ -99,12 +99,12 @@ just fleet help         # unified command grammar
 just --list             # shows the single public `fleet` entry point
 ```
 
-`just fleet deps` installs runtime dependencies for both dependency roots:
-`.pi/extensions/` for utilities (`@modelcontextprotocol/sdk`, `typebox`) and
-`.pi/harnesses/` for harnesses (`@sinclair/typebox`, `yaml`). That is the **clone**
-path. In a target workspace, deterministic `agent-fleet setup --allow-exec` runs
-`npm ci --prefix .pi/extensions` and `npm ci --prefix .pi/harnesses` after its file
-transaction. Without `--allow-exec`, the plan lists those runtime steps for the
+`just fleet deps` installs all three runtime dependency roots:
+`.pi/extensions/` for utilities (`@modelcontextprotocol/sdk`, `typebox`),
+`.pi/harnesses/` for harnesses (`@sinclair/typebox`, `yaml`), and `scripts/` for
+deterministic workflows (`@sinclair/typebox`, `yaml`). That is the **clone** path. In a
+target workspace, deterministic `agent-fleet setup --allow-exec` runs `npm ci`
+for those same three roots after its file transaction. Without `--allow-exec`, the plan lists those runtime steps for the
 operator to run by hand. The extension dependencies are also root production dependencies of
 the published `@chankov/agent-fleet` package, so a pi-package install resolves them from
 the package's real path. The `@mariozechner/pi-*` packages are provided by the pi runtime
@@ -176,13 +176,16 @@ harnesses:
   the picker. Orchestrator removes direct coding tools. Budgets and nested delegation follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
   refuse actionably.
 - **Fleet Dashboard and compact widget** — **`Alt+A`** or `/af-agents-list` opens a
-  full-screen dashboard of the active native roster, delegates, research helpers, and coms
-  peers. It supports row detail, filtering, finished-row visibility, confirmed kills,
-  and a confirmed restart request that supplies the restart command. In local row detail, **`m`**
+  full-screen dashboard of the active native roster, delegates, currently running research
+  helpers, and coms peers. Live research helpers never appear as cards or compact rows in the
+  main dispatcher view; they vanish from the dashboard on every terminal outcome while their
+  session/findings files and `/af-agents-history` records remain. The dashboard supports row
+  detail, filtering, finished-row visibility, confirmed kills, and a confirmed specialist restart.
+  In local row detail, **`m`**
   opens a visible inline full-screen picker over the logs, selects from every model currently
   available in Pi, and applies it to the next specialist, research, or nested-delegate run without
   interrupting current work. Separately, the default below-editor compact widget shows only
-  running agents; **`Alt+Shift+A`** toggles it on/off. See the
+  running specialists; **`Alt+Shift+A`** toggles it on/off. See the
   [agent-hub README](../.pi/harnesses/agent-hub/README.md#fleet-dashboard-and-detail) for
   keys and action semantics.
 - **Specialist delegation** — `dispatch_agent` for writable child-agent work. Read-only

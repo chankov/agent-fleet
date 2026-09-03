@@ -3,8 +3,6 @@ import { join } from "node:path";
 import { clampDelegateDepth, MAX_DELEGATE_DEPTH } from "../helpers.ts";
 import { DEFAULT_RUN_HISTORY_KEEP, normalizeRunHistoryKeep } from "../run-namespace.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, normalizeWatchdogSetting } from "../drift-watchdog.js";
-import { DEFAULT_RESEARCH_KEEP } from "../research/runtime.ts";
-import { parseResearchKeep } from "../research-retention.js";
 import type { SubagentRole } from "../types.ts";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
@@ -26,7 +24,6 @@ export interface AgentTeamOverrides {
 	personaDelegateDepth: Record<string, number>;
 	rulesDirs: string[];
 	docsPaths: string[];
-	researchKeep: number;
 	reconSearchTimeoutMs: number | null;
 	budgetOverrides: { maxDispatches?: number | null; maxResearch?: number | null; wallMs?: number | null; agentTurnMs?: number | null; recycleRuns?: number | null };
 	watchdogSetting: string;
@@ -38,7 +35,7 @@ export interface AgentTeamOverrides {
 
 export const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	language: "English", personaModels: {}, personaModelLists: {}, personaThinking: {}, personaSubagents: {}, personaDelegateDepth: {},
-	rulesDirs: [], docsPaths: [], researchKeep: DEFAULT_RESEARCH_KEEP, reconSearchTimeoutMs: 120_000, budgetOverrides: {},
+	rulesDirs: [], docsPaths: [], reconSearchTimeoutMs: 120_000, budgetOverrides: {},
 	watchdogSetting: DEFAULT_WATCHDOG_SETTING, watchdogJudgeModel: null, runHistoryKeep: DEFAULT_RUN_HISTORY_KEEP, pollPanel: null, warnings: [],
 };
 
@@ -90,9 +87,7 @@ export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			else result.runHistoryKeep = keep;
 		}
 		if (key === "research-keep" && value) {
-			const keep = parseResearchKeep(value);
-			if (keep != null) result.researchKeep = keep;
-			else result.warnings.push(`research-keep "${value}" is not a non-negative integer or "all" — using the default (${DEFAULT_RESEARCH_KEEP})`);
+			result.warnings.push("research-keep is removed; live research helpers disappear when they finish. Delete this key.");
 		}
 		if (key === "recon-search-timeout-s" && value) {
 			if (value.toLowerCase() === "off") result.reconSearchTimeoutMs = null;

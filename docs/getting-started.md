@@ -28,11 +28,11 @@ nor `.claude/`; Full may install the recorded Claude Code coms bridge. Features
 are named additions after preset selection. In an Agent Fleet source checkout,
 use `node bin/cli.js setup` instead.
 
-Setup writes files but runs no commands, so finish the install with the two npm
+Setup writes files but runs no commands, so finish the install with the npm
 steps it deliberately skipped — the workspace is not launchable until they run:
 
 ```bash
-just fleet deps     # npm install in .pi/extensions and .pi/harnesses
+just fleet deps     # npm install in .pi/extensions, .pi/harnesses, and scripts
 just fleet doctor   # exit 0 = nothing to repair
 ```
 

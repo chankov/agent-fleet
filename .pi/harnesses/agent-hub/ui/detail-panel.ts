@@ -11,7 +11,7 @@ import {
 	normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, DETAIL_CHROME_ROWS,
 	type FleetDetailKey, type FleetModelChoice,
 } from "../../lib/fleet-detail-view.ts";
-import { liveTimeline } from "../../lib/fleet-dashboard-ops.ts";
+import { liveTimeline, snapshotFleetDetailRow } from "../../lib/fleet-dashboard-ops.ts";
 import { FULLSCREEN_OVERLAY, bodyRows } from "../../lib/fleet-overlay.ts";
 import { createPanelResources } from "../../lib/fleet-panel.ts";
 import {
@@ -120,7 +120,7 @@ export function createDetailPanel<TDef extends DetailAgentDef, TAgent extends De
 			applyHint = "applies on the next dispatch";
 		} else if (target.kind === "research") {
 			target.state.model = picked;
-			applyHint = `applies when r${target.state.id} next continues or restarts`;
+			applyHint = "current run is not interrupted; spawn a new helper to use this model";
 		} else {
 			deps.modelPolicy.setSubagentOverride(target.delegation.owner.def.name, target.role[0], picked === target.role[1].model ? undefined : picked);
 			applyHint = `applies on the next ${deps.displayName(target.delegation.owner.def.name)} dispatch`;
@@ -162,7 +162,7 @@ export function createDetailPanel<TDef extends DetailAgentDef, TAgent extends De
 		try { await ctx.ui.custom((tui: any, theme: any, _kb: any, done: () => void) => {
 			if (target) target.zoomRender = (force?: boolean) => { const now = Date.now(); if (force || now - lastRender > 80) { lastRender = now; tui.requestRender(); } };
 			resources.every(2000, () => tui.requestRender());
-			return { render: (w: number) => { const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); if (modelPicker) return renderFleetModelPicker(detailRow.name, modelPicker.choices, modelPicker, w, body, theme); syncTail(); const entries = timeline(); if (followTail) { selectedIndex = Math.max(0, entries.length - 1); scrollOffset = Math.max(0, detailContent(entries, w, expandedIndex, verbose, selectedIndex).length - body); } const liveRow = detailRow.status === "running" && detailRow.startedAt != null ? { ...detailRow, elapsed: Date.now() - detailRow.startedAt } : detailRow; return renderFleetDetail(liveRow, entries, scrollOffset, w, body, theme, expandedIndex, verbose, selectedIndex); },
+			return { render: (w: number) => { const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); if (modelPicker) return renderFleetModelPicker(detailRow.name, modelPicker.choices, modelPicker, w, body, theme); syncTail(); const entries = timeline(); if (followTail) { selectedIndex = Math.max(0, entries.length - 1); scrollOffset = Math.max(0, detailContent(entries, w, expandedIndex, verbose, selectedIndex).length - body); } const liveRow = snapshotFleetDetailRow(detailRow, target); return renderFleetDetail(liveRow, entries, scrollOffset, w, body, theme, expandedIndex, verbose, selectedIndex); },
 				handleInput: async (data: string) => { const input = matchedInput(data), body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); if (modelPicker) { const action = modelPickerTransition(input, modelPicker, modelPicker.choices.length, body); if (action === "cancel") modelPicker = null; else if (action === "select") { const picked = modelPicker.choices[modelPicker.index]?.spec; modelPicker = null; if (picked && applyModel(detailRow, picked, ctx)) { const effective = deps.modelPolicy.substitutedModel(picked) ?? picked; detailRow = { ...detailRow, model: detailRow.status === "running" ? `${detailRow.model} → ${deps.shortModel(effective)} next` : `${deps.shortModel(effective)} (next)` }; } } tui.requestRender(); return; }
 					if ((input === "\u001b[A" || input === "k" || input === "\u001b[5~" || input === "\u001b[H") && scrollOffset === 0) selectedIndex += loadOlder(); if (input === "\u001b[F") reloadTail(); let entries = timeline(); if (!followTail && (input === "\u001b[B" || input === "j" || input === "\u001b[6~") && selectedIndex >= entries.length - 1) { selectedIndex = Math.max(0, selectedIndex - loadNewer()); entries = timeline(); }
 					const width = tui.terminal?.columns ?? 80, state = { scrollOffset, selectedIndex, expandedIndex, followTail, verbose }, content = detailContent(entries, width, expandedIndex, verbose, selectedIndex), offsets = detailEntryOffsets(entries, width, expandedIndex, verbose); const action = detailTransition(input, state, entries, body, content.length, offsets); ({ scrollOffset, selectedIndex, expandedIndex, followTail, verbose } = state); if (action === "close") done(); else if (action === "copy") { const item = entries[selectedIndex]; if (item) { try { await copyToClipboard(item.content); ctx.ui.notify("Copied selected zoom row", "success"); } catch { ctx.ui.notify("Failed to copy selected zoom row", "error"); } } } else if (action === "model") { const target = resolveModelTarget(detailRow, ctx); if (target) { const choices = await loadAvailableModelChoices(ctx, target.current); if (choices) { const index = choices.findIndex(choice => choice.spec === target.current); modelPicker = { choices, index: Math.max(0, index), scrollOffset: Math.max(0, index) }; } } } tui.requestRender(); },

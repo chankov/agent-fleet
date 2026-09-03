@@ -606,7 +606,8 @@
     },
     "companion:workflow-runtime": {
       "companions": [
-        "companion:workflow-guide"
+        "companion:workflow-guide",
+        "companion:workflow-deps"
       ]
     }
   },
@@ -798,6 +799,8 @@
         "pi": {
           "source": [
             "scripts/flow.ts",
+            "scripts/package.json",
+            "scripts/package-lock.json",
             "scripts/lib/flow-command.ts",
             "scripts/lib/flow-maintenance.ts",
             "scripts/workflows"
@@ -807,6 +810,27 @@
           "target": null,
           "strategy": "copy-tree"
         }
+      }
+    },
+    "companion:workflow-deps": {
+      "title": "npm ci (scripts)",
+      "summary": "Installs the deterministic workflow runtime dependencies",
+      "consent": "exec",
+      "agents": {
+        "pi": {
+          "source": [],
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          "scripts"
+        ],
+        "cwd": "."
       }
     }
   },

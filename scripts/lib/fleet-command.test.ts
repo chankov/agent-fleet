@@ -172,7 +172,7 @@ test("legacy team maps matching native roster and peer preset, while peers-only 
 test("fleet lifecycle commands map to deterministic CLI and dependency recipes", () => {
 	const justfile = readFileSync(resolve(REPO_ROOT, "justfile"), "utf8");
 	assert.match(justfile, /_fleet-lifecycle command \*args:\n\s+npx @chankov\/agent-fleet@latest \{\{command\}\}/);
-	assert.match(justfile, /_fleet-deps:\n\s+npm install --prefix \.pi\/extensions\n\s+npm install --prefix \.pi\/harnesses/);
+	assert.match(justfile, /_fleet-deps:\n\s+npm install --prefix \.pi\/extensions\n\s+npm install --prefix \.pi\/harnesses\n\s+npm install --prefix scripts/);
 	assert.deepEqual(parseFleetCommand(["setup", "--preset", "default", "--yes"]), { recipe: "_fleet-lifecycle", args: ["setup", "--preset", "default", "--yes"] });
 	assert.deepEqual(parseFleetCommand(["deps"]), { recipe: "_fleet-deps", args: [] });
 	assert.throws(() => parseFleetCommand(["install"]), /use `just fleet setup`.*`just fleet deps`/);

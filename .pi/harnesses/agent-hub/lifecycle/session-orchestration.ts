@@ -42,7 +42,6 @@ export function resetHubSession(ctx: ExtensionContext, ports: SessionResetPorts)
 
 export interface SessionOverridePorts<TDef extends AgentDef> {
 	setLanguage(value: string): void;
-	setResearchRetention(value: number): void;
 	setReconTimeout(value: number | null): void;
 	setBudgetOverrides(value: AgentTeamOverrides["budgetOverrides"]): void;
 	setWatchdog(setting: string, judgeModel: string | null): void;
@@ -62,7 +61,6 @@ export interface SessionOverridePorts<TDef extends AgentDef> {
 
 export function applySessionOverrides<TDef extends AgentDef>(ctx: ExtensionContext, overrides: AgentTeamOverrides, ports: SessionOverridePorts<TDef>): void {
 	ports.setLanguage(overrides.language);
-	ports.setResearchRetention(overrides.researchKeep);
 	ports.setReconTimeout(overrides.reconSearchTimeoutMs);
 	ports.setBudgetOverrides(overrides.budgetOverrides);
 	ports.setWatchdog(overrides.watchdogSetting, overrides.watchdogJudgeModel);

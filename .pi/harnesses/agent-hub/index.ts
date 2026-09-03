@@ -87,7 +87,7 @@ import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmation
 import { budgetContinuationInstruction, budgetContinuationKind, budgetContinuationOutcome, turnBudgetActiveMs, type BudgetContinuationKind } from "./budget-continuation.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts";
-import { DEFAULT_RESEARCH_KEEP, RESEARCH_TOOLS, createResearchRuntime, parseResearchHandle } from "./research/runtime.ts";
+import { RESEARCH_TOOLS, createResearchRuntime, parseResearchHandle } from "./research/runtime.ts";
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
 import { createAccessApprovalRouter } from "./access-approval.ts";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
@@ -201,16 +201,13 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	const agentStates: Map<string, AgentState> = new Map();
-	// Read-only research helpers (Phase 4), keyed by numeric id (handle `rN`). Lives
-	// alongside the standing team but renders in its own widget row.
+	// Live-only research helpers, keyed by numeric id (handle `rN`). Visible in the
+	// Fleet Dashboard (Alt+A) while running; evicted from this map on every terminal
+	// outcome. Session/transcript/findings files and /af-agents-history survive.
 	let researchStates: Map<number, ResearchState> = new Map();
 	// Metadata only: prompt text is never retained by this ledger.
 	let lastHubLedger: ContextBudgetComponent[] = [];
 	let nextResearchId = 1;
-	// Retention cap for finished durable (manual/persona) helpers — set from the
-	// overrides file's `research-keep:` key at session start (default 4, Infinity
-	// for "all"). Ephemeral auto-pipe helpers ignore the cap: pruned on finish.
-	let researchKeep = DEFAULT_RESEARCH_KEEP;
 
 	// ── Execution history (/af-agents-history) ──────────
 	// The typed store owns entries and turn/ask_user bookkeeping; index.ts owns
@@ -245,8 +242,8 @@ export default function (pi: ExtensionAPI) {
 	// idle/done agents are hidden so an idle session shows only the prompt + footer.
 	let viewMode: "compact" | "off" = "compact";
 	// Compact-view agent switcher: the key of the marked subagent (lowercase persona
-	// name for team specialists, `rN` for research helpers — matching /af-zoom
-	// resolution), or null when nothing is marked. main is never listed (it is the
+	// name for team specialists — matching /af-zoom resolution), or null when nothing
+	// is marked. Research helpers are Fleet-Dashboard-only. main is never listed (it is the
 	// session under the input box). Alt+]/Alt+[ move it; Alt+\ zooms it.
 	let markedAgent: string | null = null;
 	let runningWidgetInstalled = false;
@@ -547,17 +544,15 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	const gridUI = createGridUI({
 		getWidgetContext: () => widgetCtx,
 		getViewMode: () => viewMode,
-		getGridCols: () => gridCols,
 		getAgentStates: () => agentStates,
-		getResearchStates: () => researchStates,
 		getMarkedAgent: () => markedAgent,
 		setMarkedAgent: value => { markedAgent = value; },
 		isRunningWidgetInstalled: () => runningWidgetInstalled,
 		markRunningWidgetInstalled: () => { runningWidgetInstalled = true; },
-		displayName, resolvedThinking, shortModel, thinkingSuffix, modelWithThinking,
+		displayName, shortModel, modelWithThinking,
 		contextWarnThreshold: CONTEXT_WARN_THRESHOLD,
 	});
-	const { updateWidget, updateResearchWidget, switchableAgents, clampMarker } = gridUI;
+	const { updateWidget, switchableAgents, clampMarker } = gridUI;
 
 	// ── Delegation observability ─────────────────
 	const dispatchObservability = createDispatchObservability({
@@ -678,8 +673,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		setResearchStates: value => { researchStates = value; },
 		getNextResearchId: () => nextResearchId,
 		setNextResearchId: value => { nextResearchId = value; },
-		getResearchKeep: () => researchKeep,
-		setResearchKeep: value => { researchKeep = value; },
 		hubState: hubStateCtx, budget: budgetCtx, artifacts: assertionsArtifactsCtx,
 		executionHistory, providerSemaphore,
 		getSafetyHarnessPath: () => safetyHarnessPath,
@@ -689,10 +682,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		modelWindowLookup, guardrailEnv, notifyProviderQueue, spawnPiAgentWithModelFallback,
 		nativeResearchSystemPrompt, requireSafetyHarness, shortModel, displayName,
 		flushTimelineStore, appendTimelineText, appendTimelineEvent,
-		createTranscriptStore: createFleetTranscriptStore, updateResearchWidget,
-		sendResearchMessage: message => {
-			pi.sendMessage(message, { deliverAs: "followUp", triggerTurn: true });
-		},
+		createTranscriptStore: createFleetTranscriptStore,
 	});
 
 	// ── Embedded coms: shared registry, transport, and pool core ──
@@ -781,7 +771,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			},
 			budget: budgetCtx, artifacts: assertionsArtifactsCtx, research: researchRuntime,
 			provisionalCapabilityRefusal, dispatchAgent, runReturnExtraction,
-			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName, updateResearchWidget,
+			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
 		},
 		actions: {
 			budget: budgetCtx, artifacts: assertionsArtifactsCtx, hubState: hubStateCtx,
@@ -815,7 +805,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 
 	const researchControls = createResearchControls({
 		runtime: researchRuntime,
-		refresh: updateResearchWidget,
+		refresh: () => {},
 		getAgents: () => agentStates, displayName, modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		cancelWait: (state, kind) => cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind } }),
 		cancelOwned: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree }),
@@ -1604,7 +1594,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		loadAvailableModels: loadAvailableModelChoices,
 		openDetail: openFleetDetail,
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
-		restartResearch: researchControls.restart,
 		restartSpecialist: researchControls.restartSpecialist,
 		removeResearch: researchControls.remove,
 		killSpecialistProcess: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree }),
@@ -1663,7 +1652,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		workModeStatusText, openWorkModePicker,
 		isCompact: () => compactWidgetsEnabled(viewMode),
 		toggleCompact: () => { viewMode = viewMode === "compact" ? "off" : "compact"; return viewMode; },
-		refreshWidgets: () => { updateWidget(); updateResearchWidget(); },
+		refreshWidgets: () => { updateWidget(); },
 		getSwitchableKeys: () => switchableAgents().map(agent => agent.key),
 		getMarkedAgent: () => markedAgent, setMarkedAgent: key => { markedAgent = key; }, clampMarker,
 		openMarkedAgent: async (ctx, key) => {
@@ -1826,7 +1815,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
 			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; pendingBudgetContinuation = null; budgetContinuationAsks.clear(); },
-			clearWidgets: ctx => { if (widgetCtx) { ctx.ui.setWidget("agent-team", undefined); ctx.ui.setWidget("agent-research", undefined); } },
+			clearWidgets: ctx => { if (widgetCtx) { ctx.ui.setWidget("agent-team", undefined); } },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; },
 			resolveSafety: cwd => Boolean(safetyHarnessPath = resolveSafetyHarness(cwd)), resolveDelegate: cwd => { delegateExtPath = resolveDelegateExtension(cwd); },
@@ -1900,7 +1889,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		applyOverrides: (_ctx) => {
 			if (!sessionOverrides) throw new Error("session_start applyOverrides ran before loadAgents");
 			applySessionOverrides(_ctx, sessionOverrides, {
-				setLanguage: value => { userLanguage = value; }, setResearchRetention: researchRuntime.setRetention,
+				setLanguage: value => { userLanguage = value; },
 				setReconTimeout: value => { reconSearchTimeoutMs = value; }, setBudgetOverrides: value => { budgetOverrides = value; },
 				setWatchdog: (setting, judge) => { watchdogSetting = setting; watchdogJudgeModel = judge; },
 				resetTurnCounts: () => { turnDispatchCount = 0; turnResearchCount = 0; }, resetTaskWindow: () => resetTaskWindow(null), updateModeStatus,

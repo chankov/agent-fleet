@@ -660,7 +660,7 @@ export async function scanModelVisibility({ workspace, checkVisibility } = {}) {
   if (targets.length === 0) return [];
   let check = checkVisibility;
   if (!check) {
-    const mod = await import("../../scripts/workflows/lib/model-visibility.ts");
+    const mod = await import("./model-visibility.js");
     check = (models) => mod.checkChildVisibility(models);
   }
   const unique = [...new Set(targets.map((target) => target.model))];

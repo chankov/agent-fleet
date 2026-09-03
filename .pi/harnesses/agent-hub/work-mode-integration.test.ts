@@ -160,7 +160,7 @@ test("wiring contract: extracted Hub tools use typed modules and one flat regist
 test("wiring contract: research lifecycle is owned by the typed runtime with root-backed state ports", () => {
 	assert.match(researchRuntimeSource, /export interface ResearchRuntime</);
 	assert.match(researchRuntimeSource, /export function parseResearchHandle/);
-	for (const port of ["getResearchStates", "setResearchStates", "getNextResearchId", "setNextResearchId", "getResearchKeep", "setResearchKeep"]) {
+	for (const port of ["getResearchStates", "setResearchStates", "getNextResearchId", "setNextResearchId"]) {
 		assert.match(researchRuntimeSource, new RegExp(`${port}\\(`));
 		assert.match(indexSource, new RegExp(`${port}:`));
 	}
@@ -168,7 +168,9 @@ test("wiring contract: research lifecycle is owned by the typed runtime with roo
 	assert.match(indexSource, /hubState: hubStateCtx, budget: budgetCtx, artifacts: assertionsArtifactsCtx/);
 	assert.match(indexSource, /guardrailEnv, notifyProviderQueue, spawnPiAgentWithModelFallback/);
 	assert.match(researchSpawnSource, /providerSemaphore\.run/);
-	for (const streamPort of ["appendTimelineText", "appendTimelineEvent", "executionHistory.end"]) assert.match(researchSpawnSource, new RegExp(streamPort.replace(".", "\\.")));
+	for (const streamPort of ["appendTimelineText", "appendTimelineEvent"]) assert.match(researchSpawnSource, new RegExp(streamPort.replace(".", "\\.")));
+	assert.match(researchRuntimeSource, /executionHistory\.end/);
+	assert.match(researchRuntimeSource, /finalize\(/);
 	assert.match(researchSpawnSource, /artifacts\.appendInputArtifacts/);
 	assert.doesNotMatch(indexSource, /async function spawnResearch\(/);
 	assert.doesNotMatch(indexSource, /function createResearchState\(/);

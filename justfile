@@ -152,6 +152,7 @@ _fleet-hub solo="false" browser="false" voice="false" all_extensions="false" *ar
 _fleet-deps:
     npm install --prefix .pi/extensions
     npm install --prefix .pi/harnesses
+    npm install --prefix scripts
 
 # Deterministic lifecycle CLI. `setup` always resolves the published latest
 # package; it needs registry access unless the matching npm cache entry exists.

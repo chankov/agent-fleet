@@ -90,11 +90,11 @@ voice configuration. **Full** selects all stable platform-applicable catalogue
 roots and may install the recorded Claude Code coms bridge. The lifecycle
 requires no coding agent or model.
 
-Setup writes files but never runs commands, so finish with the two npm steps it
+Setup writes files but never runs commands, so finish with the npm steps it
 deliberately skipped — the workspace is not launchable until they run:
 
 ```bash
-just fleet deps     # npm install in .pi/extensions and .pi/harnesses
+just fleet deps     # npm install in .pi/extensions, .pi/harnesses, and scripts
 just fleet doctor   # exit 0 = nothing to repair
 ```
 

@@ -155,12 +155,12 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `kind: research` personas ship by default: `researcher` (`gpt-5.6-luna`, low thinking) for simple
   reads and `deep-researcher` (`grok-4.6`, medium thinking) for hard, cross-cutting investigation.
   The dispatcher routes by persona; each persona's model + thinking level is shown in its catalog.
-  Finished helpers are **auto-pruned** so the research row doesn't grow without bound: auto-research
-  pipe helpers disappear as soon as they finish (their findings persist as `findings/*.md` files),
-  while durable helpers keep only the `research-keep` most recently finished (default 4) for
-  dashboard inspection or a fresh `/af-agents-restart rN`; older cards and session files are dropped
-  oldest-first. Set `research-keep: <n>|all` in the overrides file to change the cap. Running helpers
-  are never pruned and `rN` handles are never reused.
+  Live helpers appear **only in the Fleet Dashboard (`Alt+A`)** while they are running — never as
+  cards or compact rows in the main dispatcher view. On every terminal outcome (success, error,
+  timeout, spawn/preflight failure, or operator kill) the live `rN` handle is removed immediately.
+  Session, transcript, and `findings/*.md` files remain on disk for the requester, and
+  `/af-agents-history` keeps the audit/timing record. Finished helpers cannot be restarted; a new
+  request always creates a fresh helper. `rN` handles are never reused during a Hub session.
 - **Human handoff path** — `ask_user` is exposed by the `ask-user-remote` wrapper (capturing stock
   `pi-ask-user` and optionally racing a `user-remote` bridge), so specialists can bubble decisions
   back through the dispatcher.
@@ -230,13 +230,12 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 - **Agent controls** — `/af-zoom` inspects a live agent timeline; `/af-agents-history` replays the run as a
   timeline (orchestrator turns, dispatches, research helpers) with per-agent durations, parallel-run
   markers, and a grand total; kill/restart controls manage running child agents; per-agent `model:`
-  fields select models from team config. The retained `agents-*` commands address **both target kinds** —
-  team specialists by persona name, research helpers by `rN` handle (mirroring `/af-zoom`):
-  `/af-agents-kill <name|rN|all>` SIGTERMs a specialist (keeping its standing card), while on a
-  research helper it kills **and removes** the card + session — helpers are disposable by design
-  (`all` clears every helper); `/af-agents-restart <name|rN>` re-runs the last task fresh (a research
-  helper must be finished first). Research spawning and follow-up reconnaissance are automated through
-  `spawn_research` and `NEEDS_RESEARCH:`; there are no dedicated research lifecycle slash commands.
+  fields select models from team config. `/af-agents-kill <name|rN|all>` SIGTERMs a specialist (keeping
+  its standing card) or kills a currently running research helper (`all` clears every live helper).
+  `/af-agents-restart <name>` re-runs a specialist's last task fresh; research helpers cannot be
+  restarted. `/af-zoom <name|rN>` opens a running helper through the Fleet data model. Research spawning
+  and follow-up reconnaissance are automated through `spawn_research` and `NEEDS_RESEARCH:`; there are
+  no dedicated research lifecycle slash commands.
   Restartable team specialists at or above 70% context render
   their context percentage with a warning marker/color in dashboard and compact views, and their next
   `dispatch_agent` result adds a `/af-agents-restart <persona>` hint. Research helpers are not warned,
@@ -374,10 +373,11 @@ execution **tree**:
 Navigate with `↑/↓`, press `G` to jump back to the live tail, and `Q`/`Esc` to close. The log resets
 on each session start.
 
-The agent view starts with the **compact widget** enabled: one line per *running* agent —
+The agent view starts with the **compact widget** enabled: one line per *running* specialist —
 `name · context% · state` — *below* the input box, just above pi's status bar. Idle and done agents
-are hidden, and the coms pool widget collapses too, so an idle session collapses to just the prompt
-and footer. **`Alt+Shift+A`** toggles that widget on or off; the footer reports
+and all research helpers are hidden here (running helpers live in the Fleet Dashboard), and the coms
+pool widget collapses too, so an idle session collapses to just the prompt and footer.
+**`Alt+Shift+A`** toggles that widget on or off; the footer reports
 `Alt+A fleet · Alt+M Operator · Alt+Shift+A widget:compact|off`.
 
 ### Work Mode picker
@@ -391,7 +391,7 @@ terminal must send Option as Meta or Alt+M will not reach the Hub.
 
 Press **`Alt+A`** or run **`/af-agents-list`** to open the full-screen **Fleet Dashboard**. It is a
 separate, live overlay—not an alternate compact-widget mode—and lists specialists, nested delegates,
-research helpers, and coms peers. It shows status, hierarchy, model, context/tokens, elapsed time,
+running research helpers, and coms peers. It shows status, hierarchy, model, context/tokens, elapsed time,
 tool count, and recent work; its summary counts running/done/failed rows, overlap-aware wall time,
 and visible token totals. Finished/idle/stale rows are hidden by default.
 
@@ -402,7 +402,9 @@ and visible token totals. Finished/idle/stale rows are hidden by default.
 - **`x`** requests a kill and **`r`** requests a restart; press the same key again within two seconds
   to confirm. Kill acts on a local running specialist, a coms-backed specialist, or a research helper.
   Confirmed restart terminates a running specialist when necessary, clears its session, and re-dispatches
-  its previous task fresh; it is refused for peer/delegate rows, running research, and rows with no previous task.
+  its previous task fresh; it is refused for peer/delegate/research rows and rows with no previous task.
+  If a research detail view is already open when that helper finishes, it stays as a read-only terminal
+  snapshot until Esc; returning to the dashboard shows no completed research row.
 - **`q`** or **Esc** closes the dashboard.
 
 The detail view streams the selected local agent's assistant text, provider-emitted thinking, tool
@@ -426,7 +428,7 @@ unknown secret formats.
 
 “Thinking” means only text explicitly emitted by the provider/runtime; hidden model reasoning is not
 available, and personas with thinking disabled have no thinking rows. Model switching works for local
-specialists, retained research helpers, and nested delegate roles. It applies on the next dispatch or
+specialists, a currently running research helper, and nested delegate roles. It applies on the next dispatch or
 continuation and never interrupts a running child. A coms-backed specialist stores the choice for native
 fallback runs; external coms peers control their own model, have no picker, and have no local transcript.
 **Esc**/**`q`** returns to the dashboard. **`/af-zoom <name|rN>`** opens this same detail view directly.
@@ -465,9 +467,9 @@ the single model line. Press **`Alt+S`** to start/stop dictation as in a normal 
 
 ### Compact-view agent switcher
 
-With the **compact widget enabled**, the running-subagents list below the input doubles as a
+With the **compact widget enabled**, the running-specialists list below the input doubles as a
 switcher. **`Alt+]`** and **`Alt+[`** move a marker (`›` + highlight) to the next/previous running
-subagent; **`Alt+\`** opens the full-screen detail view on the marked one (`q`/`Esc` to return).
+specialist; **`Alt+\`** opens the full-screen detail view on the marked one (`q`/`Esc` to return).
 This only changes what you *view* — **the input box always prompts the main session**, and `main` is
 never a marker target (it is the session under the input, not a subagent). There is no transcript
 takeover: a subagent stream is shown in an overlay, never by replacing the main scrollback. These
@@ -522,16 +524,9 @@ task and follow their links instead of bulk-reading doc trees. The code-reviewer
 changes that alter documented behavior without a doc update; the documenter treats the entry
 points and the trees they link as the documentation it maintains.
 
-The same section also tunes research-helper retention:
-
-```markdown
-## agent-hub
-research-keep: 8
-```
-
-`research-keep:` caps how many **finished** durable/persona research helpers remain available
-for dashboard inspection or fresh restart (LRU by finish time, default 4; `all` disables the cap).
-Auto-research pipe helpers are always pruned as soon as they finish, regardless of this key.
+`research-keep:` is **removed**. An existing key warns at session start and has no effect; delete it.
+Live research helpers disappear from the Fleet Dashboard when they finish. Session/transcript/findings
+files and `/af-agents-history` records remain.
 
 ### Bounded local-disk searches
 

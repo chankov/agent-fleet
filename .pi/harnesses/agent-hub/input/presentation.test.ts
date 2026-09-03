@@ -9,7 +9,7 @@ const def = { name: "builder", subagents: { verify: { model: "p/v" } } };
 test("completion presentation preserves agents, delegates, research, models, substitutions, and peers", () => {
 	const completion = createCompletionPresentation({
 		getAgents: () => [{ def, status: "idle", delegations: new Map([["v", { id: "verify-1", status: "running" }]]) }],
-		getResearch: () => [{ id: 2, def: { name: "researcher" }, persona: true, status: "done" }],
+		getResearch: () => [{ id: 2, def: { name: "researcher" }, persona: true, status: "running" }],
 		getResearchPersonas: () => [{ name: "researcher" }], getModelProfiles: () => ({ fast: { builder: "p/m" } }),
 		getPeers: () => [{ name: "peer", purpose: "review", model: "p/m" }], displayName: name => name.toUpperCase(), shortModel: model => model ?? "",
 		resolvedModel: () => "p/r", resolvedThinking: () => "high", resolveThinkingLevel: value => value ?? "off",
@@ -17,6 +17,7 @@ test("completion presentation preserves agents, delegates, research, models, sub
 	});
 	assert.deepEqual(completion.zoom("")?.map(item => item.value), ["builder", "r2", "verify-1"]);
 	assert.deepEqual(completion.agentsKill("")?.map(item => item.value), ["builder", "r2", "all"]);
+	assert.deepEqual(completion.subagentTargets("")?.map(item => item.value), ["builder"]);
 	assert.equal(completion.agentModels("builder.verify")?.[0].label, "builder.verify — p/v2 (switched)");
 	assert.equal(completion.agentThinking("research")?.[0].label, "RESEARCHER (research) — high");
 	assert.equal(completion.modelProfiles("fast")?.[0].value, "fast");

@@ -52,7 +52,6 @@ export interface DispatchExecutorDeps {
 	extractAskUserQuestions(output: string): string[];
 	contextPressure(percent: number): boolean;
 	displayName(name: string): string;
-	updateResearchWidget(): void;
 }
 
 interface PreparedDispatch { agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
@@ -114,7 +113,7 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 		onUpdate?.({ content: [{ type: "text", text: `${p.agent} paused for research (${questions.length} question(s)) — spawning read-only helpers...` }], details: { agent: p.agent, task: p.task, status: "researching" } });
 		const findingsDir = safePathWithin(d.state.getSessionDir(), "findings"); mkdirSync(findingsDir, { recursive: true }); const key = safeAgentKey(d.state.getAgentStates().get(p.agent.toLowerCase())?.def.name ?? p.agent);
 		const answered = await Promise.all(questions.map(async question => {
-			const def = d.research.anonymousDef(); const state = d.research.createState(def, false, d.research.resolveModel(def, undefined, ctx), true); d.updateResearchWidget();
+			const def = d.research.anonymousDef(); const state = d.research.createState(def, false, d.research.resolveModel(def, undefined, ctx));
 			const response = await d.research.spawn(state, question, ctx); const file = safePathWithin(findingsDir, `${key}-r${state.id}.md`);
 			writeFileSync(file, `# Research findings r${state.id}\n\n**Question:** ${question}\n\n${response.exitCode === 0 ? response.output : `(research helper failed, exit ${response.exitCode})\n\n${response.output}`}\n`, "utf-8"); return { question, file };
 		}));
@@ -188,7 +187,7 @@ export function createResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<Sp
 		const model = d.research.resolveModel(def, persona ? undefined : params.model, ctx); let artifacts: InputArtifactPreview[];
 		try { artifacts = d.artifacts.loadInputArtifacts(params.artifacts, ctx); } catch (err: any) { return { content: [{ type: "text", text: `⚠ Research NOT spawned and NOT counted against the turn budget — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and try again.` }], details: { status: "artifact_preflight_failed" } }; }
 		s.setTurnResearchCount(s.getTurnResearchCount() + 1); s.setTaskResearchCount(s.getTaskResearchCount() + 1); s.getTurnReport().research++; s.getSessionTotals().research++; d.budget.updateModeStatus();
-		const state = d.research.createState(def, persona, model); d.updateResearchWidget(); onUpdate?.({ content: [{ type: "text", text: `Spawning research helper r${state.id}...` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, status: "spawning" } });
+		const state = d.research.createState(def, persona, model); onUpdate?.({ content: [{ type: "text", text: `Spawning research helper r${state.id}...` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, status: "spawning" } });
 		try { const result = await d.research.spawn(state, params.task, ctx, artifacts, signal); const status = result.termination ? result.termination.reason : result.exitCode === 0 ? "done" : "error"; const output = result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output; return { content: [{ type: "text", text: `[research r${state.id} · ${persona ? d.displayName(def.name) : "ad-hoc"} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s\n\n${output}` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, model, status, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, termination: result.termination, artifacts: artifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } }; }
 		catch (err: any) { return { content: [{ type: "text", text: `Error spawning research helper: ${err?.message || err}` }], details: { handle: `r${state.id}`, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
 	};

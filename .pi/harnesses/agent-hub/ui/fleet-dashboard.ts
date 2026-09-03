@@ -51,7 +51,6 @@ export interface FleetDashboardDeps<TDef extends DetailAgentDef, TAgent extends 
 	loadAvailableModels(ctx: DetailUiContext, current?: string): Promise<FleetModelChoice[] | null>;
 	openDetail(row: FleetRow, ctx: DetailUiContext, verbose?: boolean): Promise<boolean>;
 	modelWorkBlocked(ctx: DetailUiContext): boolean;
-	restartResearch(state: TResearch, ctx: DetailUiContext): void;
 	restartSpecialist(state: TAgent, ctx: DetailUiContext): Promise<void>;
 	removeResearch(state: TResearch, ctx: DetailUiContext): void;
 	killSpecialistProcess(state: TAgent): void;
@@ -81,15 +80,9 @@ export function createFleetDashboard<TDef extends DetailAgentDef, TAgent extends
 	async function restartRow(selected: FleetRow, ctx: DetailUiContext): Promise<void> {
 		if (deps.modelWorkBlocked(ctx)) return;
 		const decision = resolveFleetRestart(selected, {
-			researchRestartable: key => { const id = deps.parseResearchHandle(key); const state = id == null ? undefined : deps.getResearch().get(id); return !!(state?.task && state.status !== "running"); },
 			specialistRestartable: key => !!deps.getAgents().get(key)?.task,
 		});
 		if (decision.action === "unsupported") { ctx.ui.notify(decision.message, decision.level); return; }
-		if (decision.action === "restart-research") {
-			const id = deps.parseResearchHandle(selected.key), state = id == null ? undefined : deps.getResearch().get(id);
-			if (!state?.task) { ctx.ui.notify(decision.message.replace("Restarting", "Cannot restart"), "warning"); return; }
-			ctx.ui.notify(decision.message, "info"); deps.restartResearch(state, ctx); return;
-		}
 		const state = deps.getAgents().get(selected.key);
 		if (!state?.task) { ctx.ui.notify(decision.message.replace("Restarting", "Cannot restart"), "warning"); return; }
 		ctx.ui.notify(decision.message.includes(deps.displayName(state.def.name)) ? decision.message : `Restarting ${deps.displayName(state.def.name)} (fresh)...`, "info");

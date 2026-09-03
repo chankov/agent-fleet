@@ -14,7 +14,9 @@ test("Phase 6.5 UI factories expose narrow public APIs and typed action ports", 
 	assert.match(detail, /return \{ openFleetDetail, loadAvailableModelChoices \}/);
 	assert.match(contextBudget, /export interface ContextBudgetDeps/);
 	assert.match(contextBudget, /return \{ contextPlanes, openContextBudget \}/);
-	for (const action of ["restartResearch", "restartSpecialist", "removeResearch", "killSpecialistProcess", "abortComs"]) assert.match(dashboard, new RegExp(`deps\\.${action}`));
+	for (const action of ["restartSpecialist", "removeResearch", "killSpecialistProcess", "abortComs"]) assert.match(dashboard, new RegExp(`deps\\.${action}`));
+	assert.doesNotMatch(dashboard, /restartResearch/);
+	assert.doesNotMatch(dashboard, /restart-research/);
 });
 
 test("composition root wires mutable getters, policy, shared formatters, and lifecycle callbacks", () => {
