@@ -68,6 +68,8 @@ Before writing any code, operate in read-only mode:
 
 **Grilling (required before writing tasks):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Inventory load-bearing decisions. Skip anything already explicit in chat, prompt, PRD, spec, or rules. Grill every remaining fork (multiple valid ways, contradiction, competing code patterns) one question at a time, with a recommended option. Do not write tasks while a load-bearing choice is still silently assumed. Update Architecture Decisions, Risks, and Open Questions with accepted, rejected, or deferred choices. If nothing is open, note that grilling found no unspecified forks and continue.
 
+**Model poll (planner, when `delegate` is available):** On an unresolved architectural fork at task tier `feature` or `project`, run `voice-1`, `voice-2`, and `voice-3` **after** recon (`scout`/`rules`), never in the same message, with a character-for-character identical instruction. Do not poll on `trivial`/`small` (delegation is off) and do not invent a poll if `delegate` is missing. Agreement becomes an accepted architectural decision in the plan, naming the voices; write a `POLL-{prd-name}.md` digest next to the plan and cite it. Divergence becomes one `ASK_USER:` question with one option per position plus a recommendation and reason — do not write the plan in that same turn.
+
 ### Step 2: Identify the Dependency Graph
 
 Map what depends on what:

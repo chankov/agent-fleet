@@ -18,9 +18,9 @@ const noticeData = {
 
 test("session-start notice remains an exact data-oriented template", () => {
 	const notice = buildSessionStartNotice(noticeData);
-	assert.equal(createHash("sha256").update(notice).digest("hex"), "73ebf953741f3f767eb54e4458ce61542cc2951bd803c8d519a0fdf3fc0b3d77");
+	assert.equal(createHash("sha256").update(notice).digest("hex"), "97122a5bd48183d1d96f8474da131abfa83ff8403f5d40a27b1081132d698216");
 	assert.match(notice, /^Work Mode: orchestrator \(delegate-only\)/);
-	assert.match(notice, /\/af-compound \[focus\].*project rules\/docs$/);
+	assert.match(notice, /\/af-poll \[--panel NAME\].*same question$/);
 });
 
 test("footer uses the injected dispatcher thinking formatter without changing its suffix", () => {

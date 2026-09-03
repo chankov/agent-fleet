@@ -4,14 +4,16 @@ import { parseTeamsYaml, safePathWithin } from "../helpers.ts";
 import { parseDispatchPolicy } from "../backend-policy.js";
 import { clampDelegateDepth, MAX_DELEGATE_DEPTH, safeAgentKey } from "../helpers.ts";
 import type { AgentDef, SubagentRole } from "../types.ts";
+import { normalizeThinkingLevel } from "./overrides.ts";
 
-function parseInlineSubagentRole(value: string): { model?: string; tools?: string } {
+function parseInlineSubagentRole(value: string): { model?: string; tools?: string; thinking?: string } {
 	const input = value.trim();
 	if (!input) return {};
 	if (input.startsWith("{")) {
 		const model = input.match(/model\s*:\s*([^\s,}]+)/)?.[1];
 		const tools = input.match(/tools\s*:\s*([\w,-]+)/)?.[1];
-		return { ...(model ? { model } : {}), ...(tools ? { tools } : {}) };
+		const thinking = input.match(/thinking\s*:\s*([^\s,}]+)/)?.[1];
+		return { ...(model ? { model } : {}), ...(tools ? { tools } : {}), ...(thinking ? { thinking } : {}) };
 	}
 	return { model: input };
 }
@@ -33,7 +35,7 @@ export function parseAgentFile(filePath: string): AgentDef | null {
 			const key = line.slice(0, idx).trim();
 			const value = line.slice(idx + 1).trim();
 			if (key === "subagents") {
-				const entries: Record<string, { model?: string; tools?: string }> = {};
+				const entries: Record<string, { model?: string; tools?: string; thinking?: string }> = {};
 				let currentRole: string | null = null;
 				let roleIndent = -1;
 				let j = i + 1;
@@ -50,14 +52,21 @@ export function parseAgentFile(filePath: string): AgentDef | null {
 						const nested = found[3].trim();
 						if (found[2] === "model" && nested) entries[currentRole].model = nested;
 						else if (found[2] === "tools" && nested) entries[currentRole].tools = nested;
+						else if (found[2] === "thinking" && nested) entries[currentRole].thinking = nested;
 					}
 					j++;
 				}
 				i = j - 1;
 				const roles: Record<string, SubagentRole> = {};
 				for (const [role, entry] of Object.entries(entries)) {
-					if (entry.model) roles[role] = { model: entry.model, ...(entry.tools ? { tools: entry.tools } : {}) };
-					else warnings.push(`subagents role "${role}" declares no model — skipped`);
+					if (!entry.model) { warnings.push(`subagents role "${role}" declares no model — skipped`); continue; }
+					let thinking: string | undefined;
+					if (entry.thinking) {
+						const normalized = normalizeThinkingLevel(entry.thinking);
+						if (normalized.warning) warnings.push(`subagents role "${role}" ${normalized.warning}`);
+						else thinking = normalized.level;
+					}
+					roles[role] = { model: entry.model, ...(entry.tools ? { tools: entry.tools } : {}), ...(thinking ? { thinking } : {}) };
 				}
 				if (Object.keys(roles).length) subagents = roles;
 				continue;

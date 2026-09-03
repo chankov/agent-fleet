@@ -17,6 +17,7 @@ export const SESSION_START_COMMANDS = [
 	"/af-coms [--all|--project N] Refresh the coms peer pool",
 	"/af-handoff <peer>       Hand the session off to a coms peer",
 	"/af-compound [focus]     Capture session lessons into the project rules/docs",
+	"/af-poll [--panel NAME]  Ask every voice in a model panel the same question",
 ] as const;
 
 export interface SessionStartNoticeData {

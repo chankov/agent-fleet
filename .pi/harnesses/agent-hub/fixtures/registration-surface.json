@@ -36,6 +36,7 @@
     "af-handoff",
     "af-hub-report",
     "af-models",
+    "af-poll",
     "af-watchdog",
     "af-work-mode",
     "af-zoom"

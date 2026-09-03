@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ENVELOPE_EXAMPLES, correctionPrompt, parseWithCorrections, validateEnvelope } from "./envelopes.ts";
+import { ENVELOPE_EXAMPLES, correctionPrompt, envelopeErrorField, parseWithCorrections, validateEnvelope } from "./envelopes.ts";
 
 test("TypeBox envelopes accept exact valid Report JSON", () => {
 	for (const [name, example] of Object.entries(ENVELOPE_EXAMPLES)) {
@@ -66,6 +66,19 @@ test("correction names exact invalid fields and resumes at most twice", async ()
 	let corrections = 0;
 	await assert.rejects(parseWithCorrections("scout", "not json", async () => { corrections++; return "still not json"; }), /invalid after 3 attempts/);
 	assert.equal(corrections, 2);
+});
+
+test("envelope field names survive TypeBox errors with a missing path", () => {
+	assert.equal(envelopeErrorField({}), "response");
+	assert.equal(envelopeErrorField({ path: undefined }), "response");
+	assert.equal(envelopeErrorField({ path: "" }), "response");
+	assert.equal(envelopeErrorField({ path: "/consensus/0/statement" }), "consensus.0.statement");
+	const merge = validateEnvelope("merge", JSON.stringify({
+		status: "success", summary: "x", artifacts: [], notes_for_next_agent: "",
+		consensus: [{ voice: "sol" }], divergence: [], minority: [], rejected: [], recommendation: "y",
+	}));
+	assert.equal(merge.ok, false);
+	assert.ok(merge.errors.some(error => error.includes("statement")));
 });
 
 test("declared status fail is terminal and is not corrected", async () => {

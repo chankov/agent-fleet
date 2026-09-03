@@ -62,7 +62,7 @@ const TIMELINE_FLUSH_MS = 700;
 export interface DelegateConfig {
 	persona: string;
 	tag: string;
-	roles: Record<string, { model: string; tools?: string; fallbackModel?: string }>;
+	roles: Record<string, { model: string; tools?: string; fallbackModel?: string; thinking?: string }>;
 	depth: number;
 	callBudget: number;
 	remainingSpawns?: number;
@@ -331,7 +331,7 @@ export default function (pi: ExtensionAPI) {
 					return spawnPiAgentWithModelFallback({
 					model: roleDef.model,
 					tools: childTools,
-					thinking: "off",
+					thinking: roleDef.thinking ?? "off",
 					appendSystemPrompt: subagentProtocol(config.persona, roleKey, childCanDelegate),
 					sessionFile: childSessionFile,
 					prompt,

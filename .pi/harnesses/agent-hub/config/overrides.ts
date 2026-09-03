@@ -10,6 +10,13 @@ import type { SubagentRole } from "../types.ts";
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const VALID_THINKING_LEVELS = new Set<string>(THINKING_LEVELS);
 
+export function normalizeThinkingLevel(value: string | undefined | null): { level: string; warning?: string } {
+	if (value == null || String(value).trim() === "") return { level: "off" };
+	const level = String(value).trim().toLowerCase();
+	if (VALID_THINKING_LEVELS.has(level)) return { level };
+	return { level: "off", warning: `thinking "${value}" is not a valid level (off|minimal|low|medium|high|xhigh) — using off` };
+}
+
 export interface AgentTeamOverrides {
 	language: string;
 	personaModels: Record<string, string>;
@@ -25,17 +32,37 @@ export interface AgentTeamOverrides {
 	watchdogSetting: string;
 	watchdogJudgeModel: string | null;
 	runHistoryKeep: number | null;
+	pollPanel: string | null;
 	warnings: string[];
 }
 
 export const DEFAULT_OVERRIDES: AgentTeamOverrides = {
 	language: "English", personaModels: {}, personaModelLists: {}, personaThinking: {}, personaSubagents: {}, personaDelegateDepth: {},
 	rulesDirs: [], docsPaths: [], researchKeep: DEFAULT_RESEARCH_KEEP, reconSearchTimeoutMs: 120_000, budgetOverrides: {},
-	watchdogSetting: DEFAULT_WATCHDOG_SETTING, watchdogJudgeModel: null, runHistoryKeep: DEFAULT_RUN_HISTORY_KEEP, warnings: [],
+	watchdogSetting: DEFAULT_WATCHDOG_SETTING, watchdogJudgeModel: null, runHistoryKeep: DEFAULT_RUN_HISTORY_KEEP, pollPanel: null, warnings: [],
 };
 
 function freshOverrides(): AgentTeamOverrides {
-	return { ...DEFAULT_OVERRIDES, personaModels: {}, personaModelLists: {}, personaThinking: {}, personaSubagents: {}, personaDelegateDepth: {}, rulesDirs: [], docsPaths: [], budgetOverrides: {}, warnings: [] };
+	return { ...DEFAULT_OVERRIDES, personaModels: {}, personaModelLists: {}, personaThinking: {}, personaSubagents: {}, personaDelegateDepth: {}, rulesDirs: [], docsPaths: [], budgetOverrides: {}, pollPanel: null, warnings: [] };
+}
+
+function parseSubagentOverride(value: string): { model: string; tools?: string; thinking?: string } | null {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	const match = trimmed.match(/^([^\s,]+)(?:\s*,\s*(.*))?$/);
+	if (!match) return null;
+	const result: { model: string; tools?: string; thinking?: string } = { model: match[1] };
+	const rest = match[2] ?? "";
+	if (!rest) return result;
+	for (const chunk of rest.split(/\s*,\s*(?=[A-Za-z][\w-]*\s*=)/)) {
+		const pair = chunk.match(/^([A-Za-z][\w-]*)\s*=\s*(.+)$/);
+		if (!pair) continue;
+		const key = pair[1].toLowerCase();
+		const item = pair[2].trim();
+		if (key === "tools" && item) result.tools = item;
+		else if (key === "thinking" && item) result.thinking = item;
+	}
+	return result;
 }
 
 export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
@@ -79,6 +106,7 @@ export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			else result.warnings.push(`watchdog "${value}" is not one of ${WATCHDOG_SETTINGS.join("|")} — using the default (${DEFAULT_WATCHDOG_SETTING})`);
 		}
 		if (key === "watchdog-judge-model" && value) result.watchdogJudgeModel = value;
+		if (key === "poll-panel" && value) result.pollPanel = value;
 		const budgetKeys: Record<string, { field: keyof AgentTeamOverrides["budgetOverrides"]; scaleMs: boolean }> = {
 			"max-dispatches-per-turn": { field: "maxDispatches", scaleMs: false }, "max-research-per-turn": { field: "maxResearch", scaleMs: false },
 			"turn-wall-time-s": { field: "wallMs", scaleMs: true }, "agent-turn-timeout-s": { field: "agentTurnMs", scaleMs: true }, "session-recycle-runs": { field: "recycleRuns", scaleMs: false },
@@ -102,8 +130,20 @@ export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		}
 		const subagent = key.match(new RegExp(`^subagents\\.(${slug})\\.(${slug})$`));
 		if (subagent && value) {
-			const parsed = value.match(/^(\S+?)(?:\s*,\s*tools\s*=\s*([\w,-]+))?$/);
-			if (parsed) (result.personaSubagents[subagent[1]] ||= {})[subagent[2]] = { model: parsed[1], ...(parsed[2] ? { tools: parsed[2] } : {}) };
+			const parsed = parseSubagentOverride(value);
+			if (parsed) {
+				let thinking: string | undefined;
+				if (parsed.thinking) {
+					const normalized = normalizeThinkingLevel(parsed.thinking);
+					if (normalized.warning) result.warnings.push(`subagents.${subagent[1]}.${subagent[2]} ${normalized.warning}`);
+					else thinking = normalized.level;
+				}
+				(result.personaSubagents[subagent[1]] ||= {})[subagent[2]] = {
+					model: parsed.model,
+					...(parsed.tools ? { tools: parsed.tools } : {}),
+					...(thinking ? { thinking } : {}),
+				};
+			}
 		}
 		const depth = key.match(new RegExp(`^delegate-depth\\.(${slug})$`));
 		if (depth && value) {

@@ -22,6 +22,7 @@ export interface PollVoiceOptions {
 export interface PollOptions {
 	run: Run; cwd: string; persona: PersonaDefinition; panel: string; task: string; voices?: Voice[];
 	spawn?: SpawnAgent; runAgent?: typeof runAgentPhase<PollReport>;
+	onVoice?: (result: PollVoiceResult) => void | Promise<void>;
 }
 
 export function pollArtifactDir(cwd: string, runId: string): string {
@@ -71,7 +72,11 @@ export async function pollVoice(options: PollVoiceOptions): Promise<PollVoiceRes
 
 export async function runPoll(options: PollOptions): Promise<PollResult> {
 	const voices = options.voices ?? resolvePanel(options.panel, options.cwd);
-	const results = await Promise.all(voices.map(voice => pollVoice({ ...options, voice })));
+	const results = await Promise.all(voices.map(async voice => {
+		const result = await pollVoice({ ...options, voice });
+		try { await options.onVoice?.(result); } catch { /* progress is best-effort */ }
+		return result;
+	}));
 	const succeeded = results.filter(result => result.ok);
 	if (succeeded.length < 2) {
 		const failures = results.filter(result => !result.ok).map(result => `${result.voice.name}: ${result.reason}`).join("; ");

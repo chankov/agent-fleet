@@ -88,7 +88,11 @@ export function applySessionOverrides<TDef extends AgentDef>(ctx: ExtensionConte
 			for (const [role, replacement] of Object.entries(substitutions)) {
 				const declared = def.subagents[role];
 				def.subagents[role] = declared
-					? applyModelOverride({ ...declared, ...(replacement.tools ? { tools: replacement.tools } : {}) }, replacement.model)
+					? applyModelOverride({
+						...declared,
+						...(replacement.tools ? { tools: replacement.tools } : {}),
+						...(replacement.thinking ? { thinking: replacement.thinking } : {}),
+					}, replacement.model)
 					: replacement;
 			}
 		}

@@ -102,14 +102,19 @@ const ENVELOPE_FIELDS: Record<EnvelopeName, string[]> = {
 
 export interface EnvelopeValidation<T = unknown> { ok: boolean; value?: T; errors: string[] }
 
+export function envelopeErrorField(error: { path?: unknown }): string {
+	const path = typeof error.path === "string" ? error.path : "";
+	return path.replace(/^\//, "").replaceAll("/", ".") || "response";
+}
+
 function schemaErrors(name: EnvelopeName, candidate: unknown): string[] {
 	if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return ["response: expected one complete Report JSON object"];
 	const schema: TSchema = ENVELOPES[name];
 	const typeErrors = [...Value.Errors(schema, candidate)];
-	const specificErrors = typeErrors.filter(error => error.path);
+	const specificErrors = typeErrors.filter(error => typeof error.path === "string" && error.path.length > 0);
 	const errors = [...new Set((specificErrors.length ? specificErrors : typeErrors).map(error => {
-		const field = error.path.replace(/^\//, "").replaceAll("/", ".") || "response";
-		return error.type === 45 || /required/i.test(error.message) ? `missing required field: ${field}` : `${field}: ${error.message}`;
+		const field = envelopeErrorField(error);
+		return error.type === 45 || /required/i.test(String(error.message ?? "")) ? `missing required field: ${field}` : `${field}: ${error.message}`;
 	}))];
 	const allowed = new Set(ENVELOPE_FIELDS[name]);
 	for (const field of Object.keys(candidate)) if (!allowed.has(field)) errors.push(`${field}: unexpected field for ${name} envelope`);

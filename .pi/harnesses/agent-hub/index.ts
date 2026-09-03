@@ -67,7 +67,9 @@ import { registerWatchdog } from "./commands/watchdog.ts";
 import { registerComs } from "./commands/coms.ts";
 import { registerHandoff } from "./commands/handoff.ts";
 import { registerCompound } from "./commands/compound.ts";
+import { registerPoll } from "./commands/poll.ts";
 import type { CommandContext } from "./commands/context.ts";
+import { formatAfPollStarted, formatAfPollVoiceProgress, handleAfPoll } from "./poll-command.ts";
 import { registerDispatchAgent } from "./tools/dispatch-agent.ts";
 import { registerSpawnResearch } from "./tools/spawn-research.ts";
 import { registerSetTaskTier } from "./tools/set-task-tier.ts";
@@ -1335,6 +1337,103 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			}, { deliverAs: "followUp", triggerTurn: true });
 			ctx.ui.notify("Compound: asking the dispatcher to compose the candidate-lessons brief…", "info");
 		},
+		handlePoll: async (args, ctx) => {
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
+			const cwd = ctx.cwd || process.cwd();
+			const result = await handleAfPoll({
+				args: args ?? "",
+				cwd,
+				pollPanelOverride: parseAgentTeamOverrides(cwd).pollPanel,
+				listPanels: async dir => {
+					const { listPanelNames } = await import("../../../scripts/workflows/lib/voices.ts");
+					return listPanelNames(dir);
+				},
+				preflight: async ({ panel, persona, cwd: root }) => {
+					const [{ resolvePersona }, { resolvePanel }, { checkChildVisibility }] = await Promise.all([
+						import("../../../scripts/workflows/lib/personas.ts"),
+						import("../../../scripts/workflows/lib/voices.ts"),
+						import("../../../scripts/workflows/lib/model-visibility.ts"),
+					]);
+					try { resolvePersona(persona, root); }
+					catch (error) { return error instanceof Error ? error.message : String(error); }
+					let voices;
+					try { voices = resolvePanel(panel, root); }
+					catch (error) { return error instanceof Error ? error.message : String(error); }
+					const report = checkChildVisibility(voices.map(voice => voice.model));
+					if (report.diagnostic) return `could not verify clean-room model visibility (${report.diagnostic})`;
+					const hidden = report.models.filter(model => !model.ok);
+					if (hidden.length) {
+						return `panel "${panel}" has models not visible to a clean-room child: ${hidden.map(model => model.reasons[0] ?? model.model).join("; ")}`;
+					}
+					return null;
+				},
+				checkBudget: () => {
+					ensureTaskTier();
+					const turnRefusal = checkTurnBudget("dispatch", { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnBudgetActiveElapsedMs(), taskTier);
+					return turnRefusal ? budgetContinuationInstruction(turnRefusal.message, "turn", userLanguage) : null;
+				},
+				chargeBudget: () => {
+					turnDispatchCount += 1;
+					taskDispatchCount += 1;
+					sessionTotals.dispatches += 1;
+					updateModeStatus();
+				},
+				onAccepted: async ({ panel, persona, question }) => {
+					let voices: { name: string; model: string }[] = [];
+					try {
+						const { resolvePanel } = await import("../../../scripts/workflows/lib/voices.ts");
+						voices = resolvePanel(panel, cwd).map(voice => ({ name: voice.name, model: voice.model }));
+					} catch { /* names are decorative */ }
+					const started = formatAfPollStarted({ panel, persona, question, voices });
+					ctx.ui.setStatus("hub-poll", `Poll: ${panel} (${voices.length || "?"} voices) running…`);
+					ctx.ui.notify(`Poll started — panel ${panel}. This can take a minute.`, "info");
+					pi.sendMessage({ customType: "af-poll-started", content: started, display: true }, { deliverAs: "followUp", triggerTurn: false });
+				},
+				execute: async ({ panel, persona, question }) => {
+					const [{ Run }, { runPoll }, { runMerge }, { resolvePersona }] = await Promise.all([
+						import("../../../scripts/workflows/lib/run.ts"),
+						import("../../../scripts/workflows/lib/poll.ts"),
+						import("../../../scripts/workflows/lib/merge.ts"),
+						import("../../../scripts/workflows/lib/personas.ts"),
+					]);
+					const run = new Run({ cwd, command: ["/af-poll", "--panel", panel, question] });
+					const personaDef = resolvePersona(persona, cwd);
+					const poll = await runPoll({
+						run, cwd, persona: personaDef, panel, task: question,
+						onVoice: result => {
+							const voice = result.ok
+								? { name: result.voice.name, model: result.voice.model, ok: true as const, position: result.report.position, confidence: result.report.confidence }
+								: { name: result.voice.name, model: result.voice.model, ok: false as const, reason: result.reason };
+							pi.sendMessage({ customType: "af-poll-voice", content: formatAfPollVoiceProgress(voice), display: true }, { deliverAs: "followUp", triggerTurn: false });
+						},
+					});
+					ctx.ui.setStatus("hub-poll", `Poll: ${panel} merging…`);
+					const merge = await runMerge({ run, cwd, persona: personaDef, panel, task: question, opinions: poll.results });
+					const directory = path.relative(cwd, poll.directory) || poll.directory;
+					return {
+						panel,
+						directory: directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`,
+						voices: poll.results.map(item => item.ok
+							? { name: item.voice.name, model: item.voice.model, ok: true as const, position: item.report.position, confidence: item.report.confidence }
+							: { name: item.voice.name, model: item.voice.model, ok: false as const, reason: item.reason }),
+						recommendation: merge.report.recommendation,
+						integrator: merge.integrator.name,
+					};
+				},
+			});
+			ctx.ui.setStatus("hub-poll", "");
+			if (!result.ok) {
+				ctx.ui.notify(result.message, "error");
+				pi.sendMessage({ customType: "af-poll-failed", content: `POLL FAILED\n\n${result.message}`, display: true }, { deliverAs: "followUp", triggerTurn: false });
+				return;
+			}
+			ctx.ui.notify(result.digest ?? result.message, "info");
+			pi.sendMessage({
+				customType: "af-poll",
+				content: result.dispatcherNote ?? result.message,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+		},
 		getAgentsKillCompletions: prefix => completions.agentsKill(prefix),
 		getZoomCompletions: prefix => completions.zoom(prefix),
 		getAgentModelCompletions: prefix => completions.agentModels(prefix),
@@ -1367,6 +1466,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	registerComs(pi, commandCtx);
 	registerHandoff(pi, commandCtx);
 	registerCompound(pi, commandCtx);
+	registerPoll(pi, commandCtx);
 
 	const detailPanel = createDetailPanel<AgentDef, AgentState, ResearchState>({
 		getAgent: key => agentStates.get(key),

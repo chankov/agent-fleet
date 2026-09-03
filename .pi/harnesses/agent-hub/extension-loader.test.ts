@@ -450,6 +450,7 @@ export default function (pi) {
 			"/af-agents-restart builder",
 			"/af-handoff reviewer",
 			"/af-compound",
+			"/af-poll --panel default should we extract?",
 		]) {
 			await rpc.notificationAfter(command, "Persisted orchestrator work mode has no native roster.");
 		}

@@ -10,6 +10,7 @@ export interface SubagentRole {
 	model: string;
 	tools?: string;
 	fallbackModel?: string;
+	thinking?: string;
 }
 
 export interface AgentDef extends ResearchAgentDef {
