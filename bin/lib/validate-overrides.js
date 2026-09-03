@@ -13,6 +13,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 
 export const OVERRIDES_REL_PATH = ".ai/agent-fleet-overrides.md";
 
@@ -57,6 +58,8 @@ const KNOWN_SECTIONS = {
       "session-recycle-runs": oneOfIntegerOrOff(1, 1000),
       "watchdog": oneOf(["on", "off", "auto"]),
       "watchdog-judge-model": null,
+      "poll-panel": checkPollPanel(),
+      "append-prompt": checkPaths("append-prompt file"),
     },
     patterns: [
       { re: new RegExp(`^model\\.${SLUG}$`), example: "model.<persona>" },
@@ -107,6 +110,23 @@ function checkFolders(label) {
     return missing.length
       ? `${label} folder${missing.length > 1 ? "s" : ""} not found in the workspace: ${missing.join(", ")}`
       : null;
+  };
+}
+
+function checkPollPanel() {
+  return (value, ctx) => {
+    const name = value.trim();
+    if (!name) return "poll-panel requires a panel name";
+    const file = join(ctx.workspace, ".pi/agents/voices.yaml");
+    if (!existsSync(file)) return null;
+    let raw;
+    try { raw = parseYaml(readFileSync(file, "utf8")); }
+    catch { return "could not parse .pi/agents/voices.yaml to check poll-panel"; }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw) || !(name in raw)) {
+      const names = raw && typeof raw === "object" && !Array.isArray(raw) ? Object.keys(raw) : [];
+      return `panel "${name}" was not found in .pi/agents/voices.yaml${names.length ? ` (available: ${names.join(", ")})` : ""}`;
+    }
+    return null;
   };
 }
 

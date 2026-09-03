@@ -145,7 +145,8 @@ it here, and the reader picks it up.
   default, typos are invisible at runtime. `agent-fleet doctor` (and the
   runtime's Agent Fleet doctor command) validates the file — unknown sections,
   unknown keys in known sections, invalid values for the mechanically parsed
-  `agent-hub` keys, missing `rules:` folders, and unset `## env` vars — as
+  `agent-hub` keys, missing `rules:` folders, missing `append-prompt:` files,
+  unknown `poll-panel:` names, and unset `## env` vars — as
   **advisory, warn-only findings**; it never edits the file.
 
 ### `spec-driven-development`
@@ -220,6 +221,8 @@ targets an end-of-session compound pass writes lessons to.
 | `session-recycle-runs` | tier default (3/3/5/5) | Recycle a specialist's accumulated session (fresh spawn instead of `-c` resume) after this many resumed runs. Context is also always recycled at ≥60% measured context (input + cacheRead + cacheWrite). Positive integer or `off` (stays at the tier recycle count; context threshold still applies). |
 | `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Orchestrator work mode auto-arms when the setting is `auto`/`on` and ignores a dispatch `watchdog: false`. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
 | `watchdog-judge-model` | researcher persona's model | pi model spec for the one-shot drift judge (e.g. `openai-codex/gpt-5.3-codex-spark`). Falls back to the researcher persona's resolved model, then the dispatcher's. |
+| `poll-panel` | none | Default panel name for `/af-poll` when `--panel` is omitted. Must match a panel in `.pi/agents/voices.yaml` when that file exists. Missing `--panel` and missing this key is a refusal. |
+| `append-prompt` | none | Comma-separated repo-relative files appended to the system prompt of every dispatched persona. Listed files must exist. Enable the communication contract with `append-prompt: references/communication-contract.md`. |
 
 Example — switch the dispatcher to Bulgarian, pin the builder to sonnet, raise the
 code-reviewer's thinking level, move the code-reviewer's docs sub-reviewer to a
@@ -235,6 +238,8 @@ thinking.code-reviewer: xhigh
 subagents.code-reviewer.docs: github-copilot/claude-sonnet-4.6, tools=read,grep
 delegate-depth.code-reviewer: 1
 recon-search-timeout-s: 120 # or off to disable the per-tool watchdog
+poll-panel: default
+append-prompt: references/communication-contract.md
 rules: docs/rules, .ai/rules
 docs: Docs/AGENTS.md, Docs/architecture/ARCHITECTURE_OVERVIEW.md
 ```

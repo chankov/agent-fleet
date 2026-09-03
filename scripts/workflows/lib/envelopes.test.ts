@@ -33,6 +33,14 @@ test("envelopes reject missing, extra, partial, and self-failed reports", () => 
 	const extra = validateEnvelope("scout", JSON.stringify({ ...ENVELOPE_EXAMPLES.scout, approved: true }));
 	assert.equal(extra.ok, false);
 	assert.match(extra.errors.join("; "), /approved: unexpected field/);
+	const pollExtra = validateEnvelope("poll", JSON.stringify({ ...ENVELOPE_EXAMPLES.poll, judge: true }));
+	assert.equal(pollExtra.ok, false);
+	assert.match(pollExtra.errors.join("; "), /judge: unexpected field for poll envelope/);
+	const pollMissing = validateEnvelope("poll", JSON.stringify({ status: "success", summary: "x", artifacts: [], notes_for_next_agent: "", position: "A", case: [], confidence: "high" }));
+	assert.equal(pollMissing.ok, false, "would_change_my_mind must not be defaulted");
+	assert.ok(pollMissing.errors.some(error => error.includes("would_change_my_mind")));
+	const mergeMissingVoice = validateEnvelope("merge", JSON.stringify({ ...ENVELOPE_EXAMPLES.merge, consensus: [{ statement: "A" }] }));
+	assert.equal(mergeMissingVoice.ok, false);
 	const partial = validateEnvelope("scout", JSON.stringify({ status: "success", findings: [] }));
 	assert.equal(partial.ok, false, "missing envelope fields must not be synthesized");
 	assert.doesNotMatch(partial.errors.join("; "), /assertions_proven|tests_run|response: Expected all values/);

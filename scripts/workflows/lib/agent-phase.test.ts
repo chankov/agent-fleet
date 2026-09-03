@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import type { ChildProcess } from "node:child_process";
 import type { SpawnPiAgentOptions } from "../../../.pi/harnesses/agent-hub/spawn.ts";
-import { runAgentPhase, type SpawnAgent } from "./agent-phase.ts";
+import { modelTag, phaseSessionKey, runAgentPhase, type SpawnAgent } from "./agent-phase.ts";
 import { ENVELOPE_EXAMPLES } from "./envelopes.ts";
 import { GateReport } from "./gates.ts";
 import type { PersonaDefinition } from "./personas.ts";
@@ -111,6 +111,63 @@ test("agent phase refuses a missing writes policy before spawning", async () => 
 		const spawn: SpawnAgent = async options => { calls++; return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model }; };
 		await assert.rejects(runAgentPhase({ run, persona: { ...persona, writes: undefined }, task: "Locate X", envelope: "scout", cwd, spawn }), /has no writes policy/);
 		assert.equal(calls, 0);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("model tag is path-safe", () => {
+	assert.equal(modelTag("openai-codex/gpt-5.6-sol"), "openai-codex-gpt-5.6-sol");
+	assert.equal(modelTag("github-copilot/claude-opus-5"), "github-copilot-claude-opus-5");
+	assert.equal(modelTag("a b/c*"), "a-b-c-");
+	assert.equal(phaseSessionKey("researcher"), "researcher");
+	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-5.6-sol"), "researcher-openai-codex-gpt-5.6-sol");
+	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-5.6-sol", "merge"), "researcher-openai-codex-gpt-5.6-sol-merge");
+});
+
+test("two phases of one persona with different models get different session directories", async () => {
+	const { cwd, run } = fixture();
+	try {
+		const sessions: string[] = [];
+		const spawn: SpawnAgent = async options => {
+			sessions.push(options.sessionFile);
+			return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
+		};
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "openai-codex/gpt-5.6-sol" });
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "xai/grok-4.6" });
+		assert.equal(sessions.length, 2);
+		assert.notEqual(dirname(sessions[0]), dirname(sessions[1]));
+		assert.match(sessions[0], /researcher-openai-codex-gpt-5\.6-sol/);
+		assert.match(sessions[1], /researcher-xai-grok-4\.6/);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("a phase without a model override keeps the persona model and today's session directory", async () => {
+	const { cwd, run } = fixture();
+	try {
+		let seen: { model?: string; thinking?: string; sessionFile?: string; fallback?: string } = {};
+		const spawn: SpawnAgent = async (options, fallback) => {
+			seen = { model: options.model, thinking: options.thinking, sessionFile: options.sessionFile, fallback };
+			return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
+		};
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn });
+		assert.equal(seen.model, "primary/model");
+		assert.equal(seen.thinking, "low");
+		assert.equal(seen.fallback, "fallback/model");
+		assert.equal(dirname(seen.sessionFile!), join(run.trace.directory, "researcher"));
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("a model override still uses the persona fallback model", async () => {
+	const { cwd, run } = fixture();
+	try {
+		let seen: { model?: string; thinking?: string; fallback?: string } = {};
+		const spawn: SpawnAgent = async (options, fallback) => {
+			seen = { model: options.model, thinking: options.thinking, fallback };
+			return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
+		};
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "xai/grok-4.6", thinking: "medium" });
+		assert.equal(seen.model, "xai/grok-4.6");
+		assert.equal(seen.thinking, "medium");
+		assert.equal(seen.fallback, "fallback/model");
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 

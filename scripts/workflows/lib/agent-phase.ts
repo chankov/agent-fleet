@@ -26,7 +26,7 @@ const { spawnPiAgentWithModelFallback } = await import(spawnModulePath) as { spa
 import { envelopePrompt, parseWithCorrections, type EnvelopeName } from "./envelopes.ts";
 import { gateCorrectionPrompt, type Gate, type GateReport } from "./gates.ts";
 import { enforce, snapshot, type PermissionPolicy } from "./permissions.ts";
-import type { PersonaDefinition } from "./personas.ts";
+import { resolvePhaseModel, resolvePhaseThinking, type PersonaDefinition } from "./personas.ts";
 import type { Run } from "./run.ts";
 
 export type SpawnAgent = SpawnFallback;
@@ -35,6 +35,18 @@ export interface AgentPhaseOptions<T = unknown> {
 	spawn?: SpawnAgent; modelLookup?: (provider: string, modelId: string) => unknown; contextWindow?: number;
 	toolWatchdogMs?: number; turnDeadlineMs?: number; rulesPaths?: string[]; docsPaths?: string[];
 	gates?: Gate<T>[]; gateRetries?: number; protectedGlobs?: string[]; permissionPolicy?: PermissionPolicy;
+	model?: string; thinking?: string; sessionTag?: string;
+}
+
+export function modelTag(model: string): string {
+	return model.replace(/[^A-Za-z0-9._-]/g, "-");
+}
+
+export function phaseSessionKey(personaName: string, modelOverride?: string, sessionTag?: string): string {
+	const parts = [personaName.toLowerCase()];
+	if (modelOverride !== undefined) parts.push(modelTag(modelOverride));
+	if (sessionTag) parts.push(modelTag(sessionTag));
+	return parts.join("-");
 }
 
 interface SessionMeta { contextTokens: number }
@@ -45,7 +57,9 @@ function readMeta(path: string): SessionMeta {
 export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>): Promise<T> {
 	const cwd = options.cwd ?? process.cwd();
 	const agentKey = options.persona.name.toLowerCase();
-	const directory = resolve(options.run.trace.directory, agentKey);
+	const model = resolvePhaseModel(options.persona, options.model);
+	const thinking = resolvePhaseThinking(options.persona, options.thinking);
+	const directory = resolve(options.run.trace.directory, phaseSessionKey(options.persona.name, options.model, options.sessionTag));
 	mkdirSync(directory, { recursive: true });
 	const sessionFile = resolve(directory, "session.json");
 	const metaFile = resolve(directory, "session-meta.json");
@@ -70,7 +84,7 @@ export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>):
 	const invoke = async (prompt: string): Promise<string> => {
 		runNumber++;
 		const replacement = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey, runNumber });
-		const window = resolveContextWindow(options.persona.model!, { lookup: options.modelLookup, fallbackWindow: options.contextWindow ?? Number(process.env.AGENT_FLEET_CONTEXT_WINDOW ?? 0) });
+		const window = resolveContextWindow(model, { lookup: options.modelLookup, fallbackWindow: options.contextWindow ?? Number(process.env.AGENT_FLEET_CONTEXT_WINDOW ?? 0) });
 		let resume = existsSync(sessionFile);
 		const overflow = resume ? shouldRecycleBeforeSpawn({ priorTokens: meta.contextTokens, promptTokens: estimatePromptTokens(prompt) + estimatePromptTokens(replacement), window: window.window }) : null;
 		if (overflow) {
@@ -81,7 +95,7 @@ export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>):
 		}
 		let measuredTokens = meta.contextTokens;
 		const result = await spawnAgent({
-			model: options.persona.model!, tools: options.persona.tools, thinking: options.persona.thinking ?? "medium",
+			model, tools: options.persona.tools, thinking,
 			systemPrompt: replacement, noSkills: true, noContextFiles: true, sessionFile, resume, prompt, cwd,
 			extensions: [".pi/harnesses/damage-control-continue/index.ts"], detached: true, signal: options.run.signal,
 			toolWatchdog: { timeoutMs: options.toolWatchdogMs ?? 120_000 }, turnDeadlineMs: options.turnDeadlineMs ?? 1_200_000,

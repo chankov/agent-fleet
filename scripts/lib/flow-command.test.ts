@@ -23,8 +23,9 @@ function repo(): string {
 function invoke(cwd: string, args: string[]) { return spawnSync(process.execPath, ["--experimental-strip-types", FLOW, ...args], { cwd, encoding: "utf8" }); }
 
 test("flow command parsing preserves positional request and validates flags", () => {
-	assert.deepEqual(Object.keys(workflows).sort(), ["build-test", "document", "quality", "scout"]);
+	assert.deepEqual(Object.keys(workflows).sort(), ["build-test", "document", "poll", "quality", "scout"]);
 	assert.deepEqual(parseFlowCommand(["scout", "where", "X", "--dry-run", "--allow-dirty", "--run-id", "r1"]), { name: "scout", args: ["where", "X"], dryRun: true, allowDirty: true, runId: "r1" });
+	assert.deepEqual(parseFlowCommand(["poll", "--panel", "default", "should we?", "--dry-run"]), { name: "poll", args: ["should we?"], dryRun: true, allowDirty: false, panel: "default" });
 	assert.throws(() => parseFlowCommand([]), /Usage/);
 	assert.throws(() => parseFlowCommand(["bad/name"]), /Invalid flow name/);
 	assert.throws(() => parseFlowCommand(["quality", "--wat"]), /Unknown flow option/);

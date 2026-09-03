@@ -13,21 +13,31 @@ import { buildTestWorkflow, buildTestWorkflowPreflight } from "./workflows/wf-bu
 import { documentWorkflow, documentWorkflowPreflight } from "./workflows/wf-document.ts";
 import { qualityWorkflow, qualityWorkflowPreflight } from "./workflows/wf-quality.ts";
 import { scoutWorkflow, scoutWorkflowPreflight } from "./workflows/wf-scout.ts";
+import { pollWorkflow, pollWorkflowPreflight, pollWorkflowValidate } from "./workflows/wf-poll.ts";
 
-export type Workflow = (run: Run, input: { args: string[]; dryRun: boolean; cwd: string }) => Promise<FinishResult>;
-export interface WorkflowDefinition { run: Workflow; validate?: (args: string[]) => void; preflight?: (cwd: string) => void }
+export type Workflow = (run: Run, input: { args: string[]; dryRun: boolean; cwd: string; panel?: string }) => Promise<FinishResult>;
+export interface WorkflowDefinition {
+	run: Workflow;
+	validate?: (command: FlowCommand, cwd: string) => void;
+	preflight?: (cwd: string, command: FlowCommand) => void;
+}
 export const workflows: Record<string, WorkflowDefinition> = {
 	"build-test": {
 		run: buildTestWorkflow,
-		validate: args => { if (!args.join(" ").trim()) throw Object.assign(new Error("build-test flow requires an implementation request"), { exitCode: 2 }); },
+		validate: command => { if (!command.args.join(" ").trim()) throw Object.assign(new Error("build-test flow requires an implementation request"), { exitCode: 2 }); },
 		preflight: buildTestWorkflowPreflight,
 	},
 	document: { run: documentWorkflow, preflight: documentWorkflowPreflight },
 	quality: { run: qualityWorkflow, preflight: qualityWorkflowPreflight },
 	scout: {
 		run: scoutWorkflow,
-		validate: args => { if (!args.join(" ").trim()) throw Object.assign(new Error("scout flow requires a question"), { exitCode: 2 }); },
+		validate: command => { if (!command.args.join(" ").trim()) throw Object.assign(new Error("scout flow requires a question"), { exitCode: 2 }); },
 		preflight: scoutWorkflowPreflight,
+	},
+	poll: {
+		run: pollWorkflow,
+		validate: pollWorkflowValidate,
+		preflight: pollWorkflowPreflight,
 	},
 };
 
@@ -52,11 +62,11 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 	const cwd = options.cwd ?? process.cwd();
 	const workflow = await resolveWorkflow(command.name, options.workflowsDir);
 	if (!workflow) throw Object.assign(new Error(`Unknown flow: ${command.name}`), { exitCode: 2 });
-	workflow.validate?.(command.args);
+	workflow.validate?.(command, cwd);
 	loadEnv(cwd);
 	// All refusal checks precede branch creation and the FlowTrace constructor.
 	requireCleanTree(cwd, command.allowDirty);
-	workflow.preflight?.(cwd);
+	workflow.preflight?.(cwd, command);
 	const runId = command.runId ?? makeRunId();
 	const repositoryBaseline = snapshot(cwd);
 	const branch = createFlowBranch(command.name, runId, cwd);
@@ -73,7 +83,7 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 	process.once("SIGINT", onSignal);
 	process.once("SIGTERM", onSignal);
 	try {
-		const result = await workflow.run(run, { args: command.args, dryRun: command.dryRun, cwd });
+		const result = await workflow.run(run, { args: command.args, dryRun: command.dryRun, cwd, panel: command.panel });
 		const finalResult = interruption ?? result;
 		persistResult(finalResult);
 		console.error(finalResult.banner);

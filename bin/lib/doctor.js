@@ -17,6 +17,9 @@
 //      `@chankov/agent-fleet` skills/prompts while `.ai/agent-fleet-state.json`
 //      also owns matching copied `skill:*` / `command:*` items. Advisory only:
 //      package vs copy ownership is a user choice; doctor --fix never mutates it.
+//   6. Model visibility — persona, delegate sub-role, and voices.yaml models
+//      that a clean-room `pi --no-extensions` child cannot see. Read-only:
+//      never auto-fixed. A missing voices.yaml is not a finding.
 //
 // For each broken link we look up a canonical replacement in the source
 // `agents/` or `skills/` tree (many breakages are stale names from the
@@ -25,6 +28,7 @@
 import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname, basename, relative, isAbsolute, sep } from "node:path";
 import { homedir } from "node:os";
+import { parse as parseYaml } from "yaml";
 import { validateOverrides } from "./validate-overrides.js";
 import { readState, STATE_REL_PATH } from "./state.js";
 
@@ -74,7 +78,7 @@ const YAML_REFS = [
  * @param {boolean} [opts.apply]   If true, apply suggested fixes; otherwise just report
  * @returns {Array|object}         Findings array (apply=false) or {repaired,deleted,skipped} (apply=true)
  */
-export async function runDoctor({ workspace, sourceRoot, apply = false }) {
+export async function runDoctor({ workspace, sourceRoot, apply = false, checkVisibility } = {}) {
   const findings = [];
 
   // 1. Broken symlinks in install-target directories.
@@ -154,6 +158,9 @@ export async function runDoctor({ workspace, sourceRoot, apply = false }) {
 
   // 5. Mixed copied / package-native skill+prompt ownership (advisory, never auto-fixed).
   findings.push(...scanPiPackageOwnership({ workspace, sourceRoot }));
+
+  // 6. Model visibility for roster personas, delegate sub-roles, and voices.yaml.
+  findings.push(...await scanModelVisibility({ workspace, checkVisibility }));
 
   if (!apply) return findings;
 
@@ -549,4 +556,139 @@ export function scanPiPackageOwnership({ workspace, sourceRoot, home = homedir()
     packageSource: located.entry.source,
     settingsPath: located.settingsPath,
   }];
+}
+
+const AGENT_DIRS = ["agents", ".claude/agents", ".pi/agents"];
+const VOICES_REL = ".pi/agents/voices.yaml";
+
+/**
+ * Models the clean-room child must be able to see: each persona's primary model,
+ * each declared delegate sub-role, and every voice in voices.yaml (when present).
+ */
+export function collectModelTargets(workspace) {
+  const targets = [];
+  for (const rel of AGENT_DIRS) {
+    const dir = join(workspace, rel);
+    if (!existsSync(dir)) continue;
+    let entries;
+    try { entries = readdirSync(dir); } catch { continue; }
+    for (const file of entries) {
+      if (!file.endsWith(".md")) continue;
+      const abs = join(dir, file);
+      try { targets.push(...parsePersonaModelTargets(abs, `${rel}/${file}`)); }
+      catch { /* unreadable persona is not a visibility finding */ }
+    }
+  }
+  targets.push(...collectVoiceTargets(workspace));
+  return targets;
+}
+
+function collectVoiceTargets(workspace) {
+  const file = join(workspace, VOICES_REL);
+  if (!existsSync(file)) return [];
+  let raw;
+  try { raw = parseYaml(readFileSync(file, "utf8")); } catch { return []; }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const targets = [];
+  for (const [panel, list] of Object.entries(raw)) {
+    if (!Array.isArray(list)) continue;
+    for (const voice of list) {
+      if (!voice || typeof voice !== "object" || typeof voice.name !== "string" || typeof voice.model !== "string") continue;
+      targets.push({ kind: "voice", subject: `${panel}/${voice.name}`, model: voice.model, path: VOICES_REL });
+    }
+  }
+  return targets;
+}
+
+function parsePersonaModelTargets(absPath, relPath) {
+  const raw = readFileSync(absPath, "utf8");
+  const match = raw.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return [];
+  const lines = match[1].split("\n");
+  let name, model;
+  const subagents = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const idx = line.indexOf(":");
+    if (idx <= 0 || /^\s/.test(line)) continue;
+    const key = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1).trim();
+    if (key === "name" && value) name = value;
+    else if (key === "model" && value) model = value;
+    else if (key === "subagents") {
+      let currentRole = null;
+      let roleIndent = -1;
+      let j = i + 1;
+      while (j < lines.length) {
+        const found = lines[j].match(/^(\s+)([a-z0-9]+(?:-[a-z0-9]+)*)\s*:\s*(.*)$/);
+        if (!found) break;
+        const indent = found[1].length;
+        if (roleIndent === -1) roleIndent = indent;
+        if (indent < roleIndent) break;
+        if (indent === roleIndent) {
+          currentRole = found[2];
+          const inline = found[3].trim();
+          let roleModel;
+          if (inline.startsWith("{")) roleModel = inline.match(/model\s*:\s*([^\s,}]+)/)?.[1];
+          else if (inline) roleModel = inline.split(",")[0].trim();
+          if (roleModel) subagents.push({ role: currentRole, model: roleModel });
+        } else if (currentRole && found[2] === "model" && found[3].trim()) {
+          subagents.push({ role: currentRole, model: found[3].trim() });
+        }
+        j++;
+      }
+      i = j - 1;
+    }
+  }
+  if (!name) return [];
+  const targets = [];
+  if (model) targets.push({ kind: "persona", subject: name, model, path: relPath });
+  for (const entry of subagents) {
+    targets.push({ kind: "subagent", subject: `${name}/${entry.role}`, model: entry.model, path: relPath });
+  }
+  return targets;
+}
+
+function subjectLabel(target) {
+  if (target.kind === "voice") return `voice "${target.subject}"`;
+  if (target.kind === "subagent") return `subagent "${target.subject}"`;
+  return `persona "${target.subject}"`;
+}
+
+export async function scanModelVisibility({ workspace, checkVisibility } = {}) {
+  const targets = collectModelTargets(workspace);
+  if (targets.length === 0) return [];
+  let check = checkVisibility;
+  if (!check) {
+    const mod = await import("../../scripts/workflows/lib/model-visibility.ts");
+    check = (models) => mod.checkChildVisibility(models);
+  }
+  const unique = [...new Set(targets.map((target) => target.model))];
+  const report = check(unique);
+  if (report?.diagnostic) {
+    return [{
+      type: "model-visibility",
+      path: ".",
+      issue: `model-visibility listing failed — ${report.diagnostic}`,
+      fix: "ensure `pi --no-extensions --list-models` runs in this workspace",
+      check: "child-visible",
+    }];
+  }
+  const byModel = new Map((report?.models ?? []).map((item) => [item.model, item]));
+  const findings = [];
+  for (const target of targets) {
+    const result = byModel.get(target.model);
+    if (!result || result.ok) continue;
+    const checkName = result.failed?.[0] ?? "child-visible";
+    findings.push({
+      type: "model-visibility",
+      path: target.path,
+      issue: `${subjectLabel(target)} model ${target.model}: ${checkName} check failed`,
+      fix: "choose a model listed by `pi --no-extensions --list-models` or configure its provider auth",
+      subject: target.subject,
+      model: target.model,
+      check: checkName,
+    });
+  }
+  return findings;
 }

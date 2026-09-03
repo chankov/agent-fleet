@@ -42,3 +42,13 @@ export function resolvePersona(name: string, cwd = process.cwd()): PersonaDefini
 	if (!persona.model) throw new StartRefusedError(`Flow start refused: persona "${name}" declares no model.`);
 	return persona;
 }
+
+export function resolvePhaseModel(persona: PersonaDefinition, override?: string): string {
+	const model = override || persona.model;
+	if (!model) throw new StartRefusedError(`Flow start refused: persona "${persona.name}" declares no model.`);
+	return model;
+}
+
+export function resolvePhaseThinking(persona: PersonaDefinition, override?: string): string {
+	return override ?? persona.thinking ?? "medium";
+}

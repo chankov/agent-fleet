@@ -4,6 +4,7 @@ export interface FlowCommand {
 	allowDirty: boolean;
 	dryRun: boolean;
 	runId?: string;
+	panel?: string;
 }
 
 export interface FlowMaintenanceCommand {
@@ -52,10 +53,10 @@ export function parseFlowMaintenanceCommand(argv: string[]): FlowMaintenanceComm
 }
 
 export function parseFlowCommand(argv: string[]): FlowCommand {
-	if (argv.length === 0) throw new Error("Usage: flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run]");
+	if (argv.length === 0) throw new Error("Usage: flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run] [--panel <name>]");
 	const name = argv[0];
 	if (!FLOW_NAME.test(name)) throw new Error(`Invalid flow name: ${name}`);
-	let allowDirty = false, dryRun = false, runId: string | undefined;
+	let allowDirty = false, dryRun = false, runId: string | undefined, panel: string | undefined;
 	const args: string[] = [];
 	for (let i = 1; i < argv.length; i++) {
 		const arg = argv[i];
@@ -70,8 +71,13 @@ export function parseFlowCommand(argv: string[]): FlowCommand {
 			const value = argv[++i];
 			if (!value || value.startsWith("--") || !RUN_ID.test(value)) throw new Error("--run-id requires a safe identifier");
 			runId = value;
+		} else if (arg === "--panel") {
+			if (panel) throw new Error("--panel may only be provided once");
+			const value = argv[++i];
+			if (!value || value.startsWith("--")) throw new Error("--panel requires a panel name");
+			panel = value;
 		} else if (arg.startsWith("--")) throw new Error(`Unknown flow option: ${arg}`);
 		else args.push(arg);
 	}
-	return { name, args, allowDirty, dryRun, ...(runId ? { runId } : {}) };
+	return { name, args, allowDirty, dryRun, ...(runId ? { runId } : {}), ...(panel ? { panel } : {}) };
 }

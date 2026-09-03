@@ -17,10 +17,27 @@ export const ReviewEnvelope = Type.Intersect([EnvelopeBase, Type.Object({
 })]);
 export const ScoutEnvelope = Type.Intersect([EnvelopeBase, Type.Object({ findings: StringArray })]);
 export const DocumentEnvelope = Type.Intersect([EnvelopeBase, Type.Object({ document_path: Type.String(), documented_files: StringArray, commit_message: Type.String() })]);
+const AttributedClaim = Type.Object({ voice: Type.String({ minLength: 1 }), statement: Type.String({ minLength: 1 }) });
+const RejectedClaim = Type.Object({ voice: Type.String({ minLength: 1 }), statement: Type.String({ minLength: 1 }), reason: Type.String({ minLength: 1 }) });
+export const PollEnvelope = Type.Intersect([EnvelopeBase, Type.Object({
+	position: Type.String(), case: StringArray,
+	confidence: Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]),
+	would_change_my_mind: StringArray,
+})]);
+export const DebateEnvelope = Type.Intersect([EnvelopeBase, Type.Object({
+	position: Type.String(), changed: Type.Boolean(), aligned_with: StringArray, refutes: StringArray, evidence_that_moved_me: StringArray,
+})]);
+export const MergeEnvelope = Type.Intersect([EnvelopeBase, Type.Object({
+	consensus: Type.Array(AttributedClaim), divergence: Type.Array(AttributedClaim), minority: Type.Array(AttributedClaim),
+	rejected: Type.Array(RejectedClaim), recommendation: Type.String(),
+})]);
 
-export const ENVELOPES = { plan: PlanEnvelope, build: BuildEnvelope, review: ReviewEnvelope, scout: ScoutEnvelope, document: DocumentEnvelope } as const;
+export const ENVELOPES = { plan: PlanEnvelope, build: BuildEnvelope, review: ReviewEnvelope, scout: ScoutEnvelope, document: DocumentEnvelope, poll: PollEnvelope, debate: DebateEnvelope, merge: MergeEnvelope } as const;
 export type EnvelopeName = keyof typeof ENVELOPES;
 export type ScoutReport = Static<typeof ScoutEnvelope>;
+export type PollReport = Static<typeof PollEnvelope>;
+export type DebateReport = Static<typeof DebateEnvelope>;
+export type MergeReport = Static<typeof MergeEnvelope>;
 export const JSON_FIX_ATTEMPTS = 2;
 
 export const ENVELOPE_EXAMPLES: Record<EnvelopeName, Record<string, unknown>> = {
@@ -29,6 +46,9 @@ export const ENVELOPE_EXAMPLES: Record<EnvelopeName, Record<string, unknown>> = 
 	review: { status: "success", summary: "Review clean", artifacts: [], notes_for_next_agent: "", approved: true, assertions_proven: [], assertions_unproven: [], assertions_failed: [], open_risks: [], requires_user_decision: [] },
 	scout: { status: "success", summary: "Scout complete", artifacts: [], notes_for_next_agent: "", findings: ["X lives in src/x.ts"] },
 	document: { status: "success", summary: "Docs complete", artifacts: [], notes_for_next_agent: "", document_path: "docs/x.md", documented_files: ["src/x.ts"], commit_message: "docs: explain x" },
+	poll: { status: "success", summary: "Opinion recorded", artifacts: [], notes_for_next_agent: "", position: "Prefer approach A.", case: ["It matches existing seams", "Less migration risk"], confidence: "high", would_change_my_mind: ["Evidence that A breaks the permission model"] },
+	debate: { status: "success", summary: "Round complete", artifacts: [], notes_for_next_agent: "", position: "Still prefer A.", changed: false, aligned_with: ["opus"], refutes: ["grok's rewrite is out of scope"], evidence_that_moved_me: [] },
+	merge: { status: "success", summary: "Merge complete", artifacts: [], notes_for_next_agent: "", consensus: [{ voice: "sol", statement: "Use approach A" }, { voice: "opus", statement: "Use approach A" }], divergence: [{ voice: "grok", statement: "Prefer approach B" }], minority: [{ voice: "grok", statement: "Approach B isolates failure better" }], rejected: [{ voice: "grok", statement: "Rewrite the module", reason: "Out of scope for this change" }], recommendation: "Adopt approach A; keep grok's isolation concern as a follow-up." },
 };
 
 export function envelopePrompt(name: EnvelopeName): string {
@@ -75,6 +95,9 @@ const ENVELOPE_FIELDS: Record<EnvelopeName, string[]> = {
 	review: [...BASE_FIELDS, "approved", "assertions_proven", "assertions_unproven", "assertions_failed", "open_risks", "requires_user_decision"],
 	scout: [...BASE_FIELDS, "findings"],
 	document: [...BASE_FIELDS, "document_path", "documented_files", "commit_message"],
+	poll: [...BASE_FIELDS, "position", "case", "confidence", "would_change_my_mind"],
+	debate: [...BASE_FIELDS, "position", "changed", "aligned_with", "refutes", "evidence_that_moved_me"],
+	merge: [...BASE_FIELDS, "consensus", "divergence", "minority", "rejected", "recommendation"],
 };
 
 export interface EnvelopeValidation<T = unknown> { ok: boolean; value?: T; errors: string[] }

@@ -229,6 +229,53 @@ rules: docs/rules, .ai/rules
   assert.match(findings[0].issue, /rules folder not found .*\.ai\/rules/);
 });
 
+test("poll-panel and append-prompt pass when the panel and files exist", () => {
+  const findings = findingsFor(`## agent-hub
+poll-panel: default
+append-prompt: references/communication-contract.md, docs/note.md
+`, {
+    extraFiles: {
+      ".pi/agents/voices.yaml": "default:\n  - name: sol\n    model: p/sol\n  - name: grok\n    model: p/grok\n",
+      "references/communication-contract.md": "# contract\n",
+      "docs/note.md": "# note\n",
+    },
+  });
+  assert.deepEqual(findings, []);
+});
+
+test("poll-panel is ignored when voices.yaml is absent and flagged when the panel is missing", () => {
+  assert.deepEqual(findingsFor(`## agent-hub
+poll-panel: default
+`), []);
+  const findings = findingsFor(`## agent-hub
+poll-panel: missing
+`, {
+    extraFiles: { ".pi/agents/voices.yaml": "default:\n  - name: sol\n    model: p/sol\n  - name: grok\n    model: p/grok\n" },
+  });
+  assert.equal(findings.length, 1);
+  assert.match(findings[0].issue, /poll-panel in ## agent-hub: panel "missing" was not found/);
+  assert.match(findings[0].issue, /available: default/);
+});
+
+test("append-prompt flags listed files that do not exist", () => {
+  const findings = findingsFor(`## agent-hub
+append-prompt: references/communication-contract.md
+`);
+  assert.equal(findings.length, 1);
+  assert.match(findings[0].issue, /append-prompt file not found .*references\/communication-contract.md/);
+});
+
+test("a typo in poll-panel or append-prompt is reported like other unknown keys", () => {
+  const findings = findingsFor(`## agent-hub
+poll-panle: default
+append_prompt: references/x.md
+`);
+  assert.equal(findings.length, 2);
+  assert.ok(findings.some((f) => /unknown key "poll-panle"/.test(f.issue)));
+  assert.ok(findings.some((f) => /unknown key "append_prompt"/.test(f.issue)));
+  assert.ok(findings.every((f) => /poll-panel/.test(f.fix) && /append-prompt/.test(f.fix)));
+});
+
 test("missing docs entry points are flagged, existing files and folders are not", () => {
   const text = `## agent-hub
 docs: Docs/AGENTS.md, Docs/architecture, Docs/MISSING.md
