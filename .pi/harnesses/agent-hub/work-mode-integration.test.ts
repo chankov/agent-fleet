@@ -22,6 +22,7 @@ const researchControlsSource = readFileSync(new URL("./research/controls.ts", im
 const handoffCommandSource = readFileSync(new URL("./commands/handoff.ts", import.meta.url), "utf8");
 const compoundCommandSource = readFileSync(new URL("./commands/compound.ts", import.meta.url), "utf8");
 const pollCommandSource = readFileSync(new URL("./commands/poll.ts", import.meta.url), "utf8");
+const debateCommandSource = readFileSync(new URL("./commands/debate.ts", import.meta.url), "utf8");
 const commandContextSource = readFileSync(new URL("./commands/context.ts", import.meta.url), "utf8");
 const dispatchAgentToolSource = readFileSync(new URL("./tools/dispatch-agent.ts", import.meta.url), "utf8");
 const spawnResearchToolSource = readFileSync(new URL("./tools/spawn-research.ts", import.meta.url), "utf8");
@@ -62,12 +63,13 @@ const commandModules = [
 	["handoff", "registerHandoff"],
 	["compound", "registerCompound"],
 	["poll", "registerPoll"],
+	["debate", "registerDebate"],
 ] as const;
 const comsCoreSource = readFileSync(new URL("../lib/coms-core.ts", import.meta.url), "utf8");
 const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
-test("wiring contract: all 22 Hub commands use typed modules and one flat registrar list", () => {
-	assert.equal(commandModules.length, 22);
+test("wiring contract: all 23 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 23);
 	for (const [file, registrar] of commandModules) {
 		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
 		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));
@@ -97,6 +99,8 @@ test("wiring contract: Hub registers one work-mode command without conditional c
 	assert.match(compoundCommandSource, /registerCommand\("af-compound"[\s\S]*?handleCompound/);
 	assert.match(indexSource, /registerPoll\(pi, commandCtx\)/);
 	assert.match(pollCommandSource, /registerCommand\("af-poll"[\s\S]*?handlePoll/);
+	assert.match(indexSource, /registerDebate\(pi, commandCtx\)/);
+	assert.match(debateCommandSource, /registerCommand\("af-debate"[\s\S]*?handleDebate/);
 	assert.doesNotMatch(indexSource, /if \(workMode === [^)]+\)\s*\{\s*pi\.registerCommand/);
 });
 
@@ -243,6 +247,7 @@ test("stale-roster gate covers every command and dashboard path that can start m
 		/handleHandoff: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 		/handleCompound: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 		/handlePoll: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
+		/handleDebate: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
 	];
 	assert.match(fleetDashboardSource, guardedBlocks[0]);
 	assert.match(researchControlsSource, guardedBlocks[1]);

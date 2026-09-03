@@ -79,6 +79,7 @@ default:
 # DETERMINISTIC FLOWS AND BRANCH MAINTENANCE
 #   just flow scout "where is authentication configured?"
 #   just flow poll --panel default "should we extract this module?"
+#   just flow debate --panel default --rounds 3 "should we extract this module?"
 #   just flow quality
 #   just flow build-test "add the validated endpoint"
 #   just flow cleanup                         # numbered selector

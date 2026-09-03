@@ -50,7 +50,7 @@ export function pollWorkflowPreflight(cwd: string, command?: { panel?: string },
 }
 
 /** Phases: engineer(request) → agent×N(poll, parallel) → code(collect) → agent(merge) */
-export async function pollWorkflow(run: Run, input: { args: string[]; dryRun: boolean; cwd: string; panel?: string }, deps: PollWorkflowDeps = {}): Promise<FinishResult> {
+export async function pollWorkflow(run: Run, input: { args: string[]; dryRun: boolean; cwd: string; panel?: string; apply?: boolean }, deps: PollWorkflowDeps = {}): Promise<FinishResult> {
 	const request = input.args.join(" ").trim();
 	if (!request) throw Object.assign(new Error("poll flow requires a question"), { exitCode: 2 });
 	if (!input.panel) throw Object.assign(new Error("poll flow requires --panel"), { exitCode: 2 });
@@ -86,7 +86,7 @@ export async function pollWorkflow(run: Run, input: { args: string[]; dryRun: bo
 		description: "Synthesize attributed consensus from the independent voice opinions",
 	}, async () => {
 		if (input.dryRun) return { report: stubMerge(), integrator, path: "" };
-		return merge({ run, cwd: input.cwd, persona, panel: input.panel!, task: request, opinions, voices });
+		return merge({ run, cwd: input.cwd, persona, panel: input.panel!, task: request, opinions, voices, apply: input.apply });
 	});
 	run.trace.write("log", { phase: "merge", message: merged.report.summary, recommendation: merged.report.recommendation });
 	return run.finish({ accepted: Boolean(merged.report) });

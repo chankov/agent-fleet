@@ -29,6 +29,7 @@ export interface CommandContext {
 	handleHandoff(args: string, ctx: ExtensionContext): Promise<void>;
 	handleCompound(args: string, ctx: ExtensionContext): Promise<void>;
 	handlePoll(args: string, ctx: ExtensionContext): Promise<void>;
+	handleDebate(args: string, ctx: ExtensionContext): Promise<void>;
 	getAgentsKillCompletions(prefix: string): AutocompleteItem[] | null;
 	getZoomCompletions(prefix: string): AutocompleteItem[] | null;
 	getAgentModelCompletions(prefix: string): AutocompleteItem[] | null;

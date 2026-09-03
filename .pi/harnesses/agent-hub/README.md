@@ -901,6 +901,7 @@ under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runti
 - `/af-coms` — coms control surface (peer list / status)
 - `/af-handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
 - `/af-poll [--panel NAME] [--persona NAME] <question>` — ask every voice in a named model panel (from `.pi/agents/voices.yaml`) the same question. `--panel` wins; else `poll-panel:` in `## agent-hub`; else a refusal listing available panels. Counts as **one** turn-budget dispatch. The main loop gets an immediate `POLL STARTED` receipt (no dispatcher turn), then one `POLL VOICE` line per finished voice, then the digest. Full opinions stay on disk under `.pi/agent-sessions/artifacts/polls/<runId>/`.
+- `/af-debate [--panel NAME] [--persona NAME] [--rounds N] <question>` — same panel, 2–5 harness-mediated rounds (default 3). Each surviving voice sees the labeled positions of the others from the previous round. There is no judge and no hidden merge. Counts as **one** turn-budget dispatch. Per-round files land under `.pi/agent-sessions/artifacts/polls/<runId>/debate/round-<n>/`.
 - `/af-compound [focus]` — end-of-session **compound-learning pass**: the dispatcher composes a
   candidate-lessons brief from the session (corrections, recurring findings, root causes),
   confirms it with the user, then dispatches the `documenter` to land the approved lessons as

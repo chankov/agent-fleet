@@ -14,8 +14,9 @@ import { documentWorkflow, documentWorkflowPreflight } from "./workflows/wf-docu
 import { qualityWorkflow, qualityWorkflowPreflight } from "./workflows/wf-quality.ts";
 import { scoutWorkflow, scoutWorkflowPreflight } from "./workflows/wf-scout.ts";
 import { pollWorkflow, pollWorkflowPreflight, pollWorkflowValidate } from "./workflows/wf-poll.ts";
+import { debateWorkflow, debateWorkflowPreflight, debateWorkflowValidate } from "./workflows/wf-debate.ts";
 
-export type Workflow = (run: Run, input: { args: string[]; dryRun: boolean; cwd: string; panel?: string }) => Promise<FinishResult>;
+export type Workflow = (run: Run, input: { args: string[]; dryRun: boolean; cwd: string; panel?: string; rounds?: number; apply?: boolean }) => Promise<FinishResult>;
 export interface WorkflowDefinition {
 	run: Workflow;
 	validate?: (command: FlowCommand, cwd: string) => void;
@@ -38,6 +39,11 @@ export const workflows: Record<string, WorkflowDefinition> = {
 		run: pollWorkflow,
 		validate: pollWorkflowValidate,
 		preflight: pollWorkflowPreflight,
+	},
+	debate: {
+		run: debateWorkflow,
+		validate: debateWorkflowValidate,
+		preflight: debateWorkflowPreflight,
 	},
 };
 
@@ -83,7 +89,7 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 	process.once("SIGINT", onSignal);
 	process.once("SIGTERM", onSignal);
 	try {
-		const result = await workflow.run(run, { args: command.args, dryRun: command.dryRun, cwd, panel: command.panel });
+		const result = await workflow.run(run, { args: command.args, dryRun: command.dryRun, cwd, panel: command.panel, rounds: command.rounds, apply: command.apply });
 		const finalResult = interruption ?? result;
 		persistResult(finalResult);
 		console.error(finalResult.banner);

@@ -29,6 +29,7 @@ export class PhaseContext {
 
 export class Run {
 	readonly trace: FlowTrace;
+	readonly command: string[];
 	readonly repositoryBaseline?: PermissionSnapshot;
 	private finished = false;
 	private phaseFailed = false;
@@ -38,6 +39,7 @@ export class Run {
 
 	constructor(options: { cwd?: string; runId?: string; command?: string[]; trace?: FlowTrace; repositoryBaseline?: PermissionSnapshot } = {}) {
 		this.trace = options.trace ?? new FlowTrace(options);
+		this.command = options.command ?? [];
 		this.repositoryBaseline = options.repositoryBaseline;
 	}
 

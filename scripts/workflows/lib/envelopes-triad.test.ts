@@ -17,9 +17,9 @@ test("envelope type and prompt example stay synchronized for every contract", ()
 });
 
 test("workflow call sites name an envelope that has a schema and prompt example", () => {
-	const files = ["wf-scout.ts", "wf-build-test.ts", "wf-document.ts", "wf-poll.ts", "lib/poll.ts", "lib/merge.ts"];
+	const files = ["wf-scout.ts", "wf-build-test.ts", "wf-document.ts", "wf-poll.ts", "wf-debate.ts", "lib/poll.ts", "lib/merge.ts", "lib/debate.ts"];
 	const names = files.flatMap(file => [...readFileSync(resolve(ROOT, "scripts", "workflows", file), "utf8").matchAll(/envelope:\s*"([a-z]+)"/g)].map(match => match[1]));
-	assert.deepEqual([...new Set(names)].sort(), ["build", "document", "merge", "poll", "scout"]);
+	assert.deepEqual([...new Set(names)].sort(), ["build", "debate", "document", "merge", "poll", "scout"]);
 	for (const name of names) {
 		assert.ok(name in ENVELOPES, `${name} has no TypeBox schema`);
 		assert.ok(name in ENVELOPE_EXAMPLES, `${name} has no prompt example`);

@@ -146,6 +146,26 @@ zombie runners after the race (tear down explicitly); racing where lanes share s
 
 ---
 
+---
+
+## 6. Same-question model poll and harness-mediated debate
+
+**When:** one role, N models, the same question. Poll collects independent opinions then an integrator merge. Debate repeats for 2–5 rounds; each surviving voice sees the labeled positions of the others from the previous round.
+
+**Protocol:** resolve a named panel from `.pi/agents/voices.yaml` → spawn every voice read-only in parallel → write each full opinion to disk → return only a bounded digest upward. Debate additionally feeds the previous round's labeled packet into the next turn of the same per-voice session. There is no judge. Voices never write to each other. With `--apply`, only the poll integrator may write, and only while holding a cross-process writer lease.
+
+**In this repo (live):**
+- `/af-poll` and `just flow poll --panel default "…"` — independent opinions plus integrator merge.
+- `/af-debate` and `just flow debate --panel default --rounds 3 "…"` — harness-mediated rounds, no merge.
+- Artifacts under `.pi/agent-sessions/artifacts/polls/<runId>/` (debate rounds in `debate/round-<n>/`).
+- Optional communication contract via `append-prompt: references/communication-contract.md` — not loaded automatically.
+
+**Not:** Claude Code Agent Teams. Live teammate messaging is a different composition-layer pattern; see [orchestration-patterns.md](orchestration-patterns.md).
+
+**Failure modes:** missing `--panel` (refusal listing available names); a foreign-opinion packet over the hard byte cap (refusal with the named size, never truncation); fewer than two successful voices; `--apply` while another live owner holds the writer lease (refusal naming that owner's command).
+
+---
+
 *Composition-layer patterns (which personas, which commands, Agent Teams):*
 [orchestration-patterns.md](orchestration-patterns.md). *The contract the dispatcher
 enforces over all of these:* [skills/orchestration-verification](../skills/orchestration-verification/SKILL.md).

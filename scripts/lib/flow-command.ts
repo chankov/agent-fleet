@@ -5,6 +5,8 @@ export interface FlowCommand {
 	dryRun: boolean;
 	runId?: string;
 	panel?: string;
+	rounds?: number;
+	apply?: boolean;
 }
 
 export interface FlowMaintenanceCommand {
@@ -53,10 +55,10 @@ export function parseFlowMaintenanceCommand(argv: string[]): FlowMaintenanceComm
 }
 
 export function parseFlowCommand(argv: string[]): FlowCommand {
-	if (argv.length === 0) throw new Error("Usage: flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run] [--panel <name>]");
+	if (argv.length === 0) throw new Error("Usage: flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run] [--panel <name>] [--rounds <n>] [--apply]");
 	const name = argv[0];
 	if (!FLOW_NAME.test(name)) throw new Error(`Invalid flow name: ${name}`);
-	let allowDirty = false, dryRun = false, runId: string | undefined, panel: string | undefined;
+	let allowDirty = false, dryRun = false, apply = false, runId: string | undefined, panel: string | undefined, rounds: number | undefined;
 	const args: string[] = [];
 	for (let i = 1; i < argv.length; i++) {
 		const arg = argv[i];
@@ -66,6 +68,9 @@ export function parseFlowCommand(argv: string[]): FlowCommand {
 		} else if (arg === "--dry-run") {
 			if (dryRun) throw new Error("--dry-run may only be provided once");
 			dryRun = true;
+		} else if (arg === "--apply") {
+			if (apply) throw new Error("--apply may only be provided once");
+			apply = true;
 		} else if (arg === "--run-id") {
 			if (runId) throw new Error("--run-id may only be provided once");
 			const value = argv[++i];
@@ -76,8 +81,13 @@ export function parseFlowCommand(argv: string[]): FlowCommand {
 			const value = argv[++i];
 			if (!value || value.startsWith("--")) throw new Error("--panel requires a panel name");
 			panel = value;
+		} else if (arg === "--rounds") {
+			if (rounds !== undefined) throw new Error("--rounds may only be provided once");
+			const value = argv[++i];
+			if (!value || value.startsWith("--") || !/^\d+$/.test(value)) throw new Error("--rounds requires an integer");
+			rounds = Number(value);
 		} else if (arg.startsWith("--")) throw new Error(`Unknown flow option: ${arg}`);
 		else args.push(arg);
 	}
-	return { name, args, allowDirty, dryRun, ...(runId ? { runId } : {}), ...(panel ? { panel } : {}) };
+	return { name, args, allowDirty, dryRun, ...(runId ? { runId } : {}), ...(panel ? { panel } : {}), ...(rounds !== undefined ? { rounds } : {}), ...(apply ? { apply } : {}) };
 }

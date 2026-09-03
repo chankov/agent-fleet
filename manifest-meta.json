@@ -298,7 +298,8 @@
     "skill:planning-and-task-breakdown": {
       "companions": [
         "companion:skills-internal-grilling",
-        "reference:definition-of-done"
+        "reference:definition-of-done",
+        "reference:communication-contract"
       ]
     },
     "_references_comment": "A reference is the long-form half of a skill that cites it by path — never a standalone choice. Declaring it here as a companion means selecting the skill brings its checklists, and uninstall refuses to strand a skill without them. Keep this in step with the `references/…` citations in the SKILL.md bodies (both skills/ and the vendored copies under vendor/agent-skills-upstream/).",
@@ -736,7 +737,7 @@
     },
     "companion:pi-agent-configs": {
       "title": ".pi/agents configs",
-      "summary": "teams, peers, chains, and dispatch policy the harnesses read",
+      "summary": "teams, peers, chains, dispatch policy, and model panels (voices.yaml) the harnesses read",
       "agents": {
         "pi": {
           "source": [

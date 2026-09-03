@@ -688,7 +688,7 @@
       "group": "companions",
       "subcategory": null,
       "title": ".pi/agents configs",
-      "summary": "teams, peers, chains, and dispatch policy the harnesses read",
+      "summary": "teams, peers, chains, dispatch policy, and model panels (voices.yaml) the harnesses read",
       "recommended": false,
       "stability": "stable",
       "consent": "file",
@@ -1920,6 +1920,31 @@
       ]
     },
     {
+      "id": "reference:communication-contract",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "communication-contract",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/communication-contract.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/communication-contract.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:planning-and-task-breakdown"
+      ]
+    },
+    {
       "id": "reference:definition-of-done",
       "kind": "reference",
       "group": "references",
@@ -2719,6 +2744,7 @@
       },
       "companions": [
         "companion:skills-internal-grilling",
+        "reference:communication-contract",
         "reference:definition-of-done"
       ]
     },

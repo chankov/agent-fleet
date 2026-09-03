@@ -18,9 +18,10 @@ const noticeData = {
 
 test("session-start notice remains an exact data-oriented template", () => {
 	const notice = buildSessionStartNotice(noticeData);
-	assert.equal(createHash("sha256").update(notice).digest("hex"), "97122a5bd48183d1d96f8474da131abfa83ff8403f5d40a27b1081132d698216");
+	assert.equal(createHash("sha256").update(notice).digest("hex"), "e3de41fdbcd7b8fb7df377240474e7907d4757cd1ff205de8cb26ae6fe18285a");
 	assert.match(notice, /^Work Mode: orchestrator \(delegate-only\)/);
-	assert.match(notice, /\/af-poll \[--panel NAME\].*same question$/);
+	assert.match(notice, /\/af-poll \[--panel NAME\].*same question/);
+	assert.match(notice, /\/af-debate \[--panel NAME\].*model panel$/);
 });
 
 test("footer uses the injected dispatcher thinking formatter without changing its suffix", () => {

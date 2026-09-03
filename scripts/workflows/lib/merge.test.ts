@@ -6,7 +6,9 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import type { SpawnAgent } from "./agent-phase.ts";
 import { ENVELOPE_EXAMPLES, type MergeReport, type PollReport } from "./envelopes.ts";
-import { MergeUnavailableError, mergeTask, runMerge } from "./merge.ts";
+import { MERGE_APPLY_TOOLS, MergeUnavailableError, mergeTask, runMerge } from "./merge.ts";
+import { POLL_TOOLS } from "./poll.ts";
+import { acquireWriterLease, releaseWriterLease, WriterLeaseHeldError } from "./writer-lease.ts";
 import type { PersonaDefinition } from "./personas.ts";
 import { pollVoice } from "./poll.ts";
 import { Run } from "./run.ts";
@@ -74,6 +76,45 @@ test("a panel without an integrator makes merge unavailable", async () => {
 			run, cwd, persona, panel: "silent", task: "A or B?", voices: noIntegrator,
 			opinions: [{ ok: true, voice: voices[0], report: ENVELOPE_EXAMPLES.poll as PollReport, path: "x" }],
 		}), error => error instanceof MergeUnavailableError && /no voice with integrator: true/.test(error.message));
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("without --apply merge stays read-only; with --apply only the integrator gets write tools behind a lease", async () => {
+	const { cwd, run } = fixture();
+	try {
+		const tools: string[] = [];
+		const spawn: SpawnAgent = async options => {
+			tools.push(options.tools);
+			return { output: JSON.stringify(ENVELOPE_EXAMPLES.merge), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
+		};
+		const opinions = [{ ok: true as const, voice: voices[0], report: ENVELOPE_EXAMPLES.poll as PollReport, path: "sol.md" }];
+		await runMerge({ run, cwd, persona, panel: "default", task: "A or B?", opinions, voices, spawn });
+		assert.deepEqual(tools, [POLL_TOOLS]);
+		assert.equal(run.trace.events().some(event => event.lease), false);
+
+		tools.length = 0;
+		const applied = await runMerge({ run, cwd, persona, panel: "default", task: "A or B?", opinions, voices, spawn, apply: true, command: "just flow poll --apply" });
+		assert.deepEqual(tools, [MERGE_APPLY_TOOLS]);
+		assert.equal(existsSync(applied.path), true);
+		const acquired = run.trace.events().find(event => event.message === "writer lease acquired");
+		assert.ok(acquired?.lease);
+		assert.equal(acquired.ownerCommand, "just flow poll --apply");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("a held writer lease fails merge with the named owner instead of waiting", async () => {
+	const { cwd, run } = fixture();
+	try {
+		const held = acquireWriterLease({ cwd, owner: "merge:other", command: "just flow poll --apply #1" });
+		try {
+			await assert.rejects(runMerge({
+				run, cwd, persona, panel: "default", task: "A or B?", apply: true,
+				voices, opinions: [{ ok: true, voice: voices[0], report: ENVELOPE_EXAMPLES.poll as PollReport, path: "x" }],
+			}), error => error instanceof WriterLeaseHeldError && /merge:other/.test(error.message) && /just flow poll --apply #1/.test(error.message));
+			const traced = run.trace.events().find(event => event.type === "error" && String(event.message ?? "").includes("Writer lease held"));
+			assert.ok(traced?.lease);
+			assert.equal(traced.owner, "merge:other");
+		} finally { releaseWriterLease(held); }
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 

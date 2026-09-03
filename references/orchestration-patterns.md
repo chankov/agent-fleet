@@ -124,7 +124,7 @@ Plugin subagents go in `agents/` at the plugin root. This repo is a plugin (`.cl
 
 ### Subagents vs. Agent Teams
 
-Claude Code has two parallelism primitives. Pattern 3 (parallel fan-out with merge) maps to **subagents**. If you need teammates that talk to each other, use **Agent Teams** instead.
+Claude Code has two parallelism primitives. Pattern 3 (parallel fan-out with merge) maps to **subagents**. If you need teammates that talk to each other *live* (shared task list, mid-turn messaging), use **Agent Teams**. If you need the same question answered by several models with labeled cross-examination between rounds, use `/af-debate` / `just flow debate` — the harness mediates; the voices stay read-only and never message each other. That Fleet debate mechanism is not Agent Teams.
 
 | | Subagents | Agent Teams |
 |--|-----------|-------------|
@@ -266,7 +266,7 @@ Three Sonnet teammates running for ~10–15 minutes of investigation costs notic
 
 ### Anti-pattern in this scenario
 
-Do **not** rebuild this as a `/debug` slash command that fans out subagents. Subagents can't message each other — you'd lose the adversarial debate that makes the pattern work. If a workflow keeps coming up, document the trigger prompt above as a snippet rather than wrapping it in a slash command that misuses subagents.
+Do **not** rebuild this as a `/debug` slash command that fans out subagents. Subagents can't message each other live — you'd lose the adversarial debate that makes Agent Teams work. Fleet `/af-debate` is a different mechanism: the harness feeds labeled positions between rounds; voices never chat. Don't wrap Agent Teams inside a slash command that pretends to be `/af-debate`, and don't use `/af-debate` when you actually need live teammate messaging.
 
 ### When *not* to use Agent Teams
 

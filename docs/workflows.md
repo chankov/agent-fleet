@@ -9,6 +9,8 @@ just flow quality
 just flow scout "where is authentication configured?"
 just flow build-test "add the validated endpoint"
 just flow document
+just flow poll --panel default "should we extract this module?"
+just flow debate --panel default --rounds 3 "should we extract this module?"
 ```
 
 The raw entry point is equivalent and loads `.env` itself:
@@ -22,6 +24,9 @@ Options:
 - `--dry-run` executes the full graph with valid stub agent envelopes and no model calls.
 - `--run-id <id>` assigns a trace id.
 - `--allow-dirty` explicitly bypasses the normal clean-tree refusal.
+- `--panel <name>` selects a model panel from `.pi/agents/voices.yaml` (required for `poll` and `debate`).
+- `--rounds <n>` sets debate rounds (default 3, minimum 2, maximum 5).
+- `--apply` lets the poll integrator write the recommendation (lease-guarded). Debate refuses `--apply`.
 
 Exit codes are `0` accepted, `1` failed/unaccepted, `2` invalid arguments or unknown flow, and `3` startup refusal. SIGINT/SIGTERM finalize the run trace and return `128 + signal`.
 
@@ -88,6 +93,8 @@ Maintenance does not fetch remotes and does not delete `.pi/flow-sessions/<runId
 | `scout` | `engineer(request) → agent(scout)` | Read-only repository reconnaissance. |
 | `build-test` | `engineer(request) → agent(builder) → code(test) → agent(builder-fix, bounded) → code(commit)` | Build, deterministically test, repair within a bound, then commit once. |
 | `document` | `code(changes) → agent(documenter) → code(commit)` | Capture changes deterministically, document them, gate files, then commit. |
+| `poll` | `engineer(request) → agent×N(poll, parallel) → code(collect) → agent(merge)` | Same question to every voice in a named model panel; integrator merge. Optional `--apply` writes only in merge, behind a cross-process writer lease. |
+| `debate` | `engineer(request) → [agent×N(debate) → code(collect)]×rounds` | Same panel, 2–5 harness-mediated rounds. Voices stay read-only; there is no judge. |
 
 ## Quality configuration
 

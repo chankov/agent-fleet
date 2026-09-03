@@ -68,8 +68,10 @@ import { registerComs } from "./commands/coms.ts";
 import { registerHandoff } from "./commands/handoff.ts";
 import { registerCompound } from "./commands/compound.ts";
 import { registerPoll } from "./commands/poll.ts";
+import { registerDebate } from "./commands/debate.ts";
 import type { CommandContext } from "./commands/context.ts";
 import { formatAfPollStarted, formatAfPollVoiceProgress, handleAfPoll } from "./poll-command.ts";
+import { formatAfDebateStarted, formatAfDebateVoiceProgress, handleAfDebate } from "./debate-command.ts";
 import { registerDispatchAgent } from "./tools/dispatch-agent.ts";
 import { registerSpawnResearch } from "./tools/spawn-research.ts";
 import { registerSetTaskTier } from "./tools/set-task-tier.ts";
@@ -1434,6 +1436,100 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				display: true,
 			}, { deliverAs: "followUp", triggerTurn: true });
 		},
+		handleDebate: async (args, ctx) => {
+			if (modelWorkBlockedByRosterRecovery(ctx)) return;
+			const cwd = ctx.cwd || process.cwd();
+			const result = await handleAfDebate({
+				args: args ?? "",
+				cwd,
+				pollPanelOverride: parseAgentTeamOverrides(cwd).pollPanel,
+				listPanels: async dir => {
+					const { listPanelNames } = await import("../../../scripts/workflows/lib/voices.ts");
+					return listPanelNames(dir);
+				},
+				preflight: async ({ panel, persona, cwd: root }) => {
+					const [{ resolvePersona }, { resolvePanel }, { checkChildVisibility }] = await Promise.all([
+						import("../../../scripts/workflows/lib/personas.ts"),
+						import("../../../scripts/workflows/lib/voices.ts"),
+						import("../../../scripts/workflows/lib/model-visibility.ts"),
+					]);
+					try { resolvePersona(persona, root); }
+					catch (error) { return error instanceof Error ? error.message : String(error); }
+					let voices;
+					try { voices = resolvePanel(panel, root); }
+					catch (error) { return error instanceof Error ? error.message : String(error); }
+					const report = checkChildVisibility(voices.map(voice => voice.model));
+					if (report.diagnostic) return `could not verify clean-room model visibility (${report.diagnostic})`;
+					const hidden = report.models.filter(model => !model.ok);
+					if (hidden.length) {
+						return `panel "${panel}" has models not visible to a clean-room child: ${hidden.map(model => model.reasons[0] ?? model.model).join("; ")}`;
+					}
+					return null;
+				},
+				checkBudget: () => {
+					ensureTaskTier();
+					const turnRefusal = checkTurnBudget("dispatch", { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnBudgetActiveElapsedMs(), taskTier);
+					return turnRefusal ? budgetContinuationInstruction(turnRefusal.message, "turn", userLanguage) : null;
+				},
+				chargeBudget: () => {
+					turnDispatchCount += 1;
+					taskDispatchCount += 1;
+					sessionTotals.dispatches += 1;
+					updateModeStatus();
+				},
+				onAccepted: async ({ panel, persona, question, rounds }) => {
+					let voices: { name: string; model: string }[] = [];
+					try {
+						const { resolvePanel } = await import("../../../scripts/workflows/lib/voices.ts");
+						voices = resolvePanel(panel, cwd).map(voice => ({ name: voice.name, model: voice.model }));
+					} catch { /* names are decorative */ }
+					const started = formatAfDebateStarted({ panel, persona, question, rounds, voices });
+					ctx.ui.setStatus("hub-poll", `Debate: ${panel} (${rounds} rounds) running…`);
+					ctx.ui.notify(`Debate started — panel ${panel}, ${rounds} rounds.`, "info");
+					pi.sendMessage({ customType: "af-debate-started", content: started, display: true }, { deliverAs: "followUp", triggerTurn: false });
+				},
+				execute: async ({ panel, persona, question, rounds }) => {
+					const [{ Run }, { runDebate }, { resolvePersona }] = await Promise.all([
+						import("../../../scripts/workflows/lib/run.ts"),
+						import("../../../scripts/workflows/lib/debate.ts"),
+						import("../../../scripts/workflows/lib/personas.ts"),
+					]);
+					const run = new Run({ cwd, command: ["/af-debate", "--panel", panel, "--rounds", String(rounds), question] });
+					const personaDef = resolvePersona(persona, cwd);
+					const debate = await runDebate({
+						run, cwd, persona: personaDef, panel, task: question, rounds,
+						onVoice: (result, round) => {
+							const voice = result.ok
+								? { name: result.voice.name, model: result.voice.model, ok: true as const, round, position: result.report.position, changed: result.report.changed }
+								: { name: result.voice.name, model: result.voice.model, ok: false as const, round, reason: result.reason };
+							ctx.ui.setStatus("hub-poll", `Debate: ${panel} round ${round}…`);
+							pi.sendMessage({ customType: "af-debate-voice", content: formatAfDebateVoiceProgress(voice), display: true }, { deliverAs: "followUp", triggerTurn: false });
+						},
+					});
+					const last = debate.roundsRun.at(-1)?.results ?? [];
+					const directory = path.relative(cwd, debate.directory) || debate.directory;
+					return {
+						panel, rounds: debate.rounds,
+						directory: directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`,
+						voices: last.map(item => item.ok
+							? { name: item.voice.name, model: item.voice.model, ok: true as const, round: item.round, position: item.report.position, changed: item.report.changed }
+							: { name: item.voice.name, model: item.voice.model, ok: false as const, round: item.round, reason: item.reason }),
+					};
+				},
+			});
+			ctx.ui.setStatus("hub-poll", "");
+			if (!result.ok) {
+				ctx.ui.notify(result.message, "error");
+				pi.sendMessage({ customType: "af-debate-failed", content: `DEBATE FAILED\n\n${result.message}`, display: true }, { deliverAs: "followUp", triggerTurn: false });
+				return;
+			}
+			ctx.ui.notify(result.digest ?? result.message, "info");
+			pi.sendMessage({
+				customType: "af-debate",
+				content: result.dispatcherNote ?? result.message,
+				display: true,
+			}, { deliverAs: "followUp", triggerTurn: true });
+		},
 		getAgentsKillCompletions: prefix => completions.agentsKill(prefix),
 		getZoomCompletions: prefix => completions.zoom(prefix),
 		getAgentModelCompletions: prefix => completions.agentModels(prefix),
@@ -1467,6 +1563,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	registerHandoff(pi, commandCtx);
 	registerCompound(pi, commandCtx);
 	registerPoll(pi, commandCtx);
+	registerDebate(pi, commandCtx);
 
 	const detailPanel = createDetailPanel<AgentDef, AgentState, ResearchState>({
 		getAgent: key => agentStates.get(key),
