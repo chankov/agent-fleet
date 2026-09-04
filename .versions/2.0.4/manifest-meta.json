@@ -1,0 +1,969 @@
+{
+  "schemaVersion": 2,
+  "_comment": "Curated metadata for install-manifest.json. Everything mechanical (which artifacts exist, which agent has a source) is derived from the tree by bin/build-manifest.js — only judgement lives here: grouping, recommendations, consent class, companion wiring, and profiles. Run `node bin/build-manifest.js` after editing.",
+  "groups": [
+    {
+      "id": "skills",
+      "title": "Skills",
+      "order": 1,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "phase",
+      "subcategories": [
+        "define",
+        "plan",
+        "build",
+        "verify",
+        "review",
+        "ship",
+        "orchestrate",
+        "learn",
+        "meta"
+      ]
+    },
+    {
+      "id": "personas",
+      "title": "Agent personas",
+      "order": 2,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "access",
+      "subcategories": [
+        "rw",
+        "ro",
+        "pi-only"
+      ]
+    },
+    {
+      "id": "commands",
+      "title": "Commands / prompts",
+      "order": 3,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "references",
+      "title": "References",
+      "order": 4,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "coms-bridge",
+      "title": "Claude Code coms bridge",
+      "order": 11,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "pi-extensions",
+      "title": "pi extensions & runtime skills",
+      "order": 5,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "type",
+      "subcategories": [
+        "extension",
+        "runtime-skill"
+      ]
+    },
+    {
+      "id": "pi-harnesses",
+      "title": "pi harnesses",
+      "order": 6,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "hermes",
+      "title": "Hermes plugins & skills",
+      "order": 7,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "type",
+      "subcategories": [
+        "plugin",
+        "skill"
+      ]
+    },
+    {
+      "id": "codex-bridge",
+      "title": "Codex remote conductor",
+      "order": 8,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "external-packages",
+      "title": "External packages",
+      "order": 9,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "companions",
+      "title": "Companions",
+      "order": 10,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    }
+  ],
+  "profiles": {
+    "minimal": {
+      "title": "Lifecycle skills and their commands, nothing else",
+      "items": [
+        "skill:using-agent-skills",
+        "skill:spec-driven-development",
+        "skill:planning-and-task-breakdown",
+        "skill:incremental-implementation",
+        "skill:test-driven-development",
+        "skill:code-review-and-quality",
+        "command:spec",
+        "command:plan",
+        "command:build",
+        "command:test",
+        "command:review"
+      ]
+    },
+    "recommended": {
+      "title": "Every item marked recommended for this agent",
+      "rule": "recommended"
+    },
+    "full": {
+      "title": "Every item available for this agent",
+      "rule": "all"
+    },
+    "pi-fleet-core": {
+      "title": "The pi harness core stack",
+      "items": [
+        "pi-harness:agent-hub",
+        "pi-harness:damage-control-continue",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:compact-and-continue",
+        "pi-extension:btw"
+      ]
+    },
+    "hermes-plugins": {
+      "title": "Hermes plugin/bridge closure (operator-applied)",
+      "items": [
+        "hermes-plugin:agent-fleet-herdr",
+        "hermes-plugin:agent-fleet-monitor",
+        "hermes-skill:hub-conductor",
+        "hermes-skill:hub-liaison",
+        "hermes-skill:hub-watchdog"
+      ]
+    },
+    "codex-bridge": {
+      "title": "Codex remote conductor closure (operator-applied)",
+      "items": [
+        "codex:agent-fleet-codex-remote-control"
+      ]
+    }
+  },
+  "exclude": {
+    "_comment": "Installer-only or non-artifact entries that must never appear as menu rows.",
+    "skills": [
+      "_internal"
+    ],
+    "personas": [],
+    "commands": [
+      "setup-agent-fleet",
+      "doctor-agent-fleet"
+    ],
+    "references": [],
+    "hooks": [],
+    "piExtensions": [],
+    "piHarnesses": [
+      "lib"
+    ],
+    "piRuntimeSkills": []
+  },
+  "recommended": [
+    "skill:spec-driven-development",
+    "skill:planning-and-task-breakdown",
+    "skill:incremental-implementation",
+    "skill:test-driven-development",
+    "skill:debugging-and-error-recovery",
+    "skill:code-review-and-quality",
+    "skill:git-workflow-and-versioning",
+    "skill:orchestration-verification",
+    "skill:compound-learning",
+    "skill:using-agent-skills",
+    "persona:builder",
+    "persona:test-engineer",
+    "persona:code-reviewer",
+    "command:spec",
+    "command:plan",
+    "command:build",
+    "command:test",
+    "command:review",
+    "pi-extension:agent-fleet-update-check"
+  ],
+  "subcategory": {
+    "skill:spec-driven-development": "define",
+    "skill:idea-refine": "define",
+    "skill:interview-me": "define",
+    "skill:planning-and-task-breakdown": "plan",
+    "skill:incremental-implementation": "build",
+    "skill:test-driven-development": "build",
+    "skill:context-engineering": "build",
+    "skill:source-driven-development": "build",
+    "skill:doubt-driven-development": "build",
+    "skill:frontend-ui-engineering": "build",
+    "skill:api-and-interface-design": "build",
+    "skill:browser-testing-with-devtools": "verify",
+    "skill:debugging-and-error-recovery": "verify",
+    "skill:code-review-and-quality": "review",
+    "skill:code-simplification": "review",
+    "skill:security-and-hardening": "review",
+    "skill:performance-optimization": "review",
+    "skill:git-workflow-and-versioning": "ship",
+    "skill:ci-cd-and-automation": "ship",
+    "skill:deprecation-and-migration": "ship",
+    "skill:documentation-and-adrs": "ship",
+    "skill:observability-and-instrumentation": "ship",
+    "skill:shipping-and-launch": "ship",
+    "skill:orchestration-verification": "orchestrate",
+    "skill:compound-learning": "learn",
+    "skill:using-agent-skills": "meta",
+    "skill:designing-agents": "meta",
+    "persona:builder": "rw",
+    "persona:test-engineer": "rw",
+    "persona:documenter": "rw",
+    "persona:planner": "rw",
+    "persona:architect": "rw",
+    "persona:releaser": "rw",
+    "persona:code-reviewer": "ro",
+    "persona:security-auditor": "ro",
+    "persona:plan-reviewer": "ro",
+    "persona:researcher": "ro",
+    "persona:deep-researcher": "ro",
+    "persona:web-performance-auditor": "ro",
+    "persona:bowser": "pi-only",
+    "persona:web-debugger": "pi-only",
+    "persona:orchestrator": "pi-only",
+    "pi-extension:mcp-bridge": "extension",
+    "pi-extension:chrome-devtools-mcp": "extension",
+    "pi-extension:compact-and-continue": "extension",
+    "pi-extension:agent-fleet-update-check": "extension",
+    "pi-extension:btw": "extension",
+    "pi-extension:pi-voice-stt": "extension",
+    "pi-runtime-skill:bowser": "runtime-skill",
+    "hermes-plugin:agent-fleet-herdr": "plugin",
+    "hermes-plugin:agent-fleet-monitor": "plugin",
+    "hermes-skill:hub-conductor": "skill",
+    "hermes-skill:hub-liaison": "skill",
+    "hermes-skill:hub-watchdog": "skill",
+    "skill:drafting-workflows": "meta"
+  },
+  "items": {
+    "_comment": "Per-id overrides merged onto the derived item.",
+    "skill:idea-refine": {
+      "companions": [
+        "companion:skills-internal-grilling"
+      ]
+    },
+    "skill:spec-driven-development": {
+      "companions": [
+        "companion:skills-internal-grilling"
+      ]
+    },
+    "skill:planning-and-task-breakdown": {
+      "companions": [
+        "companion:skills-internal-grilling",
+        "reference:definition-of-done",
+        "reference:communication-contract"
+      ]
+    },
+    "_references_comment": "A reference is the long-form half of a skill that cites it by path — never a standalone choice. Declaring it here as a companion means selecting the skill brings its checklists, and uninstall refuses to strand a skill without them. Keep this in step with the `references/…` citations in the SKILL.md bodies (both skills/ and the vendored copies under vendor/agent-skills-upstream/).",
+    "skill:using-agent-skills": {
+      "companions": [
+        "reference:definition-of-done"
+      ]
+    },
+    "skill:incremental-implementation": {
+      "companions": [
+        "reference:definition-of-done"
+      ]
+    },
+    "skill:test-driven-development": {
+      "companions": [
+        "reference:testing-patterns"
+      ]
+    },
+    "skill:frontend-ui-engineering": {
+      "companions": [
+        "reference:accessibility-checklist"
+      ]
+    },
+    "skill:observability-and-instrumentation": {
+      "companions": [
+        "reference:observability-checklist"
+      ]
+    },
+    "skill:doubt-driven-development": {
+      "companions": [
+        "reference:orchestration-patterns"
+      ]
+    },
+    "skill:security-and-hardening": {
+      "companions": [
+        "reference:security-checklist"
+      ]
+    },
+    "skill:performance-optimization": {
+      "companions": [
+        "reference:performance-checklist"
+      ]
+    },
+    "skill:code-review-and-quality": {
+      "companions": [
+        "reference:performance-checklist",
+        "reference:security-checklist"
+      ]
+    },
+    "skill:context-engineering": {
+      "companions": [
+        "reference:prompting-patterns"
+      ]
+    },
+    "skill:designing-agents": {
+      "companions": [
+        "reference:prompting-patterns"
+      ]
+    },
+    "skill:shipping-and-launch": {
+      "companions": [
+        "reference:accessibility-checklist",
+        "reference:definition-of-done",
+        "reference:performance-checklist",
+        "reference:security-checklist"
+      ]
+    },
+    "persona:web-performance-auditor": {
+      "companions": [
+        "reference:performance-checklist"
+      ]
+    },
+    "_coms_bridge_comment": "Claude Code is not an install target — it joins the fleet only as a coms peer, driven by scripts/coms-claude-bridge.ts. Both halves of that bridge live in one group: the skill the bridged pane reads, and the Stop hook it writes its turn output through. See docs/claude-code-coms-bridge.md.",
+    "skill:peer-coms": {
+      "group": "coms-bridge",
+      "companions": [
+        "hook:coms-stop-hook"
+      ]
+    },
+    "skill:orchestration-verification": {
+      "companions": [
+        "reference:fleet-coordination-patterns"
+      ],
+      "recommendsWith": [
+        "persona:orchestrator",
+        "persona:builder",
+        "persona:test-engineer",
+        "persona:code-reviewer"
+      ]
+    },
+    "skill:compound-learning": {
+      "recommendsWith": [
+        "command:compound",
+        "persona:documenter"
+      ]
+    },
+    "command:compound": {
+      "recommendsWith": [
+        "skill:compound-learning"
+      ]
+    },
+    "persona:bowser": {
+      "requires": [
+        "pi-runtime-skill:bowser"
+      ]
+    },
+    "persona:web-debugger": {
+      "requires": [
+        "pi-extension:chrome-devtools-mcp"
+      ]
+    },
+    "pi-runtime-skill:bowser": {
+      "recommendsWith": [
+        "external:playwright-cli"
+      ]
+    },
+    "_fleet_core_comment": "Fleet Core is the set the justfile's `fleet_core_extensions` loads into every pi session and every Herdr peer: two harnesses (damage-control-continue, ask-user-remote) plus four utility extensions. It is encoded twice on purpose — `requires`, so installing any harness pulls the whole set, and `pinnedBy`, so uninstall refuses to break a harness by taking a member out from under it. Keep it in step with the `fleet_core_extensions` line in the justfile; bin/test/damage-control-unification.test.js asserts the two agree.",
+    "pi-extension:mcp-bridge": {
+      "companions": [
+        "companion:pi-extension-manifests",
+        "companion:pi-extension-deps"
+      ]
+    },
+    "pi-extension:chrome-devtools-mcp": {
+      "companions": [
+        "companion:pi-extension-manifests",
+        "companion:pi-extension-deps"
+      ]
+    },
+    "pi-extension:compact-and-continue": {
+      "companions": [
+        "companion:pi-extension-manifests",
+        "companion:pi-extension-deps"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    "pi-extension:agent-fleet-update-check": {
+      "companions": [
+        "companion:pi-extension-manifests",
+        "companion:pi-extension-deps"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    "pi-extension:btw": {
+      "companions": [
+        "companion:pi-harness-lib",
+        "companion:pi-extension-manifests",
+        "companion:pi-extension-deps"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    "pi-extension:pi-voice-stt": {
+      "companions": [
+        "companion:pi-extension-manifests",
+        "companion:pi-extension-deps",
+        "companion:stt-config"
+      ]
+    },
+    "pi-harness:agent-hub": {
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests",
+        "companion:pi-harness-deps",
+        "companion:pi-agent-configs"
+      ],
+      "requires": [
+        "pi-harness:damage-control-continue",
+        "pi-harness:ask-user-remote"
+      ],
+      "pinnedBy": []
+    },
+    "pi-harness:damage-control-continue": {
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests",
+        "companion:pi-harness-deps",
+        "companion:damage-control-rules"
+      ],
+      "requires": [
+        "pi-harness:ask-user-remote",
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:coms"
+      ]
+    },
+    "pi-harness:ask-user-remote": {
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests",
+        "companion:pi-harness-deps"
+      ],
+      "requires": [
+        "pi-harness:damage-control-continue",
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:coms"
+      ],
+      "recommendsWith": [
+        "external:pi-ask-user"
+      ]
+    },
+    "pi-harness:coms": {
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests",
+        "companion:pi-harness-deps",
+        "companion:pi-agent-configs"
+      ],
+      "requires": [
+        "pi-harness:damage-control-continue",
+        "pi-harness:ask-user-remote"
+      ]
+    },
+    "_operator_comment": "operatorSteps are printed verbatim by `install --profile hermes-plugins|codex-bridge`. These artifacts install into a Hermes profile or user systemd — outside the workspace the engine is allowed to write to — so the engine names the commands and performs none of them. <profile> is the operator's Hermes profile.",
+    "hermes-plugin:agent-fleet-herdr": {
+      "operatorSteps": [
+        "clone agent-fleet — scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        "scripts/install-hermes-plugin.sh agent-fleet-herdr --profile <profile>",
+        "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
+        "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
+      ]
+    },
+    "hermes-plugin:agent-fleet-monitor": {
+      "operatorSteps": [
+        "clone agent-fleet — scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        "scripts/install-hermes-plugin.sh agent-fleet-monitor --profile <profile>",
+        "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
+        "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
+      ]
+    },
+    "hermes-skill:hub-conductor": {
+      "operatorSteps": [
+        "copy hermes/skills/hub-conductor into <hermes-profile>/skills/hub-conductor",
+        "hermes --profile <profile> skills config   # enable hub-conductor",
+        "hermes --profile <profile> gateway restart"
+      ]
+    },
+    "hermes-skill:hub-liaison": {
+      "operatorSteps": [
+        "agent-fleet set-hermes-telegram install --profile <profile>",
+        "hermes --profile <profile> skills config   # enable hub-liaison",
+        "hermes --profile <profile> tools enable --platform telegram terminal file",
+        "agent-fleet set-hermes-telegram status --profile <profile>   # confirm ready"
+      ]
+    },
+    "hermes-skill:hub-watchdog": {
+      "operatorSteps": [
+        "agent-fleet set-hermes-watchdog install --profile <profile>",
+        "agent-fleet set-hermes-watchdog status --profile <profile>   # confirm the receipt and lock state"
+      ]
+    },
+    "codex:agent-fleet-codex-remote-control": {
+      "operatorSteps": [
+        "clone agent-fleet — the conductor recipes and the unit template are repo-only",
+        "just fleet conductor codex setup docs --project <name>   # writes the unit, does not start it",
+        "just fleet conductor codex pair   # interactive TTY only; the code is short-lived secret material",
+        "just fleet conductor codex start",
+        "just fleet conductor codex status   # reports requested systemd state only"
+      ],
+      "stability": "experimental"
+    },
+    "skill:drafting-workflows": {
+      "companions": [
+        "reference:workflow-authoring",
+        "companion:workflow-runtime"
+      ]
+    },
+    "companion:justfile-region": {
+      "companions": [
+        "companion:codex-conductor-contract",
+        "companion:workflow-runtime"
+      ]
+    },
+    "companion:workflow-runtime": {
+      "companions": [
+        "companion:workflow-guide",
+        "companion:workflow-deps"
+      ]
+    }
+  },
+  "companions": {
+    "companion:codex-conductor-contract": {
+      "title": "Codex conductor runtime contract",
+      "summary": "Managed contract used by the optional Codex conductor recipes",
+      "agents": {
+        "pi": {
+          "source": [
+            "codex/CONDUCTOR.md"
+          ],
+          "target": ".pi/agent-fleet/codex/CONDUCTOR.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    "companion:skills-internal-grilling": {
+      "title": "skills/_internal/grilling.md",
+      "summary": "Shared helper for the interview-style skills",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/_internal/grilling.md"
+          ],
+          "target": ".pi/skills/_internal/grilling.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    "companion:justfile-region": {
+      "title": "justfile managed region",
+      "summary": "Harness launch recipes between the agent-fleet sentinels",
+      "agents": {
+        "pi": {
+          "source": [
+            "justfile"
+          ],
+          "target": "justfile",
+          "strategy": "managed-region"
+        }
+      }
+    },
+    "companion:pi-harness-lib": {
+      "title": ".pi/harnesses/lib",
+      "summary": "Shared modules every harness imports",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/lib"
+          ],
+          "target": ".pi/harnesses/lib",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    "companion:pi-harness-manifests": {
+      "title": ".pi/harnesses package manifests",
+      "summary": "Runtime dependency manifests for the harnesses",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/package.json",
+            ".pi/harnesses/package-lock.json"
+          ],
+          "sourceMode": "all",
+          "target": ".pi/harnesses",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    "companion:pi-harness-deps": {
+      "title": "npm ci (.pi/harnesses)",
+      "summary": "Installs the harness runtime dependencies",
+      "consent": "exec",
+      "agents": {
+        "pi": {
+          "source": [],
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          ".pi/harnesses"
+        ],
+        "cwd": "."
+      }
+    },
+    "companion:pi-extension-manifests": {
+      "title": ".pi/extensions package manifests",
+      "summary": "Runtime dependency manifests for the extensions",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/package.json",
+            ".pi/extensions/package-lock.json"
+          ],
+          "sourceMode": "all",
+          "target": ".pi/extensions",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    "companion:pi-extension-deps": {
+      "title": "npm ci (.pi/extensions)",
+      "summary": "Installs the extension runtime dependencies",
+      "consent": "exec",
+      "agents": {
+        "pi": {
+          "source": [],
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          ".pi/extensions"
+        ],
+        "cwd": "."
+      }
+    },
+    "companion:pi-agent-configs": {
+      "title": ".pi/agents configs",
+      "summary": "teams, peers, chains, dispatch policy, and model panels (voices.yaml) the harnesses read",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agents"
+          ],
+          "target": ".pi/agents",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    "companion:damage-control-rules": {
+      "title": ".pi/damage-control-rules.yaml",
+      "summary": "Rule set the damage-control harness enforces",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/damage-control-rules.yaml"
+          ],
+          "target": ".pi/damage-control-rules.yaml",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    "companion:stt-config": {
+      "title": ".ai/stt.json",
+      "summary": "Non-secret voice provider config; keys stay in .env — asked for, never generated",
+      "agents": {
+        "pi": {
+          "source": [],
+          "target": null,
+          "strategy": "operator"
+        }
+      },
+      "consent": "operator",
+      "operatorSteps": [
+        "pick a provider and write .ai/stt.json — see docs/pi-extensions.md",
+        "put the API key in a gitignored .env under the env-var name stt.json references; never in stt.json itself",
+        "the extension binds Alt+S only once a provider resolves — until then it is a no-op"
+      ]
+    },
+    "companion:workflow-guide": {
+      "title": "Workflow runtime guide",
+      "summary": "Managed workflow map read by the drafting skill",
+      "agents": {
+        "pi": {
+          "source": [
+            "docs/workflows.md"
+          ],
+          "target": ".pi/agent-fleet/docs/workflows.md",
+          "strategy": "copy-file"
+        }
+      }
+    },
+    "companion:workflow-runtime": {
+      "title": "Deterministic workflow runtime",
+      "summary": "Headless flow dispatcher, workflow graphs, and scoped configuration",
+      "agents": {
+        "pi": {
+          "source": [
+            "scripts/flow.ts",
+            "scripts/package.json",
+            "scripts/package-lock.json",
+            "scripts/lib/flow-command.ts",
+            "scripts/lib/flow-maintenance.ts",
+            "scripts/workflows"
+          ],
+          "sourceMode": "all",
+          "preserveLayout": true,
+          "target": null,
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    "companion:workflow-deps": {
+      "title": "npm ci (scripts)",
+      "summary": "Installs the deterministic workflow runtime dependencies",
+      "consent": "exec",
+      "agents": {
+        "pi": {
+          "source": [],
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          "scripts"
+        ],
+        "cwd": "."
+      }
+    }
+  },
+  "externalPackages": {
+    "external:pi-ask-user": {
+      "title": "pi-ask-user",
+      "summary": "Native ask_user widget for pi",
+      "agents": [
+        "pi"
+      ],
+      "package": {
+        "manager": "pi",
+        "spec": "npm:pi-ask-user",
+        "scope": "project",
+        "probe": "pi-ask-user"
+      }
+    },
+    "external:playwright-cli": {
+      "title": "playwright-cli",
+      "summary": "Playwright Agent CLI the bowser runtime skill drives",
+      "agents": [
+        "pi"
+      ],
+      "package": {
+        "manager": "npm",
+        "spec": "@playwright/cli@latest",
+        "scope": "global",
+        "probe": "playwright-cli"
+      }
+    }
+  },
+  "presets": {
+    "default": {
+      "title": "Launchable recommended Agent Fleet",
+      "items": [
+        "command:build",
+        "command:plan",
+        "command:review",
+        "command:spec",
+        "command:test",
+        "persona:builder",
+        "persona:code-reviewer",
+        "persona:test-engineer",
+        "pi-extension:agent-fleet-update-check",
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue",
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue",
+        "skill:code-review-and-quality",
+        "skill:compound-learning",
+        "skill:debugging-and-error-recovery",
+        "skill:git-workflow-and-versioning",
+        "skill:incremental-implementation",
+        "skill:orchestration-verification",
+        "skill:planning-and-task-breakdown",
+        "skill:spec-driven-development",
+        "skill:test-driven-development",
+        "skill:using-agent-skills"
+      ]
+    },
+    "full": {
+      "title": "All stable platform-applicable catalogue roots",
+      "rule": "stable"
+    },
+    "minimal": {
+      "title": "Internal lifecycle support preset",
+      "items": [
+        "skill:using-agent-skills",
+        "skill:spec-driven-development",
+        "skill:planning-and-task-breakdown",
+        "skill:incremental-implementation",
+        "skill:test-driven-development",
+        "skill:code-review-and-quality",
+        "command:spec",
+        "command:plan",
+        "command:build",
+        "command:test",
+        "command:review"
+      ]
+    }
+  },
+  "features": {
+    "voice": {
+      "title": "Voice",
+      "stability": "stable",
+      "items": [
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    "browser": {
+      "title": "Browser",
+      "stability": "stable",
+      "items": [
+        "pi-extension:chrome-devtools-mcp",
+        "pi-runtime-skill:bowser"
+      ]
+    },
+    "hermes": {
+      "title": "Hermes",
+      "stability": "stable",
+      "items": [
+        "hermes-plugin:agent-fleet-herdr",
+        "hermes-plugin:agent-fleet-monitor",
+        "hermes-skill:hub-conductor",
+        "hermes-skill:hub-liaison",
+        "hermes-skill:hub-watchdog"
+      ]
+    },
+    "telegram": {
+      "title": "Telegram",
+      "stability": "stable",
+      "requiresFeatures": [
+        "hermes"
+      ],
+      "items": [
+        "hermes-skill:hub-liaison"
+      ]
+    },
+    "claude-bridge": {
+      "title": "Claude bridge",
+      "stability": "stable",
+      "items": [
+        "skill:peer-coms"
+      ]
+    },
+    "codex-remote": {
+      "title": "Codex remote",
+      "stability": "experimental",
+      "items": [
+        "codex:agent-fleet-codex-remote-control"
+      ]
+    }
+  }
+}
