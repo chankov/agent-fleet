@@ -1,3 +1,4 @@
+import { readActiveProfile } from './policy/profile-runtime.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { TIMEOUT_MS } from "../lib/coms-core.ts";
 import { comsRequiredRefusal, explicitComsRefusal, resolveDispatchBackend } from "./backend-policy.js";
@@ -114,7 +115,9 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend): Promise<NativeDispatchResult | null> {
 	const { deps, state, task, ctx, inputArtifacts, scopeGlobs, personaKey, monitorKey, startTime, histEntry } = run;
 	const livePeerNames = () => deps.isComsReady() && deps.getIdentity() ? deps.peersInScope().map(entry => entry.name) : [];
-	const dispatchPolicy = deps.getDispatchPolicy();
+	const forceNative=readActiveProfile()?.profile.routing==='native';
+	if(forceNative&&requestedBackend==='coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.',1);
+	const dispatchPolicy = forceNative?{default:'native',grace_s:0,substitutions:{}}:deps.getDispatchPolicy();
 	let route: any = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames(), requestedBackend });
 	if (route.backend === "invalid") return run.finishRun(`Invalid dispatch backend "${route.requestedBackend}". Expected auto|native|coms.`, 1);
 	if (route.backend === "coms-unavailable") return run.finishRun(explicitComsRefusal(deps.displayName(state.def.name)), 1);

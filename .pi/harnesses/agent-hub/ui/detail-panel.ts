@@ -1,3 +1,4 @@
+import { assertProfileModel, readActiveProfile } from '../policy/profile-runtime.ts';
 import { copyToClipboard } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { ModelPolicy } from "../policy/models.ts";
@@ -99,7 +100,8 @@ export function createDetailPanel<TDef extends DetailAgentDef, TAgent extends De
 
 	async function loadAvailableModelChoices(ctx: DetailUiContext, current?: string): Promise<FleetModelChoice[] | null> {
 		try { await ctx.modelRegistry?.refresh?.(); } catch { /* retain last-known models */ }
-		const choices = fleetModelChoices(ctx.modelRegistry?.getAvailable?.() ?? [], current);
+		const allowed=readActiveProfile()?.profile['allowed-models'];
+		const choices = fleetModelChoices(ctx.modelRegistry?.getAvailable?.() ?? [], current).filter(choice=>!allowed||allowed.includes(choice.spec));
 		if (choices.length === 0) {
 			const diagnostic = ctx.modelRegistry?.getError?.();
 			ctx.ui.notify(`Pi reports no available models${diagnostic ? `: ${diagnostic}` : "."}`, "warning");
@@ -112,6 +114,7 @@ export function createDetailPanel<TDef extends DetailAgentDef, TAgent extends De
 		const target = resolveModelTarget(row, ctx);
 		if (!target) return false;
 		const effectivePicked = deps.modelPolicy.substitutedModel(picked) ?? picked;
+		try {assertProfileModel(effectivePicked);}catch(error){ctx.ui.notify(String(error),"error");return false;}
 		if (effectivePicked === target.current) { ctx.ui.notify(`${row.name} is already on ${effectivePicked}`, "info"); return false; }
 		let applyHint = "applies on the next run";
 		if (target.kind === "specialist") {

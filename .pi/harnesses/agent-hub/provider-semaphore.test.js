@@ -22,7 +22,8 @@ test("providerKey takes the prefix before the first slash", () => {
 	assert.equal(providerKey(undefined), "");
 });
 
-test("only custom/* is limited by default", () => {
+test("custom/* and omlx/* are limited by default", () => {
+	assert.equal(providerLimit("omlx/Laguna-XS-2.1-4bit", DEFAULT_PROVIDER_LIMITS), 2);
 	assert.equal(providerLimit("custom/Qwen3.8-27B-Uncensored-MLX-4bit", DEFAULT_PROVIDER_LIMITS), 2);
 	assert.equal(providerLimit("openai-codex/gpt-5.6-luna", DEFAULT_PROVIDER_LIMITS), null);
 	assert.equal(providerLimit("anthropic/claude-opus-4-7", DEFAULT_PROVIDER_LIMITS), null);

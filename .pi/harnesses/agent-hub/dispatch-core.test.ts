@@ -197,3 +197,47 @@ test("delegation observability preserves nesting, usage, timeline, and exit hist
 	assert.equal(child.status, "done");
 	assert.deepEqual(historyEnds, [{ status: "done", endedAt: 35 }]);
 });
+
+test('complete profile routes to native despite live coms peer and resolves both auxiliary jobs locally',async()=>{
+ const {setActiveProfile,PROFILE_ENV}=await import('./policy/profile-runtime.ts');
+ const previous=process.env[PROFILE_ENV];
+ setActiveProfile({name:'local',profile:{version:2,defaults:{model:'omlx/laguna',thinking:'off'},routing:'native',fallback:'none',services:{'return-extractor':{model:'omlx/qwen'}},'allowed-models':['omlx/laguna','omlx/qwen']}});
+ try {
+  let peers=0,spawns=0;const state=nativeState();
+  const native=createDispatchNative(nativeDeps(state,{getDispatchPolicy:()=>({default:'coms',grace_s:0,substitutions:{}}),isComsReady:()=>true,getIdentity:()=>({}),peersInScope:()=>[{name:'builder'}],resolvedModel:()=> 'omlx/laguna',dispatchViaComs:async()=>{peers++;return null;},spawnPiAgentWithModelFallback:async(o:any,fallback:any)=>{spawns++;assert.equal(o.model,'omlx/laguna');assert.equal(fallback,undefined);return {output:'local',exitCode:0,stderr:''};}}));
+  assert.equal((await native.dispatchAgent('builder','task',extensionContext)).exitCode,0);
+  assert.equal(peers,0);assert.equal(spawns,1);
+  const refused=await native.dispatchAgent('builder','task',extensionContext,[],[],undefined,'coms');
+  assert.match(refused.output,/requires native/);assert.equal(spawns,1);assert.equal(peers,0);
+  const models:string[]=[];
+  const auxiliary=createDispatchComs(comsDeps({getWatchdogJudgeModel:()=> 'cloud/judge',spawnPiAgent:async(o:any)=>{models.push(o.model);assert.equal(o.thinking,'off');return {output:'',exitCode:0};}}));
+  await auxiliary.runDriftJudge({agentLabel:'builder',agentKey:'builder',task:'test',scopeGlobs:[],hubOwnedGlobs:[],trail:[],violation:{rule:'test',detail:'test'}},extensionContext);
+  await auxiliary.runReturnExtraction('/tmp/profile-report.md',[]);
+  assert.deepEqual(models,['omlx/laguna','omlx/qwen']);
+ }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
+});
+
+test('local-duo serializes every declared child locally without project overrides or cloud fallback',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const {scanAgentDirs,parseModelProfilesYaml}=await import('./config/agents.ts');
+ const {createModelPolicy}=await import('./policy/models.ts');
+ const {setActiveProfile,PROFILE_ENV}=await import('./policy/profile-runtime.ts');
+ const defs=scanAgentDirs(process.cwd());const profile=parseModelProfilesYaml(readFileSync('.pi/agents/model-profiles.yaml','utf8'))['local-duo'] as any;
+ const policy=createModelPolicy({getAllDefs:()=>defs,getActiveDef:n=>defs.find(d=>d.name===n),getResearchDefs:()=>[],refreshUi(){}});
+ policy.applyProfile(profile);
+ const previous=process.env[PROFILE_ENV];setActiveProfile({name:'local-duo',profile});
+ let roles=0;
+ try{
+  for(const def of defs.filter(d=>d.subagents)){
+   const state=nativeState();state.def=def;
+   const run=createDispatchNative(nativeDeps(state,{resolvedModel:policy.resolvedModel,resolvedThinking:policy.resolvedThinking,resolvedSubagentModel:policy.resolvedSubagentModel,currentBudget:()=>({delegation:true,agentTurnMs:null}),getDelegateExtensionPath:()=> '/tmp/delegate.ts',spawnPiAgentWithModelFallback:async(opts:any,fallback:any)=>{
+    assert.ok(profile['allowed-models'].includes(opts.model));assert.equal(fallback,undefined);
+    const config=JSON.parse(opts.env.AGENT_HUB_DELEGATE_CONFIG);
+    for(const entry of Object.values(config.roles) as any[]){roles++;assert.ok(profile['allowed-models'].includes(entry.model));assert.equal(entry.thinking,'off');assert.equal(entry.fallbackModel,undefined);}
+    return {output:'local children configured',exitCode:0,stderr:''};
+   }}));
+   assert.equal((await run.dispatchAgent(def.name,'task',extensionContext)).exitCode,0);
+  }
+  assert.equal(roles,18);
+ }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
+});

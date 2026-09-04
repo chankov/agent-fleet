@@ -1,3 +1,4 @@
+import { validateProfile, type ModelProfiles } from '../config/model-profiles.ts';
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -52,7 +53,8 @@ export interface SessionOverridePorts<TDef extends AgentDef> {
 	setProjectDocs(value: string[]): void;
 	resetModelPolicy(): void;
 	getAgentDefs(): TDef[];
-	getModelProfiles(): Record<string, Record<string, string>>;
+	getModelProfiles(): ModelProfiles;
+	getModelProfileErrors?(): string[];
 	deleteModelProfile(name: string): void;
 	allowedModels(def: TDef): string[];
 	getDispatchPolicyWarnings(): string[];
@@ -97,13 +99,11 @@ export function applySessionOverrides<TDef extends AgentDef>(ctx: ExtensionConte
 		if (overrides.personaDelegateDepth[lower] !== undefined) def.delegateDepth = overrides.personaDelegateDepth[lower];
 	}
 
+	const parseErrors=ports.getModelProfileErrors?.()??[];
+	if(parseErrors.length) ctx.ui.notify(`model-profiles.yaml: ${parseErrors.join('\n')}`, 'error');
 	const profileErrors: string[] = [];
-	for (const [profileName, entries] of Object.entries(ports.getModelProfiles())) {
-		for (const [persona, model] of Object.entries(entries)) {
-			const def = defs.find(candidate => candidate.name.toLowerCase() === persona);
-			if (!def) profileErrors.push(`profile "${profileName}": unknown persona "${persona}"`);
-			else if (!ports.allowedModels(def).includes(model)) profileErrors.push(`profile "${profileName}": ${persona} does not declare ${model} (model:/af-models: in ${def.file})`);
-		}
+	for (const [profileName, profile] of Object.entries(ports.getModelProfiles())) {
+		for(const error of validateProfile(profile,defs)) profileErrors.push(`profile "${profileName}": ${error}`);
 	}
 	if (profileErrors.length) {
 		const dropped = new Set(profileErrors.map(error => error.match(/^profile "([^"]+)"/)![1]));

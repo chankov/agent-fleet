@@ -250,7 +250,9 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   children inherit it). `/af-models [profile]` applies a named profile
   from `.pi/agents/model-profiles.yaml` — a macro over the same declared candidates, validated at
   session start (a profile with any entry outside a persona's candidates is dropped whole, with an
-  error); profiles never touch sub-role models — only `/af-agent-model` reaches those. Those
+  error). This is the legacy flat format. Version 2 profiles also set all child roles, thinking,
+  dispatcher, watchdog/extraction, poll/debate and routing from one selection; they declare their
+  own models without project candidate overrides. See [complete model profiles](../../../docs/agent-fleet-setup.md#complete-model-profiles). Those
   declared-candidate commands stay within their lists; Fleet Detail and the session-wide
   substitution target picker intentionally use Pi's currently available registry. When an effective project or session override
   fails with a model/provider error or aborted request before work begins (including local-model
@@ -660,7 +662,7 @@ session whose *projected* prompt — prior tokens plus this task — would overf
 A dispatch may fan out to four delegate children at once and several specialists can be
 mid-run, with nothing bounding how many requests land on one provider. That is fine against
 a hosted endpoint and not against a local one. Requests are capped per process — **2 in
-flight for `custom/*` by default, unlimited elsewhere**:
+flight for `custom/*` and `omlx/*` by default, unlimited elsewhere**:
 
 ```bash
 AGENT_HUB_PROVIDER_LIMITS="custom=4"        # raise the local cap

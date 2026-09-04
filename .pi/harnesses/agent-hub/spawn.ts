@@ -1,3 +1,4 @@
+import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV } from './policy/profile-runtime.ts';
 /**
  * spawnPiAgent — the ONE place agent-hub code spawns a headless `pi` child and
  * parses its JSON event stream. Research helpers and read-only delegate children
@@ -125,7 +126,20 @@ export function killPiTree(proc: ChildProcess, signal: NodeJS.Signals = "SIGTERM
 	}
 }
 
-export function spawnPiAgent(
+export function spawnPiAgent(opts: SpawnPiAgentOptions, cbs: SpawnPiAgentCallbacks = {}): Promise<SpawnPiAgentResult> {
+	return withProfileWork(async () => {
+		try {
+			const active=readActiveProfile()??readActiveProfile(opts.env);
+			assertProfileModel(opts.model,active);
+			if(active) opts={...opts,env:{...opts.env,[PROFILE_ENV]:JSON.stringify(active)}};
+			return await spawnPiAgentUnchecked(opts,cbs);
+		} catch(error) {
+			return {output:'',stderr:String(error),exitCode:1,spawnError:String(error),modelUsed:opts.model,toolCallsStarted:0};
+		}
+	});
+}
+
+function spawnPiAgentUnchecked(
 	opts: SpawnPiAgentOptions,
 	cbs: SpawnPiAgentCallbacks = {},
 ): Promise<SpawnPiAgentResult> {
@@ -360,6 +374,8 @@ export async function spawnPiAgentWithModelFallback(
 	cbs: SpawnPiAgentCallbacks = {},
 	fallbackOptions: ModelFallbackOptions = {},
 ): Promise<SpawnPiAgentResult> {
+	try { fallbackModel=profileFallback(fallbackModel,readActiveProfile()??readActiveProfile(opts.env)); }
+	catch(error) { return {output:'',stderr:String(error),exitCode:1,spawnError:String(error),modelUsed:opts.model,toolCallsStarted:0}; }
 	if (!fallbackModel || fallbackModel === opts.model) return spawnPiAgent(opts, cbs);
 
 	const sessionExisted = existsSync(opts.sessionFile);

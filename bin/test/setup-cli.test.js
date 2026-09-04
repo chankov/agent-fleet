@@ -291,6 +291,23 @@ test("A14 self-hosted just lifecycle removes itself last and package setup resto
     writeFileSync(join(ws, "justfile"), readFileSync(join(ws, "justfile"), "utf8") + "\nmine:\n    echo keep\n");
     mkdirSync(fakeBin);
     const fakeNpx = join(fakeBin, "npx");
+    // Lifecycle verification must not depend on the operator's Pi credentials.
+    const fakePi = join(fakeBin, "pi");
+    writeFileSync(fakePi, `#!/bin/sh
+cat <<'EOF'
+provider model
+openai-codex gpt-5.6-sol
+openai-codex gpt-5.6-terra
+openai-codex gpt-5.6-luna
+openai-codex gpt-5.3-codex-spark
+xai grok-4.6
+github-copilot claude-opus-5
+github-copilot claude-fable-5
+omlx Laguna-XS-2.1-4bit
+omlx Qwen3.8-9B-heretic-uncensored-5bit-MLX
+EOF
+`);
+    chmodSync(fakePi, 0o755);
     writeFileSync(fakeNpx, `#!/bin/sh\nshift\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} \"$@\"\n`);
     chmodSync(fakeNpx, 0o755);
     const env = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` };

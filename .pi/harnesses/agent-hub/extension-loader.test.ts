@@ -703,3 +703,47 @@ test("Pi loads a symlinked hub after a package-only update", () => {
 		rmSync(workspace, { recursive: true, force: true });
 	}
 });
+
+test("complete local profile switches the live dispatcher and rejects a manual model outside its allowlist", async () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-profile-rpc-"));
+	const probePath = join(workspace, "profile-provider.ts");
+	const laguna = "Laguna-XS-2.1-4bit";
+	const qwen = "Qwen3.8-9B-heretic-uncensored-5bit-MLX";
+	writeFileSync(probePath, `
+export default function (pi) {
+  pi.registerProvider("omlx", {
+    name: "Local profile fixture", baseUrl: "http://127.0.0.1", apiKey: "test", api: "profile-fixture-api",
+    models: ${JSON.stringify([laguna, qwen, "outside-profile"])}.map(id => ({
+      id, name: id, reasoning: true, input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024,
+    })),
+    streamSimple() { throw new Error("profile switching must not invoke inference"); },
+  });
+  pi.registerCommand("probe-model-profile", { handler: async (_args, ctx) => {
+    ctx.ui.notify("PROFILE_STATE:" + JSON.stringify({
+      active: JSON.parse(process.env.AGENT_FLEET_ACTIVE_MODEL_PROFILE || "null"),
+      model: ctx.model.provider + "/" + ctx.model.id,
+      thinking: pi.getThinkingLevel(),
+    }), "info");
+  }});
+}
+`);
+	const rpc = startRpcProbe(probePath, ["--model", "omlx/outside-profile", "--thinking", "high"]);
+	try {
+		await rpc.notificationAfter("/af-models local-duo", 'Profile "local-duo":');
+		const state = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));
+		assert.equal(state.model, `omlx/${laguna}`);
+		assert.equal(state.thinking, "off");
+		assert.equal(state.active.name, "local-duo");
+		assert.equal(state.active.profile.fallback, "none");
+		await rpc.request({ type: "set_model", provider: "omlx", modelId: "outside-profile" });
+		const guarded = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));
+		assert.equal(guarded.model, `omlx/${laguna}`, "a manual selection must restore the permitted dispatcher");
+		await rpc.request({ type: "set_model", provider: "omlx", modelId: qwen });
+		const permitted = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));
+		assert.equal(permitted.model, `omlx/${qwen}`);
+	} finally {
+		await rpc.close();
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});

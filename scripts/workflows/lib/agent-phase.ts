@@ -1,3 +1,4 @@
+import { profileFallback } from './model-profile.ts';
 import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -99,7 +100,7 @@ export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>):
 			systemPrompt: replacement, noSkills: true, noContextFiles: true, sessionFile, resume, prompt, cwd,
 			extensions: [".pi/harnesses/damage-control-continue/index.ts"], detached: true, signal: options.run.signal,
 			toolWatchdog: { timeoutMs: options.toolWatchdogMs ?? 120_000 }, turnDeadlineMs: options.turnDeadlineMs ?? 1_200_000,
-		}, options.persona.fallbackModel, {
+		}, profileFallback(options.persona.fallbackModel), {
 			onProcess: process => options.run.registerProcess(process, options.persona.name),
 			onUsage: usage => {
 				measuredTokens = Math.max(measuredTokens, Number(usage.input ?? 0) + Number(usage.output ?? 0) + Number((usage as any).cacheRead ?? 0) + Number((usage as any).cacheWrite ?? 0));

@@ -1,3 +1,4 @@
+import { parseModelProfiles, type ModelProfiles } from './model-profiles.ts';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseTeamsYaml, safePathWithin } from "../helpers.ts";
@@ -101,17 +102,10 @@ export function parseAgentFile(filePath: string): AgentDef | null {
 	} catch { return null; }
 }
 
-export function parseModelProfilesYaml(raw: string): Record<string, Record<string, string>> {
-	const profiles: Record<string, Record<string, string>> = {};
-	let current: string | null = null;
-	for (const line of raw.split("\n")) {
-		if (/^\s*(#|$)/.test(line)) continue;
-		const top = line.match(/^(\S[^:]*):\s*$/);
-		if (top) { current = top[1].trim(); profiles[current] = {}; continue; }
-		const pair = line.match(/^\s+([\w-]+)\s*:\s*(.+?)\s*$/);
-		if (pair && current) profiles[current][pair[1].toLowerCase()] = pair[2];
-	}
-	return profiles;
+export function parseModelProfilesYaml(raw: string): ModelProfiles {
+	const result = parseModelProfiles(raw);
+	if(result.errors.length) throw new Error(result.errors.join('\n'));
+	return result.profiles;
 }
 
 export interface AgentConfigurationPorts {
@@ -122,7 +116,8 @@ export interface AgentConfigurationPorts {
 	resetAssertions(): void;
 	setAgentDefs(value: AgentDef[]): void;
 	setTeams(value: Record<string, string[]>): void;
-	setModelProfiles(value: Record<string, Record<string, string>>): void;
+	setModelProfiles(value: ModelProfiles): void;
+	setModelProfileErrors?(errors: string[]): void;
 	setDispatchPolicy(value: any): void;
 	setDispatchPolicyWarnings(value: string[]): void;
 }
@@ -146,8 +141,12 @@ export function loadAgentConfiguration(cwd: string, ports: AgentConfigurationPor
 	if (!Object.keys(teams).length) teams = { all: defs.map(def => def.name) };
 	ports.setTeams(teams);
 	const profilesPath = join(cwd, ".pi", "agents", "model-profiles.yaml");
-	let profiles: Record<string, Record<string, string>> = {};
-	if (existsSync(profilesPath)) try { profiles = parseModelProfilesYaml(readFileSync(profilesPath, "utf-8")); } catch {}
+	let profiles: ModelProfiles = {};
+	ports.setModelProfileErrors?.([]);
+	if (existsSync(profilesPath)) {
+		try { const parsed=parseModelProfiles(readFileSync(profilesPath, 'utf8'));profiles=parsed.profiles;ports.setModelProfileErrors?.(parsed.errors); }
+		catch(error) { ports.setModelProfileErrors?.([String(error)]); }
+	}
 	ports.setModelProfiles(profiles);
 	const policyPath = join(cwd, ".pi", "agents", "dispatch-policy.yaml");
 	ports.setDispatchPolicy({ default: "native", grace_s: 30, substitutions: {} });

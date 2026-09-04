@@ -1,3 +1,4 @@
+import { profileFallback, profileChild } from './policy/profile-runtime.ts';
 import { chmodSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, MAX_DELEGATE_DEPTH, safePathWithin } from "./helpers.ts";
 import { contextOverflowDiagnostic, shouldRecycleSession } from "./run-budget.js";
@@ -12,7 +13,7 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 	const { deps, state, ctx, task, inputArtifacts, scopeGlobs, personaKey, agentKey, runNumber } = base;
 	const model = deps.resolvedModel(state.def)
 		?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
-	const fallbackCandidate = deps.substitutedModel(fallbackModelFor(state.def, model));
+	const fallbackCandidate = profileFallback(deps.substitutedModel(fallbackModelFor(state.def, model)));
 	const originalModelFallback = fallbackCandidate === model ? undefined : fallbackCandidate;
 	const agentWindow = resolveContextWindow(model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
 	const agentSessionFile = safePathWithin(deps.getSessionDir(), `${agentKey}.json`);
@@ -50,8 +51,10 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 	const subagentRoles = state.def.subagents && Object.keys(state.def.subagents).length > 0
 		? Object.fromEntries(Object.entries(state.def.subagents).map(([role, value]) => {
 			const effective = deps.resolvedSubagentModel(personaKey, role, value.model);
-			const configured = effective !== value.model ? applyModelOverride(value, effective) : value;
-			const fallback = deps.substitutedModel(configured.fallbackModel);
+			const configured = { ...(effective !== value.model ? applyModelOverride(value, effective) : value) };
+			const fallback = profileFallback(deps.substitutedModel(configured.fallbackModel));
+			const thinking=profileChild(personaKey,role)?.thinking;
+			if(thinking!==undefined) configured.thinking=thinking;
 			return [role, fallback === configured.model ? { ...configured, fallbackModel: undefined } : { ...configured, fallbackModel: fallback }];
 		}))
 		: null;

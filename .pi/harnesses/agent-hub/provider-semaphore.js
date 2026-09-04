@@ -16,7 +16,7 @@
 // nested spawn can never wait on its ancestor.
 
 /** Only the local endpoint is capped by default; hosted providers scale on their side. */
-export const DEFAULT_PROVIDER_LIMITS = Object.freeze({ custom: 2 });
+export const DEFAULT_PROVIDER_LIMITS = Object.freeze({ custom: 2, omlx: 2 });
 
 /** "custom/Qwen3.8-27B-Uncensored-MLX-4bit" → "custom"; the part before the first slash. */
 export function providerKey(model) {

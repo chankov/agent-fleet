@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runDoctor } from "../lib/doctor.js";
+import { runDoctor, collectModelTargets } from "../lib/doctor.js";
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -96,4 +96,16 @@ test("visible models produce no model-visibility findings", async () => {
     })).filter((f) => f.type === "model-visibility");
     assert.deepEqual(findings, []);
   } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test('doctor includes complete profile defaults, child roles, services and inline voices',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'profile-doctor-'));
+ try{
+  mkdirSync(join(dir,'.pi','agents'),{recursive:true});
+  writeFileSync(join(dir,'.pi','agents','model-profiles.yaml'),`local:\n  version: 2\n  defaults: {model: omlx/laguna}\n  dispatcher: omlx/laguna\n  subagents:\n    builder:\n      recon: omlx/qwen\n  services:\n    watchdog: omlx/laguna\n  panel:\n    - {name: second, model: omlx/qwen}\n`);
+  const targets=collectModelTargets(dir);
+  assert.ok(targets.some(t=>t.subject==='local/builder/recon'&&t.model==='omlx/qwen'));
+  assert.ok(targets.some(t=>t.subject==='local/panel/second'));
+  assert.ok(targets.some(t=>t.subject==='local/defaults'));
+ }finally{rmSync(dir,{recursive:true,force:true});}
 });

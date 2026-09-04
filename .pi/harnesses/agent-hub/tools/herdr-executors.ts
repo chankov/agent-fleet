@@ -1,3 +1,4 @@
+import { profilePeerRefusal } from '../policy/profile-runtime.ts';
 import { PANE_PROMPT_TIMEOUT_MS, launchPeerInPane } from "../../lib/spawned-peers.js";
 import { herdrPaneId } from "../../lib/herdr-presence.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "../peer-spawn-plan.ts";
@@ -27,6 +28,7 @@ const noPane = (): ToolExecutionResult => ({ content: [{ type: "text", text: "no
 
 export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./context.ts").ToolContext, "executeHerdrSpawnPeer" | "executeHerdrSpawnPane" | "executeHerdrReadPane" | "executeHerdrClosePane" | "executeHerdrNotify"> {
 	const executeHerdrSpawnPeer: ToolExecutor<HerdrSpawnPeerParams> = async (_id, params) => {
+		const profileRefusal=profilePeerRefusal();if(profileRefusal) return profileRefusal;
 		const refusal = d.provisionalCapabilityRefusal("workspace"); if (refusal) return refusal;
 		if (!d.isFleetReady()) return unavailable();
 		const ownPane = herdrPaneId(); if (!ownPane) return noPane();

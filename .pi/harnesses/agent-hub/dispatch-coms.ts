@@ -1,3 +1,4 @@
+import { profileService } from './policy/profile-runtime.ts';
 import { unlinkSync } from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { ComsIdentity, ComsSendParams, ComsSendResult, PendingReply, RegistryEntry } from "../lib/coms-core.ts";
@@ -165,7 +166,8 @@ ${externalBlockedProtocol()}
 }
 
 async function runDriftJudge(deps: DispatchComsDeps, input: DriftJudgeInput, ctx: ExtensionContext): Promise<{ verdict: string; reason: string } | null> {
-	const model = deps.getWatchdogJudgeModel()
+	const selection=profileService('watchdog');
+	const model = selection?.model ?? deps.getWatchdogJudgeModel()
 		?? deps.getResearcherModel()
 		?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
 	const judgeSession = deps.safePathWithin(deps.getSessionDir(), `drift-judge-${input.agentKey}.json`);
@@ -174,7 +176,7 @@ async function runDriftJudge(deps: DispatchComsDeps, input: DriftJudgeInput, ctx
 		const res = await deps.spawnPiAgent({
 			model,
 			tools: "read",
-			thinking: "off",
+			thinking: selection?.thinking ?? "off",
 			appendSystemPrompt: "You are a strict, terse runtime watchdog. Answer with exactly one VERDICT line.",
 			sessionFile: judgeSession,
 			prompt: buildJudgePrompt({
@@ -199,9 +201,9 @@ async function runReturnExtraction(deps: DispatchComsDeps, returnPath: string, a
 	try { unlinkSync(extractSession); } catch {}
 	try {
 		const res = await deps.spawnPiAgent({
-			model: EXTRACTION_MODEL,
+			model: profileService('return-extractor')?.model ?? EXTRACTION_MODEL,
 			tools: "read",
-			thinking: "off",
+			thinking: profileService('return-extractor')?.thinking ?? "off",
 			appendSystemPrompt: "You restate an existing report in a fixed format. You never judge the work and never invent evidence.",
 			sessionFile: extractSession,
 			prompt: buildExtractionPrompt({ returnPath, assertionIds }),

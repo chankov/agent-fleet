@@ -1,3 +1,4 @@
+import { profilePeerRefusal } from '../policy/profile-runtime.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { DEFAULT_TASK_TIER, applyTierChange } from "../run-budget.js";
 import { validateAssertionBatch } from "../assertion-ledger.js";
@@ -124,6 +125,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		return { content: [{ type: "text", text: `${result.agents.length} peer(s) in pool (project ${result.project}):\n${lines}${notice}` }], details: result };
 	};
 	const executeComsSend: ToolExecutor<ComsSendParams> = async (_id, params) => {
+		const profileRefusal=profilePeerRefusal();if(profileRefusal) return profileRefusal;
 		const refusal = d.provisionalCapabilityRefusal("peer"); if (refusal) return refusal;
 		const target = d.resolveTarget(params.target); const pending = d.hubState.getPendingHandoff();
 		const authorized = !!(target && pending && pending.target === target.name && params.handoff_token === pending.token);

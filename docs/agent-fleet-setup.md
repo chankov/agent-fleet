@@ -471,3 +471,77 @@ AZURE_SPEECH_KEY=<your-resource-key>
 
 For the OpenAI-compatible backend, `provider.type` is `openai` with `baseUrl` / `model` and an
 `OPENAI_API_KEY` env var instead. Full schema: [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).
+
+### Complete model profiles
+
+`/af-models <name>` reads `.pi/agents/model-profiles.yaml`. Flat persona-to-model
+maps remain supported and keep their declared-candidate validation. A `version: 2`
+profile declares the whole execution model set independently of
+`.ai/agent-fleet-overrides.md`:
+
+```yaml
+local-duo:
+  version: 2
+  defaults:
+    model: &laguna omlx/Laguna-XS-2.1-4bit
+    thinking: off
+  allowed-models:
+    - *laguna
+    - &qwen omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX
+  fallback: none
+  routing: native
+  dispatcher: *laguna
+  agents:
+    documenter: *qwen
+  subagents:
+    code-reviewer:
+      docs: *qwen
+    test-engineer:
+      conventions: *qwen
+  services:
+    watchdog: *laguna
+    return-extractor: *qwen
+  panel:
+    - { name: laguna, model: *laguna, integrator: true }
+    - { name: qwen, model: *qwen }
+```
+
+- `defaults` supplies **every persona and every declared child**, including future
+  personas, research helpers and team changes. `agents` and `subagents` contain
+  exceptions. Each selection accepts a model string or `{model, thinking}`.
+  Unspecified thinking inherits defaults, then `off`. Tool caps and delegation
+  depth remain unchanged. Unknown persona/child names are rejected.
+- `dispatcher` changes the current Pi session's model and thinking. It defaults
+  to `defaults`; an `orchestrator` persona entry alone is not the live dispatcher.
+- `services` sets the watchdog and structured-return extractor independently;
+  unspecified services use defaults. `panel` supplies 2–5 poll/debate voices and
+  an optional single integrator. `/af-poll` and `/af-debate` select the active
+  profile's panel automatically. Explicit other panel names are refused while
+  the complete profile is active. Without `panel`, two default-model voices are used.
+- `routing: native` (default) bypasses configured standing peers and refuses explicit
+  coms dispatch, handoff, coms_send and peer spawning. Existing peer processes are
+  not reconfigured or stopped. `routing: configured` opts into the existing dispatch
+  policy and cannot be combined with `allowed-models`, since a peer's children
+  cannot be verified by this hub.
+- `fallback: none` (default) disables automatic original-model fallback, including
+  nested children and workflows. `declared` retains it. Optional `allowed-models`
+  is an exact provider/model allowlist checked before actual child spawns and
+  fallback attempts. Manual model pickers and session substitutions respect it.
+  This governs Fleet model execution; it is not an OS/network sandbox for arbitrary
+  shell commands or unrelated applications.
+
+Activation validates the complete profile and Pi availability of its referenced
+models before changing settings. Missing models leave the previous configuration
+in place. Busy dispatchers, agents and poll/debate runs refuse switching: wait for
+completion first. On leaving a complete profile, the previous dispatcher, thinking
+and manual model/sub-role/substitution settings are restored before applying the
+next profile. A fresh Pi session clears the active profile; select it again there.
+
+The profile is passed through the owned process tree. Workflow commands started
+from that session inherit its persona models, thinking, panel and fallback policy.
+Separately started fleet sessions/standing peers retain their own configuration.
+The bundled `local-duo` profile explicitly covers all shipped child roles and needs
+no project model overrides. Both exact model IDs must be registered in Pi and
+served locally by oMLX. Selecting a profile does not download or register models.
+The `omlx` provider has a default concurrency limit of two per Pi process;
+`AGENT_HUB_PROVIDER_LIMITS` can override it.

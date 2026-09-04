@@ -1,3 +1,4 @@
+import { profileFallback } from '../policy/profile-runtime.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { contextPct, resolveContextWindow } from "../context-window.js";
 import { isReadOnlyToolList, safePathWithin } from "../helpers.ts";
@@ -61,7 +62,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		const wantThinking = thinkingLevel !== "off";
 		const sessionPath = deps.sessionPath(state.id);
 		const researchWindow = resolveContextWindow(state.model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
-		const fallbackCandidate = deps.substitutedModel(deps.fallbackModelFor(state.def, state.model));
+		const fallbackCandidate = profileFallback(deps.substitutedModel(deps.fallbackModelFor(state.def, state.model)));
 		const fallback = fallbackCandidate === state.model ? undefined : fallbackCandidate;
 		let fullText = "";
 		deps.notifyProviderQueue(state.model, `Research r${state.id}`, ctx);

@@ -1,3 +1,6 @@
+import { isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
+import { createProfileActivation } from './policy/profile-activation.ts';
+import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerRefusal } from './policy/profile-runtime.ts';
 /** Agent Hub composition root: constructs mutable state, contexts, registrars, and ordered lifecycle ports. */
 
 import type { AgentDef, AgentState, ResearchState } from "./types.ts";
@@ -221,7 +224,8 @@ export default function (pi: ExtensionAPI) {
 	// session start) and the session-lifetime per-persona model overrides set by
 	// /af-agent-model and /af-models (lowercase persona name → pi model spec). Overrides
 	// reset on session_start; profiles make re-applying cheap.
-	let modelProfiles: Record<string, Record<string, string>> = {};
+	let modelProfiles: ModelProfiles = {};
+	let modelProfileErrors: string[] = [];
 	// Backend routing policy (.pi/agents/dispatch-policy.yaml): per dispatch, a
 	// member preferring coms is served by a live same-name pool peer instead of a
 	// native subagent spawn. Missing file → everything native (status quo).
@@ -486,6 +490,44 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		resolvedThinking, switchablePersonaDef, allKnownModels,
 	} = modelPolicy;
 
+	let profileCommandContext: any;
+	const profileActivation = createProfileActivation({
+		busy: () => !profileCommandContext?.isIdle?.() || profileWorkInFlight()>0 ||
+			Array.from(agentStates.values()).some(state=>state.status==='running') ||
+			Array.from(researchStates.values()).some(state=>state.status==='running'),
+		defs: () => allAgentDefs,
+		available: async () => {
+			await profileCommandContext.modelRegistry.refresh?.();
+			return (profileCommandContext.modelRegistry.getAvailable?.()??[]).map((m:any)=>`${m.provider}/${m.id}`);
+		},
+		dispatcher: () => profileCommandContext?.model ? {model:`${profileCommandContext.model.provider}/${profileCommandContext.model.id}`,thinking:pi.getThinkingLevel()} : undefined,
+		setDispatcher: async selection => {
+			const slash=selection.model.indexOf('/');
+			const model=profileCommandContext.modelRegistry.find(selection.model.slice(0,slash),selection.model.slice(slash+1));
+			if(!model || !await pi.setModel(model)) return false;
+			if(selection.thinking) pi.setThinkingLevel(selection.thinking as any);
+			return true;
+		},
+		apply: profile => modelPolicy.applyProfile(profile),
+	});
+	pi.on('model_select', async (event,ctx) => {
+		contextWindow=event.model.contextWindow||0;
+		if(profileActivation.switching()) return;
+		const active=readActiveProfile();if(!active) return;
+		try { assertProfileModel(`${event.model.provider}/${event.model.id}`,active); }
+		catch(error) {
+			ctx.abort();ctx.ui.notify(String(error),'error');
+			const target=dispatcherSelection(active.profile).model, slash=target.indexOf('/');
+			const model=ctx.modelRegistry.find(target.slice(0,slash),target.slice(slash+1));
+			if(model) await pi.setModel(model);
+		}
+	});
+	pi.on('before_provider_request', async (_event,ctx) => {
+		if(!ctx.model) return;
+		try { assertProfileModel(`${ctx.model.provider}/${ctx.model.id}`); }
+		catch(error) {ctx.abort();ctx.ui.notify(String(error),'error');}
+	});
+
 	function appendDeclaredScope(task: string, scopeGlobs: string[]): string {
 		if (!scopeGlobs || scopeGlobs.length === 0) return task;
 		return task + `\n\n## Declared scope — advisory guardrail\nStay within these paths/globs when changing files; changes outside them will be flagged to the dispatcher for a human decision, not auto-reverted.\n${scopeGlobs.map(s => `- ${s}`).join("\n")}`;
@@ -496,7 +538,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			setSessionDir: hubStateCtx.setSessionDir, getSessionDir: hubStateCtx.getSessionDir,
 			archivePreviousRun, ensureArtifactsLayout, resetAssertions: () => { assertions = []; },
 			setAgentDefs: value => { allAgentDefs = value; }, setTeams: value => { teams = value; },
-			setModelProfiles: value => { modelProfiles = value; }, setDispatchPolicy: value => { dispatchPolicy = value; },
+			setModelProfiles: value => { modelProfiles = value; }, setModelProfileErrors: errors => { modelProfileErrors=errors; }, setDispatchPolicy: value => { dispatchPolicy = value; },
 			setDispatchPolicyWarnings: value => { dispatchPolicyWarnings = value; },
 		});
 	}
@@ -1185,7 +1227,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			let profileName = (args || "").trim();
 			if (!profileName) {
 				const options = names.map(n =>
-					`${n} — ${Object.entries(modelProfiles[n]).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
+					isCompleteProfile(modelProfiles[n])
+						? `${n} — complete fleet (${shortModel((modelProfiles[n] as any).defaults.model)} default)`
+						: `${n} — ${Object.entries(modelProfiles[n]).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
 				);
 				const choice = await ctx.ui.select("Select model profile", options);
 				if (choice === undefined) return;
@@ -1196,9 +1240,12 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				ctx.ui.notify(`No profile "${profileName}". Known: ${names.join(", ")}`, "error");
 				return;
 			}
-			const applied = modelPolicy.applyProfile(profile)
-				.map(persona => `${displayName(persona)} → ${shortModel(profile[persona])}`);
-			ctx.ui.notify(`Profile "${profileName}": ${applied.join(", ")} (applies on next dispatch)`, "success");
+			profileCommandContext=ctx;
+			try {
+				const applied=await profileActivation.activate(profileName,profile);
+				ctx.ui.setStatus('hub-model-profile',isCompleteProfile(profile)?`Models: ${profileName}`:undefined);
+				ctx.ui.notify(`Profile "${profileName}": ${applied.length} personas${isCompleteProfile(profile)?', all children, dispatcher and auxiliary models':''} switched.`, 'success');
+			} catch(error) {ctx.ui.notify(String(error),'error');}
 		},
 		handleAgentModelsSubstitute: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -1265,6 +1312,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			await coms.updateScope((args ?? "").trim(), ctx);
 		},
 		handleHandoff: async (args, ctx) => {
+			const refusal=profilePeerRefusal();if(refusal){ctx.ui.notify(refusal.content[0].text,"error");return;}
 			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /af-handoff unavailable.", "warning"); return; }
 			const target = (args ?? "").trim();
@@ -1330,12 +1378,13 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			ctx.ui.notify("Compound: asking the dispatcher to compose the candidate-lessons brief…", "info");
 		},
 		handlePoll: async (args, ctx) => {
+			return withProfileWork(async () => {
 			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			const cwd = ctx.cwd || process.cwd();
 			const result = await handleAfPoll({
 				args: args ?? "",
 				cwd,
-				pollPanelOverride: parseAgentTeamOverrides(cwd).pollPanel,
+				pollPanelOverride: readActiveProfile()?.name ?? parseAgentTeamOverrides(cwd).pollPanel,
 				listPanels: async dir => {
 					const { listPanelNames } = await import("../../../scripts/workflows/lib/voices.ts");
 					return listPanelNames(dir);
@@ -1425,14 +1474,16 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				content: result.dispatcherNote ?? result.message,
 				display: true,
 			}, { deliverAs: "followUp", triggerTurn: true });
+			});
 		},
 		handleDebate: async (args, ctx) => {
+			return withProfileWork(async () => {
 			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			const cwd = ctx.cwd || process.cwd();
 			const result = await handleAfDebate({
 				args: args ?? "",
 				cwd,
-				pollPanelOverride: parseAgentTeamOverrides(cwd).pollPanel,
+				pollPanelOverride: readActiveProfile()?.name ?? parseAgentTeamOverrides(cwd).pollPanel,
 				listPanels: async dir => {
 					const { listPanelNames } = await import("../../../scripts/workflows/lib/voices.ts");
 					return listPanelNames(dir);
@@ -1519,6 +1570,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				content: result.dispatcherNote ?? result.message,
 				display: true,
 			}, { deliverAs: "followUp", triggerTurn: true });
+			});
 		},
 		getAgentsKillCompletions: prefix => completions.agentsKill(prefix),
 		getZoomCompletions: prefix => completions.zoom(prefix),
@@ -1894,7 +1946,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				setWatchdog: (setting, judge) => { watchdogSetting = setting; watchdogJudgeModel = judge; },
 				resetTurnCounts: () => { turnDispatchCount = 0; turnResearchCount = 0; }, resetTaskWindow: () => resetTaskWindow(null), updateModeStatus,
 				setProjectRules: value => { projectRulesDirs = value; }, setProjectDocs: value => { projectDocsPaths = value; },
-				resetModelPolicy: modelPolicy.reset, getAgentDefs: () => allAgentDefs, getModelProfiles: () => modelProfiles,
+				resetModelPolicy: () => {modelPolicy.reset();profileActivation.reset();}, getModelProfileErrors: () => modelProfileErrors, getAgentDefs: () => allAgentDefs, getModelProfiles: () => modelProfiles,
 				deleteModelProfile: name => { delete modelProfiles[name]; }, allowedModels,
 				getDispatchPolicyWarnings: () => dispatchPolicyWarnings, setResearchPersonas: value => { researchPersonas = value; },
 			});

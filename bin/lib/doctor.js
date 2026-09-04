@@ -579,7 +579,31 @@ export function collectModelTargets(workspace) {
       catch { /* unreadable persona is not a visibility finding */ }
     }
   }
-  targets.push(...collectVoiceTargets(workspace));
+  targets.push(...collectVoiceTargets(workspace), ...collectProfileTargets(workspace));
+  return targets;
+}
+
+function collectProfileTargets(workspace) {
+  const path = ".pi/agents/model-profiles.yaml", file = join(workspace, path);
+  if (!existsSync(file)) return [];
+  let profiles;
+  try { profiles = parseYaml(readFileSync(file, "utf8")); } catch { return []; }
+  if (!profiles || typeof profiles !== "object" || Array.isArray(profiles)) return [];
+  const targets = [];
+  const add = (subject, selection) => {
+    const model = typeof selection === "string" ? selection : selection?.model;
+    if (typeof model === "string") targets.push({ kind: "profile", subject, model, path });
+  };
+  for (const [name, profile] of Object.entries(profiles)) {
+    if (!profile || typeof profile !== "object" || Array.isArray(profile)) continue;
+    if (profile.version !== 2) { for (const [persona, model] of Object.entries(profile)) add(`${name}/${persona}`, model); continue; }
+    add(`${name}/defaults`, profile.defaults);
+    add(`${name}/dispatcher`, profile.dispatcher);
+    for (const [persona, value] of Object.entries(profile.agents ?? {})) add(`${name}/${persona}`, value);
+    for (const [persona, roles] of Object.entries(profile.subagents ?? {})) for (const [role, value] of Object.entries(roles ?? {})) add(`${name}/${persona}/${role}`, value);
+    for (const [service, value] of Object.entries(profile.services ?? {})) add(`${name}/${service}`, value);
+    if (Array.isArray(profile.panel)) for (const voice of profile.panel) add(`${name}/panel/${voice?.name}`, voice);
+  }
   return targets;
 }
 
@@ -650,6 +674,7 @@ function parsePersonaModelTargets(absPath, relPath) {
 }
 
 function subjectLabel(target) {
+  if (target.kind === "profile") return `profile "${target.subject}"`;
   if (target.kind === "voice") return `voice "${target.subject}"`;
   if (target.kind === "subagent") return `subagent "${target.subject}"`;
   return `persona "${target.subject}"`;

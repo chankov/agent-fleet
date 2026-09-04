@@ -183,3 +183,19 @@ test("PermissionBreach rolls back and terminates without correction", async () =
 		assert.equal(calls, 1); assert.equal(existsSync(join(cwd, "forbidden.txt")), false);
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+
+test('workflow phase and inline panel obey inherited local profile without cloud fallback',async()=>{
+ const runtimePath:string='../../../.pi/harnesses/agent-hub/policy/profile-runtime.ts';
+ const {PROFILE_ENV,setActiveProfile}=await import(runtimePath);
+ const {resolvePersona}=await import('./personas.ts');const {resolvePanel,listPanelNames}=await import('./voices.ts');
+ const {cwd,run}=fixture();const previous=process.env[PROFILE_ENV];
+ mkdirSync(join(cwd,'agents'));writeFileSync(join(cwd,'agents','researcher.md'),'---\nname: researcher\nmodel: cloud/base\ntools: read\nthinking: high\nwrites: []\n---\nRead files.\n');
+ setActiveProfile({name:'local',profile:{version:2,defaults:{model:'omlx/laguna',thinking:'off'},fallback:'none',routing:'native','allowed-models':['omlx/laguna','omlx/qwen'],panel:[{name:'laguna',model:'omlx/laguna',integrator:true},{name:'qwen',model:'omlx/qwen'}]}});
+ try {
+  const selected=resolvePersona('researcher',cwd);assert.equal(selected.model,'omlx/laguna');assert.equal(selected.thinking,'off');assert.equal(selected.fallbackModel,undefined);
+  assert.deepEqual(listPanelNames(cwd),['local']);assert.equal(resolvePanel('local',cwd)[1].model,'omlx/qwen');assert.throws(()=>resolvePanel('default',cwd),/owns/);
+  let calls=0;const spawn:SpawnAgent=async(opts,fallback)=>{calls++;assert.equal(opts.model,'omlx/qwen');assert.equal(opts.thinking,'off');assert.equal(fallback,undefined);return {output:JSON.stringify(ENVELOPE_EXAMPLES.scout),exitCode:0};};
+  await runAgentPhase({run,cwd,persona:selected,model:'omlx/qwen',task:'Read',envelope:'scout',spawn});assert.equal(calls,1);
+  await assert.rejects(runAgentPhase({run,cwd,persona:selected,model:'cloud/base',task:'Read',envelope:'scout',spawn}),/refuses/);assert.equal(calls,1);
+ }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;rmSync(cwd,{recursive:true,force:true});}
+});

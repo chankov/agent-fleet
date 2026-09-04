@@ -37,3 +37,20 @@ test("session substitution validates source and target, applies to future resolu
 	policy.reset();
 	assert.equal(policy.resolvedModel(defs[0]), "p/base");
 });
+
+test('complete profiles cover all children, clear substitutions, and restore prior settings when leaving',()=>{
+ const {policy}=fixture();
+ policy.setPersonaOverride('builder','p/fast'); policy.setSubagentOverride('builder','review','p/review-before');
+ const p:any={version:2,defaults:{model:'omlx/laguna',thinking:'off'},agents:{researcher:{model:'omlx/qwen'}},subagents:{builder:{review:{model:'omlx/qwen'}}},'allowed-models':['omlx/laguna','omlx/qwen'],fallback:'none',routing:'native'};
+ policy.applyProfile(p);
+ assert.equal(policy.resolvedModel(defs[0]),'omlx/laguna');
+ assert.equal(policy.resolvedModel(defs[1]),'omlx/qwen');
+ assert.equal(policy.resolvedSubagentModel('builder','review','p/review'),'omlx/qwen');
+ assert.equal(policy.resolvedSubagentModel('future','new','cloud/x'),'omlx/laguna');
+ assert.equal(policy.resolvedThinking(defs[0]),'off');
+ assert.throws(()=>policy.setPersonaOverride('builder','cloud/x'),/refuses/);
+ policy.applyProfile({builder:'p/base'});
+ assert.equal(policy.resolvedSubagentModel('builder','review','p/review'),'p/review-before');
+ assert.equal(policy.resolvedThinking(defs[0]),'high');
+ assert.equal(policy.resolvedModel(defs[0]),'p/base');
+});

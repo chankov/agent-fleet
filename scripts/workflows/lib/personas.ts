@@ -1,3 +1,4 @@
+import { profileAgent, profileFallback, assertProfileModel } from './model-profile.ts';
 import { readFileSync } from "node:fs";
 import { StartRefusedError } from "./git.ts";
 
@@ -29,10 +30,11 @@ function declaredWrites(file: string): string[] | undefined {
 export function listPersonas(cwd = process.cwd()): PersonaDefinition[] {
 	return scanAgentDirs(cwd).map(def => {
 		const override = process.env[`AGENT_FLEET_MODEL_${def.name.toUpperCase().replace(/-/g, "_")}`];
-		const model = override || def.model || def.models?.[0];
-		const fallbackModel = [def.model, ...(def.models ?? [])].find(candidate => candidate && candidate !== model);
+		const selected=profileAgent(def.name);
+		const model = selected?.model || override || def.model || def.models?.[0];
+		const fallbackModel = profileFallback([def.model, ...(def.models ?? [])].find(candidate => candidate && candidate !== model));
 		const writes = declaredWrites(def.file);
-		return { ...def, model, fallbackModel, ...(writes === undefined ? {} : { writes }) };
+		return { ...def, ...(selected?.thinking?{thinking:selected.thinking}:{}), model, fallbackModel, ...(writes === undefined ? {} : { writes }) };
 	});
 }
 
@@ -46,6 +48,7 @@ export function resolvePersona(name: string, cwd = process.cwd()): PersonaDefini
 export function resolvePhaseModel(persona: PersonaDefinition, override?: string): string {
 	const model = override || persona.model;
 	if (!model) throw new StartRefusedError(`Flow start refused: persona "${persona.name}" declares no model.`);
+	assertProfileModel(model);
 	return model;
 }
 

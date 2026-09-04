@@ -1,3 +1,4 @@
+import { readActiveProfile, profilePanel } from './model-profile.ts';
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -33,10 +34,12 @@ export function voicesPath(cwd = process.cwd()): string {
 }
 
 export function listPanelNames(cwd = process.cwd()): string[] {
+	const active=readActiveProfile();if(active) return [active.name];
 	try { return Object.keys(loadVoices(cwd).panels); } catch { return []; }
 }
 
 export function resolvePanel(name: string, cwd = process.cwd()): Voice[] {
+	const selected=profilePanel(name);if(selected) return selected;
 	const file = loadVoices(cwd);
 	const voices = file.panels[name];
 	if (!voices) {

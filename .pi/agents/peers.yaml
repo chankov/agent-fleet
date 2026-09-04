@@ -36,6 +36,17 @@
 # workspace containing only the guarded hub, with no reusable coms peer panes.
 base:
 
+
+# Mirrored from .pi/agents/teams.yaml for `just fleet team <team>`.
+default:
+  - name: code-reviewer
+    runner: claude-code
+  - name: web-debugger
+    persona: web-debugger
+    model: openai-codex/gpt-5.6-luna
+    extensions: chrome-devtools-mcp
+
+
 full:
   - name: web-debugger
     persona: web-debugger
@@ -62,14 +73,6 @@ docs:
     persona: researcher
     model: openai-codex/gpt-5.6-luna
 
-# Mirrored from .pi/agents/teams.yaml for `just fleet team <team>`.
-default:
-  - name: code-reviewer
-    runner: claude-code
-  - name: web-debugger
-    persona: web-debugger
-    model: openai-codex/gpt-5.6-terra
-    extensions: chrome-devtools-mcp
 
 debug:
   - name: test-engineer

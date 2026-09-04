@@ -259,6 +259,7 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
     const extracted = join(fixture, "node_modules", "@chankov", "agent-fleet");
     mkdirSync(extracted, { recursive: true });
     execFileSync("tar", ["-xzf", tarball, "--strip-components=1", "-C", extracted]);
+    assert.equal(existsSync(join(extracted, "docs", "plans")), false, "local planning notes must not be packaged");
     const fakeBin = join(fixture, "bin");
     mkdirSync(fakeBin);
     const fakePi = join(fakeBin, "pi");
@@ -271,6 +272,9 @@ openai-codex gpt-5.6-luna
 openai-codex gpt-5.3-codex-spark
 xai grok-4.6
 github-copilot claude-opus-5
+github-copilot claude-fable-5
+omlx Laguna-XS-2.1-4bit
+omlx Qwen3.8-9B-heretic-uncensored-5bit-MLX
 EOF
 `);
     chmodSync(fakePi, 0o755);
@@ -284,6 +288,7 @@ EOF
         "--preset", preset, "--features", "none", "--yes",
       ], { encoding: "utf8" });
       assert.match(result, /Setup complete\./);
+      assert.equal(existsSync(join(workspace, "docs", "plans", "agent-hub", "local-duo-profile.md")), false, "local profile notes must not be installed");
       const desired = JSON.parse(readFileSync(join(workspace, ".ai", "agent-fleet.json"), "utf8"));
       assert.equal(desired.preset, preset);
       if (preset === "default") assert.equal(existsSync(join(workspace, ".claude")), false);
