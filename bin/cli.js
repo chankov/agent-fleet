@@ -260,6 +260,7 @@ async function cmdSetup() {
     plan = buildReconcilePlan({ workspace, sourceRoot: pkgRoot, packageVersion: pkg.version, manifest,
       agent: opts.agent ?? "pi", method: opts.method, preset, features,
       saveDesired: opts["save-desired"], tuiDesired, dryRun,
+      allowExec: Boolean(opts["allow-exec"]),
       // The interactive selector and final exact-plan confirmation are the
       // migration consent. Automation retains every explicit gate.
       migrate: opts.migrate || interactiveMigration, yes: opts.yes || interactive,

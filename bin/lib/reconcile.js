@@ -14,7 +14,8 @@ import { appendEnvPlaceholders, renderSttConfig } from "./stt-wizard.js";
 export function buildReconcilePlan(opts) {
   const { workspace, manifest, sourceRoot, packageVersion, agent = "pi", method,
     preset, features, saveDesired = false, tuiDesired = null, dryRun = false,
-    migrate = false, yes = false, accept = null, platform = process.platform } = opts;
+    migrate = false, yes = false, accept = null, allowExec = false,
+    platform = process.platform } = opts;
   const state = readState(workspace);
   const desiredPath = join(workspace, DESIRED_FILE);
   const firstMigration = Boolean(state && !existsSync(desiredPath));
@@ -33,7 +34,7 @@ export function buildReconcilePlan(opts) {
     agent, platform,
   });
   const base = buildPlan({ workspace, sourceRoot, packageVersion, manifest, verb: "install", agent,
-    method, items: featureResult.roots, accept, platform });
+    method, items: featureResult.roots, accept, allowExec, platform });
   const wanted = new Set(featureResult.selected);
   const overrides = planOverrides(workspace, scanProject(workspace));
   const sttConfig = featureResult.features.includes("voice")

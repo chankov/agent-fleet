@@ -74,7 +74,7 @@ test("setup preserves an existing configured overrides file byte-for-byte", (con
   assert.equal(readFileSync(overridesPath, "utf8"), original);
 });
 
-test("setup --json --yes applies and dry-run remains write-free", () => {
+test("setup --json --yes applies, --allow-exec reaches the plan, and dry-run remains write-free", () => {
   const applyWorkspace = workspace();
   let result = setup(applyWorkspace, "--preset", "default", "--features", "none", "--json", "--yes");
   assert.equal(result.status, 0, result.stderr);
@@ -83,9 +83,11 @@ test("setup --json --yes applies and dry-run remains write-free", () => {
   assert.ok(existsSync(join(applyWorkspace, ".ai", "agent-fleet.json")), "consented JSON setup applies");
 
   const previewWorkspace = workspace();
-  result = setup(previewWorkspace, "--preset", "default", "--features", "none", "--json", "--dry-run");
+  result = setup(previewWorkspace, "--preset", "default", "--features", "none", "--allow-exec", "--json", "--dry-run");
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).verb, "setup");
+  const preview = JSON.parse(result.stdout);
+  assert.equal(preview.verb, "setup");
+  assert.ok(preview.actions.some((action) => action.id === "companion:workflow-deps" && action.kind === "exec"));
   assert.equal(existsSync(join(previewWorkspace, ".ai")), false, "JSON dry-run remains write-free");
 });
 
