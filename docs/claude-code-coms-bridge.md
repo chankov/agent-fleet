@@ -109,6 +109,11 @@ Older releases used the ambiguous name-only path `~/.pi/coms/cli/<name>/`. If th
 
 ## Behavior notes
 
+- **Executable preflight:** a standalone `fleet peer` requires `claude --version`
+  to succeed before it creates a pane, so a missing CLI or partial npm install
+  fails directly instead of surfacing as a 45-second registration timeout. Team
+  layouts and direct `_claude-peer` calls repeat the check inside each created
+  pane before starting its bridge; their failure remains visible in that pane.
 - **Serialization:** one prompt at a time per pane; queue depth shows in the peer's
   agent card and the herdr sidebar (`q<depth>`).
 - **Presence:** the bridge annotates its pane through the shared `HerdrPresence`

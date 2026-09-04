@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import * as path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
+import { assertClaudeCodeAvailable } from "../claude-code-preflight.ts";
 import { buildPeerLaunchPlan, parsePeerArgs, type PeerLaunchContext } from "./peer-launch.ts";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PEER_LAUNCH_SCRIPT = path.resolve(SCRIPT_DIR, "..", "peer-launch.ts");
 
 const PEERS_YAML = `
 review:
@@ -206,4 +213,56 @@ test("peer args reject typos instead of dropping them", () => {
 	assert.throws(() => parsePeerArgs(["r", "--session", "x"]), /Unknown flag: --session.*after `--`/s);
 	assert.throws(() => parsePeerArgs(["r", "--project"]), /--project requires a value/);
 	assert.throws(() => parsePeerArgs(["r", "--direction", "sideways"]), /--direction expects right or down/);
+});
+
+// ━━ Claude Code executable preflight ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+test("Claude Code preflight accepts a runnable version command", () => {
+	assert.equal(
+		assertClaudeCodeAvailable(() => ({ status: 0, stdout: "2.1.260 (Claude Code)\n" })),
+		"2.1.260 (Claude Code)",
+	);
+});
+
+test("Claude Code preflight explains missing and non-executable installations", () => {
+	for (const code of ["ENOENT", "EACCES"] as const) {
+		const error = Object.assign(new Error(`spawnSync claude ${code}`), { code });
+		assert.throws(
+			() => assertClaudeCodeAvailable(() => ({ status: null, error })),
+			new RegExp(`preflight failed.*${code}.*repair Claude Code.*claude --version`, "is"),
+		);
+	}
+});
+
+test("Claude Code preflight preserves the useful output from a broken npm placeholder", () => {
+	assert.throws(
+		() =>
+			assertClaudeCodeAvailable(() => ({
+				status: 1,
+				stdout: "",
+				stderr: "Error: claude native binary not installed.\nEither postinstall did not run.",
+			})),
+		/preflight failed.*status 1.*native binary not installed.*repair Claude Code/is,
+	);
+});
+
+test("standalone launcher runs the Claude preflight, but dry-run deliberately skips it", () => {
+	const run = (extra: string[]) =>
+		spawnSync(
+			process.execPath,
+			["--experimental-strip-types", PEER_LAUNCH_SCRIPT, "probe-reviewer", "--runner", "claude-code", ...extra],
+			{
+				encoding: "utf8",
+				env: { ...process.env, PATH: "" },
+			},
+		);
+
+	const refused = run(["--here"]);
+	assert.equal(refused.status, 1, refused.stderr);
+	assert.match(refused.stderr, /fleet peer: Claude Code preflight failed.*ENOENT/is);
+
+	const dryRun = run(["--dry-run"]);
+	assert.equal(dryRun.status, 0, dryRun.stderr);
+	assert.match(dryRun.stdout, /fleet peer \(dry run\).*claude-peer/is);
+	assert.doesNotMatch(dryRun.stderr, /preflight failed/i);
 });

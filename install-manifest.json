@@ -613,6 +613,7 @@
           "source": [
             "hermes/skills",
             "systemd",
+            "scripts/claude-code-preflight.ts",
             "scripts/codex-conductor.ts",
             "scripts/codex-remote-control.ts",
             "scripts/coms-claude-bridge.ts",

@@ -182,5 +182,6 @@ test("justfile exposes one Fleet entry point while hidden runtime recipes forwar
 	assert.match(justfile, /_peer-plus extensions persona name="" model="" session="" project="default":/);
 	assert.match(justfile, /_claude-peer name model="" session="" project="default":/);
 	assert.match(justfile, /coms\/index\.ts .*--project \{\{project\}\}/);
+	assert.match(justfile, /claude-code-preflight\.ts \|\| exit \$\?; .*coms-claude-bridge\.ts/);
 	assert.match(justfile, /coms-claude-bridge\.ts --name \{\{name\}\} --project \{\{project\}\}/);
 });

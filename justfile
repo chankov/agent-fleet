@@ -183,7 +183,7 @@ _peer-plus extensions persona name="" model="" session="" project="default":
 # The bridge registers the pane as coms peer <name>; the trailing session
 # positional maps to `claude --resume <id>` for `just fleet resume`.
 _claude-peer name model="" session="" project="default":
-    {{node_ts}} scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
+    {{node_ts}} scripts/claude-code-preflight.ts || exit $?; {{node_ts}} scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
 
 # The hidden team implementations take the team as a positional arg (default "full")
 # and pass everything after it straight to the script.

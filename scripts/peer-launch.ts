@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { launchPeerInPane, PANE_PROMPT_TIMEOUT_MS, PEER_READY_TIMEOUT_MS, peerReadyDelayMs } from "../.pi/harnesses/lib/spawned-peers.js";
 import { pruneDeadEntries } from "./lib/coms-envelope.ts";
 import { parseEnvFile, resolveEnvFilePath, type LayoutNode } from "./lib/herdr-layout.ts";
+import { assertClaudeCodeAvailable } from "./claude-code-preflight.ts";
 import { buildPeerLaunchPlan, parsePeerArgs, type PeerLaunchPlan } from "./lib/peer-launch.ts";
 import { worktreeTag } from "./lib/team-project.ts";
 
@@ -111,7 +112,7 @@ async function main(): Promise<void> {
 	const inPane = process.env.HERDR_ENV === "1" ? process.env.HERDR_PANE_ID || null : null;
 
 	if (args.dryRun) {
-		// No herdr calls and no env_file reads on this path.
+		// No executable probes, herdr calls, or env_file reads on this path.
 		const placement =
 			plan.placement === "here"
 				? "this terminal"
@@ -125,6 +126,18 @@ async function main(): Promise<void> {
 		console.log(`${plan.name}\t${plan.command.join(" ")}${envNote}`);
 		console.log(JSON.stringify(plan, null, 2));
 		return;
+	}
+
+	// A PATH entry alone does not prove the CLI is runnable: interrupted npm
+	// installs can leave a valid `claude` symlink targeting a non-executable
+	// placeholder. Refuse before creating a pane (and before the 45s registry
+	// wait) rather than reporting the dependency failure as a peer timeout.
+	if (plan.runner === "claude-code") {
+		try {
+			assertClaudeCodeAvailable();
+		} catch (error) {
+			die(`fleet peer: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 
 	// --here: become the peer in this terminal. The env_file is applied to our
