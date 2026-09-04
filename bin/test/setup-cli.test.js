@@ -263,6 +263,35 @@ test("A9 bare doctor is read-only; doctor --fix recovers transactions and retrie
   assert.equal(existsSync(join(tx, ".ai", "agent-fleet-transaction.json")), false);
 });
 
+test("doctor exits 2 for missing runtime dependencies and keeps npm install behind explicit remediation", () => {
+  const ws = workspace();
+  mkdirSync(join(ws, "scripts"), { recursive: true });
+  writeFileSync(join(ws, "scripts", "package.json"), JSON.stringify({
+    private: true,
+    dependencies: { "definitely-missing-agent-fleet-fixture": "1.0.0" },
+  }));
+
+  let result = run(["doctor", "--workspace", ws, "--json"]);
+  assert.equal(result.status, 2, result.stderr);
+  let report = JSON.parse(result.stdout);
+  assert.equal(report.summary.manual, 1);
+  assert.equal(report.summary.outstanding, 1);
+  assert.match(report.findings[0].fix, /just fleet deps/);
+  assert.match(report.findings[0].fix, /setup --allow-exec/);
+
+  // Even a recorded npm repair that exits zero must not hide a still-broken
+  // dependency tree; the post-fix npm ls probe remains authoritative.
+  writeState(ws, {
+    runtimeRepairs: [{ id: "companion:workflow-deps", command: process.execPath, args: ["-e", "process.exit(0)", "--prefix", "scripts"], cwd: "." }],
+  });
+  result = run(["doctor", "--workspace", ws, "--fix", "--json"]);
+  assert.equal(result.status, 2, result.stderr);
+  report = JSON.parse(result.stdout);
+  assert.equal(report.summary.fixed, 0, "a successful command is not healthy until npm ls agrees");
+  assert.equal(report.summary.outstanding, 1, "the repair and dependency finding describe one root");
+  assert.equal(existsSync(join(ws, "scripts", "node_modules")), false);
+});
+
 test("doctor reports and --fix discards an unrecoverable installer journal", () => {
   const ws = workspace();
   mkdirSync(join(ws, ".ai"), { recursive: true });
@@ -291,6 +320,7 @@ test("A14 self-hosted just lifecycle removes itself last and package setup resto
     writeFileSync(join(ws, "justfile"), readFileSync(join(ws, "justfile"), "utf8") + "\nmine:\n    echo keep\n");
     mkdirSync(fakeBin);
     const fakeNpx = join(fakeBin, "npx");
+    const fakeNpm = join(fakeBin, "npm");
     // Lifecycle verification must not depend on the operator's Pi credentials.
     const fakePi = join(fakeBin, "pi");
     writeFileSync(fakePi, `#!/bin/sh
@@ -310,6 +340,16 @@ EOF
     chmodSync(fakePi, 0o755);
     writeFileSync(fakeNpx, `#!/bin/sh\nshift\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} \"$@\"\n`);
     chmodSync(fakeNpx, 0o755);
+    writeFileSync(fakeNpm, `#!/bin/sh
+if [ "$1" = "install" ]; then
+  shift
+  if [ "$1" = "--prefix" ]; then mkdir -p "$2/node_modules"; fi
+  exit 0
+fi
+printf '{}\\n'
+exit 0
+`);
+    chmodSync(fakeNpm, 0o755);
     const env = { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` };
     result = spawnSync("just", ["fleet", "uninstall", "--all", "--yes"], { cwd: ws, env, encoding: "utf8" });
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
@@ -321,6 +361,12 @@ EOF
 
     result = spawnSync(fakeNpx, ["@chankov/agent-fleet", "setup", "--workspace", ws, "--preset", "default", "--features", "none", "--yes"], { env, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
+    result = spawnSync("just", ["fleet", "doctor"], { cwd: ws, env, encoding: "utf8" });
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /runtime dependencies are incomplete/);
+    assert.match(result.stdout, /just fleet deps/);
+    result = spawnSync("just", ["fleet", "deps"], { cwd: ws, env, encoding: "utf8" });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     result = spawnSync("just", ["fleet", "doctor"], { cwd: ws, env, encoding: "utf8" });
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   } finally {

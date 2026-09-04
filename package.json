@@ -63,6 +63,7 @@
     "!scripts/hermes-monitor-scenario.ts",
     "!scripts/hermes-monitor-scenario.test.ts",
     "scripts/lib/*.ts",
+    "scripts/lib/*.js",
     "codex/",
     "hermes/README.md",
     "hermes/skills/",

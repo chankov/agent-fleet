@@ -300,10 +300,16 @@ EOF
       });
       assert.ok(existsSync(join(workspace, "scripts", "package-lock.json")));
       assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /npm install --prefix scripts/);
-      for (const dependency of ["@sinclair/typebox", "yaml"]) {
-        const target = join(workspace, "scripts", "node_modules", dependency);
-        mkdirSync(dirname(target), { recursive: true });
-        cpSync(join(root, "node_modules", dependency), target, { recursive: true });
+      // Materialize each isolated runtime root from the already-installed root
+      // fixture. `npm ls --prefix` intentionally does not borrow dependencies
+      // from a sibling/root node_modules tree.
+      for (const dependencyRoot of [".pi/extensions", ".pi/harnesses", "scripts"]) {
+        const runtimePackage = JSON.parse(readFileSync(join(workspace, dependencyRoot, "package.json"), "utf8"));
+        for (const dependency of Object.keys(runtimePackage.dependencies ?? {})) {
+          const target = join(workspace, dependencyRoot, "node_modules", dependency);
+          mkdirSync(dirname(target), { recursive: true });
+          cpSync(join(root, "node_modules", dependency), target, { recursive: true });
+        }
       }
       const flowModule = pathToFileURL(join(workspace, "scripts", "flow.ts")).href;
       const flowLoad = execFileSync(process.execPath, [

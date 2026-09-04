@@ -27,6 +27,7 @@ import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
 import { setHermesTelegram, runHermesCommand } from "./lib/set-hermes-telegram.js";
 import { setHermesWatchdog } from "./lib/set-hermes-watchdog.js";
+import { runtimeDependencyFindings } from "../scripts/lib/runtime-dependencies.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
@@ -317,6 +318,9 @@ async function cmdDoctor() {
   }
 
   const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape"]);
+  // These findings affect launch readiness and the doctor exit code, but npm
+  // execution remains behind its dedicated explicit-consent commands.
+  const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies"]);
   const pendingTransaction = existsSync(journalPath(workspace));
   const unrecoverableJournal = recovery.pending && !recovery.recoverable;
   const plan = buildRepairPlan();
@@ -336,10 +340,24 @@ async function cmdDoctor() {
     issue: "transaction backup is missing or unreadable", fix: "discard installer-owned journal with doctor --fix",
   });
 
-  const fixable = findings.filter((f) => !ADVISORY_FINDING_TYPES.has(f.type) && f.type !== "unrecoverable-transaction");
-  const advisory = findings.length - fixable.length;
+  const manual = findings.filter((f) => MANUAL_FINDING_TYPES.has(f.type));
+  const fixable = findings.filter((f) =>
+    !ADVISORY_FINDING_TYPES.has(f.type) &&
+    !MANUAL_FINDING_TYPES.has(f.type) &&
+    f.type !== "unrecoverable-transaction"
+  );
+  const advisory = findings.length - fixable.length - manual.length;
   const pendingRuntime = readState(workspace)?.runtimeRepairs ?? [];
-  const outstanding = repairs.length + fixable.length + (pendingTransaction ? 1 : 0) + pendingRuntime.length;
+  const repairRoot = (repair) => {
+    const index = repair?.args?.indexOf("--prefix") ?? -1;
+    const value = index >= 0 ? repair.args[index + 1] : null;
+    return typeof value === "string" ? value.replaceAll("\\", "/").replace(/^\.\//, "") : null;
+  };
+  // A failed setup exec already records one retryable repair. The matching npm
+  // finding describes the same broken root and must not double the exit count.
+  const pendingDependencyRoots = new Set(pendingRuntime.map(repairRoot).filter(Boolean));
+  const manualOutstanding = manual.filter((finding) => !pendingDependencyRoots.has(finding.root));
+  const outstanding = repairs.length + fixable.length + manualOutstanding.length + (pendingTransaction ? 1 : 0) + pendingRuntime.length;
 
   // The report comes first, then the question. Asking "apply 7 fixes?" before
   // naming them is asking for a blind yes.
@@ -356,6 +374,9 @@ async function cmdDoctor() {
     if (findings.length > 0) {
       printSection(`Scan findings (${findings.length})`);
       console.log(formatFindingsTable(findings));
+      if (manual.length > 0) {
+        console.log(`\n(${manual.length} launch-blocking dependency finding(s) — use the explicit remediation above; doctor --fix never runs an unplanned npm install)`);
+      }
       if (advisory > 0) {
         console.log(`\n(${advisory} advisory — fix by hand per the suggestions above; never auto-applied)`);
       }
@@ -375,9 +396,22 @@ async function cmdDoctor() {
     if (fixable.length > 0) scanRepair = await runDoctor({ workspace, sourceRoot: pkgRoot, apply: true });
   }
 
+  const runtimeRepairOutput = (line) => (opts.json ? console.error : console.log)(`exec: ${line}`);
   const runtimeRepair = willFix
-    ? retryRuntimeRepairs({ workspace, output: (line) => console.log(`exec: ${line}`) })
+    ? retryRuntimeRepairs({ workspace, output: runtimeRepairOutput })
     : { attempted: 0, remaining: pendingRuntime };
+
+  let remainingManual = manualOutstanding;
+  if (willFix && manual.length > 0) {
+    // A recorded npm repair may exit zero without actually producing a healthy
+    // tree. Re-run the shared probe and keep any such root outstanding.
+    const remainingRepairRoots = new Set(runtimeRepair.remaining.map(repairRoot).filter(Boolean));
+    remainingManual = runtimeDependencyFindings({ workspace })
+      .filter((finding) => !remainingRepairRoots.has(finding.root));
+  }
+  const remainingAfterFix = willFix
+    ? remainingManual.length + (scanRepair?.skipped ?? 0) + (applied?.summary.failed ?? 0) + runtimeRepair.remaining.length
+    : outstanding;
 
   const report = {
     schemaVersion: 1,
@@ -399,9 +433,10 @@ async function cmdDoctor() {
     summary: {
       repairs: repairs.length,
       fixable: fixable.length,
+      manual: manual.length,
       advisories: advisory,
-      fixed: willFix ? outstanding - (scanRepair?.skipped ?? 0) - (applied?.summary.failed ?? 0) : 0,
-      outstanding: willFix ? (scanRepair?.skipped ?? 0) + (applied?.summary.failed ?? 0) + runtimeRepair.remaining.length : outstanding,
+      fixed: willFix ? Math.max(0, outstanding - remainingAfterFix) : 0,
+      outstanding: remainingAfterFix,
     },
   };
 
@@ -411,7 +446,7 @@ async function cmdDoctor() {
   }
 
   if (outstanding === 0) {
-    console.log("\n✓ Nothing to repair: no broken recorded items, no broken symlinks, no stale persona references.");
+    console.log("\n✓ Nothing to repair: recorded items and runtime dependency roots are healthy.");
     exit(0);
   }
 
@@ -419,8 +454,10 @@ async function cmdDoctor() {
   if (!willFix) {
     console.log(
       opts["dry-run"]
-        ? `${outstanding} repairable issue(s) found (--dry-run: nothing was written).`
-        : `${outstanding} repairable issue(s) found. Re-run with --fix to apply them.`,
+        ? `${outstanding} actionable issue(s) found (--dry-run: nothing was written).`
+        : manual.length > 0
+          ? `${outstanding} actionable issue(s) found. Follow the dependency remediation above; re-run with --fix for auto-fixable items.`
+          : `${outstanding} repairable issue(s) found. Re-run with --fix to apply them.`,
     );
     exit(2);
   }

@@ -20,6 +20,9 @@
 //   6. Model visibility — persona, delegate sub-role, and voices.yaml models
 //      that a clean-room `pi --no-extensions` child cannot see. Read-only:
 //      never auto-fixed. A missing voices.yaml is not a finding.
+//   7. Runtime dependencies — each installed npm root is checked with `npm ls`.
+//      Missing/broken dependencies are actionable but never auto-installed by
+//      doctor; use the explicit dependency or setup execution consent path.
 //
 // For each broken link we look up a canonical replacement in the source
 // `agents/` or `skills/` tree (many breakages are stale names from the
@@ -31,6 +34,7 @@ import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { validateOverrides } from "./validate-overrides.js";
 import { readState, STATE_REL_PATH } from "./state.js";
+import { runtimeDependencyFindings } from "../../scripts/lib/runtime-dependencies.js";
 
 export const AGENT_FLEET_PACKAGE_NAME = "@chankov/agent-fleet";
 const AGENT_FLEET_PACKAGE_PATTERN = /(^|[/:])@chankov\/agent-fleet(@[^/]*)?$/;
@@ -78,7 +82,7 @@ const YAML_REFS = [
  * @param {boolean} [opts.apply]   If true, apply suggested fixes; otherwise just report
  * @returns {Array|object}         Findings array (apply=false) or {repaired,deleted,skipped} (apply=true)
  */
-export async function runDoctor({ workspace, sourceRoot, apply = false, checkVisibility } = {}) {
+export async function runDoctor({ workspace, sourceRoot, apply = false, checkVisibility, checkDependencies } = {}) {
   const findings = [];
 
   // 1. Broken symlinks in install-target directories.
@@ -161,6 +165,10 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
 
   // 6. Model visibility for roster personas, delegate sub-roles, and voices.yaml.
   findings.push(...await scanModelVisibility({ workspace, checkVisibility }));
+
+  // 7. Every installed npm root must have its own complete dependency tree.
+  // Node module resolution cannot borrow a sibling root's node_modules.
+  findings.push(...runtimeDependencyFindings({ workspace, run: checkDependencies }));
 
   if (!apply) return findings;
 

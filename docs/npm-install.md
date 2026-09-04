@@ -43,10 +43,10 @@ package-entry mode — `setup --help` lists them.
 
 ### Then install the runtime dependencies
 
-Setup writes files; it does not run commands for you. The two `npm` steps that
-the harnesses and extensions need are planned as `skip` with the reason *"runs a
-command — re-run with `--allow-exec` to include it"*. **A workspace is not
-launchable until they run.** Either let setup run them:
+Setup writes files; it does not run commands for you. The three `npm` steps for
+`.pi/extensions`, `.pi/harnesses`, and `scripts` are planned as `skip` with the
+reason *"runs a command — re-run with `--allow-exec` to include it"*. **A
+workspace is not launchable until they run.** Either let setup run them:
 
 ```bash
 npx @chankov/agent-fleet@latest setup --preset default --features none --allow-exec --yes
@@ -58,6 +58,13 @@ npx @chankov/agent-fleet@latest setup --preset default --features none --allow-e
 just fleet deps      # npm install in .pi/extensions, .pi/harnesses, and scripts
 just fleet doctor    # confirm the workspace is whole
 ```
+
+`doctor` runs `npm ls --depth=0` against each installed root. Missing or invalid
+runtime trees are launch-blocking findings (exit `2`) with the same two
+remediation paths above; `doctor --fix` deliberately does not infer consent to
+run a new npm install. The `just fleet` launcher performs the same check before
+starting Pi, so an extension import failure cannot be misreported as an unknown
+flag such as `--project`.
 
 ### Verify the result
 
@@ -286,7 +293,7 @@ reads.
 |---|---|
 | `0` | Success, or nothing to do |
 | `1` | Could not run |
-| `2` | `doctor` found repairable issues |
+| `2` | `doctor` found repairable or launch-blocking manual-action issues |
 | `3` | `setup` hit unresolved conflicts and wrote nothing |
 
 See [Migration](MIGRATION-agent-fleet.md) for the full major-release matrix.

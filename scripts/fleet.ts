@@ -5,6 +5,17 @@
 import { spawnSync } from "node:child_process";
 import { parseFleetCommand } from "./lib/fleet-command.ts";
 import { resolveMonitorEnv } from "./lib/monitor-env.ts";
+import { assertRuntimeDependencies } from "./lib/runtime-dependencies.js";
+
+const PI_LAUNCH_RECIPES = new Set([
+	"_fleet-core",
+	"_fleet-hub",
+	"_fleet-hub-team",
+	"_fleet-team-up",
+	"_fleet-conductor",
+	"_fleet-conductor-codex",
+	"_fleet-team-resume",
+]);
 
 const HELP = `Agent Fleet — one guarded Hub runtime, two work modes, independent topology
 
@@ -176,6 +187,18 @@ function main(): void {
 	}
 	for (const warning of invocation.warnings ?? []) {
 		console.error(`fleet: warning: ${warning}`);
+	}
+	// Refuse before Just/Pi starts. Without this guard a top-level extension
+	// import can fail before agent-hub registers flags such as --project, making
+	// a missing npm tree look like an unrelated "Unknown option" parser error.
+	if (PI_LAUNCH_RECIPES.has(invocation.recipe)) {
+		try {
+			assertRuntimeDependencies(process.cwd());
+		} catch (error) {
+			console.error(`fleet: ${error instanceof Error ? error.message : String(error)}`);
+			process.exitCode = 1;
+			return;
+		}
 	}
 	// Every mode gets the monitor variables, not just `hub`: a plain `just fleet`
 	// or a `peer` loads no agent-hub and so reads them never, while `hub` and

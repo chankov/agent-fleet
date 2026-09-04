@@ -29,6 +29,7 @@ import { pruneDeadEntries } from "./lib/coms-envelope.ts";
 import { parseEnvFile, resolveEnvFilePath, type LayoutNode } from "./lib/herdr-layout.ts";
 import { assertClaudeCodeAvailable } from "./claude-code-preflight.ts";
 import { buildPeerLaunchPlan, parsePeerArgs, type PeerLaunchPlan } from "./lib/peer-launch.ts";
+import { assertRuntimeDependencies } from "./lib/runtime-dependencies.js";
 import { worktreeTag } from "./lib/team-project.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -126,6 +127,18 @@ async function main(): Promise<void> {
 		console.log(`${plan.name}\t${plan.command.join(" ")}${envNote}`);
 		console.log(JSON.stringify(plan, null, 2));
 		return;
+	}
+
+	// Pi peers load Fleet extensions/harnesses. Validate all three isolated npm
+	// roots before creating a pane so an import failure cannot turn into a peer
+	// timeout or a misleading unknown-flag diagnostic. Claude peers do not load
+	// this Pi runtime and retain their dedicated CLI preflight below.
+	if (plan.runner === "pi") {
+		try {
+			assertRuntimeDependencies(REPO_ROOT);
+		} catch (error) {
+			die(`fleet peer: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 
 	// A PATH entry alone does not prove the CLI is runnable: interrupted npm

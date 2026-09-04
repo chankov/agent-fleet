@@ -630,6 +630,7 @@
             "scripts/lib/monitor-env.ts",
             "scripts/lib/peer-launch.ts",
             "scripts/lib/persona-banner.ts",
+            "scripts/lib/runtime-dependencies.js",
             "scripts/lib/spawn-stagger.ts",
             "scripts/lib/team-project.ts",
             "scripts/lib/team-snapshot.ts",

@@ -38,6 +38,11 @@ just fleet doctor   # exit 0 = nothing to repair
 
 (Or pass `--allow-exec` to setup and let it run them in the same pass.)
 
+`doctor` validates all three roots with `npm ls`. The launcher repeats that
+read-only preflight before Pi starts and points back to `just fleet deps` or
+`setup --allow-exec` instead of allowing a missing import to surface later as a
+misleading unknown command-line option.
+
 ## First session
 
 ```bash

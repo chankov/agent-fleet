@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -142,6 +142,43 @@ test("Fleet entrypoint prints compatibility guidance before launching the mapped
 		assert.equal(result.stdout.trim(), "_fleet-hub true false false false --agent-team default");
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("Fleet launcher blocks before Just/Pi when a runtime dependency root is incomplete", () => {
+	const ws = mkdtempSync(join(tmpdir(), "fleet-dependency-preflight-"));
+	const fakeBin = join(ws, "bin");
+	const marker = join(ws, "just-was-called");
+	try {
+		mkdirSync(join(ws, "scripts"), { recursive: true });
+		writeFileSync(join(ws, "scripts", "package.json"), JSON.stringify({
+			private: true,
+			dependencies: { "definitely-missing-agent-fleet-fixture": "1.0.0" },
+		}));
+		mkdirSync(fakeBin);
+		const fakeJust = join(fakeBin, "just");
+		writeFileSync(fakeJust, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\n`);
+		chmodSync(fakeJust, 0o755);
+
+		const result = spawnSync(process.execPath, ["--experimental-strip-types", join(REPO_ROOT, "scripts", "fleet.ts")], {
+			cwd: ws,
+			encoding: "utf8",
+			env: {
+				...process.env,
+				PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+				AGENT_FLEET_MONITOR: "0",
+				npm_config_cache: join(ws, ".npm-cache"),
+			},
+		});
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /runtime dependencies are incomplete/);
+		assert.match(result.stderr, /scripts\/node_modules is missing/);
+		assert.match(result.stderr, /just fleet deps/);
+		assert.match(result.stderr, /setup --allow-exec/);
+		assert.doesNotMatch(result.stderr, /Unknown option: --project/);
+		assert.equal(existsSync(marker), false, "Just/Pi must not start after failed preflight");
+	} finally {
+		rmSync(ws, { recursive: true, force: true });
 	}
 });
 
