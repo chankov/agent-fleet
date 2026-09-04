@@ -21,7 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { buildPlan } from "../lib/plan.js";
 import { applyPlan } from "../lib/apply.js";
@@ -300,10 +300,12 @@ EOF
         mkdirSync(dirname(target), { recursive: true });
         cpSync(join(root, "node_modules", dependency), target, { recursive: true });
       }
-      const flowHelp = execFileSync(process.execPath, [
-        "--experimental-strip-types", join(workspace, "scripts", "flow.ts"), "--help",
+      const flowModule = pathToFileURL(join(workspace, "scripts", "flow.ts")).href;
+      const flowLoad = execFileSync(process.execPath, [
+        "--experimental-strip-types", "--input-type=module", "--eval",
+        `await import(${JSON.stringify(flowModule)}); process.stdout.write("loaded")`,
       ], { cwd: workspace, encoding: "utf8" });
-      assert.equal(flowHelp, "", "installed flow entrypoint must load with script-local dependencies");
+      assert.equal(flowLoad, "loaded", "installed flow entrypoint must load with script-local dependencies");
 
       const doctor = JSON.parse(execFileSync(process.execPath, [
         join(extracted, "bin", "cli.js"), "doctor", "--workspace", workspace, "--json",
