@@ -1,5 +1,12 @@
 # Agent Fleet changelog
 
+## 2.0.3
+
+### Patch Changes
+
+- 3cf0e2f: Make native research helpers live-only: they appear in the Fleet Dashboard (`Alt+A`) while running, never as main-dispatcher cards, and are removed immediately on every terminal outcome. Session, transcript, findings, and `/af-agents-history` records remain; finished `rN` restart and `research-keep` are retired.
+- 3cf0e2f: Fix installed workspaces on Node.js 22+ by keeping the doctor model-visibility runtime in plain JavaScript and installing deterministic workflow dependencies under `scripts/node_modules`.
+
 ## 2.0.2
 
 ### Patch Changes
