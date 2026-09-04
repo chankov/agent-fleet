@@ -1,5 +1,12 @@
 # Agent Fleet changelog
 
+## 2.0.4
+
+### Patch Changes
+
+- fc8be3e: Check the `.pi/extensions`, `.pi/harnesses`, and `scripts` npm roots in `doctor`, and stop Fleet Pi launchers with actionable dependency remediation before extension import failures can surface as misleading unknown flags.
+- e4f1957: Make `agent-fleet setup --allow-exec` include and run the consented runtime dependency steps instead of leaving them as skipped plan actions.
+
 ## 2.0.3
 
 ### Patch Changes

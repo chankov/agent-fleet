@@ -1,0 +1,78 @@
+# Flat profiles switch named personas; version: 2 profiles switch the complete fleet.
+# See docs/agent-fleet-setup.md for defaults, child roles, services and policies.
+mix-max:
+  code-reviewer: github-copilot/claude-opus-5
+  builder: openai-codex/gpt-5.6-sol
+  planner: github-copilot/claude-fable-5
+  plan-reviewer: openai-codex/gpt-5.6-sol
+  security-auditor: xai/grok-4.6
+  test-engineer: xai/grok-4.6
+sol:
+  code-reviewer: openai-codex/gpt-5.6-sol
+  builder: openai-codex/gpt-5.6-sol
+  planner: openai-codex/gpt-5.6-sol
+  plan-reviewer: openai-codex/gpt-5.6-sol
+  security-auditor: openai-codex/gpt-5.6-sol
+  test-engineer: openai-codex/gpt-5.6-sol
+
+local-duo:
+  version: 2
+  defaults:
+    model: &laguna omlx/Laguna-XS-2.1-4bit
+    thinking: off
+  allowed-models:
+    - *laguna
+    - &qwen omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX
+  fallback: none
+  routing: native
+  dispatcher: *laguna
+  agents:
+    architect: *laguna
+    bowser: *laguna
+    builder: *laguna
+    code-reviewer: *laguna
+    deep-researcher: *laguna
+    documenter: *qwen
+    orchestrator: *laguna
+    plan-reviewer: *laguna
+    planner: *laguna
+    releaser: *laguna
+    researcher: *laguna
+    security-auditor: *laguna
+    test-engineer: *laguna
+    web-debugger: *laguna
+    web-performance-auditor: *laguna
+  subagents:
+    builder:
+      recon: *laguna
+      verifier: *laguna
+    code-reviewer:
+      preflight: *laguna
+      quality: *laguna
+      perf: *laguna
+      docs: *qwen
+    plan-reviewer:
+      feasibility: *laguna
+      deps: *qwen
+    planner:
+      scout: *laguna
+      rules: *laguna
+      voice-1: *laguna
+      voice-2: *qwen
+      voice-3: *laguna
+    security-auditor:
+      recon: *laguna
+      input-sweep: *laguna
+      secrets-sweep: *laguna
+    test-engineer:
+      coverage-scout: *laguna
+      conventions: *qwen
+  services:
+    watchdog: *laguna
+    return-extractor: *qwen
+  panel:
+    - name: laguna
+      model: *laguna
+      integrator: true
+    - name: qwen
+      model: *qwen
