@@ -131,8 +131,10 @@ test("Fleet entrypoint prints compatibility guidance before launching the mapped
 		const fakeJust = join(dir, "just");
 		writeFileSync(fakeJust, "#!/bin/sh\nprintf '%s\\n' \"$*\"\n");
 		chmodSync(fakeJust, 0o755);
-		const result = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/fleet.ts", "hub", "--solo"], {
-			cwd: REPO_ROOT,
+		// Keep this compatibility-routing test independent from the checkout's
+		// nested npm install state. Dependency refusal has its own fixture below.
+		const result = spawnSync(process.execPath, ["--experimental-strip-types", join(REPO_ROOT, "scripts", "fleet.ts"), "hub", "--solo"], {
+			cwd: dir,
 			encoding: "utf8",
 			env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}`, AGENT_FLEET_MONITOR: "0" },
 		});
