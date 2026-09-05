@@ -15,6 +15,10 @@ sol:
   security-auditor: openai-codex/gpt-5.6-sol
   test-engineer: openai-codex/gpt-5.6-sol
 
+# Local oMLX pair. 35B (qwen36) is the default brain: dispatcher, specialists,
+# recon/preflight/feasibility/scout/sweeps, watchdog. 9B (qwen) is only the
+# cheap, narrow helpers: documenter, docs, deps, conventions, planner voice-2,
+# return-extractor. thinking stays off. Laguna is retired — do not reintroduce it.
 local-duo:
   version: 2
   defaults:

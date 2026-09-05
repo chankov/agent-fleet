@@ -483,26 +483,32 @@ profile declares the whole execution model set independently of
 local-duo:
   version: 2
   defaults:
-    model: &laguna omlx/Laguna-XS-2.1-4bit
+    model: &qwen36 omlx/Qwen3.6-35B-A3B-UD-MLX-3bit
     thinking: off
   allowed-models:
-    - *laguna
+    - *qwen36
     - &qwen omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX
   fallback: none
   routing: native
-  dispatcher: *laguna
+  dispatcher: *qwen36
   agents:
     documenter: *qwen
+    # all other shipped personas inherit *qwen36 (see .pi/agents/model-profiles.yaml)
   subagents:
     code-reviewer:
       docs: *qwen
+    plan-reviewer:
+      deps: *qwen
+    planner:
+      voice-2: *qwen
     test-engineer:
       conventions: *qwen
+    # recon, preflight, feasibility, scout, rules, sweeps, coverage stay on *qwen36
   services:
-    watchdog: *laguna
+    watchdog: *qwen36
     return-extractor: *qwen
   panel:
-    - { name: laguna, model: *laguna, integrator: true }
+    - { name: qwen36, model: *qwen36, integrator: true }
     - { name: qwen, model: *qwen }
 ```
 
@@ -546,7 +552,10 @@ The profile is passed through the owned process tree. Workflow commands started
 from that session inherit its persona models, thinking, panel and fallback policy.
 Separately started fleet sessions/standing peers retain their own configuration.
 The bundled `local-duo` profile explicitly covers all shipped child roles and needs
-no project model overrides. Both exact model IDs must be registered in Pi and
-served locally by oMLX. Selecting a profile does not download or register models.
-The `omlx` provider has a default concurrency limit of two per Pi process;
-`AGENT_HUB_PROVIDER_LIMITS` can override it.
+no project model overrides. The 35B Qwen is the default (dispatcher, specialists,
+recon/sweeps, watchdog). The 9B Qwen is reserved for narrow helpers: `documenter`,
+`code-reviewer.docs`, `plan-reviewer.deps`, `test-engineer.conventions`,
+`planner.voice-2`, and `return-extractor`. Both exact model IDs must be registered
+in Pi and served locally by oMLX. Selecting a profile does not download or register
+models. The `omlx` provider has a default concurrency limit of two per Pi process;
+`AGENT_HUB_PROVIDER_LIMITS` can override it if both weights should run in parallel.
