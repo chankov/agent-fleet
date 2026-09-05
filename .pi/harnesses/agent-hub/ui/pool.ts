@@ -10,7 +10,6 @@ export interface PoolPresentationDeps {
 	getPeerCards(): ReadonlyMap<string, { name: string; model: string; purpose: string; color: string; staleCount?: number }>;
 	readProjectEntries(project: string): ComsRegistryEntry[];
 	readAllEntries(): ComsRegistryEntry[];
-	isCompact(): boolean;
 	truncate(text: string, width: number): string;
 }
 
@@ -53,7 +52,6 @@ export function createPoolPresentation(deps: PoolPresentationDeps): PoolPresenta
 	};
 
 	const render = (width: number, theme: { fg(color: string, text: string): string }): string[] => {
-		if (!deps.isCompact()) return [];
 		const rows = buildFleetRows({ specialists: [], research: [], peers: peerInputs() }, { showFinished: true });
 		const safeWidth = Math.max(0, width);
 		const identity = deps.getIdentity();
@@ -95,9 +93,6 @@ export function createPoolPresentation(deps: PoolPresentationDeps): PoolPresenta
 
 	return {
 		peerInputs, render,
-		install(ctx) {
-			if (!ctx.hasUI) return;
-			try { ctx.ui.setWidget("coms-pool", (_tui, theme) => ({ invalidate() {}, render: width => render(width, theme) }), { placement: "belowEditor" }); } catch {}
-		},
+		install(_ctx) {},
 	};
 }

@@ -12,6 +12,13 @@ test("dashboard has fixed height with hierarchy, columns, bars, and aggregates",
 	assert.match(text, /Fleet.*3 running.*1 done.*1:30.*20k tok/); assert.match(text, /└ child/); assert.match(text, /\[automatic\].*—/); assert.match(text, /\[##/); assert.match(text, /npm test/);
 });
 
+test("dashboard pins coms lines below chrome", () => {
+	const lines = renderFleetDashboard({ ...vm([row("root")]), comsLines: [" coms ", " alpha "] }, 80, 3, theme);
+	assert.equal(lines.length, 3 + FLEET_CHROME_ROWS + 2);
+	assert.equal(lines.at(-2), " coms ");
+	assert.equal(lines.at(-1), " alpha ");
+});
+
 test("dashboard degrades at narrow widths and has a fixed-height empty state", () => {
 	const narrow = renderFleetDashboard(vm([row("long-agent-name")]), 60, 4, theme);
 	assert.equal(narrow.length, 4 + FLEET_CHROME_ROWS); assert.ok(narrow.every(line => Array.from(line).length <= 60));

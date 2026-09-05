@@ -85,16 +85,14 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(source, /gridCols = gridColumnsForSize\(agentStates\.size\);/);
 	assert.doesNotMatch(gridSource, /agent-research/);
 	assert.doesNotMatch(gridSource, /getResearchStates/);
-	assert.equal(((source + gridSource).match(/compactWidgetsEnabled\(/g) ?? []).length, 3, "composition and grid guards use the shared predicate");
-	assert.match(source, /isCompact: \(\) => compactWidgetsEnabled\(viewMode\)/, "extracted shortcuts and pool receive the shared predicate");
-	assert.match(shortcutSource, /ports\.isCompact\(\)/);
+	assert.doesNotMatch(source + gridSource, /compactWidgetsEnabled/);
+	assert.doesNotMatch(shortcutSource, /ports\.isCompact\(\)/);
 	assert.doesNotMatch(uiSource, /function (?:shortModel|thinkingSuffix|modelWithThinking)\(/, "Phase 6.5 UI consumes the root-owned formatters");
 	assert.match(source, /createFleetDashboard<[\s\S]*?shortModel,[\s\S]*?thinkingSuffix,[\s\S]*?modelWithThinking,/, "dashboard receives shared runtime formatters explicitly");
 	assert.doesNotMatch(source, /declare const (?:shortModel|thinkingSuffix|modelWithThinking)/, "runtime formatters cannot be ambient-only declarations");
 	assert.match(source, /function shortModel\(model: string \| undefined\)[\s\S]*?function thinkingSuffix\(rawThinking: string \| undefined\)[\s\S]*?function modelWithThinking\(def: AgentDef\)/, "composition root owns the shared model presentation helpers");
-	assert.match(source, /createGridUI\(\{[\s\S]*?displayName, shortModel, modelWithThinking,/, "grid receives the shared runtime helpers explicitly");
+	assert.match(source, /createGridUI\(\{[\s\S]*?getWidgetContext/, "grid remains a no-op widget refresh");
 	assert.doesNotMatch(gridSource, /function (?:shortModel|thinkingSuffix|modelWithThinking)\(/, "grid does not duplicate shared presentation semantics");
-	assert.match(gridSource, /deps\.shortModel\([\s\S]*?deps\.modelWithThinking\(/, "extracted grid calls its injected formatters");
 	assert.match(source, /import \{[\s\S]*?abbreviateModel,[\s\S]*?\} from "\.\.\/lib\/coms-core\.ts"/, "coms model abbreviation remains separate");
 	// confirmation window is owned by the pure controller
 	const dash = readFileSync(new URL("../lib/fleet-dashboard-view.ts", import.meta.url), "utf8");
@@ -113,7 +111,7 @@ test("task lifecycle closes at agent_end and task-reset mutations are auditable"
 	assert.doesNotMatch(source, /registerCommand\("af-hub-mode"/);
 });
 
-test("shortcuts, command, compact toggle, footer, and pool use the separate fleet flow", () => {
+test("shortcuts, command, footer, and pool use the separate fleet flow", () => {
 	// A12 — each named route/key/hint individually
 	assert.match(source, /registerInputShortcuts\(pi,/);
 	assert.match(shortcutSource, /registerShortcut\("alt\+a"[\s\S]*?ports\.openFleetDashboard\(ctx\)/);
@@ -124,14 +122,13 @@ test("shortcuts, command, compact toggle, footer, and pool use the separate flee
 	assert.match(agentModelsSubstituteCommandSource, /registerCommand\("af-agent-models-substitute"[\s\S]*?getSubstituteCompletions[\s\S]*?handleAgentModelsSubstitute/);
 	assert.match(source, /handleAgentModelsSubstitute: async \(args, ctx\) => \{[\s\S]*?tokens\.length === 0[\s\S]*?openFleetDashboard\(ctx, true\)/);
 	assert.match(shortcutSource, /registerShortcut\("alt\+m"[\s\S]*?ports\.openWorkModePicker\(ctx\)/);
-	assert.match(shortcutSource, /registerShortcut\("alt\+shift\+a"[\s\S]*?ports\.toggleCompact\(\)/);
-	assert.ok(shortcutSource.includes('registerShortcut("alt+\\\\",'));
-	assert.match(shortcutSource, /registerShortcut\("alt\+\\\\"[\s\S]*?ports\.openMarkedAgent\(ctx, marked\)/);
+	assert.doesNotMatch(shortcutSource, /alt\+shift\+a/);
+	assert.doesNotMatch(shortcutSource, /openMarkedAgent/);
 	assert.match(source, /registerZoom\(pi, commandCtx\)/);
 	assert.match(zoomCommandSource, /registerCommand\("af-zoom"[\s\S]*?getZoomCompletions[\s\S]*?handleZoom/);
 	assert.match(source, /handleZoom: async \(args, ctx\) => \{[\s\S]*?const rowKey = \(rid != null \? `r\$\{rid\}` : arg\)\.toLowerCase\(\)[\s\S]*?r\.key\.toLowerCase\(\) === rowKey/);
 	assert.match(source, /function findDelegationChild[\s\S]*?candidate\.id\.toLowerCase\(\) === lower/);
-	assert.match(source, /getHint: \(\) => composeFleetFooterHint\(viewMode, compactWorkMode\(getWorkMode\(\)\)\)/);
+	assert.match(source, /getHint: \(\) => composeFleetFooterHint\(compactWorkMode\(getWorkMode\(\)\)\)/);
 	assert.match(sessionStartPromptSource, /const hint = theme\.fg\("dim", deps\.getHint\(\)\);/);
 	assert.doesNotMatch(source + sessionStartPromptSource, /theme\.fg\("muted", "Alt\+A "\) \+ theme\.fg\("dim", composeFleetFooterHint/);
 	assert.match(poolSource, /const peerInputs[\s\S]*?pending: true/);

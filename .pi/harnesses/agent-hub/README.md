@@ -237,7 +237,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   and follow-up reconnaissance are automated through `spawn_research` and `NEEDS_RESEARCH:`; there are
   no dedicated research lifecycle slash commands.
   Restartable team specialists at or above 70% context render
-  their context percentage with a warning marker/color in dashboard and compact views, and their next
+  their context percentage with a warning marker/color in the Fleet Dashboard, and their next
   `dispatch_agent` result adds a `/af-agents-restart <persona>` hint. Research helpers are not warned,
   and the hub never restarts specialists automatically.
 - **Model switching** — a persona's frontmatter `models:` list declares the models it may switch to
@@ -284,8 +284,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   <persona>` switches it among those six levels for the session; like a model switch it takes effect
   on the persona's next dispatch (`/af-agents-restart <persona>` applies it now), and selecting the
   frontmatter default clears the override. The level shows as a short badge after the model
-  everywhere a model is rendered — `gpt-5.5 (xh)` in the dashboard cards and the compact below-editor
-  view (`min`/`low`/`med`/`hi`/`xh`; `off` shows no badge). Per project, a `thinking.<persona>:` key
+  everywhere a model is rendered — `gpt-5.5 (xh)` in the dashboard (`min`/`low`/`med`/`hi`/`xh`; `off` shows no badge). Per project, a `thinking.<persona>:` key
   under `## agent-hub` in `.ai/agent-fleet-overrides.md` replaces a persona's default level.
 - **Mid-turn delegation (`delegate` tool)** — a persona that declares a `subagents:` map in its
   frontmatter (`role: { model, tools? }` entries, or an indented `model:`/`tools:` block per role)
@@ -375,12 +374,8 @@ execution **tree**:
 Navigate with `↑/↓`, press `G` to jump back to the live tail, and `Q`/`Esc` to close. The log resets
 on each session start.
 
-The agent view starts with the **compact widget** enabled: one line per *running* specialist —
-`name · context% · state` — *below* the input box, just above pi's status bar. Idle and done agents
-and all research helpers are hidden here (running helpers live in the Fleet Dashboard), and the coms
-pool widget collapses too, so an idle session collapses to just the prompt and footer.
-**`Alt+Shift+A`** toggles that widget on or off; the footer reports
-`Alt+A fleet · Alt+M Operator · Alt+Shift+A widget:compact|off`.
+The default agent view is the prompt and footer only (`Alt+A fleet · Alt+M Operator`). There is no
+below-editor compact widget. The coms pool panel lives at the **bottom of the Fleet Dashboard**.
 
 ### Work Mode picker
 
@@ -392,10 +387,11 @@ terminal must send Option as Meta or Alt+M will not reach the Hub.
 ### Fleet Dashboard and detail
 
 Press **`Alt+A`** or run **`/af-agents-list`** to open the full-screen **Fleet Dashboard**. It is a
-separate, live overlay—not an alternate compact-widget mode—and lists specialists, nested delegates,
-running research helpers, and coms peers. It shows status, hierarchy, model, context/tokens, elapsed time,
-tool count, and recent work; its summary counts running/done/failed rows, overlap-aware wall time,
-and visible token totals. Finished/idle/stale rows are hidden by default.
+live overlay that lists specialists, nested delegates, running research helpers, and coms peers.
+The bordered **coms** panel is pinned to the bottom of this overlay. The dashboard shows status,
+hierarchy, model, context/tokens, elapsed time, tool count, and recent work; its summary counts
+running/done/failed rows, overlap-aware wall time, and visible token totals. Finished/idle/stale
+rows are hidden by default.
 
 - **`↑`/`↓`** or **`j`/`k`** selects a row; **`PgUp`/`PgDn`** pages; **Enter** opens its full-screen
   detail view.
@@ -466,23 +462,6 @@ replaces pi's built-in footer (where that indicator normally lives), it reads th
 `setStatus("voice-stt", …)` value via the footer data provider and surfaces it itself. The
 indicator only appears once `pi-voice-stt` is installed and configured; otherwise the footer is
 the single model line. Press **`Alt+S`** to start/stop dictation as in a normal pi session.
-
-### Compact-view agent switcher
-
-With the **compact widget enabled**, the running-specialists list below the input doubles as a
-switcher. **`Alt+]`** and **`Alt+[`** move a marker (`›` + highlight) to the next/previous running
-specialist; **`Alt+\`** opens the full-screen detail view on the marked one (`q`/`Esc` to return).
-This only changes what you *view* — **the input box always prompts the main session**, and `main` is
-never a marker target (it is the session under the input, not a subagent). There is no transcript
-takeover: a subagent stream is shown in an overlay, never by replacing the main scrollback. These
-keys require the compact widget; use `/af-zoom <name>` or the Fleet Dashboard otherwise.
-
-> Terminal note: `Alt+[` emits `ESC [` (a CSI prefix) and may be swallowed by some terminals'
-> escape parsers; `Alt+]` and `Alt+\` are the reliable pair. `Alt+↑/↓/←/→` are reserved by the pi
-> editor, which is why the switcher uses the bracket/backslash keys.
->
-> On macOS, configure the outer terminal to send Option as Meta. For Zed, set
-> `terminal.option_as_meta` to `true`; otherwise Option combinations produce composed characters.
 
 ## Configuration
 

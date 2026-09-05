@@ -10,6 +10,8 @@ const contextBudget = readFileSync(new URL("./context-budget.ts", import.meta.ur
 test("Phase 6.5 UI factories expose narrow public APIs and typed action ports", () => {
 	assert.match(dashboard, /export interface FleetDashboardDeps/);
 	assert.match(dashboard, /return \{ fleetRows, openFleetDashboard \}/);
+	assert.match(dashboard, /getComsLines/);
+	assert.match(dashboard, /comsLines/);
 	assert.match(detail, /export interface DetailPanelDeps/);
 	assert.match(detail, /return \{ openFleetDetail, loadAvailableModelChoices \}/);
 	assert.match(contextBudget, /export interface ContextBudgetDeps/);

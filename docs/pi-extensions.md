@@ -175,17 +175,16 @@ harnesses:
   restarting or losing session state, while `/af-work-mode` without an argument and **Alt+M** open
   the picker. Orchestrator removes direct coding tools. Budgets and nested delegation follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
   refuse actionably.
-- **Fleet Dashboard and compact widget** — **`Alt+A`** or `/af-agents-list` opens a
+- **Fleet Dashboard** — **`Alt+A`** or `/af-agents-list` opens a
   full-screen dashboard of the active native roster, delegates, currently running research
-  helpers, and coms peers. Live research helpers never appear as cards or compact rows in the
+  helpers, and coms peers, with the coms pool panel pinned to the bottom. Live research helpers never appear in the
   main dispatcher view; they vanish from the dashboard on every terminal outcome while their
   session/findings files and `/af-agents-history` records remain. The dashboard supports row
   detail, filtering, finished-row visibility, confirmed kills, and a confirmed specialist restart.
   In local row detail, **`m`**
   opens a visible inline full-screen picker over the logs, selects from every model currently
   available in Pi, and applies it to the next specialist, research, or nested-delegate run without
-  interrupting current work. Separately, the default below-editor compact widget shows only
-  running specialists; **`Alt+Shift+A`** toggles it on/off. See the
+  interrupting current work. See the
   [agent-hub README](../.pi/harnesses/agent-hub/README.md#fleet-dashboard-and-detail) for
   keys and action semantics.
 - **Specialist delegation** — `dispatch_agent` for writable child-agent work. Read-only

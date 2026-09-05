@@ -124,7 +124,7 @@ import { openHistory } from "./ui/history.ts";
 import { createExecutionHistoryStore, type HistoryEntry } from "./ui/history-store.ts";
 import { createDispatchComs, createDispatchNative, createDispatchObservability, type DelegationChild } from "./dispatch-core.ts";
 import { buildFleetRows, type PeerInput } from "../lib/fleet-read-model.ts";
-import { compactWidgetsEnabled, gridColumnsForSize } from "../lib/fleet-dashboard-ops.ts";
+import { gridColumnsForSize } from "../lib/fleet-dashboard-ops.ts";
 import { createFleetTranscriptStore } from "../lib/fleet-transcript-store.ts";
 import type { ContextBudgetComponent } from "../lib/context-budget.ts";
 import { buildHubSystemPrompt as assembleHubPrompt } from "./prompts/system-prompt.ts";
@@ -169,7 +169,7 @@ export default function (pi: ExtensionAPI) {
 	const coms = createComsPeer({
 		pi,
 		getContext: () => currentCtx,
-		onPeersChanged: () => { if (currentCtx?.hasUI) installPoolWidget(currentCtx); },
+		onPeersChanged: () => {},
 		acceptInbound: () => currentCtx && modelWorkBlockedByRosterRecovery(currentCtx)
 			? "orchestrator roster recovery required"
 			: null,
@@ -240,17 +240,6 @@ export default function (pi: ExtensionAPI) {
 
 	let activeTeamName = "";
 	let gridCols = 2;
-	// View mode toggled by Alt+A: "dashboard" = full bordered card grid above the
-	// editor; "compact" = one line per *running* agent (name · context · state)
-	// rendered BELOW the editor, just above the footer. Compact is the default;
-	// idle/done agents are hidden so an idle session shows only the prompt + footer.
-	let viewMode: "compact" | "off" = "compact";
-	// Compact-view agent switcher: the key of the marked subagent (lowercase persona
-	// name for team specialists — matching /af-zoom resolution), or null when nothing
-	// is marked. Research helpers are Fleet-Dashboard-only. main is never listed (it is the
-	// session under the input box). Alt+]/Alt+[ move it; Alt+\ zooms it.
-	let markedAgent: string | null = null;
-	let runningWidgetInstalled = false;
 	let widgetCtx: any;
 	let sessionDir = "";
 	let contextWindow = 0;
@@ -585,16 +574,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// ── Grid Rendering ───────────────────────────
 	const gridUI = createGridUI({
 		getWidgetContext: () => widgetCtx,
-		getViewMode: () => viewMode,
-		getAgentStates: () => agentStates,
-		getMarkedAgent: () => markedAgent,
-		setMarkedAgent: value => { markedAgent = value; },
-		isRunningWidgetInstalled: () => runningWidgetInstalled,
-		markRunningWidgetInstalled: () => { runningWidgetInstalled = true; },
-		displayName, shortModel, modelWithThinking,
-		contextWarnThreshold: CONTEXT_WARN_THRESHOLD,
 	});
-	const { updateWidget, switchableAgents, clampMarker } = gridUI;
+	const { updateWidget } = gridUI;
 
 	// ── Delegation observability ─────────────────
 	const dispatchObservability = createDispatchObservability({
@@ -738,12 +719,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getPeerCards: () => peerCards,
 		readProjectEntries: readAllRegistryEntries,
 		readAllEntries: readAllRegistryEntriesAcrossProjects,
-		isCompact: () => compactWidgetsEnabled(viewMode),
 		truncate: truncateToWidth,
 	});
 	const fleetPeerInputs = poolPresentation.peerInputs;
-	const renderPool = poolPresentation.render;
-	const installPoolWidget = poolPresentation.install;
 
 	// ── Extracted tool execution wiring ──
 	// Mutable fleet state remains composition-owned; executor modules receive ports.
@@ -1650,6 +1628,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		removeResearch: researchControls.remove,
 		killSpecialistProcess: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree }),
 		abortComs: state => { state.comsAbort?.(); },
+		getComsLines: (width, theme) => poolPresentation.render(width, theme),
 	});
 	const { fleetRows, openFleetDashboard } = fleetDashboard;
 
@@ -1702,19 +1681,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	registerInputShortcuts(pi, {
 		setWidgetContext: ctx => { widgetCtx = ctx; }, openFleetDashboard,
 		workModeStatusText, openWorkModePicker,
-		isCompact: () => compactWidgetsEnabled(viewMode),
-		toggleCompact: () => { viewMode = viewMode === "compact" ? "off" : "compact"; return viewMode; },
-		refreshWidgets: () => { updateWidget(); },
-		getSwitchableKeys: () => switchableAgents().map(agent => agent.key),
-		getMarkedAgent: () => markedAgent, setMarkedAgent: key => { markedAgent = key; }, clampMarker,
-		openMarkedAgent: async (ctx, key) => {
-			const rid = parseResearchHandle(key);
-			const target: Zoomable | undefined = rid != null ? researchStates.get(rid) : agentStates.get(key);
-			if (!target) return false;
-			const row = fleetRows(true).find(candidate => candidate.key === key);
-			if (row) await openFleetDetail(row, ctx); else await openZoom(target, ctx);
-			return true;
-		},
 	});
 
 	// Root owns subscription order; lifecycle modules own handler bodies.
@@ -1887,7 +1853,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 					comsReady = true;
 					try {
 						_ctx.ui.setStatus("coms", `📡 ${identity.name}@${identity.project}`);
-						installPoolWidget(_ctx);
 					} catch { /* hasUI may be false — non-fatal */ }
 				} catch (err) {
 					comsReady = false;
@@ -2059,7 +2024,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				getModel: () => _ctx.model?.id || "no-model",
 				getThinkingLevel: () => pi.getThinkingLevel?.(),
 				thinkingSuffix,
-				getHint: () => composeFleetFooterHint(viewMode, compactWorkMode(getWorkMode())),
+				getHint: () => composeFleetFooterHint(compactWorkMode(getWorkMode())),
 				renderLeft: renderHubFooterLeft,
 				truncateToWidth,
 				visibleWidth,

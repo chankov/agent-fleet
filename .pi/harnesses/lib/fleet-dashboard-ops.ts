@@ -132,11 +132,6 @@ export function renderCardGrid<T>(
 	return lines;
 }
 
-/** Compact below-editor specialist widgets render only in compact mode. */
-export function compactWidgetsEnabled(viewMode: "compact" | "off"): boolean {
-	return viewMode === "compact";
-}
-
 /** Freeze an already-open Fleet detail row when its live target leaves "running". */
 export function snapshotFleetDetailRow<
 	T extends { status: string; startedAt?: number; elapsed: number; lastWork: string },

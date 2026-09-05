@@ -25,25 +25,21 @@ test("completion presentation preserves agents, delegates, research, models, sub
 	assert.equal(completion.comsPeers("peer")?.[0].label, "peer — review");
 });
 
-test("shortcut registrar preserves routing and compact marker behavior", async () => {
+test("shortcut registrar preserves fleet and work-mode routing", async () => {
 	const handlers = new Map<string, (ctx: any) => any>();
-	let marked: string | null = null; const calls: string[] = [];
+	const calls: string[] = [];
 	registerInputShortcuts({ registerShortcut: (key: string, spec: any) => handlers.set(key, spec.handler) } as any, {
 		setWidgetContext: () => calls.push("context"), openFleetDashboard: async () => { calls.push("dashboard"); }, workModeStatusText: () => "mode", openWorkModePicker: async () => { calls.push("mode"); },
-		isCompact: () => true, toggleCompact: () => "off", refreshWidgets: () => calls.push("refresh"), getSwitchableKeys: () => ["a", "b"],
-		getMarkedAgent: () => marked, setMarkedAgent: key => { marked = key; }, clampMarker: () => {}, openMarkedAgent: async (_ctx, key) => { calls.push(`open:${key}`); return true; },
 	});
 	const ctx = { hasUI: true, ui: { select() {}, notify() {} } };
-	assert.deepEqual(Array.from(handlers.keys()), ["alt+a", "alt+m", "alt+shift+a", "alt+]", "alt+[", "alt+\\"]);
-	handlers.get("alt+]")!(ctx); assert.equal(marked, "a");
-	await handlers.get("alt+\\")!(ctx); assert.ok(calls.includes("open:a"));
+	assert.deepEqual(Array.from(handlers.keys()), ["alt+a", "alt+m"]);
+	await handlers.get("alt+a")!(ctx);
+	assert.ok(calls.includes("dashboard"));
 });
 
-test("pool presentation renders pending peers and keeps compact gating", () => {
-	let compact = true;
+test("pool presentation renders pending peers without compact gating", () => {
 	const pool = createPoolPresentation({ getIdentity: () => ({ session_id: "self", name: "hub", color: "#fff", project: "p" }), getDisplayProject: () => "p", includeExplicitPeers: () => false,
-		getPeerCards: () => new Map(), readProjectEntries: () => [{ session_id: "peer", name: "alpha", model: "p/m", purpose: "review", color: "#123", project: "p", endpoint: "x", pid: 1, started_at: "", explicit: false } as any], readAllEntries: () => [], isCompact: () => compact, truncate: (text, width) => text.slice(0, width) });
+		getPeerCards: () => new Map(), readProjectEntries: () => [{ session_id: "peer", name: "alpha", model: "p/m", purpose: "review", color: "#123", project: "p", endpoint: "x", pid: 1, started_at: "", explicit: false } as any], readAllEntries: () => [], truncate: (text, width) => text.slice(0, width) });
 	const theme = { fg: (_color: string, text: string) => text };
 	assert.match(pool.render(80, theme).join("\n"), /alpha[\s\S]*review/);
-	compact = false; assert.deepEqual(pool.render(80, theme), []);
 });

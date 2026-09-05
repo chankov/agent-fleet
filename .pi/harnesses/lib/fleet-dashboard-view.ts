@@ -11,6 +11,7 @@ export interface FleetViewModel {
 	showFinished: boolean;
 	scrollOffset?: number;
 	confirmation?: string;
+	comsLines?: readonly string[];
 }
 
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
@@ -61,7 +62,10 @@ export function renderFleetDashboard(vm: FleetViewModel, width: number, bodyHeig
 	}
 	lines.push(theme.fg("dim", "╰" + "─".repeat(Math.max(0, w - 2)) + "╯"));
 	lines.push(ellipsis(theme.fg("dim", vm.confirmation ?? "↑↓ select · Enter open · m substitute · x kill · r restart · c continue · f filter · a all · q close"), w));
-	return lines.slice(0, body + FLEET_CHROME_ROWS).concat(Array(Math.max(0, body + FLEET_CHROME_ROWS - lines.length)).fill(""));
+	const coms = vm.comsLines ?? [];
+	lines.push(...coms);
+	const total = body + FLEET_CHROME_ROWS + coms.length;
+	return lines.slice(0, total).concat(Array(Math.max(0, total - lines.length)).fill(""));
 }
 
 export type DashboardConfirm = { action: "kill" | "restart"; key: string; until: number } | null;

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	attachFleetDashboardTicker,
-	compactWidgetsEnabled,
 	gridColumnsForItems,
 	gridColumnsForSize,
 	liveTimeline,
@@ -146,8 +145,6 @@ test("C6 liveTimeline follows re-dispatch array replacement through detail rende
 	assert.deepEqual(liveTimeline(null), []);
 });
 
-// ── C7: compact widget off ────────────────────────────────────────────────
-
 test("grid column helpers stay defensive for empty and tiny rosters", () => {
 	assert.equal(gridColumnsForSize(0), 1);
 	assert.equal(gridColumnsForSize(1), 1);
@@ -173,12 +170,4 @@ test("snapshotFleetDetailRow freezes elapsed once the live target is no longer r
 	assert.equal(frozen.lastWork, "found it");
 });
 
-test("C7 compactWidgetsEnabled hides compact widgets when viewMode is off", () => {
-	assert.equal(compactWidgetsEnabled("compact"), true);
-	assert.equal(compactWidgetsEnabled("off"), false);
-
-	// This is the production predicate used by every compact-widget guard.
-	assert.equal(compactWidgetsEnabled("compact"), true);
-	assert.equal(compactWidgetsEnabled("off"), false);
-});
 
