@@ -18,61 +18,61 @@ sol:
 local-duo:
   version: 2
   defaults:
-    model: &laguna omlx/Laguna-XS-2.1-4bit
+    model: &qwen36 omlx/Qwen3.6-35B-A3B-UD-MLX-3bit
     thinking: off
   allowed-models:
-    - *laguna
+    - *qwen36
     - &qwen omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX
   fallback: none
   routing: native
-  dispatcher: *laguna
+  dispatcher: *qwen36
   agents:
-    architect: *laguna
-    bowser: *laguna
-    builder: *laguna
-    code-reviewer: *laguna
-    deep-researcher: *laguna
+    architect: *qwen36
+    bowser: *qwen36
+    builder: *qwen36
+    code-reviewer: *qwen36
+    deep-researcher: *qwen36
     documenter: *qwen
-    orchestrator: *laguna
-    plan-reviewer: *laguna
-    planner: *laguna
-    releaser: *laguna
-    researcher: *laguna
-    security-auditor: *laguna
-    test-engineer: *laguna
-    web-debugger: *laguna
-    web-performance-auditor: *laguna
+    orchestrator: *qwen36
+    plan-reviewer: *qwen36
+    planner: *qwen36
+    releaser: *qwen36
+    researcher: *qwen36
+    security-auditor: *qwen36
+    test-engineer: *qwen36
+    web-debugger: *qwen36
+    web-performance-auditor: *qwen36
   subagents:
     builder:
-      recon: *laguna
-      verifier: *laguna
+      recon: *qwen36
+      verifier: *qwen36
     code-reviewer:
-      preflight: *laguna
-      quality: *laguna
-      perf: *laguna
+      preflight: *qwen36
+      quality: *qwen36
+      perf: *qwen36
       docs: *qwen
     plan-reviewer:
-      feasibility: *laguna
+      feasibility: *qwen36
       deps: *qwen
     planner:
-      scout: *laguna
-      rules: *laguna
-      voice-1: *laguna
+      scout: *qwen36
+      rules: *qwen36
+      voice-1: *qwen36
       voice-2: *qwen
-      voice-3: *laguna
+      voice-3: *qwen36
     security-auditor:
-      recon: *laguna
-      input-sweep: *laguna
-      secrets-sweep: *laguna
+      recon: *qwen36
+      input-sweep: *qwen36
+      secrets-sweep: *qwen36
     test-engineer:
-      coverage-scout: *laguna
+      coverage-scout: *qwen36
       conventions: *qwen
   services:
-    watchdog: *laguna
+    watchdog: *qwen36
     return-extractor: *qwen
   panel:
-    - name: laguna
-      model: *laguna
+    - name: qwen36
+      model: *qwen36
       integrator: true
     - name: qwen
       model: *qwen

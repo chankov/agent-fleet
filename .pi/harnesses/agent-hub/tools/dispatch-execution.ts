@@ -70,9 +70,42 @@ function refusal(d: DispatchExecutorDeps, agent: string, task: string, status: s
 	return { content: [{ type: "text", text: message }], details: { agent, task, status, reason: reason ?? status, elapsed: 0, exitCode: 1, fullOutput: "" } };
 }
 
-function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): PreparedDispatch | ToolExecutionResult {
+const RESEARCH_DISPATCH_NAMES = new Set(["researcher", "deep-researcher"]);
+
+function rosterNames(d: DispatchExecutorDeps): string[] {
+	return Array.from(d.state.getAgentStates().values()).map(s => s.def.name);
+}
+
+function isResearchDispatchName(d: DispatchExecutorDeps, agent: string): boolean {
+	if (RESEARCH_DISPATCH_NAMES.has(agent)) return true;
+	return d.state.getResearchPersonas().some(p => normalizeAgentInput(p.name) === agent);
+}
+
+function unknownAgentMessage(agent: string, available: string[], researchHint: boolean): string {
+	const roster = available.length ? available.join(", ") : "(none)";
+	const research = researchHint
+		? `\n\n"${agent}" is a research persona. Call spawn_research with persona "${agent}" instead of dispatch_agent. Do not invent a substitute dispatch.`
+		: "";
+	return `Unknown agent "${agent}". dispatch_agent only accepts the active roster. Available agents: ${roster}.${research}\n\nDo not invent a substitute dispatch. Use an available agent, or spawn_research for a research persona.`;
+}
+
+export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, task: string): ToolExecutionResult | null {
+	const available = rosterNames(d);
+	const onRoster = d.state.getAgentStates().has(agent) || available.some(name => normalizeAgentInput(name) === agent);
+	if (isResearchDispatchName(d, agent)) {
+		return refusal(d, agent, task, "research_persona_via_dispatch", unknownAgentMessage(agent, available, true), "research_persona_via_dispatch");
+	}
+	if (!onRoster) {
+		return refusal(d, agent, task, "unknown_agent", unknownAgentMessage(agent, available, false), "unknown_agent");
+	}
+	return null;
+}
+
+export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): PreparedDispatch | ToolExecutionResult {
 	const s = d.state; const { task, artifacts, scope, review_reason } = params; const agent = normalizeAgentInput(params.agent);
 	d.budget.ensureTaskTier();
+	const rosterRefusal = validateDispatchAgent(d, agent, task);
+	if (rosterRefusal) return rosterRefusal;
 	const preflight = preflightGate(d, agent) ?? checkReviewRoundCap(s.getTaskTier(), agent, s.getTaskReviewRounds()) ?? checkDocsLane(agent, scope || [], review_reason);
 	if (preflight) return refusal(d, agent, task, preflight.reason, preflight.message, preflight.reason);
 	const taskRefusal = checkTaskBudget("dispatch", d.budget.taskCounters(), d.budget.currentTaskBudget(), d.budget.taskActiveElapsedMs(), s.getTaskTier());
