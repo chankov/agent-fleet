@@ -1,6 +1,6 @@
 import { isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
 import { createProfileActivation } from './policy/profile-activation.ts';
-import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerRefusal } from './policy/profile-runtime.ts';
+import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerGate } from './policy/profile-runtime.ts';
 /** Agent Hub composition root: constructs mutable state, contexts, registrars, and ordered lifecycle ports. */
 
 import type { AgentDef, AgentState, ResearchState } from "./types.ts";
@@ -1312,7 +1312,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			await coms.updateScope((args ?? "").trim(), ctx);
 		},
 		handleHandoff: async (args, ctx) => {
-			const refusal=profilePeerRefusal();if(refusal){ctx.ui.notify(refusal.content[0].text,"error");return;}
 			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /af-handoff unavailable.", "warning"); return; }
 			const target = (args ?? "").trim();
@@ -1325,6 +1324,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				ctx.ui.notify(`coms: no live peer "${target}". Use /af-coms to refresh the pool.`, "error");
 				return;
 			}
+			const refusal=profilePeerGate({ peerModel: peer.model, targetResolved: true });if(refusal){ctx.ui.notify(refusal.content[0].text,"error");return;}
 			const handoffToken = crypto.randomBytes(8).toString("hex");
 			hubStateCtx.setPendingHandoff({ target: peer.name, token: handoffToken });
 			pi.sendMessage({

@@ -1,4 +1,4 @@
-import { profilePeerRefusal } from '../policy/profile-runtime.ts';
+import { PROFILE_ENV, profilePeerGate, profileSpawnPeerRefusal, readActiveProfile } from '../policy/profile-runtime.ts';
 import { PANE_PROMPT_TIMEOUT_MS, launchPeerInPane } from "../../lib/spawned-peers.js";
 import { herdrPaneId } from "../../lib/herdr-presence.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "../peer-spawn-plan.ts";
@@ -28,7 +28,7 @@ const noPane = (): ToolExecutionResult => ({ content: [{ type: "text", text: "no
 
 export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./context.ts").ToolContext, "executeHerdrSpawnPeer" | "executeHerdrSpawnPane" | "executeHerdrReadPane" | "executeHerdrClosePane" | "executeHerdrNotify"> {
 	const executeHerdrSpawnPeer: ToolExecutor<HerdrSpawnPeerParams> = async (_id, params) => {
-		const profileRefusal=profilePeerRefusal();if(profileRefusal) return profileRefusal;
+		const earlyProfile = profilePeerGate({ targetResolved: false }); if (earlyProfile) return earlyProfile;
 		const refusal = d.provisionalCapabilityRefusal("workspace"); if (refusal) return refusal;
 		if (!d.isFleetReady()) return unavailable();
 		const ownPane = herdrPaneId(); if (!ownPane) return noPane();
@@ -37,9 +37,11 @@ export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./conte
 		try {
 			const cwd = d.getCurrentContext()?.cwd ?? process.cwd();
 			const plan = buildHubPeerSpawnPlan(params, { project: identity.project, peersYaml: peerManifest(cwd), personaExists: persona => peerPersonaExists(cwd, persona), worktreeTag: worktreeTag(cwd) });
+			const profileRefusal = profileSpawnPeerRefusal(plan); if (profileRefusal) return profileRefusal;
 			if (d.peersInScope().some(peer => peer.name.toLowerCase() === plan.name.toLowerCase())) throw new Error(`Peer "${plan.name}" is already visible in project "${identity.project}"; use coms_send instead of spawning a duplicate.`);
 			const env: Record<string, string> = {};
 			if (plan.envFile) { const envPath = resolveEnvFilePath(plan.envFile, cwd); if (!d.envFileExists(envPath)) throw new Error(`env_file not found: ${plan.envFile} (resolved: ${envPath})`); Object.assign(env, parseEnvFile(d.readEnvFile(envPath), plan.envFile)); }
+			const active = readActiveProfile(); if (active) env[PROFILE_ENV] = JSON.stringify(active);
 			const delay = plan.runner === "pi" ? spawnDelaySeconds(d.getLastPiSpawnAt()) : 0; if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
 			const launched = await launchHubPeerInPane(plan, {
 				client: d.herdr, targetPaneId: ownPane, cwd, env,

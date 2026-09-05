@@ -518,11 +518,16 @@ local-duo:
   an optional single integrator. `/af-poll` and `/af-debate` select the active
   profile's panel automatically. Explicit other panel names are refused while
   the complete profile is active. Without `panel`, two default-model voices are used.
-- `routing: native` (default) bypasses configured standing peers and refuses explicit
-  coms dispatch, handoff, coms_send and peer spawning. Existing peer processes are
-  not reconfigured or stopped. `routing: configured` opts into the existing dispatch
-  policy and cannot be combined with `allowed-models`, since a peer's children
-  cannot be verified by this hub.
+- `routing: native` (default) keeps Hub-owned work on native Pi subprocesses.
+  Without `allowed-models` it still refuses explicit coms dispatch, handoff,
+  `coms_send` and peer spawning. With `allowed-models`, those peer actions are
+  allowed only when the peer's advertised or planned model is on the list
+  (exact `provider/model`, or a unique provider-less suffix match); a foreign,
+  missing, or `unknown` model is refused, and `claude-code` peers are refused
+  because their models cannot be allowlisted. Existing peer processes are not
+  reconfigured or stopped. `routing: configured` opts into the existing dispatch
+  policy and cannot be combined with `allowed-models`, since a peer's nested
+  children cannot be verified by this hub.
 - `fallback: none` (default) disables automatic original-model fallback, including
   nested children and workflows. `declared` retains it. Optional `allowed-models`
   is an exact provider/model allowlist checked before actual child spawns and

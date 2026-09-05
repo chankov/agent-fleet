@@ -1,4 +1,4 @@
-import { profilePeerRefusal } from '../policy/profile-runtime.ts';
+import { profilePeerGate } from '../policy/profile-runtime.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { DEFAULT_TASK_TIER, applyTierChange } from "../run-budget.js";
 import { validateAssertionBatch } from "../assertion-ledger.js";
@@ -35,7 +35,7 @@ export interface ActionExecutorDeps {
 	rosterDrop(agent: string): { ok: boolean; message: string };
 	getIdentity(): unknown | null;
 	getComs(): any;
-	resolveTarget(target: string): { name: string } | null;
+	resolveTarget(target: string): { name: string; model?: string } | null;
 	appendMachineHandoffSections(brief: string): string;
 	markPeerAddressed(name: string): void;
 }
@@ -125,9 +125,10 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		return { content: [{ type: "text", text: `${result.agents.length} peer(s) in pool (project ${result.project}):\n${lines}${notice}` }], details: result };
 	};
 	const executeComsSend: ToolExecutor<ComsSendParams> = async (_id, params) => {
-		const profileRefusal=profilePeerRefusal();if(profileRefusal) return profileRefusal;
+		const target = d.resolveTarget(params.target);
+		const profileRefusal = profilePeerGate({ peerModel: target?.model, targetResolved: !!target }); if (profileRefusal) return profileRefusal;
 		const refusal = d.provisionalCapabilityRefusal("peer"); if (refusal) return refusal;
-		const target = d.resolveTarget(params.target); const pending = d.hubState.getPendingHandoff();
+		const pending = d.hubState.getPendingHandoff();
 		const authorized = !!(target && pending && pending.target === target.name && params.handoff_token === pending.token);
 		const prompt = authorized ? d.appendMachineHandoffSections(String(params.prompt || "")) : String(params.prompt || "");
 		const sent = await d.getComs().send({ target: params.target, prompt, conversation_id: params.conversation_id ?? null, response_schema: (params.response_schema as object | undefined) ?? null, reply_timeout_ms: params.reply_timeout_ms ?? null });

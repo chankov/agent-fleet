@@ -198,7 +198,7 @@ test("delegation observability preserves nesting, usage, timeline, and exit hist
 	assert.deepEqual(historyEnds, [{ status: "done", endedAt: 35 }]);
 });
 
-test('complete profile routes to native despite live coms peer and resolves both auxiliary jobs locally',async()=>{
+test('complete profile with unverified live peer stays native on auto and refuses explicit coms',async()=>{
  const {setActiveProfile,PROFILE_ENV}=await import('./policy/profile-runtime.ts');
  const previous=process.env[PROFILE_ENV];
  setActiveProfile({name:'local',profile:{version:2,defaults:{model:'omlx/laguna',thinking:'off'},routing:'native',fallback:'none',services:{'return-extractor':{model:'omlx/qwen'}},'allowed-models':['omlx/laguna','omlx/qwen']}});
@@ -208,12 +208,40 @@ test('complete profile routes to native despite live coms peer and resolves both
   assert.equal((await native.dispatchAgent('builder','task',extensionContext)).exitCode,0);
   assert.equal(peers,0);assert.equal(spawns,1);
   const refused=await native.dispatchAgent('builder','task',extensionContext,[],[],undefined,'coms');
-  assert.match(refused.output,/requires native/);assert.equal(spawns,1);assert.equal(peers,0);
+  assert.match(refused.output,/missing or unknown|unverified peers/);assert.equal(spawns,1);assert.equal(peers,0);
   const models:string[]=[];
   const auxiliary=createDispatchComs(comsDeps({getWatchdogJudgeModel:()=> 'cloud/judge',spawnPiAgent:async(o:any)=>{models.push(o.model);assert.equal(o.thinking,'off');return {output:'',exitCode:0};}}));
   await auxiliary.runDriftJudge({agentLabel:'builder',agentKey:'builder',task:'test',scopeGlobs:[],hubOwnedGlobs:[],trail:[],violation:{rule:'test',detail:'test'}},extensionContext);
   await auxiliary.runReturnExtraction('/tmp/profile-report.md',[]);
   assert.deepEqual(models,['omlx/laguna','omlx/qwen']);
+ }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
+});
+
+test('complete profile allowlist uses auto coms when the live peer model is allowed',async()=>{
+ const {setActiveProfile,PROFILE_ENV}=await import('./policy/profile-runtime.ts');
+ const previous=process.env[PROFILE_ENV];
+ setActiveProfile({name:'local',profile:{version:2,defaults:{model:'omlx/laguna',thinking:'off'},routing:'native',fallback:'none','allowed-models':['omlx/laguna','omlx/qwen']}});
+ try {
+  let peers=0,spawns=0;const state=nativeState();
+  const native=createDispatchNative(nativeDeps(state,{getDispatchPolicy:()=>({default:'coms',grace_s:0,substitutions:{}}),isComsReady:()=>true,getIdentity:()=>({}),peersInScope:()=>[{name:'builder',model:'qwen'}],dispatchViaComs:async()=>{peers++;return {output:'peer',exitCode:0,elapsed:0};},spawnPiAgentWithModelFallback:async()=>{spawns++;return {output:'local',exitCode:0,stderr:''};}}));
+  const result=await native.dispatchAgent('builder','task',extensionContext);
+  assert.equal(result.exitCode,0);assert.equal(result.output,'peer');assert.equal(peers,1);assert.equal(spawns,0);
+ }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
+});
+
+test('complete profile allowlist permits explicit coms when the live peer model is allowed and refuses a foreign model',async()=>{
+ const {setActiveProfile,PROFILE_ENV}=await import('./policy/profile-runtime.ts');
+ const previous=process.env[PROFILE_ENV];
+ setActiveProfile({name:'local',profile:{version:2,defaults:{model:'omlx/laguna',thinking:'off'},routing:'native',fallback:'none','allowed-models':['omlx/laguna','omlx/qwen']}});
+ try {
+  let peers=0,spawns=0; let live:{name:string,model?:string}[]=[{name:'builder',model:'omlx/laguna'}];
+  const state=nativeState();
+  const native=createDispatchNative(nativeDeps(state,{getDispatchPolicy:()=>({default:'native',grace_s:0,substitutions:{}}),isComsReady:()=>true,getIdentity:()=>({}),peersInScope:()=>live,dispatchViaComs:async()=>{peers++;return {output:'peer',exitCode:0,elapsed:0};},spawnPiAgentWithModelFallback:async()=>{spawns++;return {output:'local',exitCode:0,stderr:''};}}));
+  const allowed=await native.dispatchAgent('builder','task',extensionContext,[],[],undefined,'coms');
+  assert.equal(allowed.exitCode,0);assert.equal(allowed.output,'peer');assert.equal(peers,1);assert.equal(spawns,0);
+  live=[{name:'builder',model:'anthropic/claude-opus-4-7'}];
+  const refused=await native.dispatchAgent('builder','task',extensionContext,[],[],undefined,'coms');
+  assert.match(refused.output,/refuses peer model "anthropic\/claude-opus-4-7"/);assert.equal(peers,1);assert.equal(spawns,0);
  }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
 });
 

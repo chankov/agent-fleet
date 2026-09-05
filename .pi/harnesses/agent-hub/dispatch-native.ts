@@ -1,4 +1,4 @@
-import { readActiveProfile } from './policy/profile-runtime.ts';
+import { profileForcesNativePeers, profilePeerGate } from './policy/profile-runtime.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { TIMEOUT_MS } from "../lib/coms-core.ts";
 import { comsRequiredRefusal, explicitComsRefusal, resolveDispatchBackend } from "./backend-policy.js";
@@ -115,9 +115,9 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend): Promise<NativeDispatchResult | null> {
 	const { deps, state, task, ctx, inputArtifacts, scopeGlobs, personaKey, monitorKey, startTime, histEntry } = run;
 	const livePeerNames = () => deps.isComsReady() && deps.getIdentity() ? deps.peersInScope().map(entry => entry.name) : [];
-	const forceNative=readActiveProfile()?.profile.routing==='native';
-	if(forceNative&&requestedBackend==='coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.',1);
-	const dispatchPolicy = forceNative?{default:'native',grace_s:0,substitutions:{}}:deps.getDispatchPolicy();
+	const forceNative = profileForcesNativePeers();
+	if (forceNative && requestedBackend === 'coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.', 1);
+	const dispatchPolicy = forceNative ? { default: 'native', grace_s: 0, substitutions: {} } : deps.getDispatchPolicy();
 	let route: any = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames(), requestedBackend });
 	if (route.backend === "invalid") return run.finishRun(`Invalid dispatch backend "${route.requestedBackend}". Expected auto|native|coms.`, 1);
 	if (route.backend === "coms-unavailable") return run.finishRun(explicitComsRefusal(deps.displayName(state.def.name)), 1);
@@ -137,21 +137,32 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 		ctx.ui.notify(route.comsMissedNotice, "warning");
 	}
 	if (route.backend === "coms") {
-		void deps.registerMonitorWaitOnly(monitorKey, state);
-		const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
-		const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
-		const comsResult = await deps.dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
-		if (comsResult) {
-			histEntry.name = `${deps.displayName(state.def.name)} (coms)`;
-			return run.finishRun(comsResult.output, comsResult.exitCode, {
-				idle: comsResult.abandoned || comsResult.pending,
-				pending: comsResult.pending,
-				notice: comsResult.abandoned
-					? `${deps.displayName(state.def.name)} coms dispatch abandoned (the peer pane keeps running)`
-					: comsResult.pending
-						? `${deps.displayName(state.def.name)} coms dispatch is pending (the peer pane keeps running)`
-						: `${deps.displayName(state.def.name)} ${comsResult.exitCode === 0 ? "done" : "error"} in ${Math.round((Date.now() - startTime) / 1000)}s (coms peer)`,
-			});
+		const peer = deps.peersInScope().find(entry => entry.name.toLowerCase() === String(route.peerName).toLowerCase());
+		const profileRefusal = profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer });
+		if (profileRefusal) {
+			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			if (!allowNativeFallback) return run.finishRun(profileRefusal.content[0].text, 1);
+			if (!deps.wasComsMissNotified(personaKey)) {
+				deps.markComsMissNotified(personaKey);
+				ctx.ui.notify(profileRefusal.content[0].text, "warning");
+			}
+		} else {
+			void deps.registerMonitorWaitOnly(monitorKey, state);
+			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
+			const comsResult = await deps.dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
+			if (comsResult) {
+				histEntry.name = `${deps.displayName(state.def.name)} (coms)`;
+				return run.finishRun(comsResult.output, comsResult.exitCode, {
+					idle: comsResult.abandoned || comsResult.pending,
+					pending: comsResult.pending,
+					notice: comsResult.abandoned
+						? `${deps.displayName(state.def.name)} coms dispatch abandoned (the peer pane keeps running)`
+						: comsResult.pending
+							? `${deps.displayName(state.def.name)} coms dispatch is pending (the peer pane keeps running)`
+							: `${deps.displayName(state.def.name)} ${comsResult.exitCode === 0 ? "done" : "error"} in ${Math.round((Date.now() - startTime) / 1000)}s (coms peer)`,
+				});
+			}
 		}
 	}
 	state.lastBackend = "native";
