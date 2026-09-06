@@ -483,7 +483,7 @@ profile declares the whole execution model set independently of
 local-duo:
   version: 2
   defaults:
-    model: &qwen36 omlx/Qwen3.6-35B-A3B-UD-MLX-3bit
+    model: &qwen36 omlx/Qwen3.6-35B-A3B-4bit
     thinking: off
   allowed-models:
     - *qwen36

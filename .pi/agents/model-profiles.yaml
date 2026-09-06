@@ -22,10 +22,11 @@ sol:
 local-duo:
   version: 2
   defaults:
-    model: &qwen36 omlx/Qwen3.6-35B-A3B-UD-MLX-3bit
+    model: &qwen36 omlx/Qwen3.6-35B-A3B-4bit
     thinking: off
   allowed-models:
     - *qwen36
+    - omlx/Qwen3.6-35B-A3B-UD-MLX-3bit
     - &qwen omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX
   fallback: none
   routing: native

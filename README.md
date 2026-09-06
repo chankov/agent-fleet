@@ -200,7 +200,7 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 | **GitHub Copilot subscription** | `github-copilot/claude-sonnet-4.6`, `github-copilot/claude-haiku-4.5` | Common override for `builder` / reviewers |
 | **Claude subscription** | a real **Claude Code pane**, bridged in as a first-class coms peer | `plan-reviewer` and `code-reviewer` — cross-model review |
 | **Ollama — cloud *or* local** | `ollama/glm-5.2:cloud`, `ollama/minimax-m3:cloud`, or a model on your own box | Overflow capacity and cost control |
-| **Anything else pi can address** | local MLX / llama.cpp / LM Studio weights; bundled `local-duo` uses `omlx/Qwen3.6-35B-A3B-UD-MLX-3bit` plus `omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX` | 35B for dispatcher/recon/verdicts; 9B for docs, deps, conventions, extractors |
+| **Anything else pi can address** | local MLX / llama.cpp / LM Studio weights; bundled `local-duo` uses `omlx/Qwen3.6-35B-A3B-4bit` plus `omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX` | 35B for dispatcher/recon/verdicts; 9B for docs, deps, conventions, extractors |
 
 Two consequences worth spelling out:
 
