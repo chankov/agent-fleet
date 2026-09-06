@@ -3,6 +3,7 @@ import { contextPct, overWindowDiagnostic } from "./context-window.js";
 import { createDriftMonitor, hubOwnedScopeGlobs, resolveWatchdogActive } from "./drift-watchdog.js";
 import { forceQuarantineSession, isCorruptSessionExit } from "./session-health.js";
 import type { NativeSpawnOutcome, PiRunControl, PreparedNativeRun, SpawnPiAgentCallbacks, SpawnPiAgentOptions } from "./dispatch-native-types.ts";
+import { bumpMessageCount } from "./ui/activity-dots.ts";
 
 const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
 
@@ -72,6 +73,7 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 			void monitorStart?.then(task => deps.appendMonitorOutput(task, delta));
 			fullText += delta;
 			state.lastWork = fullText.split("\n").filter(line => line.trim()).pop() || "";
+			bumpMessageCount(state, "text");
 			deps.appendTimelineText(state, "text", delta);
 			deps.updateWidget();
 			state.zoomRender?.();

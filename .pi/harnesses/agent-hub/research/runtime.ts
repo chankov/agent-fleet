@@ -40,6 +40,7 @@ export interface ResearchState<TDef extends ResearchAgentDef = ResearchAgentDef>
 	status: "idle" | "running" | "done" | "error";
 	task: string;
 	toolCount: number;
+	messageCount: number;
 	elapsed: number;
 	lastWork: string;
 	contextPct: number;
@@ -99,6 +100,7 @@ export interface ResearchRuntimeDeps<TDef extends ResearchAgentDef> extends Rese
 	appendTimelineText(state: ResearchState<TDef>, kind: "text" | "thinking", content: string): void;
 	appendTimelineEvent(state: ResearchState<TDef>, event: TimelineEntry): void;
 	createTranscriptStore(path: string): FleetTranscriptStore;
+	onElapsed?(): void;
 }
 
 export interface ResearchRuntime<TDef extends ResearchAgentDef = ResearchAgentDef> {
@@ -161,7 +163,7 @@ export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: Resea
 			const id = deps.getNextResearchId();
 			deps.setNextResearchId(id + 1);
 			const state: ResearchState<TDef> = {
-				id, def, persona, model, status: "running", task: "", toolCount: 0,
+				id, def, persona, model, status: "running", task: "", toolCount: 0, messageCount: 0,
 				elapsed: 0, lastWork: "", contextPct: 0, contextTokens: 0, timeline: [],
 			};
 			deps.getResearchStates().set(id, state);

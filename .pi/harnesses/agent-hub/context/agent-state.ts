@@ -23,7 +23,7 @@ export function createAgentStateFactory(getSessionDir: () => string) {
 		return { file: health.usable ? sessionFile : null, quarantined: health.quarantined, reason: health.reason };
 	};
 	const freshAgentState = (def: AgentDef, adoption = adoptableSessionFile(def)): AgentState => ({
-		def, status: "idle", task: "", toolCount: 0, elapsed: 0, lastWork: "", contextPct: 0, contextTokens: 0,
+		def, status: "idle", task: "", toolCount: 0, messageCount: 0, elapsed: 0, lastWork: "", contextPct: 0, contextTokens: 0,
 		sessionFile: adoption.file, runCount: 0, runsSinceFresh: 0, timeline: [],
 	});
 	return { sessionHealthIo: io, adoptableSessionFile, freshAgentState, quarantine: (def: AgentDef) => quarantineIfUnusable(safePathWithin(getSessionDir(), `${safeAgentKey(def.name)}.json`), io) };

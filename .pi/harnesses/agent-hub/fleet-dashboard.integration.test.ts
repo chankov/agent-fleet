@@ -68,6 +68,7 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(uiSource, /modelPickerTransition\(/);
 	assert.match(dashboardSource, /renderFleetSubstitutionPicker\(/);
 	assert.match(dashboardSource, /intent === "substitute"[\s\S]*?substitutionSourceChoices\(\)/);
+	assert.match(dashboardSource, /intent === "history"[\s\S]*?deps\.openHistory\(ctx\)/);
 	assert.match(modelPolicySource, /substitutions\.set\(source, target\)/);
 	assert.match(detailSource, /resolvedSubagentModel\(/);
 	assert.match(detailSource, /matchedInput[\s\S]*?matchesKey\(data, Key\.up\)[\s\S]*?matchesKey\(data, Key\.down\)/);

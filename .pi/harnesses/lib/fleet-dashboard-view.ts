@@ -61,7 +61,7 @@ export function renderFleetDashboard(vm: FleetViewModel, width: number, bodyHeig
 		}
 	}
 	lines.push(theme.fg("dim", "╰" + "─".repeat(Math.max(0, w - 2)) + "╯"));
-	lines.push(ellipsis(theme.fg("dim", vm.confirmation ?? "↑↓ select · Enter open · m substitute · x kill · r restart · c continue · f filter · a all · q close"), w));
+	lines.push(ellipsis(theme.fg("dim", vm.confirmation ?? "↑↓ select · Enter open · h history · m substitute · x kill · r restart · c continue · f filter · a all · q close"), w));
 	const coms = vm.comsLines ?? [];
 	lines.push(...coms);
 	const total = body + FLEET_CHROME_ROWS + coms.length;
@@ -81,6 +81,7 @@ export type DashboardIntent =
 	| null
 	| "close"
 	| "substitute"
+	| "history"
 	| { open: string }
 	| { kill: string }
 	| { restart: string };
@@ -130,6 +131,7 @@ export function dashboardTransition(
 		return null;
 	}
 	if (input === "m" || input === "M") return "substitute";
+	if (input === "h" || input === "H") return "history";
 	if (input === "\r" && selected) return { open: selected.key };
 	if (input === "x" || input === "r") {
 		if (!selected) return null;

@@ -348,7 +348,7 @@ fallback stream keeps the legacy zoom controls. Both overlays size to the termin
 
 ### `/af-agents-history`
 
-`/af-agents-history` opens a read-only overlay (same chrome as `/af-zoom`) that replays the session as an
+`/af-agents-history` (or **`h`** while the Fleet Dashboard is open) opens a read-only overlay (same chrome as `/af-zoom`) that replays the session as an
 execution **tree**:
 
 - **Orchestrator turns** — each dispatcher turn that actually dispatched something is a depth-0 row
@@ -394,7 +394,7 @@ running/done/failed rows, overlap-aware wall time, and visible token totals. Fin
 rows are hidden by default.
 
 - **`↑`/`↓`** or **`j`/`k`** selects a row; **`PgUp`/`PgDn`** pages; **Enter** opens its full-screen
-  detail view.
+  detail view. **`h`** opens the same history overlay as `/af-agents-history` (Esc/`q` returns to the dashboard).
 - **`f`** starts a name/model/recent-work filter; type the query and press **Enter** to apply it, or
   **Esc** to clear it. **`a`** toggles finished rows.
 - **`x`** requests a kill and **`r`** requests a restart; press the same key again within two seconds

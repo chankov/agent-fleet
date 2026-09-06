@@ -108,6 +108,7 @@ import {
 	TIMEOUT_MS,
 } from "../lib/coms-core.ts";
 import { createGridUI } from "./ui/grid.ts";
+import { collectRunningStripItems } from "./ui/running-strip.ts";
 import { createDetailPanel } from "./ui/detail-panel.ts";
 import { createFleetDashboard } from "./ui/fleet-dashboard.ts";
 import { createContextBudgetUi } from "./ui/context-budget.ts";
@@ -574,6 +575,65 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// ── Grid Rendering ───────────────────────────
 	const gridUI = createGridUI({
 		getWidgetContext: () => widgetCtx,
+		getRunningItems: () => {
+			const specialists = Array.from(agentStates.values()).map(state => ({
+				name: displayName(state.def.name),
+				status: state.status,
+				model: state.lastBackend === "coms" ? `⇄coms ${shortModel(state.comsPeerModel)}` : modelWithThinking(state.def),
+				elapsed: state.elapsed,
+				toolCount: state.toolCount,
+				messageCount: state.messageCount ?? 0,
+				delegations: Array.from(state.delegations?.values() ?? []).map(child => ({
+					role: child.role || child.id,
+					id: child.id,
+					status: child.status,
+					model: shortModel(child.model),
+					elapsed: child.elapsed,
+					startedAt: child.startedAt,
+					toolCount: child.toolCount,
+					messageCount: child.messageCount ?? 0,
+				})),
+			}));
+			const research = Array.from(researchStates.values()).map(state => ({
+				id: state.id,
+				persona: state.persona,
+				displayName: displayName(state.def.name),
+				status: state.status,
+				model: shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
+				elapsed: state.elapsed,
+				toolCount: state.toolCount,
+				messageCount: state.messageCount ?? 0,
+			}));
+			const pendingByName = new Map<string, { count: number; oldest: number }>();
+			for (const pending of coms.pendingReplies.values()) {
+				if (pending.result || !pending.target_name) continue;
+				const started = Date.parse(pending.created_at) || Date.now();
+				const prev = pendingByName.get(pending.target_name);
+				if (!prev) pendingByName.set(pending.target_name, { count: 1, oldest: started });
+				else pendingByName.set(pending.target_name, { count: prev.count + 1, oldest: Math.min(prev.oldest, started) });
+			}
+			const now = Date.now();
+			const comsRows = [];
+			const seen = new Set<string>();
+			for (const card of peerCards.values()) {
+				const pending = pendingByName.get(card.name);
+				const running = card.status === "working" || (card.queue_depth ?? 0) > 0 || !!pending;
+				if (!running) continue;
+				seen.add(card.name);
+				comsRows.push({
+					name: card.name,
+					model: abbreviateModel(card.model),
+					elapsed: pending ? now - pending.oldest : 0,
+					eventCount: (pending?.count ?? 0) + (card.queue_depth ?? 0),
+					running: true,
+				});
+			}
+			for (const [name, pending] of pendingByName) {
+				if (seen.has(name)) continue;
+				comsRows.push({ name, model: "", elapsed: now - pending.oldest, eventCount: pending.count, running: true });
+			}
+			return collectRunningStripItems({ specialists, research, coms: comsRows }, now);
+		},
 	});
 	const { updateWidget } = gridUI;
 
@@ -706,6 +766,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		nativeResearchSystemPrompt, requireSafetyHarness, shortModel, displayName,
 		flushTimelineStore, appendTimelineText, appendTimelineEvent,
 		createTranscriptStore: createFleetTranscriptStore,
+		onElapsed: () => updateWidget(),
 	});
 
 	// ── Embedded coms: shared registry, transport, and pool core ──
@@ -1623,6 +1684,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		modelPolicy,
 		loadAvailableModels: loadAvailableModelChoices,
 		openDetail: openFleetDetail,
+		openHistory: ctx => openHistory(ctx, executionHistory, () => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub")),
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		restartSpecialist: researchControls.restartSpecialist,
 		removeResearch: researchControls.remove,

@@ -51,6 +51,7 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 	state.status = "running";
 	state.task = task;
 	state.toolCount = 0;
+	state.messageCount = 0;
 	state.elapsed = 0;
 	state.lastWork = "";
 	state.lastBackend = undefined;

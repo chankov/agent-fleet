@@ -45,6 +45,7 @@ export interface NativeDispatchState extends NativeTimelineTarget, DelegationObs
 	status: "idle" | "running" | "done" | "error";
 	task: string;
 	toolCount: number;
+	messageCount: number;
 	elapsed: number;
 	lastWork: string;
 	contextPct: number;

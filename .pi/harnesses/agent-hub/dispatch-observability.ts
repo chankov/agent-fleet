@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { FleetTranscriptStore } from "../lib/fleet-transcript-store.ts";
 import type { ExecutionHistoryStore, HistoryEntry } from "./ui/history-store.ts";
 import type { TimelineEntry, Zoomable } from "./ui/zoom.ts";
+import { bumpMessageCount } from "./ui/activity-dots.ts";
 
 export interface DelegationChild extends Zoomable {
 	id: string;
@@ -12,6 +13,7 @@ export interface DelegationChild extends Zoomable {
 	tools: string;
 	status: "running" | "done" | "error";
 	toolCount: number;
+	messageCount: number;
 	tokens: number;
 	lastWork: string;
 	startedAt: number;
@@ -107,6 +109,7 @@ function handleDelegationEvent(deps: DispatchObservabilityDeps, state: Delegatio
 			def: { name: e.id },
 			status: "running",
 			toolCount: 0,
+			messageCount: 0,
 			tokens: 0,
 			lastWork: "",
 			startedAt,
@@ -120,7 +123,9 @@ function handleDelegationEvent(deps: DispatchObservabilityDeps, state: Delegatio
 	const child = state.delegations.get(e.id);
 	if (!child) return;
 	if (e.t === "timeline") {
-		deps.appendTimelineText(child, e.kind === "thinking" ? "thinking" : "text", e.delta || "");
+		const kind = e.kind === "thinking" ? "thinking" : "text";
+		bumpMessageCount(child, kind);
+		deps.appendTimelineText(child, kind, e.delta || "");
 		if (e.kind !== "thinking") {
 			const trailing = child.timeline[child.timeline.length - 1];
 			if (trailing?.kind === "text") child.lastWork = trailing.content.split("\n").filter(line => line.trim()).pop() || "";

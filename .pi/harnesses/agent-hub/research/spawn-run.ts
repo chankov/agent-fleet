@@ -5,6 +5,7 @@ import { isReadOnlyToolList, safePathWithin } from "../helpers.ts";
 import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "../research-watchdog.ts";
 import type { InputArtifactPreview } from "../context/assertions-artifacts.ts";
 import type { ResearchAgentDef, ResearchFinalizeOutcome, ResearchResult, ResearchRuntimeDeps, ResearchState } from "./runtime.ts";
+import { bumpMessageCount } from "../ui/activity-dots.ts";
 
 export interface ResearchSpawnPorts<TDef extends ResearchAgentDef> extends ResearchRuntimeDeps<TDef> {
 	researchTools: string;
@@ -48,6 +49,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		state.status = "running";
 		state.task = prompt;
 		state.toolCount = 0;
+		state.messageCount = 0;
 		state.elapsed = 0;
 		state.lastWork = "";
 		state.killedByOperator = false;
@@ -57,6 +59,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 
 		state.timer = setInterval(() => {
 			state.elapsed = Date.now() - startTime;
+			deps.onElapsed?.();
 		}, 1000);
 		const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 		const wantThinking = thinkingLevel !== "off";
@@ -87,6 +90,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 			onTextDelta: delta => {
 				fullText += delta;
 				state.lastWork = fullText.split("\n").filter(line => line.trim()).pop() || "";
+				bumpMessageCount(state, "text");
 				deps.appendTimelineText(state, "text", delta);
 				state.zoomRender?.();
 			},

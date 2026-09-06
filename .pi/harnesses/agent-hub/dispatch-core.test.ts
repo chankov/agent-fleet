@@ -60,6 +60,7 @@ function nativeState(): NativeDispatchState {
 		status: "idle",
 		task: "",
 		toolCount: 0,
+		messageCount: 0,
 		elapsed: 0,
 		lastWork: "",
 		contextPct: 0,
