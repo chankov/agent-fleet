@@ -9,8 +9,28 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { buildReconcilePlan } from "../lib/reconcile.js";
 import { applyPlan } from "../lib/apply.js";
+import { parse as parseYaml } from "yaml";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function collectModelIds(value, out = new Set()) {
+  if (typeof value === "string" && value.includes("/")) out.add(value);
+  else if (Array.isArray(value)) for (const item of value) collectModelIds(item, out);
+  else if (value && typeof value === "object") {
+    if (typeof value.model === "string") out.add(value.model);
+    for (const item of Object.values(value)) collectModelIds(item, out);
+  }
+  return out;
+}
+
+function fakePiListingScript() {
+  const profiles = parseYaml(readFileSync(join(root, ".pi", "agents", "model-profiles.yaml"), "utf8"));
+  const rows = ["provider model", ...[...collectModelIds(profiles)].map((id) => {
+    const slash = id.indexOf("/");
+    return `${id.slice(0, slash)} ${id.slice(slash + 1)}`;
+  })];
+  return `#!/bin/sh\ncat <<'EOF'\n${rows.join("\n")}\nEOF\n`;
+}
 const cli = join(root, "bin", "cli.js");
 const workspace = () => mkdtempSync(join(tmpdir(), "af-setup-cli-"));
 const run = (args, input = undefined) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", input });
@@ -323,20 +343,7 @@ test("A14 self-hosted just lifecycle removes itself last and package setup resto
     const fakeNpm = join(fakeBin, "npm");
     // Lifecycle verification must not depend on the operator's Pi credentials.
     const fakePi = join(fakeBin, "pi");
-    writeFileSync(fakePi, `#!/bin/sh
-cat <<'EOF'
-provider model
-openai-codex gpt-5.6-sol
-openai-codex gpt-5.6-terra
-openai-codex gpt-5.6-luna
-openai-codex gpt-5.3-codex-spark
-xai grok-4.6
-github-copilot claude-opus-5
-github-copilot claude-fable-5
-omlx Laguna-XS-2.1-4bit
-omlx Qwen3.8-9B-heretic-uncensored-5bit-MLX
-EOF
-`);
+    writeFileSync(fakePi, fakePiListingScript());
     chmodSync(fakePi, 0o755);
     writeFileSync(fakeNpx, `#!/bin/sh\nshift\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} \"$@\"\n`);
     chmodSync(fakeNpx, 0o755);
