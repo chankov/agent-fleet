@@ -9,23 +9,13 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { buildReconcilePlan } from "../lib/reconcile.js";
 import { applyPlan } from "../lib/apply.js";
-import { parse as parseYaml } from "yaml";
+import { collectModelTargets } from "../lib/doctor.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-function collectModelIds(value, out = new Set()) {
-  if (typeof value === "string" && value.includes("/")) out.add(value);
-  else if (Array.isArray(value)) for (const item of value) collectModelIds(item, out);
-  else if (value && typeof value === "object") {
-    if (typeof value.model === "string") out.add(value.model);
-    for (const item of Object.values(value)) collectModelIds(item, out);
-  }
-  return out;
-}
-
 function fakePiListingScript() {
-  const profiles = parseYaml(readFileSync(join(root, ".pi", "agents", "model-profiles.yaml"), "utf8"));
-  const rows = ["provider model", ...[...collectModelIds(profiles)].map((id) => {
+  const models = [...new Set(collectModelTargets(root).map((target) => target.model).filter(Boolean))];
+  const rows = ["provider model", ...models.map((id) => {
     const slash = id.indexOf("/");
     return `${id.slice(0, slash)} ${id.slice(slash + 1)}`;
   })];
