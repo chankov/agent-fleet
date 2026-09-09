@@ -39,6 +39,7 @@ test("A7 fresh non-interactive setup, ephemeral desired flags, dry-run, migratio
   const fresh = workspace();
   let result = setup(fresh, "--preset", "default", "--features", "none", "--yes");
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Files installed; runtime dependencies are missing or unverified\. Next: just fleet deps, then just fleet doctor\./);
   const desiredPath = join(fresh, ".ai", "agent-fleet.json");
   assert.ok(existsSync(desiredPath));
 
@@ -93,10 +94,12 @@ test("setup --json --yes applies, --allow-exec reaches the plan, and dry-run rem
   assert.ok(existsSync(join(applyWorkspace, ".ai", "agent-fleet.json")), "consented JSON setup applies");
 
   const previewWorkspace = workspace();
-  result = setup(previewWorkspace, "--preset", "default", "--features", "none", "--allow-exec", "--json", "--dry-run");
+  result = setup(previewWorkspace, "--preset", "full", "--features", " browser, voice ", "--stt-provider", "groq", "--allow-exec", "--json", "--dry-run");
   assert.equal(result.status, 0, result.stderr);
   const preview = JSON.parse(result.stdout);
-  assert.equal(preview.verb, "setup");
+  assert.equal(preview.verb, "setup"); assert.equal(preview.publicSchemaVersion, 1); assert.equal(preview.stage, "preview");
+  assert.equal(preview.desired.preset, "full");
+  assert.deepEqual(preview.selection.desired.requestedFeatures, ["browser", "voice"], "CLI flags take precedence and exact features are trimmed");
   assert.ok(preview.actions.some((action) => action.id === "companion:workflow-deps" && action.kind === "exec"));
   assert.equal(existsSync(join(previewWorkspace, ".ai")), false, "JSON dry-run remains write-free");
 });
@@ -229,7 +232,7 @@ test("noninteractive uninstall requires explicit --all or --items", () => {
 
 test("setup confirmation output lists every configuration write and warns for unignored .env", () => {
   const ws = workspace();
-  const result = setup(ws, "--preset", "default", "--features", "voice", "--yes");
+  const result = setup(ws, "--preset", "default", "--features", "voice", "--stt-provider", "openai", "--yes");
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Configuration writes/);
   assert.match(result.stdout, /\.ai\/agent-fleet\.json/);
@@ -252,8 +255,9 @@ test("A9 bare doctor is read-only; doctor --fix recovers transactions and retrie
   assert.equal(result.status, 2, result.stderr);
   assert.equal(readFileSync(join(ws, ".ai", "agent-fleet-state.json"), "utf8"), before, "bare doctor does not write");
   result = run(["doctor", "--workspace", ws, "--fix", "--json"]);
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(readFileSync(join(ws, ".ai", "agent-fleet-state.json"), "utf8")).runtimeRepairs, []);
+  assert.equal(result.status, 2, result.stderr);
+  assert.equal(JSON.parse(readFileSync(join(ws, ".ai", "agent-fleet-state.json"), "utf8")).runtimeRepairs[0].status, "unauthorized", "state argv is never execution authority");
+  writeState(ws, { runtimeRepairs: [] });
   mkdirSync(join(ws, ".pi", "agents"), { recursive: true });
   const peers = join(ws, ".pi", "agents", "peers.yaml");
   writeFileSync(peers, "team:\n  runner: pi\n");
@@ -262,11 +266,10 @@ test("A9 bare doctor is read-only; doctor --fix recovers transactions and retrie
   assert.equal(readFileSync(peers, "utf8"), "team:\n  runner: pi\n", "bare doctor never changes advisory files");
 
   const tx = workspace();
-  const backup = mkdtempSync(join(tmpdir(), "af-doctor-backup-"));
-  mkdirSync(join(backup, ".ai"), { recursive: true });
-  writeFileSync(join(backup, "restored.txt"), "restored");
-  mkdirSync(join(tx, ".ai"), { recursive: true });
-  writeFileSync(join(tx, ".ai", "agent-fleet-transaction.json"), JSON.stringify({ schemaVersion: 2, backup, paths: ["restored.txt"], present: ["restored.txt"] }));
+  const backupRel = ".ai/.agent-fleet-recovery/test/backup";
+  mkdirSync(join(tx, backupRel), { recursive: true });
+  writeFileSync(join(tx, backupRel, "restored.txt"), "restored");
+  writeFileSync(join(tx, ".ai", "agent-fleet-transaction.json"), JSON.stringify({ schemaVersion: 3, phase: "applying", backup: backupRel, paths: ["restored.txt"], present: ["restored.txt"] }));
   result = run(["doctor", "--workspace", tx, "--fix", "--json"]);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(join(tx, "restored.txt"), "utf8"), "restored");
@@ -302,19 +305,19 @@ test("doctor exits 2 for missing runtime dependencies and keeps npm install behi
   assert.equal(existsSync(join(ws, "scripts", "node_modules")), false);
 });
 
-test("doctor reports and --fix discards an unrecoverable installer journal", () => {
+test("doctor reports and --fix preserves an unrecoverable installer journal", () => {
   const ws = workspace();
   mkdirSync(join(ws, ".ai"), { recursive: true });
   const journal = join(ws, ".ai", "agent-fleet-transaction.json");
-  writeFileSync(journal, JSON.stringify({ schemaVersion: 2, backup: join(ws, "missing-backup"), paths: [], present: [] }));
+  writeFileSync(journal, JSON.stringify({ schemaVersion: 3, phase: "applying", backup: ".ai/.agent-fleet-recovery/missing/backup", paths: [], present: [] }));
   let result = run(["doctor", "--workspace", ws, "--json"]);
   assert.equal(result.status, 2, result.stderr);
   assert.match(result.stdout, /unrecoverable-transaction/);
   assert.ok(existsSync(journal), "read-only doctor retains the journal");
   result = run(["doctor", "--workspace", ws, "--fix", "--json"]);
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(existsSync(journal), false, "--fix discards only the unrecoverable journal");
-  assert.match(result.stdout, /discardedUnrecoverableJournal/);
+  assert.equal(result.status, 1, result.stderr);
+  assert.ok(existsSync(journal), "missing backup preserves diagnostics and fails honestly");
+  assert.match(result.stderr, /preserved for diagnosis|missing/);
 });
 
 test("A14 self-hosted just lifecycle removes itself last and package setup restores it", (context) => {

@@ -1,0 +1,1813 @@
+{
+  "schemaVersion": 1,
+  "agent": "pi",
+  "method": "copy",
+  "packageVersion": "2.0.5",
+  "sourceRoot": "/private/var/folders/19/rlj12mcd4fs4cfthl8fxgl680000gn/T/tmp.7eZaLwEpL6/pkg",
+  "profiles": [],
+  "installedAt": "2026-09-09T12:06:56.021Z",
+  "updatedAt": "2026-09-09T12:06:56.061Z",
+  "items": {
+    "command:build": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/prompts/af-build.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-build.md",
+          "mode": "copy",
+          "sha256": "3da296002853e4bc16068d0f80d951f2f37bfd80fa560c08f73d78cef7f938b4"
+        }
+      ]
+    },
+    "command:plan": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/prompts/af-plan.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-plan.md",
+          "mode": "copy",
+          "sha256": "73cca5723ccb12a7a4254ef1bf3f034d83d4cf66b860a74c21fe8fa2c36d751b"
+        }
+      ]
+    },
+    "command:review": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/prompts/af-review.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-review.md",
+          "mode": "copy",
+          "sha256": "33a5115ad5b3aa1372f5bdfdb82befbee20dc3081e9c420de7d6ad43e3c66bdc"
+        }
+      ]
+    },
+    "command:spec": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/prompts/af-spec.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-spec.md",
+          "mode": "copy",
+          "sha256": "bab25d3f82ad85e5805a90830c1e41e22cebc0b493d0b0b80fc509ba1faf3b3d"
+        }
+      ]
+    },
+    "command:test": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/prompts/af-test.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-test.md",
+          "mode": "copy",
+          "sha256": "cbf0fa4bd9d9fc6ed5ae45d7d9d0075645217b7f0fa164a2a52aec0deb9ea492"
+        }
+      ]
+    },
+    "companion:codex-conductor-contract": {
+      "kind": "companion",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "codex/CONDUCTOR.md",
+      "files": [
+        {
+          "path": ".pi/agent-fleet/codex/CONDUCTOR.md",
+          "mode": "copy",
+          "sha256": "57f2574aceffef7eb021470cc0dbf3552ecca8c85d1d392dd6ac6994b0aebeea"
+        }
+      ]
+    },
+    "companion:damage-control-rules": {
+      "kind": "companion",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/damage-control-rules.yaml",
+      "files": [
+        {
+          "path": ".pi/damage-control-rules.yaml",
+          "mode": "copy",
+          "sha256": "7bb80664a515511324fdb96c97aa640291195d8f02def2924e815d5159e894bc"
+        }
+      ]
+    },
+    "companion:harness-runtime-closure": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "hermes/skills",
+      "files": [
+        {
+          "path": "hermes/skills/hub-conductor/SKILL.md",
+          "mode": "copy",
+          "sha256": "c0e2c0e2096972b148d1394d92c60baffe8f0da59539c7b9f0fd5c18ff9e2fa2"
+        },
+        {
+          "path": "hermes/skills/hub-liaison/SKILL.md",
+          "mode": "copy",
+          "sha256": "db710aa934f32521d98a1df38c2eef6bfb9cc4f10bd55ef5220b8ab1da8d3b67"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/SKILL.md",
+          "mode": "copy",
+          "sha256": "085e4a3798b33b038f3de58158a8229127e9c4b0cd2d872a0c4aa5b38e76ca26"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/manifest.json",
+          "mode": "copy",
+          "sha256": "b3fb890343b04f8180fda66dd296c23707284323bd884805a561baf70dec9718"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog.py",
+          "mode": "copy",
+          "sha256": "cce4fb3dbbb17b842052f4c7e4338eeb1100b68d5680f4f9d23601912d9bec81"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog_actions.py",
+          "mode": "copy",
+          "sha256": "a68087b00fc5efaab4f09fd9b99d61379362a4a0aea459d4551b9606beab1aa9"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog_contract.py",
+          "mode": "copy",
+          "sha256": "e3ace5840e506a6df8684a18dc96373942cd3c78912e6049efc3ec14927e5358"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog_delivery.py",
+          "mode": "copy",
+          "sha256": "7b6b4738bead918610815253d351e600b4d056b176791b0f4083a2d668dff186"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog_engine.py",
+          "mode": "copy",
+          "sha256": "8790252b0df7d8197ef01d25b8959114ed97bdefc2af3555a7932316056eff4b"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog_judgment.py",
+          "mode": "copy",
+          "sha256": "baaf35c2de02525848d111d0e4c4de67616743b6bf8c576e3b2567b061773c9a"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog_recovery.py",
+          "mode": "copy",
+          "sha256": "e8c9927d9cb83ea6b3fb0094a47a4e1b18f836f1132b8cf017c6d4af2b043095"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog_state.py",
+          "mode": "copy",
+          "sha256": "c44712ecc9c7605dc09bc3fe326ab88aed1c3c8546591d9883c1fe805195cda5"
+        },
+        {
+          "path": "hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
+          "mode": "copy",
+          "sha256": "465021befb21ec49cabb8d69eed44a66361e9aa1a455cbce73b5b4d4c2d0af9d"
+        },
+        {
+          "path": "systemd/user/agent-fleet-codex-remote-control.service.in",
+          "mode": "copy",
+          "sha256": "a75723a48b2f853c3cd371f00f3210bbd4e4274dfda0a76780b525bb6a4828c3"
+        },
+        {
+          "path": "scripts/claude-code-preflight.ts",
+          "mode": "copy",
+          "sha256": "9ca4a9f03f2449ea085aa05b8201359f77ddc713697cc3c53cb817289f344e76"
+        },
+        {
+          "path": "scripts/codex-conductor.ts",
+          "mode": "copy",
+          "sha256": "4c97176d75226588832c08dd02fe9d0847643a361457b44aa8d8ceeb6a3496ed"
+        },
+        {
+          "path": "scripts/codex-remote-control.ts",
+          "mode": "copy",
+          "sha256": "fa93bf799799e94c9d5b0195cebf1d9341a387e1d8413d7a4f5e6be72ab45026"
+        },
+        {
+          "path": "scripts/coms-claude-bridge.ts",
+          "mode": "copy",
+          "sha256": "1e63415aa7e2eaa4e9fc557ce68f52c9ccc15d128a07634053a90038a58ed12d"
+        },
+        {
+          "path": "scripts/coms-cli.ts",
+          "mode": "copy",
+          "sha256": "93346e381d609b91ecd37ae6e5ec797e66527cfa7671c34f7ca4cf2b040bca68"
+        },
+        {
+          "path": "scripts/coms-hermes-bridge.ts",
+          "mode": "copy",
+          "sha256": "2076e89e5dce2002ed752a6708d2c46f014344e85a5f68e95299b56374d6c0e7"
+        },
+        {
+          "path": "scripts/fleet.ts",
+          "mode": "copy",
+          "sha256": "fce0d3137e0b6b2b7a33790c18d953c62e7e4a4dd0221789103e6a38f4fadf16"
+        },
+        {
+          "path": "scripts/lib/claude-bridge-core.ts",
+          "mode": "copy",
+          "sha256": "c32cebfef5c3cd56f88a7b80fe84694383280c330218081f2066f2a8bcb4f1d3"
+        },
+        {
+          "path": "scripts/lib/codex-conductor.ts",
+          "mode": "copy",
+          "sha256": "1df741836681397359b0b7ee4ca6fc2183bc236e2b5df5a0878c8d44751d553b"
+        },
+        {
+          "path": "scripts/lib/codex-remote-control.ts",
+          "mode": "copy",
+          "sha256": "77443fc78b521794c8807895153e7859678537d4f173dd6ddeddb9aeb9a65630"
+        },
+        {
+          "path": "scripts/lib/coms-envelope.ts",
+          "mode": "copy",
+          "sha256": "78f042718a49ea2838418b8d1d858c56225d696c63b1dadc34fe311bdd8de2b7"
+        },
+        {
+          "path": "scripts/lib/fleet-command.ts",
+          "mode": "copy",
+          "sha256": "ed05b68dcdff23972896da2f78597dae52268771a60c2dc564e8b0ac07ecccde"
+        },
+        {
+          "path": "scripts/lib/herdr-layout.ts",
+          "mode": "copy",
+          "sha256": "f7650d5d19ab3a4310fc1ff33fc827a9c4326ae8734990a66db50b19b67d18df"
+        },
+        {
+          "path": "scripts/lib/hermes-bridge-core.ts",
+          "mode": "copy",
+          "sha256": "8815f80cf4dfa7484562f3bd73107b1708eda7afadff3081756427310455f5e8"
+        },
+        {
+          "path": "scripts/lib/monitor-env.ts",
+          "mode": "copy",
+          "sha256": "39cfecc01cfad732914eedbb10ce1ba977bcdecff779eb69a0d4b1064e3c12af"
+        },
+        {
+          "path": "scripts/lib/peer-launch.ts",
+          "mode": "copy",
+          "sha256": "828b65294fe3de2d4a6dd883af396ac9fc24b0376cc788d36a3bc76448cf185c"
+        },
+        {
+          "path": "scripts/lib/persona-banner.ts",
+          "mode": "copy",
+          "sha256": "570e96f57a3fb38e9b12f72d35daa26ef174b6a8e4944d88321e634fed65d93d"
+        },
+        {
+          "path": "scripts/lib/runtime-dependencies.js",
+          "mode": "copy",
+          "sha256": "2ada6413d4479e8ba05126b62591b9a6dd27a50f231c512e8e95a4746a7ea0ff"
+        },
+        {
+          "path": "scripts/lib/spawn-stagger.ts",
+          "mode": "copy",
+          "sha256": "31138cc27a77063b5b30db8aeb92aaac0d79f0cb00c9f5de67b894247f1a8226"
+        },
+        {
+          "path": "scripts/lib/team-project.ts",
+          "mode": "copy",
+          "sha256": "375ae9f381eff38ea348f1da206899a1f9fa19bd95ab05015b4c885a86e581ce"
+        },
+        {
+          "path": "scripts/lib/team-snapshot.ts",
+          "mode": "copy",
+          "sha256": "1f7bc62cbfd9c6fedd2093d3afd432c5c3535e0510932b49563a9be78187d852"
+        },
+        {
+          "path": "scripts/peer-banner.ts",
+          "mode": "copy",
+          "sha256": "e2ada4441580b7a93b865971e13b3b15a6f7f492a79f597d0c5666b04b6f2052"
+        },
+        {
+          "path": "scripts/peer-launch.ts",
+          "mode": "copy",
+          "sha256": "6fe5340628641c2a1d355c86e1e18d78396c75dae5a9cd3f2b57360ec86afe8f"
+        },
+        {
+          "path": "scripts/team-snapshot.ts",
+          "mode": "copy",
+          "sha256": "6ac243d9dfe83762a0c52245486fb2ab7169e4d0714bc68309e6d7916ac9bc08"
+        },
+        {
+          "path": "scripts/team-up.ts",
+          "mode": "copy",
+          "sha256": "5e90fdeddde71d371212cd5e9832e54fbe4c0113f8701a2e8c1915b8a442e525"
+        }
+      ]
+    },
+    "companion:justfile-region": {
+      "kind": "companion",
+      "strategy": "managed-region",
+      "method": "managed-region",
+      "version": "2.0.5",
+      "sourceRoot": "justfile",
+      "files": [
+        {
+          "path": "justfile",
+          "mode": "managed-region",
+          "region": "harnesses",
+          "sha256": "e4460fa699628ae2f442b71f0ec7909a0ffd681d2635404687aa01a4ec96f22b"
+        }
+      ]
+    },
+    "companion:pi-agent-configs": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/agents",
+      "files": [
+        {
+          "path": ".pi/agents/dispatch-policy.yaml",
+          "mode": "copy",
+          "sha256": "f6c7232ef831065bb5f8471049ac15e27b865d7011d13f7250fb83ab97d87662"
+        },
+        {
+          "path": ".pi/agents/model-profiles.yaml",
+          "mode": "copy",
+          "sha256": "c206d57e5177a7cfc1e205fd473aada768537249863721aa8bc4aa31ef70625d"
+        },
+        {
+          "path": ".pi/agents/peers.yaml",
+          "mode": "copy",
+          "sha256": "81e54eddf81aabac90c6230aeed2b1673351533869e8d2c1e4ec069878866809"
+        },
+        {
+          "path": ".pi/agents/teams.yaml",
+          "mode": "copy",
+          "sha256": "e293ddc2c240a9ab39a6169ffc2ce56efcb8ecb8f8d68e010b6b12d39503d40a"
+        },
+        {
+          "path": ".pi/agents/voices.yaml",
+          "mode": "copy",
+          "sha256": "a713f598b5214efe0c65a2cbde609eeae70313db5e90671acb4c6dda3b5cb083"
+        }
+      ]
+    },
+    "companion:pi-extension-manifests": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/extensions/package.json",
+      "files": [
+        {
+          "path": ".pi/extensions/package.json",
+          "mode": "copy",
+          "sha256": "75454ab3e5a63efde851ed1807fdde58d8e2cda6c93542f3cc1b393ddbe14e8a"
+        },
+        {
+          "path": ".pi/extensions/package-lock.json",
+          "mode": "copy",
+          "sha256": "caba8b3c40ea40f20e1c888339c98c52e18b475c0d711f3412abbf9ad5a8d9c5"
+        }
+      ]
+    },
+    "companion:pi-harness-lib": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/harnesses/lib",
+      "files": [
+        {
+          "path": ".pi/harnesses/lib/coms-core-io.ts",
+          "mode": "copy",
+          "sha256": "7056fd654c1eb31cfb68ad72c3fb7564e3fece882e74f81575cac2c6cbd1dac8"
+        },
+        {
+          "path": ".pi/harnesses/lib/coms-core.ts",
+          "mode": "copy",
+          "sha256": "28b9b629b282ff57da98fae7858f75ed3987033845f98614bd5a7270a27a2cf3"
+        },
+        {
+          "path": ".pi/harnesses/lib/coms-registry-entry.ts",
+          "mode": "copy",
+          "sha256": "d680b539f7a0dd8b54db98d9f9a81734258202a0b88d91d308c7e7cfa183c09c"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-child-prompt.ts",
+          "mode": "copy",
+          "sha256": "1577ff538daa33e115b00a5f0c8f73a2869d55e01f6cf85e9e8a6edd753921c0"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-hub-prompt.ts",
+          "mode": "copy",
+          "sha256": "fb76220862bbd6139b2482d0779ef0350621cb284f7ec590e02de5c1a6d60015"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-view.ts",
+          "mode": "copy",
+          "sha256": "d6ce8802865805d7ccd8ba99138698b7b1379d368bfa3b673cf2c6ef4d094dbb"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget.ts",
+          "mode": "copy",
+          "sha256": "9c91bdab5286db4f431f593c78db92c4926942458e8ecbd8dee26bead354ee69"
+        },
+        {
+          "path": ".pi/harnesses/lib/damage-control-shared.ts",
+          "mode": "copy",
+          "sha256": "cf4b8f01a435707d6dbfd375a09b96369b5edad7c2fba59b3de637e58d74b333"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-dashboard-ops.ts",
+          "mode": "copy",
+          "sha256": "a67901d83e15da0f7065315151a2a46cb747274948d2a1e3e7fc4dd29f9cd440"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-dashboard-view.ts",
+          "mode": "copy",
+          "sha256": "6ea3f7c100a2c1827f2cd3760ea5969301e3e1ece2937569565372ee1d0692ed"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-detail-view.ts",
+          "mode": "copy",
+          "sha256": "b94f9f90ee1db09a12c3e04767d6688e4f6bf89a3d299bc65f681caee3c34a28"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-overlay.ts",
+          "mode": "copy",
+          "sha256": "774e2a710925513894b18b63d5659ec6ebb449dfda99c632d56331d59c886ddf"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-panel.ts",
+          "mode": "copy",
+          "sha256": "2353c5c20f79524ae96b26e52fed8252b63f384d7cebb23a8a404a2879064b26"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-read-model.ts",
+          "mode": "copy",
+          "sha256": "82f0bf13a0ea4951785659cb5a3e73ace7981c9e6850e82059846d97116b337d"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-selection.ts",
+          "mode": "copy",
+          "sha256": "3eef262ee2ff70111b0850cdb0ec314930c6f2e04dff672242f3268ce0c3b019"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-transcript-store.ts",
+          "mode": "copy",
+          "sha256": "6f2ea05c0598d1f80a4b79024d91d8605dc1e1441e1a4385dda1976246c17528"
+        },
+        {
+          "path": ".pi/harnesses/lib/herdr-client.ts",
+          "mode": "copy",
+          "sha256": "d06d54f2bad643206c5eb9fe58fd22b58ebcd615b093567a342f6bb246603f9d"
+        },
+        {
+          "path": ".pi/harnesses/lib/herdr-presence.ts",
+          "mode": "copy",
+          "sha256": "918e6492eef3bf5c943f1a426988f402e03c9331b255dcb1012a6175a75cd361"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-events.ts",
+          "mode": "copy",
+          "sha256": "23736e95e3c4a7febf92832ae7ec9f6feb9cd41d57b440e976766c44378267c4"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-herdr.ts",
+          "mode": "copy",
+          "sha256": "c03b00b026d06a6cc8172f6b353c0a60977e584ed0068b5cd88037bd3e0614d3"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-model.ts",
+          "mode": "copy",
+          "sha256": "10b36e57818c12a137d768a4d99c982dc307a6f5c9c6cf23282d37461475ed1f"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-registry.ts",
+          "mode": "copy",
+          "sha256": "59efa10716bc36ad3e02312490d7322da923efcaec297a51a63aab614ab7850c"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-socket.ts",
+          "mode": "copy",
+          "sha256": "3d0d7b1b8961802db13794c25575f9544809c0ab9d18f017469c0ffe3fa3aaf0"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-store.ts",
+          "mode": "copy",
+          "sha256": "24d68e7556941c20df6830d7a275bf9e19200c60924a58345742cb4afa4d3cdd"
+        },
+        {
+          "path": ".pi/harnesses/lib/spawned-peers.js",
+          "mode": "copy",
+          "sha256": "abfbac8628e5f048c1b6934ff356d64b96ea77012857f3aea3f4569c559bbde5"
+        }
+      ]
+    },
+    "companion:pi-harness-manifests": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/harnesses/package.json",
+      "files": [
+        {
+          "path": ".pi/harnesses/package.json",
+          "mode": "copy",
+          "sha256": "cfb665b3b310302794d38ea32b8ea5cee4096c73238717df55dbd8fc9435c453"
+        },
+        {
+          "path": ".pi/harnesses/package-lock.json",
+          "mode": "copy",
+          "sha256": "7e4f56a9929d7f57e422aa1d1b90048c6f7269ced9abf2f408f210460d83d3fb"
+        }
+      ]
+    },
+    "companion:skills-internal-grilling": {
+      "kind": "companion",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/_internal/grilling.md",
+      "files": [
+        {
+          "path": ".pi/skills/_internal/grilling.md",
+          "mode": "copy",
+          "sha256": "04a4f80faed312a61c67e88495e95dded7fe897b2d95082067b119fc1bb4cd01"
+        }
+      ]
+    },
+    "companion:workflow-guide": {
+      "kind": "companion",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "docs/workflows.md",
+      "files": [
+        {
+          "path": ".pi/agent-fleet/docs/workflows.md",
+          "mode": "copy",
+          "sha256": "5bb1455bd6f0e90613f5eb3dc495a185dab5e868967d3be3dce1eec41c97a5a8"
+        }
+      ]
+    },
+    "companion:workflow-runtime": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "scripts/flow.ts",
+      "files": [
+        {
+          "path": "scripts/flow.ts",
+          "mode": "copy",
+          "sha256": "c8d9437468c1d1900de9c0b2c2affffcc80fdadb1d402039ad301c2c05be5eab"
+        },
+        {
+          "path": "scripts/package.json",
+          "mode": "copy",
+          "sha256": "bc82eeebacc3ccd87149d190f3bcaf84db1ab5b2ba185189a3ecd9c1b737e5a8"
+        },
+        {
+          "path": "scripts/package-lock.json",
+          "mode": "copy",
+          "sha256": "8cc9f5764264aeb219bfb4aea5f69d09801562e40826fd6e1c48f27d6e094640"
+        },
+        {
+          "path": "scripts/lib/flow-command.ts",
+          "mode": "copy",
+          "sha256": "12dbaa12056d125a69f60374dd677cb63b314ed3b8a1666f0693c49d5a92b2f4"
+        },
+        {
+          "path": "scripts/lib/flow-maintenance.ts",
+          "mode": "copy",
+          "sha256": "9790d7ce3c09a46b2fa910b368b0fdea56aee95b40b0ecca4597aebdd2ed00ba"
+        },
+        {
+          "path": "scripts/workflows/lib/agent-phase.ts",
+          "mode": "copy",
+          "sha256": "c6931b3ecfeca015ee23ab0fb752612e9e52a55dc10276e2a4d909bcc18e74a3"
+        },
+        {
+          "path": "scripts/workflows/lib/changes.ts",
+          "mode": "copy",
+          "sha256": "956e5734f1c7a895da84cca8ee437680b69f02b0e535fe6359b240d31b68fa3f"
+        },
+        {
+          "path": "scripts/workflows/lib/debate.ts",
+          "mode": "copy",
+          "sha256": "2916da50bf48288998c5711bcb326d7eaf094ffeea8cde3543466f72515b2b50"
+        },
+        {
+          "path": "scripts/workflows/lib/env.ts",
+          "mode": "copy",
+          "sha256": "25d2107ea40be0808e118d18c74d0af57314862b271ab9eb3bfa0a773e6e5544"
+        },
+        {
+          "path": "scripts/workflows/lib/envelopes.ts",
+          "mode": "copy",
+          "sha256": "1585d46e404857ed1b581c05e72b597acfc73adcf2b05478bd626ec919e4fe8e"
+        },
+        {
+          "path": "scripts/workflows/lib/gates.ts",
+          "mode": "copy",
+          "sha256": "668dc0dfd20c7ad91299b20d0b23f75dc62d28031f40f5abc80796c87bf74814"
+        },
+        {
+          "path": "scripts/workflows/lib/git.ts",
+          "mode": "copy",
+          "sha256": "8121d8af4723d38a568003facbe5d59c761810fc42d9554515876b5b5b5e29f4"
+        },
+        {
+          "path": "scripts/workflows/lib/merge.ts",
+          "mode": "copy",
+          "sha256": "61204f92ac7b31b83f86998001a592acd4786fa9c672b0d8ac5bcb8a03657552"
+        },
+        {
+          "path": "scripts/workflows/lib/model-profile.ts",
+          "mode": "copy",
+          "sha256": "5b607b22b28a98986c44bb65800de1c82845bc125ae0e8cbac619c956904e56b"
+        },
+        {
+          "path": "scripts/workflows/lib/model-visibility.ts",
+          "mode": "copy",
+          "sha256": "e1558d6e9f09f3c6f78778f8ef2ec952da55194e31b29b77edaa1e9ec82eb2ee"
+        },
+        {
+          "path": "scripts/workflows/lib/permissions.ts",
+          "mode": "copy",
+          "sha256": "14a137fd97073f1de87e5238ea193da857a60b48e0eae70ec87a2c54dc56584c"
+        },
+        {
+          "path": "scripts/workflows/lib/personas.ts",
+          "mode": "copy",
+          "sha256": "658754b5d154226171b16d015a5fc5151d56073125734dafdbdbe5f9fde5ed75"
+        },
+        {
+          "path": "scripts/workflows/lib/poll.ts",
+          "mode": "copy",
+          "sha256": "3d5c8cb1255bacc4361f0583aabaeaeb4fd79a8466ebcd37b8c2d1776e5f5b65"
+        },
+        {
+          "path": "scripts/workflows/lib/quality.ts",
+          "mode": "copy",
+          "sha256": "7899c46d750889981669263dc2a00f29f4a62c6fc097d824b02fdffc1691e955"
+        },
+        {
+          "path": "scripts/workflows/lib/run.ts",
+          "mode": "copy",
+          "sha256": "2883f7ffa1286dd1255ebcd82b38ed7096ea39113bfa97edd15826beee22c070"
+        },
+        {
+          "path": "scripts/workflows/lib/trace.ts",
+          "mode": "copy",
+          "sha256": "f17f005d6cb4f8826664d687436c569e63598618d159f31ebfbb8b3773691661"
+        },
+        {
+          "path": "scripts/workflows/lib/voices.ts",
+          "mode": "copy",
+          "sha256": "e4473a95ade10146943d1eead58a0f1981272b13c275cbadf87a2b8292916816"
+        },
+        {
+          "path": "scripts/workflows/lib/writer-lease.ts",
+          "mode": "copy",
+          "sha256": "5dd7333fb2c94d90cd255c1523608be0c124e860f0f2c09e8926dd1a8c056c77"
+        },
+        {
+          "path": "scripts/workflows/tsconfig.json",
+          "mode": "copy",
+          "sha256": "82d902bd256f7587fa90f014629027a8ab731528eab4a8c4d392c3f43ffced87"
+        },
+        {
+          "path": "scripts/workflows/wf-build-test.ts",
+          "mode": "copy",
+          "sha256": "aa5d420f3062ae145e703f7288771ce2edcff86ccdaea2b9b6d92b7554a31c50"
+        },
+        {
+          "path": "scripts/workflows/wf-debate.ts",
+          "mode": "copy",
+          "sha256": "31d1212d1b58b2e3fd43d939b1edeb52810b2a9fafb25d4fe2f51a926cc7ccee"
+        },
+        {
+          "path": "scripts/workflows/wf-document.ts",
+          "mode": "copy",
+          "sha256": "aabfa923f415eadb6051b4862160cc0b2f50af2f64880689b243bd31dbae0f28"
+        },
+        {
+          "path": "scripts/workflows/wf-poll.ts",
+          "mode": "copy",
+          "sha256": "45e9d527be5a9349403ada0ae8910793107cce407b8346e2890f516b0f6bff0e"
+        },
+        {
+          "path": "scripts/workflows/wf-quality.ts",
+          "mode": "copy",
+          "sha256": "c4ef332b99424e2e0facdd8a18ff89593ecba249958e223f740cfb071972b5ff"
+        },
+        {
+          "path": "scripts/workflows/wf-scout.ts",
+          "mode": "copy",
+          "sha256": "f7ebbf13f7c5bfa85c06cb8cfcf8853a15e89a8bcffc82198f061efd10e3c0fd"
+        }
+      ]
+    },
+    "persona:builder": {
+      "kind": "persona",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "agents/builder.md",
+      "files": [
+        {
+          "path": "agents/builder.md",
+          "mode": "copy",
+          "sha256": "940a278c2f41fa26c1c574a01f4d4f9f3cb8e1c600a51e6a43a1ec35ff965794"
+        }
+      ]
+    },
+    "persona:code-reviewer": {
+      "kind": "persona",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "agents/code-reviewer.md",
+      "files": [
+        {
+          "path": "agents/code-reviewer.md",
+          "mode": "copy",
+          "sha256": "309d9562d596e13e95c81ecb42a7f3093d91b4a0196e194f51c95b6159938817"
+        }
+      ]
+    },
+    "persona:test-engineer": {
+      "kind": "persona",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "agents/test-engineer.md",
+      "files": [
+        {
+          "path": "agents/test-engineer.md",
+          "mode": "copy",
+          "sha256": "e905aaa7f2c01473c4ff96db5fd72afa31fd17c7d6061da6c4c4d32dbc133b8b"
+        }
+      ]
+    },
+    "pi-extension:agent-fleet-update-check": {
+      "kind": "pi-extension",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/extensions/agent-fleet-update-check",
+      "files": [
+        {
+          "path": ".pi/extensions/agent-fleet-update-check/README.md",
+          "mode": "copy",
+          "sha256": "5d272e7bd21fe6f229a9384e5daff5bf7374693973e48cf48a9e82e308d035f2"
+        },
+        {
+          "path": ".pi/extensions/agent-fleet-update-check/index.ts",
+          "mode": "copy",
+          "sha256": "cf99387dcf7dc98aef2425c423ce392515420d7956d6c161f2fd3bcd1049be01"
+        },
+        {
+          "path": ".pi/extensions/agent-fleet-update-check/package.json",
+          "mode": "copy",
+          "sha256": "5d832986e84bcdea2c8970a724d5e91189e535bd696de4f590e37a4619982c1d"
+        }
+      ]
+    },
+    "pi-extension:btw": {
+      "kind": "pi-extension",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/extensions/btw",
+      "files": [
+        {
+          "path": ".pi/extensions/btw/README.md",
+          "mode": "copy",
+          "sha256": "c59912a242de604634023b7dee762644b471f498c19cf1c3f4488f80ecb152c6"
+        },
+        {
+          "path": ".pi/extensions/btw/index.ts",
+          "mode": "copy",
+          "sha256": "bee0d4dd52b36e86fa4f720eac23db4a7275dc820f9fc119e9bece5d8af06587"
+        },
+        {
+          "path": ".pi/extensions/btw/package.json",
+          "mode": "copy",
+          "sha256": "d26c231a7c59f57679ebbbd2fb998f666400776f75b5e1ad1dcf08ca152bce1a"
+        },
+        {
+          "path": ".pi/extensions/btw/state.js",
+          "mode": "copy",
+          "sha256": "bec9458ecca78fd6ec76830b2d0c36311b87d84aa56c537d7ca7d5549de870d2"
+        }
+      ]
+    },
+    "pi-extension:compact-and-continue": {
+      "kind": "pi-extension",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/extensions/compact-and-continue",
+      "files": [
+        {
+          "path": ".pi/extensions/compact-and-continue/README.md",
+          "mode": "copy",
+          "sha256": "3741ede5dff20e0211d8f6845965ab863c11ce6d98bbd04874616f3d8bd9f718"
+        },
+        {
+          "path": ".pi/extensions/compact-and-continue/index.ts",
+          "mode": "copy",
+          "sha256": "5c851aabccbb6a35c9160bf286db5fac8dfd5e16d24f87e2cbe0c2cbe327f04d"
+        },
+        {
+          "path": ".pi/extensions/compact-and-continue/package.json",
+          "mode": "copy",
+          "sha256": "dc35d73066e4f65fb910bb72121e2a4f899ca0bbe1678826a7290911edda7b61"
+        }
+      ]
+    },
+    "pi-harness:agent-hub": {
+      "kind": "pi-harness",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/harnesses/agent-hub",
+      "files": [
+        {
+          "path": ".pi/harnesses/agent-hub/README.md",
+          "mode": "copy",
+          "sha256": "a93c00e4a1c1d69efebb599b43891f871cfd5da472abb162c2a083dc96e1bfe3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/access-approval.ts",
+          "mode": "copy",
+          "sha256": "9b6e0426d39d71721af3047063dac01523bd0554bcafaca76b49d86376d00af4"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/artifacts.js",
+          "mode": "copy",
+          "sha256": "caf8009927e92e0aad749ba62ee9e4b06c9ae9eb242c2f77b368eaf64e05f05c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/assertion-ledger.js",
+          "mode": "copy",
+          "sha256": "0143ccbc30b6a11abb13f0504d6d90f2ff286af27541323b0a3a2ecb64db54b7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/backend-policy.js",
+          "mode": "copy",
+          "sha256": "53f213d1ee5038fb78aa8b46066a43cfd8008de54773a6cb73a50dfb6c4fd8ac"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/budget-continuation.ts",
+          "mode": "copy",
+          "sha256": "5d5a0b6a7cc19af21dcbc4f05f838bfa5d95c0968d7e7d1cf6d0a592cc430c9c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/capability-confirmation.ts",
+          "mode": "copy",
+          "sha256": "992cba9e52e359409fa8eab969dc56cc3338e38cea867662ced4205322b46440"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/capability-packs.ts",
+          "mode": "copy",
+          "sha256": "9759e641e936d37e638825c22c1ecf99917daf8985289f533e95f5b9206662e3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agent-model-thinking.ts",
+          "mode": "copy",
+          "sha256": "4b0bea7ba1d0ae784c761a40345944f2a0922790062775ec476d8591bc35f451"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agent-model.ts",
+          "mode": "copy",
+          "sha256": "57e33efd629871751e2f40dcacbadcb69d67fcf55e805a561564ea58aa58a1b8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agent-models-substitute.ts",
+          "mode": "copy",
+          "sha256": "2612f9786c66367daed74e4c5256da43be85fd23698965c47c0633385ecbe109"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-add.ts",
+          "mode": "copy",
+          "sha256": "9a9160061e7896996c3987d2b516ad31c8ffbf70d29717cd400f1cecd71701e8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-drop.ts",
+          "mode": "copy",
+          "sha256": "e0f6a67ab89ba48bcf921f86316dbc246930e0eed0cc6681ab82bebd5bb1ac93"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-history.ts",
+          "mode": "copy",
+          "sha256": "7809e8f17bc8bf5b7bc6b28f0d4ba7e982487bd3f2881c8dbcfc915bb5aaf38a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-kill.ts",
+          "mode": "copy",
+          "sha256": "ec5da71e0d0a42a7190da4a85aa02cc8052b72de632ddab27879dfcfd3a6a924"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-list.ts",
+          "mode": "copy",
+          "sha256": "195ed8dcf1ef2ac9828c199e57de0ba779007412bf22c766635dc94e3e83fba7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-restart.ts",
+          "mode": "copy",
+          "sha256": "f9daff531d10ab1ffc14e83d3a96ff8a39a06bf594b5759b3b28382701c9719f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-save.ts",
+          "mode": "copy",
+          "sha256": "71e2bd172645c32f94db9f927225a96c5fadbad5a2cfaa7061596d4647d0283b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-team.ts",
+          "mode": "copy",
+          "sha256": "1ad68d8763ad64ee6b46f043fc74e95bd53a665d87e816521c1af63a85b727a5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/compound.ts",
+          "mode": "copy",
+          "sha256": "1c0e8026261ca12b246bf5782e21c20d283d6f66a9a356eb6ea86bcc5bb4e65d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/coms.ts",
+          "mode": "copy",
+          "sha256": "6c0e0e979f66c92a0c6e895a53bde682d2715670fd91f81347d759ca0997bb00"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/context-command.ts",
+          "mode": "copy",
+          "sha256": "a8751609ddc45de22c7a0d36b0519d7f6f3cbce63df5d95fb2cf28841c2464a9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/context.ts",
+          "mode": "copy",
+          "sha256": "9f7a7f06494cd99b81f0f4e72525b226d63e4c95aeab0dd47c2e686ffd7dc282"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/debate.ts",
+          "mode": "copy",
+          "sha256": "d6c36a6d00a69c843b2e16f197cc226549e4fa96b865db7902bec64f8020483e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/dispatch-policy.ts",
+          "mode": "copy",
+          "sha256": "da2fe109563ce72fac2abdca43ff385f0217411fb0360e9ed47f7059dc8b655b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/handoff.ts",
+          "mode": "copy",
+          "sha256": "b04fbde2d1acb8bb1a33c2b6fb21c4009482e66d55f14a5d1b87396d1fc7fce8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/hub-report.ts",
+          "mode": "copy",
+          "sha256": "b594b4d626f05796f6d11e205d83c5fe543fd3ee55eef13ae23b4d18ec03b803"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/models.ts",
+          "mode": "copy",
+          "sha256": "d5363c474da2b5f9e7351647eeb1f128b6b891d25af3e9ea288c2bc8b736a31f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/poll.ts",
+          "mode": "copy",
+          "sha256": "769a1de1ec3dd2395f5c9f28a4248bc4833ffa081895707967af3a27fbcd006c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/watchdog.ts",
+          "mode": "copy",
+          "sha256": "f8a4cc7b0cac615c789d241cd5cf16aa644df2de71be53fb3712d2c863593bb0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/work-mode.ts",
+          "mode": "copy",
+          "sha256": "9a7a965a4d25601821863fd328bef434e97c41e576d4d9957926482f749ff860"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/zoom.ts",
+          "mode": "copy",
+          "sha256": "89d844705cc7b13ea35156a054be45c73f00fb9c2bbac48cc5aa1371943a9384"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/agents.ts",
+          "mode": "copy",
+          "sha256": "362778ee427069b5898862652807fb2444dd0951c99fbd261dc6535ce1ddd323"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/model-profiles.ts",
+          "mode": "copy",
+          "sha256": "f53d3c0cc70c09105cf6688cf1ff65eb8ae66b2062a028edcc240f9ab8fda3eb"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/overrides.ts",
+          "mode": "copy",
+          "sha256": "a2eed34d703a6d5973945c42721b2a9d7e3177f07db55c1f63321ebddf507d7c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-budget-snapshot.ts",
+          "mode": "copy",
+          "sha256": "d602dcc2ed51fa26c7bd771ce7cb9534d1df086f88f624475dcefc100e77a1c1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-pressure.ts",
+          "mode": "copy",
+          "sha256": "e5afa868b5d210df0b651181ce258c71cb35090c77740162b0bc4b97bffcc201"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-window.js",
+          "mode": "copy",
+          "sha256": "452999aea321114799c6215a375d060c3784110ef6c5d5eed01dca25f93b752d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/agent-state.ts",
+          "mode": "copy",
+          "sha256": "e9f76e3d35dcade11ce7f6ea0539bf0ceefd80340bbdc48cdafb58561598656b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/assertions-artifacts.ts",
+          "mode": "copy",
+          "sha256": "4b88bcc3a8095357686cf26c42f98cfd2159933ef5a9776658d466cc9aedacf7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/budgets.ts",
+          "mode": "copy",
+          "sha256": "d2e98c85d8591b85c897998be9919aded30e78ba03f998df15bd9dadf833eb1b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/hub-state.ts",
+          "mode": "copy",
+          "sha256": "c0700e2d554efb71699c1394457d73c7b8bff59b3166fd3f46e62bed3d262735"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/debate-command.ts",
+          "mode": "copy",
+          "sha256": "12afa761ebc828830254656706d4998aa9e9c7ccdb759c0a91ea7ab80b66e4e8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/delegate.ts",
+          "mode": "copy",
+          "sha256": "3cee1f780bcf348a315b3fc3c76f8fa7dcfeeb275c40de676e78cde9ba4d87f1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-coms.ts",
+          "mode": "copy",
+          "sha256": "3828b29fd5646c3f54e9175d3571e180546a908fbde36331918613417e37d334"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-core.ts",
+          "mode": "copy",
+          "sha256": "265de0a053403d1346b55257849d299a3a84d64eb08cebd10e61b7a902318759"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-complete.ts",
+          "mode": "copy",
+          "sha256": "ce4a51e786814e8e945316f46711463ae3ce84dd96c2772b1162b67ddd072e4e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-prepare.ts",
+          "mode": "copy",
+          "sha256": "17b8187a23e4541549e9ef57411f9911b1de921a86db3481ef1fe087bce8f166"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-spawn.ts",
+          "mode": "copy",
+          "sha256": "3d010ff3a9bd5e7c4cb8cadfa4e8ac562e3fe6bf7178f35617c525e23835bc1c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-types.ts",
+          "mode": "copy",
+          "sha256": "bc61eed1027148fc63b391ca7ff6c5585323db8396bdd44dcfb22b95414fe3fc"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native.ts",
+          "mode": "copy",
+          "sha256": "7e2dc48f751f14cf2b26fe9f82472dae801bf4f3c6c01f88a87f9030c806be2e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-observability.ts",
+          "mode": "copy",
+          "sha256": "97704b2e1beef58c509d7b6ec6b0aa90fe06cee260d5f857a1ee529258db10c5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/docs-lane.js",
+          "mode": "copy",
+          "sha256": "6647e5d06325e0f2224f6c355ba65a836642d01f085126f6aee817f1f9995832"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-watchdog.js",
+          "mode": "copy",
+          "sha256": "7ebde5e40f75cc572b727355f770a2f591f40e2cdbba9777f3370d5ddcb74de6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/evidence-rules.js",
+          "mode": "copy",
+          "sha256": "1ec9d50e524ac22b6e75d20ccb4e581100e826fe2a8a56b2005652c8bc3f320e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/external-blocker.js",
+          "mode": "copy",
+          "sha256": "39385a5cfc22b9bc6f39b07ac876cc29afd053db9f00551ac45d5f4819e9304b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/footer.ts",
+          "mode": "copy",
+          "sha256": "ea58183bd06a6654ac4d7d827d47b12d96856d55051615f748106a5b23bcf803"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/helpers.ts",
+          "mode": "copy",
+          "sha256": "0a8e635fe45a867007113c1f57465d7bf14830df8757722bec118b13d9e38719"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/hub-state-audit.js",
+          "mode": "copy",
+          "sha256": "bd80ae047337d0322572ab60a12bfb5622d9894b7a2d939f4291f2135df1ad55"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/index.ts",
+          "mode": "copy",
+          "sha256": "d395c1e95776a63ce251342dda9457d53846f795a2b72a436538b2192f34aa60"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/input/completions.ts",
+          "mode": "copy",
+          "sha256": "646e743a7d6019a429e22e170e85faa1cbcc0581b6c5abcf7686f05ff3031d2a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/input/shortcuts.ts",
+          "mode": "copy",
+          "sha256": "fd94c6dd42c7a821ff96ab1a6e6e729a5c2a1da10b64f8615d214b80ccb395b6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/context-pressure.ts",
+          "mode": "copy",
+          "sha256": "e95dbbe354a09d1b7ecf748c18378d244e7d8e1b8833bae8a7ad2999cae211e0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/monitor-session.ts",
+          "mode": "copy",
+          "sha256": "d130ef8b7a8d654d08337eb3ad1a7927de677f37fa619e80ada0a42f2679cfbe"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/session-orchestration.ts",
+          "mode": "copy",
+          "sha256": "d23e493335a01274e0e5b50fa77c3a2c86e4c7cf43e6e58ed4e29f63fd9f6af8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/turn-handlers.ts",
+          "mode": "copy",
+          "sha256": "8f8ecd220958097c7e99e250e0c06d694c28e30a2768bcc21fe40b45bb65edda"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-control.ts",
+          "mode": "copy",
+          "sha256": "3b660e916dd7254ef08b63121cf2c2205236c0895e3cbd957f0053f8c989e70b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-invoke-journal.ts",
+          "mode": "copy",
+          "sha256": "684127310f75782cbdfaf984ff4ba0858c98691bc1dead8f512f2c9a2870ac7c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-invoke.ts",
+          "mode": "copy",
+          "sha256": "533463138dfb7b02bbcb3464a333480083302d941f09b3a63dbcf513de380f32"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-lifecycle.ts",
+          "mode": "copy",
+          "sha256": "eb1043b3ee7844ef902a4a233f1e06086b7fa90cf0d15fd9167c46f2667d76fd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-publisher.ts",
+          "mode": "copy",
+          "sha256": "e0b0c84fd066171441983695053a5fd1594724ed45d00b7933f584fd5ecaa561"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-recovery.ts",
+          "mode": "copy",
+          "sha256": "21bb0eb4faad17ce9e07017dca9ce4f9a5630bd72445fbc637d47b17cce36137"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-runtime.ts",
+          "mode": "copy",
+          "sha256": "622a4ecedb5c9f1577e95cbaa673aa521953fe7c843b58db974f10eb432f991f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-session-bridge.ts",
+          "mode": "copy",
+          "sha256": "aa305817f2079da47a06d1ed918e098db60a218cdabfbd76004a71d9c1f14845"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/package.json",
+          "mode": "copy",
+          "sha256": "ee1ad1747eda8ace30043aee63c2391844644ce36af6d9159ecd332fad24de2f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/peer-spawn-plan.ts",
+          "mode": "copy",
+          "sha256": "906584d232949c5bc4d1f459ccc91e149bd826ad701ba8610f4485fbf8853434"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/models.ts",
+          "mode": "copy",
+          "sha256": "2f5fc257ea2851316086bcbde03f7593d61eab9c49c9b6881cd1f63c066e4ef5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/profile-activation.ts",
+          "mode": "copy",
+          "sha256": "4e513d273b9d0cbf7e0f6dd1fc5b75a530f33a2ac6c7603c5facbb849438f98c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/profile-runtime.ts",
+          "mode": "copy",
+          "sha256": "317794d3e0a8c97df14cb2dea1e4bd56a09d578293d73e2fc588c685b76c1275"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/roster.ts",
+          "mode": "copy",
+          "sha256": "1f80b86f2b62f6a9f7f028f890e45563b4f602ef870ba61368015feb2acaf360"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/work-mode.ts",
+          "mode": "copy",
+          "sha256": "947db519d80dfa0573fff296409c1e5e8c2a5bb31e24c9e280a753d0a2e298e3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/poll-command.ts",
+          "mode": "copy",
+          "sha256": "b42528e6860886ae8e40786396ecf22479e8fba7d8d602c331595ddb45838292"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/presentation.ts",
+          "mode": "copy",
+          "sha256": "1df06f3acb385b05ef23ae5871c8bb3b4ffaaf22bee1c4f755e4dc1039dd5551"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/context.ts",
+          "mode": "copy",
+          "sha256": "5835cdfcacc841cfd378e0a086865371e6e9d44731f291beafa769ebe166161b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/fragments.ts",
+          "mode": "copy",
+          "sha256": "46e0605f5e30b225172ef8d9fc77edaeb9541dc463bf36b1a05476fd1a09d2c3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/session-start.ts",
+          "mode": "copy",
+          "sha256": "13d50a93d9921197614d59e60b25a1cc57b4cb372bb7d184266794342180db0d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/system-prompt.ts",
+          "mode": "copy",
+          "sha256": "bd0a776fe34fc7c1adfe09338d93f94b74839b74fd558764fada563bf0a9002b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/provider-semaphore.js",
+          "mode": "copy",
+          "sha256": "3e32c9b1e3960b50e4381559634d9e6af9c314ff9a3fc9075dc5e13e2d1cf24c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research-watchdog.ts",
+          "mode": "copy",
+          "sha256": "ac7a14e61b93e1ea498885473bf3b48ea60589fc2d013c8d265796d50d990f3d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/controls.ts",
+          "mode": "copy",
+          "sha256": "42bbd65409dc82ca4f9fe484b3f95b91e5de01cff782f8e2352a9da45cd0b12f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/runtime.ts",
+          "mode": "copy",
+          "sha256": "9a6a39b499fc337243828ac2daec690eefb70d13a3686f76d4ef03897f33a187"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/spawn-run.ts",
+          "mode": "copy",
+          "sha256": "0c67ce01459f0e4edcaa57d13cfc2d1033abab3305e8fa4f0d265ebceca5b0fc"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/return-contract.js",
+          "mode": "copy",
+          "sha256": "36a0dd5d382a74e918b82c7614646c0a8f5c8490a592527659b8c2736773e307"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/return-extract.js",
+          "mode": "copy",
+          "sha256": "f506e745113d648e76ef4b5f9139fd75ea719aa11830eea0fc786fd0b90d997b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/review-findings.js",
+          "mode": "copy",
+          "sha256": "eaf2bae93c9a400feeb9b6dd853346b6a09c456460f6ff5ce243e0a542d47e48"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/run-budget.js",
+          "mode": "copy",
+          "sha256": "572e135a7656776911df3e7b634248e354bb938e08688810e23cc8d52ca7f734"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/run-namespace.js",
+          "mode": "copy",
+          "sha256": "81d5801052f6ded647bd94e6f8d12d75aba3d65f1ec850edc1b586dae85d6d92"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/safety-routing.ts",
+          "mode": "copy",
+          "sha256": "5b234c9c7b67f2951069e83007047f4dc34b7b62d235baffd5eb86be836c1c28"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/scope-gate.js",
+          "mode": "copy",
+          "sha256": "067be9fc7a182347db6a4d30888b6baf84328ab83487c15e1ba7558e42e312e5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-health.js",
+          "mode": "copy",
+          "sha256": "53d9b445dedb7f09cde25d58c3e75220624938e318058023d057875feb75d5b8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-start.ts",
+          "mode": "copy",
+          "sha256": "e0fbc1541e7fcdbb5c70c24b2a4c6574e41f9f51753c347567ab9faf7c92b54d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/spawn.ts",
+          "mode": "copy",
+          "sha256": "2a988947df6feb91fc7560a40a1e5d8cb1df0f934f6262332dc8083db758217e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/timeline.ts",
+          "mode": "copy",
+          "sha256": "ec01cd721e0c0aa3d73e4dc686aa6617e161dbd279599fe7213e4cfd068a4e1a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/action-executors.ts",
+          "mode": "copy",
+          "sha256": "7c71e8e31d5c435d02a9cde9a878551274845350c6982007edf6813a13902883"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/coms-tools.ts",
+          "mode": "copy",
+          "sha256": "531fc8480601524a2a9187cf1cfc6d4f99e6788ac22b128f41d88d02e88f8475"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/context.ts",
+          "mode": "copy",
+          "sha256": "a9299a300f1d44f450565715df8a30abb2bd1567af5b0b11c44a4a93810ae615"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/dispatch-agent.ts",
+          "mode": "copy",
+          "sha256": "140735b57e552ca6274c99a79bdedf6a527c82572f00eebbd22a8c3a4092a6c0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/dispatch-execution.ts",
+          "mode": "copy",
+          "sha256": "1ad373276551015de6689ae003620ff080060bd5db37df00c2966ef99a2b38e9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/execution-orchestration.ts",
+          "mode": "copy",
+          "sha256": "e9d939507172d22588f253f0fbb35cce06738ecf857a48ba3454c776561f6a84"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/fleet-tools.ts",
+          "mode": "copy",
+          "sha256": "d6102f00677513ec2c3f9cdd16302d9c16c309300712b2f6714e1637c98a5eb6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/herdr-executors.ts",
+          "mode": "copy",
+          "sha256": "917105e403da02c95a16d42749736ff38e657c3978197a490e5e41ce7db84ad2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/set-task-tier.ts",
+          "mode": "copy",
+          "sha256": "36bdd15e9370e48201bcc5243e638a97bc6c1a83291d61b9815cffc21f6f0b38"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/spawn-research.ts",
+          "mode": "copy",
+          "sha256": "1ba1fd73c16f9e74c214e90ebfea6a58cf97996a2a2c5850ce5f3f1861ac785b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/team-adjust.ts",
+          "mode": "copy",
+          "sha256": "0c32e619c93b0c37a5bb2d01ea276796b999573755419dee6eef66dc296f4201"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/verification-contract.ts",
+          "mode": "copy",
+          "sha256": "73d574288ce2e7df01a7a9c64110709b549f745d8d30a4ba20ed46636f28c5f6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/types.ts",
+          "mode": "copy",
+          "sha256": "c9ffab805a80b9f2e189292fc76646be6cc3f017ffc0c9bf365a18b7687ede3b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/activity-dots.ts",
+          "mode": "copy",
+          "sha256": "22576514e485fafef247c7d5136a0803dbe7363278699ab4ea99064721194495"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/context-budget.ts",
+          "mode": "copy",
+          "sha256": "1b84ec8ec113da15f2aef4e1cfa0ef296e5a7ae7edbdfd77d1c085eab9671a56"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/detail-panel.ts",
+          "mode": "copy",
+          "sha256": "aa135aaf93a86c33a894086e36620ce6d094f0a4d4860b000a9ab6698ca820da"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-dashboard.ts",
+          "mode": "copy",
+          "sha256": "50c356683f7b040b905bfe8404648c6280d4633be15d959bf546534a2b628497"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/grid.ts",
+          "mode": "copy",
+          "sha256": "c5a32ba5f25f27e6898ae24604db885f50c0f27f5e4c784e74041e33118d0506"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/history-store.ts",
+          "mode": "copy",
+          "sha256": "baac05afccb7e067114ed48fd3b3c50089d852279a31f46d98101a3884cd0ee3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/history.ts",
+          "mode": "copy",
+          "sha256": "c9ea415d1fdfd8841a73a9a9c858d57cd60b432ecaf9a4303271ab6a11afed26"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/pool.ts",
+          "mode": "copy",
+          "sha256": "2672ae5a582201368326cba6af915a70d5db1ce4f83e0a145c3a259600d0493b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/running-strip.ts",
+          "mode": "copy",
+          "sha256": "dde22b8c846f56992bcd09b33aa58261ff5234422f1b9b09f5174dd465430d8c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/zoom.ts",
+          "mode": "copy",
+          "sha256": "94c051edc7ec1fab896d5c6a51e4a7a223210140d1192365d838c17248724422"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/version.ts",
+          "mode": "copy",
+          "sha256": "386a08291046bf785a21ab1b193df3c29c891427181f5476dbcefda304471400"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/work-mode-controls.ts",
+          "mode": "copy",
+          "sha256": "cc5b061c4671aced828594c45509eabab3d290a19a80f2d8e004967e312f7e6e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/work-mode.ts",
+          "mode": "copy",
+          "sha256": "b46e320be28405826fb2ef94a63173cd7f6170398bd6e50a421f9fc8ffb8995a"
+        }
+      ]
+    },
+    "pi-harness:ask-user-remote": {
+      "kind": "pi-harness",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/harnesses/ask-user-remote",
+      "files": [
+        {
+          "path": ".pi/harnesses/ask-user-remote/README.md",
+          "mode": "copy",
+          "sha256": "3e34cfff6fb504a1bbc83ad64c916f042e56b0e09ce8017a8a684a0665e858b8"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/index.ts",
+          "mode": "copy",
+          "sha256": "225d218171ccb581441e16f9c4f43ad0ae36d1e2f59ccf7bd109ab5e9e80c4de"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/race-core.js",
+          "mode": "copy",
+          "sha256": "b484e32265b3abefbf725b8f5fcf8f1e6fb7942fa7c88e78aebcfba624064633"
+        }
+      ]
+    },
+    "pi-harness:coms": {
+      "kind": "pi-harness",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/harnesses/coms",
+      "files": [
+        {
+          "path": ".pi/harnesses/coms/README.md",
+          "mode": "copy",
+          "sha256": "a2680612a2bc09f1cdff6e456829be1fc56f3a95c065f75be25c8c7b63c91060"
+        },
+        {
+          "path": ".pi/harnesses/coms/index.ts",
+          "mode": "copy",
+          "sha256": "5916658208923d79ef9fc072a95e2e585b81f5f8df03952e730f768ed60076d3"
+        },
+        {
+          "path": ".pi/harnesses/coms/package.json",
+          "mode": "copy",
+          "sha256": "16d2e52452f0b62533a5eb45d9499d0020dabc58036e60187e7ed12acfda66d4"
+        },
+        {
+          "path": ".pi/harnesses/coms/version.ts",
+          "mode": "copy",
+          "sha256": "386a08291046bf785a21ab1b193df3c29c891427181f5476dbcefda304471400"
+        }
+      ]
+    },
+    "pi-harness:damage-control-continue": {
+      "kind": "pi-harness",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": ".pi/harnesses/damage-control-continue",
+      "files": [
+        {
+          "path": ".pi/harnesses/damage-control-continue/README.md",
+          "mode": "copy",
+          "sha256": "1ae195dd7c35459a23b094b2608a2357a98b872e6bae5109ad3da2d7f025582c"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/index.ts",
+          "mode": "copy",
+          "sha256": "915bc0f3387e960c0e146de9990769a92bd43c8c8581c1248b0b8abd8c2fb486"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/package.json",
+          "mode": "copy",
+          "sha256": "65290080fd611bea2b955a19623f5b43bc85f9efb3a54ed386bdde1599e875df"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/version.ts",
+          "mode": "copy",
+          "sha256": "386a08291046bf785a21ab1b193df3c29c891427181f5476dbcefda304471400"
+        }
+      ]
+    },
+    "reference:communication-contract": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "references/communication-contract.md",
+      "files": [
+        {
+          "path": ".pi/references/communication-contract.md",
+          "mode": "copy",
+          "sha256": "e7566e2ef1d52094e1d1355ad8baf0beaaf6f30cfbfe9fb4b7582944b2b7f6b2"
+        }
+      ]
+    },
+    "reference:definition-of-done": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "references/definition-of-done.md",
+      "files": [
+        {
+          "path": ".pi/references/definition-of-done.md",
+          "mode": "copy",
+          "sha256": "d1c75d2ae65d2c7a9cd01f93fa8de63e00e75f2fe5d08be224d576157054dcee"
+        }
+      ]
+    },
+    "reference:fleet-coordination-patterns": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "references/fleet-coordination-patterns.md",
+      "files": [
+        {
+          "path": ".pi/references/fleet-coordination-patterns.md",
+          "mode": "copy",
+          "sha256": "eb9a596ff1c35deb421412f4a5615bc0d4296facb5ee174455bb67c369821697"
+        }
+      ]
+    },
+    "reference:performance-checklist": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "references/performance-checklist.md",
+      "files": [
+        {
+          "path": ".pi/references/performance-checklist.md",
+          "mode": "copy",
+          "sha256": "628539583b7f515f84d0b8e4f4210ccdc0449afd31901149a078209f0769e654"
+        }
+      ]
+    },
+    "reference:security-checklist": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "references/security-checklist.md",
+      "files": [
+        {
+          "path": ".pi/references/security-checklist.md",
+          "mode": "copy",
+          "sha256": "56ffac21ef2226d41a47753ff691633451e313b068ce6020e07a1c9617c421ab"
+        }
+      ]
+    },
+    "reference:testing-patterns": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "references/testing-patterns.md",
+      "files": [
+        {
+          "path": ".pi/references/testing-patterns.md",
+          "mode": "copy",
+          "sha256": "2502c02eee60a9e97f4256b318cdf2f1e22b045b78c6d9713fcb926b9dfc025e"
+        }
+      ]
+    },
+    "skill:code-review-and-quality": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/code-review-and-quality",
+      "files": [
+        {
+          "path": ".pi/skills/code-review-and-quality/SKILL.md",
+          "mode": "copy",
+          "sha256": "6d7c7cb43e8eb6727ab72b3baa570d8e8c00f484392cfd07acf4550fed2b6838"
+        }
+      ]
+    },
+    "skill:compound-learning": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/compound-learning",
+      "files": [
+        {
+          "path": ".pi/skills/compound-learning/SKILL.md",
+          "mode": "copy",
+          "sha256": "4a2c861027f823b8e601c7f65661d26cb8b1ca1baaa6f51824ac9c836035db43"
+        }
+      ]
+    },
+    "skill:debugging-and-error-recovery": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "vendor/agent-skills-upstream/skills/debugging-and-error-recovery",
+      "files": [
+        {
+          "path": ".pi/skills/debugging-and-error-recovery/SKILL.md",
+          "mode": "copy",
+          "sha256": "927ad6917fa2891827351cfa3470cd715423faaa5c5f27fe74534d9324c35eea"
+        }
+      ]
+    },
+    "skill:git-workflow-and-versioning": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/git-workflow-and-versioning",
+      "files": [
+        {
+          "path": ".pi/skills/git-workflow-and-versioning/SKILL.md",
+          "mode": "copy",
+          "sha256": "418d413a1454eabddef5c9952e13f94e6a39fdb371b927f62ca98dfa59f99134"
+        }
+      ]
+    },
+    "skill:incremental-implementation": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/incremental-implementation",
+      "files": [
+        {
+          "path": ".pi/skills/incremental-implementation/SKILL.md",
+          "mode": "copy",
+          "sha256": "4609546a6a3302061da88dd3fc7139337028cb5ed72a57c03955d4df7a127acb"
+        }
+      ]
+    },
+    "skill:orchestration-verification": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/orchestration-verification",
+      "files": [
+        {
+          "path": ".pi/skills/orchestration-verification/SKILL.md",
+          "mode": "copy",
+          "sha256": "8fa349d1241a347413af957b10f36fc7f56d8bb96e9e86a6359129a4de1ffeab"
+        }
+      ]
+    },
+    "skill:planning-and-task-breakdown": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/planning-and-task-breakdown",
+      "files": [
+        {
+          "path": ".pi/skills/planning-and-task-breakdown/SKILL.md",
+          "mode": "copy",
+          "sha256": "53b1327c94ae4a3af6167a29703bb4acc54cf28d03e9cd8d9afe9829434347b0"
+        }
+      ]
+    },
+    "skill:spec-driven-development": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/spec-driven-development",
+      "files": [
+        {
+          "path": ".pi/skills/spec-driven-development/SKILL.md",
+          "mode": "copy",
+          "sha256": "317fca1ef73a33ac869ad70df90440c6d005aec0f789f14f0e173201575d07d8"
+        }
+      ]
+    },
+    "skill:test-driven-development": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "vendor/agent-skills-upstream/skills/test-driven-development",
+      "files": [
+        {
+          "path": ".pi/skills/test-driven-development/SKILL.md",
+          "mode": "copy",
+          "sha256": "6c60e193d77a6c52eb3d9a7ca774f1801b9f798ec34f075720e0425a8094f50e"
+        }
+      ]
+    },
+    "skill:using-agent-skills": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.5",
+      "sourceRoot": "skills/using-agent-skills",
+      "files": [
+        {
+          "path": ".pi/skills/using-agent-skills/SKILL.md",
+          "mode": "copy",
+          "sha256": "0fdc6db88c8d0a40fe69ed051022e97273ec583547730293559c69b89b540333"
+        }
+      ]
+    }
+  },
+  "externalPackages": [],
+  "runtimeRepairs": [],
+  "events": [
+    {
+      "at": "2026-09-09T12:06:56.061Z",
+      "verb": "setup",
+      "packageVersion": "2.0.5",
+      "actions": 42,
+      "conflicts": 0,
+      "failed": 0
+    }
+  ]
+}

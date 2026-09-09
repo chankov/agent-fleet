@@ -16,8 +16,8 @@ export function retiredFeatureError(name) {
 export function normalizeFeatureSet(manifest, features) {
   const known = new Set(featureNames(manifest));
   const values = typeof features === "string"
-    ? (features === "none" ? [] : features.split(",").filter(Boolean))
-    : (features ?? []);
+    ? (features.trim().toLowerCase() === "none" ? [] : features.split(",").map((name) => name.trim()).filter(Boolean))
+    : (features ?? []).map((name) => typeof name === "string" ? name.trim() : name).filter(Boolean);
   for (const feature of values) {
     if (!known.has(feature)) throw new Error(retiredFeatureError(feature) ?? `unknown feature "${feature}"`);
   }

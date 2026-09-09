@@ -16,7 +16,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildPlan } from "../lib/plan.js";
-import { applyPlan } from "../lib/apply.js";
+import { applyPlan, runTrustedExec } from "../lib/apply.js";
 import { runVerify, hasDrift } from "../lib/verify.js";
 import { loadManifest } from "../lib/manifest.js";
 import { readState, walkTree } from "../lib/state.js";
@@ -373,7 +373,10 @@ test("exec runs after commit only when permitted, and failures create retryable 
     items: ["companion:cmd"], allowExec: true, output: (line) => printed.push(line),
   });
   assert.equal(ok.applied.results.find((r) => r.id === "companion:cmd").status, "applied");
-  assert.deepEqual(printed, [`${process.execPath} -e process.exit(0)`]);
+  assert.deepEqual(printed, [
+    `starting ${process.execPath} -e process.exit(0) (timeout 120000ms)`,
+    `completed ${process.execPath} -e process.exit(0)`,
+  ]);
 
   const workspace = tmp("ws");
   const bad = run({
@@ -388,6 +391,17 @@ test("exec runs after commit only when permitted, and failures create retryable 
     readState(workspace).items["skill:alpha"],
     "the committed tree stays recorded after runtime failure",
   );
+});
+
+test("trusted runtime execution reports progress and obeys an injected bounded timeout", () => {
+  const workspace = tmp("ws"), output = [];
+  const { run: result } = runTrustedExec({
+    workspace, timeoutMs: 40, output: (line) => output.push(line),
+    spec: { command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"], cwd: "." },
+  });
+  assert.equal(result.error?.code, "ETIMEDOUT");
+  assert.match(output[0], /starting .*timeout 40ms/);
+  assert.match(output.at(-1), /^failed /);
 });
 
 test("exec sorts after every file action", () => {

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "preset": "default",
+  "features": {
+    "browser": false,
+    "claude-bridge": false,
+    "codex-remote": false,
+    "hermes": false,
+    "telegram": false,
+    "voice": false
+  }
+}

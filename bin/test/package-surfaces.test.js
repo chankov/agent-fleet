@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { buildPlan } from "../lib/plan.js";
@@ -283,7 +283,7 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
         join(extracted, "bin", "cli.js"), "setup", "--workspace", workspace,
         "--preset", preset, "--features", "none", "--yes",
       ], { encoding: "utf8" });
-      assert.match(result, /Setup complete\./);
+      assert.match(result, /Files installed; (?:runtime dependencies are missing or unverified|existing readiness checks passed)/);
       assert.equal(existsSync(join(workspace, "docs", "plans", "agent-hub", "local-duo-profile.md")), false, "local profile notes must not be installed");
       const desired = JSON.parse(readFileSync(join(workspace, ".ai", "agent-fleet.json"), "utf8"));
       assert.equal(desired.preset, preset);
@@ -318,7 +318,26 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
         join(extracted, "bin", "cli.js"), "doctor", "--workspace", workspace, "--json",
       ], { encoding: "utf8", env: doctorEnv }));
       assert.equal(doctor.summary.outstanding, 0, `${preset}: installed-package doctor must run under node_modules`);
+      const update = JSON.parse(execFileSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", workspace, "--dry-run", "--json"], { encoding: "utf8" }));
+      assert.equal(update.publicSchemaVersion, 1); assert.equal(update.summary.changes, 0);
     }
+
+    const historicalWorkspace = join(fixture, "historical-update"); mkdirSync(historicalWorkspace);
+    cpSync(join(root, "bin/test/fixtures/agent-fleet-2.0.5/.ai"), join(historicalWorkspace, ".ai"), { recursive: true });
+    const historicalBefore = JSON.parse(readFileSync(join(historicalWorkspace, ".ai/agent-fleet-state.json"), "utf8"));
+    assert.equal(historicalBefore.packageVersion, "2.0.5", "fixture is unaltered output from the published 2.0.5 installer");
+    execFileSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", historicalWorkspace, "--repair-config", "--yes"], { encoding: "utf8" });
+    const historicalAfter = JSON.parse(readFileSync(join(historicalWorkspace, ".ai/agent-fleet-state.json"), "utf8"));
+    assert.equal(historicalAfter.packageVersion, JSON.parse(readFileSync(join(extracted, "package.json"), "utf8")).version);
+    assert.equal(JSON.parse(readFileSync(join(historicalWorkspace, ".ai/agent-fleet.json"), "utf8")).preset, "default");
+
+    const allPreviewWorkspace = join(fixture, "all-features-preview"); mkdirSync(allPreviewWorkspace);
+    const allPreview = JSON.parse(execFileSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", allPreviewWorkspace,
+      "--preset", "full", "--features", "browser, chatgpt-client, claude-bridge, hermes, telegram, voice", "--stt-provider", "groq", "--dry-run", "--json"], { encoding: "utf8" }));
+    assert.equal(allPreview.stage, "preview"); assert.ok(allPreview.selection.desired.features.includes("chatgpt-client"));
+    const nonTtyWorkspace = join(fixture, "non-tty"); mkdirSync(nonTtyWorkspace);
+    const refused = spawnSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", nonTtyWorkspace, "--preset", "default", "--features", "none"], { encoding: "utf8" });
+    assert.equal(refused.status, 1); assert.match(refused.stderr, /requires --yes/);
   } finally {
     for (const file of readdirSync(root)) if (/^chankov-agent-fleet-.*\.tgz$/.test(file)) rmSync(join(root, file), { force: true });
     rmSync(fixture, { recursive: true, force: true });

@@ -28,6 +28,7 @@ import { itemsForAgent } from "./manifest.js";
 import { expandBinding } from "./verify.js";
 import { extractRegion, replaceRegion, stripRegion, leafPaths, setPath, canonicalJson } from "./merge-forms.js";
 import { runTransaction } from "./transaction.js";
+import { assertSafeWorkspaceTarget } from "./workspace-safety.js";
 import { renderDesired } from "./desired.js";
 import {
   readState, writeState, emptyState, hashFile, hashText, walkTree,
@@ -35,26 +36,35 @@ import {
 } from "./state.js";
 
 export const APPLY_SCHEMA_VERSION = 1;
+export const EXEC_TIMEOUT_MS = 120_000;
 
-/** Retry only commands recorded after a previous post-commit runtime failure. */
-export function retryRuntimeRepairs({ workspace, output = console.log }) {
+function manifestExec(manifest, agent, id) {
+  const item = itemsForAgent(manifest, agent).find((entry) => entry.id === id);
+  if (!item?.exec) throw new Error(`runtime repair ${id} is not authorized by the current manifest`);
+  return item.exec;
+}
+export function runTrustedExec({ workspace, spec, output, timeoutMs = EXEC_TIMEOUT_MS }) {
+  const display = `${spec.command} ${(spec.args ?? []).join(" ")}`.trim();
+  output(`starting ${display} (timeout ${timeoutMs}ms)`);
+  const run = spawnSync(spec.command, spec.args ?? [], { cwd: insideWorkspace(workspace, spec.cwd ?? "."), stdio: "pipe", encoding: "utf8", timeout: timeoutMs });
+  output(run.status === 0 ? `completed ${display}` : `failed ${display}`);
+  return { run, display };
+}
+
+/** Retry only action IDs still authorized by the trusted current manifest. */
+export function retryRuntimeRepairs({ workspace, manifest, output = console.log }) {
   const state = readState(workspace);
   const pending = state?.runtimeRepairs ?? [];
   if (pending.length === 0) return { attempted: 0, remaining: [] };
-
   const remaining = [];
   for (const repair of pending) {
-    const command = `${repair.command} ${(repair.args ?? []).join(" ")}`.trim();
-    output(command);
-    const run = spawnSync(repair.command, repair.args ?? [], {
-      cwd: insideWorkspace(workspace, repair.cwd ?? "."), stdio: "pipe", encoding: "utf8",
-    });
-    if (run.status !== 0) {
-      remaining.push({ ...repair, status: run.status ?? "signal", stderr: (run.stderr ?? "").trim() });
-    }
+    let spec;
+    try { spec = manifestExec(manifest, state.agent, repair.id); }
+    catch (error) { remaining.push({ id: repair.id, status: "unauthorized", detail: error.message }); continue; }
+    const { run, display } = runTrustedExec({ workspace, spec, output });
+    if (run.status !== 0) remaining.push({ id: repair.id, args: spec.args ?? [], cwd: spec.cwd ?? ".", display, status: run.error?.code === "ETIMEDOUT" ? "timeout" : run.status ?? run.signal ?? "failed", stderr: (run.stderr ?? "").trim() });
   }
-  state.runtimeRepairs = remaining;
-  writeState(workspace, state);
+  state.runtimeRepairs = remaining; writeState(workspace, state);
   return { attempted: pending.length, remaining };
 }
 
@@ -68,7 +78,7 @@ export function retryRuntimeRepairs({ workspace, output = console.log }) {
  * @param {() => string} [opts.now]  injectable clock, for deterministic tests
  * @returns {object} result
  */
-export function applyPlan({ plan, manifest, allowExec = false, now = () => new Date().toISOString(), output = console.log, failAt = null }) {
+export function applyPlan({ plan, manifest, allowExec = false, now = () => new Date().toISOString(), output = console.log, failAt = null, lockHeld = false }) {
   const validate = () => {
     if (plan.migrationBlocked) throw Object.assign(new Error(plan.migrationError), { exitCode: 1 });
     if (plan.snapshotMetadataError) throw Object.assign(new Error(plan.snapshotMetadataError), { exitCode: 1 });
@@ -76,37 +86,34 @@ export function applyPlan({ plan, manifest, allowExec = false, now = () => new D
   };
   let result;
   try {
-    result = runTransaction({ workspace: plan.workspace, plan, manifest, validate, failAt, commit: () => {
-      if (plan.writeDesired) writeFileSyncDeep(join(plan.workspace, ".ai", "agent-fleet.json"), renderDesired(plan.desired));
-      if (plan.overrides?.write) writeFileSyncDeep(plan.overrides.path, plan.overrides.text);
-      if (plan.stt) {
-        writeFileSyncDeep(plan.stt.path, plan.stt.text);
-        if (plan.stt.env.missing.length) writeFileSyncDeep(plan.stt.env.path, plan.stt.env.text);
-      }
+    result = runTransaction({ workspace: plan.workspace, plan, manifest, validate, failAt, lockHeld, commit: () => {
+      if (plan.writeDesired) writeFileSyncDeep(join(plan.workspace, ".ai", "agent-fleet.json"), renderDesired(plan.desired), plan.workspace);
+      if (plan.overrides?.write) writeFileSyncDeep(plan.overrides.path, plan.overrides.text, plan.workspace);
+      if (plan.stt?.write) writeFileSyncDeep(plan.stt.path, plan.stt.text, plan.workspace);
+      if (plan.stt?.env?.missing?.length) writeFileSyncDeep(plan.stt.env.path, plan.stt.env.text, plan.workspace);
       return applyImmediate({ plan, manifest, allowExec: false, now });
     } });
   } catch (error) {
+    const status = error.postCommit ? "committed-cleanup-incomplete" : error.rollbackFailed ? "rollback-failed" : "rolled-back";
     return { schemaVersion: APPLY_SCHEMA_VERSION, workspace: plan.workspace, verb: plan.verb,
-      results: [], conflictFiles: [], failure: { status: "failed", detail: error.message },
-      exitCode: error.exitCode ?? 1, summary: { applied: 0, failed: 1 } };
+      results: [], conflictFiles: [], failure: { status, detail: error.message },
+      exitCode: error.exitCode ?? 1, summary: { applied: 0, failed: 1, notReached: 0 } };
   }
   if (!allowExec) return { ...result, exitCode: 0 };
 
   const repairs = [];
   for (const action of plan.actions.filter((entry) => entry.kind === "exec")) {
-    const item = new Map(itemsForAgent(manifest, plan.agent).map((entry) => [entry.id, entry])).get(action.id);
-    const spec = item?.exec;
-    if (!spec) continue;
-    const command = `${spec.command} ${(spec.args ?? []).join(" ")}`.trim();
-    output(command);
-    const run = spawnSync(spec.command, spec.args ?? [], { cwd: insideWorkspace(plan.workspace, spec.cwd ?? "."), stdio: "pipe", encoding: "utf8" });
-    if (run.status !== 0) repairs.push({ id: action.id, command: spec.command, args: spec.args ?? [], cwd: spec.cwd ?? ".", display: command, status: run.status ?? "signal", stderr: (run.stderr ?? "").trim() });
+    const spec = manifestExec(manifest, plan.agent, action.id);
+    const { run, display } = runTrustedExec({ workspace: plan.workspace, spec, output });
+    if (run.status !== 0) repairs.push({ id: action.id, display, status: run.error?.code === "ETIMEDOUT" ? "timeout" : run.status ?? run.signal ?? "failed", stderr: (run.stderr ?? "").trim() });
   }
   if (repairs.length) {
     const state = readState(plan.workspace);
     state.runtimeRepairs = repairs;
     writeState(plan.workspace, state);
-    return { ...result, exitCode: 1, runtimeRepairs: repairs };
+    return { ...result, exitCode: 1, runtimeRepairs: repairs,
+      failure: { id: repairs[0].id, status: "runtime-incomplete", detail: `files committed; ${repairs.length} runtime command(s) failed or timed out` },
+      summary: { ...result.summary, failed: repairs.length } };
   }
   const results = result.results.map((entry) => plan.actions.some((action) => action.id === entry.id && action.kind === "exec")
     ? { ...entry, status: "applied", detail: "command ran after file commit" }
@@ -114,7 +121,7 @@ export function applyPlan({ plan, manifest, allowExec = false, now = () => new D
   return { ...result, results, exitCode: 0, runtimeRepairs: [] };
 }
 
-function applyImmediate({ plan, manifest, allowExec = false, now = () => new Date().toISOString() }) {
+function applyImmediate({ plan, manifest, now = () => new Date().toISOString() }) {
   const { workspace, sourceRoot, agent, method, packageVersion } = plan;
   const catalogue = new Map(itemsForAgent(manifest, agent).map((i) => [i.id, i]));
   const previous = readState(workspace);
@@ -142,7 +149,7 @@ function applyImmediate({ plan, manifest, allowExec = false, now = () => new Dat
     try {
       const outcome = perform({
         action, item: catalogue.get(action.id), state, workspace, sourceRoot,
-        method, agent, allowExec, now,
+        method, agent, now,
       });
       results.push({ id: action.id, action: action.kind, ...outcome });
       if (outcome.conflicts) conflictFiles.push(...outcome.conflicts);
@@ -202,7 +209,7 @@ function applyImmediate({ plan, manifest, allowExec = false, now = () => new Dat
 
 // ── one action ──────────────────────────────────────────────────────────────
 
-function perform({ action, item, state, workspace, sourceRoot, method, agent, allowExec, now }) {
+function perform({ action, item, state, workspace, sourceRoot, method, agent, now }) {
   switch (action.kind) {
     case "create":
     case "refresh":
@@ -263,25 +270,10 @@ function perform({ action, item, state, workspace, sourceRoot, method, agent, al
     case "remove":
       return removeItem({ id: action.id, state, workspace, sourceRoot });
 
-    case "exec": {
-      if (!allowExec) return { status: "skipped", detail: "exec not permitted" };
-      const spec = item?.exec;
-      if (!spec) return { status: "skipped", detail: "no exec specification" };
-      const cwd = insideWorkspace(workspace, spec.cwd ?? ".");
-      const run = spawnSync(spec.command, spec.args ?? [], { cwd, stdio: "pipe", encoding: "utf8" });
-      if (run.status !== 0) {
-        throw new Error(
-          `${spec.command} ${(spec.args ?? []).join(" ")} exited ${run.status ?? "on signal"}: ` +
-          `${(run.stderr ?? "").trim().split("\n").slice(-3).join(" ") || "no output"}`,
-        );
-      }
-      state.items[action.id] = {
-        kind: item.kind, strategy: "exec", method: "exec",
-        version: state.packageVersion, files: [],
-        lastRun: { at: now(), command: `${spec.command} ${(spec.args ?? []).join(" ")}`.trim() },
-      };
-      return { status: "applied", detail: "command ran" };
-    }
+    case "exec":
+      // Runtime execution happens only after the durable file commit through
+      // runTrustedExec(), which owns timeout/progress/failure reporting.
+      return { status: "skipped", detail: "exec deferred until after file commit" };
 
     case "external": {
       const spec = item?.package;
@@ -501,7 +493,7 @@ function writeManagedRegion({ binding, workspace, sourceRoot }) {
 
   const targetAbs = insideWorkspace(workspace, binding.target);
   const existing = existsSync(targetAbs) ? readFileSync(targetAbs, "utf8") : "";
-  writeFileSyncDeep(targetAbs, replaceRegion(existing, region.block));
+  writeFileSyncDeep(targetAbs, replaceRegion(existing, region.block), workspace);
 
   return {
     files: [{
@@ -537,7 +529,7 @@ function mergeJson({ binding, workspace, sourceRoot }) {
       sha256: hashText(canonicalJson(value)),
     });
   }
-  writeFileSyncDeep(targetAbs, JSON.stringify(target, null, 2) + "\n");
+  writeFileSyncDeep(targetAbs, JSON.stringify(target, null, 2) + "\n", workspace);
 
   return { files: [], jsonKeys };
 }
@@ -555,7 +547,7 @@ function writeConflictCopies({ item, action, workspace, sourceRoot, agent }) {
     const emit = (targetRel, contents) => {
       if (!conflicted.has(targetRel)) return;
       const dest = insideWorkspace(workspace, `${targetRel}.new`);
-      writeFileSyncDeep(dest, contents);
+      writeFileSyncDeep(dest, contents, workspace);
       written.push(`${targetRel}.new`);
     };
 
@@ -673,7 +665,7 @@ updated:    ${state.updatedAt.slice(0, 10)}
 - No secrets are stored in this file or in ${STATE_REL_PATH}.
 `;
   const path = join(workspace, LEGACY_RECORD_REL_PATH);
-  writeFileSyncDeep(path, text);
+  writeFileSyncDeep(path, text, workspace);
   return path;
 }
 
@@ -686,13 +678,12 @@ updated:    ${state.updatedAt.slice(0, 10)}
  */
 function insideWorkspace(workspace, rel) {
   const abs = resolve(workspace, rel);
-  if (!isInside(workspace, abs)) {
-    throw new Error(`refusing to write outside the workspace: ${rel}`);
-  }
-  return abs;
+  if (!isInside(workspace, abs)) throw new Error(`refusing to write outside the workspace: ${rel}`);
+  return assertSafeWorkspaceTarget(workspace, abs);
 }
 
-function writeFileSyncDeep(abs, contents) {
+function writeFileSyncDeep(abs, contents, workspace = null) {
+  if (workspace) assertSafeWorkspaceTarget(workspace, abs, { allowLeafSymlink: false });
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, contents);
 }

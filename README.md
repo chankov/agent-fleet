@@ -81,18 +81,13 @@ cd ~/projects/my-app
 npx @chankov/agent-fleet@latest setup
 ```
 
-In a real TTY that opens the installer: pick the **Default** or **Full** preset
-and optional comma-separated features, read the exact reconciliation plan, then
-confirm once. For automation, name the selection and consent:
+In a real TTY that opens the installer: pick **Default**, **Full**, or **Full + all features**, edit the exact feature snapshot, read the reconciliation plan, then explicitly answer `yes` once. The third choice stores `preset: "full"` plus today's platform-compatible feature values; later releases never auto-enable newly added features. For automation, name the selection and consent:
 
 ```bash
 npx @chankov/agent-fleet@latest setup --preset default --features none --yes
 ```
 
-**Default** is a launchable stable Fleet Core; it creates neither `.claude/` nor
-voice configuration. **Full** selects all stable platform-applicable catalogue
-roots and may install the recorded Claude Code coms bridge. The lifecycle
-requires no coding agent or model.
+**Default** is the stable Fleet Core selection; it creates neither `.claude/` nor voice configuration. **Full** keeps its existing stable platform-applicable catalogue semantics and may install the recorded Claude Code coms bridge. File installation is not a readiness claim: the final report distinguishes missing/unverified runtime dependencies and points to `just fleet deps` and `just fleet doctor`. The lifecycle requires no coding agent or model.
 
 Setup writes files but never runs commands, so finish with the npm steps it
 deliberately skipped — the workspace is not launchable until they run:
@@ -185,6 +180,18 @@ repository. CLI selections are ephemeral over an existing
 `.ai/agent-fleet.json` unless `--save-desired` is explicit. Symlink installs
 exist only inside an agent-fleet checkout, where editing an artifact is meant
 to edit the source.
+
+If an older `.ai/agent-fleet.json` contains a retired feature such as
+`codex-remote` (even `false`), setup shows the exact setting removal and asks
+for separate approval before continuing. It preserves other settings, never
+enables `chatgpt-client` automatically, and saves the original beside the
+config as `agent-fleet.json.backup-<unique-id>` before an atomic replacement.
+The approved repair remains even if you cancel the subsequent setup plan.
+Unknown features, malformed JSON, and unsupported schemas require manual repair.
+`setup --dry-run` shows the repair proposal only, without writes; rerun after
+repair to preview the full setup plan. For automation, explicitly approve with
+`setup --yes --repair-config`; `--yes` alone does not authorize config repair.
+`--features` remains an exact, whitespace-trimmed selection, not an additive option. First-time voice automation must also name `--stt-provider openai|groq|azure`; the installer asks only for provider/env-variable names, never secret values. A valid existing `.ai/stt.json` is preserved byte-for-byte, including unknown human-owned fields; replacement requires an explicit provider selection plus normal plan approval.
 
 **pi details** — the package bundles `pi-ask-user` (interactive `ask_user` + skill); lifecycle commands load from `.pi/prompts/`, and Fleet Core explicitly loads its deterministic utility extensions from `.pi/extensions/`. Browser and voice remain opt-in: select the setup feature, then use `just fleet --browser` or `just fleet --voice`; the selectable harnesses live under `.pi/harnesses/`. See [docs/pi-setup.md](docs/pi-setup.md) and the [pi extension catalog](docs/pi-extensions.md).
 

@@ -58,7 +58,9 @@ test("recovery journal is written with fsync before commit", () => {
     commit: () => {
       assert.ok(existsSync(join(workspace, JOURNAL_REL_PATH)), "journal must exist before commit mutates");
       const body = JSON.parse(readFileSync(join(workspace, JOURNAL_REL_PATH), "utf8"));
-      assert.equal(body.schemaVersion, 2);
+      assert.equal(body.schemaVersion, 3);
+      assert.equal(body.phase, "applying");
+      assert.match(body.backup, /^\.ai\/\.agent-fleet-recovery\//);
       assert.ok(Array.isArray(body.paths));
       assert.ok(body.paths.includes("owned.txt"));
       sawJournalBeforeCommit = true;

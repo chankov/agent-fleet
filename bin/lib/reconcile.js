@@ -8,14 +8,14 @@ import { buildPlan } from "./plan.js";
 import { readState } from "./state.js";
 import { scanProject } from "./scan.js";
 import { planOverrides } from "./overrides.js";
-import { appendEnvPlaceholders, renderSttConfig } from "./stt-wizard.js";
+import { planStt } from "./stt-wizard.js";
 
 /** Build one setup plan. This function writes nothing. */
 export function buildReconcilePlan(opts) {
   const { workspace, manifest, sourceRoot, packageVersion, agent = "pi", method,
     preset, features, saveDesired = false, tuiDesired = null, dryRun = false,
     migrate = false, yes = false, accept = null, allowExec = false,
-    platform = process.platform } = opts;
+    sttProvider = null, sttReplacementApproved = false, platform = process.platform } = opts;
   const state = readState(workspace);
   const desiredPath = join(workspace, DESIRED_FILE);
   const firstMigration = Boolean(state && !existsSync(desiredPath));
@@ -37,13 +37,7 @@ export function buildReconcilePlan(opts) {
     method, items: featureResult.roots, accept, allowExec, platform });
   const wanted = new Set(featureResult.selected);
   const overrides = planOverrides(workspace, scanProject(workspace));
-  const sttConfig = featureResult.features.includes("voice")
-    ? { provider: "openai", apiKeyEnv: "OPENAI_API_KEY" }
-    : null;
-  const stt = sttConfig ? {
-    path: join(workspace, ".ai", "stt.json"), text: renderSttConfig(sttConfig),
-    env: appendEnvPlaceholders(workspace, sttConfig),
-  } : null;
+  const stt = featureResult.features.includes("voice") ? planStt(workspace, sttProvider, { replacementApproved: sttReplacementApproved }) : null;
   const recorded = Object.keys(state?.items ?? {});
   const removals = recorded.filter((id) => !wanted.has(id)).sort().map((id) => ({
     kind: "remove", id, itemKind: state.items[id].kind ?? "unknown", consent: "file", state: "owned",
@@ -60,7 +54,7 @@ export function buildReconcilePlan(opts) {
     migrationError: migrationBlocked
       ? "first migration requires --migrate --preset <default|full> --features <exact-set> --yes"
       : null,
-    selection: { ...base.selection, desired: featureResult, resolved: featureResult.selected },
+    selection: { ...base.selection, desired: { ...featureResult, requestedFeatures: Object.entries(desiredResult.desired.features).filter(([, enabled]) => enabled).map(([name]) => name).sort() }, resolved: featureResult.selected },
     actions, conflicts,
     overrides,
     stt,

@@ -22,9 +22,7 @@ cd ~/projects/my-app
 npx @chankov/agent-fleet@latest setup
 ```
 
-In a real TTY this opens the installer: pick **Default** or **Full**, add
-optional comma-separated features, read the exact reconciliation plan, and
-confirm once to apply. For automation, name the selection and consent up front:
+In a real TTY this opens the installer: pick **Default**, **Full**, or **Full + all features**, edit the exact feature list, read the complete reconciliation plan, and answer `yes` to apply. Enter never approves mutation. For automation, name the selection and consent up front:
 
 ```bash
 npx @chankov/agent-fleet@latest setup --preset default --features none --yes
@@ -36,16 +34,13 @@ Pin the exact version when the run has to be reproducible:
 npx @chankov/agent-fleet@1.0.0 setup --preset default --features none --yes
 ```
 
-**Default** is the launchable, stable Fleet Core and creates neither `.claude/`
-nor voice configuration. **Full** selects every stable, platform-applicable
-catalogue root; it may install the recorded Claude Code coms bridge. Features
-are additive named capabilities (`browser`, `voice`, `hermes`, `telegram`,
+**Default** is the stable Fleet Core selection and creates neither `.claude/` nor voice configuration. **Full** selects every stable, platform-applicable catalogue root; it may install the recorded Claude Code coms bridge. **Full + all features** is not a permanent preset: it stores `preset: "full"` and an explicit snapshot of every currently platform-compatible feature, including experimental ones, so future features are not silently enabled. Features are named capabilities (`browser`, `voice`, `hermes`, `telegram`,
 `claude-bridge`, and the experimental `chatgpt-client`), not an arbitrary
 package-entry mode — `setup --help` lists them.
 
 ### Then install the runtime dependencies
 
-Setup writes files; it does not run commands for you. The three `npm` steps for
+Setup writes files; it does not run commands for you, and a successful file commit is not reported as runtime readiness unless the existing dependency checks pass. The three `npm` steps for
 `.pi/extensions`, `.pi/harnesses`, and `scripts` are planned as `skip` with the
 reason *"runs a command — re-run with `--allow-exec` to include it"*. **A
 workspace is not launchable until they run.** Either let setup run them:
@@ -113,7 +108,7 @@ this installer or anything it wrote.
 
 ### 2. Preview the reconcile
 
-Always worth it, always free — `--dry-run` writes nothing and needs no consent:
+Always worth it, always free — `--dry-run` creates no lock, backup, journal, or target write and needs no consent. JSON preview uses a versioned public model that deliberately omits internal write buffers (including complete `.env` and config before/after text):
 
 ```bash
 just fleet setup --dry-run
@@ -148,8 +143,8 @@ you do not restate the preset on every update. Flags passed on an update are
 ephemeral for that run only unless you add `--save-desired`:
 
 ```bash
-just fleet setup --features voice,browser --yes                  # this run only
-just fleet setup --features voice,browser --save-desired --yes   # persisted
+just fleet setup --features voice,browser --stt-provider groq --yes                  # this run only
+just fleet setup --features voice,browser --stt-provider groq --save-desired --yes   # persisted
 ```
 
 ### 4. Handle a conflict
@@ -245,6 +240,14 @@ state-owned legacy artifacts. Foreign or locally modified files survive.
 dispatch to `setup`; `install` and `upgrade` keep their historical selection and
 three-way-merge semantics and warn. New scripts should use `setup`.
 
+## Transaction and recovery contract
+
+Mutating lifecycle commands hold `.ai/agent-fleet.lock`; locks are never stolen automatically. Planning refuses an existing `.ai/agent-fleet-transaction.json`. Recovery pre-images live durably under `.ai/.agent-fleet-recovery/`, and journal phases are `prepared`, `applying`, and `committed`. `doctor --fix` restores pre-commit phases or only finalizes cleanup for a durable committed phase. A missing/corrupt backup leaves diagnostics in place and fails honestly. After an operator has verified that the recorded process is gone, `doctor --fix --force` is the explicit stale-lock recovery path.
+
+Plans fingerprint every touched target before approval and re-check immediately before writing. Absolute/`..` journal paths, non-installer backup roots, and target paths crossing parent symlinks are refused. Runtime subprocesses have a 120-second bound and visible start/completion output. Retry state stores an action ID, but the command is always reloaded from the trusted current manifest; saved argv never grants execution authority.
+
+JSON stdout is one clean document. Public plan schema `1` adds a `stage` (`preview`, `config-repair-preview`, or `apply`) while retaining safe plan fields for consumers. Secret-bearing buffers (`text`, complete before/after/original/replacement bodies, and recovery locations) are never serialized.
+
 ## Doctor and uninstall
 
 ```bash
@@ -299,3 +302,17 @@ reads.
 | `3` | `setup` hit unresolved conflicts and wrote nothing |
 
 See [Migration](MIGRATION-agent-fleet.md) for the full major-release matrix.
+
+## Release operator verification
+
+CI runs the installer and packed-artifact regression suite on Linux and macOS, including the narrow PTY path, then checks `npm pack --dry-run`. Publishing remains a separate protected step. After publishing, the operator must smoke the exact immutable version in a disposable repository before checking the tag:
+
+```bash
+version=2.0.7 # released version, never `latest` for the first probe
+repo="$(mktemp -d)"
+(cd "$repo" && npx "@chankov/agent-fleet@$version" setup --preset default --features none --dry-run --json)
+npm view "@chankov/agent-fleet@$version" version
+npm view @chankov/agent-fleet@latest version # must equal $version only after the exact-version smoke passes
+```
+
+No release verification should target a real application workspace.

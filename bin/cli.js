@@ -4,7 +4,7 @@
 // setup, doctor, and uninstall are complete without a coding agent or model.
 // Legacy command names remain compatibility aliases and route to setup.
 
-import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync, writeSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -18,10 +18,15 @@ import { runVerify, hasDrift } from "./lib/verify.js";
 import { buildPlan, hasConflicts, isNoop } from "./lib/plan.js";
 import { buildReconcilePlan } from "./lib/reconcile.js";
 import { applyPlan, retryRuntimeRepairs } from "./lib/apply.js";
-import { chooseSetup } from "./lib/tui.js";
+import { askChoice, askFinalApproval, chooseSetup, selectionSummary } from "./lib/tui.js";
 import { defaultDesired, readDesired } from "./lib/desired.js";
+import { normalizeFeatureSet } from "./lib/features.js";
+import { readSttConfig, STT_PROVIDERS } from "./lib/stt-wizard.js";
+import { prepareDesiredRepair } from "./lib/repair-desired.js";
 import { purgeHumanConfig } from "./lib/purge.js";
-import { recoverTransaction, discardUnrecoverableTransaction, journalPath, transactionRecovery } from "./lib/transaction.js";
+import { capturePlanFingerprints, recoverTransaction, journalPath, transactionRecovery } from "./lib/transaction.js";
+import { acquireWorkspaceLock, breakWorkspaceLock } from "./lib/workspace-safety.js";
+import { publicPlan, publicResult } from "./lib/public-plan.js";
 import { readState, readLegacyRecord, isAgentFleetCheckout, STATE_REL_PATH } from "./lib/state.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
@@ -32,6 +37,17 @@ import { runtimeDependencyFindings } from "../scripts/lib/runtime-dependencies.j
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
 const pkg = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8"));
+function writeJson(value) {
+  const bytes = Buffer.from(JSON.stringify(value, null, 2) + "\n");
+  let offset = 0;
+  while (offset < bytes.length) {
+    try { offset += writeSync(stdout.fd, bytes, offset, bytes.length - offset); }
+    catch (error) {
+      if (error.code !== "EAGAIN") throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
+    }
+  }
+}
 
 // ── argv parsing ──────────────────────────────────────────────────────────
 
@@ -60,7 +76,9 @@ const parsed = (() => {
         profile:   { type: "string" },
         preset:    { type: "string" },
         features:  { type: "string" },
+        "stt-provider": { type: "string" },
         "save-desired": { type: "boolean" },
+        "repair-config": { type: "boolean" },
         migrate: { type: "boolean" },
         "on-conflict": { type: "string" },
         "purge-config": { type: "boolean" },
@@ -88,6 +106,15 @@ const parsed = (() => {
 const opts = parsed.values;
 const workspace = resolve(opts.workspace ?? process.cwd());
 let repairPlanNote = null;
+let activeLock = null;
+process.once("exit", () => activeLock?.release());
+function lockMutation(operation, { allowPending = false } = {}) {
+  // Acquire first so a live transaction is reported as a lock conflict rather
+  // than being mistaken for abandoned recovery state.
+  try { activeLock = acquireWorkspaceLock(workspace, operation); } catch (error) { fail(error.message, error.exitCode ?? 4); }
+  const recovery = transactionRecovery(workspace);
+  if (recovery.pending && !allowPending) fail(`pending transaction journal exists${recovery.error ? ` (${recovery.error})` : ""}; run agent-fleet doctor --fix before replanning`);
+}
 
 if (opts.help) {
   printHelp(sub);
@@ -211,45 +238,83 @@ async function cmdSetup() {
   }
   const manifest = loadManifest(pkgRoot);
   const dryRun = Boolean(opts["dry-run"]);
+  if (opts.json && !opts.yes && !dryRun) fail("--json requires --yes (or --dry-run); JSON mode never prompts");
   const interactive = !opts.yes && !dryRun;
+  if (!dryRun) lockMutation("setup");
+  else if (transactionRecovery(workspace).pending) fail("pending transaction journal exists; run agent-fleet doctor --fix before replanning");
+  let configRepair;
+  try {
+    configRepair = await prepareDesiredRepair({
+      workspace, manifest, dryRun, approved: Boolean(opts["repair-config"] && opts.yes),
+      interactive: interactive && Boolean(stdin.isTTY), output: process.stderr,
+      confirm: async (prompt) => {
+        const rl = createInterface({ input: stdin, output: process.stderr }); let interrupted = false;
+        rl.on("SIGINT", () => { interrupted = true; rl.close(); });
+        try { return await rl.question(prompt); } catch { return interrupted ? null : null; } finally { rl.close(); }
+      },
+    });
+  } catch (err) { fail(err.message); }
+  if (configRepair.preview) {
+    console.log(JSON.stringify(configRepair.preview, null, 2));
+    return;
+  }
+  if (configRepair.cancelled) {
+    console.log("Aborted — nothing was written.");
+    return;
+  }
   if (interactive && !stdin.isTTY) {
     fail("setup mutation requires --yes in non-TTY mode (or use --dry-run to preview)");
   }
+  const setupAborted = configRepair.repaired
+    ? "Setup aborted. The approved config repair and its backup remain; no setup plan was applied."
+    : "Aborted — nothing was written.";
 
   let preset = opts.preset;
   let features = opts.features;
+  let sttProvider = opts["stt-provider"] ?? null;
+  let sttReplacementApproved = Boolean(opts.yes || dryRun);
   let tuiDesired = null;
   let setupReadLine = null;
   let setupRl = null;
   if (interactive) {
     setupRl = createInterface({ input: stdin, output: stdout });
-    setupReadLine = async () => {
-      try { return await setupRl.question(""); } catch { return null; }
-    };
+    setupReadLine = () => new Promise((resolveAnswer) => {
+      const interrupted = () => { setupRl.removeListener("SIGINT", interrupted); resolveAnswer("__AGENT_FLEET_INTERRUPT__"); };
+      setupRl.once("SIGINT", interrupted);
+      setupRl.question("").then((answer) => { setupRl.removeListener("SIGINT", interrupted); resolveAnswer(answer); }, () => { setupRl.removeListener("SIGINT", interrupted); resolveAnswer(null); });
+    });
     let selection;
     try {
-      selection = await chooseSetup({
-        output: stdout,
-        readLine: setupReadLine,
-        manifest,
-        currentDesired: readDesired(workspace, manifest),
-      });
-    } catch (err) {
-      setupRl.close();
-      fail(err.message);
-    }
-    if (selection.cancelled) {
-      setupRl.close();
-      console.log("Aborted — nothing was written.");
-      exit(0);
-    }
-    preset = selection.preset;
-    features = selection.features.join(",");
+      const initial = readDesired(workspace, manifest) ?? defaultDesired(manifest);
+      if (preset !== undefined) initial.preset = preset;
+      if (features !== undefined) {
+        const selected = new Set(normalizeFeatureSet(manifest, features));
+        initial.features = Object.fromEntries(Object.keys(initial.features).map((name) => [name, selected.has(name)]));
+      }
+      selection = await chooseSetup({ output: stdout, readLine: setupReadLine, manifest, currentDesired: initial });
+      const existingStt = !selection.cancelled && selection.features.includes("voice") ? readSttConfig(workspace) : null;
+      if (!selection.cancelled && selection.features.includes("voice") && !existingStt && !sttProvider) {
+        const provider = await askChoice({ output: stdout, readLine: setupReadLine,
+          prompt: `STT provider: ${Object.keys(STT_PROVIDERS).join(" | ")} | cancel; Enter = cancel (no secret values requested) > `,
+          validate: (value) => STT_PROVIDERS[value.toLowerCase()] ? { ok: true, value: value.toLowerCase() } : value === "" ? { ok: true, value: null } : { ok: false, error: "Invalid STT provider. Choose a listed provider or cancel." },
+        });
+        if (provider.cancelled || !provider.value) selection = { cancelled: true, reason: provider.reason ?? "no provider" };
+        else sttProvider = provider.value;
+      } else if (!selection.cancelled && existingStt && sttProvider && sttProvider !== existingStt.config.provider) {
+        const replacement = await askChoice({ output: stdout, readLine: setupReadLine,
+          prompt: `Replace STT provider ${existingStt.config.provider} with ${sttProvider}? yes/y | no/n | cancel; Enter = no (keep existing provider) > `,
+          validate: (value) => /^y(?:es)?$/i.test(value) ? { ok: true, value: true } : value === "" || /^n(?:o)?$/i.test(value) ? { ok: true, value: false } : { ok: false, error: "Invalid answer. Enter yes/y to replace or no/n to keep the existing provider." },
+        });
+        if (replacement.cancelled) selection = { cancelled: true, reason: replacement.reason };
+        else if (!replacement.value) sttProvider = existingStt.config.provider;
+        else sttReplacementApproved = true;
+      }
+    } catch (err) { setupRl.close(); fail(err.message); }
+    if (selection.cancelled) { setupRl.close(); console.log(`${setupAborted} (${selection.reason ?? "cancelled"})`); exit(0); }
+    preset = selection.preset; features = selection.features.join(",");
     if (selection.changed) {
-      const desired = defaultDesired(manifest);
-      desired.preset = preset;
-      desired.features = Object.fromEntries(Object.keys(desired.features).map((name) => [name, selection.features.includes(name)]));
-      tuiDesired = desired;
+      const desired = defaultDesired(manifest); desired.preset = preset;
+      desired.features = Object.fromEntries(Object.keys(desired.features).map((name) => [name, selection.features.includes(name)])); tuiDesired = desired;
     }
   }
 
@@ -265,7 +330,7 @@ async function cmdSetup() {
       // The interactive selector and final exact-plan confirmation are the
       // migration consent. Automation retains every explicit gate.
       migrate: opts.migrate || interactiveMigration, yes: opts.yes || interactive,
-      accept: opts["on-conflict"] ?? null });
+      accept: opts["on-conflict"] ?? null, sttProvider, sttReplacementApproved });
   } catch (err) {
     setupRl?.close();
     fail(err.message);
@@ -274,33 +339,33 @@ async function cmdSetup() {
     setupRl?.close();
     fail(plan.migrationError);
   }
+  plan.fingerprints = capturePlanFingerprints(plan, manifest);
   if (dryRun) {
-    setupRl?.close();
-    process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
-    exit(plan.conflicts.length ? 3 : 0);
+    setupRl?.close(); writeJson(publicPlan(plan)); exit(plan.conflicts.length ? 3 : 0);
   }
   if ((interactive || opts.yes) && !opts.json) printPlan(plan);
   if (interactive) {
-    stdout.write(`\nApply this exact ${plan.firstMigration ? "first-migration " : ""}setup plan? [y/N] `);
-    const answer = await setupReadLine();
-    setupRl.close();
-    if (answer === null || !/^y(es)?$/i.test(answer.trim())) {
-      console.log("Aborted — nothing was written.");
-      exit(0);
-    }
+    stdout.write("\n" + selectionSummary(manifest, plan.desired.preset, plan.selection.desired.requestedFeatures));
+    const approval = await askFinalApproval({ output: stdout, readLine: setupReadLine }); setupRl.close();
+    if (approval.cancelled || !approval.value) { console.log(`${setupAborted}${approval.reason ? ` (${approval.reason})` : ""}`); exit(0); }
   }
   const execOutput = (line) => (opts.json ? console.error : console.log)(`exec: ${line}`);
-  let result = applyPlan({ plan, manifest, allowExec: Boolean(opts["allow-exec"]), output: execOutput });
-  if (opts["allow-exec"] && result.exitCode === 0) {
-    result = { ...result, retryRuntimeRepair: retryRuntimeRepairs({ workspace, output: execOutput }) };
-  }
-  if (opts.json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-  else console.log(result.exitCode === 0 ? "Setup complete." : result.failure?.detail ?? "Setup incomplete.");
+  let result = applyPlan({ plan, manifest, allowExec: Boolean(opts["allow-exec"]), output: execOutput, lockHeld: true });
+  if (opts["allow-exec"] && result.exitCode === 0) result = { ...result, retryRuntimeRepair: retryRuntimeRepairs({ workspace, manifest, output: execOutput }) };
+  if (opts.json) writeJson(publicResult(result));
+  else if (result.exitCode === 0) {
+    const missing = runtimeDependencyFindings({ workspace });
+    console.log(missing.length ? "Files installed; runtime dependencies are missing or unverified. Next: just fleet deps, then just fleet doctor." : "Files installed; existing readiness checks passed.");
+  } else console.log(result.failure?.detail ?? "Setup incomplete.");
   exit(result.exitCode);
 }
 
 async function cmdDoctor() {
   await mustBeDirectory(workspace, "workspace");
+  if (opts.fix && !opts["dry-run"]) {
+    if (opts.force) breakWorkspaceLock(workspace); // explicit recovery only; normal commands never steal locks.
+    lockMutation("doctor --fix", { allowPending: true });
+  }
 
   // Recovery is itself a write, so bare doctor must not even inspect a journal
   // beyond reporting the resulting repairable state. `--fix` recovers first,
@@ -310,11 +375,7 @@ async function cmdDoctor() {
   let discardedUnrecoverableJournal = false;
   if (opts.fix && !opts["dry-run"] && recovery.pending) {
     try { recoveredTransaction = recoverTransaction(workspace); }
-    catch (err) {
-      if (!err.unrecoverable) fail(`cannot recover pending transaction: ${err.message}`);
-      discardUnrecoverableTransaction(workspace);
-      discardedUnrecoverableJournal = true;
-    }
+    catch (err) { fail(`cannot recover pending transaction: ${err.message}`); }
   }
 
   const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape"]);
@@ -398,7 +459,7 @@ async function cmdDoctor() {
 
   const runtimeRepairOutput = (line) => (opts.json ? console.error : console.log)(`exec: ${line}`);
   const runtimeRepair = willFix
-    ? retryRuntimeRepairs({ workspace, output: runtimeRepairOutput })
+    ? retryRuntimeRepairs({ workspace, manifest: loadManifest(pkgRoot), output: runtimeRepairOutput })
     : { attempted: 0, remaining: pendingRuntime };
 
   let remainingManual = manualOutstanding;
@@ -441,7 +502,7 @@ async function cmdDoctor() {
   };
 
   if (opts.json) {
-    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    writeJson(report);
     exit(report.summary.outstanding > 0 ? 2 : 0);
   }
 
@@ -532,7 +593,7 @@ async function cmdVerify() {
   });
 
   if (opts.json) {
-    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    writeJson(report);
     exit(hasDrift(report) ? 2 : 0);
   }
 
@@ -601,15 +662,19 @@ async function cmdVerify() {
 // decision table, not here.
 async function cmdPlanVerb(verb) {
   await mustBeDirectory(workspace, "workspace");
+  if (transactionRecovery(workspace).pending) fail("pending transaction journal exists; run agent-fleet doctor --fix before replanning");
+  if (!opts["dry-run"]) lockMutation(verb);
 
   // State may already be gone after a self-uninstall. The separate explicit
   // config-purge gate remains usable in that final state without inventing a
   // new ownership record.
   if (verb === "uninstall" && opts.all && opts["purge-config"] && !readState(workspace)) {
-    if (!opts.yes && (!stdin.isTTY || opts.json)) fail("--purge-config requires --yes in non-TTY/JSON mode");
-    if (!opts.yes && !await confirm("\nPurge human configuration? [y/N] ")) { console.log("Aborted — nothing was written."); exit(0); }
-    const purge = purgeHumanConfig(workspace, { purgeConfig: true });
-    if (opts.json) process.stdout.write(JSON.stringify({ plan: null, applied: null, purge }, null, 2) + "\n");
+    if (!opts["dry-run"] && !opts.yes && (!stdin.isTTY || opts.json)) fail("--purge-config requires --yes in non-TTY/JSON mode");
+    if (!opts["dry-run"] && !opts.yes && !await confirm("\nPurge human configuration? yes/y | no/n; Enter = no (cancel) > ")) { console.log("Aborted — nothing was written."); exit(0); }
+    const purge = purgeHumanConfig(workspace, { purgeConfig: true, dryRun: Boolean(opts["dry-run"]) });
+    const report = { publicSchemaVersion: 1, stage: opts["dry-run"] ? "preview" : "apply", plan: null, applied: null, purge };
+    if (opts.json) writeJson(report);
+    else if (opts["dry-run"]) console.log(`Would purge human configuration: ${purge.wouldRemove.join(", ") || "nothing"}`);
     else if (purge.removed.length) console.log(`Purged human configuration: ${purge.removed.join(", ")}`);
     else console.log("Nothing to purge.");
     exit(0);
@@ -676,13 +741,10 @@ async function cmdPlanVerb(verb) {
     });
   } catch (err) { fail(err.message); }
 
+  plan.fingerprints = capturePlanFingerprints(plan, manifest);
   if (opts["dry-run"]) {
-    if (opts.json) {
-      process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
-      exit(hasConflicts(plan) ? 3 : 0);
-    }
-    printPlan(plan);
-    exit(hasConflicts(plan) ? 3 : 0);
+    if (opts.json) { writeJson(publicPlan(plan)); exit(hasConflicts(plan) ? 3 : 0); }
+    printPlan(plan); exit(hasConflicts(plan) ? 3 : 0);
   }
 
   // A config purge is independent of state-owned actions, so it must still
@@ -691,13 +753,13 @@ async function cmdPlanVerb(verb) {
     if (verb === "uninstall" && opts["purge-config"] && !opts.yes) {
       if (!stdin.isTTY || opts.json) fail("--purge-config requires --yes in non-TTY/JSON mode");
       printPlan(plan);
-      if (!await confirm("\nPurge human configuration? [y/N] ")) { console.log("Aborted — nothing was written."); exit(0); }
+      if (!await confirm("\nPurge human configuration? yes/y | no/n; Enter = no (cancel) > ")) { console.log("Aborted — nothing was written."); exit(0); }
     }
     const purge = verb === "uninstall" && opts["purge-config"]
       ? purgeHumanConfig(workspace, { purgeConfig: true })
       : null;
     if (opts.json) {
-      process.stdout.write(JSON.stringify({ plan, applied: null, purge }, null, 2) + "\n");
+      writeJson({ publicSchemaVersion: 1, stage: "apply", plan: publicPlan(plan, "apply"), applied: null, purge });
       exit(0);
     }
     printPlan(plan);
@@ -713,14 +775,14 @@ async function cmdPlanVerb(verb) {
     const overwrites = plan.summary.overwrites;
     const ok = await confirm(
       verb === "uninstall"
-        ? `\nRemove ${plan.summary.remove} item(s)? Files you have edited are kept. [y/N] `
+        ? `\nRemove ${plan.summary.remove} item(s)? Files you have edited are kept. yes/y | no/n; Enter = no (cancel) > `
         : `\nApply ${plan.summary.changes} change(s)` +
-          `${overwrites ? `, overwriting local edits in ${overwrites} item(s)` : ""}? [y/N] `,
+          `${overwrites ? `, overwriting local edits in ${overwrites} item(s)` : ""}? yes/y | no/n; Enter = no (cancel) > `,
     );
     if (!ok) { console.log("Aborted — nothing was written."); exit(0); }
   }
 
-  const applied = applyPlan({ plan, manifest, allowExec: Boolean(opts["allow-exec"]) });
+  const applied = applyPlan({ plan, manifest, allowExec: Boolean(opts["allow-exec"]), lockHeld: true });
   const purge = verb === "uninstall" && !applied.summary.failed
     ? purgeHumanConfig(workspace, { purgeConfig: Boolean(opts["purge-config"]) })
     : null;
@@ -738,7 +800,7 @@ async function cmdPlanVerb(verb) {
   };
 
   if (opts.json) {
-    process.stdout.write(JSON.stringify({ plan, applied, purge }, null, 2) + "\n");
+    writeJson({ publicSchemaVersion: 1, stage: "apply", plan: publicPlan(plan, "apply"), applied: publicResult(applied), purge });
     finishLifecycleCleanup();
     exit(applied.summary.failed ? 1 : hasConflicts(plan) ? 3 : 0);
   }
@@ -790,10 +852,9 @@ function printApplied(plan, applied) {
 
   console.log();
   if (applied.failure) {
-    console.log(
-      `✗ Stopped at ${applied.failure.id}: ${applied.failure.detail}\n` +
-      `  ${s.notReached} action(s) not reached. What was applied is recorded — fix the cause and re-run.`,
-    );
+    if (applied.failure.status === "runtime-incomplete") console.log(`✗ ${applied.failure.detail}. Files are committed; retry with doctor --fix after correcting the cause.`);
+    else if (applied.failure.status === "committed-cleanup-incomplete") console.log(`✗ ${applied.failure.detail}. Files are durably committed; run doctor --fix to finalize recovery metadata.`);
+    else console.log(`✗ Apply failed; managed changes were rolled back: ${applied.failure.detail}`);
     return;
   }
   if (applied.conflictFiles.length > 0) {
@@ -805,10 +866,17 @@ function printApplied(plan, applied) {
 
 function printPlan(plan) {
   const s = plan.summary;
-  printBanner(`agent-fleet v${pkg.version} — ${plan.verb} plan`);
+  printBanner(`agent-fleet v${pkg.version} — ${plan.firstMigration ? "first-migration " : ""}${plan.verb} plan`);
   console.log(`Workspace: ${plan.workspace}`);
   console.log(`Agent:     ${agentLabel(plan.agent)}   Method: ${plan.method}`);
-  if (plan.verb === "install") {
+  if (plan.verb === "setup") {
+    const requested = plan.selection.desired?.requestedFeatures ?? [];
+    const effective = plan.selection.desired?.features ?? [];
+    console.log(`Preset: ${plan.desired.preset === "full" ? "Full" : "Default"}`);
+    console.log(`Selected features: ${requested.length ? requested.join(", ") : "none"}`);
+    console.log(`Dependency features: ${effective.filter((name) => !requested.includes(name)).join(", ") || "none"}`);
+    console.log(`Artifacts after dependency closure: ${plan.selection.resolved.length}`);
+  } else if (plan.verb === "install") {
     const picked = [
       plan.selection.profiles.length ? `profiles: ${plan.selection.profiles.join(", ")}` : null,
       plan.selection.requested.length ? `items: ${plan.selection.requested.length}` : null,
@@ -864,7 +932,7 @@ function printPlan(plan) {
     );
   }
   if (s.newAvailable > 0 && plan.verb !== "uninstall") {
-    console.log(`  ${s.newAvailable} catalogued item(s) not selected — widen with --profile full`);
+    console.log(`  ${s.newAvailable} catalogued item(s) not selected — widen setup with --preset full`);
   }
 
   console.log();
@@ -1075,9 +1143,9 @@ function printSection(text) {
   console.log(`\n── ${text} ${"─".repeat(Math.max(0, 60 - text.length))}`);
 }
 
-function fail(msg) {
+function fail(msg, code = 1) {
   console.error(`agent-fleet: ${msg}`);
-  exit(1);
+  exit(code);
 }
 
 function printHelp(sub) {
@@ -1092,7 +1160,9 @@ function printHelp(sub) {
 Options:
   --workspace <path>                  Target workspace (default: cwd)
   --preset <default|full>              Desired preset
-  --features <name[,name]|none>        Exact feature opt-ins
+  --repair-config                     With --yes, approve known retired config removal (backup saved)
+  --features <name[,name]|none>        Exact feature snapshot (replaces, never adds)
+  --stt-provider <openai|groq|azure>    First-time voice provider; no secret is prompted
   --save-desired                       Persist CLI overrides to .ai/agent-fleet.json
   --migrate                            Permit non-interactive first migration (with explicit preset/features and --yes)
   --allow-exec                         Run consented runtime commands after the file transaction
