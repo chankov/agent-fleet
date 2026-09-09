@@ -1,0 +1,9 @@
+{
+  "name": "agent-fleet-workflow-runtime-deps",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.49",
+    "yaml": "^2.9.0"
+  }
+}

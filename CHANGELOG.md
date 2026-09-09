@@ -1,5 +1,28 @@
 # Agent Fleet changelog
 
+## 2.0.6
+
+### Patch Changes
+
+- 2eda34b: Add explicit Fleet client question listing, addressed answers and cancellation for compatible Pi ask-user wrappers. Validate question flags and session ownership in Pi, arbitrate local/Hermes/client answers with one latch, and reject late or stale submissions. Persist client receipts before sending and recover lost acceptance only from the matching Pi question and wire request ID. Include bounded question pagination, session lifecycle handling, CLI/skill documentation and isolated socket integration coverage.
+
+  Discover pending questions automatically in status, summary, activity, resync and bounded watch. Keep question availability separate from transcript evidence, preserve per-chat observation state and relay only explicit human answers after a fresh identity check.
+
+  Add a versioned machine-readable operation catalog shared by `--help` and CLI argument validation. The new `describe` command checks current per-operation prerequisites using read-only source, question-protocol and visible-Pi/ping probes, with explicit unavailable/unsupported reasons. It does not submit prompts, answer questions or update client state.
+
+  Share question state across Pi's independently loaded extensions. Restart an existing Pi process to activate updated native JavaScript race code; `/reload` may retain the previous Node ESM cache. Resume the exact saved Pi conversation and explicitly reselect its new owner. Android's supported question route is ordinary chat text; native mobile dialog rendering is not guaranteed.
+
+  Refresh locked transitive dependencies `fast-uri` to 3.1.7 and `qs` to 6.16.0 to address the URI normalization/host-confusion and query-parser advisories found during release preparation. Direct dependency ranges are unchanged.
+
+- 7584887: Add the Agent Fleet logo and slogan to the README and installation guides, include reusable logo assets in the package, and use the logo for the Pi package gallery preview.
+- 2eda34b: Add an experimental opt-in ChatGPT Fleet session client for selecting existing Pi sessions, sending instructions with durable duplicate protection, and reading bounded activity, public task output and late replies. Include per-conversation resync/replay, a workspace skill and deterministic install/uninstall support. Pi remains independently running; idle chat wake and automated question answers are outside this client.
+
+  Fix Hub presence/monitor initialization for coms custom-message runs by subscribing to the common agent_start lifecycle event, so native child progress is visible before completion on that route too.
+
+  Fix transcript identity lookup after Pi reload/resume by selecting the latest complete coms boot in a bounded window, allowing late-result resync in the same conversation.
+
+  Remove the legacy Codex Remote conductor/control entry points, companion installation surface and service template from the package. Use the opt-in `chatgpt-client` feature with an already running Pi session instead. Package retirement does not stop or migrate existing host services; host cleanup remains a separate operator action. Existing workspaces should reconcile their desired features through the normal installer, preserving other selected features.
+
 ## 2.0.5
 
 ### Patch Changes
