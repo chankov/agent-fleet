@@ -38,7 +38,7 @@ export function workModePickerOptions(current: WorkMode): { title: string; optio
 	const options = workModes.map(workMode => formatPickerOption(
 		workMode === current,
 		workMode,
-		workMode === "operator" ? "Direct tools enabled" : "Delegate-only; requires a native roster",
+		workMode === "operator" ? "Direct tools enabled" : "Delegate-only; auto-loads the first valid team if no agents are active",
 	));
 	return { title: `Fleet Work Mode — Alt+M · current ${current}`, options, workModes };
 }

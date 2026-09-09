@@ -41,6 +41,7 @@ export interface NativeTimelineTarget {
 }
 
 export interface NativeDispatchState extends NativeTimelineTarget, DelegationObservableState {
+	dispatchId?: string;
 	def: NativeAgentDefinition;
 	status: "idle" | "running" | "done" | "error";
 	task: string;
@@ -66,7 +67,24 @@ export interface NativeDispatchState extends NativeTimelineTarget, DelegationObs
 	histEntry?: HistoryEntry;
 }
 
+export interface NativeExecutionDiagnostics {
+	reason: string | null;
+	processExitCode: number | null;
+	assistantError: string | null;
+	stderr: string;
+	spawnError: string | null;
+	modelUsed: string | null;
+	toolCallsStarted: number | null;
+	termination: SpawnPiAgentResult["termination"] | null;
+	modelFallback: SpawnPiAgentResult["modelFallback"] | null;
+}
+
 export interface NativeDispatchResult {
+	evidencePath?: string;
+	sessionPath?: string;
+	dispatchId?: string;
+	transcriptPath?: string;
+	diagnostics?: NativeExecutionDiagnostics;
 	output: string;
 	exitCode: number;
 	elapsed: number;
@@ -160,6 +178,10 @@ export interface NativeDispatchDeps {
 }
 
 export interface NativeRunBase {
+	readonly sessionDir: string;
+	readonly evidenceDir: string;
+	readonly dispatchId: string;
+	readonly transcriptPath: string;
 	deps: NativeDispatchDeps;
 	state: NativeDispatchState;
 	ctx: ExtensionContext;

@@ -29,6 +29,7 @@
     "af-agents-restart",
     "af-agents-save",
     "af-agents-team",
+    "af-budget-continue",
     "af-compound",
     "af-coms",
     "af-context",
@@ -38,6 +39,7 @@
     "af-hub-report",
     "af-models",
     "af-poll",
+    "af-retry",
     "af-watchdog",
     "af-work-mode",
     "af-zoom"

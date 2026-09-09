@@ -45,6 +45,11 @@ export function buildBudgetContinuationAudit(input = {}) {
 	return {
 		schema_version: 1,
 		kind: text(input.kind, 16),
+		...(input.correlation ? { correlation: {
+			task_id: text(input.correlation.taskId, 256),
+			tranche: count(input.correlation.tranche),
+			request_id: text(input.correlation.requestId, 256),
+		} } : {}),
 		continuation: count(input.continuation),
 		reason: text(input.reason, 64),
 		prior: {

@@ -1,4 +1,6 @@
 import { profileForcesNativePeers, profilePeerGate } from './policy/profile-runtime.ts';
+import { randomUUID } from "node:crypto";
+import { beginExecutionEvidence, finishExecutionEvidence } from "./execution-evidence.ts";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { TIMEOUT_MS } from "../lib/coms-core.ts";
 import { comsRequiredRefusal, explicitComsRefusal, resolveDispatchBackend } from "./backend-policy.js";
@@ -48,6 +50,9 @@ function missingOrRunning(deps: NativeDispatchDeps, agentName: string): NativeDi
 
 function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, args: NativeDispatchArgs): NativeRunBase {
 	const { task, ctx, inputArtifacts, scopeGlobs, watchdogParam } = args;
+	const dispatchId = randomUUID();
+	const sessionDir = deps.getSessionDir();
+	const evidenceDir = beginExecutionEvidence(sessionDir, dispatchId, { agent: state.def.name, task, scope: scopeGlobs, backendRequested: args.requestedBackend }, inputArtifacts);
 	state.status = "running";
 	state.task = task;
 	state.toolCount = 0;
@@ -61,7 +66,9 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 	state.restarting = false;
 	deps.flushTimelineStore(state);
 	state.timeline = [];
-	state.transcriptStore = deps.createTranscriptStore(safePathWithin(deps.getSessionDir(), "transcripts", `${safeAgentKey(state.def.name)}-run${state.runCount}.jsonl`));
+	state.dispatchId = dispatchId;
+	const transcriptPath = safePathWithin(sessionDir, "transcripts", `${safeAgentKey(state.def.name)}-${dispatchId}.jsonl`);
+	state.transcriptStore = deps.createTranscriptStore(transcriptPath);
 	state.delegationsWatcher?.close();
 	state.delegationsWatcher = undefined;
 	state.delegations = undefined;
@@ -71,10 +78,10 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 	state.histEntry = histEntry;
 	const agentKey = safeAgentKey(state.def.name);
 	const runNumber = state.runCount;
-	const monitorKey = monitorKeyForAgent(state.def.name, state.runCount);
+	const monitorKey = monitorKeyForAgent(state.def.name, dispatchId);
 	const monitorStart = deps.startMonitorChild({
 		key: monitorKey,
-		id: `run-${agentKey}-${state.runCount}`,
+		id: `run-${dispatchId}`,
 		generation: 1,
 		specialist: agentKey,
 	}, process.env);
@@ -102,11 +109,11 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 		const onTerminate = state.onTerminate;
 		state.onTerminate = undefined;
 		onTerminate?.();
-		return { output, exitCode, elapsed: state.elapsed, ...(options?.pending ? { pending: true } : {}) };
+		return { dispatchId, transcriptPath, output, exitCode, elapsed: state.elapsed, ...(options?.pending ? { pending: true } : {}) };
 	};
 
 	return {
-		deps, state, ctx, task, inputArtifacts, scopeGlobs, watchdogParam,
+		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, watchdogParam,
 		key: normalizeAgentInput(args.agentName),
 		personaKey: state.def.name.toLowerCase(),
 		agentKey, runNumber, histEntry, monitorKey, monitorStart, startTime, finishRun,
@@ -175,12 +182,19 @@ async function dispatchNative(deps: NativeDispatchDeps, args: NativeDispatchArgs
 	const found = missingOrRunning(deps, args.agentName);
 	if (!("def" in found)) return found;
 	const run = beginNativeRun(deps, found, args);
-	const routed = await routeDispatch(run, args.requestedBackend);
-	if (routed) return routed;
-	const prepared = await prepareNativeRun(run, args.preserveManifest);
-	if ("output" in prepared) return prepared;
-	const outcome = await runPreparedNative(prepared);
-	return completeNativeRun(prepared, outcome);
+	const execute = async () => {
+		const routed = await routeDispatch(run, args.requestedBackend);
+		if (routed) return routed;
+		const prepared = await prepareNativeRun(run, args.preserveManifest);
+		if ("output" in prepared) return prepared;
+		const outcome = await runPreparedNative(prepared);
+		return { ...await completeNativeRun(prepared, outcome), sessionPath: prepared.agentSessionFile };
+	};
+	let result: NativeDispatchResult;
+	try { result = await execute(); }
+	catch (error) { result = await run.finishRun(`Dispatch exception: ${error instanceof Error ? error.stack : String(error)}`, 1); }
+	deps.flushTimelineStore(run.state);
+	return finishExecutionEvidence(run.evidenceDir, result);
 }
 
 export function createDispatchNative(deps: NativeDispatchDeps) {

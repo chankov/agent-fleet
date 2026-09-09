@@ -1,4 +1,6 @@
 import { profileService } from './policy/profile-runtime.ts';
+import { randomUUID } from "node:crypto";
+import { buildDeliverableProtocol } from "../lib/context-budget-child-prompt.ts";
 import { unlinkSync } from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { ComsIdentity, ComsSendParams, ComsSendResult, PendingReply, RegistryEntry } from "../lib/coms-core.ts";
@@ -17,6 +19,7 @@ export interface DispatchInputArtifactPreview {
 }
 
 export interface ComsDispatchState {
+	dispatchId?: string;
 	def: { name: string };
 	runCount: number;
 	lastBackend?: "native" | "coms";
@@ -101,7 +104,7 @@ async function dispatchViaComs(
 You are serving a dispatched task as a standing peer; the dispatcher only receives this reply, so make it your complete final answer.
 - Clarification: if you need a HUMAN decision (ambiguity, missing input, contradiction, or a destructive/irreversible next step), do NOT guess — include line(s) of the form \`ASK_USER: <one clear English question>\`; you will be re-dispatched with the answers.
 ${externalBlockedProtocol()}
-- Deliverable-to-file: when your deliverable is a document (plan, review, critique, inventory, report) and your tools allow writing, write the full document to .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence) — never repo-root ./artifacts/... — and finish with the artifact-relative path (artifacts/<kind>/${agentKey}-run${runNumber}.md) plus a digest of at most 10 lines.
+${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSessionDir(), "artifacts"), state.dispatchId ?? randomUUID())}
 - If the task includes acceptance assertions (A1, A2, ...), include the structured return from skills/orchestration-verification/SKILL.md.` +
 		deps.buildRulesProtocol() + deps.buildDocsProtocol();
 	const prompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs) + dispatchProtocol;

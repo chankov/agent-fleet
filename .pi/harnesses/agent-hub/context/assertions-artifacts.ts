@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
+import { randomUUID } from "node:crypto";
 import { safePathWithin } from "../helpers.ts";
 import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "../artifacts.js";
 import { appendRunIndex, buildRunMeta, makeRunId, pruneRunDirs, RUN_INDEX_FILENAME, RUNS_DIRNAME } from "../run-namespace.js";
@@ -41,7 +42,7 @@ export interface AssertionsArtifactsContext {
 	archivePreviousRun(): string | null;
 	loadInputArtifacts(paths: string[] | undefined, ctx: { cwd?: string }): InputArtifactPreview[];
 	appendInputArtifacts(task: string, artifacts: InputArtifactPreview[]): string;
-	writeRunArtifact(agentKey: string, runCount: number, output: string, kind?: "returns" | "failures"): string;
+	writeRunArtifact(agentKey: string, runCount: number, output: string, kind?: "returns" | "failures" | "evidence", dispatchId?: string, sessionDir?: string): string;
 	evidencePathExists(evidencePath: string): boolean;
 	listArtifactFiles(): string[];
 	renderArtifactIndexText(): string;
@@ -175,11 +176,12 @@ export function createAssertionsArtifactsContext(state: AssertionsArtifactsState
 			});
 		},
 		appendInputArtifacts(task, artifacts) { return artifacts.length ? task + formatInputArtifactsSection(artifacts) : task; },
-		writeRunArtifact(agentKey, runCount, output, kind = "returns") {
-			const dir = safePathWithin(ensureArtifactsLayout(), kind);
+		writeRunArtifact(agentKey, runCount, output, kind = "returns", dispatchId = randomUUID(), sessionDir) {
+			if (dispatchId && !/^[a-zA-Z0-9-]+$/.test(dispatchId)) throw new Error("Invalid dispatch identity");
+			const dir = safePathWithin(sessionDir ? safePathWithin(sessionDir, "artifacts") : ensureArtifactsLayout(), kind);
 			mkdirSync(dir, { recursive: true });
-			const file = safePathWithin(dir, `${agentKey}-run${runCount}.md`);
-			writeFileSync(file, output, "utf-8");
+			const file = safePathWithin(dir, `${agentKey}-${dispatchId}.md`);
+			writeFileSync(file, output, { encoding: "utf-8", flag: "wx" });
 			return file;
 		},
 		evidencePathExists(evidencePath) {

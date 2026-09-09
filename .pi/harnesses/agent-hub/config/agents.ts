@@ -1,5 +1,6 @@
 import { parseModelProfiles, type ModelProfiles } from './model-profiles.ts';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { createEvidenceSession } from "../execution-evidence.ts";
 import { join, resolve } from "node:path";
 import { parseTeamsYaml, safePathWithin } from "../helpers.ts";
 import { parseDispatchPolicy } from "../backend-policy.js";
@@ -123,15 +124,8 @@ export interface AgentConfigurationPorts {
 }
 
 export function loadAgentConfiguration(cwd: string, ports: AgentConfigurationPorts): void {
-	ports.setSessionDir(safePathWithin(cwd, ".pi", "agent-sessions"));
-	const sessionDir = ports.getSessionDir();
-	if (!existsSync(sessionDir)) mkdirSync(sessionDir, { recursive: true });
-	for (const directory of ["findings", "delegations", "transcripts"]) {
-		try { rmSync(safePathWithin(sessionDir, directory), { recursive: true, force: true }); } catch {}
-	}
-	ports.archivePreviousRun();
+	ports.setSessionDir(createEvidenceSession(cwd));
 	ports.ensureArtifactsLayout();
-	try { rmSync(safePathWithin(sessionDir, "assertions.json"), { force: true }); } catch {}
 	ports.resetAssertions();
 	const defs = scanAgentDirs(cwd);
 	ports.setAgentDefs(defs);

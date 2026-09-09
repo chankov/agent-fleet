@@ -120,7 +120,7 @@ export function artifactPreviewFromText(text) {
 
 export function formatInputArtifactsSection(items) {
 	if (!items || items.length === 0) return "";
-	const lines = items.map((item) => `- ${item.displayPath || item.path} — ${item.preview || "(no preview)"}`);
+	const lines = items.map((item) => `- ${item.path || item.displayPath} — ${item.preview || "(no preview)"}`);
 	return `\n\n## Input artifacts\nRead these files with your own read tool when needed. The dispatcher is passing paths plus a one-line preview only; file bodies are intentionally not inlined.\n${lines.join("\n")}`;
 }
 

@@ -116,6 +116,7 @@ export function applySessionOverrides<TDef extends AgentDef>(ctx: ExtensionConte
 }
 
 export interface ShutdownPorts {
+	finishEvidence(): void;
 	shutdownComs(): Promise<void>;
 	shutdownMonitor(): Promise<void>;
 	removeExemptions(): void;
@@ -134,6 +135,7 @@ export function registerSessionOrchestration(pi: ExtensionAPI, steps: SessionSta
 		shutdown.removeExemptions();
 		shutdown.terminateChildren();
 		shutdown.clearPoolWidget();
+		shutdown.finishEvidence();
 	};
 	pi.on("session_shutdown", cleanShutdown);
 	process.on("SIGINT", () => { void cleanShutdown(); });

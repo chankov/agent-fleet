@@ -1,5 +1,5 @@
 import { profileFallback, profileChild } from './policy/profile-runtime.ts';
-import { chmodSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, existsSync, copyFileSync, unlinkSync } from "node:fs";
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, MAX_DELEGATE_DEPTH, safePathWithin } from "./helpers.ts";
 import { contextOverflowDiagnostic, shouldRecycleSession } from "./run-budget.js";
 import { estimatePromptTokens, resolveContextWindow, shouldRecycleBeforeSpawn } from "./context-window.js";
@@ -16,7 +16,8 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 	const fallbackCandidate = profileFallback(deps.substitutedModel(fallbackModelFor(state.def, model)));
 	const originalModelFallback = fallbackCandidate === model ? undefined : fallbackCandidate;
 	const agentWindow = resolveContextWindow(model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
-	const agentSessionFile = safePathWithin(deps.getSessionDir(), `${agentKey}.json`);
+	const agentSessionFile = safePathWithin(base.evidenceDir, "session.json");
+	if (state.sessionFile && existsSync(state.sessionFile)) copyFileSync(state.sessionFile, agentSessionFile);
 	const turnBudget = deps.currentBudget();
 	let sessionRecycled = false;
 
@@ -67,8 +68,7 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 	let effectiveTools = state.def.tools;
 	let delegateEnv: Record<string, string> | undefined;
 	if (delegationActive) {
-		const delegationDir = safePathWithin(deps.getSessionDir(), "delegations", agentKey);
-		try { rmSync(delegationDir, { recursive: true, force: true }); } catch {}
+		const delegationDir = safePathWithin(base.evidenceDir, "delegations");
 		mkdirSync(delegationDir, { recursive: true, mode: 0o700 });
 		try { chmodSync(delegationDir, 0o700); } catch {}
 		extensions.push(delegateExtPath!);
@@ -109,7 +109,7 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 			delegateRoles: delegationActive ? Object.keys(subagentRoles!) : [],
 		});
 	state.specialistManifest = manifest;
-	const replacementSystemPrompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: deps.getUserLanguage(), agentKey, runNumber });
+	const replacementSystemPrompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: deps.getUserLanguage(), agentKey, runNumber, artifactRoot: safePathWithin(base.sessionDir, "artifacts"), dispatchId: base.dispatchId });
 	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 	const wantThinking = thinkingLevel !== "off";
 	const runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs);

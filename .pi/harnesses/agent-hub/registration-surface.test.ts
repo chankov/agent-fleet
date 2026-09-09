@@ -41,6 +41,11 @@ test("agent-hub registration surface matches the checked-in fixture", async () =
 			flags: sortedKeys(extension.flags),
 		};
 		assert.deepEqual(actual, fixture);
+		// Exercise the real renderer through Pi's alias-aware production loader.
+		const dispatch = extension.tools.get("dispatch_agent")!.definition;
+		const rendered = dispatch.renderResult!({ content: [], details: { agent: "builder", status: "completed_unverified", executionStatus: "completed", accepted: false, elapsed: 0 } }, { expanded: false } as any, { fg: (_color: string, text: string) => text, bold: (text: string) => text } as any).render(120).join("\n");
+		assert.match(rendered, /acceptance unproven/);
+		assert.doesNotMatch(rendered, /✓/, "exit-zero alone must not display acceptance");
 	} finally {
 		// The hub installs shutdown hooks when its factory runs. Avoid leaking them
 		// into other tests when this file shares a Node test process.

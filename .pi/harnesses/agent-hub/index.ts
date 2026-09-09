@@ -1,3 +1,6 @@
+import { registerRetry } from "./commands/retry.ts";
+import { createNoProgressGuard } from "./no-progress.ts";
+import { closeEvidenceSession, pruneEvidenceSessions } from "./execution-evidence.ts";
 import { isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
 import { createProfileActivation } from './policy/profile-activation.ts';
 import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerGate } from './policy/profile-runtime.ts';
@@ -87,7 +90,9 @@ import { createToolExecutionOrchestration } from "./tools/execution-orchestratio
 import { latestPersistedCapabilityState, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
-import { budgetContinuationInstruction, budgetContinuationKind, budgetContinuationOutcome, turnBudgetActiveMs, type BudgetContinuationKind } from "./budget-continuation.ts";
+import { createBudgetRecovery } from "./budget-recovery.ts";
+import { requestRuntimeAsk } from "../ask-user-remote/runtime-ask.ts";
+import { registerBudgetContinue } from "./commands/budget-continue.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
 import { handleQuestionEnvelope, registerQuestionPeer } from "../ask-user-remote/questions.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts";
@@ -362,9 +367,6 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// Human wait time is not fleet work. Track it separately from history UI
 	// intervals so a continuation can rebase the budget without erasing history.
 	let turnBudgetAskUserWaitMs = 0;
-	type PendingBudgetContinuation = { kind: BudgetContinuationKind; reason: string };
-	let pendingBudgetContinuation: PendingBudgetContinuation | null = null;
-	const budgetContinuationAsks = new Map<string, { kind: BudgetContinuationKind; reason: string; params: { context?: unknown; options?: unknown } }>();
 	let taskContinuationCount = 0;
 	let turnContinuationCount = 0;
 	// ── Task-scoped budget & tier (run-budget.js) ──
@@ -427,12 +429,14 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// surfaced in the status line. Resets on session_start.
 	let delegatedTokens = 0;
 
+	const noProgress = createNoProgressGuard();
 	const budgetCtx = createBudgetContext({
 		getBudgetOverrides: () => budgetOverrides,
 		getTurnDispatchCount: () => turnDispatchCount, setTurnDispatchCount: value => { turnDispatchCount = value; },
 		getTurnResearchCount: () => turnResearchCount, setTurnResearchCount: value => { turnResearchCount = value; },
 		getTurnBudgetAskUserWaitMs: () => turnBudgetAskUserWaitMs, setTurnBudgetAskUserWaitMs: value => { turnBudgetAskUserWaitMs = value; },
-		setPendingBudgetContinuation: value => { pendingBudgetContinuation = value; }, clearBudgetContinuationAsks: () => budgetContinuationAsks.clear(),
+		resetBudgetRecovery: () => budgetRecovery.reset(),
+		resetNoProgress: () => noProgress.reset(),
 		getTaskContinuationCount: () => taskContinuationCount, setTaskContinuationCount: value => { taskContinuationCount = value; },
 		getTurnContinuationCount: () => turnContinuationCount, setTurnContinuationCount: value => { turnContinuationCount = value; },
 		getTaskDispatchCount: () => taskDispatchCount, setTaskDispatchCount: value => { taskDispatchCount = value; },
@@ -454,10 +458,32 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	});
 	const {
 		currentBudget, currentTaskBudget, taskCounters, taskActiveElapsedMs, turnBudgetActiveElapsedMs,
-		armBudgetContinuation, renewTurnBudgetWindow, continueTaskBudgetWindow, closeTurnActiveTime, resetTaskWindow,
+		renewTurnBudgetWindow, continueTaskBudgetWindow, closeTurnActiveTime, resetTaskWindow,
 		hubAuditIdentity, hubLocationSuffix, taskResetSnapshot, budgetContinuationSnapshot,
 		appendTaskResetEntry, appendBudgetContinuationEntry, updateModeStatus, ensureTaskTier,
 	} = budgetCtx;
+	const budgetRecovery = createBudgetRecovery({
+		check: operation => {
+			const task = checkTaskBudget(operation, taskCounters(), currentTaskBudget(), taskActiveElapsedMs(), taskTier);
+			if (task) return { ...task, kind: "task" };
+			const turn = checkTurnBudget(operation, { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnBudgetActiveElapsedMs(), taskTier);
+			return turn ? { ...turn, kind: "turn" } : null;
+		},
+		language: () => userLanguage,
+		ask: (id, params, ctx, signal) => requestRuntimeAsk(pi.events, id, params, ctx, signal),
+		startWait: id => executionHistory.startAskUser(id),
+		endWait: (id, sameTask) => {
+			const wait = executionHistory.endAskUser(id, Date.now());
+			if (!sameTask) return;
+			if (wait > 0) taskClock = addTaskClockWait(taskClock, wait);
+			turnBudgetAskUserWaitMs += wait;
+		},
+		renew: (refusal, correlation, ctx) => {
+			const at = Date.now(), prior = budgetContinuationSnapshot(refusal.kind, at);
+			if (refusal.kind === "task") continueTaskBudgetWindow(at); else renewTurnBudgetWindow(at);
+			appendBudgetContinuationEntry(refusal.kind, refusal.reason, prior, ctx, correlation);
+		},
+	});
 
 	// ── Verification Contract: assertion ledger (advisory) ──
 	// Mutable ownership remains here; the extracted runtime receives explicit ports.
@@ -530,6 +556,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	}
 
 	function loadAgents(cwd: string): void {
+		if (sessionDir) closeEvidenceSession(sessionDir);
 		loadAgentConfiguration(cwd, {
 			setSessionDir: hubStateCtx.setSessionDir, getSessionDir: hubStateCtx.getSessionDir,
 			archivePreviousRun, ensureArtifactsLayout, resetAssertions: () => { assertions = []; },
@@ -537,6 +564,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			setModelProfiles: value => { modelProfiles = value; }, setModelProfileErrors: errors => { modelProfileErrors=errors; }, setDispatchPolicy: value => { dispatchPolicy = value; },
 			setDispatchPolicyWarnings: value => { dispatchPolicyWarnings = value; },
 		});
+		pruneEvidenceSessions(sessionDir, runHistoryKeep);
 	}
 
 	const agentStateFactory = createAgentStateFactory(() => sessionDir);
@@ -823,6 +851,14 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	}
 	const workModePolicy = createWorkModePolicy({
 		getBaselineTools: () => baselineTools, getRosterSize: () => agentStates.size,
+		activateFallbackRoster: ctx => {
+			if (!rosterPolicy.activateFirstValidTeam()) return;
+			workModePolicy.clearRosterRecovery();
+			persistActiveRoster();
+			setTimeout(replayDeferredRecoveryInputs, 0);
+			updateWidget();
+			ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
+		},
 		getActiveTeamName: () => activeTeamName, getComsReady: () => comsReady,
 		getHerdrReady: () => herdrFleetReady, getAskUserAvailable: () => askUserAvailable,
 		getIdentityLabel: () => identity ? `${identity.name}@${identity.project}` : null,
@@ -856,7 +892,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				getActiveWritableDispatches: () => activeWritableDispatches, setActiveWritableDispatches: value => { activeWritableDispatches = value; },
 				getWritableOverlapCounter: () => writableOverlapCounter, setWritableOverlapCounter: value => { writableOverlapCounter = value; },
 			},
-			budget: budgetCtx, artifacts: assertionsArtifactsCtx, research: researchRuntime,
+			budget: budgetCtx, budgetRecovery, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime,
 			provisionalCapabilityRefusal, dispatchAgent, runReturnExtraction,
 			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
 		},
@@ -894,15 +930,15 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		runtime: researchRuntime,
 		refresh: () => {},
 		getAgents: () => agentStates, displayName, modelWorkBlocked: modelWorkBlockedByRosterRecovery,
-		cancelWait: (state, kind) => cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind } }),
-		cancelOwned: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree }),
+		cancelWait: (state, kind) => cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), event: { kind } }),
+		cancelOwned: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }),
 		restartSpecialist: async (state: AgentState, ctx) => {
 			if (state.status === "running" && (state.proc || state.comsAbort)) {
 				let resolveTermination!: () => void;
 				const terminated = new Promise<void>(resolve => { resolveTermination = resolve; });
 				state.onTerminate = resolveTermination;
 				if (state.proc) { state.killedByOperator = true; state.restarting = true; killPiTree(state.proc); }
-				else await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), event: { kind: "restart" } });
+				else await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), event: { kind: "restart" } });
 				await terminated;
 			}
 			state.sessionFile = null;
@@ -933,6 +969,13 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		applyWorkModeSelection,
 		getWorkModeStatusText: workModeStatusText,
 		openWorkModePicker,
+		handleBudgetContinue: async ctx => { await budgetRecovery.resume(ctx); },
+		handleRetry: async (args, ctx) => {
+			const dispatchId = args?.trim();
+			if (!dispatchId || !noProgress.authorize(dispatchId)) { ctx.ui.notify("Unknown, stale or already authorized failure. Use /af-retry <dispatchId> from the no-progress refusal.", "error"); return; }
+			pi.appendEntry("agent-hub-retry-authorized", { dispatchId, identity: hubAuditIdentity(ctx) });
+			ctx.ui.notify(`One retry authorized for ${dispatchId}. Budget and safety gates still apply; no operation was dispatched.`, "info");
+		},
 		handleAgentsTeam: async (_args, ctx) => {
 			widgetCtx = ctx;
 			const teamNames = Object.keys(teams);
@@ -1453,10 +1496,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 					}
 					return null;
 				},
-				checkBudget: () => {
+				checkBudget: async () => {
 					ensureTaskTier();
-					const turnRefusal = checkTurnBudget("dispatch", { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnBudgetActiveElapsedMs(), taskTier);
-					return turnRefusal ? budgetContinuationInstruction(turnRefusal.message, "turn", userLanguage) : null;
+					const blocked = await budgetRecovery.ensure("dispatch", args ?? "model panel", ctx);
+					return blocked?.message ?? null;
 				},
 				chargeBudget: () => {
 					turnDispatchCount += 1;
@@ -1552,10 +1595,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 					}
 					return null;
 				},
-				checkBudget: () => {
+				checkBudget: async () => {
 					ensureTaskTier();
-					const turnRefusal = checkTurnBudget("dispatch", { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnBudgetActiveElapsedMs(), taskTier);
-					return turnRefusal ? budgetContinuationInstruction(turnRefusal.message, "turn", userLanguage) : null;
+					const blocked = await budgetRecovery.ensure("dispatch", args ?? "model panel", ctx);
+					return blocked?.message ?? null;
 				},
 				chargeBudget: () => {
 					turnDispatchCount += 1;
@@ -1650,6 +1693,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	registerHandoff(pi, commandCtx);
 	registerCompound(pi, commandCtx);
 	registerPoll(pi, commandCtx);
+	registerBudgetContinue(pi, commandCtx);
+	registerRetry(pi, commandCtx);
 	registerDebate(pi, commandCtx);
 
 	const detailPanel = createDetailPanel<AgentDef, AgentState, ResearchState>({
@@ -1694,7 +1739,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		restartSpecialist: researchControls.restartSpecialist,
 		removeResearch: researchControls.remove,
-		killSpecialistProcess: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.runCount), treeKill: killPiTree }),
+		killSpecialistProcess: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }),
 		abortComs: state => { state.comsAbort?.(); },
 		getComsLines: (width, theme) => poolPresentation.render(width, theme),
 	});
@@ -1790,6 +1835,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 
 
 	const hubPromptCtx: HubPromptContext = {
+		getArtifactRoot: () => sessionDir ? artifactsRoot() : null,
 		getCapabilityResolution,
 		getActiveTools: () => pi.getActiveTools(),
 		getAgents: () => Array.from(agentStates.values()).map(state => ({
@@ -1845,17 +1891,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		finishMonitorTurn: () => { if (monitorBridge && monitorTurnId) { monitorBridge.finishParent(monitorTurnId, "completed"); monitorTurnId = null; } },
 		startMonitorTurn: () => { if (monitorBridge && monitorHubId) { monitorTurnId = `hub-turn-${monitorHubId}-${crypto.randomUUID()}`; monitorBridge.startParent({ id: monitorTurnId, hubInstanceId: monitorHubId, checkoutId: currentCtx?.cwd || process.cwd() }); } },
 		startAskUser: id => executionHistory.startAskUser(id), endAskUser: (id, at) => executionHistory.endAskUser(id, at),
-		continuationKind: budgetContinuationKind, getPendingContinuation: () => pendingBudgetContinuation,
-		setPendingContinuation: value => { pendingBudgetContinuation = value; },
-		getContinuationAsk: id => budgetContinuationAsks.get(id), setContinuationAsk: (id, value) => budgetContinuationAsks.set(id, value), deleteContinuationAsk: id => budgetContinuationAsks.delete(id),
 		acknowledgeExternalBlocker: () => { externalBlockerAcknowledged = true; externalBlockerRefusedOnce = false; },
 		addAskUserWait: waitMs => { if (waitMs > 0) taskClock = addTaskClockWait(taskClock, waitMs); turnBudgetAskUserWaitMs += waitMs; },
-		continuationOutcome: budgetContinuationOutcome, continuationSnapshot: budgetContinuationSnapshot,
-		continueBudget: (kind, at) => { if (kind === "task") continueTaskBudgetWindow(at); else renewTurnBudgetWindow(at); },
-		appendContinuation: appendBudgetContinuationEntry, getCurrentContext: () => currentCtx, getWidgetContext: () => widgetCtx,
 		applyWorkMode: applyWorkModeTools, closeTurnActiveTime, openTaskClock: at => { taskClock = openTaskClock(taskClock, at); }, startHistoryTurn: at => executionHistory.startTurn(at),
 		resetTurnBudgetState: () => {
-			turnBudgetAskUserWaitMs = 0; budgetContinuationAsks.clear(); if (pendingBudgetContinuation?.kind === "turn") pendingBudgetContinuation = null;
+			turnBudgetAskUserWaitMs = 0; // budgetRecovery is task-scoped: prose/new turns cannot clear a declined confirmation.
 			turnDispatchCount = 0; turnResearchCount = 0; turnDispatchFingerprints.clear(); externalBlockerAcknowledged = true; externalBlockerRefusedOnce = false;
 			if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) { lastTurnReport = turnReport; sessionTotals.turns++; }
 			turnReport = freshTurnReport();
@@ -1902,7 +1942,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			resetAccessApproval: accessApprovalRouter.reset,
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
-			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; pendingBudgetContinuation = null; budgetContinuationAsks.clear(); },
+			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.reset(); },
 			clearWidgets: ctx => { if (widgetCtx) { ctx.ui.setWidget("agent-team", undefined); } },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; },
@@ -1941,20 +1981,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			}
 		},
 		loadAgents: (_ctx) => {
-			// Wipe old agent session files so subagents start fresh
-			const sessDir = safePathWithin(_ctx.cwd, ".pi", "agent-sessions");
-			if (existsSync(sessDir)) {
-				for (const f of readdirSync(sessDir)) {
-					if (f.endsWith(".json")) {
-						try { unlinkSync(join(sessDir, f)); } catch {}
-					}
-				}
-			}
-
-			// Per-project overrides are parsed BEFORE loadAgents: loadAgents archives the
-			// previous session's artifacts, and that archive has to honor this project's
-			// `run-history-keep` — reading it afterwards would apply the retention one
-			// session late. Everything else the overrides drive is assigned below.
+			// Allocate a fresh namespace; shared legacy files belong to prior/live sessions.
 			sessionOverrides = parseAgentTeamOverrides(_ctx.cwd);
 			runHistoryKeep = sessionOverrides.runHistoryKeep;
 
@@ -2101,6 +2128,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			}));
 		},
 	}, {
+		finishEvidence: () => { if (sessionDir) closeEvidenceSession(sessionDir); },
 		shutdownComs: () => { unregisterQuestions(); return coms.shutdown(); }, shutdownMonitor: () => monitorSession.shutdown(),
 		removeExemptions: () => {
 			if (!exemptionsFile) return;

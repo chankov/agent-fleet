@@ -5,6 +5,7 @@ import {
 } from "../run-budget.js";
 import { buildBudgetContinuationAudit, buildHubAuditIdentity, buildTaskResetAudit } from "../hub-state-audit.js";
 import { turnBudgetActiveMs, type BudgetContinuationKind } from "../budget-continuation.ts";
+import type { BudgetCorrelation } from "../budget-recovery.ts";
 import type { ExecutionHistoryStore } from "../ui/history-store.ts";
 
 export interface TurnReport {
@@ -28,11 +29,6 @@ export interface SessionTotals {
 	out: number;
 }
 
-export interface PendingBudgetContinuation {
-	kind: BudgetContinuationKind;
-	reason: string;
-}
-
 export interface BudgetStatePorts {
 	getBudgetOverrides(): Record<string, number | null | undefined>;
 	getTurnDispatchCount(): number;
@@ -41,8 +37,8 @@ export interface BudgetStatePorts {
 	setTurnResearchCount(value: number): void;
 	getTurnBudgetAskUserWaitMs(): number;
 	setTurnBudgetAskUserWaitMs(value: number): void;
-	setPendingBudgetContinuation(value: PendingBudgetContinuation | null): void;
-	clearBudgetContinuationAsks(): void;
+	resetBudgetRecovery(): void;
+	resetNoProgress(): void;
 	getTaskContinuationCount(): number;
 	setTaskContinuationCount(value: number): void;
 	getTurnContinuationCount(): number;
@@ -79,7 +75,6 @@ export interface BudgetContext {
 	taskCounters(): { dispatches: number; research: number };
 	taskActiveElapsedMs(now?: number): number;
 	turnBudgetActiveElapsedMs(now?: number): number;
-	armBudgetContinuation(kind: BudgetContinuationKind, reason: string): void;
 	renewTurnBudgetWindow(now?: number): void;
 	continueTaskBudgetWindow(now?: number): void;
 	closeTurnActiveTime(now?: number): void;
@@ -89,7 +84,7 @@ export interface BudgetContext {
 	taskResetSnapshot(now?: number): { tier: string | null; dispatches: number; research: number; reviewRounds: number; activeMs: number };
 	budgetContinuationSnapshot(kind: BudgetContinuationKind, now?: number): ReturnType<BudgetContext["taskResetSnapshot"]>;
 	appendTaskResetEntry(source: "tool:set_task_tier", label: string | null, prior: ReturnType<BudgetContext["taskResetSnapshot"]>, ctx?: ExtensionContext): void;
-	appendBudgetContinuationEntry(kind: BudgetContinuationKind, reason: string, prior: ReturnType<BudgetContext["taskResetSnapshot"]>, ctx?: ExtensionContext): void;
+	appendBudgetContinuationEntry(kind: BudgetContinuationKind, reason: string, prior: ReturnType<BudgetContext["taskResetSnapshot"]>, ctx?: ExtensionContext, correlation?: BudgetCorrelation): void;
 	updateModeStatus(): void;
 	ensureTaskTier(): void;
 }
@@ -144,7 +139,6 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 
 	return {
 		currentBudget, currentTaskBudget, taskCounters, taskActiveElapsedMs, turnBudgetActiveElapsedMs,
-		armBudgetContinuation(kind, reason) { state.setPendingBudgetContinuation({ kind, reason }); },
 		renewTurnBudgetWindow,
 		continueTaskBudgetWindow(now = Date.now()) {
 			state.setTaskDispatchCount(0);
@@ -161,8 +155,8 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 			state.setTaskClock(resetTaskClock(state.getTaskClock(), now));
 			state.setTaskReviewRounds(0);
 			state.setTaskContinuationCount(0);
-			state.setPendingBudgetContinuation(null);
-			state.clearBudgetContinuationAsks();
+			state.resetBudgetRecovery();
+			state.resetNoProgress();
 			state.setTaskLabel(label);
 			state.setTaskTier(null);
 			state.setTaskTierAssumed(false);
@@ -188,11 +182,11 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 		appendTaskResetEntry(source, label, prior, ctx) {
 			try { state.appendEntry("agent-hub-task-reset", buildTaskResetAudit({ source, label, prior, identity: hubAuditIdentity(ctx) })); } catch {}
 		},
-		appendBudgetContinuationEntry(kind, reason, prior, ctx) {
+		appendBudgetContinuationEntry(kind, reason, prior, ctx, correlation) {
 			try {
 				state.appendEntry("agent-hub-budget-continuation", buildBudgetContinuationAudit({
 					kind, continuation: kind === "task" ? state.getTaskContinuationCount() : state.getTurnContinuationCount(),
-					reason, prior, identity: hubAuditIdentity(ctx),
+					reason, prior, identity: hubAuditIdentity(ctx), correlation,
 				}));
 			} catch {}
 		},

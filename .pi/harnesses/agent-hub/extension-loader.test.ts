@@ -166,7 +166,7 @@ export default function (pi) {
 		const selected = tools.filter((tool: any) => names.includes(tool.name));
 		assert.equal(selected.length, names.length);
 		assert.ok(JSON.stringify(selected).length < 8_000, `compact serialized schemas=${JSON.stringify(selected).length}`);
-		for (const [name, fields] of [["dispatch_agent", ["agent", "task", "artifacts", "scope", "watchdog", "review_reason", "backend"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
+		for (const [name, fields] of [["dispatch_agent", ["agent", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "backend"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
 			const tool = selected.find((entry: any) => entry.name === name);
 			assert.deepEqual(Object.keys(tool.parameters.properties), fields, `${name} accepted fields`);
 		}
@@ -610,7 +610,7 @@ export default function (pi) {
 	}
 });
 
-test("work-mode command switches work mode and refuses orchestrator without a roster", async () => {
+test("work-mode command switches work mode and automatically adds a team to an empty roster", async () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-work-mode-rpc-"));
 	const probePath = join(workspace, "probe-work-mode.ts");
 	writeFileSync(probePath, `
@@ -623,7 +623,7 @@ export default function (pi) {
     description: "Test-only work mode probe",
     handler: async (_args, ctx) => {
       const entries = ctx.sessionManager.getEntries()
-        .filter(entry => entry.type === "custom" && (entry.customType === "agent-hub-mode" || entry.customType === "agent-hub-work-mode"));
+        .filter(entry => entry.type === "custom" && (entry.customType === "agent-hub-mode" || entry.customType === "agent-hub-work-mode" || entry.customType === "agent-hub-native-roster"));
       ctx.ui.notify("WORK_MODE_ENTRIES:" + JSON.stringify(entries), "info");
     },
   });
@@ -662,12 +662,15 @@ export default function (pi) {
 	const noRoster = startRpcProbe(probePath, [], { fleetArgs: ["--solo", "--work-mode", "operator"] });
 	try {
 		assert.equal((await noRoster.request({ type: "prompt", message: "/af-work-mode orchestrator" })).success, true);
-		const stillOperator = await noRoster.activeTools();
+		const orchestrator = await noRoster.activeTools();
 		for (const tool of ["read", "bash", "edit", "write"]) {
-			assert.ok(stillOperator.includes(tool), `${tool} should remain after refused orchestrator profile`);
+			assert.ok(!orchestrator.includes(tool), `${tool} should be inactive after automatic team activation`);
 		}
-		const refused = JSON.parse(await noRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
-		assert.ok(!refused.some((entry: any) => entry.customType === "agent-hub-work-mode" && entry.data?.workMode === "orchestrator"));
+		assert.ok(orchestrator.includes("dispatch_agent"));
+		const activated = JSON.parse(await noRoster.notificationAfter("/probe-work-mode", "WORK_MODE_ENTRIES:"));
+		assert.ok(activated.some((entry: any) => entry.customType === "agent-hub-work-mode" && entry.data?.workMode === "orchestrator"));
+		const teams = parseYaml(readFileSync(join(repoRoot, ".pi/agents/teams.yaml"), "utf8"));
+		assert.equal(activated.find((entry: any) => entry.customType === "agent-hub-native-roster")?.data?.team, Object.keys(teams)[0]);
 
 		assert.equal((await noRoster.request({ type: "prompt", message: "/af-work-mode operator" })).success, true);
 		const tools = await noRoster.activeTools();

@@ -30,6 +30,7 @@ export interface AgentDef extends ResearchAgentDef {
 }
 
 export interface AgentState {
+	dispatchId?: string;
 	def: AgentDef;
 	status: "idle" | "running" | "done" | "error";
 	task: string;

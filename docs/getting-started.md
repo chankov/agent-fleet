@@ -1,5 +1,7 @@
 # Getting started
 
+<img src="https://raw.githubusercontent.com/chankov/agent-fleet/main/docs/assets/branding/agent-fleet-logo-white-v1.png" alt="Agent Fleet — Many agents. One direction." width="480">
+
 Agent Fleet installs deterministic pi workspace content. The public lifecycle is
 **setup**, **doctor**, and **uninstall**; no coding agent or model is required.
 

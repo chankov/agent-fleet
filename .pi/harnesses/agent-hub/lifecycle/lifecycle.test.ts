@@ -4,12 +4,10 @@ import { createTurnLifecycleHandlers } from "./turn-handlers.ts";
 import { createContextPressureLifecycle, createContextPressureRootState } from "./context-pressure.ts";
 
 test("turn lifecycle preserves work, clock, prompt, presence, and closeout order", async () => {
-	const order: string[] = []; const asks = new Map();
+	const order: string[] = [];
 	const handlers = createTurnLifecycleHandlers({
 		setTurnState: async state => { order.push(state); }, startMonitorTurn: () => order.push("monitor-start"), finishMonitorTurn: () => order.push("monitor-finish"),
-		startAskUser: () => {}, endAskUser: () => 0, continuationKind: () => null, getPendingContinuation: () => null, setPendingContinuation: () => {},
-		getContinuationAsk: id => asks.get(id), setContinuationAsk: (id, value) => asks.set(id, value), deleteContinuationAsk: id => asks.delete(id), acknowledgeExternalBlocker: () => {}, addAskUserWait: () => {}, continuationOutcome: () => null, continuationSnapshot: () => null, continueBudget: () => {}, appendContinuation: () => {},
-		getCurrentContext: () => null, getWidgetContext: () => null, applyWorkMode: () => order.push("work"), closeTurnActiveTime: () => order.push("close-clock"), openTaskClock: () => order.push("open-clock"), startHistoryTurn: () => order.push("history-start"), resetTurnBudgetState: () => order.push("budget-reset"), updateModeStatus: () => order.push("status"), buildPrompt: () => { order.push("prompt"); return { systemPrompt: "p" }; }, endHistoryTurn: () => order.push("history-end"), unaddressedPeerWarning: () => null, respondToPeer: async () => { order.push("respond"); },
+		startAskUser: () => {}, endAskUser: () => 0, acknowledgeExternalBlocker: () => {}, addAskUserWait: () => {}, applyWorkMode: () => order.push("work"), closeTurnActiveTime: () => order.push("close-clock"), openTaskClock: () => order.push("open-clock"), startHistoryTurn: () => order.push("history-start"), resetTurnBudgetState: () => order.push("budget-reset"), updateModeStatus: () => order.push("status"), buildPrompt: () => { order.push("prompt"); return { systemPrompt: "p" }; }, endHistoryTurn: () => order.push("history-end"), unaddressedPeerWarning: () => null, respondToPeer: async () => { order.push("respond"); },
 	});
 	await handlers.beforeAgentPresence(); handlers.beforeAgentStart();
 	assert.deepEqual(order, ["working", "monitor-finish", "monitor-start", "work", "close-clock", "open-clock", "history-start", "budget-reset", "status", "prompt"]);

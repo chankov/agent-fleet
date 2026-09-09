@@ -1,3 +1,5 @@
+import { dirname } from "node:path";
+import { beginExecutionEvidence, finishExecutionEvidence } from "../execution-evidence.ts";
 import { profileFallback } from '../policy/profile-runtime.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { contextPct, resolveContextWindow } from "../context-window.js";
@@ -19,7 +21,7 @@ function completeOutput<TDef extends ResearchAgentDef>(state: ResearchState<TDef
 		output = `(ℹ model fallback: ${res.modelFallback.from} failed before work began; retried once with original persona model ${res.modelFallback.to}.)\n\n${output}`;
 	}
 	if (res.exitCode !== 0) {
-		const errText = String(res.stderr ?? "").trim();
+		const errText = [res.assistantError, res.stderr].filter(Boolean).join("\n\n").trim();
 		const tail = errText.length > 1500 ? `...\n${errText.slice(-1500)}` : errText;
 		const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
 		output = output ? `${output}${errBlock}` : `Research helper r${state.id} exited with code ${res.exitCode} and produced no output.${errBlock}`;
@@ -33,14 +35,19 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 ): Promise<ResearchResult> {
 	const startTime = Date.now();
 	let result: ResearchResult | undefined;
+	let diagnostics: object | null = null;
+	const transcriptPath = safePathWithin(state.evidenceDir, "transcript.jsonl");
+
 	const settle = (status: ResearchFinalizeOutcome["status"], historyStatus: ResearchFinalizeOutcome["historyStatus"], lastWork: string, settled: ResearchResult): ResearchResult => {
 		state.elapsed = settled.elapsed;
 		deps.finalize(state, { status, historyStatus, lastWork });
-		result = settled;
-		return settled;
+		deps.flushTimelineStore(state);
+		result = finishExecutionEvidence(state.evidenceDir, { ...settled, dispatchId: state.dispatchId, transcriptPath, sessionPath: state.sessionPath, diagnostics });
+		return result;
 	};
 
 	try {
+	beginExecutionEvidence(dirname(dirname(state.evidenceDir)), state.dispatchId, { task: prompt, agent: state.def.name, modelRequested: state.model }, inputArtifacts);
 		if (!state.histEntry) state.histEntry = deps.executionHistory.start("research", `Research r${state.id}`);
 
 		const safety = deps.requireSafetyHarness(deps.getSafetyHarnessPath());
@@ -55,7 +62,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		state.killedByOperator = false;
 		deps.flushTimelineStore(state);
 		state.timeline = [];
-		state.transcriptStore = deps.createTranscriptStore(safePathWithin(deps.hubState.getSessionDir(), "transcripts", `research-r${state.id}.jsonl`));
+		state.transcriptStore = deps.createTranscriptStore(transcriptPath);
 
 		state.timer = setInterval(() => {
 			state.elapsed = Date.now() - startTime;
@@ -63,7 +70,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		}, 1000);
 		const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 		const wantThinking = thinkingLevel !== "off";
-		const sessionPath = deps.sessionPath(state.id);
+		const sessionPath = state.sessionPath;
 		const researchWindow = resolveContextWindow(state.model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
 		const fallbackCandidate = profileFallback(deps.substitutedModel(deps.fallbackModelFor(state.def, state.model)));
 		const fallback = fallbackCandidate === state.model ? undefined : fallbackCandidate;
@@ -116,6 +123,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 			},
 		}, { midRun: isReadOnlyToolList(deps.researchTools) }));
 
+		diagnostics = { assistantError: res.assistantError ?? null, stderr: res.stderr, spawnError: res.spawnError ?? null, modelUsed: res.modelUsed ?? null, toolCallsStarted: res.toolCallsStarted ?? null, termination: res.termination ?? null, processExitCode: res.exitCode };
 		state.elapsed = Date.now() - startTime;
 		state.proc = undefined;
 		if (res.spawnError) {
@@ -127,7 +135,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		}
 		if (state.killedByOperator) {
 			state.killedByOperator = false;
-			return settle("idle", "idle", "(killed by operator)", { output: `Research helper r${state.id} was killed by the operator before it finished.`, exitCode: res.exitCode ?? 143, elapsed: state.elapsed });
+			return settle("idle", "idle", "(killed by operator)", { output: `Research helper r${state.id} was killed by the operator before it finished.`, exitCode: res.exitCode == null || res.exitCode === 0 ? 143 : res.exitCode, elapsed: state.elapsed });
 		}
 
 		const status = res.exitCode === 0 ? "done" : "error";

@@ -32,7 +32,7 @@ export interface AfPollHandleInput {
 	pollPanelOverride?: string | null;
 	listPanels: (cwd: string) => string[] | Promise<string[]>;
 	preflight?: (options: { panel: string; persona: string; cwd: string }) => string | null | Promise<string | null>;
-	checkBudget: () => string | null;
+	checkBudget: () => string | null | Promise<string | null>;
 	chargeBudget: () => void;
 	onAccepted?: (info: { panel: string; persona: string; question: string }) => void | Promise<void>;
 	execute: (options: { panel: string; persona: string; question: string; cwd: string }) => Promise<AfPollDigestInput>;
@@ -162,7 +162,7 @@ export async function handleAfPoll(input: AfPollHandleInput): Promise<AfPollHand
 	if ("error" in panel) return { ok: false, message: panel.error };
 	const blocked = await input.preflight?.({ panel: panel.panel, persona: parsed.persona, cwd: input.cwd });
 	if (blocked) return { ok: false, message: blocked };
-	const budget = input.checkBudget();
+	const budget = await input.checkBudget();
 	if (budget) return { ok: false, message: budget };
 	input.chargeBudget();
 	try { await input.onAccepted?.({ panel: panel.panel, persona: parsed.persona, question: parsed.question }); } catch { /* progress is best-effort */ }

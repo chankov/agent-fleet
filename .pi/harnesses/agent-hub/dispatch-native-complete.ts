@@ -1,4 +1,4 @@
-import type { NativeDispatchResult, NativeSpawnOutcome, PreparedNativeRun } from "./dispatch-native-types.ts";
+import type { NativeDispatchResult, NativeExecutionDiagnostics, NativeSpawnOutcome, PreparedNativeRun } from "./dispatch-native-types.ts";
 
 export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeSpawnOutcome): Promise<NativeDispatchResult> {
 	const { deps, state, ctx, histEntry, monitorStart, startTime, key, agentKey } = run;
@@ -8,9 +8,23 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 	state.proc = undefined;
 	state.delegationsWatcher?.close();
 	state.delegationsWatcher = undefined;
+	const diagnostics: NativeExecutionDiagnostics = {
+		reason: res.spawnError ? "spawn_error" : res.termination?.reason ?? (state.killedByOperator ? "operator_cancelled" : res.assistantError ? "assistant_error" : res.exitCode !== 0 ? "exit_code" : null),
+		processExitCode: res.exitCode,
+		assistantError: res.assistantError ?? null, stderr: res.stderr, spawnError: res.spawnError ?? null,
+		modelUsed: res.modelUsed ?? null, toolCallsStarted: res.toolCallsStarted ?? null,
+		termination: res.termination ?? null, modelFallback: res.modelFallback ?? null,
+	};
+	const diagnosticText = diagnostics.reason ? formatDiagnostics(diagnostics) : "";
+	const finish = (result: NativeDispatchResult): NativeDispatchResult => ({
+		...result, dispatchId: run.dispatchId, transcriptPath: run.transcriptPath, diagnostics, sessionReset,
+		output: result.output + diagnosticText,
+	});
+	if (diagnosticText) deps.appendTimelineText(state, "text", diagnosticText);
+	deps.flushTimelineStore(state);
 
 	if (res.spawnError) {
-		await monitorStart?.then(task => deps.finalizeMonitorChild(task, `Error spawning agent: ${res.spawnError}`, "failed"));
+		await monitorStart?.then(task => deps.finalizeMonitorChild(task, `Error spawning agent: ${res.spawnError}${diagnosticText}`, "failed"));
 		state.status = "error";
 		state.lastWork = `Error: ${res.spawnError}`;
 		state.killedByOperator = false;
@@ -21,7 +35,7 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 		const onTerminate = state.onTerminate;
 		state.onTerminate = undefined;
 		onTerminate?.();
-		return { output: `Error spawning agent: ${res.spawnError}`, exitCode: 1, elapsed: state.elapsed };
+		return finish({ output: `Error spawning agent: ${res.spawnError}`, exitCode: 1, elapsed: state.elapsed, billed: runBilled, out: runOut });
 	}
 
 	const full = res.output;
@@ -58,14 +72,14 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 						`Re-dispatch ONCE with a corrected, NARROWED task that addresses this verdict — never repeat the same task unchanged. ` +
 						`If you believe the watchdog is wrong, tell the user; they can disable it with /af-watchdog ${key} off`
 					: "was cancelled by its caller";
-		return {
+		return finish({
 			output: `${reason}: agent ${deps.displayName(state.def.name)} ${explanation}; terminationConfirmed=${res.termination.confirmed}.` +
 				(full.trim() ? `\n\nPartial output before termination:\n${full.slice(-2000)}` : ""),
 			exitCode: reason === "cancelled" ? 130 : reason === "drift_stop" ? 125 : 124,
 			elapsed: state.elapsed,
 			billed: runBilled,
 			out: runOut,
-		};
+		});
 	}
 
 	if (state.killedByOperator) {
@@ -82,22 +96,23 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 		const onTerminate = state.onTerminate;
 		state.onTerminate = undefined;
 		onTerminate?.();
-		return {
+		return finish({
 			output: wasRestart
 				? `Agent "${deps.displayName(state.def.name)}" was killed by the operator for a restart. A fresh run is starting now; WAIT for the follow-up result before acting — do not re-dispatch this agent yourself.`
 				: `Agent "${deps.displayName(state.def.name)}" was killed by the operator. Do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
-			exitCode: code ?? 143,
+			exitCode: code == null || code === 0 ? 143 : code,
 			elapsed: state.elapsed,
-		};
+			billed: runBilled, out: runOut,
+		});
 	}
 
-	await monitorStart?.then(task => deps.finalizeMonitorChild(task, full, code === 0 ? "completed" : "failed"));
+	await monitorStart?.then(task => deps.finalizeMonitorChild(task, full + diagnosticText, code === 0 ? "completed" : "failed"));
 	state.status = code === 0 ? "done" : "error";
 	if (code === 0) {
 		state.sessionFile = run.agentSessionFile;
 		state.runsSinceFresh++;
 	}
-	state.lastWork = full.split("\n").filter(line => line.trim()).pop() || "";
+	state.lastWork = (full || res.assistantError || res.stderr).split("\n").filter(line => line.trim()).pop() || "";
 	deps.updateWidget();
 	state.zoomRender?.(true);
 	deps.executionHistory.end(histEntry, state.status);
@@ -109,14 +124,8 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 	state.onTerminate = undefined;
 	onTerminate?.();
 
-	let output = full;
+	let output = full || (code !== 0 ? `Agent "${deps.displayName(state.def.name)}" exited with code ${code} and produced no output.` : "");
 	if (res.modelFallback) output = `(ℹ model fallback: ${res.modelFallback.from} failed before work began; retried once with original persona model ${res.modelFallback.to}.)\n\n${output}`;
-	if (code !== 0) {
-		const errText = res.stderr.trim();
-		const tail = errText.length > 1500 ? "...\n" + errText.slice(-1500) : errText;
-		const errBlock = tail ? `\n\n[stderr]\n${tail}` : "";
-		output = full ? `${full}${errBlock}` : `Agent "${deps.displayName(state.def.name)}" exited with code ${code} and produced no output.${errBlock}`;
-	}
 	if (sessionRecycled) output = `(ℹ ${deps.displayName(state.def.name)}'s session was recycled before this run — it has no memory of earlier dispatches; state must travel via task text/artifacts.)\n\n${output}`;
 	if (driftAdvisories.length > 0) {
 		output += `\n\n⚠ Drift advisory (run NOT stopped): ` +
@@ -131,5 +140,15 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 				: `was rejected by pi but could not be quarantined (${sessionReset.reason}). No clean retry was attempted; fix the file permissions/path before retrying.`;
 		output = `(⚠ ${deps.displayName(state.def.name)}'s session file ${resetSummary})\n\n${output}`;
 	}
-	return { output, exitCode: code ?? 1, elapsed: state.elapsed, billed: runBilled, out: runOut, sessionReset };
+	return finish({ output, exitCode: code ?? 1, elapsed: state.elapsed, billed: runBilled, out: runOut, sessionReset });
+}
+
+/** Bounded human-facing excerpts; full diagnostics travel separately to the artifact. */
+function formatDiagnostics(diagnostics: NativeExecutionDiagnostics): string {
+	const fields = ["assistantError", "stderr", "spawnError"] as const;
+	return `\n\n[execution: ${diagnostics.reason}; model=${diagnostics.modelUsed ?? "unknown"}; toolCallsStarted=${diagnostics.toolCallsStarted ?? "unknown"}]` +
+		fields.filter(field => diagnostics[field]).map(field => {
+			const text = diagnostics[field]!;
+			return `\n\n[${field}]\n${text.length > 1500 ? "...\n" + text.slice(-1500) : text}`;
+		}).join("");
 }

@@ -9,6 +9,8 @@ export interface DispatchAgentParams {
 	task: string;
 	artifacts?: string[];
 	scope?: string[];
+	scope_mode?: "existing" | "create";
+	deliverables?: string[];
 	watchdog?: boolean;
 	review_reason?: string;
 	backend?: "auto" | "native" | "coms";

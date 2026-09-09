@@ -1,3 +1,5 @@
+import { resolveSessionRoster } from "../work-mode.ts";
+
 export interface RosterDef { name: string }
 export interface RosterState<TDef extends RosterDef> { def: TDef; status: string }
 export interface RosterMutationResult { ok: boolean; message: string }
@@ -22,6 +24,7 @@ export interface RosterPolicyPorts<TDef extends RosterDef, TState extends Roster
 
 export interface RosterPolicy<TDef extends RosterDef> {
 	activateTeam(teamName: string): void;
+	activateFirstValidTeam(): boolean;
 	persistActiveRoster(): void;
 	add(name: string): RosterMutationResult;
 	drop(name: string): RosterMutationResult;
@@ -40,6 +43,18 @@ export function createRosterPolicy<TDef extends RosterDef, TState extends Roster
 			if (def) states.set(def.name.toLowerCase(), ports.createFreshState(def, ports.adoptSession(def)));
 		}
 		ports.recompute();
+	}
+	function activateFirstValidTeam(): boolean {
+		if (ports.getStates().size > 0) return true;
+		const teams = ports.getTeams();
+		const availablePersonas = ports.getAllDefs().map(def => def.name);
+		for (const name of Object.keys(teams)) {
+			const selected = resolveSessionRoster({ teams, entries: [], explicitRoster: name, availablePersonas });
+			if (!selected.roster) continue;
+			activateTeam(selected.roster.name);
+			return true;
+		}
+		return false;
 	}
 	function persistActiveRoster(): void {
 		const team = ports.getActiveTeamName();
@@ -75,5 +90,5 @@ export function createRosterPolicy<TDef extends RosterDef, TState extends Roster
 		const note = health.usable ? " (its session file is kept for re-adding)" : health.quarantined ? ` (its session file was unusable — ${health.reason} — and was quarantined to ${health.quarantined}; re-adding starts clean)` : " (it has no session file; re-adding starts clean)";
 		return { ok: true, message: `${ports.displayName(state.def.name)} dropped from the active team${note}` };
 	}
-	return { activateTeam, persistActiveRoster, add, drop };
+	return { activateTeam, activateFirstValidTeam, persistActiveRoster, add, drop };
 }

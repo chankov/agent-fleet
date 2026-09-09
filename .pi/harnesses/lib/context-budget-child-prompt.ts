@@ -53,11 +53,12 @@ to ${spawnBudget} delegate calls for this dispatch; parallel children are forced
 Children are terminal workers: they do not receive delegate tooling at remaining depth 0.`;
 }
 
-export function buildDeliverableProtocol(agentKey: string, runNumber: number): string {
+export function buildDeliverableProtocol(agentKey: string, runNumber: number, artifactRoot = ".pi/agent-sessions/artifacts", dispatchId?: string): string {
+	const filename = `${agentKey}-${dispatchId ?? `run${runNumber}`}.md`;
 	return `
 
 ## Deliverable-to-file protocol
-When your deliverable is a document (plan, review, critique, inventory, report), write the full document to the real session artifact path when your tools allow it: .pi/agent-sessions/artifacts/<kind>/${agentKey}-run${runNumber}.md (kinds: plans, reviews, inventories, evidence). Do NOT write repo-root ./artifacts/... files. In your final response, report and pass the artifact-relative handoff path: artifacts/<kind>/${agentKey}-run${runNumber}.md. If your persona already has an explicit output path contract such as planner PLAN_FILE, keep that existing behavior and also summarize/return the session artifact path the hub gives you.
+When your deliverable is a document (plan, review, critique, inventory, report), write the full document to the real session artifact path when your tools allow it: ${artifactRoot}/<kind>/${filename} (kinds: plans, reviews, inventories, evidence). Do NOT write repo-root ./artifacts/... files. In your final response, report and pass the artifact-relative handoff path: artifacts/<kind>/${filename}. If your persona already has an explicit output path contract such as planner PLAN_FILE, keep that existing behavior and also summarize/return the session artifact path the hub gives you.
 Finish with the artifact-relative path plus a digest of no more than 10 lines. If the dispatch includes acceptance assertions (A1, A2, ...), also include the structured return from skills/orchestration-verification/SKILL.md. If your tools are read-only and you cannot write a document artifact yourself, finish with the digest + structured return; the hub will still persist your full final return under artifacts/returns/ for dispatcher recovery.`;
 }
 
@@ -108,7 +109,7 @@ export function buildSpecialistContextManifest(input: {
 	};
 }
 
-export function nativeSpecialistSystemPrompt(input: { manifest: SpecialistContextManifest; userLanguage: string; agentKey: string; runNumber: number }): string {
+export function nativeSpecialistSystemPrompt(input: { manifest: SpecialistContextManifest; userLanguage: string; agentKey: string; runNumber: number; artifactRoot?: string; dispatchId?: string }): string {
 	const { manifest } = input;
 	const paths = (label: string, values: string[]) => values.length ? `\n${label}: ${values.join(", ")}` : "";
 	const framing = [
@@ -120,7 +121,7 @@ export function nativeSpecialistSystemPrompt(input: { manifest: SpecialistContex
 	let prompt = references + buildClarificationProtocol(input.userLanguage);
 	if (manifest.flags.assertions) prompt += "\n\n## Verification\nRead skills/orchestration-verification/SKILL.md for the structured return contract; apply the assertions supplied in the task.";
 	if (manifest.delegateRoles.length) prompt += buildDelegationProtocol(manifest.delegateRoles);
-	prompt += buildDeliverableProtocol(input.agentKey, input.runNumber);
+	prompt += buildDeliverableProtocol(input.agentKey, input.runNumber, input.artifactRoot, input.dispatchId);
 	return prompt;
 }
 

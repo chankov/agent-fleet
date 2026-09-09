@@ -75,3 +75,32 @@ test("non-git worktrees skip without throwing", () => {
 	assert.equal(diff.skipped, true);
 	assert.deepEqual(diff.paths, []);
 });
+
+test("glob **/ matches zero or multiple directory levels", () => {
+ assert.deepEqual(checkScope(["RIN.DataCore/BaseRINCoreData.cs", "RIN.DataCore/deep/Base.cs"], ["RIN.DataCore/**/*.cs"]).outOfScope, []);
+ assert.deepEqual(checkScope(["root.cs", "a/b/child.cs"], ["**/*.cs"]).outOfScope, []);
+ assert.deepEqual(checkScope(["src/a.ts", "src/ab.ts"], ["src/?.ts"]).inScope, ["src/a.ts"]);
+});
+
+test("content changes in already staged, unstaged and untracked files are detected without touching index", () => {
+ const dir = repo();
+ writeFileSync(join(dir, "src/tracked.ts"), "staged\n"); git(["add", "src/tracked.ts"], dir);
+ writeFileSync(join(dir, "src/tracked.ts"), "unstaged before\n");
+ writeFileSync(join(dir, "untracked file.ts"), "before\n");
+ const indexBefore = git(["diff", "--cached", "--binary"], dir);
+ const snapshot = snapshotWorktree(dir);
+ writeFileSync(join(dir, "src/tracked.ts"), "unstaged after\n");
+ writeFileSync(join(dir, "untracked file.ts"), "after\n");
+ assert.deepEqual(diffAgainst(snapshot, dir).paths, ["src/tracked.ts", "untracked file.ts"]);
+ assert.equal(git(["diff", "--cached", "--binary"], dir), indexBefore);
+});
+
+test("dirty-to-clean restoration and filenames containing newlines are reported", () => {
+ const dir = repo();
+ writeFileSync(join(dir, "src/tracked.ts"), "dirty\n");
+ writeFileSync(join(dir, "new\nfile.ts"), "before\n");
+ const snapshot = snapshotWorktree(dir);
+ writeFileSync(join(dir, "src/tracked.ts"), "initial\n");
+ writeFileSync(join(dir, "new\nfile.ts"), "after\n");
+ assert.deepEqual(diffAgainst(snapshot, dir).paths, ["new\nfile.ts", "src/tracked.ts"]);
+});

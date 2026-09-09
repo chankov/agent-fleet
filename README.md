@@ -1,5 +1,9 @@
 # Agent Fleet
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/chankov/agent-fleet/main/docs/assets/branding/agent-fleet-logo-white-v1.png" alt="Agent Fleet — Many agents. One direction." width="800">
+</p>
+
 [![npm](https://img.shields.io/npm/v/%40chankov%2Fagent-fleet)](https://www.npmjs.com/package/@chankov/agent-fleet)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-pi-8A2BE2)](#quick-start)

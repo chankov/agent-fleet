@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import type { ChildProcess } from "child_process";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { Termination, spawnPiAgentWithModelFallback } from "../spawn.ts";
@@ -34,6 +36,9 @@ export interface ResearchAgentDef {
 
 export interface ResearchState<TDef extends ResearchAgentDef = ResearchAgentDef> {
 	id: number;
+	dispatchId: string;
+	sessionPath: string;
+	evidenceDir: string;
 	def: TDef;
 	persona: boolean;
 	model: string;
@@ -55,6 +60,9 @@ export interface ResearchState<TDef extends ResearchAgentDef = ResearchAgentDef>
 }
 
 export interface ResearchResult {
+	dispatchId?: string;
+	evidencePath?: string;
+	transcriptPath?: string;
 	output: string;
 	exitCode: number;
 	elapsed: number;
@@ -120,7 +128,8 @@ export function parseResearchHandle(arg: string): number | null {
 }
 
 export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: ResearchRuntimeDeps<TDef>): ResearchRuntime<TDef> {
-	const sessionPath = (id: number) => safePathWithin(deps.hubState.getSessionDir(), `research-${id}.json`);
+	const paths = new Map<number, string>();
+	const sessionPath = (id: number) => { const path = paths.get(id); if (!path) throw new Error(`Unknown research handle r${id}`); return path; };
 	const finalized = new WeakSet<ResearchState<TDef>>();
 	const finalize = (state: ResearchState<TDef>, outcome: ResearchFinalizeOutcome) => {
 		if (finalized.has(state)) return;
@@ -145,6 +154,7 @@ export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: Resea
 	return {
 		states: deps.getResearchStates,
 		reset() {
+			paths.clear();
 			deps.setResearchStates(new Map());
 			deps.setNextResearchId(1);
 		},
@@ -162,8 +172,13 @@ export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: Resea
 		createState(def, persona, model) {
 			const id = deps.getNextResearchId();
 			deps.setNextResearchId(id + 1);
+			const dispatchId = randomUUID();
+			const evidenceDir = safePathWithin(deps.hubState.getSessionDir(), "dispatches", dispatchId);
+			mkdirSync(evidenceDir, { recursive: true, mode: 0o700 });
+			const rawSession = safePathWithin(evidenceDir, "session.json");
+			paths.set(id, rawSession);
 			const state: ResearchState<TDef> = {
-				id, def, persona, model, status: "running", task: "", toolCount: 0, messageCount: 0,
+				id, dispatchId, evidenceDir, sessionPath: rawSession, def, persona, model, status: "running", task: "", toolCount: 0, messageCount: 0,
 				elapsed: 0, lastWork: "", contextPct: 0, contextTokens: 0, timeline: [],
 			};
 			deps.getResearchStates().set(id, state);

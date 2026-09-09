@@ -25,7 +25,7 @@ test("work-mode picker marks the current choice", () => {
 	const workModes = workModePickerOptions("operator");
 	assert.match(workModes.title, /Alt\+M/);
 	assert.match(workModes.options[0], /^✓ operator/);
-	assert.match(workModes.options[1], /requires a native roster/);
+	assert.match(workModes.options[1], /auto-loads the first valid team/);
 	assert.equal(selectedPickerValue(workModes.options, workModes.options[1], workModes.workModes), "orchestrator");
 	assert.equal(selectedPickerValue(workModes.options, undefined, workModes.workModes), undefined);
 	assert.equal(compactWorkMode("orchestrator"), "Orchestrator");

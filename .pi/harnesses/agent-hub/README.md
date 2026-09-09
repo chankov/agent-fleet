@@ -33,8 +33,11 @@ These are independent runtime axes:
 - **Peer topology** — separate long-lived Pi or Claude Code processes from `peers.yaml`, connected
   by coms and optionally placed in sibling Herdr panes. `--peers frontend` selects a standing
   preset; `--herdr` creates a Hub-only workspace through the empty `base` preset.
-Orchestrator still requires a native roster. Budgets, nested delegation, and Verification Contract
-rigor follow the **task tier**, not Work Mode.
+Switching from Operator to Orchestrator with no active agents automatically loads the first valid
+team in configuration order (`default` in the shipped configuration), skipping empty teams and teams
+with missing personas. Existing agents are kept. If no valid team is available, the switch is refused
+with a warning. The selected team is saved in the session just like a manual team selection.
+Budgets, nested delegation, and Verification Contract rigor follow the **task tier**, not Work Mode.
 
 All Hub slash commands, including `/af-handoff`, are registered in both work modes. A command whose
 runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
@@ -186,7 +189,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   regression reset on a re-ask — per
   [`orchestration-verification`](../../../skills/orchestration-verification/SKILL.md). The hub also
   machine-parses each assertion-carrying specialist's structured return, writes the full raw output
-  to `.pi/agent-sessions/artifacts/returns/<agentKey>-run<N>.md`, surfaces only a compact
+  to `.pi/agent-sessions/sessions/<sessionId>/artifacts/returns/<agentKey>-<dispatchId>.md`, surfaces only a compact
   `details.structuredReturn` digest plus `details.returnPath`, and marks contract notices such as
   missing assertion ids or evidence-less `assertions_proven` entries (demoted to unproven in the
   tool text). `details.fullOutput` remains for `/af-zoom`/compatibility, but dispatcher-visible text is
@@ -381,7 +384,8 @@ below-editor compact widget. The coms pool panel lives at the **bottom of the Fl
 
 Press **`Alt+M`** or run **`/af-work-mode`** to open the work mode picker:
 **operator** (direct tools) or **orchestrator** (delegate-only). Arrow keys move, Enter applies,
-and Esc cancels with no change. Orchestrator requires a native roster. On macOS, the outer
+and Esc cancels with no change. Switching to Orchestrator with no agents auto-loads the first valid
+configured team. On macOS, the outer
 terminal must send Option as Meta or Alt+M will not reach the Hub.
 
 ### Fleet Dashboard and detail
@@ -551,10 +555,15 @@ context).
 | Specialist session recycled after | 3 runs  | 3 runs| 5 runs  | 5 runs  |
 | Nested delegation                 | off     | off   | on      | on      |
 
-When a budget is exhausted, `dispatch_agent`/`spawn_research` **refuse** with instructions
-to summarize and ask one localized Yes/No `ask_user` question. **Yes** renews the turn budget
-inside the same tool loop; the user does not type `continue` or run a slash command. A normal
-new user message still opens a fresh turn window. Time blocked in any `ask_user` question is
+When a budget is exhausted, the runtime pauses `dispatch_agent`/`spawn_research` and opens
+one localized Yes/No confirmation through the existing `ask-user-remote` wrapper. If the wrapper
+is unavailable, it uses a local dialog; without either channel it stops. **Yes** renews the budget
+and continues the original operation without another model call. Concurrent refusals share one
+question and one renewal. **No**, cancellation, or confirmation failure latches a task-scoped stop
+and aborts the parent loop. Only the human's `/af-budget-continue` command reopens that question;
+the command itself neither grants budget nor dispatches work. Prose and magic-marker tool calls
+cannot authorize renewal. A normal new user message still opens a fresh turn window, but cannot
+clear a declined confirmation. Time blocked in any `ask_user` question is
 excluded from the turn wall clock, so a slow human answer cannot exhaust the next dispatch.
 Raise the task with `set_task_tier` when the work outgrew the current envelope. Override keys
 in `.ai/agent-fleet-overrides.md` are a **ceiling** (`min` with the tier); `off` stays at the
@@ -592,7 +601,9 @@ continuation tranche and resumes directly; it resets the task dispatch/research 
 active-time clock, review allowance, and the current turn budget while preserving the task
 tier, assertion ledger, capability packs, label, blockers, and accumulated progress. **No**
 (or cancellation) stops. Each accepted tranche appends `agent-hub-budget-continuation` with
-bounded prior usage and allowlisted process/session/pane identity.
+bounded prior usage, allowlisted process/session/pane identity, and runtime task/tranche/request
+correlation. A reset invalidates pending answers; late or repeated answers cannot renew another task.
+`/af-poll` and `/af-debate` use the same runtime confirmation gate for task and turn budgets.
 
 `set_task_tier` with `new_task: true` remains the lifecycle action for genuinely different work.
 It clears task identity/state as well as counters and appends an `agent-hub-task-reset` audit
@@ -1137,3 +1148,56 @@ coms purpose/color.
 - **`/af-handoff` uses an LLM-composed brief**, not a compaction-summary extraction (decision G1).
 - **Clean shutdown** SIGTERMs any running specialist/research children, clears the coms pool
   widget, and removes the registry entry on `session_shutdown` / SIGINT / SIGTERM.
+
+### Execution evidence isolation
+
+New sessions allocate `.pi/agent-sessions/sessions/<UUID>/`; startup does not migrate,
+clear or prune legacy shared files. Each native/coms dispatch and research helper has
+a UUID and a create-exclusive `dispatches/<UUID>/request.json` / `result.json` bundle.
+Requests retain task/scope and copies of supplied input artifacts; results preserve
+output/diagnostics and transcript/session paths (`details.evidencePath`). Native
+continuation copies the previous raw session into the new dispatch, never rewrites it;
+delegation events also live under the dispatch. Counters remain UI labels, not evidence IDs.
+
+`run-history-keep` keeps its configured limit, applied to **closed, fully settled new
+sessions whose owning process is gone**. Live, unfinished, pending and malformed
+namespaces are protected. A crash without a close marker is retained for manual
+inspection, not silently classified as safely deletable. Follow absolute paths from
+tool results; `artifacts/...` is a session-relative handoff alias, not a read-tool path.
+
+### No-progress stops
+
+The first unchanged retry after a failed dispatch/research operation is refused across
+turns. Identity uses actor, scope, supplied artifact contents and worktree content,
+not task wording; generated runtime files are not progress. Budget renewal preserves
+the guard. New input content/scope or a genuine new task can permit work. For research
+without scope/artifacts, the guard conservatively treats the repository as its scope.
+
+A human may type `/af-retry <failed-dispatchId>` to authorize exactly one retry of
+that failure. The command is audited, does not dispatch or renew budget, and stale
+IDs/prose do not authorize. Same-input concurrent operations are also refused.
+
+The first unchanged refusal leaves the parent turn running so corrected inputs can
+be supplied; a second unchanged refusal stops the turn. Successful-but-unverified
+execution is **not** a no-progress failure; actual execution failure or failed
+deliverable readback is. This distinction prevents acceptance policy from blocking
+normal successful follow-up work.
+
+### Explicit delivery contract
+
+`dispatch_agent` accepts `deliverables: string[]` of exact expected output files.
+The worker receives their absolute paths. The hub reads every expected file back,
+records size/hash/preview and whether it changed, retains the inspected content, and
+saves `details.assessmentPath`. Missing files, directories and unsafe symlink paths
+do not pass readback. An existing unchanged file is not attributed to this run.
+
+Exit 0 returns `executionStatus: completed`, **not** acceptance. Tool status is
+`completed_unverified` or `verification_failed`; `accepted: false` and the assertion
+ledger keep semantic verification in the operator's hands. Every delivered return is
+saved even without assertion IDs. Pending peer delivery remains pending.
+
+Scope roots are checked before budget confirmation/counters. Missing roots are not
+zero-match success. Set `scope_mode: create` explicitly to permit a new root. A new
+exact file in an existing directory is permitted when declared in `deliverables`;
+otherwise a missing dotted name such as `RIN.Video` is still treated as a missing
+root, not guessed to be a file. Free-form prose and XML are never executed as tools.

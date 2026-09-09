@@ -112,7 +112,8 @@ test("spawn appends artifact previews and thrown failures still evict exactly on
 		spawnPiAgentWithModelFallback: async (input: any) => { prompt = input.prompt; return { output: "artifact finding", stderr: "", exitCode: 0 }; },
 	});
 	const state = f.runtime.createState(def, true, "provider/model");
-	const result = await f.runtime.spawn(state, "inspect", ctx, [{ preview: "evidence", input: "x", path: "/x", displayPath: "x" }]);
+	writeFileSync(join(f.dir, "x"), "evidence");
+	const result = await f.runtime.spawn(state, "inspect", ctx, [{ preview: "evidence", input: "x", path: join(f.dir, "x"), displayPath: "x" }]);
 	assert.match(prompt, /inspect\nARTIFACT:evidence/);
 	assert.equal(result.output, "artifact finding");
 	assert.equal(f.states().size, 0);
@@ -187,4 +188,22 @@ test("three parallel helpers are live together and independently disappear", asy
 	assert.equal(f.history.length, 3);
 	assert.ok(f.history.every(entry => entry.status === "done"));
 	for (const state of states) assert.equal(existsSync(f.runtime.sessionPath(state.id)), true);
+});
+
+test("research counter reset preserves prior raw session, transcript identity and full failure bundle", async () => {
+ const { readFileSync } = await import("node:fs");
+ const f = fixture({ spawnPiAgentWithModelFallback: async (opts: any) => {
+  writeFileSync(opts.sessionFile, "original raw session");
+  return { output: "", exitCode: 1, stderr: "full stderr", assistantError: "SYNTHETIC provider error", toolCallsStarted: 0, modelUsed: "actual/model" };
+ } });
+ const first = f.runtime.createState(def, true, "provider/model");
+ const result = await f.runtime.spawn(first, "original question", ctx);
+ const firstPath = f.runtime.sessionPath(first.id);
+ f.runtime.reset(); const second = f.runtime.createState(def, true, "provider/model");
+ assert.notEqual(f.runtime.sessionPath(second.id), firstPath);
+ assert.ok(result.evidencePath); const retained = JSON.parse(readFileSync(result.evidencePath!, "utf8"));
+ assert.equal(retained.diagnostics.assistantError, "SYNTHETIC provider error");
+ assert.equal(retained.diagnostics.stderr, "full stderr");
+ assert.equal(readFileSync(firstPath, "utf8"), "original raw session");
+ assert.notEqual(first.dispatchId, second.dispatchId);
 });

@@ -13,6 +13,8 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext): v
 			task: Type.String({ description: "Task description for the agent to execute" }),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path; the specialist reads it." }))),
 			scope: Type.Optional(Type.Array(Type.String({ description: "Advisory writable-file globs; violations are reported, never reverted." }))),
+			deliverables: Type.Optional(Type.Array(Type.String({ description: "Expected output file path, read back after execution. Presence is not semantic acceptance." }))),
+			scope_mode: Type.Optional(Type.Union([Type.Literal("existing"), Type.Literal("create")], { description: "Default existing: refuse missing scope roots; create explicitly permits new roots." })),
 			watchdog: Type.Optional(Type.Boolean({ description: "Override this dispatch's drift watchdog." })),
 			review_reason: Type.Optional(Type.String({ description: "Why a docs-only review is needed." })),
 			backend: Type.Optional(Type.Union([
@@ -55,10 +57,11 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext): v
 				);
 			}
 
-			const icon = details.status === "done" ? "✓" : "✗";
-			const color = details.status === "done" ? "success" : "error";
+			const completed = details.executionStatus === "completed";
+			const icon = details.accepted === true ? "✓" : completed || details.pending ? "○" : "✗";
+			const color = details.accepted === true ? "success" : completed || details.pending ? "warning" : "error";
 			const elapsed = typeof details.elapsed === "number" ? Math.round(details.elapsed / 1000) : 0;
-			const header = theme.fg(color, `${icon} ${details.agent}`) +
+			const header = theme.fg(color, `${icon} ${details.agent}${completed && !details.accepted ? " — completed; acceptance unproven" : ""}`) +
 				theme.fg("dim", ` ${elapsed}s`);
 
 			const questions: string[] = Array.isArray(details.questions) ? details.questions : [];

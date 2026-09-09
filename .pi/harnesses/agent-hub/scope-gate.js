@@ -1,19 +1,47 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, readlinkSync } from "node:fs";
+import { join } from "node:path";
 
 export function snapshotWorktree(cwd) {
-	const status = gitStatus(cwd);
-	if (status.skipped) return { skipped: true, reason: status.reason, paths: new Set() };
-	return { skipped: false, paths: new Set(status.paths) };
+ const status = gitStatus(cwd);
+ if (status.skipped) return { skipped: true, reason: status.reason, paths: new Set() };
+ try {
+  const fingerprints = new Map(status.paths.map(path => [path, fileFingerprint(cwd, path)]));
+  let head = "";
+  try { head = execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch {}
+  return { skipped: false, paths: new Set(status.paths), fingerprints, head };
+ } catch (error) { return { skipped: true, reason: String(error), paths: new Set() }; }
+}
+
+function fileFingerprint(cwd, path) {
+ try {
+  const file = join(cwd, path), stat = lstatSync(file);
+  if (!stat.isFile() && !stat.isSymbolicLink()) throw new Error(`Cannot prove file-content delta for ${path}`);
+  return createHash("sha256").update(String(stat.mode)).update("\0").update(stat.isSymbolicLink() ? readlinkSync(file) : readFileSync(file)).digest("hex");
+ } catch (error) { if (error.code === "ENOENT") return "missing"; throw error; }
 }
 
 export function diffAgainst(snapshot, cwd) {
-	const current = snapshotWorktree(cwd);
-	if (snapshot?.skipped || current.skipped) {
-		return { skipped: true, reason: snapshot?.reason || current.reason || "scope gate skipped", paths: [] };
-	}
-	const before = snapshot?.paths instanceof Set ? snapshot.paths : new Set(snapshot?.paths || []);
-	const paths = [...current.paths].filter((p) => !before.has(p)).sort();
-	return { skipped: false, paths };
+ const current = snapshotWorktree(cwd);
+ if (snapshot?.skipped || current.skipped || snapshot?.head !== current.head) {
+  return { skipped: true, reason: snapshot?.reason || current.reason || "HEAD changed during observation; content attribution is incomplete", paths: [] };
+ }
+ try {
+  const paths = [...new Set([...snapshot.paths, ...current.paths])].filter(path => {
+   const before = snapshot.fingerprints.get(path);
+   return before === undefined || before !== (current.fingerprints.get(path) ?? fileFingerprint(cwd, path));
+  }).sort();
+  return { skipped: false, paths };
+ } catch (error) { return { skipped: true, reason: String(error), paths: [] }; }
+}
+
+/** Runtime outputs are not input progress. Callers add explicitly supplied evidence separately. */
+export function worktreeRevision(cwd, scopes = []) {
+ const snapshot = snapshotWorktree(cwd);
+ if (snapshot.skipped) return "unavailable";
+ const entries = [...snapshot.fingerprints].filter(([path]) => !path.startsWith(".pi/agent-sessions/") && (!scopes.length || checkScope([path], scopes).inScope.length)).sort(([a], [b]) => a.localeCompare(b));
+ return createHash("sha256").update(JSON.stringify([snapshot.head, entries])).digest("hex");
 }
 
 export function checkScope(changedPaths, scopeGlobs) {
@@ -31,7 +59,7 @@ export function checkScope(changedPaths, scopeGlobs) {
 
 function gitStatus(cwd) {
 	try {
-		const output = execFileSync("git", ["-C", cwd, "status", "--porcelain", "--untracked-files=all"], {
+		const output = execFileSync("git", ["-C", cwd, "status", "--porcelain", "-z", "--untracked-files=all"], {
 			encoding: "utf-8",
 			stdio: ["ignore", "pipe", "pipe"],
 		});
@@ -42,15 +70,13 @@ function gitStatus(cwd) {
 }
 
 function parsePorcelain(output) {
-	const paths = [];
-	for (const line of String(output || "").split(/\r?\n/)) {
-		if (!line.trim()) continue;
-		let file = line.slice(3).trim();
-		const rename = file.match(/ -> (.+)$/);
-		if (rename) file = rename[1];
-		paths.push(normalizePath(unquotePorcelainPath(file)));
-	}
-	return uniqueSorted(paths.filter(Boolean));
+ const entries = String(output || "").split("\0"), paths = [];
+ for (let i = 0; i < entries.length; i++) {
+  const entry = entries[i]; if (!entry) continue;
+  paths.push(entry.slice(3));
+  if (/[RC]/.test(entry.slice(0, 2)) && entries[i + 1]) paths.push(entries[++i]);
+ }
+ return uniqueSorted(paths);
 }
 
 function matchesScope(changedPath, scope) {
@@ -69,11 +95,13 @@ function globToRegExp(glob) {
 		const c = glob[i];
 		if (c === "*") {
 			if (glob[i + 1] === "*") {
-				out += ".*";
-				i++;
+				if (glob[i + 2] === "/") { out += "(?:.*/)?"; i += 2; }
+				else { out += ".*"; i++; }
 			} else {
 				out += "[^/]*";
 			}
+		} else if (c === "?") {
+			out += "[^/]";
 		} else {
 			out += escapeRegExp(c);
 		}
@@ -88,14 +116,6 @@ function normalizePath(value) {
 
 function uniqueSorted(values) {
 	return [...new Set(values)].sort();
-}
-
-function unquotePorcelainPath(value) {
-	const trimmed = String(value || "").trim();
-	if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-		try { return JSON.parse(trimmed); } catch { return trimmed.slice(1, -1); }
-	}
-	return trimmed;
 }
 
 function escapeRegExp(value) {

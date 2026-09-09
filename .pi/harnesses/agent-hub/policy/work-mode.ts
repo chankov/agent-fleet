@@ -12,6 +12,7 @@ export interface PersistedCapabilityRestore { taskPacks: CapabilityPack[]; provi
 export interface WorkModePolicyPorts {
 	getBaselineTools(): readonly string[];
 	getRosterSize(): number;
+	activateFallbackRoster(ctx: WorkModeUiPort): void;
 	getActiveTeamName(): string;
 	getComsReady(): boolean;
 	getHerdrReady(): boolean;
@@ -80,9 +81,10 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 	function statusText(): string {
 		return [`Work Mode: ${workMode}`, `Direct tools: ${workMode === "operator" ? "enabled" : "disabled"}`, `Native roster: ${ports.getActiveTeamName() || "(none)"} (${ports.getRosterSize()})`, `Coms: ${ports.getComsReady() ? `ready${ports.getIdentityLabel() ? ` (${ports.getIdentityLabel()})` : ""}` : "unavailable"}`, `Herdr: ${ports.getHerdrReady() ? "ready" : "unavailable"}`].join("\n");
 	}
-	function refusalMessage(): string { return "Orchestrator work mode requires at least one native specialist. Add one with /af-agents-add or select /af-agents-team first."; }
+	function refusalMessage(): string { return "Orchestrator work mode requires at least one native specialist. No valid configured team is available. Add one with /af-agents-add or fix .pi/agents/teams.yaml and select /af-agents-team."; }
 	function watchdogNote(next: WorkMode): string { return next === "orchestrator" ? ports.watchdogArmed(next) ? "\nDrift watchdog: armed (orchestrator auto). /af-watchdog off to disarm." : "\nDrift watchdog: off (explicit hub setting)." : ""; }
 	async function commit(next: WorkMode, ctx: WorkModeUiPort): Promise<"ok" | "unchanged" | "roster"> {
+		if (workModeChangeBlockedByRoster(workMode, next, ports.getRosterSize())) ports.activateFallbackRoster(ctx);
 		if (orchestratorNeedsRoster(next, ports.getRosterSize())) return "roster";
 		if (next === workMode) return "unchanged";
 		workMode = next;
@@ -91,7 +93,6 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 		return "ok";
 	}
 	async function applySelection(next: WorkMode, ctx: WorkModeUiPort): Promise<void> {
-		if (workModeChangeBlockedByRoster(workMode, next, ports.getRosterSize())) { ctx.ui.notify(refusalMessage(), "warning"); return; }
 		const result = await commit(next, ctx);
 		if (result === "roster") { ctx.ui.notify(refusalMessage(), "warning"); return; }
 		ctx.ui.notify(`${statusText()}\nPrompt and tools update on the next model call.${watchdogNote(next)}`, result === "ok" ? "success" : "info");

@@ -1,5 +1,7 @@
 # Install and lifecycle
 
+<img src="https://raw.githubusercontent.com/chankov/agent-fleet/main/docs/assets/branding/agent-fleet-logo-white-v1.png" alt="Agent Fleet — Many agents. One direction." width="480">
+
 `@chankov/agent-fleet` is a deterministic pi workspace installer. It needs no
 coding agent or model: `setup`, `doctor`, and `uninstall` are the public
 lifecycle commands.

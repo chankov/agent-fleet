@@ -68,7 +68,7 @@ test("agent-hub session-start wiring initializes monitor lifecycle only from exp
 		"rollover evidence keeps owner, socket, session, and Herdr identity together",
 	);
 	assert.ok(
-		(source.match(/monitorKeyForAgent\(state\.def\.name, state\.runCount\)/g) ?? []).length >= 3,
+		(source.match(/monitorKeyForAgent\(state\.def\.name, state\.dispatchId \?\? state\.runCount\)/g) ?? []).length >= 3,
 		"dispatch, kill, and restart must derive the same canonical monitor key",
 	);
 	assert.ok(

@@ -88,6 +88,18 @@ npm publish --access public
 
 ## What to verify after publish
 
+The README banner and `package.json#pi.image` share the public logo URL listed
+in the [brand asset guide](assets/branding/README.md). Before publishing, ensure
+that the referenced PNG is on GitHub `main` and its raw URL returns an image.
+Use `npm run pack:dry` to confirm that `docs/assets/branding/*.png` and the brand
+guide ship in the package.
+
+After publishing, check the README on GitHub and npm, and the image preview in
+the [Pi package gallery](https://pi.dev/packages). Confirm that the wordmark and
+slogan remain readable in light and dark themes. npm updates its README when a
+[new package version is published](https://docs.npmjs.com/about-package-readme-files/);
+Pi uses the published [gallery metadata](https://pi.dev/docs/latest/packages#gallery-metadata).
+
 ```bash
 # 1. The new version exists on the registry
 npm view @chankov/agent-fleet versions --json | tail -5

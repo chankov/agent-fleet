@@ -3,11 +3,11 @@ import test from "node:test";
 import { createRosterPolicy } from "./roster.ts";
 
 const defs = [{ name: "builder" }, { name: "tester" }];
-function fixture(mode: "operator" | "orchestrator" = "operator") {
+function fixture(mode: "operator" | "orchestrator" = "operator", teams: Record<string, string[]> = { default: ["builder"] }) {
 	const states = new Map<string, { def: typeof defs[number]; status: string; sessionFile: string | null }>();
 	let team = ""; const persisted: string[] = []; let refreshes = 0; let recomputes = 0;
 	const policy = createRosterPolicy({
-		getTeams: () => ({ default: ["builder"] }), getAllDefs: () => defs, getStates: () => states,
+		getTeams: () => teams, getAllDefs: () => defs, getStates: () => states,
 		getActiveTeamName: () => team, setActiveTeamName: value => { team = value; }, clearBackendNotices: () => {},
 		createFreshState: (def, adoption) => ({ def, status: "idle", sessionFile: adoption?.file ?? null }),
 		adoptSession: def => def.name === "tester" ? { file: null, quarantined: "/q/tester.json", reason: "truncated" } : { file: "/s/builder.json", quarantined: null, reason: null },
@@ -26,6 +26,35 @@ test("roster activation and persistence preserve the named team and fresh adopta
 	f.policy.persistActiveRoster();
 	assert.deepEqual(f.persisted, ["default"]);
 	assert.equal(f.recomputes(), 1);
+});
+
+test("fallback activation selects the first configured valid team, not a hardcoded default", () => {
+	const f = fixture("operator", { empty: [], stale: ["builder", "missing"], plan: ["tester"], default: ["builder"] });
+	assert.equal(f.policy.activateFirstValidTeam(), true);
+	assert.equal(f.team(), "plan");
+	assert.deepEqual([...f.states.keys()], ["tester"]);
+});
+
+test("fallback activation uses default when it is first and leaves existing agents untouched", () => {
+	const f = fixture();
+	assert.equal(f.policy.activateFirstValidTeam(), true);
+	assert.equal(f.team(), "default");
+	f.policy.add("tester");
+	const builder = f.states.get("builder");
+	assert.equal(f.policy.activateFirstValidTeam(), true);
+	assert.equal(f.states.get("builder"), builder);
+	assert.deepEqual([...f.states.keys()], ["builder", "tester"]);
+});
+
+test("fallback activation leaves an empty roster unchanged when no valid team exists", () => {
+	for (const teams of [{}, { empty: [], stale: ["missing"] }]) {
+		const f = fixture("operator", teams);
+		assert.equal(f.policy.activateFirstValidTeam(), false);
+		assert.equal(f.team(), "");
+		assert.equal(f.states.size, 0);
+		assert.deepEqual(f.persisted, []);
+		assert.equal(f.recomputes(), 0);
+	}
 });
 
 test("dynamic roster reports quarantine recovery and protects the last orchestrator member", () => {

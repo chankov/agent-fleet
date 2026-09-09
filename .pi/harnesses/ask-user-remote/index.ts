@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { raceAskUser } from "./race-core.js";
 import { questionChannel, type QuestionChannel } from "./questions.ts";
+import { registerRuntimeAsk } from "./runtime-ask.ts";
 
 interface ToolRegistration {
 	name: string;
@@ -456,6 +457,7 @@ export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions 
 	});
 	try {
 		pi.registerTool(wrapped);
+		if (pi.events?.on && wrapped.execute) registerRuntimeAsk(pi.events, (...args) => wrapped.execute!(...args));
 		const channel = options.questionChannel ?? questionChannel;
 		channel.enabled = true;
 		pi.on?.("session_start", () => { channel.reset(); channel.enabled = true; });

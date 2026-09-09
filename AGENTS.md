@@ -2,6 +2,10 @@
 
 This file provides guidance to AI coding agents working with code in this repository. pi is the coding agent Agent Fleet installs for; Claude Code takes part only as a coms peer (see `docs/claude-code-coms-bridge.md`).
 
+## Terminal File Links
+
+- In terminal responses, link local files using descriptive Markdown link text and an absolute `file:///` URL, e.g. `[Agent guide](file:///absolute/path/to/AGENTS.md)`. Do not use relative Markdown link targets or show bare paths instead of named links. This avoids Zed/macOS opening errors.
+
 ## Repository Overview
 
 Agent Fleet — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of lifecycle skills and agent personas for pi. Skills live in two roots: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (native wins on name collisions — see `docs/UPSTREAM-SKILLS.md`).

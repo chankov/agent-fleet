@@ -155,7 +155,7 @@ test("native dispatch factory preserves coms routing and native completion", asy
 	assert.equal(result.exitCode, 0);
 	assert.equal(state.status, "done");
 	assert.equal(state.lastBackend, "native");
-	assert.equal(state.sessionFile, "/tmp/agent-hub-native-test/builder.json");
+	assert.match(state.sessionFile!, /dispatches\/[a-f0-9-]+\/session\.json$/);
 });
 
 test("delegation observability preserves nesting, usage, timeline, and exit history", () => {
@@ -269,4 +269,56 @@ test('local-duo serializes every declared child locally without project override
   }
   assert.equal(roles,18);
  }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
+});
+
+for (const sample of [
+	{ name: "assistant provider failure", result: { exitCode: 1, assistantError: "SYNTHETIC: provider request failed", stderr: "" }, reason: "assistant_error" },
+	{ name: "stderr and partial output", result: { exitCode: 1, assistantError: "SYNTHETIC: model failed", stderr: "stderr detail", output: "partial work" }, reason: "assistant_error" },
+	{ name: "spawn failure", result: { exitCode: 1, spawnError: "spawn ENOENT", stderr: "spawn stderr" }, reason: "spawn_error" },
+	{ name: "operator cancellation with zero process exit", operatorCancelled: true, result: { exitCode: 0, stderr: "cancelled stderr" }, reason: "operator_cancelled" },
+	{ name: "classified termination", result: { exitCode: 124, stderr: "watchdog stderr", termination: { reason: "turn_timeout", confirmed: true } }, reason: "turn_timeout" },
+]) {
+	test(`native completion preserves ${sample.name} diagnostics and execution identity`, async () => {
+		const state = nativeState(); let transcript = "";
+		const res = { output: "", toolCallsStarted: 0, modelUsed: "provider/actual-model", ...sample.result };
+		const native = createDispatchNative(nativeDeps(state, {
+			createTranscriptStore: (path: string) => { transcript = path; return { append() {} }; },
+			spawnPiAgentWithModelFallback: async () => { if (sample.operatorCancelled) state.killedByOperator = true; return res; },
+		}));
+		const result = await native.dispatchAgent("builder", "task", extensionContext);
+		const diagnostics = (result as any).diagnostics;
+		assert.ok(diagnostics, "provider/process diagnostics must not be discarded by completion");
+		assert.equal(diagnostics.reason, sample.reason);
+		assert.notEqual(result.exitCode, 0, "a failed/cancelled run is never delivered as success");
+		assert.equal(diagnostics.stderr, res.stderr);
+		assert.equal(diagnostics.assistantError, (res as any).assistantError ?? null);
+		assert.equal(diagnostics.modelUsed, "provider/actual-model");
+		assert.equal(diagnostics.toolCallsStarted, 0);
+		assert.equal(diagnostics.processExitCode, res.exitCode);
+		assert.deepEqual(diagnostics.termination, (res as any).termination ?? null);
+		assert.equal((result as any).transcriptPath, transcript);
+		assert.ok((result as any).dispatchId);
+		assert.ok(transcript.includes((result as any).dispatchId));
+		if ((res as any).assistantError) assert.ok(result.output.includes((res as any).assistantError));
+		if (res.stderr) assert.ok(result.output.includes(res.stderr));
+	});
+}
+
+test("native retries preserve complete per-dispatch evidence and previous raw session", async t => {
+ const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import("node:fs");
+ const { tmpdir } = await import("node:os"); const { join, dirname } = await import("node:path");
+ const dir = mkdtempSync(join(tmpdir(), "native-bundle-")); t.after(() => rmSync(dir, { recursive: true, force: true }));
+ const state = nativeState(); let counter = 0; const rawPaths: string[] = [];
+ const native = createDispatchNative(nativeDeps(state, { getSessionDir: () => dir,
+  spawnPiAgentWithModelFallback: async (opts: any) => { rawPaths.push(opts.sessionFile); writeFileSync(opts.sessionFile, `session ${++counter}`); return { output: `result ${counter}`, exitCode: 0, stderr: "", toolCallsStarted: 1 }; },
+ }));
+ const first = await native.dispatchAgent("builder", "first task", extensionContext, [], ["src/**"]);
+ state.runCount = 0;
+ const second = await native.dispatchAgent("builder", "second task", extensionContext, [], ["src/**"]);
+ assert.ok(first.evidencePath, "full result bundle must be retained even without assertion IDs");
+ assert.notEqual(first.evidencePath, second.evidencePath);
+ assert.equal(JSON.parse(readFileSync(first.evidencePath!, "utf8")).output, "result 1");
+ const request = JSON.parse(readFileSync(join(dirname(first.evidencePath!), "request.json"), "utf8"));
+ assert.equal(request.task, "first task"); assert.deepEqual(request.scope, ["src/**"]);
+ assert.notEqual(rawPaths[0], rawPaths[1]); assert.equal(readFileSync(rawPaths[0], "utf8"), "session 1");
 });

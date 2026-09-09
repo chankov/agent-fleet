@@ -1,5 +1,7 @@
 # pi setup
 
+<img src="https://raw.githubusercontent.com/chankov/agent-fleet/main/docs/assets/branding/agent-fleet-logo-white-v1.png" alt="Agent Fleet — Many agents. One direction." width="480">
+
 Agent Fleet is pi-first. Its deterministic lifecycle writes copied workspace
 artifacts; the package-native path exposes skills/prompts directly.
 

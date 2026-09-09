@@ -19,7 +19,8 @@ function fixture() {
 		getTurnDispatchCount: () => values.turnDispatch, setTurnDispatchCount: value => { values.turnDispatch = value; events.push("turn-dispatch"); },
 		getTurnResearchCount: () => values.turnResearch, setTurnResearchCount: value => { values.turnResearch = value; events.push("turn-research"); },
 		getTurnBudgetAskUserWaitMs: () => values.turnWait, setTurnBudgetAskUserWaitMs: value => { values.turnWait = value; events.push("turn-wait"); },
-		setPendingBudgetContinuation: value => { values.pending = value; events.push("pending"); }, clearBudgetContinuationAsks: () => events.push("asks"),
+		resetNoProgress() { events.push("progress-reset"); },
+		resetBudgetRecovery: () => { values.pending = null; events.push("recovery-reset"); },
 		getTaskContinuationCount: () => values.taskContinuation, setTaskContinuationCount: value => { values.taskContinuation = value; events.push("task-continuation"); },
 		getTurnContinuationCount: () => values.turnContinuation, setTurnContinuationCount: value => { values.turnContinuation = value; events.push("turn-continuation"); },
 		getTaskDispatchCount: () => values.taskDispatch, setTaskDispatchCount: value => { values.taskDispatch = value; events.push("task-dispatch"); },
@@ -53,6 +54,7 @@ test("task continuation renews counters while preserving task identity and block
 	assert.equal(values.pending.kind, "task");
 	assert.ok(!events.includes("capabilities"));
 	assert.ok(!events.includes("blockers"));
+	assert.ok(!events.includes("progress-reset"));
 });
 
 test("new-task reset preserves the capability, blocker, and status side-effect order", () => {
@@ -61,6 +63,7 @@ test("new-task reset preserves the capability, blocker, and status side-effect o
 	assert.equal(values.label, "next");
 	assert.equal(values.tier, null);
 	assert.equal(values.pending, null);
+	assert.equal(events.filter(event => event === "progress-reset").length, 1);
 	const ordered = ["capabilities", "blockers", "fingerprints", "resolve-capabilities", "work-mode-tools", "status"];
 	assert.deepEqual(events.filter(event => ordered.includes(event)), ordered);
 });

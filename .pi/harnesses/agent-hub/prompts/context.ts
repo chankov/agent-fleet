@@ -31,6 +31,7 @@ export interface HubPromptState {
 
 /** Read-only prompt dependencies. Mutable Hub state remains owned by index.ts. */
 export interface HubPromptContext {
+	getArtifactRoot?(): string | null;
 	getCapabilityResolution(): CapabilityResolution;
 	getActiveTools(): readonly string[];
 	getAgents(): readonly HubPromptAgent[];

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { safeAgentKey } from "./helpers.ts";
 
-export function monitorKeyForAgent(name:string,runCount:number){return`${safeAgentKey(name)}:${runCount}`;}
+export function monitorKeyForAgent(name:string,runCount:number|string){return`${safeAgentKey(name)}:${runCount}`;}
 export function cancelLocalOwnedProcess(input:any){try{void Promise.resolve(input.monitorBridge?.markCancelling(input.monitorKey)).catch(()=>{});}catch{}input.treeKill(input.process);}
 export async function cancelLocalWaitOnly(input:any){input.abort?.();try{await input.monitorBridge?.cancelWaitOnly(input.monitorKey,input.event);}catch{}}
 export function linuxProcessIdentity(proc:any){try{if(!Number.isInteger(proc?.pid)||proc.pid<=0)return null;const stat=fs.readFileSync(`/proc/${proc.pid}/stat`,"utf8");const close=stat.lastIndexOf(")");const fields=stat.slice(close+2).trim().split(/\s+/);const starttime=fields[19];return starttime?{pid:proc.pid,starttime}:null;}catch{return null;}}

@@ -103,7 +103,7 @@ test("turn resets stay lifecycle-owned and af-context remains side-effect free",
 	assert.doesNotMatch(promptSource, /applyWorkModeTools|closeTurnActiveTime|openTaskClock|startTurn|turnDispatchCount\s*=|pendingBudgetContinuation|freshTurnReport|updateModeStatus/);
 	for (const required of ["ports.applyWorkMode()", "ports.closeTurnActiveTime(startedAt)", "ports.openTaskClock(startedAt)", "ports.startHistoryTurn(startedAt)", "ports.resetTurnBudgetState()", "ports.updateModeStatus()"])
 		assert.ok(turnLifecycleSource.includes(required), `turn reset preserves ${required}`);
-	assert.match(source, /resetTurnBudgetState: \(\) => \{[\s\S]*turnBudgetAskUserWaitMs = 0[\s\S]*budgetContinuationAsks\.clear\(\)[\s\S]*turnDispatchCount = 0[\s\S]*turnResearchCount = 0[\s\S]*turnDispatchFingerprints\.clear\(\)[\s\S]*externalBlockerAcknowledged = true[\s\S]*externalBlockerRefusedOnce = false[\s\S]*turnReport = freshTurnReport\(\)/);
+	assert.match(source, /resetTurnBudgetState: \(\) => \{[\s\S]*turnBudgetAskUserWaitMs = 0[\s\S]*turnDispatchCount = 0[\s\S]*turnResearchCount = 0[\s\S]*turnDispatchFingerprints\.clear\(\)[\s\S]*externalBlockerAcknowledged = true[\s\S]*externalBlockerRefusedOnce = false[\s\S]*turnReport = freshTurnReport\(\)/);
 	const contextCommand = contextUiSource.slice(contextUiSource.indexOf("async function openContextBudget"));
 	assert.match(contextCommand, /buildHubSystemPrompt\(\)/);
 	assert.doesNotMatch(contextCommand, /resetHubPromptTurn/);

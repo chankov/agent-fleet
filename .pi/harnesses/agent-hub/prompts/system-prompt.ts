@@ -60,7 +60,9 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const languageLines = languageFragment(askUserAvailable, userLanguage);
 	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution);
 	const stableModeSection = fleetActive ? TASK_TRIAGE_FRAGMENT : "";
-	const verificationSection = verificationActive ? verificationFragment(MAX_OPEN_ASSERTIONS) : "";
+	const artifactRoot = ctx.getArtifactRoot?.();
+	const verificationSection = (verificationActive ? verificationFragment(MAX_OPEN_ASSERTIONS) : "") +
+		(artifactRoot && (verificationActive || fleetActive) ? `\n\nSession artifact root: ${artifactRoot}. Use this absolute root for read/write tools. Handoff paths artifacts/<kind>/... are relative to this root, not the repository. Legacy shared .pi/agent-sessions/artifacts paths belong to other sessions; do not overwrite them.` : "");
 	const comsSection = comsFragment(peerActive, ctx.isComsReady(), ctx.getIdentity());
 	const workModeText = workModePrompt(ctx.getWorkMode());
 	const herdrSection = workspaceActive && ctx.isHerdrFleetReady() ? HUB_HERDR_SECTION : "";
