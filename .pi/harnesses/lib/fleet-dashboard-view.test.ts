@@ -12,6 +12,12 @@ test("dashboard has fixed height with hierarchy, columns, bars, and aggregates",
 	assert.match(text, /Fleet.*3 running.*1 done.*1:30.*20k tok/); assert.match(text, /└ child/); assert.match(text, /\[automatic\].*—/); assert.match(text, /\[##/); assert.match(text, /npm test/);
 });
 
+test("dashboard footer lists supported bindings without continue", () => {
+	const footer = renderFleetDashboard(vm([row("root")]), 200, 3, theme).at(-1)!;
+	assert.doesNotMatch(footer, /c continue/);
+	assert.equal(footer, "↑↓ select · Enter open · h history · m substitute · x kill · r restart · f filter · a all · q close");
+});
+
 test("dashboard pins coms lines below chrome", () => {
 	const lines = renderFleetDashboard({ ...vm([row("root")]), comsLines: [" coms ", " alpha "] }, 80, 3, theme);
 	assert.equal(lines.length, 3 + FLEET_CHROME_ROWS + 2);
