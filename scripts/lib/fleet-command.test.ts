@@ -11,7 +11,7 @@ import { parseFleetCommand } from "./fleet-command.ts";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function assertCompleteFleetGuide(output: string): void {
-	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "DETERMINISTIC FLOWS", "UNIFIED HUB", "WORK MODE AND ROSTER", "HERDR TOPOLOGY", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CODEX REMOTE-CONTROL CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
+	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "DETERMINISTIC FLOWS", "UNIFIED HUB", "WORK MODE AND ROSTER", "HERDR TOPOLOGY", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
 		assert.match(output, new RegExp(section));
 	}
 	assert.match(output, /just fleet\s+# Hub\/operator, empty native roster/);
@@ -231,30 +231,12 @@ test("fleet lifecycle commands map to deterministic CLI and dependency recipes",
 	assert.deepEqual(parseFleetCommand(["resume", "docs"]), { recipe: "_fleet-team-resume", args: ["docs"] });
 });
 
-test("fleet conductor maps Hermes and Codex runtime modes", () => {
+test("fleet conductor maps Hermes runtime mode and refuses Codex", () => {
 	assert.deepEqual(parseFleetCommand(["conductor", "hermes", "docs", "--dry-run", "--project", "af"]), {
 		recipe: "_fleet-conductor-dry",
 		args: ["docs", "--project", "af"],
 	});
-	assert.deepEqual(parseFleetCommand(["conductor", "codex", "docs", "--project", "af"]), {
-		recipe: "_fleet-conductor-codex",
-		args: ["docs", "--project", "af"],
-	});
-});
-
-test("fleet conductor maps Codex service lifecycle", () => {
-	assert.deepEqual(parseFleetCommand(["conductor", "codex", "setup", "docs", "--project", "af"]), {
-		recipe: "_fleet-conductor-codex-setup",
-		args: ["docs", "--project", "af"],
-	});
-	assert.deepEqual(parseFleetCommand(["conductor", "codex", "pair"]), {
-		recipe: "_fleet-conductor-codex-pair",
-		args: [],
-	});
-	assert.deepEqual(parseFleetCommand(["conductor", "codex", "recover"]), {
-		recipe: "_fleet-conductor-codex-recover",
-		args: [],
-	});
+	assert.throws(() => parseFleetCommand(["conductor", "codex", "docs"]), /Unknown conductor backend/);
 });
 
 test("fleet rejects unknown modes, invalid canonical combinations, and duplicate Fleet flags", () => {

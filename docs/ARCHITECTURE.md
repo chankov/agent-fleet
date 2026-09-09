@@ -16,7 +16,7 @@ the runtime responsibilities and where each module lives in the repository.
 | **Hermes bridge** | Remote human control — relays hub questions to Telegram, races phone vs. local answers, conductor/liaison skills | `scripts/coms-hermes-bridge.ts`, `.pi/harnesses/ask-user-remote/`, `hermes/skills/` — see [coms-hermes-bridge.md](coms-hermes-bridge.md) |
 | **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `scripts/lib/`) — see [Hermes artifacts](../hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
-| **Codex remote-control conductor** | Experimental outbound-only, user-systemd-managed Android conductor; verified on Codex CLI 0.144.x | `scripts/codex-remote-control.ts`, `scripts/codex-conductor.ts`, `codex/CONDUCTOR.md`, `systemd/user/`; runtime under `~/.local/state/agent-fleet/codex-conductor/` — see [codex-remote-conductor.md](codex-remote-conductor.md) |
+| **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `scripts/fleet-codex-client.ts`, `scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/`, `bin/lib/personas.js` |
 
@@ -136,7 +136,7 @@ hub (operator by default; orchestrator when selected)
     ├── architect / releaser / web-debugger panes
     ├── Claude Code peer (coms bridge)
     ├── Hermes (phone human · inbound ask_user)
-    └── Codex Remote Control (Android · outbound coms delegation)
+    └── ChatGPT Fleet session client (Desktop/Android · existing Pi session)
 ```
 
 Composition rule: **the hub (or a slash command) orchestrates; personas do not invoke other personas as peers.** Specialists may only fan out to their configured **sub-agents**. Research helpers write findings to disk; the hub resumes specialists with paths, not raw dumps.
@@ -244,7 +244,7 @@ flowchart TD
     AF -->|control plane| HERDR["<b>herdr</b><br/>tiled peer workspaces,<br/>presence, snapshot/resume"]
     AF -->|coms peer only| CC["<b>Claude Code</b><br/>bidirectional peer via<br/>the coms bridge<br/><i>not an install target</i>"]
     AF -->|remote human| HERMES["<b>Hermes</b><br/>hub questions relayed to your phone,<br/>plus the Desktop fleet panel"]
-    AF -->|outbound remote delegation| CODEX["<b>Codex Remote Control</b><br/>Android-approved calls to<br/>listed coms peers (experimental)"]
+    AF -->|ChatGPT-initiated session client| CODEX["<b>ChatGPT Fleet session client</b><br/>existing Pi session via<br/>opt-in chatgpt-client (experimental)"]
 ```
 
 ### External dependencies
@@ -257,7 +257,7 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 | **[herdr](https://herdr.dev)** | Workspace control plane: Hub/peer panes, presence push events, team snapshot/resume | Required for `--herdr` or `--peers`; optional for bare `just fleet` |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | First-class coms peer via the [coms bridge](claude-code-coms-bridge.md) — cross-model review and analysis. Never an install target: it hosts no skills, commands, or personas | Optional peer |
 | **Hermes** | Remote human-in-the-loop (Telegram relay for hub questions — [coms-hermes-bridge](coms-hermes-bridge.md)) and the Desktop fleet panel ([hermes-desktop-plugins](hermes-desktop-plugins.md), needs v0.19.0+ and the Desktop app) | Optional |
-| **Codex CLI + ChatGPT Android** | Experimental outbound remote-control conductor on supported `0.144.x`; requires Node `22.6+`, user systemd, interactive pairing, and per-command mobile approvals — [runbook](codex-remote-conductor.md) | Optional / revalidate after minor-version or mobile-client changes |
+| **ChatGPT Desktop/Android** | Experimental opt-in Fleet session client for an existing Pi session; Node 22.18+, Python 3.10+, local herdr/coms access — [runbook](codex-session-bridge.md) | Optional experimental feature `chatgpt-client` |
 | **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** | Upstream skill library (manually vendored) | Bundled (vendored) |
 | **[disler/pi-vs-claude-code](https://github.com/disler/pi-vs-claude-code)** | Source inspiration / MIT port origin for pi harnesses | Design lineage (ported in-repo) |
 | **LLM providers** | Models per persona (`model:` / `models:` in agent frontmatter) — e.g. OpenAI Codex, GitHub Copilot, Ollama, … | Yes (at least one provider your agents can call) |

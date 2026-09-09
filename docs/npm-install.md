@@ -38,7 +38,7 @@ npx @chankov/agent-fleet@1.0.0 setup --preset default --features none --yes
 nor voice configuration. **Full** selects every stable, platform-applicable
 catalogue root; it may install the recorded Claude Code coms bridge. Features
 are additive named capabilities (`browser`, `voice`, `hermes`, `telegram`,
-`claude-bridge`, and the experimental `codex-remote`), not an arbitrary
+`claude-bridge`, and the experimental `chatgpt-client`), not an arbitrary
 package-entry mode — `setup --help` lists them.
 
 ### Then install the runtime dependencies

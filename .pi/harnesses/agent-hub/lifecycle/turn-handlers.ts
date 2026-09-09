@@ -93,3 +93,12 @@ export function createTurnLifecycleHandlers(ports: TurnLifecyclePorts): TurnLife
 		},
 	};
 }
+
+/** Custom coms messages skip before_agent_start, but every run emits agent_start. */
+export function registerTurnPresence(
+ events: {on(event: "agent_start" | "agent_end", handler: () => Promise<void>): unknown},
+ handlers: Pick<TurnLifecycleHandlers, "beforeAgentPresence" | "agentEndPresence">,
+): void {
+ events.on("agent_start", () => handlers.beforeAgentPresence());
+ events.on("agent_end", () => handlers.agentEndPresence());
+}

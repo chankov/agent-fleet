@@ -95,6 +95,28 @@ class SlugTest(unittest.TestCase):
 
 
 class MatchTest(TempTree):
+    def test_reload_replaces_identity_in_the_same_transcript(self):
+        path = self.transcript("reload.jsonl", [boot()])
+        self.assertEqual(activity.find_transcript(CWD, SESSION, self.root), path)
+        # A reload can happen well beyond the original bounded head scan.
+        write(path, [{"padding": "x" * (300 * 1024)}, boot("RELOADED")])
+        self.assertEqual(activity.find_transcript(CWD, "RELOADED", self.root), path)
+        self.assertIsNone(activity.find_transcript(CWD, SESSION, self.root))
+
+    def test_boot_outside_scan_budget_does_not_restore_old_identity(self):
+        path = self.transcript("bounded.jsonl", [boot(), boot("RELOADED"), {"padding": "x" * 1024}])
+        with patch.object(activity, "BOOT_BYTES", 256):
+            self.assertIsNone(activity.boot_identity(path))
+
+    def test_partial_reload_record_is_not_parsed(self):
+        path = self.transcript("partial.jsonl", [boot()])
+        with path.open("a") as handle:
+            handle.write(json.dumps(boot("RELOADED")))
+        self.assertEqual(activity.boot_identity(path)['session_id'], SESSION)
+        with path.open("a") as handle:
+            handle.write("\n")
+        self.assertEqual(activity.boot_identity(path)['session_id'], 'RELOADED')
+
     def test_the_transcript_is_found_through_boot_not_the_slug(self):
         path = self.transcript("a.jsonl", [boot(), assistant([tool_call("bash", {"command": "ls"})])])
         self.assertEqual(activity.find_transcript(CWD, SESSION, self.root), path)

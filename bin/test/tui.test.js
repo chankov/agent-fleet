@@ -6,7 +6,7 @@ const manifest = {
   presets: { default: {}, full: {} },
   features: {
     voice: { stability: "stable" },
-    "codex-remote": { stability: "experimental" },
+    "chatgpt-client": { stability: "experimental" },
   },
 };
 const run = (answers, currentDesired = null) => {
@@ -23,7 +23,7 @@ test("TUI offers labelled features and accepts Default, a valid feature, and Ful
   let value = await run(["1", ""]);
   assert.deepEqual(value.result, { cancelled: false, preset: "default", features: [], changed: false });
   assert.match(value.text, /voice \(stable\)/);
-  assert.match(value.text, /codex-remote \(experimental\)/);
+  assert.match(value.text, /chatgpt-client \(experimental\)/);
 
   value = await run(["1", "voice"]);
   assert.deepEqual(value.result, { cancelled: false, preset: "default", features: ["voice"], changed: true });
@@ -34,7 +34,7 @@ test("TUI offers labelled features and accepts Default, a valid feature, and Ful
 });
 
 test("TUI keeps existing desired state for blank input and retries unknown identifiers", async () => {
-  const currentDesired = { preset: "full", features: { voice: true, "codex-remote": false } };
+  const currentDesired = { preset: "full", features: { voice: true, "chatgpt-client": false } };
   const value = await run(["", "unknown", ""], currentDesired);
   assert.deepEqual(value.result, { cancelled: false, preset: "full", features: ["voice"], changed: false });
   assert.match(value.text, /Unknown feature "unknown".*Try again/i);

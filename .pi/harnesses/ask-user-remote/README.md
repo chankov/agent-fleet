@@ -2,10 +2,10 @@
 
 Harness wrapper for `pi-ask-user` that preserves the stock `ask_user` UI and result shape while optionally racing it against the Hermes `user-remote` coms peer.
 
-The experimental Codex Remote-Control conductor is **not** an inbound `ask_user` route. It initiates approval-gated outbound delegation from Android; Hermes remains the only phone answer participant in this race. See the [Codex conductor runbook](https://github.com/chankov/agent-fleet/blob/main/docs/codex-remote-conductor.md).
+The experimental ChatGPT Fleet session client can explicitly list and answer wrapper-owned questions through the existing coms socket. Local UI, Hermes and addressed client responses share the same first-valid-answer race. See the [session client runbook](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md).
 
 - The stock `pi-ask-user` extension is loaded through a capture proxy; its `ask_user` tool is not registered directly.
-- If no live `user-remote` peer is present at call time, the wrapper calls stock `execute` with the original arguments and signal unchanged.
+- If neither an addressed question channel nor a live `user-remote` peer is available, the wrapper calls stock `execute` with the original arguments and signal unchanged.
 - Remote lookup follows the explicit Pi `--project <name>` flag at tool-execution time (then `pi.getFlag`, `PI_COMS_PROJECT`, and finally `default`), so a hub and bridge in the same non-default pool can race correctly even though Pi finishes CLI parsing after extension factories load.
 - If `user-remote` is present, the wrapper races local stock UI against the remote coms request using `race-core.js`; first answer wins and local-first emits one best-effort cancel.
 - If another extension already registered `ask_user`, registration failure is caught and logged as a warning instead of crashing the session.
@@ -51,3 +51,9 @@ Pick **one** path for Agent Fleet skills and lifecycle prompts:
 `agent-fleet verify` / `doctor` emit a read-only `pi-package-ownership` advisory when both paths overlap. See [docs/pi-setup.md](../../../docs/pi-setup.md).
 
 Tests use fakes for the stock TUI and coms peer. The abort test proves signal propagation and the stock-shaped `{cancelled:true}` result through a fake captured tool; it does not drive a live TUI overlay.
+
+## Addressed client questions
+
+When co-loaded with an updated Hub or coms harness, the wrapper exposes its pending questions to `fleet-codex-client.ts questions`. The session-specific coms custom-envelope route checks owner identity and dispatches `list`, `answer` and `cancel` requests directly into the same local/remote race latch. No extra remote peer or service is needed.
+
+Only valid responses allowed by the question flags can win. The accepted answer returns the stock tool result; local-first and remote-first races classify later submissions explicitly. Tool abort and session reset expire the address. The process keeps bounded pending/terminal records; a restart never makes old question IDs answerable. Unsupported/skipped wrappers are reported as such. See [client runbook](../../../docs/codex-session-bridge.md) for the CLI, limits and recovery semantics.

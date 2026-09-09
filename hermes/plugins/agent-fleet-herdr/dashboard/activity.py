@@ -18,7 +18,7 @@ mode this whole module is shaped to avoid: it is not "no data", it is confident
 fiction.
 
 **Bounded reads only.** A long session's transcript is megabytes and it is being
-appended to while we read it. The tail is capped, the head scan that finds `boot`
+appended to while we read it. The tail is capped, the reverse scan for `boot`
 is capped, the candidate list is capped, and every parse is cached on
 `(path, size, mtime)` so a 3s poll of an idle agent costs one `stat`.
 
@@ -44,10 +44,10 @@ from pathlib import Path
 # — far more than a pane shows — and a hard ceiling on what a poll costs.
 TAIL_BYTES = 256 * 1024
 
-# The head we are willing to read looking for `boot`. It is written within the
-# first few lines, but a session that opens with a large pasted prompt can push
-# it down; past this we give up on the file rather than read all of it.
-HEAD_BYTES = 256 * 1024
+# Reload/resume appends another boot in the same file. Find the latest complete
+# boot within a bounded suffix; never fall back to a superseded head identity.
+# Older boots outside this window are unavailable until a new boot is visible.
+BOOT_BYTES = 4 * 1024 * 1024
 
 # Newest-first, by mtime. A cwd with more transcripts than this has older ones
 # that cannot belong to a session the registry currently calls live.
@@ -199,7 +199,7 @@ def candidate_paths(cwd: str, root: Path | None = None) -> list[Path]:
     """Transcripts for this cwd, newest first. Never raises.
 
     Newest first because the match usually lands on the first file, and the scan
-    stops as soon as `boot` agrees — so the common case reads one head.
+    stops as soon as `boot` agrees — so the common case scans one bounded file.
     """
     slug = slug_for_cwd(cwd)
     if not slug:
@@ -245,18 +245,16 @@ def _stat(path: Path):
 
 
 def boot_identity(path: Path) -> dict | None:
-    """`{session_id, name, project}` from this transcript's coms-log boot.
+    """`{session_id, name, project}` from the latest complete visible coms boot.
 
-    `None` for a transcript with no boot record at all — a pi session that never
-    joined coms. That is the normal case for most files in a cwd, so it must be
-    cheap and silent, not an error.
+    `None` when the bounded suffix has no boot. This includes sessions that never
+    joined coms and boots beyond the scan window; identity is never guessed.
     """
     info = _stat(path)
     if info is None:
         return None
-    # The record is immutable once written, so the key only has to notice the
-    # file being REPLACED — a new inode, or one that shrank.
-    key = (str(path), info.st_ino, info.st_size)
+    # Appended reload boots and same-size replacements must invalidate identity.
+    key = (str(path), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
     cached = _boot_cache.take(key)
     if cached is not None:
         return cached.get("identity")
@@ -264,10 +262,15 @@ def boot_identity(path: Path) -> dict | None:
     identity = None
     try:
         with open(path, "rb") as handle:
-            head = handle.read(HEAD_BYTES)
+            start = max(0, info.st_size - BOOT_BYTES)
+            handle.seek(start)
+            data_bytes = handle.read(min(info.st_size, BOOT_BYTES))
+            if start:
+                cut = data_bytes.find(b"\n")
+                data_bytes = data_bytes[cut + 1:] if cut >= 0 else b""
     except OSError:
-        head = b""
-    for line in head.split(b"\n")[:-1] or []:
+        data_bytes = b""
+    for line in reversed(data_bytes.split(b"\n")[:-1]):
         try:
             record = json.loads(line.decode("utf-8", "replace"))
         except ValueError:

@@ -64,7 +64,7 @@ when you are on the herdr backend.
 Two optional phone-facing conductors use this same pool without becoming pane owners:
 
 - **Hermes/Telegram** is the inbound `ask_user` route and can also perform bounded coms delegation.
-- **Codex Remote Control** is an experimental outbound-only Android route. Its user-systemd service loads a managed contract from an external user-state workspace, and `scripts/codex-conductor.ts` permits only scoped `list` plus one serialized `send --await`. See the [operator runbook](https://github.com/chankov/agent-fleet/blob/main/docs/codex-remote-conductor.md).
+- **ChatGPT Fleet session client** is an experimental ChatGPT-initiated client for an existing Pi session. It reuses list/send/await semantics and does not own a systemd unit. See the [session client runbook](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md).
 
 Both must use the same validated project as the peers they target. Neither conductor may drive Herdr lifecycle.
 

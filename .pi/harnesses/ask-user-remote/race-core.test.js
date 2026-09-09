@@ -25,6 +25,54 @@ function stockResult(label) {
 	};
 }
 
+test("addressed answers share the local race latch and classify late submissions synchronously", async () => {
+	const local = deferred();
+	let offer;
+	const winners = [];
+	let localSignal;
+	const result = raceAskUser({
+		runLocal: signal => { localSignal = signal; return local.promise; },
+		registerAnswer: accept => { offer = accept; },
+		onSettled: value => winners.push(value.source),
+	});
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(typeof offer, "function");
+	const answer = stockResult("phone");
+	assert.equal(offer(answer), true);
+	assert.equal(offer(stockResult("duplicate")), false);
+	assert.equal(await result, answer);
+	assert.equal(localSignal.aborted, true);
+	local.resolve(stockResult("late local"));
+	assert.deepEqual(winners, ["addressed"]);
+});
+
+test("local answer closes the addressed channel before the caller resumes", async () => {
+	const local = deferred();
+	let offer;
+	const winners = [];
+	const result = raceAskUser({runLocal: () => local.promise,
+		registerAnswer: accept => { offer = accept; }, onSettled: value => winners.push(value.source)});
+	await new Promise(resolve => setImmediate(resolve));
+	local.resolve(stockResult("local"));
+	await result;
+	assert.equal(offer(stockResult("late phone")), false);
+	assert.deepEqual(winners, ["local"]);
+});
+
+test("abort disables addressed submissions while preserving the local cancellation result", async () => {
+	const local = deferred();
+	const controller = new AbortController();
+	let offer;
+	const result = raceAskUser({runLocal: () => local.promise, signal: controller.signal,
+		registerAnswer: accept => { offer = accept; }});
+	await new Promise(resolve => setImmediate(resolve));
+	controller.abort();
+	assert.equal(offer(stockResult("too late")), false);
+	const cancelled = stockResult("cancelled");
+	local.resolve(cancelled);
+	assert.equal(await result, cancelled);
+});
+
 test("local-first returns local result and emits one remote cancel when qid is pending", async () => {
 	const local = deferred();
 	const remote = deferred();

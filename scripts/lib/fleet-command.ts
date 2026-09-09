@@ -179,8 +179,6 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 	return invocation;
 }
 
-const CODEX_LIFECYCLE = new Set(["setup", "reconfigure", "pair", "start", "status", "stop", "recover", "uninstall"]);
-
 export function parseFleetCommand(argv: string[]): FleetInvocation {
 	if (argv.length === 0 || argv[0].startsWith("--")) {
 		return parseHubInvocation(argv);
@@ -241,29 +239,13 @@ export function parseFleetCommand(argv: string[]): FleetInvocation {
 	}
 
 	if (mode === "conductor") {
-		const backend = requireValue(tail[0], "fleet conductor requires hermes or codex");
-		if (backend !== "hermes" && backend !== "codex") throw new Error(`Unknown conductor backend: ${backend}`);
+		const backend = requireValue(tail[0], "fleet conductor requires hermes");
+		if (backend !== "hermes") throw new Error(`Unknown conductor backend: ${backend}`);
 		const rest = tail.slice(1);
-		if (backend === "hermes") {
-			const team = rest[0] && !rest[0].startsWith("--") ? rest[0] : "full";
-			const afterTeam = rest[0] === team ? rest.slice(1) : rest;
-			const dry = withoutFlag(afterTeam, "--dry-run");
-			return { recipe: dry.present ? "_fleet-conductor-dry" : "_fleet-conductor", args: [team, ...dry.rest] };
-		}
-
-		const action = rest[0];
-		if (action && CODEX_LIFECYCLE.has(action)) {
-			if (action === "setup" || action === "reconfigure") {
-				const team = rest[1] && !rest[1].startsWith("--") ? rest[1] : "full";
-				const afterTeam = rest[1] === team ? rest.slice(2) : rest.slice(1);
-				return { recipe: `_fleet-conductor-codex-${action}`, args: [team, ...afterTeam] };
-			}
-			return { recipe: `_fleet-conductor-codex-${action}`, args: rest.slice(1) };
-		}
-		const team = action && !action.startsWith("--") ? action : "full";
-		const afterTeam = action === team ? rest.slice(1) : rest;
+		const team = rest[0] && !rest[0].startsWith("--") ? rest[0] : "full";
+		const afterTeam = rest[0] === team ? rest.slice(1) : rest;
 		const dry = withoutFlag(afterTeam, "--dry-run");
-		return { recipe: dry.present ? "_fleet-conductor-codex-dry" : "_fleet-conductor-codex", args: [team, ...dry.rest] };
+		return { recipe: dry.present ? "_fleet-conductor-dry" : "_fleet-conductor", args: [team, ...dry.rest] };
 	}
 
 	throw new Error(`Unknown fleet mode: ${mode}`);

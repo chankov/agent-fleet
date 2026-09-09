@@ -753,3 +753,24 @@ export default function (pi) {
 		rmSync(workspace, { recursive: true, force: true });
 	}
 });
+
+test('separately loaded Pi extensions share addressed question registration and owner', () => {
+ const workspace=mkdtempSync(join(tmpdir(),'fleet-question-loader-'));
+ try {
+  const capture=join(workspace,'questions.json');const probe=join(workspace,'probe.ts');
+  writeFileSync(probe, `
+import { writeFileSync } from 'node:fs';
+import { questionChannel } from ${JSON.stringify(join(repoRoot,'.pi/harnesses/ask-user-remote/questions.ts'))};
+export default function(pi) {
+ pi.on('session_start',()=>{
+  const q=questionChannel.open('loader-probe',{question:'Loader question?',options:['OK']});
+  writeFileSync(${JSON.stringify(capture)},JSON.stringify({enabled:questionChannel.enabled,opened:!!q}));
+  q?.expire();
+ });
+}
+`);
+  const result=runExtensionStack(repoRoot,['-e',probe,'--project','question-loader-test']);
+  assertExtensionStackLoaded(result);
+  assert.deepEqual(JSON.parse(readFileSync(capture,'utf8')),{enabled:true,opened:true});
+ } finally {rmSync(workspace,{recursive:true,force:true});}
+});

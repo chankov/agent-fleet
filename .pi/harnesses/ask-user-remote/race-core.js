@@ -15,6 +15,8 @@ export async function raceAskUser({
 	cancelRemote,
 	createAbortController = () => new AbortController(),
 	signal,
+	registerAnswer,
+	onSettled,
 }) {
 	if (typeof runLocal !== "function") throw new TypeError("runLocal is required");
 
@@ -48,11 +50,11 @@ export async function raceAskUser({
 
 	// No live user-remote peer, or remote startup failed before a qid existed:
 	// preserve stock pi-ask-user behavior exactly by returning the local result.
-	if (!remoteStart) return await localPromise;
+	if (!remoteStart && !registerAnswer) return await localPromise;
 
-	remoteQid = typeof remoteStart.qid === "string" ? remoteStart.qid : null;
+	remoteQid = typeof remoteStart?.qid === "string" ? remoteStart.qid : null;
 	remotePending = !!remoteQid;
-	const remotePromise = Promise.resolve(remoteStart.result);
+	const remotePromise = remoteStart ? Promise.resolve(remoteStart.result) : null;
 
 	// If the whole tool call is aborted (turn cancelled), withdraw the remote
 	// question instead of leaving it live on the phone until timeout.
@@ -62,14 +64,27 @@ export async function raceAskUser({
 	}
 
 	return await new Promise((resolve, reject) => {
+		const finish = (source, result) => { onSettled?.({ source, result }); };
+		// The addressed endpoint receives the result of this same synchronous latch.
+		// A successful submission cannot lose to a later local or legacy reply.
+		registerAnswer?.((result) => {
+			if (settled || signal?.aborted) return false;
+			settled = true;
+			finish("addressed", result);
+			controller.abort?.();
+			void emitCancel("addressed_answered");
+			resolve(result);
+			return true;
+		});
 		let localRejected = false;
 		let localError;
-		let remoteRejected = false;
+		let remoteRejected = !remotePromise;
 
 		localPromise.then(
 			async (result) => {
 				if (settled) return;
 				settled = true;
+				finish("local", result);
 				await emitCancel("local_answered");
 				resolve(result);
 			},
@@ -79,16 +94,18 @@ export async function raceAskUser({
 				localError = error;
 				if (remoteRejected) {
 					settled = true;
+					finish("error", undefined);
 					reject(localError);
 				}
 			},
 		);
 
-		remotePromise.then(
+		remotePromise?.then(
 			(result) => {
 				remotePending = false;
 				if (settled) return;
 				settled = true;
+				finish("remote", result);
 				controller.abort?.();
 				resolve(result);
 			},
@@ -98,6 +115,7 @@ export async function raceAskUser({
 				// Remote errors are non-fatal: keep waiting for stock local behavior.
 				if (localRejected) {
 					settled = true;
+					finish("error", undefined);
 					reject(localError);
 				}
 			},

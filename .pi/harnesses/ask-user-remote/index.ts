@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { raceAskUser } from "./race-core.js";
+import { questionChannel, type QuestionChannel } from "./questions.ts";
 
 interface ToolRegistration {
 	name: string;
@@ -33,6 +34,7 @@ interface InstallOptions {
 	/** When true, settings-listed packages are dormant (Pi `--no-extensions`/`-ne`). */
 	extensionDiscoveryDisabled?: boolean;
 	remoteProject?: string | (() => string);
+	questionChannel?: QuestionChannel;
 }
 
 export interface AskUserResultObservation {
@@ -394,25 +396,43 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 				remoteStart = null;
 			}
 
-			if (!remoteStart) {
+			const commentPreference = process.env.PI_ASK_USER_ALLOW_COMMENT?.trim().toLowerCase();
+			const addressed = (options.questionChannel ?? questionChannel).open(toolCallId, {
+				...stockParams,
+				allowComment: stockParams.allowComment ?? ["1", "true", "yes", "on"].includes(commentPreference ?? ""),
+			});
+			if (remoteStart && addressed) remoteStart = {
+				...remoteStart, result: remoteStart.result.then(addressed.validateRemote),
+			};
+			if (!remoteStart && !addressed) {
 				const result = await stockTool.execute?.(toolCallId, stockParams, signal, onUpdate, ctx);
 				emitAskUserObservation({ params: stockParams, result, phase: "result" });
 				return result;
 			}
 
-			const result = await raceAskUser({
-				runLocal: (localSignal: AbortSignal) => stockTool.execute?.(toolCallId, stockParams, localSignal, onUpdate, ctx),
-				startRemote: () => remoteStart,
-				cancelRemote: options.cancelRemote ?? ((qid: string, reason: string) => defaultCancelRemote(qid, reason, remoteProject)),
-				createAbortController: () => {
-					const controller = options.createAbortController?.() ?? new AbortController();
-					linkAbortSignal(signal, controller);
-					return controller;
-				},
-				signal,
-			});
-			emitAskUserObservation({ params: stockParams, result, phase: "result" });
-			return result;
+			const expire = () => addressed?.expire();
+			if (signal?.aborted) expire();
+			else signal?.addEventListener("abort", expire, { once: true });
+			try {
+				const result = await raceAskUser({
+					runLocal: (localSignal: AbortSignal) => stockTool.execute?.(toolCallId, stockParams, localSignal, onUpdate, ctx),
+					startRemote: () => remoteStart,
+					cancelRemote: options.cancelRemote ?? ((qid: string, reason: string) => defaultCancelRemote(qid, reason, remoteProject)),
+					createAbortController: () => {
+						const controller = options.createAbortController?.() ?? new AbortController();
+						linkAbortSignal(signal, controller);
+						return controller;
+					},
+					signal,
+					registerAnswer: addressed?.registerAnswer,
+					onSettled: addressed?.onSettled,
+				});
+				emitAskUserObservation({ params: stockParams, result, phase: "result" });
+				return result;
+			} finally {
+				signal?.removeEventListener("abort", expire);
+				expire();
+			}
 		},
 	};
 }
@@ -436,6 +456,10 @@ export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions 
 	});
 	try {
 		pi.registerTool(wrapped);
+		const channel = options.questionChannel ?? questionChannel;
+		channel.enabled = true;
+		pi.on?.("session_start", () => { channel.reset(); channel.enabled = true; });
+		pi.on?.("session_shutdown", () => { channel.reset(); channel.enabled = false; });
 		return { registered: true, tool: wrapped };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

@@ -6,13 +6,20 @@ export function featureNames(manifest) {
   return Object.keys(manifest.features ?? {}).sort();
 }
 
+export function retiredFeatureError(name) {
+  if (name === "codex-remote") {
+    return 'retired feature "codex-remote": the Codex Remote-Control conductor is no longer packaged. Opt in explicitly with --features chatgpt-client. No mutation was applied.';
+  }
+  return null;
+}
+
 export function normalizeFeatureSet(manifest, features) {
   const known = new Set(featureNames(manifest));
   const values = typeof features === "string"
     ? (features === "none" ? [] : features.split(",").filter(Boolean))
     : (features ?? []);
   for (const feature of values) {
-    if (!known.has(feature)) throw new Error(`unknown feature "${feature}"`);
+    if (!known.has(feature)) throw new Error(retiredFeatureError(feature) ?? `unknown feature "${feature}"`);
   }
   return [...new Set(values)].sort();
 }

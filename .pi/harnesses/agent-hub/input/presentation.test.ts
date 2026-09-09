@@ -43,3 +43,18 @@ test("pool presentation renders pending peers without compact gating", () => {
 	const theme = { fg: (_color: string, text: string) => text };
 	assert.match(pool.render(80, theme).join("\n"), /alpha[\s\S]*review/);
 });
+
+test("pool header shows the session project before its name, independently of discovery scope", () => {
+	const pool = createPoolPresentation({
+		getIdentity: () => ({ session_id: "self", name: "orchestrator", color: "#ffffff", project: "test" }),
+		getDisplayProject: () => "*", includeExplicitPeers: () => false,
+		getPeerCards: () => new Map(), readProjectEntries: () => [], readAllEntries: () => [],
+		truncate: (text, width) => text.slice(0, width),
+	});
+	const theme = { fg: (_color: string, text: string) => text };
+	const plainHeader = (width: number) => pool.render(width, theme)[0].replace(/\x1b\[[0-9;]*m/g, "");
+	assert.match(plainHeader(80), /━project: test━━━ orchestrator ━┓$/);
+	assert.match(plainHeader(30), / orchestrator ━┓$/);
+	assert.doesNotMatch(plainHeader(30), /project:/);
+	for (let width = 0; width <= 100; width++) assert.ok(plainHeader(width).length <= width);
+});

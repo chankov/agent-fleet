@@ -13,7 +13,6 @@ const PI_LAUNCH_RECIPES = new Set([
 	"_fleet-hub-team",
 	"_fleet-team-up",
 	"_fleet-conductor",
-	"_fleet-conductor-codex",
 	"_fleet-team-resume",
 ]);
 
@@ -116,11 +115,6 @@ TEAM LIFECYCLE
 HERMES CONDUCTOR
   just fleet conductor hermes [preset] [--dry-run] [TEAM_ARGS...]
       Start Hermes with a peer team, or preview the layout with --dry-run.
-
-CODEX REMOTE-CONTROL CONDUCTOR
-  just fleet conductor codex <setup|reconfigure> [preset] [ARGS...]
-  just fleet conductor codex <pair|start|status|stop|recover|uninstall>
-  just fleet conductor codex [preset] [--dry-run] [TEAM_ARGS...]
 
 CAPABILITY FLAGS
   --browser         Add Chrome DevTools MCP tools to the Hub/main Pi process.

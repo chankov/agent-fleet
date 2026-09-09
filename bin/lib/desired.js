@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { featureNames, normalizeFeatureSet } from "./features.js";
+import { featureNames, normalizeFeatureSet, retiredFeatureError } from "./features.js";
 
 export const DESIRED_SCHEMA_VERSION = 1;
 export const DESIRED_FILE = ".ai/agent-fleet.json";
@@ -22,7 +22,7 @@ export function validateDesired(value, manifest) {
   if (!value.features || typeof value.features !== "object" || Array.isArray(value.features)) throw new Error("desired features must be an object");
   const known = new Set(featureNames(manifest));
   for (const [name, enabled] of Object.entries(value.features)) {
-    if (!known.has(name)) throw new Error(`unknown feature "${name}"`);
+    if (!known.has(name)) throw new Error(retiredFeatureError(name) ?? `unknown feature "${name}"`);
     if (typeof enabled !== "boolean") throw new Error(`desired feature "${name}" must be boolean`);
   }
   return {

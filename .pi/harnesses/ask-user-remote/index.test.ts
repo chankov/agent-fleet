@@ -25,6 +25,46 @@ import {
 	wrapAskUserTool,
 } from "./index.ts";
 import { socketTempRoot } from "../../../scripts/lib/monitor-env.ts";
+import { QuestionChannel } from "./questions.ts";
+
+test("question capability follows wrapper session lifecycle", () => {
+	const channel=new QuestionChannel(()=>null);const hooks=new Map<string,()=>void>();
+	installAskUserRemote({registerTool:()=>{},on:(name:string,fn:()=>void)=>hooks.set(name,fn)}, {
+		questionChannel:channel,stockFactory:pi=>pi.registerTool({name:"ask_user",execute:()=>stockResult("local")}),
+	});
+	assert.equal(channel.enabled,true);
+	hooks.get("session_shutdown")!();assert.equal(channel.enabled,false);
+	hooks.get("session_start")!();assert.equal(channel.enabled,true);
+});
+
+test("invalid legacy remote answer cannot consume a pending addressed question", async () => {
+	const owner={project:"af",peer:"hub",sessionId:"one",startedAt:"now"};
+	const channel=new QuestionChannel(()=>owner);channel.enabled=true;
+	const wrapped=wrapAskUserTool({name:"ask_user",execute:()=>new Promise(()=>{})},{questionChannel:channel,
+		startRemote:()=>({qid:"legacy",result:Promise.resolve({details:{response:{kind:"selection",selections:["invalid"]},cancelled:false}})})});
+	const result=wrapped.execute!("tool",{question:"Language?",options:["BG","EN"],allowFreeform:false},undefined,undefined,{});
+	await new Promise(resolve=>setImmediate(resolve));
+	const pending=channel.list(owner).questions;
+	assert.equal(pending.length,1);
+	channel.submit(owner,pending[0].id,"valid",{kind:"selection",selections:["BG"]});
+	assert.equal((await result).details.response.selections[0],"BG");
+});
+
+test("addressed channel resolves the actual wrapped tool call and aborts the local dialog", async () => {
+	const owner = {project:"af",peer:"hub",sessionId:"one",startedAt:"now"};
+	const channel = new QuestionChannel(() => owner); channel.enabled = true;
+	let localSignal: AbortSignal | undefined;
+	const wrapped = wrapAskUserTool({name:"ask_user",execute: (_id, _params, signal) => {
+		localSignal=signal; return new Promise(resolve=>signal.addEventListener("abort",()=>resolve({details:{cancelled:true}})));
+	}}, {startRemote:()=>null,questionChannel:channel});
+	const result=wrapped.execute!("tool-actual",{question:"Language?",options:["BG","EN"],allowFreeform:false},undefined,undefined,{});
+	await new Promise(resolve=>setImmediate(resolve));
+	const q=channel.list(owner).questions[0];
+	assert.equal(q.toolCallId,"tool-actual");
+	assert.equal(channel.submit(owner,q.id,"answer",{kind:"selection",selections:["BG"]}).status,"accepted");
+	assert.equal((await result).details.response.selections[0],"BG");
+	assert.equal(localSignal?.aborted,true);
+});
 
 function stockResult(label: string) {
 	return {
@@ -568,7 +608,7 @@ test("subprocess smoke: default export registers ask_user into configured and ac
 	fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@chankov/agent-fleet" }));
 
 	// Copy the harness sources the default export needs.
-	for (const name of ["index.ts", "race-core.js"]) {
+	for (const name of ["index.ts", "race-core.js", "questions.ts"]) {
 		fs.copyFileSync(new URL(`./${name}`, import.meta.url), path.join(harnessDir, name));
 	}
 

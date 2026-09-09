@@ -311,21 +311,11 @@ Separately from the panel, the **Hermes relay** pipes an agent's `ask_user` ques
 See [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) and the [screenshots](hermes/README.md#integration-in-action).
 
 <details>
-<summary><b>Experimental: delegate to live peers from ChatGPT Android</b></summary>
+<summary><b>Experimental: ChatGPT Desktop/Android session client</b></summary>
 
-The optional Codex Remote-Control conductor is verified on Linux with Codex CLI `0.144.x`. Hermes remains the inbound `ask_user` route; Codex is outbound-only and delegates one confirmed task at a time to peers already visible in the same coms project.
+The experimental `chatgpt-client` feature is a ChatGPT-initiated client for an existing Pi session. Hermes remains the inbound `ask_user` route. There is no systemd conductor, idle wake, or `just fleet conductor codex` path.
 
-```bash
-cd /path/to/agent-fleet
-just fleet conductor codex setup docs --project af  # once per configured context
-just fleet conductor codex pair                     # interactive; never capture the code
-just fleet conductor codex start
-just fleet --agents default --peers docs --project af # Hub + peers Codex can reach
-```
-
-In ChatGPT Android, open the paired Remote Control host and use the managed external workspace at `$HOME/.local/state/agent-fleet/codex-conductor/workspace`. Do not start a local `codex` process for the Android flow, and do not also launch `just fleet conductor codex docs` when `just fleet --agents default --peers docs` already owns the same peers.
-
-Lifecycle, approval flow, examples, recovery, and security boundaries: **[Codex Remote-Control conductor runbook](docs/codex-remote-conductor.md)**.
+See **[ChatGPT Fleet session client](docs/codex-session-bridge.md)**.
 
 </details>
 
@@ -447,7 +437,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | [docs/pi-setup.md](docs/pi-setup.md) · [docs/pi-extensions.md](docs/pi-extensions.md) | pi install paths, harnesses, and utility extensions |
 | [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) | Per-project overrides (`.ai/agent-fleet-overrides.md`) — spec/plan paths, dev server, branch policy, per-persona models, dispatcher language, rules/docs targets |
 | **[docs/hermes-desktop-plugins.md](docs/hermes-desktop-plugins.md)** | **The Hermes Desktop plugin: install, contract, API, failure modes, limits** |
-| [docs/claude-code-coms-bridge.md](docs/claude-code-coms-bridge.md) · [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) · [docs/codex-remote-conductor.md](docs/codex-remote-conductor.md) | Claude Code as a coms peer · phone relay · experimental Codex remote-control operator runbook |
+| [docs/claude-code-coms-bridge.md](docs/claude-code-coms-bridge.md) · [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) · [docs/codex-session-bridge.md](docs/codex-session-bridge.md) | Claude Code as a coms peer · phone relay · experimental ChatGPT Fleet session client |
 | [docs/npm-install.md](docs/npm-install.md) | CLI reference, versioning, update flow |
 | [references/](references/) | 9 checklists skills pull in: testing, security, performance, accessibility, observability, orchestration + fleet-coordination + prompting patterns. Each installs automatically alongside the skills that cite it |
 
@@ -473,3 +463,7 @@ Skills should be **specific** (actionable steps), **verifiable** (clear exit cri
 ## License
 
 MIT - use these skills in your projects, teams, and tools.
+
+### ChatGPT Desktop / Android session client (experimental)
+
+An optional lightweight client can select an existing Pi session, send instructions, monitor public progress and resynchronize on demand. Pi keeps execution and budgets; the client has no idle-chat wake. See the [client runbook](docs/codex-session-bridge.md) for the `chatgpt-client` feature, requirements and acceptance status.

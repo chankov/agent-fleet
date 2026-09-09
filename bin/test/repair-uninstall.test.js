@@ -368,11 +368,11 @@ test("validateManifest rejects an operator item with no steps", () => {
   assert.ok(problems.some((p) => /without operatorSteps/.test(p)));
 });
 
-test("the Hermes and Codex profiles plan as operator steps and write nothing", () => {
+test("the Hermes profile plans as operator steps and writes nothing", () => {
   const manifest = loadManifest(repoRoot);
   const workspace = tmp("ws");
 
-  for (const profile of ["hermes-plugins", "codex-bridge"]) {
+  for (const profile of ["hermes-plugins"]) {
     const result = buildPlan({
       workspace,
       sourceRoot: repoRoot,

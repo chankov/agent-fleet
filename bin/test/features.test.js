@@ -5,12 +5,15 @@ import { resolveDesiredFeatures, resolveFeatures } from "../lib/features.js";
 
 const manifest = loadManifest(process.cwd());
 
-test("Full resolves stable catalogue roots but excludes experimental Codex Remote", () => {
+test("Full resolves stable catalogue roots but excludes experimental ChatGPT client", () => {
   const full = resolveDesiredFeatures(manifest, { preset: "full", platform: process.platform });
   assert.ok(full.selected.includes("skill:peer-coms"), "Full includes stable Claude bridge root");
-  assert.equal(full.selected.includes("codex:agent-fleet-codex-remote-control"), false);
-  assert.equal(full.features.includes("codex-remote"), false);
+  assert.equal(full.features.includes("chatgpt-client"), false);
   assert.ok(full.features.includes("voice"), "Full enables stable feature defaults");
+});
+
+test("retired Codex remote feature refuses before mutation", () => {
+  assert.throws(() => resolveFeatures(manifest, ["codex-remote"]), /retired feature "codex-remote"/);
 });
 
 test("Telegram implies Hermes feature prerequisites", () => {

@@ -92,7 +92,7 @@ test("legacy team aliases use a matching native roster or preserve the historica
 	assert.equal(resolveLegacyAgentRoster(teams, "full"), "default");
 });
 
-test("conductorSpec types backend identity and injects only validated Codex context", () => {
+test("conductorSpec types Hermes backend identity", () => {
 	const hermes = conductorSpec("hermes", { repoRoot: "/repo", team: "docs", project: "af" });
 	assert.equal(hermes.workspaceMode, "conductor-hermes");
 	assert.equal(hermes.paneLabel, "conductor-hermes");
@@ -100,29 +100,11 @@ test("conductorSpec types backend identity and injects only validated Codex cont
 	assert.deepEqual(hermes.command, ["hermes", "-p", "dev"]);
 	assert.equal(hermes.cwd, "/repo");
 	assert.deepEqual(hermes.env, {});
-
-	const codex = conductorSpec("codex", { repoRoot: "/repo", runtimeDir: "/state/codex-conductor", team: "docs", project: "af", nodeBin: "/runtime/node" });
-	assert.equal(codex.workspaceMode, "conductor-codex");
-	assert.equal(codex.paneLabel, "conductor-codex-control");
-	assert.equal(codex.conductorName, "codex-docs-conductor");
-	assert.deepEqual(codex.command, ["/runtime/node", "--experimental-strip-types", "/repo/scripts/codex-remote-control.ts", "control-pane"]);
-	assert.equal(codex.cwd, "/state/codex-conductor/workspace");
-	assert.deepEqual(codex.env, {
-		AGENT_FLEET_REPO_ROOT: "/repo",
-		COMS_CLI_PROJECT: "af",
-		COMS_CLI_NAME: "codex-docs-conductor",
-		COMS_CLI_TIMEOUT_MS: "300000",
-		AGENT_FLEET_CODEX_CONTRACT_PATH: "/state/codex-conductor/workspace/AGENTS.md",
-		AGENT_FLEET_CODEX_CONTRACT_IDENTITY: "agent-fleet-codex-conductor-pilot-v1",
-		AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
-	});
 	for (const bad of ["relative", "/repo/../other"]) {
-		assert.throws(() => conductorSpec("codex", { repoRoot: bad, team: "docs", project: "af" }), /absolute repository root/);
+		assert.throws(() => conductorSpec("hermes", { repoRoot: bad, team: "docs", project: "af" }), /absolute repository root/);
 	}
-	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", team: "bad team", project: "af" }), /Invalid team name/);
-	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", team: "docs", project: "bad project" }), /Invalid project name/);
-	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", team: "docs", project: "af", nodeBin: "node" }), /absolute Node binary/);
-	assert.throws(() => conductorSpec("codex", { repoRoot: "/repo", runtimeDir: "/repo/runtime", team: "docs", project: "af" }), /runtime directory outside repoRoot/);
+	assert.throws(() => conductorSpec("hermes", { repoRoot: "/repo", team: "bad team", project: "af" }), /Invalid team name/);
+	assert.throws(() => conductorSpec("hermes", { repoRoot: "/repo", team: "docs", project: "bad project" }), /Invalid project name/);
 });
 
 test("worktreeTag takes the last dot-segment of the checkout basename, sanitized", () => {
@@ -139,39 +121,20 @@ test("worktreeTag takes the last dot-segment of the checkout basename, sanitized
 	assert.equal(worktreeTag("/x/."), "repo");
 });
 
-test("Codex launch gate consumes typed requested state rather than presentation text", () => {
-	const teamUp = readFileSync(join(REPO_ROOT, "scripts", "team-up.ts"), "utf-8");
-	assert.match(teamUp, /requestedState\(\)/);
-	assert.doesNotMatch(teamUp, /status\(\) !== "requested systemd state:/);
-});
-
 test("justfile exposes one Fleet entry point while hidden runtime recipes forward arguments", () => {
 	const justfile = readFileSync(join(REPO_ROOT, "justfile"), "utf-8");
 	assert.match(justfile, /\nfleet \*args:/);
-	for (const recipe of ["team-up", "team-up-dry", "hub-team", "hub-team-dry", "conductor", "conductor-dry", "conductor-codex", "conductor-codex-dry", "conductor-codex-setup", "conductor-codex-reconfigure", "team-snapshot", "team-down", "team-resume"]) {
+	for (const recipe of ["team-up", "team-up-dry", "hub-team", "hub-team-dry", "conductor", "conductor-dry", "team-snapshot", "team-down", "team-resume"]) {
 		assert.match(justfile, new RegExp(`\\n_fleet-${recipe} team=\\"full\\" \\*args:`), recipe);
 		assert.doesNotMatch(justfile, new RegExp(`\\n${recipe}(?: |:)`), `legacy public ${recipe}`);
 	}
-	for (const recipe of ["pair", "start", "status", "stop", "recover", "uninstall"]) {
-		assert.match(justfile, new RegExp(`\\n_fleet-conductor-codex-${recipe}:`), recipe);
-		assert.doesNotMatch(justfile, new RegExp(`\\nconductor-codex-${recipe}:`), `legacy public ${recipe}`);
-	}
+	assert.doesNotMatch(justfile, /_fleet-conductor-codex/);
 	assert.doesNotMatch(justfile, /\n(?:hub|hub-solo|safe-coms|ext-damage-control-continue|pi)(?: |:)/);
 	for (const command of [
 		"scripts/team-up.ts --team {{team}} {{args}}",
 		"scripts/team-up.ts --team {{team}} --hub {{args}}",
 		"scripts/team-up.ts --team {{team}} --conductor {{args}}",
 		"scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}",
-		"scripts/team-up.ts --team {{team}} --conductor codex {{args}}",
-		"scripts/team-up.ts --team {{team}} --conductor codex --dry-run {{args}}",
-		"scripts/codex-remote-control.ts setup-conductor --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
-		"scripts/codex-remote-control.ts reconfigure-conductor --codex-bin \"$(command -v codex)\" --repo-root \"$(pwd -P)\" --coms-dir \"$HOME/.pi/coms\" --team \"{{team}}\" --timeout 300000 {{args}}",
-		"scripts/codex-remote-control.ts pair",
-		"scripts/codex-remote-control.ts start",
-		"scripts/codex-remote-control.ts status",
-		"scripts/codex-remote-control.ts stop",
-		"scripts/codex-remote-control.ts recover --confirm operator-confirmed",
-		"scripts/codex-remote-control.ts uninstall --confirm operator-confirmed",
 		"scripts/team-snapshot.ts snapshot {{team}} {{args}}",
 		"scripts/team-snapshot.ts down {{team}} {{args}}",
 		"scripts/team-snapshot.ts resume {{team}} {{args}}",

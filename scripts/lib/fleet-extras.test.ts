@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -179,7 +179,7 @@ test("dry run: non-hub project sends the project to every peer without a hub pan
 	assert.deepEqual(parsed.layout.second.command, ["just", "_claude-peer", "c", "", "", "acme"]);
 });
 
-test("dry run: Hermes and pilot Codex conductors have distinct shared-layout roots", () => {
+test("dry run: Hermes conductor uses a distinct shared-layout root", () => {
 	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n");
@@ -190,27 +190,6 @@ test("dry run: Hermes and pilot Codex conductors have distinct shared-layout roo
 	assert.equal(hermesLayout.label, `${TAG}-conductor-hermes-t--project.af`);
 	assert.equal(hermesLayout.layout.first.label, "conductor-hermes");
 	assert.deepEqual(hermesLayout.layout.first.command, ["hermes", "-p", "dev"]);
-
-	const codex = dryRun(["--team", "t", "--conductor", "codex", "--project", "af"], peersYaml);
-	assert.equal(codex.status, 0, codex.stderr);
-	assert.match(codex.stdout, /Codex conductor/);
-	const codexLayout = JSON.parse(codex.stdout.slice(codex.stdout.indexOf("{")));
-	assert.equal(codexLayout.label, `${TAG}-conductor-codex-t--project.af`);
-	assert.equal(codexLayout.layout.type, "split");
-	assert.equal(codexLayout.layout.first.label, "conductor-codex-control");
-	assert.deepEqual(codexLayout.layout.first.command.slice(-1), ["control-pane"]);
-	assert.equal(codexLayout.layout.first.command.includes("remote-control"), false);
-	const runtimeWorkspace = join(homedir(), ".local", "state", "agent-fleet", "codex-conductor", "workspace");
-	assert.equal(codexLayout.layout.first.cwd, runtimeWorkspace);
-	assert.deepEqual(codexLayout.layout.first.env, {
-		AGENT_FLEET_REPO_ROOT: REPO_ROOT,
-		COMS_CLI_PROJECT: "af",
-		COMS_CLI_NAME: "codex-t-conductor",
-		COMS_CLI_TIMEOUT_MS: "300000",
-		AGENT_FLEET_CODEX_CONTRACT_PATH: join(runtimeWorkspace, "AGENTS.md"),
-		AGENT_FLEET_CODEX_CONTRACT_IDENTITY: "agent-fleet-codex-conductor-pilot-v1",
-		AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
-	});
 });
 
 test("dry run: invalid conductor backend, duplicate flag, and hub combination refuse", () => {
@@ -219,8 +198,9 @@ test("dry run: invalid conductor backend, duplicate flag, and hub combination re
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n");
 	for (const [args, message] of [
 		[["--team", "t", "--conductor", "other"], /Unknown conductor backend/],
-		[["--team", "t", "--conductor", "codex", "--conductor", "hermes"], /may only be provided once/],
-		[["--team", "t", "--hub", "--conductor", "codex"], /mutually exclusive/],
+		[["--team", "t", "--conductor", "codex"], /Unknown conductor backend/],
+		[["--team", "t", "--conductor", "hermes", "--conductor", "hermes"], /may only be provided once/],
+		[["--team", "t", "--hub", "--conductor", "hermes"], /mutually exclusive/],
 	] as const) {
 		const result = dryRun(args, peersYaml);
 		assert.equal(result.status, 1);

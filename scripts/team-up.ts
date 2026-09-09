@@ -88,8 +88,8 @@ function parseConductorBackend(argv: string[]): ConductorBackend | null {
 	if (indexes.length === 0) return null;
 	const value = argv[indexes[0] + 1];
 	if (!value || value.startsWith("--")) return "hermes"; // legacy bare --conductor
-	if (value === "hermes" || value === "codex") return value;
-	throw new Error(`Unknown conductor backend: ${JSON.stringify(value)} (expected hermes or codex)`);
+	if (value === "hermes") return value;
+	throw new Error(`Unknown conductor backend: ${JSON.stringify(value)} (expected hermes)`);
 }
 
 function loadTeam(team: string, peersYaml: string): Peer[] {
@@ -157,28 +157,6 @@ function makeDelayLoader(peers: Peer[], mode: "peers" | "hub" | "conductor"): (p
 	return delayForPeer;
 }
 
-async function validateCodexLaunchOrDie(spec: ConductorSpec, project: string): Promise<void> {
-	try {
-		const { assertConductorContext, lifecyclePaths, loadOwnedConfig, preflight, requestedState } = await import("./lib/codex-remote-control.ts");
-		const config = loadOwnedConfig(lifecyclePaths().configPath);
-		assertConductorContext(config, {
-			repoRoot: REPO_ROOT,
-			project,
-			team: spec.team,
-			name: spec.conductorName,
-			timeoutMs: Number(spec.env.COMS_CLI_TIMEOUT_MS),
-			contractPath: String(spec.env.AGENT_FLEET_CODEX_CONTRACT_PATH),
-			contractIdentity: String(spec.env.AGENT_FLEET_CODEX_CONTRACT_IDENTITY),
-		});
-		preflight(config);
-		const state = requestedState();
-		if (state.active !== "active" || state.sub !== "exited") {
-			throw new Error(`Codex user service is not in requested active (exited) state: ${state.active} (${state.sub})`);
-		}
-	} catch (err) {
-		die(`Codex launch refused before Herdr: ${err instanceof Error ? err.message : String(err)}`);
-	}
-}
 
 function buildLayoutOrDie(
 	team: string,
@@ -280,10 +258,8 @@ async function main(): Promise<void> {
 	try {
 		spec = conductor ? conductorSpec(conductor, {
 			repoRoot: REPO_ROOT,
-			runtimeDir: path.join(os.homedir(), ".local", "state", "agent-fleet", "codex-conductor"),
 			team,
 			project,
-			nodeBin: process.execPath,
 		}) : undefined;
 		label = teamWorkspaceLabel(spec?.workspaceMode ?? (hub ? "hub" : "peers"), team, project, WORKTREE_TAG);
 	} catch (err) {
@@ -319,7 +295,7 @@ async function main(): Promise<void> {
 		// herdr installed, and secrets never reach the output.
 		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), project, rootPane);
 		const projectNote = project === DEFAULT_PROJECT ? "" : `, project "${project}"`;
-		const extra = mode === "hub" ? " + hub" : spec ? ` + ${spec.backend === "codex" ? "Codex conductor" : "Hermes conductor"}` : "";
+		const extra = mode === "hub" ? " + hub" : spec ? " + Hermes conductor" : "";
 		console.log(
 			`# team-up (dry run) — team "${team}"${projectNote}, ${peers.length} peer(s)${extra}, herdr workspace "${label}"`,
 		);
@@ -332,7 +308,6 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	if (spec?.backend === "codex") await validateCodexLaunchOrDie(spec, project);
 	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), project, rootPane, makeDelayLoader(peers, mode));
 
 	// Import lazily so --dry-run never touches the client (or the socket).
@@ -348,11 +323,9 @@ async function main(): Promise<void> {
 			const projectArgs = project === DEFAULT_PROJECT ? "" : ` --project ${project}`;
 			const dryCommand = mode === "hub"
 				? `just fleet team ${team} --dry-run${projectArgs}`
-				: spec?.backend === "codex"
-					? `just fleet conductor codex ${team} --dry-run${projectArgs}`
-					: mode === "conductor"
-						? `just fleet conductor hermes ${team} --dry-run${projectArgs}`
-						: `just fleet team ${team} --no-hub --dry-run${projectArgs}`;
+				: mode === "conductor"
+					? `just fleet conductor hermes ${team} --dry-run${projectArgs}`
+					: `just fleet team ${team} --no-hub --dry-run${projectArgs}`;
 			console.error(`(dry run still works: ${dryCommand})`);
 			process.exit(1);
 		}
@@ -390,7 +363,6 @@ async function main(): Promise<void> {
 		console.log(`  • hub (${hubCommand(project, hubOptions).join(" ")} — guarded dispatcher)`);
 	}
 	if (spec) console.log(`  • ${spec.paneLabel} (${spec.command.join(" ")} — ${spec.displayText})`);
-	if (spec?.backend === "codex") console.log("  • Closing this workspace does not stop the enabled Codex user service; stop it explicitly.");
 	for (const p of peers) console.log(`  • ${p.name}`);
 	console.log(`Focus: herdr workspace focus ${wsId}`);
 	console.log(`Close: herdr workspace close ${wsId}`);

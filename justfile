@@ -94,12 +94,6 @@ default:
 #
 # REMOTE CONDUCTORS
 #   just fleet conductor hermes docs --project af
-#   just fleet conductor codex setup docs --project af
-#   just fleet conductor codex pair
-#   just fleet conductor codex start
-#   just fleet conductor codex docs --project af
-#   just fleet conductor codex status
-#   just fleet conductor codex stop
 #
 # NEW REPOSITORY SETUP (run from the target repository in a real TTY)
 #   just fleet setup
@@ -235,42 +229,6 @@ _fleet-conductor team="full" *args:
 #   just fleet conductor hermes docs --dry-run --project af
 _fleet-conductor-dry team="full" *args:
     {{node_ts}} scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
-
-# Experimental Codex remote-control conductor lifecycle (verified with CLI
-# 0.144.x). Pairing stays interactive and its short-lived code must never be
-# captured. The user service is singleton across repos/projects.
-#   just fleet conductor codex setup docs --project af
-_fleet-conductor-codex-setup team="full" *args:
-    {{node_ts}} scripts/codex-remote-control.ts setup-conductor --codex-bin "$(command -v codex)" --repo-root "$(pwd -P)" --coms-dir "$HOME/.pi/coms" --team "{{team}}" --timeout 300000 {{args}}
-
-_fleet-conductor-codex-reconfigure team="full" *args:
-    {{node_ts}} scripts/codex-remote-control.ts reconfigure-conductor --codex-bin "$(command -v codex)" --repo-root "$(pwd -P)" --coms-dir "$HOME/.pi/coms" --team "{{team}}" --timeout 300000 {{args}}
-
-_fleet-conductor-codex-pair:
-    {{node_ts}} scripts/codex-remote-control.ts pair
-
-_fleet-conductor-codex-start:
-    {{node_ts}} scripts/codex-remote-control.ts start
-
-_fleet-conductor-codex-status:
-    {{node_ts}} scripts/codex-remote-control.ts status
-
-_fleet-conductor-codex-stop:
-    {{node_ts}} scripts/codex-remote-control.ts stop
-
-_fleet-conductor-codex-recover:
-    {{node_ts}} scripts/codex-remote-control.ts recover --confirm operator-confirmed
-
-_fleet-conductor-codex-uninstall:
-    {{node_ts}} scripts/codex-remote-control.ts uninstall --confirm operator-confirmed
-
-# Codex conductor + team; systemd owns the remote-control daemon:
-#   just fleet conductor codex docs --project af
-_fleet-conductor-codex team="full" *args:
-    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor codex {{args}}
-
-_fleet-conductor-codex-dry team="full" *args:
-    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor codex --dry-run {{args}}
 
 # Save session refs while the team keeps running:
 #   just fleet snapshot review --project af

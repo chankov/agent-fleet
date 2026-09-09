@@ -344,4 +344,4 @@ node --experimental-strip-types /home/nchankov/repos/agent-fleet/scripts/coms-cl
 
 Hermes must not drive herdr panes or workspaces; the `just conductor` recipe creates the pane before Hermes starts. The no-herdr boundary is documented in `docs/coms-hermes-bridge.md` and governed by `.pi/damage-control-rules.yaml`.
 
-Hermes/Telegram remains the inbound `ask_user` path beside the experimental Codex remote-control conductor. Codex is outbound-initiated, approval-gated, and serialized through the validated wrapper; both Hermes and Codex contracts remain advisory outside Pi damage-control, and neither external process has an OS command allowlist. See the [Codex operator runbook](../docs/codex-remote-conductor.md).
+Hermes/Telegram remains the inbound `ask_user` path. The experimental ChatGPT Fleet session client is a ChatGPT-initiated channel to an existing Pi session and is not an inbound `ask_user` route. See the [session client runbook](../docs/codex-session-bridge.md).

@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync,existsSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {tmpdir} from 'node:os';
+import {spawnSync} from 'node:child_process';
+import {loadManifest} from '../lib/manifest.js';
+import {resolveDesiredFeatures} from '../lib/features.js';
+
+test('ChatGPT client opt-in installs a runnable copied closure and uninstalls only its owned files', t=>{
+ const ws=mkdtempSync(join(tmpdir(),'fleet-client-install-'));t.after(()=>rmSync(ws,{recursive:true,force:true}));
+ const manifest=loadManifest(process.cwd());
+ assert.equal(resolveDesiredFeatures(manifest,{preset:'full'}).features.includes('chatgpt-client'),false);
+ const cli=resolve('bin/cli.js');
+ const run=(...args)=>spawnSync(process.execPath,[cli,...args,'--workspace',ws],{encoding:'utf8',timeout:30000});
+ const setup=()=>run('setup','--preset','default','--features','chatgpt-client','--yes');
+ let result=setup();assert.equal(result.status,0,result.stdout+result.stderr);
+ assert.ok(existsSync(join(ws,'.agents/skills/fleet-session-client/SKILL.md')));
+ const client=join(ws,'scripts/fleet-codex-client.ts');
+ result=spawnSync(process.execPath,[client,'--help'],{encoding:'utf8',cwd:ws});assert.equal(result.status,0,result.stderr);assert.ok(JSON.parse(result.stdout).usage.includes('status'));
+ const catalog=JSON.parse(result.stdout);assert.equal(catalog.schemaVersion,1);assert.equal(catalog.operations.length,16);
+ result=spawnSync(process.execPath,[client,'describe','--state-dir',join(ws,'client-state')],{encoding:'utf8',cwd:ws,env:{...process.env,CODEX_THREAD_ID:''}});
+ assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).operations.find(o=>o.name==='send').availability.status,'unavailable');
+ const python=spawnSync('python3',[join(ws,'scripts/fleet-codex-read.py')],{input:JSON.stringify({entry:{name:'missing',cwd:ws,session_id:'missing',pid:-1},project:'missing'}),encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:15000});
+ assert.equal(python.status,0,python.stdout+python.stderr);assert.equal(JSON.parse(python.stdout).activity.available,false);
+ result=setup();assert.equal(result.status,0,result.stdout+result.stderr);
+ result=run('uninstall','--items','companion:fleet-client-skill,companion:fleet-client-runtime','--yes');
+ assert.equal(result.status,0,result.stdout+result.stderr);
+ assert.equal(existsSync(join(ws,'.agents/skills/fleet-session-client/SKILL.md')),false);
+ assert.equal(existsSync(client),false);
+});

@@ -15,7 +15,7 @@ peers, and hand the session to a visible coms peer.
 > [extension catalog](../../../docs/pi-extensions.md) and the
 > [design plan](../../../docs/plans/agent-hub/).
 
-**Optional phone control:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live peers for the experimental [Codex Android conductor](https://github.com/chankov/agent-fleet/blob/main/docs/codex-remote-conductor.md). Configure Codex for the same project; do not also launch `just fleet conductor codex <team>` for the same peers. Hermes remains the inbound `ask_user` route, while Codex performs only human-confirmed, approval-gated outbound delegation.
+**Optional ChatGPT client:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live Pi session that the experimental [ChatGPT Fleet session client](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md) selects. Hermes remains the inbound `ask_user` route.
 
 ## Work Mode, roster, and topology
 

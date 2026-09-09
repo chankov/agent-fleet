@@ -103,16 +103,6 @@
       ]
     },
     {
-      "id": "codex-bridge",
-      "title": "Codex remote conductor",
-      "order": 8,
-      "agents": [
-        "pi"
-      ],
-      "subcategoryLabel": null,
-      "subcategories": []
-    },
-    {
       "id": "external-packages",
       "title": "External packages",
       "order": 9,
@@ -229,11 +219,12 @@
         "skill:peer-coms"
       ]
     },
-    "codex-remote": {
-      "title": "Codex remote",
+    "chatgpt-client": {
+      "title": "ChatGPT Fleet session client",
       "stability": "experimental",
       "items": [
-        "codex:agent-fleet-codex-remote-control"
+        "companion:fleet-client-runtime",
+        "companion:fleet-client-skill"
       ]
     }
   },
@@ -283,45 +274,9 @@
         "hermes-skill:hub-liaison",
         "hermes-skill:hub-watchdog"
       ]
-    },
-    "codex-bridge": {
-      "title": "Codex remote conductor closure (operator-applied)",
-      "items": [
-        "codex:agent-fleet-codex-remote-control"
-      ]
     }
   },
   "items": [
-    {
-      "id": "codex:agent-fleet-codex-remote-control",
-      "kind": "codex",
-      "group": "codex-bridge",
-      "subcategory": null,
-      "title": "agent-fleet-codex-remote-control",
-      "summary": "",
-      "recommended": false,
-      "stability": "experimental",
-      "consent": "operator",
-      "platform": "linux",
-      "agents": {
-        "pi": {
-          "source": [
-            "systemd/user/agent-fleet-codex-remote-control.service.in"
-          ],
-          "sourceMode": "first",
-          "target": null,
-          "strategy": "operator",
-          "targetScope": "user-systemd"
-        }
-      },
-      "operatorSteps": [
-        "clone agent-fleet — the conductor recipes and the unit template are repo-only",
-        "just fleet conductor codex setup docs --project <name>   # writes the unit, does not start it",
-        "just fleet conductor codex pair   # interactive TTY only; the code is short-lived secret material",
-        "just fleet conductor codex start",
-        "just fleet conductor codex status   # reports requested systemd state only"
-      ]
-    },
     {
       "id": "command:build",
       "kind": "command",
@@ -548,31 +503,6 @@
       }
     },
     {
-      "id": "companion:codex-conductor-contract",
-      "kind": "companion",
-      "group": "companions",
-      "subcategory": null,
-      "title": "Codex conductor runtime contract",
-      "summary": "Managed contract used by the optional Codex conductor recipes",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "codex/CONDUCTOR.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agent-fleet/codex/CONDUCTOR.md",
-          "strategy": "copy-file"
-        }
-      },
-      "parents": [
-        "companion:justfile-region"
-      ]
-    },
-    {
       "id": "companion:damage-control-rules",
       "kind": "companion",
       "group": "companions",
@@ -598,6 +528,64 @@
       ]
     },
     {
+      "id": "companion:fleet-client-runtime",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Lightweight ChatGPT Fleet client",
+      "summary": "Local instruction and read client; no daemon or model calls",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "scripts/fleet-codex-client.ts",
+            "scripts/fleet-codex-read.py",
+            "scripts/package.json",
+            "scripts/lib/fleet-codex-session.ts",
+            "scripts/lib/fleet-codex-operations.ts",
+            "scripts/lib/fleet-codex-transport.ts",
+            "scripts/lib/fleet-codex-catalog.ts",
+            "scripts/lib/coms-envelope.ts",
+            ".pi/harnesses/lib/herdr-client.ts",
+            "hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
+            "hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
+            "hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
+            "hermes/skills/hub-watchdog/scripts/watchdog_contract.py",
+            "docs/codex-session-bridge.md"
+          ],
+          "sourceMode": "all",
+          "target": null,
+          "strategy": "copy-tree",
+          "preserveLayout": true
+        }
+      }
+    },
+    {
+      "id": "companion:fleet-client-skill",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "ChatGPT Fleet client skill",
+      "summary": "Workspace Codex skill for the explicit session client",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "codex/fleet-session-client"
+          ],
+          "sourceMode": "first",
+          "target": ".agents/skills/fleet-session-client",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
       "id": "companion:harness-runtime-closure",
       "kind": "companion",
       "group": "companions",
@@ -612,17 +600,12 @@
         "pi": {
           "source": [
             "hermes/skills",
-            "systemd",
             "scripts/claude-code-preflight.ts",
-            "scripts/codex-conductor.ts",
-            "scripts/codex-remote-control.ts",
             "scripts/coms-claude-bridge.ts",
             "scripts/coms-cli.ts",
             "scripts/coms-hermes-bridge.ts",
             "scripts/fleet.ts",
             "scripts/lib/claude-bridge-core.ts",
-            "scripts/lib/codex-conductor.ts",
-            "scripts/lib/codex-remote-control.ts",
             "scripts/lib/coms-envelope.ts",
             "scripts/lib/fleet-command.ts",
             "scripts/lib/herdr-layout.ts",
@@ -674,7 +657,6 @@
         }
       },
       "companions": [
-        "companion:codex-conductor-contract",
         "companion:workflow-runtime"
       ],
       "parents": [

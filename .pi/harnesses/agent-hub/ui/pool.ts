@@ -64,7 +64,12 @@ export function createPoolPresentation(deps: PoolPresentationDeps): PoolPresenta
 			const left = theme.fg("dim", "┏━") + theme.fg("border", " coms ");
 			const remaining = safeWidth - 9 - (identity ? identity.name.length + 4 : 0) - 1;
 			if (identity && remaining >= 1) {
-				topBorder = left + theme.fg("dim", "━") + theme.fg("dim", "━".repeat(remaining)) + theme.fg("dim", " ") + hexFg(identity.color, identity.name) + theme.fg("dim", " ━") + theme.fg("dim", "┓");
+				const projectTag = `project: ${identity.project}`;
+				const projectFill = remaining + 1 - projectTag.length - 3;
+				const middle = projectFill >= 1
+					? theme.fg("dim", "━".repeat(projectFill)) + theme.fg("border", projectTag) + theme.fg("dim", "━━━")
+					: theme.fg("dim", "━".repeat(remaining + 1));
+				topBorder = left + middle + theme.fg("dim", " ") + hexFg(identity.color, identity.name) + theme.fg("dim", " ━┓");
 			} else {
 				topBorder = left + theme.fg("dim", "━".repeat(Math.max(0, safeWidth - 9)) + "┓");
 			}

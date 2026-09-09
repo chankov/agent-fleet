@@ -40,7 +40,7 @@ const DEFAULT_AWAIT_MS = 300_000;
 const MAX_TIMEOUT_MS = 0x7fffffff;
 const COMS_ID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
-type FlagName = "project" | "name" | "await" | "timeout" | "all" | "conductor" | "session" | "ttl";
+type FlagName = "project" | "name" | "await" | "timeout" | "all" | "session" | "ttl";
 
 interface ParsedArgs {
 	positionals: string[];
@@ -51,10 +51,6 @@ interface Scope {
 	project: string;
 	name: string;
 	includeExplicit: boolean;
-}
-
-interface CodexLock {
-	release(): void;
 }
 
 function fail(message: string): never {
@@ -164,45 +160,6 @@ function registerCliEntry(id: SenderIdentity, project: string, purpose: string):
 	writeRegistryAtomic(entry, project);
 }
 
-function acquireCodexLock(scope: Scope): CodexLock {
-	const lockDir = path.join(COMS_DIR, "locks");
-	const lockPath = path.join(lockDir, "codex-send.lock");
-	fs.mkdirSync(lockDir, { recursive: true, mode: 0o700 });
-	try { fs.chmodSync(lockDir, 0o700); } catch { /* best effort */ }
-	let fd: number;
-	try {
-		fd = fs.openSync(lockPath, "wx", 0o600);
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-			fail(`Codex send lock is held (or stale) at ${lockPath}; inspect its metadata and remove it manually only after confirming the owner is gone.`);
-		}
-		throw err;
-	}
-	try {
-		fs.writeFileSync(fd, `${JSON.stringify({ pid: process.pid, started_at: nowIso(), project: scope.project, name: scope.name })}\n`);
-	} finally {
-		fs.closeSync(fd);
-	}
-
-	let released = false;
-	const release = () => {
-		if (released) return;
-		released = true;
-		process.removeListener("SIGTERM", onSigterm);
-		process.removeListener("SIGINT", onSigint);
-		try { fs.unlinkSync(lockPath); } catch { /* best effort */ }
-	};
-	const exitForSignal = (signal: NodeJS.Signals) => {
-		release();
-		process.exit(signal === "SIGINT" ? 130 : 143);
-	};
-	const onSigterm = () => exitForSignal("SIGTERM");
-	const onSigint = () => exitForSignal("SIGINT");
-	process.once("SIGTERM", onSigterm);
-	process.once("SIGINT", onSigint);
-	return { release };
-}
-
 // ━━ list ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function cmdList(argv: string[]): void {
@@ -219,30 +176,15 @@ function cmdList(argv: string[]): void {
 
 // ━━ send ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function validateCodexMode(parsed: ParsedArgs): boolean {
-	const conductor = flagValue(parsed, "conductor");
-	if (conductor === undefined) return false;
-	if (conductor !== "codex") fail(`Unsupported conductor: ${JSON.stringify(conductor)}`);
-	if (!parsed.flags.has("project") || !parsed.flags.has("name") || !parsed.flags.has("timeout") || parsed.flags.get("await") !== true) {
-		fail("Codex mode requires explicit --project, --name, --await, and --timeout options.");
-	}
-	if (parsed.flags.get("all") === true) fail("Codex mode does not allow --all.");
-	return true;
-}
-
 async function cmdSend(argv: string[]): Promise<void> {
-	const parsed = parseArgs(argv, ["project", "name", "await", "timeout", "all", "conductor"]);
+	const parsed = parseArgs(argv, ["project", "name", "await", "timeout", "all"]);
 	const [rawTarget, ...promptParts] = parsed.positionals;
 	const prompt = promptParts.join(" ");
 	if (!rawTarget || !prompt) fail("usage: coms-cli send <peer> <prompt…> --project <project> --name <name> [--await] [--timeout <ms>]");
 	const target = validateComsName(rawTarget);
 	const scope = scopeFrom(parsed);
 	const timeoutMs = timeoutFrom(parsed);
-	const codexMode = validateCodexMode(parsed);
-	const lock = codexMode ? acquireCodexLock(scope) : null;
 	try {
-		// This fresh scoped list is both the only target source and, for Codex,
-		// intentionally happens after lock acquisition.
 		const peers = peersInScope(scope);
 		const peer = peers.find((entry) => entry.name === target);
 		if (!peer) {
@@ -337,7 +279,6 @@ async function cmdSend(argv: string[]): Promise<void> {
 		}
 		console.log(env.msg_id);
 	} finally {
-		lock?.release();
 	}
 }
 

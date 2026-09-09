@@ -29,7 +29,6 @@ const ARTIFACT_PATHS = [
   "agents",
   "codex",
   "hermes",
-  "systemd",
   ".pi/prompts",
   ".pi/extensions",
   ".pi/harnesses",
@@ -49,9 +48,9 @@ const ARTIFACT_PATHS = [
   // whole directory would put non-installed docs into the three-way base.
   "docs/agent-fleet-setup.md",
   "docs/ARCHITECTURE.md",
-  "docs/codex-remote-conductor.md",
   "docs/claude-code-coms-bridge.md",
   "docs/coms-hermes-bridge.md",
+  "docs/codex-session-bridge.md",
   "docs/pi-extensions.md",
   "docs/npm-install.md",
   "docs/skill-anatomy.md",

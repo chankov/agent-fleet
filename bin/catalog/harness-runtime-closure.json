@@ -2,14 +2,11 @@
   "version": 1,
   "description": "Runtime closure refreshed with any pi harness selection. Paths are repository-relative and contain no user configuration or credentials.",
   "directories": [
-    "hermes/skills",
-    "systemd"
+    "hermes/skills"
   ],
   "files": [
     "justfile",
     "scripts/claude-code-preflight.ts",
-    "scripts/codex-conductor.ts",
-    "scripts/codex-remote-control.ts",
     "scripts/coms-claude-bridge.ts",
     "scripts/coms-cli.ts",
     "scripts/coms-hermes-bridge.ts",
@@ -19,8 +16,6 @@
     "scripts/team-snapshot.ts",
     "scripts/team-up.ts",
     "scripts/lib/claude-bridge-core.ts",
-    "scripts/lib/codex-conductor.ts",
-    "scripts/lib/codex-remote-control.ts",
     "scripts/lib/coms-envelope.ts",
     "scripts/lib/fleet-command.ts",
     "scripts/lib/herdr-layout.ts",

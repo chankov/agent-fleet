@@ -196,60 +196,9 @@ test("_listen rejects an invalid incoming msg_id before creating a spool file", 
 	await new Promise((resolve) => listener.child.once("exit", resolve));
 });
 
-test("serializes Codex awaited sends with a process-level lock and releases it after a response", async (t) => {
+test("retired --conductor flag is not a silent alias", async (t) => {
 	const fixture = makeFixture(t);
-	const endpoint = path.join(fixture.root, "worker.sock");
-	const prompts: Array<Record<string, unknown>> = [];
-	const server = net.createServer((socket) => {
-		let buf = "";
-		socket.on("data", (chunk) => {
-			buf += chunk.toString("utf-8");
-			const newline = buf.indexOf("\n");
-			if (newline < 0) return;
-			const prompt = JSON.parse(buf.slice(0, newline)) as Record<string, unknown>;
-			prompts.push(prompt);
-			socket.write(`${JSON.stringify({ type: "ack", msg_id: prompt.msg_id })}\n`);
-			socket.end();
-		});
-	});
-	await new Promise<void>((resolve, reject) => server.listen(endpoint, () => resolve()).once("error", reject));
-	t.after(() => server.close());
-	writeRegistryPeer(fixture, "safe", "worker", endpoint);
-
-	const common = ["send", "worker", "hold", "--project", "safe", "--name", "codex", "--await", "--timeout", "5000", "--conductor", "codex"];
-	const first = startCli(fixture, common);
-	t.after(() => { if (first.child.exitCode === null) first.child.kill("SIGTERM"); });
-	await waitFor(() => prompts[0] && first.output().stderr.includes("awaiting reply"));
-	assert.equal(fs.existsSync(path.join(fixture.coms, "locks", "codex-send.lock")), true);
-
-	const second = await runCli(fixture, common);
-	assert.equal(second.code, 1);
-	assert.match(second.stderr, /Codex send lock is held/);
-	assert.equal(prompts.length, 1);
-
-	await replyToPrompt(prompts[0], "first complete");
-	const firstExit = await new Promise<number | null>((resolve) => first.child.once("exit", resolve));
-	assert.equal(firstExit, 0);
-	assert.equal(fs.existsSync(path.join(fixture.coms, "locks", "codex-send.lock")), false);
-
-	const third = startCli(fixture, common);
-	t.after(() => { if (third.child.exitCode === null) third.child.kill("SIGTERM"); });
-	await waitFor(() => prompts[1] && third.output().stderr.includes("awaiting reply"));
-	await replyToPrompt(prompts[1], "third complete");
-	const thirdExit = await new Promise<number | null>((resolve) => third.child.once("exit", resolve));
-	assert.equal(thirdExit, 0);
-});
-
-test("Codex mode requires explicit scoped awaited options and rejects --all", async (t) => {
-	const fixture = makeFixture(t);
-	const cases = [
-		["send", "worker", "hello", "--project", "safe", "--name", "codex", "--await", "--conductor", "codex"],
-		["send", "worker", "hello", "--project", "safe", "--name", "codex", "--timeout", "1", "--conductor", "codex"],
-		["send", "worker", "hello", "--project", "safe", "--name", "codex", "--await", "--timeout", "1", "--all", "--conductor", "codex"],
-	];
-	for (const args of cases) {
-		const result = await runCli(fixture, args);
-		assert.equal(result.code, 1);
-		assert.match(result.stderr, /Codex mode requires|Codex mode does not allow --all/);
-	}
+	const result = await runCli(fixture, ["send", "worker", "hello", "--project", "safe", "--name", "cli", "--await", "--timeout", "1", "--conductor", "codex"]);
+	assert.equal(result.code, 1);
+	assert.match(result.stderr, /unknown flag: --conductor/);
 });

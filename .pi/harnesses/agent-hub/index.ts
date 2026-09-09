@@ -89,6 +89,7 @@ import { contextPressureDiagnostic, createContextPressureState, transitionContex
 import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
 import { budgetContinuationInstruction, budgetContinuationKind, budgetContinuationOutcome, turnBudgetActiveMs, type BudgetContinuationKind } from "./budget-continuation.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
+import { handleQuestionEnvelope, registerQuestionPeer } from "../ask-user-remote/questions.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts";
 import { RESEARCH_TOOLS, createResearchRuntime, parseResearchHandle } from "./research/runtime.ts";
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
@@ -117,7 +118,7 @@ import { registerInputShortcuts } from "./input/shortcuts.ts";
 import { createCompletionPresentation } from "./input/completions.ts";
 import { createResearchControls } from "./research/controls.ts";
 import { createContextPressureLifecycle, createContextPressureRootState } from "./lifecycle/context-pressure.ts";
-import { createTurnLifecycleHandlers } from "./lifecycle/turn-handlers.ts";
+import { createTurnLifecycleHandlers, registerTurnPresence } from "./lifecycle/turn-handlers.ts";
 import { createMonitorSession } from "./lifecycle/monitor-session.ts";
 import { applySessionOverrides, registerSessionOrchestration, resetHubSession } from "./lifecycle/session-orchestration.ts";
 import { openZoom, type TimelineEntry, type Zoomable } from "./ui/zoom.ts";
@@ -175,11 +176,16 @@ export default function (pi: ExtensionAPI) {
 			? "orchestrator roster recovery required"
 			: null,
 		handleCustomEnvelope: (socket, envelope) => {
+			if (handleQuestionEnvelope(socket, envelope)) return true;
 			if (envelope.type !== "access_request") return false;
 			void accessApprovalRouter.handle(socket, envelope as AccessRequest);
 			return true;
 		},
 	});
+	const unregisterQuestions = registerQuestionPeer(() => coms.ready && coms.identity ? {
+		project: coms.identity.project, peer: coms.identity.name,
+		sessionId: coms.identity.session_id, startedAt: coms.identity.started_at,
+	} : null);
 	let identity: ComsIdentity | null = null;
 	const peerCards = coms.peerCards;
 	const pendingReplies = coms.pendingReplies;
@@ -1746,8 +1752,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	});
 
 	// Root owns subscription order; lifecycle modules own handler bodies.
-	pi.on("before_agent_start", async () => turnHandlers.beforeAgentPresence());
-	pi.on("agent_end", async () => turnHandlers.agentEndPresence());
+	registerTurnPresence(pi, {
+		beforeAgentPresence: () => turnHandlers.beforeAgentPresence(),
+		agentEndPresence: () => turnHandlers.agentEndPresence(),
+	});
 
 	// /af-handoff <peer> — hand the session off to a coms peer. Per decision G1 we do NOT
 	// extract the compaction summary; instead we ask the dispatcher LLM (next turn) to
@@ -2093,7 +2101,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			}));
 		},
 	}, {
-		shutdownComs: () => coms.shutdown(), shutdownMonitor: () => monitorSession.shutdown(),
+		shutdownComs: () => { unregisterQuestions(); return coms.shutdown(); }, shutdownMonitor: () => monitorSession.shutdown(),
 		removeExemptions: () => {
 			if (!exemptionsFile) return;
 			try { fs.unlinkSync(exemptionsFile); } catch {}

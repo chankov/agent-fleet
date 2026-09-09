@@ -20,6 +20,7 @@ import {
 	TIMEOUT_MS,
 } from "../lib/coms-core.ts";
 import { registerVersionStatus } from "./version.ts";
+import { handleQuestionEnvelope, registerQuestionPeer } from "../ask-user-remote/questions.ts";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerFlag("name", { description: "Override agent name (otherwise from frontmatter or auto-generated)", type: "string", default: undefined });
@@ -33,7 +34,12 @@ export default function (pi: ExtensionAPI) {
 		pi,
 		getContext: () => currentCtx,
 		onPeersChanged: () => { if (currentCtx?.hasUI) installPoolWidget(currentCtx); },
+		handleCustomEnvelope: handleQuestionEnvelope,
 	});
+	const unregisterQuestions = registerQuestionPeer(() => peer.ready && peer.identity ? {
+		project: peer.identity.project, peer: peer.identity.name,
+		sessionId: peer.identity.session_id, startedAt: peer.identity.started_at,
+	} : null);
 
 	function renderPool(width: number, theme: Theme): string[] {
 		const identity = peer.identity;
@@ -270,7 +276,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("before_agent_start", async () => { await peer.setTurnState("working"); });
 	pi.on("agent_end", async (_event, ctx) => { await peer.setTurnState("idle"); await peer.respond(ctx); });
-	pi.on("session_shutdown", async () => { await peer.shutdown(); if (currentCtx?.hasUI) currentCtx.ui.setWidget("coms-pool", undefined); });
+	pi.on("session_shutdown", async () => { unregisterQuestions(); await peer.shutdown(); if (currentCtx?.hasUI) currentCtx.ui.setWidget("coms-pool", undefined); });
 	process.on("SIGINT", () => { void peer.shutdown(); });
 	process.on("SIGTERM", () => { void peer.shutdown(); });
 }

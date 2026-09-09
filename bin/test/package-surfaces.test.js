@@ -149,23 +149,22 @@ function removeClosure(source, workspace, owned) {
 
 test("manifest contains the executable harness runtime closure without product docs", () => {
   const paths = validateManifest(root);
-  assert.deepEqual(paths.directories, ["hermes/skills", "systemd"]);
+  assert.deepEqual(paths.directories, ["hermes/skills"]);
   assert.equal([...paths.directories, ...paths.files].some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
   assert.equal([...paths.directories, ...paths.files].some((path) => path === "codex" || path.startsWith("docs/")), false);
   for (const required of [
     "justfile",
-    "scripts/codex-conductor.ts",
-    "scripts/codex-remote-control.ts",
     "scripts/coms-cli.ts",
     "scripts/coms-hermes-bridge.ts",
     "scripts/team-up.ts",
-    "scripts/lib/codex-conductor.ts",
-    "scripts/lib/codex-remote-control.ts",
     "scripts/lib/coms-envelope.ts",
     "scripts/lib/herdr-layout.ts",
     "scripts/lib/hermes-bridge-core.ts",
     "scripts/lib/team-project.ts",
   ]) assert.ok(paths.files.includes(required), required);
+  for (const retired of ["scripts/codex-conductor.ts", "scripts/codex-remote-control.ts", "scripts/lib/codex-conductor.ts", "scripts/lib/codex-remote-control.ts"]) {
+    assert.equal(paths.files.includes(retired), false, retired);
+  }
 });
 
 test("manifest validation fails when a recursive runtime dependency is absent", () => {
@@ -177,8 +176,8 @@ test("manifest validation fails when a recursive runtime dependency is absent", 
       mkdirSync(dirname(dest), { recursive: true });
       cpSync(src, dest, { recursive: true });
     }
-    rmSync(join(fixture, "scripts", "lib", "codex-remote-control.ts"));
-    assert.throws(() => validateManifest(fixture), /scripts\/lib\/codex-remote-control\.ts/);
+    rmSync(join(fixture, "scripts", "lib", "team-project.ts"));
+    assert.throws(() => validateManifest(fixture), /scripts\/lib\/team-project\.ts/);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
@@ -195,11 +194,11 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
       assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /user-recipe/);
       const installedJustfile = readFileSync(join(workspace, "justfile"), "utf8");
       assert.match(installedJustfile, /\nfleet \*args:/);
-      assert.match(installedJustfile, /_fleet-conductor-codex-setup/);
-      assert.match(installedJustfile, /_fleet-conductor-codex team=/);
+      assert.match(installedJustfile, /_fleet-conductor team=/);
+      assert.doesNotMatch(installedJustfile, /_fleet-conductor-codex/);
       assert.doesNotMatch(installedJustfile, /\n(?:hub|hub-team|team-up|safe-coms|conductor-codex)(?: |:)/);
       assert.equal(existsSync(join(workspace, "codex")), false, `${method}: product contract must not land at repository root`);
-      assert.equal(lstatSync(join(workspace, "scripts", "codex-remote-control.ts")).isSymbolicLink(), method === "symlink");
+      assert.equal(lstatSync(join(workspace, "scripts", "coms-cli.ts")).isSymbolicLink(), method === "symlink");
       assert.equal(existsSync(join(workspace, "hermes", "desktop-plugins")), false, `${method}: desktop plugins must not install`);
       assert.equal(existsSync(join(workspace, "hermes", "plugins")), false, `${method}: generic plugins must not install`);
       const fleetHelp = execFileSync(
@@ -215,11 +214,11 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
       );
       assert.match(fleetHelp, /Agent Fleet — one guarded Hub runtime, two work modes, independent topology/, `${method}: installed fleet entrypoint must load`);
 
-      if (method === "copy") writeFileSync(join(workspace, "systemd", "user-owned.service"), "[Unit]\n");
+      if (method === "copy") writeFileSync(join(workspace, "scripts", "user-owned.ts"), "// keep\n");
       removeClosure(root, workspace, owned);
       assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /user-recipe/);
       assert.equal(readFileSync(join(workspace, "justfile"), "utf8").includes("agent-fleet:harnesses"), false);
-      assert.equal(existsSync(join(workspace, "systemd", "user-owned.service")), method === "copy");
+      assert.equal(existsSync(join(workspace, "scripts", "user-owned.ts")), method === "copy");
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -358,20 +357,24 @@ test("published package hoists extension runtime dependencies for symlink instal
 
 test("package, snapshot, and harness closure surfaces stay aligned", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  for (const required of ["codex/", "hermes/README.md", "hermes/skills/", "systemd/", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md"]) {
+  for (const required of ["codex/", "hermes/README.md", "hermes/skills/", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md", "docs/codex-session-bridge.md"]) {
     assert.ok(pkg.files.includes(required), `package files missing ${required}`);
   }
   assert.equal(pkg.files.includes("hermes/"), false);
+  assert.equal(pkg.files.includes("systemd/"), false);
+  assert.equal(pkg.files.includes("docs/codex-remote-conductor.md"), false);
   assert.ok(pkg.files.includes("hermes/plugins/"));
   assert.ok(pkg.files.includes("hermes/desktop-plugins/"));
   assert.ok(pkg.files.includes("!hermes/watchdog-tests/"));
   assert.ok(pkg.files.includes("!hermes/**/__pycache__/"));
   assert.match(pkg.scripts.test, /scripts\/coms-cli\.test\.ts/);
-  assert.match(pkg.scripts.test, /scripts\/lib\/codex-remote-control\.test\.ts/);
+  assert.doesNotMatch(pkg.scripts.test, /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");
-  for (const required of ["codex", "hermes", "systemd", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md", "scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
+  for (const required of ["codex", "hermes", "docs/coms-hermes-bridge.md", "scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);
   }
+  assert.doesNotMatch(snapshot, /"systemd"/);
+  assert.doesNotMatch(snapshot, /docs\/codex-remote-conductor\.md/);
   assert.doesNotMatch(snapshot, /^\s*"docs",$/m, "snapshot must not include docs omitted from the package root allowlist");
 });
 
@@ -444,8 +447,7 @@ test("the relocated harness runtime closure is a manifest companion of every har
   const closure = installManifest.items.find((i) => i.id === "companion:harness-runtime-closure");
   assert.ok(closure, "the relocated harness closure has no manifest item");
   assert.equal(closure.agents.pi.source.some((path) => path === "codex" || path.startsWith("docs/")), false);
-  const codexContract = installManifest.items.find((i) => i.id === "companion:codex-conductor-contract");
-  assert.equal(codexContract?.agents.pi.target, ".pi/agent-fleet/codex/CONDUCTOR.md");
+  assert.equal(installManifest.items.some((i) => i.id === "companion:codex-conductor-contract"), false);
   const workflowGuide = installManifest.items.find((i) => i.id === "companion:workflow-guide");
   assert.equal(workflowGuide?.agents.pi.target, ".pi/agent-fleet/docs/workflows.md");
   assert.equal(existsSync(join(root, "skills", "guided-workspace-setup", "companion-manifest.json")), false, "legacy skill path must not contain runtime closure");
@@ -478,7 +480,7 @@ test("removing the last harness strips the justfile region and keeps user recipe
 
   const justfile = join(workspace, "justfile");
   assert.ok(extractRegion(readFileSync(justfile, "utf8")), "no managed region after install");
-  assert.ok(existsSync(join(workspace, ".pi/agent-fleet/codex/CONDUCTOR.md")));
+  assert.equal(existsSync(join(workspace, ".pi/agent-fleet/codex/CONDUCTOR.md")), false);
   assert.ok(existsSync(join(workspace, ".pi/agent-fleet/docs/workflows.md")));
   for (const rel of ["docs/ARCHITECTURE.md", "docs/codex-remote-conductor.md", "docs/coms-hermes-bridge.md", "docs/workflows.md", "codex/CONDUCTOR.md"]) {
     assert.equal(existsSync(join(workspace, rel)), false, `${rel} leaked into the target repository`);

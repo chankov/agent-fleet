@@ -103,16 +103,6 @@
       ]
     },
     {
-      "id": "codex-bridge",
-      "title": "Codex remote conductor",
-      "order": 8,
-      "agents": [
-        "pi"
-      ],
-      "subcategoryLabel": null,
-      "subcategories": []
-    },
-    {
       "id": "external-packages",
       "title": "External packages",
       "order": 9,
@@ -178,12 +168,6 @@
         "hermes-skill:hub-conductor",
         "hermes-skill:hub-liaison",
         "hermes-skill:hub-watchdog"
-      ]
-    },
-    "codex-bridge": {
-      "title": "Codex remote conductor closure (operator-applied)",
-      "items": [
-        "codex:agent-fleet-codex-remote-control"
       ]
     }
   },
@@ -582,16 +566,6 @@
         "agent-fleet set-hermes-watchdog status --profile <profile>   # confirm the receipt and lock state"
       ]
     },
-    "codex:agent-fleet-codex-remote-control": {
-      "operatorSteps": [
-        "clone agent-fleet — the conductor recipes and the unit template are repo-only",
-        "just fleet conductor codex setup docs --project <name>   # writes the unit, does not start it",
-        "just fleet conductor codex pair   # interactive TTY only; the code is short-lived secret material",
-        "just fleet conductor codex start",
-        "just fleet conductor codex status   # reports requested systemd state only"
-      ],
-      "stability": "experimental"
-    },
     "skill:drafting-workflows": {
       "companions": [
         "reference:workflow-authoring",
@@ -600,7 +574,6 @@
     },
     "companion:justfile-region": {
       "companions": [
-        "companion:codex-conductor-contract",
         "companion:workflow-runtime"
       ]
     },
@@ -612,19 +585,6 @@
     }
   },
   "companions": {
-    "companion:codex-conductor-contract": {
-      "title": "Codex conductor runtime contract",
-      "summary": "Managed contract used by the optional Codex conductor recipes",
-      "agents": {
-        "pi": {
-          "source": [
-            "codex/CONDUCTOR.md"
-          ],
-          "target": ".pi/agent-fleet/codex/CONDUCTOR.md",
-          "strategy": "copy-file"
-        }
-      }
-    },
     "companion:skills-internal-grilling": {
       "title": "skills/_internal/grilling.md",
       "summary": "Shared helper for the interview-style skills",
@@ -832,6 +792,52 @@
         ],
         "cwd": "."
       }
+    },
+    "companion:fleet-client-runtime": {
+      "title": "Lightweight ChatGPT Fleet client",
+      "summary": "Local instruction and read client; no daemon or model calls",
+      "stability": "experimental",
+      "agents": {
+        "pi": {
+          "source": [
+            "scripts/fleet-codex-client.ts",
+            "scripts/fleet-codex-read.py",
+            "scripts/package.json",
+            "scripts/lib/fleet-codex-session.ts",
+            "scripts/lib/fleet-codex-operations.ts",
+            "scripts/lib/fleet-codex-transport.ts",
+            "scripts/lib/fleet-codex-catalog.ts",
+            "scripts/lib/coms-envelope.ts",
+            ".pi/harnesses/lib/herdr-client.ts",
+            "hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
+            "hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
+            "hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
+            "hermes/skills/hub-watchdog/scripts/watchdog_contract.py",
+            "docs/codex-session-bridge.md"
+          ],
+          "sourceMode": "all",
+          "preserveLayout": true,
+          "target": null,
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    "companion:fleet-client-skill": {
+      "title": "ChatGPT Fleet client skill",
+      "summary": "Workspace Codex skill for the explicit session client",
+      "stability": "experimental",
+      "agents": {
+        "pi": {
+          "source": [
+            "codex/fleet-session-client"
+          ],
+          "target": ".agents/skills/fleet-session-client",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:fleet-client-runtime"
+      ]
     }
   },
   "externalPackages": {
@@ -958,11 +964,12 @@
         "skill:peer-coms"
       ]
     },
-    "codex-remote": {
-      "title": "Codex remote",
+    "chatgpt-client": {
+      "title": "ChatGPT Fleet session client",
       "stability": "experimental",
       "items": [
-        "codex:agent-fleet-codex-remote-control"
+        "companion:fleet-client-runtime",
+        "companion:fleet-client-skill"
       ]
     }
   }

@@ -4,7 +4,6 @@
 // already isolates peers by --project; this file only keeps team workspace
 // labels, snapshot files, and generated launch argv in sync with that scope.
 
-import * as os from "node:os";
 import * as path from "node:path";
 
 export const DEFAULT_PROJECT = "default";
@@ -14,13 +13,11 @@ export const DEFAULT_PROJECT = "default";
 // like "acme.prod", but ".." is not allowed anywhere.
 export const PROJECT_SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export const TEAM_SAFE = /^[A-Za-z0-9_-]+$/;
-export const CODEX_CONTRACT_IDENTITY = "agent-fleet-codex-conductor-pilot-v1";
-export const DEFAULT_CODEX_TIMEOUT_MS = 300_000;
 
-export type ConductorBackend = "hermes" | "codex";
+export type ConductorBackend = "hermes";
 // "peer" is the `just fleet peer <name>` workspace: a single pane for
 // a single peer, labelled by the PEER name where the others use a team name.
-export type WorkspaceMode = "peers" | "peer" | "hub" | "conductor-hermes" | "conductor-codex";
+export type WorkspaceMode = "peers" | "peer" | "hub" | "conductor-hermes";
 
 export interface ConductorSpec {
 	backend: ConductorBackend;
@@ -31,7 +28,7 @@ export interface ConductorSpec {
 	env: Record<string, string>;
 	ratio: number;
 	displayText: string;
-	expectedServiceScope: "none" | "agent-fleet-codex-remote-control.service";
+	expectedServiceScope: "none";
 	conductorName: string;
 	team: string;
 }
@@ -149,57 +146,25 @@ export function conductorCommand(): string[] {
 
 export function conductorSpec(
 	backend: ConductorBackend,
-	input: { repoRoot: string; runtimeDir?: string; team: string; project?: string; nodeBin?: string },
+	input: { repoRoot: string; team: string; project?: string },
 ): ConductorSpec {
 	const repoRoot = validateAbsoluteRepoRoot(input.repoRoot);
 	const team = validateTeamName(input.team);
-	const project = validateProject(input.project ?? DEFAULT_PROJECT);
-	const conductorName = `${backend}-${team}-conductor`;
-	if (backend === "hermes") {
-		return {
-			backend,
-			workspaceMode: "conductor-hermes",
-			paneLabel: "conductor-hermes",
-			command: conductorCommand(),
-			cwd: repoRoot,
-			env: {},
-			ratio: 0.35,
-			displayText: "Hermes conductor; no herdr control",
-			expectedServiceScope: "none",
-			conductorName,
-			team,
-		};
+	validateProject(input.project ?? DEFAULT_PROJECT);
+	if (backend !== "hermes") {
+		throw new Error(`Unknown conductor backend: ${JSON.stringify(backend)} (expected hermes)`);
 	}
-	const runtimeDir = input.runtimeDir ?? path.join(os.homedir(), ".local", "state", "agent-fleet", "codex-conductor");
-	if (!path.isAbsolute(runtimeDir) || path.resolve(runtimeDir) !== runtimeDir) {
-		throw new Error(`Codex conductor requires an absolute runtime directory: ${JSON.stringify(runtimeDir)}`);
-	}
-	const relativeRuntime = path.relative(repoRoot, runtimeDir);
-	if (relativeRuntime === "" || (!relativeRuntime.startsWith("..") && !path.isAbsolute(relativeRuntime))) {
-		throw new Error("Codex conductor requires a runtime directory outside repoRoot");
-	}
-	const workspaceDir = path.join(runtimeDir, "workspace");
-	const nodeBin = input.nodeBin ?? process.execPath;
-	if (!path.isAbsolute(nodeBin)) throw new Error(`Codex conductor requires an absolute Node binary path: ${JSON.stringify(nodeBin)}`);
 	return {
 		backend,
-		workspaceMode: "conductor-codex",
-		paneLabel: "conductor-codex-control",
-		command: [nodeBin, "--experimental-strip-types", path.join(repoRoot, "scripts", "codex-remote-control.ts"), "control-pane"],
-		cwd: workspaceDir,
-		env: {
-			AGENT_FLEET_REPO_ROOT: repoRoot,
-			COMS_CLI_PROJECT: project,
-			COMS_CLI_NAME: conductorName,
-			COMS_CLI_TIMEOUT_MS: String(DEFAULT_CODEX_TIMEOUT_MS),
-			AGENT_FLEET_CODEX_CONTRACT_PATH: path.join(workspaceDir, "AGENTS.md"),
-			AGENT_FLEET_CODEX_CONTRACT_IDENTITY: CODEX_CONTRACT_IDENTITY,
-			AGENT_FLEET_CONDUCTOR_BACKEND: "codex",
-		},
+		workspaceMode: "conductor-hermes",
+		paneLabel: "conductor-hermes",
+		command: conductorCommand(),
+		cwd: repoRoot,
+		env: {},
 		ratio: 0.35,
-		displayText: "Codex control pane; requested systemd state only",
-		expectedServiceScope: "agent-fleet-codex-remote-control.service",
-		conductorName,
+		displayText: "Hermes conductor; no herdr control",
+		expectedServiceScope: "none",
+		conductorName: `${backend}-${team}-conductor`,
 		team,
 	};
 }
