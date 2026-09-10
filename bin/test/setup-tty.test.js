@@ -24,7 +24,7 @@ if pid == 0:
 def rendered(raw):
     # Minimal VT screen model: cursor motion, CR/LF, erase, wrapping and scroll.
     import re
-    rows = 24; screen = [[" "] * cols for _ in range(rows)]; row = col = 0
+    rows = 24; screen = [[" "] * cols for _ in range(rows)]; row = col = 0; wrap_pending = False
     def scroll():
         nonlocal row
         if row >= rows: screen.pop(0); screen.append([" "] * cols); row = rows - 1
@@ -35,6 +35,7 @@ def rendered(raw):
             match = re.match(r"\x1b\[([0-9;?]*)([A-Za-z])", text[i:])
             if match:
                 args = [int(x) if x else 0 for x in match.group(1).replace("?", "").split(";")]; cmd = match.group(2); n = args[0] or 1
+                if cmd != "m": wrap_pending = False
                 if cmd == "A": row = max(0, row - n)
                 elif cmd == "B": row = min(rows - 1, row + n)
                 elif cmd == "C": col = min(cols - 1, col + n)
@@ -46,18 +47,28 @@ def rendered(raw):
                     if mode == 0: screen[row][col:] = [" "] * (cols - col)
                     elif mode == 1: screen[row][:col+1] = [" "] * (col + 1)
                     elif mode == 2: screen[row] = [" "] * cols
-                elif cmd == "J" and (args[0] if args else 0) == 2: screen = [[" "] * cols for _ in range(rows)]; row = col = 0
+                elif cmd == "J":
+                    mode = args[0] if args else 0
+                    if mode == 0:
+                        screen[row][col:] = [" "] * (cols - col)
+                        for lower in range(row + 1, rows): screen[lower] = [" "] * cols
+                    elif mode == 1:
+                        for upper in range(0, row): screen[upper] = [" "] * cols
+                        screen[row][:col+1] = [" "] * (col + 1)
+                    elif mode == 2: screen = [[" "] * cols for _ in range(rows)]; row = col = 0
                 i += len(match.group(0)); continue
-        if ch == "\r": col = 0
-        elif ch == "\n": row += 1; scroll()
-        elif ch == "\b": col = max(0, col - 1)
+        if ch == "\r": col = 0; wrap_pending = False
+        elif ch == "\n": row += 1; wrap_pending = False; scroll()
+        elif ch == "\b": col = max(0, col - 1); wrap_pending = False
         elif ch >= " ":
-            screen[row][col] = ch; col += 1
-            if col >= cols: col = 0; row += 1; scroll()
+            if wrap_pending: col = 0; row += 1; scroll(); wrap_pending = False
+            screen[row][col] = ch
+            if col == cols - 1: wrap_pending = True
+            else: col += 1
         i += 1
     lines = ["".join(line).rstrip() for line in screen]
     return "\n".join(lines), next((line for line in reversed(lines) if line), "")
-output, screens, index, input_start, deadline = b"", [], 0, 0, time.time() + 25
+output, screens, index, input_start, armed, deadline = b"", [], 0, 0, False, time.time() + 25
 while time.time() < deadline:
     ready, _, _ = select.select([fd], [], [], .1)
     if ready:
@@ -65,10 +76,14 @@ while time.time() < deadline:
         except OSError: break
         if not chunk: break
         output += chunk
-        if index < len(answers) and needles[index] in output[input_start:]:
-            screens.append(rendered(output))
-            os.write(fd, answers[index].encode())
-            index += 1; input_start = len(output)
+        if index < len(answers) and needles[index] in output[input_start:]: armed = True
+    elif armed:
+        # Snapshot only at an output-quiescent prompt boundary. This makes
+        # readline redraw bytes deterministic instead of depending on whether
+        # the OS split them into the same read() chunk as the prompt.
+        screens.append(rendered(output))
+        os.write(fd, answers[index].encode())
+        index += 1; input_start = len(output); armed = False
     waited, status = os.waitpid(pid, os.WNOHANG)
     if waited:
         print(output.decode(errors="replace"), end="")
@@ -107,6 +122,16 @@ function writeLegacyState(ws) {
   }));
   return legacyPath;
 }
+
+test("readline-owned prompt survives a quiescent redraw without losing its initial cell", { timeout: 30000 }, () => {
+  const ws = workspace();
+  try {
+    const result = interactiveSetup(ws, ["cancel\n"], ["Choose: 1 | 2 | 3 | cancel; Enter ="]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(compactScreen(result, 0), /Choose: 1 \| 2 \| 3 \| cancel; Enter = Default >/);
+    assert.equal(lastVisibleInputLine(result, 0), "Choose: 1 | 2 | 3 | cancel; Enter = Default >");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
 
 test("real TTY setup reaches one final confirmation for Default, feature, and Full", { timeout: 90000 }, () => {
   for (const answers of [["1\n", "\n", "y\n"], ["1\n", "voice\n", "groq\n", "y\n"], ["2\n", "\n", "y\n"], ["3\n", "none\n", "y\n"]]) {

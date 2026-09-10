@@ -17,8 +17,11 @@ export function selectionSummary(manifest, preset, selected, platform = process.
 }
 export async function askChoice({ output, readLine, prompt, validate }) {
   while (true) {
-    output.write(prompt);
-    const answer = await readLine();
+    // A real readline interface must own the prompt so its redraw/erase cycle
+    // cannot clear text printed separately just before question(""). Test and
+    // non-readline adapters retain the explicit output path.
+    if (!readLine.ownsPrompt) output.write(prompt);
+    const answer = await readLine(prompt);
     if (answer === null) return { cancelled: true, reason: "EOF" };
     if (answer === "__AGENT_FLEET_INTERRUPT__") return { cancelled: true, reason: "Ctrl+C" };
     const value = answer.trim();

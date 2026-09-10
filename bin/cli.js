@@ -278,11 +278,12 @@ async function cmdSetup() {
   let setupRl = null;
   if (interactive) {
     setupRl = createInterface({ input: stdin, output: stdout });
-    setupReadLine = () => new Promise((resolveAnswer) => {
+    setupReadLine = (prompt = "") => new Promise((resolveAnswer) => {
       const interrupted = () => { setupRl.removeListener("SIGINT", interrupted); resolveAnswer("__AGENT_FLEET_INTERRUPT__"); };
       setupRl.once("SIGINT", interrupted);
-      setupRl.question("").then((answer) => { setupRl.removeListener("SIGINT", interrupted); resolveAnswer(answer); }, () => { setupRl.removeListener("SIGINT", interrupted); resolveAnswer(null); });
+      setupRl.question(prompt).then((answer) => { setupRl.removeListener("SIGINT", interrupted); resolveAnswer(answer); }, () => { setupRl.removeListener("SIGINT", interrupted); resolveAnswer(null); });
     });
+    setupReadLine.ownsPrompt = true;
     let selection;
     try {
       const initial = readDesired(workspace, manifest) ?? defaultDesired(manifest);
