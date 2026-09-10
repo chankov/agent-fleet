@@ -28,8 +28,14 @@ function fakePi(name: string, inbound: any[]) {
 	} as any;
 }
 
+function shortTmp(prefix: string): Promise<string> {
+	// Darwin sockaddr_un is 104 bytes; GHA macOS tmpdir is already ~50 chars.
+	const base = process.platform === "darwin" ? "/tmp" : tmpdir();
+	return mkdtemp(join(base, prefix));
+}
+
 test("shared coms peers connect, discover, exchange a reply, and shut down", async () => {
-	const root = await mkdtemp(join(tmpdir(), "agent-fleet-coms-core-"));
+	const root = await shortTmp("afc-");
 	const previousComsDir = process.env.PI_COMS_DIR;
 	process.env.PI_COMS_DIR = root;
 	const { createComsPeer } = await import(`./coms-core.ts?test=${Date.now()}`);
