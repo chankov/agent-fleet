@@ -11,7 +11,13 @@ import {
 	runFleetUpdateCheck,
 	PACKAGE_NAME,
 	RELEASES_URL,
+	type FleetUpdateCheckDeps,
 } from "./update-check.ts";
+
+/** GitHub Actions sets CI=true, which the helper treats as an opt-out. */
+function enabled(extra: FleetUpdateCheckDeps = {}): FleetUpdateCheckDeps {
+	return { env: {}, ...extra };
+}
 
 function workspace(version?: string) {
 	const dir = mkdtempSync(join(tmpdir(), "af-update-check-"));
@@ -76,11 +82,25 @@ test("runFleetUpdateCheck skips hub children", async () => {
 	assert.equal(await runFleetUpdateCheck(c, { env: { AGENT_HUB_AGENT_ID: "builder" } }), null);
 });
 
+test("runFleetUpdateCheck skips when CI=true even if a cache shows an upgrade", async () => {
+	const cwd = workspace("0.1.0");
+	const cacheFile = join(mkdtempSync(join(tmpdir(), "af-update-cache-")), "latest-version.json");
+	writeFileSync(cacheFile, JSON.stringify({ latest: "0.2.0", checkedAt: Date.now() }), "utf8");
+	const { ctx: c, calls } = ctx();
+	c.cwd = cwd;
+	assert.equal(await runFleetUpdateCheck(c, {
+		env: { CI: "true" },
+		cacheFile,
+		fetchLatest: async () => "9.9.9",
+	}), null);
+	assert.equal(calls.length, 0);
+});
+
 test("runFleetUpdateCheck skips when the install record is missing", async () => {
 	const cwd = workspace();
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
-	assert.equal(await runFleetUpdateCheck(c, { fetchLatest: async () => "9.9.9" }), null);
+	assert.equal(await runFleetUpdateCheck(c, enabled({ fetchLatest: async () => "9.9.9" })), null);
 	assert.equal(calls.length, 0);
 });
 
@@ -91,13 +111,13 @@ test("runFleetUpdateCheck notifies from a fresh cache without fetching", async (
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
 	let fetched = 0;
-	const banner = await runFleetUpdateCheck(c, {
+	const banner = await runFleetUpdateCheck(c, enabled({
 		cacheFile,
 		fetchLatest: async () => {
 			fetched++;
 			return "9.9.9";
 		},
-	});
+	}));
 	assert.equal(fetched, 0);
 	assert.match(banner ?? "", /0\.1\.0 → 0\.2\.0/);
 	assert.equal(calls.length, 1);
@@ -111,10 +131,10 @@ test("runFleetUpdateCheck fetches and caches when the cache is stale", async () 
 	writeFileSync(cacheFile, JSON.stringify({ latest: "1.0.0", checkedAt: 1 }), "utf8");
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
-	const banner = await runFleetUpdateCheck(c, {
+	const banner = await runFleetUpdateCheck(c, enabled({
 		cacheFile,
 		fetchLatest: async () => "1.1.0",
-	});
+	}));
 	assert.match(banner ?? "", /1\.0\.0 → 1\.1\.0/);
 	assert.equal(calls.length, 1);
 	const cached = JSON.parse(readFileSync(cacheFile, "utf8"));
@@ -128,7 +148,7 @@ test("runFleetUpdateCheck stays silent when published equals recorded", async ()
 	const cacheFile = join(mkdtempSync(join(tmpdir(), "af-update-cache-")), "latest-version.json");
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
-	assert.equal(await runFleetUpdateCheck(c, { cacheFile, fetchLatest: async () => "2.0.0" }), null);
+	assert.equal(await runFleetUpdateCheck(c, enabled({ cacheFile, fetchLatest: async () => "2.0.0" })), null);
 	assert.equal(calls.length, 0);
 });
 
@@ -137,11 +157,11 @@ test("runFleetUpdateCheck swallows fetch failures", async () => {
 	const cacheFile = join(mkdtempSync(join(tmpdir(), "af-update-cache-")), "latest-version.json");
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
-	assert.equal(await runFleetUpdateCheck(c, {
+	assert.equal(await runFleetUpdateCheck(c, enabled({
 		cacheFile,
 		fetchLatest: async () => {
 			throw new Error("boom");
 		},
-	}), null);
+	})), null);
 	assert.equal(calls.length, 0);
 });

@@ -25,7 +25,9 @@ interface Result {
 }
 
 function makeFixture(t: { after(fn: () => void): void }): Fixture {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "coms-cli-test-"));
+	// Darwin sockaddr_un is 104 bytes; GHA macOS tmpdir is already ~50 chars.
+	const base = process.platform === "darwin" ? "/tmp" : os.tmpdir();
+	const root = fs.mkdtempSync(path.join(base, "afcl-"));
 	const fixture = { root, coms: path.join(root, "coms") };
 	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 	return fixture;
