@@ -88,12 +88,21 @@ node bin/cli.js setup --workspace ~/projects/my-app --preset default --features 
 
 ### 1. Notice there is one
 
-A pi session started from a workspace with an install record prints a one-line
-banner on its first turn (`pi-extension:agent-fleet-update-check`, installed by
-Default):
+A `just fleet` session started from a workspace with an install record prints a
+banner at session start when a newer package is published (the shared helper in
+`damage-control-continue`, not a standalone pi extension):
 
 ```
-agent-fleet update available: 0.1.0 → 0.2.0. Run "npx @chankov/agent-fleet@latest setup" to reconcile the workspace.
+agent-fleet update available: 0.1.0 → 0.2.0
+
+In the workspace root:
+  npx @chankov/agent-fleet@latest setup
+
+Preview without writing:
+  npx @chankov/agent-fleet@latest setup --dry-run
+
+Releases:
+  https://github.com/chankov/agent-fleet/releases
 ```
 
 To ask directly, without a session — it prints one line when an update exists

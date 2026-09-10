@@ -135,7 +135,6 @@
         "persona:builder",
         "persona:code-reviewer",
         "persona:test-engineer",
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:compact-and-continue",
         "pi-harness:agent-hub",
@@ -260,7 +259,6 @@
         "pi-harness:damage-control-continue",
         "pi-harness:ask-user-remote",
         "pi-harness:coms",
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:compact-and-continue",
         "pi-extension:btw"
       ]
@@ -721,7 +719,6 @@
         "cwd": "."
       },
       "parents": [
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:chrome-devtools-mcp",
         "pi-extension:compact-and-continue",
@@ -752,7 +749,6 @@
         }
       },
       "parents": [
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:chrome-devtools-mcp",
         "pi-extension:compact-and-continue",
@@ -1562,38 +1558,6 @@
       ]
     },
     {
-      "id": "pi-extension:agent-fleet-update-check",
-      "kind": "pi-extension",
-      "group": "pi-extensions",
-      "subcategory": "extension",
-      "title": "agent-fleet-update-check",
-      "summary": "",
-      "recommended": true,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            ".pi/extensions/agent-fleet-update-check"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/extensions/agent-fleet-update-check",
-          "strategy": "copy-tree"
-        }
-      },
-      "companions": [
-        "companion:pi-extension-deps",
-        "companion:pi-extension-manifests"
-      ],
-      "pinnedBy": [
-        "pi-harness:agent-hub",
-        "pi-harness:ask-user-remote",
-        "pi-harness:coms",
-        "pi-harness:damage-control-continue"
-      ]
-    },
-    {
       "id": "pi-extension:btw",
       "kind": "pi-extension",
       "group": "pi-extensions",
@@ -1800,7 +1764,6 @@
         "companion:pi-harness-manifests"
       ],
       "requires": [
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:compact-and-continue",
         "pi-harness:damage-control-continue"
@@ -1877,7 +1840,6 @@
         "companion:pi-harness-manifests"
       ],
       "requires": [
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:compact-and-continue",
         "pi-harness:ask-user-remote"

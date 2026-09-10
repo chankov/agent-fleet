@@ -26,6 +26,8 @@
  * In this repo it is the only supported safety harness: the agent-hub main
  * session and every native specialist, research helper, and nested delegate
  * use it. Missing safety plumbing makes Agent Hub refuse child dispatch.
+ * Interactive sessions also schedule the shared Fleet Core update check
+ * (../lib/update-check.ts) on session_start — never blocking, never in children.
  *
  * Usage: pi -e .pi/harnesses/damage-control-continue/index.ts
  */
@@ -52,6 +54,7 @@ import {
 	type PathRuleCategory,
 } from "../lib/damage-control-shared.ts";
 import { registerVersionStatus } from "./version.ts";
+import { scheduleFleetUpdateCheck } from "../lib/update-check.ts";
 
 interface Rule {
 	pattern: string;
@@ -266,6 +269,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		registerVersionStatus(ctx);
+		// Non-blocking: never delay rule loading or session start for a registry fetch.
+		scheduleFleetUpdateCheck(ctx);
 		const projectRulesPath = path.join(ctx.cwd, ".pi", "damage-control-rules.yaml");
 		const globalRulesPath = path.join(os.homedir(), ".pi", "damage-control-rules.yaml");
 		const rulesPath = fs.existsSync(projectRulesPath) ? projectRulesPath : fs.existsSync(globalRulesPath) ? globalRulesPath : null;

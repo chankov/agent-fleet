@@ -89,6 +89,17 @@ refuses guarded child dispatch rather than launching an unprotected process.
 
 Blocking itself runs passively on the `tool_call` event.
 
+## Package update check
+
+On `session_start` this harness also schedules the shared Fleet Core helper
+[`.pi/harnesses/lib/update-check.ts`](../lib/update-check.ts). In an interactive
+session with a `version:` line in `.ai/agent-fleet-setup.md`, it compares that
+record to the npm registry (24h shared cache with the CLI) and, when a newer
+version exists, notifies with the exact `npx @chankov/agent-fleet@latest setup`
+command — plus `--dry-run` and the releases URL. Headless hub children, CI, and
+`AGENT_SKILLS_NO_UPDATE_CHECK` / `NO_UPDATE_NOTIFIER` skip the check. It never
+blocks session start and never writes the install record.
+
 ## Requires
 
 - `.pi/damage-control-rules.yaml` — the rule set (shipped in this repo)

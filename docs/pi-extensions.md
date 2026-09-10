@@ -28,7 +28,7 @@ not vendor that code; the mechanisms are rebuilt on Agent Fleet seams.
 ## What these extensions are
 
 `.pi/extensions/` contains utility extensions. Fleet Core explicitly loads
-`compact-and-continue`, `agent-fleet-update-check`, and `btw`; browser and voice are
+`compact-and-continue` and `btw`; browser and voice are
 feature-gated: after setup installs them, launch with `just fleet --browser` or
 `just fleet --voice`. This keeps Default deterministic even though pi can auto-discover
 extensions outside Fleet Core. `btw` adds a
@@ -56,8 +56,8 @@ see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/READM
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some set orchestration/UI surfaces and some gate every
 tool call. The unified `just fleet` entry point composes them with a deterministic
-Fleet Core: `damage-control-continue`, `ask-user-remote`, Compact & Continue,
-BTW, and the update checker. Voice is an optional feature, not Default Fleet Core.
+Fleet Core: `damage-control-continue` (which also runs the shared package update
+check once per session), `ask-user-remote`, Compact & Continue, and BTW. Voice is an optional feature, not Default Fleet Core.
 Every public Pi launch through bare `just fleet` also loads
 `agent-hub`; operator/orchestrator work mode changes its direct tool surface without changing
 process or session. `just fleet peer` starts a standalone coms peer. Harnesses live in

@@ -51,7 +51,7 @@ DETERMINISTIC FLOWS
 
 FLEET CORE — loaded in every Pi mode
   Damage Control Continue · local/remote ask_user · Compact & Continue
-  BTW side sessions · update checker (voice is opt-in with --voice)
+  BTW side sessions · update check via damage-control-continue (voice is opt-in with --voice)
 
 UNIFIED HUB
   just fleet [--work-mode operator|orchestrator] [--agents <roster>]

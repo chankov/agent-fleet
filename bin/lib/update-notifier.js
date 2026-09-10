@@ -1,6 +1,6 @@
 // update-notifier — zero-dependency check for newer versions on the npm
-// registry, shared by the CLI, the Claude Code session hook, and the pi
-// extension.
+// registry, shared by the CLI, the Claude Code session hook, and the Fleet
+// Core helper (`.pi/harnesses/lib/update-check.ts`).
 //
 // Behaviour:
 //   - Cache lives at $XDG_CACHE_HOME/agent-fleet/latest-version.json

@@ -27,8 +27,19 @@ const CORE_HARNESSES = ["pi-harness:damage-control-continue", "pi-harness:ask-us
 const CORE_EXTENSIONS = [
   "pi-extension:compact-and-continue",
   "pi-extension:btw",
-  "pi-extension:agent-fleet-update-check",
 ];
+
+test("the update check lives in Fleet Core, not as a pi extension", () => {
+  assert.equal(existsSync(join(root, ".pi/extensions/agent-fleet-update-check")), false);
+  assert.ok(existsSync(join(root, ".pi/harnesses/lib/update-check.ts")));
+  assert.match(
+    read(".pi/harnesses/damage-control-continue/index.ts"),
+    /scheduleFleetUpdateCheck/,
+    "damage-control-continue must schedule the shared update check",
+  );
+  const manifest = loadManifest(root);
+  assert.equal(manifest.items.some((i) => i.id === "pi-extension:agent-fleet-update-check"), false);
+});
 
 test("only damage-control-continue remains in the active harness inventory", () => {
   assert.equal(existsSync(join(root, ".pi/harnesses/damage-control")), false);

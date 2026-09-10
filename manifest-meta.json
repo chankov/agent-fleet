@@ -155,7 +155,6 @@
         "pi-harness:damage-control-continue",
         "pi-harness:ask-user-remote",
         "pi-harness:coms",
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:compact-and-continue",
         "pi-extension:btw"
       ]
@@ -207,8 +206,7 @@
     "command:plan",
     "command:build",
     "command:test",
-    "command:review",
-    "pi-extension:agent-fleet-update-check"
+    "command:review"
   ],
   "subcategory": {
     "skill:spec-driven-development": "define",
@@ -256,7 +254,6 @@
     "pi-extension:mcp-bridge": "extension",
     "pi-extension:chrome-devtools-mcp": "extension",
     "pi-extension:compact-and-continue": "extension",
-    "pi-extension:agent-fleet-update-check": "extension",
     "pi-extension:btw": "extension",
     "pi-extension:pi-voice-stt": "extension",
     "pi-runtime-skill:bowser": "runtime-skill",
@@ -400,7 +397,7 @@
         "external:playwright-cli"
       ]
     },
-    "_fleet_core_comment": "Fleet Core is the set the justfile's `fleet_core_extensions` loads into every pi session and every Herdr peer: two harnesses (damage-control-continue, ask-user-remote) plus four utility extensions. It is encoded twice on purpose — `requires`, so installing any harness pulls the whole set, and `pinnedBy`, so uninstall refuses to break a harness by taking a member out from under it. Keep it in step with the `fleet_core_extensions` line in the justfile; bin/test/damage-control-unification.test.js asserts the two agree.",
+    "_fleet_core_comment": "Fleet Core is the set the justfile's `fleet_core_extensions` loads into every pi session and every Herdr peer: two harnesses (damage-control-continue, ask-user-remote) plus compact-and-continue and btw. The package update check is not a standalone extension; damage-control-continue runs `.pi/harnesses/lib/update-check.ts` once per session. The launcher set is encoded twice on purpose — `requires`, so installing any harness pulls the whole set, and `pinnedBy`, so uninstall refuses to break a harness by taking a member out from under it. Keep it in step with the `fleet_core_extensions` line in the justfile; bin/test/damage-control-unification.test.js asserts the two agree.",
     "pi-extension:mcp-bridge": {
       "companions": [
         "companion:pi-extension-manifests",
@@ -414,18 +411,6 @@
       ]
     },
     "pi-extension:compact-and-continue": {
-      "companions": [
-        "companion:pi-extension-manifests",
-        "companion:pi-extension-deps"
-      ],
-      "pinnedBy": [
-        "pi-harness:agent-hub",
-        "pi-harness:ask-user-remote",
-        "pi-harness:coms",
-        "pi-harness:damage-control-continue"
-      ]
-    },
-    "pi-extension:agent-fleet-update-check": {
       "companions": [
         "companion:pi-extension-manifests",
         "companion:pi-extension-deps"
@@ -483,7 +468,6 @@
       ],
       "requires": [
         "pi-harness:ask-user-remote",
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:compact-and-continue"
       ],
@@ -502,7 +486,6 @@
       ],
       "requires": [
         "pi-harness:damage-control-continue",
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:compact-and-continue"
       ],
@@ -880,7 +863,6 @@
         "persona:builder",
         "persona:code-reviewer",
         "persona:test-engineer",
-        "pi-extension:agent-fleet-update-check",
         "pi-extension:btw",
         "pi-extension:compact-and-continue",
         "pi-harness:agent-hub",

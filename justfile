@@ -31,16 +31,16 @@ node_ts := "node --experimental-strip-types --preserve-symlinks --preserve-symli
 # Fleet Core is the invariant Pi runtime used by every new `just fleet` mode and
 # every Pi peer spawned into Herdr. `--no-extensions` makes the baseline
 # deterministic; these modules are then loaded explicitly:
-#   • damage-control-continue — fail-closed safety with actionable feedback
+#   • damage-control-continue — fail-closed safety with actionable feedback;
+#     also runs the shared Fleet Core update check once per session
 #   • ask-user-remote         — stock local ask_user, optionally raced with Hermes
 #   • compact-and-continue    — request_compaction at explicit workflow checkpoints
 #   • btw                     — /btw and Alt+' side sessions
-#   • update check            — bounded, non-blocking package update notification
 # `--browser` additionally loads chrome-devtools-mcp; `--voice` explicitly loads
 # pi-voice-stt only after the voice feature has installed it. `--all-extensions` removes
 # `--no-extensions`, so project/global auto-discovered extensions also load; use
 # it only when a session intentionally needs extensions outside Fleet Core.
-fleet_core_extensions := "-e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/extensions/compact-and-continue/index.ts -e .pi/extensions/btw/index.ts -e .pi/extensions/agent-fleet-update-check/index.ts"
+fleet_core_extensions := "-e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/extensions/compact-and-continue/index.ts -e .pi/extensions/btw/index.ts"
 fleet_browser_extension := "-e .pi/extensions/chrome-devtools-mcp/index.ts"
 fleet_voice_extension := "-e .pi/extensions/pi-voice-stt/index.ts"
 
