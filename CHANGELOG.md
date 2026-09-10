@@ -1,5 +1,13 @@
 # Agent Fleet changelog
 
+## 2.0.7
+
+### Patch Changes
+
+- 1e7e535: Make setup prompts explicit and add a platform-compatible Full + all-features snapshot. Harden lifecycle dry-runs, public JSON, STT preservation, single-writer locking, path validation, durable transaction recovery, runtime retries, readiness reporting, and packed installer coverage.
+- fab6ac3: Fold the package update check into Fleet Core: damage-control-continue schedules a shared helper at session start instead of loading `pi-extension:agent-fleet-update-check`. The banner now names `npx @chankov/agent-fleet@latest setup`, `--dry-run`, and the releases URL.
+- 1e7e535: Offer an explicitly approved repair for retired desired-state features before setup validation, including disabled codex-remote entries. Preserve other settings, save a backup, check for intervening edits, and replace the config atomically. Add --repair-config for automation, read-only dry-run proposals, interactive consent coverage, and a packed-release regression test.
+
 ## 2.0.6
 
 ### Patch Changes
