@@ -16,6 +16,7 @@ permissions:
 jobs:
   installer-matrix:
     name: Installer (${{ matrix.os }})
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
@@ -31,6 +32,7 @@ jobs:
           python-version: "3.12"
       - run: npm install --no-audit --no-fund
       - name: Full suite (includes packed installer and narrow PTY)
+        timeout-minutes: 10
         run: npm test
       - name: Verify package contents
         run: npm run pack:dry
@@ -38,6 +40,7 @@ jobs:
   release:
     name: Release
     needs: installer-matrix
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -65,19 +68,12 @@ jobs:
           console.log(`npm ${version} supports Trusted Publishing`);
           NODE
 
-      # The Hermes watchdog suite runs on `python3 -m unittest` from the
-      # standard library, so an interpreter is all this gate needs.
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Test
-        run: npm test
-
+      # Full suite already ran in installer-matrix. Re-running it here is what
+      # hung run 34457797354 (~39 min, no TAP summary, cancelled). Keep this
+      # job for Trusted Publishing + changesets only.
       - name: Verify package contents
         run: npm run pack:dry
 
