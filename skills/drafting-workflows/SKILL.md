@@ -79,7 +79,7 @@ The draft marks only three classes of decisions:
 
 Edit the copied phase bodies so the declared shape is real. Remove each TODO only after making that decision. Do not add TODOs for imports, envelope wiring, trace calls, dry-run stubs, or other boilerplate.
 
-For the complete contracts, read `references/workflow-authoring.md`.
+For the complete contracts, read `../../references/workflow-authoring.md`.
 
 ### 6. Keep the envelope triad synchronized
 

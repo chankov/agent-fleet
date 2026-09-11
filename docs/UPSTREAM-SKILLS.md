@@ -10,9 +10,9 @@ upstream is one dependency/input among several.
 | Field | Value |
 | --- | --- |
 | Upstream repository | `https://github.com/addyosmani/agent-skills` |
-| Imported commit | `c1974de476a39cb002a3b8e51e6a7e8e57b808c6` |
-| Import date | 2026-07-16 |
-| Included paths | upstream `skills/` (24 skills) and `LICENSE`, copied to `vendor/agent-skills-upstream/` |
+| Imported commit | `6ca0cd7db39b41b1c37e26d335c507ee92382c6d` |
+| Import date | 2026-09-11 |
+| Included paths | upstream `skills/` (25 skills) and `LICENSE`, copied to `vendor/agent-skills-upstream/` |
 
 ## Layout and precedence
 
@@ -35,13 +35,19 @@ Two kinds of native skills exist:
   carry deliberate Agent Fleet policy edits (agent operating rules, review
   gates, references to `references/prompting-patterns.md` and the
   `_internal` grilling helper):
-  `browser-testing-with-devtools/`, `code-review-and-quality/`,
-  `context-engineering/`, `deprecation-and-migration/`,
-  `frontend-ui-engineering/`, `git-workflow-and-versioning/`,
-  `idea-refine/`, `incremental-implementation/`, `interview-me/`,
-  `performance-optimization/`, `planning-and-task-breakdown/`,
-  `security-and-hardening/`, `spec-driven-development/`,
+  `browser-testing-with-devtools/`, `constraint-driven-development/`,
+  `context-engineering/`, `git-workflow-and-versioning/`, `idea-refine/`,
+  `incremental-implementation/`, `interview-me/`,
+  `planning-and-task-breakdown/`, `spec-driven-development/`,
   `using-agent-skills/`.
+- **Shadows carrying no customization.** As of the `6ca0cd7` import,
+  `code-review-and-quality/`, `deprecation-and-migration/`,
+  `frontend-ui-engineering/`, `performance-optimization/`, and
+  `security-and-hardening/` are byte-identical to their vendored
+  counterparts — the fork carried only stale upstream text, never Fleet
+  policy. They stay in `skills/` for now, but each one is a candidate for
+  deletion under "retire a customization" below; keeping them costs a merge
+  every import for no behavioural gain.
 
 ## Modification policy
 
@@ -69,9 +75,16 @@ Upstream updates are explicit maintainer actions, never automatic merges:
 5. Commit as a single `chore(vendor): update agent-skills-upstream to <sha>`
    commit.
 
+Reference links inside a skill resolve from the **skill directory**, which at
+install time is `.pi/skills/<name>/`. A shared checklist is therefore
+`../../references/<file>.md` (landing on `.pi/references/`), while a
+skill-local `references/` subdirectory — as `constraint-driven-development`
+ships — is addressed as `references/<file>.md`. Do not rewrite the latter.
+
 > Note: the shadowed skills were forked from an upstream state older than the
 > current import, so upstream may contain improvements not yet merged into the
-> native copies. Step 3 is where that debt gets paid down.
+> native copies. Step 3 is where that debt gets paid down. The `6ca0cd7` import
+> paid down the backlog for every shadow listed above.
 
 ## Attribution and license
 

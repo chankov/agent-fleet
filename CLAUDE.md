@@ -32,7 +32,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 ## Skills by Phase
 
 **Define:** interview-me, idea-refine, spec-driven-development
-**Plan:** planning-and-task-breakdown
+**Plan:** planning-and-task-breakdown, constraint-driven-development
 **Build:** incremental-implementation, test-driven-development, context-engineering, source-driven-development, doubt-driven-development, frontend-ui-engineering, api-and-interface-design
 **Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization

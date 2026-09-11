@@ -107,6 +107,10 @@ quality: npm test
 
 The runtime currently uses its 1,800-second default timeout; `timeout-seconds:` and JSON-array values are not workflow configuration keys. Command output is stored in `.pi/flow-sessions/<runId>/command.log`. A missing executable produces exit `127` and its actual diagnostic.
 
+### `quality:` and `CONSTRAINTS.md`
+
+`quality:` is the **executable** gate — the one command a flow runs to decide acceptance. When a project also uses the `constraint-driven-development` skill, its `CONSTRAINTS.md` holds the *dimensions, the numbers, and the reason for each number*; it is what a human reads and what review diffs. The two are not redundant and must not disagree: `CONSTRAINTS.md` cites the command, `quality:` runs it. A `CONSTRAINTS.md` naming a gate command that `quality:` does not run is drift, and `quality:` is what the runtime obeys.
+
 ## Safety and evidence
 
 Normal runs require a clean tree and create `flow/<name>-<runId>`. The branch stores its source branch, source commit, flow name, run id, and final acceptance as local Git metadata so maintenance can merge back without guessing. Every agent phase must receive an explicit writes policy from persona frontmatter or its call site; a missing policy is refused before spawn rather than silently treated as unrestricted. `writes: []` is repository read-only, and a non-empty list is an allowlist. Agent writes are checked after each phase against that policy and workflow `protectedGlobs`. `protectedGlobs` reject a path only when no `writes` glob matches it, so `writes: ["**"]` also permits a protected path. `*` stays within one path segment; `**` crosses directories. Out-of-policy changes introduced by the agent are rolled back and terminate the phase. Runtime reports remain writable even for repository-read-only agents. This enforcement exists only in flows; hub behavior is unchanged.

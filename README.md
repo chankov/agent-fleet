@@ -391,6 +391,7 @@ Slash commands map to the development lifecycle; each activates the right skills
 |-------------------|---------|---------------|
 | Define what to build | `/af-spec` | Spec before code |
 | Plan how to build it | `/af-plan` | Small, atomic tasks |
+| Set (or check) the quality bar | `/af-constraints` | Numbers with reasons, guarded against quiet lowering |
 | Build incrementally | `/af-build` | One slice at a time (`auto` runs the whole plan in one approved pass) |
 | Prove it works | `/af-test` | Tests are proof |
 | Review before merge | `/af-review` | Improve code health |
@@ -400,10 +401,10 @@ Slash commands map to the development lifecycle; each activates the right skills
 | Orchestrate a team | *agent-hub harness* | The hub drives a config-defined roster |
 | Capture session lessons | `/af-compound` *(agent-hub)* | Every session improves the next |
 
-Under the hood are **29 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
+Under the hood are **30 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
 
 - **Define:** [interview-me](skills/interview-me/SKILL.md) · [idea-refine](skills/idea-refine/SKILL.md) · [spec-driven-development](skills/spec-driven-development/SKILL.md)
-- **Plan:** [planning-and-task-breakdown](skills/planning-and-task-breakdown/SKILL.md)
+- **Plan:** [planning-and-task-breakdown](skills/planning-and-task-breakdown/SKILL.md) · [constraint-driven-development](skills/constraint-driven-development/SKILL.md)
 - **Build:** [incremental-implementation](skills/incremental-implementation/SKILL.md) · [test-driven-development](vendor/agent-skills-upstream/skills/test-driven-development/SKILL.md) · [context-engineering](skills/context-engineering/SKILL.md) · [source-driven-development](vendor/agent-skills-upstream/skills/source-driven-development/SKILL.md) · [doubt-driven-development](vendor/agent-skills-upstream/skills/doubt-driven-development/SKILL.md) · [frontend-ui-engineering](skills/frontend-ui-engineering/SKILL.md) · [api-and-interface-design](vendor/agent-skills-upstream/skills/api-and-interface-design/SKILL.md)
 - **Verify:** [browser-testing-with-devtools](skills/browser-testing-with-devtools/SKILL.md) · [debugging-and-error-recovery](vendor/agent-skills-upstream/skills/debugging-and-error-recovery/SKILL.md)
 - **Review:** [code-review-and-quality](skills/code-review-and-quality/SKILL.md) · [code-simplification](vendor/agent-skills-upstream/skills/code-simplification/SKILL.md) · [security-and-hardening](skills/security-and-hardening/SKILL.md) · [performance-optimization](skills/performance-optimization/SKILL.md)

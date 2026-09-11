@@ -51,7 +51,24 @@ The task list is **embedded** in the plan file as the `## Task List` section. Do
 
 Match the project's existing `docs` vs `Docs` capitalization, and create the directory if it does not exist.
 
-**Project overrides:** if `.ai/agent-fleet-overrides.md` has a `## planning-and-task-breakdown` section, its keys (`plan-dir`, `naming`, `todo`) override these defaults — `todo: separate` restores a standalone `todo.md`. See [docs/agent-fleet-setup.md](../../docs/agent-fleet-setup.md).
+**Project overrides:** if `.ai/agent-fleet-overrides.md` has a `## planning-and-task-breakdown` section, its keys (`plan-dir`, `naming`, `todo`) override these defaults — `todo: separate` restores a standalone `todo.md`, and `todo: tracker` routes tasks to an external issue tracker (below). See [docs/agent-fleet-setup.md](../../docs/agent-fleet-setup.md).
+
+### Task List Target
+
+The **task list target** is where tasks and checkpoints are recorded. It is defined once, here; every other reference in this skill defers to it.
+
+- **Default (`todo: embedded`)** — the `## Task List` section of the plan file itself. No separate file.
+- **`todo: separate`** — a standalone checklist-style `todo.md` next to the plan.
+- **`todo: tracker`** — one item per task in the designated issue tracker (GitHub Issues, Jira, Linear, `bd`/beads). Map the Step 4 structure onto the tracker's fields: acceptance criteria and verification steps in the item body, dependencies via the tracker's linking mechanism (`bd dep add`, "blocked by", etc.). Record Step 5 checkpoints as tracker items too, or keep them as a checklist in the plan document if the tracker has no natural equivalent.
+
+With a tracker, name it in the plan (e.g. "Tasks tracked in Linear project FOO") so downstream steps and future sessions know where to look, and keep the plan's `## Task List` section as an ordered index of tracker item IDs or links rather than a duplicate checklist.
+
+**Never overwrite an incomplete plan.** Before writing the resolved plan path, check whether it already exists and still contains unchecked tasks:
+
+- Same work being replanned (the user asked to revise or extend this plan) → update the existing file in place.
+- Different work → **stop and ask.** The unchecked tasks may be mid-build in another session or another flow worktree. Do not delete, overwrite, or rename the existing plan on your own; present the conflict and let the user decide (finish the old plan first, explicitly discard it, or say where the new plan should go).
+
+The same rule applies to a tracker target: never bulk-close or delete another plan's open items to make room for new ones.
 
 ## The Planning Process
 
@@ -64,11 +81,11 @@ Before writing any code, operate in read-only mode:
 - Map dependencies between components
 - Note risks and unknowns
 
-**Do NOT write code during planning.** The output is a plan document, not implementation.
+**Do NOT write code during planning.** The output is a plan document and a task list recorded in the task list target (see Output Location), not implementation.
 
 **Grilling (required before writing tasks):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Inventory load-bearing decisions. Skip anything already explicit in chat, prompt, PRD, spec, or rules. Grill every remaining fork (multiple valid ways, contradiction, competing code patterns) one question at a time, with a recommended option. Do not write tasks while a load-bearing choice is still silently assumed. Update Architecture Decisions, Risks, and Open Questions with accepted, rejected, or deferred choices. If nothing is open, note that grilling found no unspecified forks and continue.
 
-**Model poll (planner, when `delegate` is available):** On an unresolved architectural fork at task tier `feature` or `project`, run `voice-1`, `voice-2`, and `voice-3` **after** recon (`scout`/`rules`), never in the same message, with a character-for-character identical instruction. Do not poll on `trivial`/`small` (delegation is off) and do not invent a poll if `delegate` is missing. Agreement becomes an accepted architectural decision in the plan, naming the voices; write a `POLL-{prd-name}.md` digest next to the plan and cite it. Divergence becomes one `ASK_USER:` question with one option per position plus a recommendation and reason — do not write the plan in that same turn. The optional communication contract at [`references/communication-contract.md`](../../references/communication-contract.md) is not loaded automatically; enable it with `append-prompt: references/communication-contract.md` in `## agent-hub`.
+**Model poll (planner, when `delegate` is available):** On an unresolved architectural fork at task tier `feature` or `project`, run `voice-1`, `voice-2`, and `voice-3` **after** recon (`scout`/`rules`), never in the same message, with a character-for-character identical instruction. Do not poll on `trivial`/`small` (delegation is off) and do not invent a poll if `delegate` is missing. Agreement becomes an accepted architectural decision in the plan, naming the voices; write a `POLL-{prd-name}.md` digest next to the plan and cite it. Divergence becomes one `ASK_USER:` question with one option per position plus a recommendation and reason — do not write the plan in that same turn. The optional communication contract at [`../../references/communication-contract.md`](../../references/communication-contract.md) is not loaded automatically; enable it with `append-prompt: references/communication-contract.md` in `## agent-hub`.
 
 ### Step 2: Identify the Dependency Graph
 
@@ -116,7 +133,7 @@ Each vertical slice delivers working, testable functionality.
 
 ### Step 4: Write Tasks
 
-Each task follows this structure:
+Each task follows this structure, whether it lands in the plan's `## Task List`, a standalone `todo.md`, or an external tracker item (see Output Location):
 
 ```markdown
 ## Task [N]: [Short descriptive title]
@@ -128,8 +145,8 @@ Each task follows this structure:
 - [ ] [Specific, testable condition]
 
 **Verification:**
-- [ ] Tests pass: `npm test -- --grep "feature-name"`
-- [ ] Build succeeds: `npm run build`
+- [ ] Tests pass: [the project's `quality:` command, or the repository's focused-test command]
+- [ ] Build succeeds: [the repository's build command]
 - [ ] Manual check: [description of what to verify]
 
 **Dependencies:** [Task numbers this depends on, or "None"]
@@ -148,7 +165,7 @@ Arrange tasks so that:
 3. Verification checkpoints occur after every 2-3 tasks
 4. High-risk tasks are early (fail fast)
 
-Add explicit checkpoints:
+Add explicit checkpoints to the task list target:
 
 ```markdown
 ## Checkpoint: After Tasks 1-3
@@ -213,6 +230,8 @@ If a task is 5-8 files (Multi-component feature , such as Search with filtering 
 - [Question needing human input]
 ```
 
+When tasks live in an external tracker, keep the Task List section above as an ordered index of tracker item IDs or links instead of a duplicate checklist.
+
 ## Parallelization Opportunities
 
 When multiple agents or sessions are available:
@@ -229,6 +248,7 @@ When multiple agents or sessions are available:
 | "The tasks are obvious" | Write them down anyway. Explicit tasks surface hidden dependencies and forgotten edge cases. |
 | "Planning is overhead" | Planning is the task. Implementation without a plan is just typing. |
 | "I can hold it all in my head" | Context windows are finite. Written plans survive session boundaries and compaction. |
+| "The old plan is stale, I'll just replace it" | Unchecked tasks may be mid-build in another session or flow worktree. Overwriting them destroys work state that exists nowhere else. Stop and ask. |
 | "The PRD already covers everything, no need to grill" | Then grilling produces zero questions. Still run the inventory so silent forks do not slip through. |
 | "I'll pick the obvious variant and note it in Architecture Decisions" | If more than one variant exists and none was mandated, it is not obvious to the programmer who was not in the room. Ask, then record the choice. |
 | "Re-confirming the PRD points shows thoroughness" | Re-asking settled requirements wastes the user and implies the agent did not read them. Skip them. |
@@ -236,6 +256,8 @@ When multiple agents or sessions are available:
 ## Red Flags
 
 - Starting implementation without a written task list
+- Overwriting a plan that still has unchecked tasks for different work, without asking
+- Writing a `todo.md` when the project has designated an external tracker (or scattering tasks across both)
 - Tasks that say "implement the feature" without acceptance criteria
 - No verification steps in the plan
 - All tasks touches more than 8+ files
@@ -252,6 +274,8 @@ Before starting implementation, confirm:
 - [ ] Every task has acceptance criteria
 - [ ] Every task has a verification step
 - [ ] Task dependencies are identified and ordered correctly
+- [ ] Tasks are recorded in the task list target resolved from `todo` (default: the plan's `## Task List`)
+- [ ] No pre-existing incomplete plan was overwritten without explicit user confirmation
 - [ ] No task touches more than ~5 files
 - [ ] Checkpoints exist between major phases
 - [ ] The human has reviewed and approved the plan
@@ -262,4 +286,4 @@ Before starting implementation, confirm:
 
 ## See Also
 
-Acceptance criteria are per-task and answer "did we build the right thing?". They sit on top of the project-wide Definition of Done, the standing bar every task clears before it counts as done. See `references/definition-of-done.md`.
+Acceptance criteria are per-task and answer "did we build the right thing?". They sit on top of the project-wide Definition of Done, the standing bar every task clears before it counts as done. See `../../references/definition-of-done.md`.

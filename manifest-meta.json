@@ -213,6 +213,7 @@
     "skill:idea-refine": "define",
     "skill:interview-me": "define",
     "skill:planning-and-task-breakdown": "plan",
+    "skill:constraint-driven-development": "plan",
     "skill:incremental-implementation": "build",
     "skill:test-driven-development": "build",
     "skill:context-engineering": "build",
@@ -274,6 +275,11 @@
     "skill:spec-driven-development": {
       "companions": [
         "companion:skills-internal-grilling"
+      ]
+    },
+    "skill:constraint-driven-development": {
+      "companions": [
+        "reference:definition-of-done"
       ]
     },
     "skill:planning-and-task-breakdown": {
@@ -795,8 +801,7 @@
             "hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
             "hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
             "hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
-            "hermes/skills/hub-watchdog/scripts/watchdog_contract.py",
-            "docs/codex-session-bridge.md"
+            "hermes/skills/hub-watchdog/scripts/watchdog_contract.py"
           ],
           "sourceMode": "all",
           "preserveLayout": true,

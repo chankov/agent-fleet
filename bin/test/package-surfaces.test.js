@@ -232,7 +232,8 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
   assert.equal([...paths].some((path) => /guided-workspace-setup|af-(?:setup|doctor)-agent-fleet/.test(path)), false, "tarball must not ship retired setup surfaces");
   const prompts = [...paths].filter((path) => path.startsWith(".pi/prompts/af-")).sort();
   assert.deepEqual(prompts, [
-    ".pi/prompts/af-build.md", ".pi/prompts/af-code-simplify.md", ".pi/prompts/af-plan.md",
+    ".pi/prompts/af-build.md", ".pi/prompts/af-code-simplify.md", ".pi/prompts/af-constraints.md",
+    ".pi/prompts/af-plan.md",
     ".pi/prompts/af-review.md", ".pi/prompts/af-set-hermes-telegram.md", ".pi/prompts/af-set-hermes-watchdog.md",
     ".pi/prompts/af-ship.md", ".pi/prompts/af-spec.md", ".pi/prompts/af-test.md",
   ]);

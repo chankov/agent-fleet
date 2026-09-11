@@ -165,7 +165,7 @@ A harness also has wiring steps that personas and skills do not — step 9 cover
 
 ### 7. Apply prompting-patterns
 
-Before finalizing, read `references/prompting-patterns.md` and check the artifact against these sections. This applies to all three types — for a harness, to the prose it injects (system-prompt text, tool descriptions, block reasons), not the TypeScript itself.
+Before finalizing, read `../../references/prompting-patterns.md` and check the artifact against these sections. This applies to all three types — for a harness, to the prose it injects (system-prompt text, tool descriptions, block reasons), not the TypeScript itself.
 
 - **§2.2** — Positive instructions, not prohibitions. Rewrite every "don't do X" as "do Y".
 - **§2.3** — Explain *why* for any non-obvious rule. One short clause is enough.
@@ -360,7 +360,7 @@ A harness is a directory, not a single file. The `ExtensionAPI` surface, the `in
 
 - [ ] Name is kebab-case and matches the file/directory, the `name` field (frontmatter or `package.json`), and the H1 title.
 - [ ] The discovery surface (description, or README + catalog row) is action-oriented and ends with a concrete trigger.
-- [ ] Cross-checked against `references/prompting-patterns.md` §2.2, §2.3, §2.4, §2.5, §3.1, §6.4 — no prohibitions, no contradictions, no ALL-CAPS, role/overview is specific.
+- [ ] Cross-checked against `../../references/prompting-patterns.md` §2.2, §2.3, §2.4, §2.5, §3.1, §6.4 — no prohibitions, no contradictions, no ALL-CAPS, role/overview is specific.
 - [ ] Scanned against existing files of the same type — no >30% overlap.
 - [ ] Every sentence, if removed, would visibly change the artifact's behavior.
 

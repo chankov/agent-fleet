@@ -1,6 +1,6 @@
 # Skills Catalog
 
-All 29 skills, grouped by lifecycle phase. Each one is a structured workflow with steps, verification gates, and anti-rationalization tables — see [skill-anatomy.md](skill-anatomy.md) for the format. The lifecycle commands (`/af-spec`, `/af-plan`, `/af-build`, …) are the entry points; these skills are what they activate, and every skill can also be referenced directly.
+All 30 skills, grouped by lifecycle phase. Each one is a structured workflow with steps, verification gates, and anti-rationalization tables — see [skill-anatomy.md](skill-anatomy.md) for the format. The lifecycle commands (`/af-spec`, `/af-plan`, `/af-build`, …) are the entry points; these skills are what they activate, and every skill can also be referenced directly.
 
 Skills live in **two roots**: fleet-native and customized skills in [`skills/`](../skills/), and the pristine upstream import in [`vendor/agent-skills-upstream/skills/`](../vendor/agent-skills-upstream/). When a name exists in both, the native copy wins — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md).
 
@@ -24,6 +24,7 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
 | [planning-and-task-breakdown](../skills/planning-and-task-breakdown/SKILL.md) | Decompose specs into small, verifiable tasks with acceptance criteria, dependency ordering, and grilling of unspecified forks (never re-asking what chat/PRD/rules already stated) | You have a spec and need implementable units |
+| [constraint-driven-development](../skills/constraint-driven-development/SKILL.md) | Record the project's quality bar as numbers with reasons in `CONSTRAINTS.md`, wire the executable gate into `quality:`, and guard the diff against a quietly lowered bar | No quality bar is written down, or an agent keeps silencing checks to reach green |
 
 ## Build - Write the code
 
