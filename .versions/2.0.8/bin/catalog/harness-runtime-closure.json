@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "description": "Runtime closure refreshed with any pi harness selection. Paths are repository-relative and contain no user configuration or credentials.",
+  "directories": [
+    ".pi/agent-fleet/hermes/skills"
+  ],
+  "files": [
+    "justfile",
+    ".pi/agent-fleet/scripts/claude-code-preflight.ts",
+    ".pi/agent-fleet/scripts/coms-claude-bridge.ts",
+    ".pi/agent-fleet/scripts/coms-cli.ts",
+    ".pi/agent-fleet/scripts/coms-hermes-bridge.ts",
+    ".pi/agent-fleet/scripts/fleet.ts",
+    ".pi/agent-fleet/scripts/lib/claude-bridge-core.ts",
+    ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
+    ".pi/agent-fleet/scripts/lib/fleet-command.ts",
+    ".pi/agent-fleet/scripts/lib/herdr-layout.ts",
+    ".pi/agent-fleet/scripts/lib/hermes-bridge-core.ts",
+    ".pi/agent-fleet/scripts/lib/monitor-env.ts",
+    ".pi/agent-fleet/scripts/lib/peer-launch.ts",
+    ".pi/agent-fleet/scripts/lib/persona-banner.ts",
+    ".pi/agent-fleet/scripts/lib/persona-dirs.ts",
+    ".pi/agent-fleet/scripts/lib/runtime-dependencies.js",
+    ".pi/agent-fleet/scripts/lib/spawn-stagger.ts",
+    ".pi/agent-fleet/scripts/lib/team-project.ts",
+    ".pi/agent-fleet/scripts/lib/team-snapshot.ts",
+    ".pi/agent-fleet/scripts/peer-banner.ts",
+    ".pi/agent-fleet/scripts/peer-launch.ts",
+    ".pi/agent-fleet/scripts/team-snapshot.ts",
+    ".pi/agent-fleet/scripts/team-up.ts"
+  ]
+}
