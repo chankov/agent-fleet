@@ -10,11 +10,13 @@ install-manifest.json → GENERATED catalogue of every installable artifact — 
 manifest-meta.json    → the hand-edited half: groups, profiles, recommendations, consent classes, companion/requires/pinnedBy wiring, operator steps
 skills/       → Agent Fleet-native + customized skills (SKILL.md per directory); shadows same-named vendored skills
 vendor/agent-skills-upstream/ → Pristine upstream skill import at a pinned SHA — NEVER edit in place; policy + update procedure in docs/UPSTREAM-SKILLS.md
-hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote conduction — see docs/coms-hermes-bridge.md
-agents/       → 15 reusable agent personas, canonical pi frontmatter; installed as verbatim copies (no per-agent translation — pi is the only install target)
-hooks/        → Session lifecycle hooks
-scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; peer-launch single-peer `just fleet peer` launcher; scripts/lib/ pure fleet modules under node --test)
-scripts/workflows/ → Headless `just flow` graphs and their code-owned phase, envelope, gate, permission, quality, change-capture, trace, and scoped TypeScript runtime
+agents/       → 15 reusable agent personas, canonical pi frontmatter; installed as verbatim copies into a workspace's `.pi/agents/personas/` (no per-agent translation — pi is the only install target)
+.pi/agent-fleet/ → THE FLEET RUNTIME, mirrored verbatim into a workspace. Source layout == installed layout, which is what lets the installer copy it with `preserveLayout`. Sub-trees:
+.pi/agent-fleet/scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; peer-launch single-peer `just fleet peer` launcher; .pi/agent-fleet/scripts/lib/ pure fleet modules under node --test)
+.pi/agent-fleet/scripts/workflows/ → Headless `just flow` graphs and their code-owned phase, envelope, gate, permission, quality, change-capture, trace, and scoped TypeScript runtime
+.pi/agent-fleet/hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote conduction — see docs/coms-hermes-bridge.md
+.pi/agent-fleet/hooks/        → Session lifecycle hooks (the Claude Code bridge Stop hook; registering it in `.claude/settings.json` stays the user's step)
+                 (a workspace also gets .pi/agent-fleet/docs/workflows.md — the one doc that installs)
 justfile      → Recipes to launch pi with each harness plus the single public `flow` entry point
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
@@ -22,7 +24,7 @@ justfile      → Recipes to launch pi with each harness plus the single public 
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op. The package update check is a Fleet Core helper (`.pi/harnesses/lib/update-check.ts`) scheduled by damage-control-continue, not an auto-discovered extension.
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just fleet hub` loads Fleet Core before agent-hub; every native child gets damage-control-continue)
-.pi/agents/   → pi YAML configs (teams, chains, peers, dispatch-policy) used by the orchestration harnesses; dispatch-policy.yaml routes dispatch_agent calls to same-name coms peers (e.g. the `runner: claude-code` reviewers) with native fallback
+.pi/agents/   → pi YAML configs (teams, chains, peers, dispatch-policy) used by the orchestration harnesses, plus `personas/` where the installer writes the 15 personas; dispatch-policy.yaml routes dispatch_agent calls to same-name coms peers (e.g. the `runner: claude-code` reviewers) with native fallback
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
 references/   → Supplementary checklists (testing, performance, security, accessibility, observability); each installs as a companion of the skills that cite it
@@ -61,7 +63,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 - `just flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run]` — headless deterministic workflow execution; exit `0` accepted, `1` failed/unaccepted, `2` invalid/unknown, and `3` startup refusal. Quality and build-test flows require `## workflows` → non-empty `quality:` in `.ai/agent-fleet-overrides.md`; see `docs/workflows.md`. Runtime traces stay under the gitignored `.pi/flow-sessions/`
 - `just flow cleanup [number|flow/branch] [--discard] [--yes]` — list/select flow branches and remove them through Worktrunk; normal cleanup is non-forcing, `--discard` explicitly permits deletion of clean unmerged work, and dirty worktrees are always refused. Example: `just flow cleanup` then `just flow cleanup 2`
 - `just flow merge [number|flow/branch] [--target <branch>] [--yes]` — squash-merge an accepted, clean flow through Worktrunk into its recorded source branch, then remove the flow branch/worktree. Example: `just flow merge` then `just flow merge 2`; old branches without source metadata need `--target`
-- `npx tsc -p scripts/workflows/tsconfig.json --noEmit` — scoped workflow-only TypeScript gate; it does not require edits under `.pi/harnesses/`
+- `npx tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit` — scoped workflow-only TypeScript gate; it does not require edits under `.pi/harnesses/`
 - `node bin/cli.js <setup|doctor|uninstall>` — deterministic lifecycle; `setup --dry-run` prints a no-write JSON plan, `doctor` is read-only unless `--fix`, and normal uninstall preserves human config. Exit `0` is success/no-op, `1` failure, `2` doctor findings, and `3` unresolved setup conflicts. `init`, `install`, `upgrade`, and `update` are deprecated compatibility commands, not new documentation targets. No lifecycle command needs an agent or model
 - `node bin/build-manifest.js [--check]` — regenerate `install-manifest.json` from the tree (`--check` fails on drift; run it after adding any artifact)
 - `npm run pack:dry` — `npm pack --dry-run` to verify the tarball contents match `package.json`'s `files` allowlist
@@ -72,7 +74,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 ## Boundaries
 
 - Always: Follow the skill-anatomy.md format for new skills
-- Always: Treat pi as the only coding agent. Claude Code is a **coms peer**, never an install target — it joins a fleet through `scripts/coms-claude-bridge.ts` (`runner: claude-code` in `.pi/agents/peers.yaml`), reads `skills/peer-coms`, and reports turns through `hooks/coms-stop-hook.mjs`. Adding a `.claude/` install path for anything else re-opens a runtime we deliberately closed — see `docs/claude-code-coms-bridge.md`
+- Always: Treat pi as the only coding agent. Claude Code is a **coms peer**, never an install target — it joins a fleet through `.pi/agent-fleet/scripts/coms-claude-bridge.ts` (`runner: claude-code` in `.pi/agents/peers.yaml`), reads `skills/peer-coms`, and reports turns through `.pi/agent-fleet/hooks/coms-stop-hook.mjs`. Adding a `.claude/` install path for anything else re-opens a runtime we deliberately closed — see `docs/claude-code-coms-bridge.md`
 - Never: Add skills that are vague advice instead of actionable processes
 - Never: Duplicate content between skills — reference other skills instead
 - Never: Restate an installer rule (paths, item states, merge/ownership rules, the Fleet Core closure) in a skill or slash command — it lives in `bin/lib/` and `manifest-meta.json`, and a second copy always drifts. The deterministic CLI owns `.ai/agent-fleet-overrides.md` and `.ai/stt.json`.

@@ -17,7 +17,7 @@
 import { readdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { listPersonas, targetRelPath } from "./personas.js";
+import { listPersonas, targetRelPath, legacyTargetRelPaths } from "./personas.js";
 
 export const MANIFEST_SCHEMA_VERSION = 2;
 export const SNAPSHOT_SCHEMA_VERSIONS = new Set([1, 2]);
@@ -201,6 +201,11 @@ function derivePersonas(sourceRoot, meta) {
         source: [`agents/${name}.md`],
         target: targetRelPath(name).split("\\").join("/"),
         strategy: "copy-file",
+        // Personas used to install to `agents/<name>.md`. The binding diff
+        // retires that file on its own, but declaring it keeps `verify` honest
+        // about a copy the user edited: `scanAgentDirs` reads `agents/` first
+        // and would keep serving the stale definition.
+        legacyTargets: legacyTargetRelPaths(name).map((rel) => rel.split("\\").join("/")),
       };
     }
     return makeItem(meta, {
@@ -290,16 +295,17 @@ function deriveReferences(sourceRoot, meta) {
 
 function deriveHooks(sourceRoot, meta) {
   const excluded = new Set(meta.exclude?.hooks ?? []);
-  return filesIn(join(sourceRoot, "hooks"))
+  return filesIn(join(sourceRoot, ".pi", "agent-fleet", "hooks"))
     .filter((f) => (f.endsWith(".sh") || f.endsWith(".mjs")) && !excluded.has(f))
     .sort()
     .map((file) => {
       const name = file.replace(/\.(sh|mjs)$/, "");
-      // The one hook left is the Claude Code Stop hook the coms bridge reads,
-      // so it installs under `.claude/` even though the agent is pi: the
-      // bridged pane is a Claude Code process, and that is where Claude Code
-      // looks. Registering it in `.claude/settings.json` stays manual —
-      // docs/claude-code-coms-bridge.md carries the snippet.
+      // The one hook left is the Claude Code Stop hook the coms bridge reads.
+      // Claude Code finds a hook only through `.claude/settings.json`, where
+      // the command is a free-form shell string — so the file itself does not
+      // have to sit under `.claude/`, and it lives with the rest of the fleet
+      // runtime instead. Registering it stays manual;
+      // docs/claude-code-coms-bridge.md carries the snippet with this path.
       return makeItem(meta, {
         id: `hook:${name}`,
         kind: "hook",
@@ -308,9 +314,10 @@ function deriveHooks(sourceRoot, meta) {
         summary: "",
         agents: {
           pi: {
-            source: [`hooks/${file}`],
-            target: `.claude/hooks/${file}`,
+            source: [`.pi/agent-fleet/hooks/${file}`],
+            target: `.pi/agent-fleet/hooks/${file}`,
             strategy: "copy-file",
+            legacyTargets: [`.claude/hooks/${file}`],
           },
         },
       });
@@ -356,11 +363,11 @@ function deriveOperatorItems(sourceRoot, meta) {
   const out = [];
 
   const pluginIds = new Set([
-    ...dirsIn(join(sourceRoot, "hermes", "plugins")),
-    ...dirsIn(join(sourceRoot, "hermes", "desktop-plugins")),
+    ...dirsIn(join(sourceRoot, ".pi", "agent-fleet", "hermes", "plugins")),
+    ...dirsIn(join(sourceRoot, ".pi", "agent-fleet", "hermes", "desktop-plugins")),
   ]);
   for (const id of [...pluginIds].sort()) {
-    const source = ["hermes/plugins", "hermes/desktop-plugins"]
+    const source = [".pi/agent-fleet/hermes/plugins", ".pi/agent-fleet/hermes/desktop-plugins"]
       .map((root) => `${root}/${id}`)
       .filter((rel) => existsSync(join(sourceRoot, rel)));
     out.push(makeItem(meta, {
@@ -374,17 +381,17 @@ function deriveOperatorItems(sourceRoot, meta) {
     }));
   }
 
-  for (const name of dirsIn(join(sourceRoot, "hermes", "skills")).sort()) {
+  for (const name of dirsIn(join(sourceRoot, ".pi", "agent-fleet", "hermes", "skills")).sort()) {
     out.push(makeItem(meta, {
       id: `hermes-skill:${name}`,
       kind: "hermes-skill",
       group: "hermes",
       title: name,
-      summary: frontmatterDescription(join(sourceRoot, "hermes", "skills", name, "SKILL.md")),
+      summary: frontmatterDescription(join(sourceRoot, ".pi", "agent-fleet", "hermes", "skills", name, "SKILL.md")),
       consent: "operator",
       agents: {
         pi: {
-          source: [`hermes/skills/${name}`],
+          source: [`.pi/agent-fleet/hermes/skills/${name}`],
           target: null,
           targetScope: "hermes-profile",
           strategy: "operator",
@@ -455,7 +462,7 @@ function deriveCompanions(sourceRoot, meta) {
           source: [...dirs, ...files],
           sourceMode: "all",
           // Every entry keeps its repo-relative path in the workspace, so
-          // `scripts/lib/team-project.ts` lands where the recipes expect it.
+          // `.pi/agent-fleet/scripts/lib/team-project.ts` lands where the recipes expect it.
           target: null,
           preserveLayout: true,
           strategy: "copy-tree",

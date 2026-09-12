@@ -146,8 +146,8 @@ import { createModelPolicy } from "./policy/models.ts";
 import { createRosterPolicy } from "./policy/roster.ts";
 import { createWorkModePolicy } from "./policy/work-mode.ts";
 import { nativeResearchSystemPrompt } from "../lib/context-budget-child-prompt.ts";
-import { parseEnvFile, resolveEnvFilePath } from "../../../scripts/lib/herdr-layout.ts";
-import { worktreeTag } from "../../../scripts/lib/team-project.ts";
+import { parseEnvFile, resolveEnvFilePath } from "../../agent-fleet/scripts/lib/herdr-layout.ts";
+import { worktreeTag } from "../../agent-fleet/scripts/lib/team-project.ts";
 import { join, resolve } from "path";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -1474,14 +1474,14 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				cwd,
 				pollPanelOverride: readActiveProfile()?.name ?? parseAgentTeamOverrides(cwd).pollPanel,
 				listPanels: async dir => {
-					const { listPanelNames } = await import("../../../scripts/workflows/lib/voices.ts");
+					const { listPanelNames } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
 					return listPanelNames(dir);
 				},
 				preflight: async ({ panel, persona, cwd: root }) => {
 					const [{ resolvePersona }, { resolvePanel }, { checkChildVisibility }] = await Promise.all([
-						import("../../../scripts/workflows/lib/personas.ts"),
-						import("../../../scripts/workflows/lib/voices.ts"),
-						import("../../../scripts/workflows/lib/model-visibility.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/voices.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/model-visibility.ts"),
 					]);
 					try { resolvePersona(persona, root); }
 					catch (error) { return error instanceof Error ? error.message : String(error); }
@@ -1510,7 +1510,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				onAccepted: async ({ panel, persona, question }) => {
 					let voices: { name: string; model: string }[] = [];
 					try {
-						const { resolvePanel } = await import("../../../scripts/workflows/lib/voices.ts");
+						const { resolvePanel } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
 						voices = resolvePanel(panel, cwd).map(voice => ({ name: voice.name, model: voice.model }));
 					} catch { /* names are decorative */ }
 					const started = formatAfPollStarted({ panel, persona, question, voices });
@@ -1520,10 +1520,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				},
 				execute: async ({ panel, persona, question }) => {
 					const [{ Run }, { runPoll }, { runMerge }, { resolvePersona }] = await Promise.all([
-						import("../../../scripts/workflows/lib/run.ts"),
-						import("../../../scripts/workflows/lib/poll.ts"),
-						import("../../../scripts/workflows/lib/merge.ts"),
-						import("../../../scripts/workflows/lib/personas.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/run.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/poll.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/merge.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
 					]);
 					const run = new Run({ cwd, command: ["/af-poll", "--panel", panel, question] });
 					const personaDef = resolvePersona(persona, cwd);
@@ -1573,14 +1573,14 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				cwd,
 				pollPanelOverride: readActiveProfile()?.name ?? parseAgentTeamOverrides(cwd).pollPanel,
 				listPanels: async dir => {
-					const { listPanelNames } = await import("../../../scripts/workflows/lib/voices.ts");
+					const { listPanelNames } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
 					return listPanelNames(dir);
 				},
 				preflight: async ({ panel, persona, cwd: root }) => {
 					const [{ resolvePersona }, { resolvePanel }, { checkChildVisibility }] = await Promise.all([
-						import("../../../scripts/workflows/lib/personas.ts"),
-						import("../../../scripts/workflows/lib/voices.ts"),
-						import("../../../scripts/workflows/lib/model-visibility.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/voices.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/model-visibility.ts"),
 					]);
 					try { resolvePersona(persona, root); }
 					catch (error) { return error instanceof Error ? error.message : String(error); }
@@ -1609,7 +1609,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				onAccepted: async ({ panel, persona, question, rounds }) => {
 					let voices: { name: string; model: string }[] = [];
 					try {
-						const { resolvePanel } = await import("../../../scripts/workflows/lib/voices.ts");
+						const { resolvePanel } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
 						voices = resolvePanel(panel, cwd).map(voice => ({ name: voice.name, model: voice.model }));
 					} catch { /* names are decorative */ }
 					const started = formatAfDebateStarted({ panel, persona, question, rounds, voices });
@@ -1619,9 +1619,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				},
 				execute: async ({ panel, persona, question, rounds }) => {
 					const [{ Run }, { runDebate }, { resolvePersona }] = await Promise.all([
-						import("../../../scripts/workflows/lib/run.ts"),
-						import("../../../scripts/workflows/lib/debate.ts"),
-						import("../../../scripts/workflows/lib/personas.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/run.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/debate.ts"),
+						import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
 					]);
 					const run = new Run({ cwd, command: ["/af-debate", "--panel", panel, "--rounds", String(rounds), question] });
 					const personaDef = resolvePersona(persona, cwd);

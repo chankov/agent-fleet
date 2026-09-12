@@ -12,7 +12,9 @@
 #
 # Each peer entry:
 #   name    — coms identity (the addressable peer name); overrides persona frontmatter
-#   persona — file under agents/ (without .md); its body is the role, its
+#   persona — persona file without .md, resolved from agents/, .claude/agents/,
+#             .pi/agents/personas/ (where the installer writes), or .pi/agents/;
+#             its body is the role, its
 #             frontmatter `description`/`color` become the coms purpose/color
 #   model   — optional pi --model spec (e.g. anthropic/claude-opus-4-7); omit to
 #             inherit pi's default model

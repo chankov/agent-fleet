@@ -7,6 +7,7 @@ import { parseDispatchPolicy } from "../backend-policy.js";
 import { clampDelegateDepth, MAX_DELEGATE_DEPTH, safeAgentKey } from "../helpers.ts";
 import type { AgentDef, SubagentRole } from "../types.ts";
 import { normalizeThinkingLevel } from "./overrides.ts";
+import { PERSONA_DIRS } from "../../../agent-fleet/scripts/lib/persona-dirs.ts";
 
 function parseInlineSubagentRole(value: string): { model?: string; tools?: string; thinking?: string } {
 	const input = value.trim();
@@ -159,7 +160,10 @@ export function loadAgentConfiguration(cwd: string, ports: AgentConfigurationPor
 export function scanAgentDirs(cwd: string): AgentDef[] {
 	const agents: AgentDef[] = [];
 	const seen = new Set<string>();
-	for (const dir of [join(cwd, "agents"), join(cwd, ".claude", "agents"), join(cwd, ".pi", "agents")]) {
+	// PERSONA_DIRS fixes the precedence in one place: the user's own `agents/`
+	// and `.claude/agents/` win, then `.pi/agents/personas/` where agent-fleet
+	// installs its personas, then `.pi/agents/` beside the fleet YAML config.
+	for (const dir of PERSONA_DIRS.map((parts) => join(cwd, ...parts))) {
 		if (!existsSync(dir)) continue;
 		try {
 			for (const file of readdirSync(dir)) {

@@ -564,19 +564,19 @@
       "agents": {
         "pi": {
           "source": [
-            "scripts/fleet-codex-client.ts",
-            "scripts/fleet-codex-read.py",
-            "scripts/package.json",
-            "scripts/lib/fleet-codex-session.ts",
-            "scripts/lib/fleet-codex-operations.ts",
-            "scripts/lib/fleet-codex-transport.ts",
-            "scripts/lib/fleet-codex-catalog.ts",
-            "scripts/lib/coms-envelope.ts",
+            ".pi/agent-fleet/scripts/fleet-codex-client.ts",
+            ".pi/agent-fleet/scripts/fleet-codex-read.py",
+            ".pi/agent-fleet/scripts/package.json",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-session.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-operations.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-transport.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-catalog.ts",
+            ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
             ".pi/harnesses/lib/herdr-client.ts",
-            "hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
-            "hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
-            "hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
-            "hermes/skills/hub-watchdog/scripts/watchdog_contract.py"
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
+            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
+            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_contract.py"
           ],
           "sourceMode": "all",
           "target": null,
@@ -621,28 +621,29 @@
       "agents": {
         "pi": {
           "source": [
-            "hermes/skills",
-            "scripts/claude-code-preflight.ts",
-            "scripts/coms-claude-bridge.ts",
-            "scripts/coms-cli.ts",
-            "scripts/coms-hermes-bridge.ts",
-            "scripts/fleet.ts",
-            "scripts/lib/claude-bridge-core.ts",
-            "scripts/lib/coms-envelope.ts",
-            "scripts/lib/fleet-command.ts",
-            "scripts/lib/herdr-layout.ts",
-            "scripts/lib/hermes-bridge-core.ts",
-            "scripts/lib/monitor-env.ts",
-            "scripts/lib/peer-launch.ts",
-            "scripts/lib/persona-banner.ts",
-            "scripts/lib/runtime-dependencies.js",
-            "scripts/lib/spawn-stagger.ts",
-            "scripts/lib/team-project.ts",
-            "scripts/lib/team-snapshot.ts",
-            "scripts/peer-banner.ts",
-            "scripts/peer-launch.ts",
-            "scripts/team-snapshot.ts",
-            "scripts/team-up.ts"
+            ".pi/agent-fleet/hermes/skills",
+            ".pi/agent-fleet/scripts/claude-code-preflight.ts",
+            ".pi/agent-fleet/scripts/coms-claude-bridge.ts",
+            ".pi/agent-fleet/scripts/coms-cli.ts",
+            ".pi/agent-fleet/scripts/coms-hermes-bridge.ts",
+            ".pi/agent-fleet/scripts/fleet.ts",
+            ".pi/agent-fleet/scripts/lib/claude-bridge-core.ts",
+            ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-command.ts",
+            ".pi/agent-fleet/scripts/lib/herdr-layout.ts",
+            ".pi/agent-fleet/scripts/lib/hermes-bridge-core.ts",
+            ".pi/agent-fleet/scripts/lib/monitor-env.ts",
+            ".pi/agent-fleet/scripts/lib/peer-launch.ts",
+            ".pi/agent-fleet/scripts/lib/persona-banner.ts",
+            ".pi/agent-fleet/scripts/lib/persona-dirs.ts",
+            ".pi/agent-fleet/scripts/lib/runtime-dependencies.js",
+            ".pi/agent-fleet/scripts/lib/spawn-stagger.ts",
+            ".pi/agent-fleet/scripts/lib/team-project.ts",
+            ".pi/agent-fleet/scripts/lib/team-snapshot.ts",
+            ".pi/agent-fleet/scripts/peer-banner.ts",
+            ".pi/agent-fleet/scripts/peer-launch.ts",
+            ".pi/agent-fleet/scripts/team-snapshot.ts",
+            ".pi/agent-fleet/scripts/team-up.ts"
           ],
           "sourceMode": "all",
           "target": null,
@@ -702,11 +703,16 @@
       "agents": {
         "pi": {
           "source": [
-            ".pi/agents"
+            ".pi/agents/dispatch-policy.yaml",
+            ".pi/agents/model-profiles.yaml",
+            ".pi/agents/peers.yaml",
+            ".pi/agents/teams.yaml",
+            ".pi/agents/voices.yaml"
           ],
-          "sourceMode": "first",
-          "target": ".pi/agents",
-          "strategy": "copy-tree"
+          "sourceMode": "all",
+          "target": null,
+          "strategy": "copy-tree",
+          "preserveLayout": true
         }
       },
       "parents": [
@@ -952,7 +958,7 @@
         "args": [
           "ci",
           "--prefix",
-          "scripts"
+          ".pi/agent-fleet/scripts"
         ],
         "cwd": "."
       },
@@ -999,12 +1005,12 @@
       "agents": {
         "pi": {
           "source": [
-            "scripts/flow.ts",
-            "scripts/package.json",
-            "scripts/package-lock.json",
-            "scripts/lib/flow-command.ts",
-            "scripts/lib/flow-maintenance.ts",
-            "scripts/workflows"
+            ".pi/agent-fleet/scripts/flow.ts",
+            ".pi/agent-fleet/scripts/package.json",
+            ".pi/agent-fleet/scripts/package-lock.json",
+            ".pi/agent-fleet/scripts/lib/flow-command.ts",
+            ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
+            ".pi/agent-fleet/scripts/workflows"
           ],
           "sourceMode": "all",
           "target": null,
@@ -1087,8 +1093,8 @@
       "agents": {
         "pi": {
           "source": [
-            "hermes/plugins/agent-fleet-herdr",
-            "hermes/desktop-plugins/agent-fleet-herdr"
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr",
+            ".pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr"
           ],
           "sourceMode": "first",
           "target": null,
@@ -1097,8 +1103,8 @@
         }
       },
       "operatorSteps": [
-        "clone agent-fleet — scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
-        "scripts/install-hermes-plugin.sh agent-fleet-herdr --profile <profile>",
+        "clone agent-fleet — .pi/agent-fleet/scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        ".pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --profile <profile>",
         "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
         "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
       ]
@@ -1117,8 +1123,8 @@
       "agents": {
         "pi": {
           "source": [
-            "hermes/plugins/agent-fleet-monitor",
-            "hermes/desktop-plugins/agent-fleet-monitor"
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-monitor",
+            ".pi/agent-fleet/hermes/desktop-plugins/agent-fleet-monitor"
           ],
           "sourceMode": "first",
           "target": null,
@@ -1127,8 +1133,8 @@
         }
       },
       "operatorSteps": [
-        "clone agent-fleet — scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
-        "scripts/install-hermes-plugin.sh agent-fleet-monitor --profile <profile>",
+        "clone agent-fleet — .pi/agent-fleet/scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        ".pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-monitor --profile <profile>",
         "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
         "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
       ]
@@ -1147,7 +1153,7 @@
       "agents": {
         "pi": {
           "source": [
-            "hermes/skills/hub-conductor"
+            ".pi/agent-fleet/hermes/skills/hub-conductor"
           ],
           "sourceMode": "first",
           "target": null,
@@ -1156,7 +1162,7 @@
         }
       },
       "operatorSteps": [
-        "copy hermes/skills/hub-conductor into <hermes-profile>/skills/hub-conductor",
+        "copy .pi/agent-fleet/hermes/skills/hub-conductor into <hermes-profile>/skills/hub-conductor",
         "hermes --profile <profile> skills config   # enable hub-conductor",
         "hermes --profile <profile> gateway restart"
       ]
@@ -1175,7 +1181,7 @@
       "agents": {
         "pi": {
           "source": [
-            "hermes/skills/hub-liaison"
+            ".pi/agent-fleet/hermes/skills/hub-liaison"
           ],
           "sourceMode": "first",
           "target": null,
@@ -1204,7 +1210,7 @@
       "agents": {
         "pi": {
           "source": [
-            "hermes/skills/hub-watchdog"
+            ".pi/agent-fleet/hermes/skills/hub-watchdog"
           ],
           "sourceMode": "first",
           "target": null,
@@ -1231,11 +1237,14 @@
       "agents": {
         "pi": {
           "source": [
-            "hooks/coms-stop-hook.mjs"
+            ".pi/agent-fleet/hooks/coms-stop-hook.mjs"
           ],
           "sourceMode": "first",
-          "target": ".claude/hooks/coms-stop-hook.mjs",
-          "strategy": "copy-file"
+          "target": ".pi/agent-fleet/hooks/coms-stop-hook.mjs",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".claude/hooks/coms-stop-hook.mjs"
+          ]
         }
       },
       "parents": [
@@ -1259,8 +1268,11 @@
             "agents/architect.md"
           ],
           "sourceMode": "first",
-          "target": "agents/architect.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/architect.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/architect.md"
+          ]
         }
       }
     },
@@ -1281,8 +1293,11 @@
             "agents/bowser.md"
           ],
           "sourceMode": "first",
-          "target": "agents/bowser.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/bowser.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/bowser.md"
+          ]
         }
       },
       "requires": [
@@ -1306,8 +1321,11 @@
             "agents/builder.md"
           ],
           "sourceMode": "first",
-          "target": "agents/builder.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/builder.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/builder.md"
+          ]
         }
       }
     },
@@ -1328,8 +1346,11 @@
             "agents/code-reviewer.md"
           ],
           "sourceMode": "first",
-          "target": "agents/code-reviewer.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/code-reviewer.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/code-reviewer.md"
+          ]
         }
       }
     },
@@ -1350,8 +1371,11 @@
             "agents/deep-researcher.md"
           ],
           "sourceMode": "first",
-          "target": "agents/deep-researcher.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/deep-researcher.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/deep-researcher.md"
+          ]
         }
       }
     },
@@ -1372,8 +1396,11 @@
             "agents/documenter.md"
           ],
           "sourceMode": "first",
-          "target": "agents/documenter.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/documenter.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/documenter.md"
+          ]
         }
       }
     },
@@ -1394,8 +1421,11 @@
             "agents/orchestrator.md"
           ],
           "sourceMode": "first",
-          "target": "agents/orchestrator.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/orchestrator.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/orchestrator.md"
+          ]
         }
       }
     },
@@ -1416,8 +1446,11 @@
             "agents/plan-reviewer.md"
           ],
           "sourceMode": "first",
-          "target": "agents/plan-reviewer.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/plan-reviewer.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/plan-reviewer.md"
+          ]
         }
       }
     },
@@ -1438,8 +1471,11 @@
             "agents/planner.md"
           ],
           "sourceMode": "first",
-          "target": "agents/planner.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/planner.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/planner.md"
+          ]
         }
       }
     },
@@ -1460,8 +1496,11 @@
             "agents/releaser.md"
           ],
           "sourceMode": "first",
-          "target": "agents/releaser.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/releaser.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/releaser.md"
+          ]
         }
       }
     },
@@ -1482,8 +1521,11 @@
             "agents/researcher.md"
           ],
           "sourceMode": "first",
-          "target": "agents/researcher.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/researcher.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/researcher.md"
+          ]
         }
       }
     },
@@ -1504,8 +1546,11 @@
             "agents/security-auditor.md"
           ],
           "sourceMode": "first",
-          "target": "agents/security-auditor.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/security-auditor.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/security-auditor.md"
+          ]
         }
       }
     },
@@ -1526,8 +1571,11 @@
             "agents/test-engineer.md"
           ],
           "sourceMode": "first",
-          "target": "agents/test-engineer.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/test-engineer.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/test-engineer.md"
+          ]
         }
       }
     },
@@ -1548,8 +1596,11 @@
             "agents/web-debugger.md"
           ],
           "sourceMode": "first",
-          "target": "agents/web-debugger.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/web-debugger.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/web-debugger.md"
+          ]
         }
       },
       "requires": [
@@ -1573,8 +1624,11 @@
             "agents/web-performance-auditor.md"
           ],
           "sourceMode": "first",
-          "target": "agents/web-performance-auditor.md",
-          "strategy": "copy-file"
+          "target": ".pi/agents/personas/web-performance-auditor.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/web-performance-auditor.md"
+          ]
         }
       },
       "companions": [
@@ -2429,7 +2483,7 @@
       "group": "skills",
       "subcategory": "meta",
       "title": "designing-agents",
-      "summary": "Designs and writes a focused artifact another agent runs — an agent persona in agents/, a workflow skill in skills/,…",
+      "summary": "Designs and writes a focused artifact another agent runs — an agent persona in .pi/agents/personas/, a workflow skill…",
       "recommended": false,
       "stability": "stable",
       "consent": "file",

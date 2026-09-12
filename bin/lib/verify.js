@@ -41,6 +41,9 @@ export const BROKEN_STATES = new Set(["missing", "broken-link", "foreign-link", 
 // but they never fail the run — a workspace installed before `.versions/`
 // retention, or one carrying a hand-edited overrides file, is not broken.
 export const ADVISORY_FINDINGS = new Set([
+  // A relocation is a normal upgrade, not a broken install: the next setup
+  // cleans it up, and the item states already carry the severity.
+  "relocated-artifacts",
   "base-snapshot-missing",
   "source-root-volatile",
   "symlink-retired",
@@ -105,7 +108,7 @@ export async function runVerify({
       type: "state-schema",
       path: STATE_REL_PATH,
       issue: `state schemaVersion ${state.schemaVersion}, this build speaks ${STATE_SCHEMA_VERSION}`,
-      fix: "upgrade agent-fleet, or re-run install to rewrite the state file",
+      fix: "run `agent-fleet setup` to reconcile the workspace and re-stamp the state file",
     });
   }
   if (state?.sourceRoot && !existsSync(state.sourceRoot)) {
@@ -151,6 +154,25 @@ export async function runVerify({
   } else {
     items = evaluateWorkspace({
       workspace, sourceRoot, manifest, agent: resolvedAgent, platform, state, baseRoot,
+    });
+  }
+
+  // One relocation finding for the whole pass. A release that moves a tree
+  // produces an obsolete path per file — ninety of them for the .pi/agent-fleet
+  // move — and ninety findings is noise, not a report. The per-item lists stay
+  // in `items[].obsoleteFiles` for anything that wants to expand them.
+  const relocated = items.filter((entry) => (entry.obsoleteFiles ?? []).length > 0);
+  if (relocated.length > 0) {
+    const all = relocated.flatMap((entry) => entry.obsoleteFiles);
+    const kept = all.filter((file) => file.retained).length;
+    findings.push({
+      type: "relocated-artifacts",
+      path: STATE_REL_PATH,
+      issue: `${relocated.length} item(s) moved: ${all.length - kept} old file(s) to remove` +
+        (kept > 0 ? `, ${kept} kept (locally modified)` : "") +
+        ` — ${relocated.map((entry) => entry.id).slice(0, 3).join(", ")}` +
+        (relocated.length > 3 ? `, +${relocated.length - 3} more` : ""),
+      fix: "re-run setup to retire them (edited files are preserved); `verify --json` lists every path under items[].obsoleteFiles",
     });
   }
 
@@ -331,9 +353,15 @@ function evaluateItem({ item, binding, workspace, sourceRoot, baseRoot, recorded
     if (recorded?.method === "symlink" || !pair.isDir) expectedPaths.add(pair.targetRel);
     else for (const rel of walkTree(pair.sourceAbs)) expectedPaths.add(`${pair.targetRel}/${rel}`);
   }
-  const obsoleteFiles = (recorded?.files ?? []).filter((file) =>
-    !expectedPaths.has(file.path) && inspectPath(join(workspace, file.path)).kind !== "absent"
-  );
+  // `retained` mirrors apply()'s ownership rule: a byte-identical copy is ours
+  // to retire, an edited one becomes the user's and is left alone. Deciding it
+  // here means `verify` can say how many of the old paths will actually go.
+  const obsoleteFiles = (recorded?.files ?? [])
+    .filter((file) => !expectedPaths.has(file.path) && inspectPath(join(workspace, file.path)).kind !== "absent")
+    .map((file) => ({
+      path: file.path,
+      retained: Boolean(file.sha256) && hashFile(join(workspace, file.path)) !== file.sha256,
+    }));
 
   const recordedHashes = new Map((recorded?.files ?? []).map((f) => [f.path, f.sha256]));
   const agent = agentOf(item, binding);
@@ -384,6 +412,16 @@ function evaluateItem({ item, binding, workspace, sourceRoot, baseRoot, recorded
           recorded: recordedHashes.get(pair.targetRel) ?? null,
         })];
 
+    // A directory target can exist because a *different* item writes inside it
+    // — `.pi/agents/` holds both the fleet YAML and the installed personas. An
+    // item we never installed, none of whose leaves are present, is absent, not
+    // half-broken; only a recorded item can go missing.
+    const allLeavesMissing = files.length > 0 && files.every((f) => f.state === "missing");
+    if (pair.isDir && !recorded && allLeavesMissing) {
+      results.push({ state: "absent" });
+      continue;
+    }
+
     results.push({ state: worstOf(files.map((f) => f.state)) ?? "up-to-date", fileCount: files.length });
     changed.push(...files.filter((f) => f.state !== "up-to-date"));
   }
@@ -408,7 +446,7 @@ function evaluateItem({ item, binding, workspace, sourceRoot, baseRoot, recorded
     changedCount: changed.length + obsoleteFiles.length,
   };
   if (obsoleteFiles.length > 0) {
-    out.obsoleteFiles = obsoleteFiles.map((file) => ({ path: file.path }));
+    out.obsoleteFiles = obsoleteFiles.map((file) => ({ path: file.path, retained: file.retained }));
     out.detail = `${obsoleteFiles.length} previously managed path(s) are no longer in the current binding`;
   }
   // A path this item used to install to that is still occupied. The runtime

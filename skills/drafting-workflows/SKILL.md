@@ -11,7 +11,7 @@ Draft code-owned workflows by copying a proven flow shape, then edit only the de
 
 ## When to Use
 
-- Creating a new `scripts/workflows/wf-*.ts` flow.
+- Creating a new `.pi/agent-fleet/scripts/workflows/wf-*.ts` flow.
 - Changing a flow's phase order, gates, retries, or acceptance rule.
 - Translating an operator request into a prompt for an agent phase.
 
@@ -21,7 +21,7 @@ Do not use this skill to improvise an interactive hub dispatch. `just fleet` rem
 
 ### 1. Map, list, and stop
 
-Read the managed workflow map in `.pi/agent-fleet/docs/workflows.md`, then list every available `scripts/workflows/wf-*.ts` with exactly one line containing its name and `Phases:` shape. **Stop and wait for the operator to select or describe the desired flow.**
+Read the managed workflow map in `.pi/agent-fleet/docs/workflows.md`, then list every available `.pi/agent-fleet/scripts/workflows/wf-*.ts` with exactly one line containing its name and `Phases:` shape. **Stop and wait for the operator to select or describe the desired flow.**
 
 At this point:
 
@@ -96,9 +96,9 @@ Use existing return-contract vocabulary. A parsed envelope with `status: "fail"`
 The generator refuses handoff unless both gates pass:
 
 ```bash
-npx tsc -p scripts/workflows/tsconfig.json --noEmit
+npx tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit
 node --experimental-strip-types skills/drafting-workflows/scripts/make-workflow.ts \
-  --verify-draft scripts/workflows/wf-<name>.ts
+  --verify-draft .pi/agent-fleet/scripts/workflows/wf-<name>.ts
 ```
 
 The second command resolves the exact `wf-<name>.ts` entry export used by the flow registry, then executes it with stubbed agent phases and `dryRun: true`; it makes no model call. If either gate fails, the generator deletes the draft and reports the exact failure. Repair the source decision or rerun the generator—never bypass either gate. A handed-off draft is immediately reachable as `just flow <name>`; no central registry edit is required.
@@ -138,6 +138,6 @@ Before presenting a workflow draft, confirm:
 - [ ] Every agent phase has an explicit persona or call-site writes policy; omission is a startup error, never unrestricted by accident.
 - [ ] Writes policy and protected paths are enforced around agent phases.
 - [ ] The generated export is uniquely named for the file and resolves through `just flow <name>`.
-- [ ] `npx tsc -p scripts/workflows/tsconfig.json --noEmit` passes.
+- [ ] `npx tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit` passes.
 - [ ] The generated workflow's stubbed dry run is accepted with zero model calls.
 - [ ] The exact commands and outcomes are included in the handoff.

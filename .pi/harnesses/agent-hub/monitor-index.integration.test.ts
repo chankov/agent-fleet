@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as net from "node:net";
 import { readFileSync } from "node:fs";
 
-import { MonitorRegistry } from "../../../scripts/lib/hermes-monitor-registry.ts";
+import { MonitorRegistry } from "../../agent-fleet/scripts/lib/hermes-monitor-registry.ts";
 import { monitorLifecycleConfig } from "./monitor-lifecycle.ts";
 
 function request(socketPath: string, value: unknown): Promise<unknown> {

@@ -28,8 +28,9 @@ Personas are the *who*, skills are the *how*. Each working persona carries a con
 
 ## Installing personas
 
-The Full deterministic preset selects every stable persona and copies it to `agents/<name>.md`
-in the workspace. Nothing is translated: the canonical format *is* the pi format,
+The Full deterministic preset selects every stable persona and copies it to
+`.pi/agents/personas/<name>.md` in the workspace — `.pi/agents/` itself holds the
+fleet YAML configuration, so the personas get a subdirectory of their own. Nothing is translated: the canonical format *is* the pi format,
 which is why a persona verifies byte-for-byte against its source.
 
 ## Teams of subagents
@@ -148,7 +149,7 @@ is what makes it substitutable for a team member — see
 
 ## Adding a new persona
 
-1. Create `agents/<role>.md` with the same frontmatter format used by existing personas.
+1. Create `agents/<role>.md` with the same frontmatter format used by existing personas. (`agents/` and `.claude/agents/` are yours — scanned before `.pi/agents/personas/`, so a persona you write there overrides an installed one of the same name.)
 2. Define the role, scope, output format, and rules.
 3. Add a **Composition** block at the bottom (Invoke directly when / Invoke via / Do not invoke from another persona).
 4. Add the persona to the table at the top of this file.

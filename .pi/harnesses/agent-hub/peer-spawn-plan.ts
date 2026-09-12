@@ -3,7 +3,7 @@ import {
 	type PeerLaunchContext,
 	type PeerLaunchPlan,
 	type PeerRunner,
-} from "../../../scripts/lib/peer-launch.ts";
+} from "../../agent-fleet/scripts/lib/peer-launch.ts";
 import { launchPeerInPane, peerReadyVerdict } from "../lib/spawned-peers.js";
 
 export interface HubPeerSpawnRequest {

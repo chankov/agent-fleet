@@ -49,8 +49,8 @@ flowchart LR
 |---|---|---|
 | **coms registry** | Which sessions exist, in which project, their model, purpose, cwd and liveness. Also the **filter**: a herdr pane with no registry entry is not shown. | `.pi/harnesses/lib/coms-registry-entry.ts` (both harnesses) |
 | **herdr pane presence** | The live state of each session — `working` / `idle` / `blocked` — plus context use and queue depth, keyed by the `(project, name)` tokens a pane advertises. | `peerTokens()` in `.pi/harnesses/lib/herdr-presence.ts` |
-| **agent transcripts** | What the agent is doing *right now*, projected through a per-tool allowlist. Works for `detached` pi sessions because the file is written whether or not anyone is watching. | pi and Claude Code themselves; the pairing id for bridged panes comes from [hooks/coms-stop-hook.mjs](../hooks/coms-stop-hook.mjs) |
-| **agent-hub monitor** | The subagent tree under a hub, with a tail of each child's stdout and generation-safe cancel. | `.pi/harnesses/agent-hub/monitor-*.ts`, enabled by `scripts/lib/monitor-env.ts` |
+| **agent transcripts** | What the agent is doing *right now*, projected through a per-tool allowlist. Works for `detached` pi sessions because the file is written whether or not anyone is watching. | pi and Claude Code themselves; the pairing id for bridged panes comes from [.pi/agent-fleet/hooks/coms-stop-hook.mjs](../.pi/agent-fleet/hooks/coms-stop-hook.mjs) |
+| **agent-hub monitor** | The subagent tree under a hub, with a tail of each child's stdout and generation-safe cancel. | `.pi/harnesses/agent-hub/monitor-*.ts`, enabled by `.pi/agent-fleet/scripts/lib/monitor-env.ts` |
 
 Two consequences fall out of that shape and are worth stating plainly:
 
@@ -104,7 +104,7 @@ it** — render an "unavailable" empty state, not a crash and not a red error.
 `dashboard_dir.resolve()`. Linking the directory keeps both sides in the repo
 and passes; linking only `plugin_api.py` into a real directory leaves the base
 in `~/.hermes` while the api resolves into the repo, `relative_to` throws, and
-the plugin is skipped **silently**. `scripts/install-hermes-plugin.sh` links at
+the plugin is skipped **silently**. `.pi/agent-fleet/scripts/install-hermes-plugin.sh` links at
 directory level for both halves.
 
 **3. The two halves reload differently, and there are two gateways.**
@@ -134,7 +134,7 @@ timestamp in `gui.log` against the mtime of the changed `.py` file, then restart
 the app.
 
 **4. The Desktop plugin has no module resolution.** It is evaluated as a blob:
-only `@hermes/plugin-sdk`, `react`, `react/jsx-runtime` and
+only `@.pi/agent-fleet/hermes/plugin-sdk`, `react`, `react/jsx-runtime` and
 `react/jsx-dev-runtime` resolve, a **relative import cannot resolve at all**,
 and there is no transpiler — so no JSX syntax, only `createElement`. The folder
 name must equal `plugin.id` or the inventory shows a ghost row. The plugin runs
@@ -150,7 +150,7 @@ the backend side.
 |---|---|---|
 | **Hermes v0.19.0+**, `hermes` on `PATH` | the installer resolves the profile with `hermes profile show` and opens the enable gate with `hermes plugins enable` | `hermes profile show default` |
 | **Hermes Desktop app** | the pane lives in the Electron renderer, and its gateway is the one that mounts the backend routes | it launches |
-| **This repo, checked out** | both halves are symlinked out of the working tree; nothing is published to npm | `ls hermes/desktop-plugins/agent-fleet-herdr` |
+| **This repo, checked out** | both halves are symlinked out of the working tree; nothing is published to npm | `ls .pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr` |
 | **A fleet that has run at least once** | the coms registry is the source of the session list — with no registry the panel is correctly empty | `ls ~/.pi/coms/projects` |
 | **[herdr](https://herdr.dev)** *(optional but wanted)* | supplies the live state; without it every row is `unknown` and `focus` is unavailable | `herdr agent list` |
 
@@ -161,11 +161,11 @@ you launch a fleet.
 
 ```bash
 # 1. link both halves into a profile and open the enable gate
-scripts/install-hermes-plugin.sh agent-fleet-herdr            # symlink into the default profile
-scripts/install-hermes-plugin.sh agent-fleet-herdr --profile dev
-scripts/install-hermes-plugin.sh agent-fleet-herdr --copy     # no symlinks
-scripts/install-hermes-plugin.sh agent-fleet-herdr --dry-run  # print, change nothing
-scripts/install-hermes-plugin.sh agent-fleet-herdr --uninstall
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr            # symlink into the default profile
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --profile dev
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --copy     # no symlinks
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --dry-run  # print, change nothing
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --uninstall
 
 # 2. restart the Hermes DESKTOP APP  (not `hermes gateway restart` — see rule 3)
 # 3. start a fleet, then open the "Agent Fleet" tab in Desktop
@@ -296,7 +296,7 @@ loses it. The agent's own pane is where the conversation actually lives.
 
 ### Being told instead of watching
 
-[`watch.py`](../hermes/plugins/agent-fleet-herdr/dashboard/watch.py) turns
+[`watch.py`](../.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/watch.py) turns
 consecutive `/sessions` payloads into a short list of things that **happened**.
 Three layers, on purpose: `diff_snapshots(prev, next) -> [Event]` is pure (no
 I/O, no clock — time comes from `collected_at`), `Watcher` is the memory around
@@ -352,7 +352,7 @@ with its process, and the Desktop's gateway dies with the Desktop app, so for
 alerts that must survive a closed window:
 
 ```bash
-python3 hermes/plugins/agent-fleet-herdr/dashboard/watch.py --daemon
+python3 .pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/watch.py --daemon
 ```
 
 `--snapshot` prints the payload the watcher sees and exits — the first thing to
@@ -411,7 +411,7 @@ exist. Create `$HERMES_HOME/agent-fleet-watch.json` (or point
 file is off rather than aimed somewhere unintended; `target` and the optional
 `profile` are validated against a character class before they reach argv, and
 `hermes send` is spawned as a list, never a shell line — exactly as
-[coms-hermes-bridge.ts](../scripts/coms-hermes-bridge.ts) does it. Omit `kinds`
+[coms-hermes-bridge.ts](../.pi/agent-fleet/scripts/coms-hermes-bridge.ts) does it. Omit `kinds`
 to send everything. Sends run on their own thread behind a bounded queue, so a
 slow `hermes send` can never hold up a `/sessions` request, and a sink that
 throws costs a line on stderr and nothing else.
@@ -423,7 +423,7 @@ tail reads the agent's own transcript, which is written whether or not anybody
 is watching, so it is also the only part of this panel that works for a
 `detached` session that no pane hosts at all.
 
-[`activity.py`](../hermes/plugins/agent-fleet-herdr/dashboard/activity.py)
+[`activity.py`](../.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/activity.py)
 handles two dialects behind one projection:
 
 | Agent | File | Matched by |
@@ -442,7 +442,7 @@ doing.
 **A bridged Claude Code peer has no such record.** `coms-claude-bridge.ts` mints
 its own coms session id with `ulid()` and Claude Code has never heard of it, so
 there is no shared identifier anywhere on disk — except the one
-[hooks/coms-stop-hook.mjs](../hooks/coms-stop-hook.mjs) writes. It records
+[.pi/agent-fleet/hooks/coms-stop-hook.mjs](../.pi/agent-fleet/hooks/coms-stop-hook.mjs) writes. It records
 `transcript_path` (and `session_id`) into
 `~/.pi/coms/claude-bridge/<pane>/last-message.json`, the file the bridge already
 watches for turn completions. Two consequences: a peer whose Stop hook has never
@@ -505,7 +505,7 @@ panel into a disk load. The modal's description line becomes
 unreadable timestamp drops the age and keeps the action, and no transcript
 leaves the verdict standing alone with the reason underneath.
 
-`python3 hermes/plugins/agent-fleet-herdr/dashboard/activity.py <project> <name>`
+`python3 .pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/activity.py <project> <name>`
 prints exactly what the panel would be shown — the fastest way to tell "no
 transcript" from "the wrong transcript".
 
@@ -518,12 +518,12 @@ publishes every child run into it, but `monitorLifecycleConfig()` returns
 `null` without two environment variables that no launcher set.
 
 **The launchers set them now.**
-[scripts/lib/monitor-env.ts](../scripts/lib/monitor-env.ts) resolves
+[.pi/agent-fleet/scripts/lib/monitor-env.ts](../.pi/agent-fleet/scripts/lib/monitor-env.ts) resolves
 `AGENT_FLEET_PROFILE_ID` (default `dev` — the profile this panel is installed
 in) and `AGENT_FLEET_MONITOR_RUNTIME_DIR` (default
 `$XDG_RUNTIME_DIR/agent-fleet-monitor`, created mode 0700), and
-[scripts/fleet.ts](../scripts/fleet.ts) merges them into every `just fleet`
-mode. [scripts/team-up.ts](../scripts/team-up.ts) passes them as **pane env**
+[.pi/agent-fleet/scripts/fleet.ts](../.pi/agent-fleet/scripts/fleet.ts) merges them into every `just fleet`
+mode. [.pi/agent-fleet/scripts/team-up.ts](../.pi/agent-fleet/scripts/team-up.ts) passes them as **pane env**
 instead: the hub pane is spawned by a herdr daemon that inherits nothing from
 the launcher's shell.
 
@@ -754,7 +754,7 @@ for them, and the renderer runs with the full privileges of the app.
 ### Liveness
 
 Copied from `pruneDeadEntries()` in
-[scripts/lib/coms-envelope.ts](../scripts/lib/coms-envelope.ts): a heartbeat
+[.pi/agent-fleet/scripts/lib/coms-envelope.ts](../.pi/agent-fleet/scripts/lib/coms-envelope.ts): a heartbeat
 newer than 90s (with 5s of skew tolerance) **or** `kill(pid, 0)` succeeding —
 ESRCH means dead, EPERM means alive but not ours. The difference is that this
 plugin only reads. Racing the real coms writer over file deletion is the wrong
@@ -766,10 +766,10 @@ dozens of historical scopes and an empty group is noise.
 ### Tests
 
 ```bash
-for t in hermes/plugins/agent-fleet-herdr/dashboard/*.test.py; do python3 "$t" || break; done
-node --test hermes/desktop-plugins/agent-fleet-herdr/presentation.test.js
+for t in .pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/*.test.py; do python3 "$t" || break; done
+node --test .pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/presentation.test.js
 node --test --experimental-strip-types .pi/harnesses/lib/coms-registry-entry.test.ts
-node --test --experimental-strip-types scripts/lib/hermes-monitor-plugin-handshake.test.ts
+node --test --experimental-strip-types .pi/agent-fleet/scripts/lib/hermes-monitor-plugin-handshake.test.ts
 ```
 
 The last one is the only test that spans both languages: it starts the real
@@ -818,6 +818,6 @@ import. `presentation.test.js` compares the two blocks and fails on drift.
   are more precise but live in the memory of an optional process and carry no
   project in `~/.pi/coms/hermes-bridge/log.ndjson`. Phase 2 fixes the bridge,
   not the plugin.
-- **Not shipped in the npm package.** `hermes/plugins/` and
-  `hermes/desktop-plugins/` are outside the published surface; this stays
+- **Not shipped in the npm package.** `.pi/agent-fleet/hermes/plugins/` and
+  `.pi/agent-fleet/hermes/desktop-plugins/` are outside the published surface; this stays
   source + install script.

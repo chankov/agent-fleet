@@ -16,7 +16,7 @@ just flow debate --panel default --rounds 3 "should we extract this module?"
 The raw entry point is equivalent and loads `.env` itself:
 
 ```bash
-node --experimental-strip-types scripts/flow.ts quality
+node --experimental-strip-types .pi/agent-fleet/scripts/flow.ts quality
 ```
 
 Options:
@@ -128,19 +128,19 @@ node --experimental-strip-types skills/drafting-workflows/scripts/make-workflow.
   plan-build-review 'agent(plan) → agent(build) → agent(review)'
 ```
 
-The generator copies the nearest complete workflow, preserves commas inside parenthesized phase annotations, replaces its phase docstring block, and renames the workflow and optional preflight symbols to the unique camel-cased identity derived from the new filename (for example, `planBuildReviewWorkflow`). Built-in flows are listed in `scripts/flow.ts`; a non-built-in `wf-<name>.ts` is resolved on demand by that same export convention, making a generated draft reachable through `just flow <name>` without editing the built-in map. TODOs remain only for gate, retry, and acceptance judgments. The generator refuses to return a draft unless both of these pass:
+The generator copies the nearest complete workflow, preserves commas inside parenthesized phase annotations, replaces its phase docstring block, and renames the workflow and optional preflight symbols to the unique camel-cased identity derived from the new filename (for example, `planBuildReviewWorkflow`). Built-in flows are listed in `.pi/agent-fleet/scripts/flow.ts`; a non-built-in `wf-<name>.ts` is resolved on demand by that same export convention, making a generated draft reachable through `just flow <name>` without editing the built-in map. TODOs remain only for gate, retry, and acceptance judgments. The generator refuses to return a draft unless both of these pass:
 
 ```bash
-npx tsc -p scripts/workflows/tsconfig.json --noEmit
+npx tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit
 node --experimental-strip-types skills/drafting-workflows/scripts/make-workflow.ts \
-  --verify-draft scripts/workflows/wf-plan-build-review.ts
+  --verify-draft .pi/agent-fleet/scripts/workflows/wf-plan-build-review.ts
 ```
 
 The scoped TypeScript project checks workflow production sources only; the dry-run resolves the same exact export convention as `just flow`; workflow imports cross into hub seams through typed dynamic imports, so neither check makes `.pi/harnesses/**` part of the typecheck. See [workflow-authoring.md](../references/workflow-authoring.md) for envelopes, correction, gates, permissions, quality, change capture, dry-run, and packaging contracts.
 
 ## Architecture boundary
 
-`just flow` directly composes `scripts/workflows/lib/` with the clean `spawnPiAgent` and context seams. It does not call `dispatch-native.ts`, use the hub ledger as acceptance, or change hub scope semantics. `just fleet`, coms peers, Herdr, Hermes, budgets, and the Fleet Dashboard continue to operate as before.
+`just flow` directly composes `.pi/agent-fleet/scripts/workflows/lib/` with the clean `spawnPiAgent` and context seams. It does not call `dispatch-native.ts`, use the hub ledger as acceptance, or change hub scope semantics. `just fleet`, coms peers, Herdr, Hermes, budgets, and the Fleet Dashboard continue to operate as before.
 
 ## Future `run_flow` tool (D8, design only)
 

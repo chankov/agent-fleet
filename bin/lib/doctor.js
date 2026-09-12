@@ -34,7 +34,7 @@ import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { validateOverrides } from "./validate-overrides.js";
 import { readState, STATE_REL_PATH } from "./state.js";
-import { runtimeDependencyFindings } from "../../scripts/lib/runtime-dependencies.js";
+import { runtimeDependencyFindings } from "../../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
 
 export const AGENT_FLEET_PACKAGE_NAME = "@chankov/agent-fleet";
 const AGENT_FLEET_PACKAGE_PATTERN = /(^|[/:])@chankov\/agent-fleet(@[^/]*)?$/;
@@ -210,7 +210,7 @@ function escapeRe(s) {
 }
 
 // Scan peers.yaml for field lines that sit under a team heading before any
-// `- name: ...` list item. scripts/team-up.ts parses this file with a minimal
+// `- name: ...` list item. .pi/agent-fleet/scripts/team-up.ts parses this file with a minimal
 // hand-rolled parser that only attaches `key: value` lines to the CURRENT list
 // item — an orphan field block (typically a peer whose leading `- name:` line
 // was lost in an edit) is dropped without an error and the peer silently
@@ -566,7 +566,7 @@ export function scanPiPackageOwnership({ workspace, sourceRoot, home = homedir()
   }];
 }
 
-const AGENT_DIRS = ["agents", ".claude/agents", ".pi/agents"];
+const AGENT_DIRS = ["agents", ".claude/agents", ".pi/agents/personas", ".pi/agents"];
 const VOICES_REL = ".pi/agents/voices.yaml";
 
 /**

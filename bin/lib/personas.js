@@ -1,7 +1,10 @@
 // personas.js — the canonical persona catalogue.
 //
 // `agents/*.md` is written in pi's own frontmatter dialect, so installing a
-// persona is a plain file copy: source and target carry identical bytes.
+// persona is a plain file copy: source and target carry identical bytes. The
+// package keeps its own personas in `agents/`; a workspace receives them under
+// `.pi/agents/personas/` so the repository root stays clean (the YAML fleet
+// configuration owns `.pi/agents/` itself, hence the subdirectory).
 // There is no per-agent frontmatter translation any more — the `transform-persona`
 // CLI subcommand and its mapping table went away with Claude Code as an
 // install target (docs/claude-code-coms-bridge.md explains what remains).
@@ -13,7 +16,17 @@ import { join } from "node:path";
 
 /** Install path for a persona, relative to the workspace root. */
 export function targetRelPath(name) {
-  return join("agents", `${name}.md`);
+  return join(".pi", "agents", "personas", `${name}.md`);
+}
+
+/**
+ * Where the installer used to write this persona. Declared on every persona
+ * binding so `verify` reports a surviving `agents/<name>.md` instead of letting
+ * `scanAgentDirs` silently prefer it over the installed copy — it scans
+ * `agents/` first and keeps the first definition per name.
+ */
+export function legacyTargetRelPaths(name) {
+  return [join("agents", `${name}.md`)];
 }
 
 /**

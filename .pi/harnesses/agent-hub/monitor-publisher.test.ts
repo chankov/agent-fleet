@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { FakeHerdrServer } from "../../../scripts/lib/fake-herdr-server.ts";
-import { MonitorStore } from "../../../scripts/lib/hermes-monitor-store.ts";
+import { FakeHerdrServer } from "../../agent-fleet/scripts/lib/fake-herdr-server.ts";
+import { MonitorStore } from "../../agent-fleet/scripts/lib/hermes-monitor-store.ts";
 import { MonitorPublisher, createViewerGatedMonitor } from "./monitor-publisher.ts";
 
 test("standard hub-team child records retain the fake workspace and hub-pane correlation", async () => {

@@ -10,7 +10,8 @@ import {
 	peerReadyDelayMs,
 	spawnStaggerSeconds,
 } from "../../lib/spawned-peers.js";
-import { STAGGER_ENV_VAR, WARMUP_SECONDS, oauthNeedsWarmup } from "../../../../scripts/lib/spawn-stagger.ts";
+import { STAGGER_ENV_VAR, WARMUP_SECONDS, oauthNeedsWarmup } from "../../../agent-fleet/scripts/lib/spawn-stagger.ts";
+import { PERSONA_DIRS } from "../../../agent-fleet/scripts/lib/persona-dirs.ts";
 import type {
 	HerdrClosePaneParams,
 	HerdrNotifyParams,
@@ -57,10 +58,7 @@ export function peerManifest(cwd: string): string {
 }
 
 export function peerPersonaExists(cwd: string, persona: string): boolean {
-	return (
-		fs.existsSync(path.join(cwd, "agents", `${persona}.md`)) ||
-		fs.existsSync(path.join(cwd, ".pi", "agents", `${persona}.md`))
-	);
+	return PERSONA_DIRS.some((dir) => fs.existsSync(path.join(cwd, ...dir, `${persona}.md`)));
 }
 
 export function spawnDelaySeconds(lastHubPiSpawnAt: number | null): number {

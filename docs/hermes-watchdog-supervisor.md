@@ -23,7 +23,7 @@ The watcher has no shell, PID-search, `pkill`, Herdr, gateway, service, direct P
 
 ## Installed skill and source package
 
-`hermes/skills/hub-watchdog/` is the packaged **source artifact**, and the npm tarball also carries the backend and Desktop monitor plugin source under `hermes/plugins/` and `hermes/desktop-plugins/`. Packaging makes that source available to the installer and to a consumer that chooses to use it; it neither installs anything into a Hermes profile nor enables, launches, or configures a watcher or plugin. Installation into a profile is always an explicit opt-in operator action. The repository does not provide a supported live Hermes origin adapter.
+`.pi/agent-fleet/hermes/skills/hub-watchdog/` is the packaged **source artifact**, and the npm tarball also carries the backend and Desktop monitor plugin source under `.pi/agent-fleet/hermes/plugins/` and `.pi/agent-fleet/hermes/desktop-plugins/`. Packaging makes that source available to the installer and to a consumer that chooses to use it; it neither installs anything into a Hermes profile nor enables, launches, or configures a watcher or plugin. Installation into a profile is always an explicit opt-in operator action. The repository does not provide a supported live Hermes origin adapter.
 
 Python test modules, bytecode, caches, and the local scenario fixtures are excluded from the tarball; the shipped Python is runtime-only and needs no dependency beyond the standard library.
 

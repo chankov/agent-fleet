@@ -28,17 +28,17 @@ const ARTIFACT_PATHS = [
   "vendor/agent-skills-upstream",
   "agents",
   "codex",
-  "hermes",
+  ".pi/agent-fleet/hermes",
   ".pi/prompts",
   ".pi/extensions",
   ".pi/harnesses",
   ".pi/skills",
   ".pi/agents",
   ".pi/damage-control-rules.yaml",
-  // scripts/ ships runtime helpers like team-up.ts that the pi harness
-  // recipes shell out to. Test files stay out (filtered below) — they're
-  // dev-only.
-  "scripts",
+  // .pi/agent-fleet/scripts/ ships runtime helpers like team-up.ts that the
+  // pi harness recipes shell out to. Test files stay out (filtered below) —
+  // they're dev-only.
+  ".pi/agent-fleet/scripts",
   // justfile carries the pi harness launch recipes. It is a companion of the
   // harness group in the deterministic installer, so the snapshot must hold a
   // per-version copy for the upgrade three-way diff (retired-harness recipes
@@ -57,7 +57,7 @@ const ARTIFACT_PATHS = [
   "docs/getting-started.md",
   "docs/pi-setup.md",
   "references",
-  "hooks",
+  ".pi/agent-fleet/hooks",
   // The generated catalogue. The upgrade three-way merge needs the *recorded
   // version's* manifest, not just its files: an item that existed then and is
   // retired now is only resolvable from the base catalogue.

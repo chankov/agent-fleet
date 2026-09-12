@@ -99,7 +99,7 @@ The multi-persona pattern this repo endorses in a plain session is **parallel fa
 
 See [docs/agents.md](docs/agents.md) for the decision matrix and [references/orchestration-patterns.md](references/orchestration-patterns.md) for the full pattern catalog.
 
-**Claude Code interop:** a Claude Code pane joins a fleet as a coms peer, not as a persona host. It carries no persona file — `runner: claude-code` in `.pi/agents/peers.yaml` spawns the CLI plus `scripts/coms-claude-bridge.ts`, and the peer's name is what other agents address. `.pi/agents/dispatch-policy.yaml` can then route an agent-hub team member's `dispatch_agent` call to that live peer. See `docs/claude-code-coms-bridge.md`.
+**Claude Code interop:** a Claude Code pane joins a fleet as a coms peer, not as a persona host. It carries no persona file — `runner: claude-code` in `.pi/agents/peers.yaml` spawns the CLI plus `.pi/agent-fleet/scripts/coms-claude-bridge.ts`, and the peer's name is what other agents address. `.pi/agents/dispatch-policy.yaml` can then route an agent-hub team member's `dispatch_agent` call to that live peer. See `docs/claude-code-coms-bridge.md`.
 
 ## Creating a New Skill
 

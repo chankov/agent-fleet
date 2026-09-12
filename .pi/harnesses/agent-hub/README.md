@@ -1033,7 +1033,7 @@ The optional monitor is an Agent Fleet-owned transport boundary, not a Hermes ru
 bundled Hermes plugin. When enabled, `agent-hub` publishes dispatcher-turn and specialist-run
 state and owns generation-safe cancellation. A separate local Hermes UI or operator client may
 consume the owner-only discovery + Unix-socket contract documented in
-[`hermes/README.md`](../../../hermes/README.md#local-agent-hub-monitor-integration).
+[`.pi/agent-fleet/hermes/README.md`](../../agent-fleet/hermes/README.md#local-agent-hub-monitor-integration).
 
 Set these before the hub starts:
 

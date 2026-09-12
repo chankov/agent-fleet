@@ -5,14 +5,14 @@ description: Connect a ChatGPT Desktop or Android conversation to an existing Ag
 
 # Fleet session client
 
-Use the installed `scripts/fleet-codex-client.ts` from the workspace root, or its absolute path in an Agent Fleet checkout. Read `docs/codex-session-bridge.md` there for troubleshooting. Requires Node 22.18+ and Python 3.10+, with access to the same local user's existing Pi/herdr sockets. Android supplies human messages through the same ChatGPT conversation; tools execute on its connected desktop host.
+Use the installed `.pi/agent-fleet/scripts/fleet-codex-client.ts` from the workspace root, or its absolute path in an Agent Fleet checkout. Read `docs/codex-session-bridge.md` there for troubleshooting. Requires Node 22.18+ and Python 3.10+, with access to the same local user's existing Pi/herdr sockets. Android supplies human messages through the same ChatGPT conversation; tools execute on its connected desktop host.
 
 ## Workflow
 
-- Start with `node scripts/fleet-codex-client.ts --help` for the versioned JSON operation contract. Use `describe` for current per-operation availability and reasons. Both describe supported parameters, remote/local effects and limits; `describe` uses read-only probes and does not update observations or receipts. Availability is a point-in-time prerequisite check, not authorization or guaranteed future acceptance.
+- Start with `node .pi/agent-fleet/scripts/fleet-codex-client.ts --help` for the versioned JSON operation contract. Use `describe` for current per-operation availability and reasons. Both describe supported parameters, remote/local effects and limits; `describe` uses read-only probes and does not update observations or receipts. Availability is a point-in-time prerequisite check, not authorization or guaranteed future acceptance.
 - Fleet/Hub commands remain documented in the workspace `.pi/harnesses/agent-hub/README.md`, `docs/agents.md` and the repository README. Consult those sources when available; do not maintain another copied slash-command list or assume `send` executes Hub slash commands.
 
-- Discover with `node scripts/fleet-codex-client.ts sessions --project <project>`. Resolve ambiguous project/peer choices with the user; never select only by cwd. Select explicitly with `select --project <project> --peer <peer>`.
+- Discover with `node .pi/agent-fleet/scripts/fleet-codex-client.ts sessions --project <project>`. Resolve ambiguous project/peer choices with the user; never select only by cwd. Select explicitly with `select --project <project> --peer <peer>`.
 - Keep `CODEX_THREAD_ID` supplied by the execution environment. Never fabricate or override it. `status` shows selected identity, registry freshness and a separate `questionState`; `summary` reads current sources. Presence alone does not mean working or done.
 - For a human-authorized instruction, write its exact text to a private temporary file. Use `send --id <unique-id> --text-file <path> --wait-ms 1000`. Reuse that same ID after an uncertain tool outcome; a new ID means a new instruction. Never resend automatically under another ID. Remove the temporary text file afterward.
 - `submitted`/`queued` mean accepted as a Pi follow-up. They do not prove final completion or immediate steering of the active child. `result` is a correlated coms reply. `unknown` requires source inspection, never an automatic retry. Pi retains budgets, permissions and orchestration.

@@ -7,7 +7,7 @@ import { makeWorkflow, parsePhaseList, readWorkflowShapes, renameWorkflowSymbols
 
 function fixture(): { cwd: string; workflows: string } {
 	const cwd = mkdtempSync(resolve(tmpdir(), "make-workflow-"));
-	const workflows = resolve(cwd, "scripts/workflows");
+	const workflows = resolve(cwd, ".pi/agent-fleet/scripts/workflows");
 	mkdirSync(workflows, { recursive: true });
 	writeFileSync(resolve(workflows, "tsconfig.json"), "{}\n");
 	const files: Record<string, string> = {

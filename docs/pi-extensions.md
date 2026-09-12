@@ -101,7 +101,7 @@ just --list             # shows the single public `fleet` entry point
 
 `just fleet deps` installs all three runtime dependency roots:
 `.pi/extensions/` for utilities (`@modelcontextprotocol/sdk`, `typebox`),
-`.pi/harnesses/` for harnesses (`@sinclair/typebox`, `yaml`), and `scripts/` for
+`.pi/harnesses/` for harnesses (`@sinclair/typebox`, `yaml`), and `.pi/agent-fleet/scripts/` for
 deterministic workflows (`@sinclair/typebox`, `yaml`). That is the **clone** path. In a
 target workspace, deterministic `agent-fleet setup --allow-exec` runs `npm ci`
 for those same three roots after its file transaction. Without `--allow-exec`, the plan lists those runtime steps for the
@@ -120,7 +120,7 @@ itself.
 | [ask-user-remote](../.pi/harnesses/ask-user-remote/README.md) | Orchestration | Captures stock `pi-ask-user` and registers the default `ask_user`; with `user-remote` live it races local UI against the Hermes bridge, otherwise it is stock local behavior | Fleet Core (`just fleet`) |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Fleet Core safety harness; guards default Pi, Hub, native children, and Herdr Pi peers. Blocks feed back without aborting the turn; protected paths support explicit approval, while dangerous command patterns remain non-exemptible | `just fleet` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between agents on one machine, composed with Fleet Core safety and utilities | `just fleet peer <name>` |
-| [Hermes local monitor transport](../hermes/README.md#local-agent-hub-monitor-integration) | Optional local companion | Owner-only discovery + Unix socket for agent-hub snapshots, cursor output, and exact-generation cancellation; consumed by a separate local Hermes client | Set the two monitor environment variables, then run a Herdr topology such as `just fleet --herdr` |
+| [Hermes local monitor transport](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) | Optional local companion | Owner-only discovery + Unix socket for agent-hub snapshots, cursor output, and exact-generation cancellation; consumed by a separate local Hermes client | Set the two monitor environment variables, then run a Herdr topology such as `just fleet --herdr` |
 
 Each extension directory has its own `README.md` with the full description, command/tool
 surface, requirements, and per-extension upstream changes.
@@ -224,7 +224,7 @@ harnesses:
   required to establish its stable hub identity. It is a source-owned, local-only transport—not a
   Hermes SDK task/lifecycle RPC or a bundled plugin—and fails closed without validated owner-only
   discovery, lease, token, and socket state. Follow the
-  [Hermes integration guide](../hermes/README.md#local-agent-hub-monitor-integration) for startup,
+  [Hermes integration guide](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) for startup,
   wire examples, cancellation semantics, and reconnect behavior.
 
 #### Context and roster recovery troubleshooting
@@ -348,8 +348,8 @@ forces the plain Fleet Core shape back.
   and exits non-zero with the pane's last output if it never does. A peer that missed
   the window has failed to start, not started slowly.
 
-Pure logic in `scripts/lib/peer-launch.ts` (under `node --test`); the herdr wiring is
-`scripts/peer-launch.ts`. Inside a hub session the equivalent is the `herdr_spawn_peer`
+Pure logic in `.pi/agent-fleet/scripts/lib/peer-launch.ts` (under `node --test`); the herdr wiring is
+`.pi/agent-fleet/scripts/peer-launch.ts`. Inside a hub session the equivalent is the `herdr_spawn_peer`
 tool, which shares the same command builder and readiness policy.
 
 ## Environment variables
@@ -384,7 +384,7 @@ when present, else the first pi peer) starts immediately and refreshes the token
 every other pi pane gets `AGENT_FLEET_SPAWN_DELAY` in its pane env — the `_peer` /
 `_peer-plus` recipes sleep that many seconds before launching pi. Fresh tokens mean zero
 delay everywhere; `claude-code` runner panes never wait. Pure logic in
-`scripts/lib/spawn-stagger.ts` (under `node --test`).
+`.pi/agent-fleet/scripts/lib/spawn-stagger.ts` (under `node --test`).
 
 ---
 

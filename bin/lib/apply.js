@@ -33,6 +33,7 @@ import { renderDesired } from "./desired.js";
 import {
   readState, writeState, emptyState, hashFile, hashText, walkTree,
   inspectPath, isInside, linkPointsInside, STATE_REL_PATH, LEGACY_RECORD_REL_PATH,
+  STATE_SCHEMA_VERSION,
 } from "./state.js";
 
 export const APPLY_SCHEMA_VERSION = 1;
@@ -131,7 +132,10 @@ function applyImmediate({ plan, manifest, now = () => new Date().toISOString() }
   });
   // The pass re-stamps identity: an install can change agent, method, or the
   // package doing the writing, and a stale header would misdirect every later
-  // comparison.
+  // comparison. schemaVersion travels with it — this pass has just reconciled
+  // the workspace against the current binding, which is exactly what the
+  // version asserts.
+  state.schemaVersion = STATE_SCHEMA_VERSION;
   state.agent = agent;
   state.method = method;
   state.sourceRoot = sourceRoot;
@@ -713,7 +717,7 @@ function clearTarget(abs) {
  * only if it is empty", which is exactly the rule wanted here — ENOTEMPTY stops
  * the walk and the user's files stay.
  */
-function pruneEmptyDirs(workspace, relPaths) {
+export function pruneEmptyDirs(workspace, relPaths) {
   const dirs = [...new Set(relPaths.map((p) => dirname(p)))].sort((a, b) => b.length - a.length);
   for (const rel of dirs) {
     let dir = resolve(workspace, rel);

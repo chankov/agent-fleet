@@ -277,7 +277,7 @@ export function activeRemoteCount(): number {
 }
 
 async function defaultStartRemote(params: any, project: string): Promise<{ qid: string; result: Promise<any> } | null> {
-	const coms = await import("../../../scripts/lib/coms-envelope.ts");
+	const coms = await import("../../agent-fleet/scripts/lib/coms-envelope.ts");
 	const peerName = process.env.PI_ASK_USER_REMOTE_PEER || "user-remote";
 	const peer = coms.pruneDeadEntries(project).find((entry: any) => entry.name === peerName);
 	if (!peer) return null;
@@ -335,7 +335,7 @@ async function defaultStartRemote(params: any, project: string): Promise<{ qid: 
 
 async function defaultCancelRemote(qid: string, reason: string, project: string): Promise<void> {
 	try {
-		const coms = await import("../../../scripts/lib/coms-envelope.ts");
+		const coms = await import("../../agent-fleet/scripts/lib/coms-envelope.ts");
 		const peerName = process.env.PI_ASK_USER_REMOTE_PEER || "user-remote";
 		const peer = coms.pruneDeadEntries(project).find((entry: any) => entry.name === peerName);
 		if (peer) {

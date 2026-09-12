@@ -155,7 +155,7 @@ test("every reference, hook, pi tree, and hermes artifact has an item", () => {
     if (file.endsWith(".md")) assert.ok(ids.has(`reference:${file.slice(0, -3)}`), file);
   }
   const excludedHooks = new Set(meta.exclude.hooks);
-  for (const file of filesIn("hooks")) {
+  for (const file of filesIn(".pi/agent-fleet/hooks")) {
     if (!/\.(sh|mjs)$/.test(file) || excludedHooks.has(file)) continue;
     assert.ok(ids.has(`hook:${file.replace(/\.(sh|mjs)$/, "")}`), file);
   }
@@ -170,10 +170,21 @@ test("every reference, hook, pi tree, and hermes artifact has an item", () => {
   for (const name of dirsIn(".pi/skills")) {
     assert.ok(ids.has(`pi-runtime-skill:${name}`), name);
   }
-  for (const name of [...dirsIn("hermes/plugins"), ...dirsIn("hermes/desktop-plugins")]) {
+  // `.pi/agents` is bound file by file rather than as a tree (the installed
+  // personas live in `.pi/agents/personas/`), so a new YAML has to be declared.
+  const agentConfigs = manifest.items.find((i) => i.id === "companion:pi-agent-configs");
+  for (const file of filesIn(".pi/agents")) {
+    if (!file.endsWith(".yaml")) continue;
+    assert.ok(
+      agentConfigs.agents.pi.source.includes(`.pi/agents/${file}`),
+      `.pi/agents/${file} is not declared on companion:pi-agent-configs`,
+    );
+  }
+  assert.equal(agentConfigs.agents.pi.target, null, "a .pi/agents tree target would own the personas subtree");
+  for (const name of [...dirsIn(".pi/agent-fleet/hermes/plugins"), ...dirsIn(".pi/agent-fleet/hermes/desktop-plugins")]) {
     assert.ok(ids.has(`hermes-plugin:${name}`), name);
   }
-  for (const name of dirsIn("hermes/skills")) {
+  for (const name of dirsIn(".pi/agent-fleet/hermes/skills")) {
     assert.ok(ids.has(`hermes-skill:${name}`), name);
   }
 });
@@ -213,7 +224,24 @@ test("personas are copied verbatim — agents/*.md is already pi's own dialect",
   const item = manifest.items.find((i) => i.id === "persona:builder");
   assert.deepEqual(Object.keys(item.agents), ["pi"]);
   assert.equal(item.agents["pi"].strategy, "copy-file");
-  assert.equal(item.agents["pi"].target, "agents/builder.md");
+  assert.equal(item.agents["pi"].source[0], "agents/builder.md");
+  // The workspace keeps its root clean: personas land beside the fleet YAML
+  // configuration, in a subdirectory of their own.
+  assert.equal(item.agents["pi"].target, ".pi/agents/personas/builder.md");
+  // ...and the pre-2.1 path is declared so a surviving copy is reported
+  // instead of silently shadowing the installed one (scanAgentDirs reads
+  // `agents/` first).
+  assert.deepEqual(item.agents["pi"].legacyTargets, ["agents/builder.md"]);
+});
+
+test("every persona declares its pre-2.1 agents/ path as a legacy target", () => {
+  const personas = manifest.items.filter((i) => i.kind === "persona");
+  assert.ok(personas.length >= 15);
+  for (const item of personas) {
+    const name = item.id.slice("persona:".length);
+    assert.equal(item.agents.pi.target, `.pi/agents/personas/${name}.md`, item.id);
+    assert.deepEqual(item.agents.pi.legacyTargets, [`agents/${name}.md`], item.id);
+  }
 });
 
 test("native skills shadow the vendored upstream copy", () => {
@@ -253,13 +281,16 @@ test("references install under .pi/, and each one is pulled in by a citing skill
   }
 });
 
-test("the coms bridge hook installs where Claude Code reads it", () => {
-  // Claude Code is a coms peer, never an install target — but the pane running
-  // it is a Claude Code process, so its Stop hook has to land in .claude/.
+test("the coms bridge hook installs with the fleet runtime, not under .claude/", () => {
+  // Claude Code finds a hook through .claude/settings.json, where the command
+  // is a free-form shell string — so the file itself does not have to sit in
+  // .claude/, and the workspace root stays clean. The old path is declared as
+  // a legacy target so an existing install is retired rather than duplicated.
   const hook = manifest.items.find((i) => i.id === "hook:coms-stop-hook");
   assert.equal(hook.group, "coms-bridge");
   assert.deepEqual(Object.keys(hook.agents), ["pi"]);
-  assert.equal(hook.agents.pi.target, ".claude/hooks/coms-stop-hook.mjs");
+  assert.equal(hook.agents.pi.target, ".pi/agent-fleet/hooks/coms-stop-hook.mjs");
+  assert.deepEqual(hook.agents.pi.legacyTargets, [".claude/hooks/coms-stop-hook.mjs"]);
 });
 
 // ── consent boundary ────────────────────────────────────────────────────────

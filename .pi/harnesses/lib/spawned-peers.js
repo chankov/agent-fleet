@@ -1,7 +1,7 @@
 // Spawned coms peers: pane launch, readiness policy and the never-addressed sweep.
 //
 // Lives in the SHARED harness lib, not under agent-hub: `just fleet peer`
-// (scripts/peer-launch.ts) launches a single peer with the same pane plumbing
+// (.pi/agent-fleet/scripts/peer-launch.ts) launches a single peer with the same pane plumbing
 // and the same readiness timings, and the fleet scripts are installed into
 // target projects that may not have selected the agent-hub harness at all.
 //

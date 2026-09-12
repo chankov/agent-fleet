@@ -18,7 +18,11 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
-export const STATE_SCHEMA_VERSION = 1;
+// 2 — the .pi/agent-fleet relocation. The file's shape did not change; the
+// paths recorded in it did, and a workspace still reading 1 is one whose
+// `scripts/`, `hermes/`, `hooks/` and `agents/` copies have not been retired
+// yet. `verify` says so, and the next `setup` re-stamps this on the way out.
+export const STATE_SCHEMA_VERSION = 2;
 export const STATE_REL_PATH = join(".ai", "agent-fleet-state.json");
 export const LEGACY_RECORD_REL_PATH = join(".ai", "agent-fleet-setup.md");
 

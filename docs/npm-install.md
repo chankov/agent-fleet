@@ -182,7 +182,7 @@ first, take `theirs`, then re-apply it.
 ### Keeping local edits across updates
 
 If you have customized an installed artifact — a skill under `.pi/skills/`, a
-persona under `agents/` — understand that `setup` is a **reconcile to the
+persona under `.pi/agents/personas/` — understand that `setup` is a **reconcile to the
 package**, not a merge in your favour. A file you edited where upstream did not
 change is refreshed and your edit is overwritten, without a conflict and without
 a prompt. `--dry-run` is what makes this visible before it happens.
@@ -223,6 +223,35 @@ no baseline: the comparison degrades to two-way, an edited file reads as
 `modified`, and no `conflict` can be detected. And `keep`-on-local-edit is the
 behaviour of the **deprecated `upgrade` verb**, not of `setup` — if you have
 relied on `upgrade` preserving your edits, that is the difference to plan for.
+
+## Upgrading across the `.pi/agent-fleet` move
+
+Before 2.1 an install wrote `scripts/`, `hermes/`, `agents/` and
+`.claude/hooks/` at the root of your project. They are now `.pi/agent-fleet/`
+(`scripts/`, `hermes/`, `hooks/`, `docs/`) and `.pi/agents/personas/`, and the
+only thing an existing workspace has to do is run `setup` once.
+
+There is no migration script, because none is needed. Changing where an item
+installs changes its binding, and reconcile already retires recorded files that
+have left one — under the same ownership rule as everything else, so a file you
+edited is kept, becomes yours, and is reported by name. Directories the move
+empties are pruned; a directory that still holds a file of yours is not.
+
+Two details worth reading before you run it:
+
+- `verify` reports the whole move as one advisory finding
+  (`19 item(s) moved: 111 old file(s) to remove, 2 kept`) rather than one per
+  path. `verify --json` still lists every path under `items[].obsoleteFiles`,
+  each flagged `retained` when it will be kept.
+- The state file's `schemaVersion` goes `1` → `2`. A workspace still reading `1`
+  is one that has not been reconciled yet; `setup` re-stamps it on the way out.
+  The file's shape did not change — only the paths recorded in it.
+
+The Claude Code bridge Stop hook is the one thing reconcile cannot finish for
+you: it moves to `.pi/agent-fleet/hooks/coms-stop-hook.mjs`, and Claude Code
+only runs it once `.claude/settings.json` names it. `setup` prints the snippet
+with the current path when it installs the hook. Nothing else installs under
+`.claude/` any more.
 
 ## Desired state and migration
 

@@ -22,7 +22,7 @@ set dotenv-load := true
 
 # How recipes run the fleet TS scripts. The preserve-symlinks flags matter for
 # symlink installs (`agent-fleet setup --method symlink`): there
-# scripts/*.ts are links whose realpath sits under .pi/npm/node_modules/, and
+# .pi/agent-fleet/scripts/*.ts are links whose realpath sits under .pi/npm/node_modules/, and
 # Node refuses --experimental-strip-types for anything under node_modules once
 # paths are realpath'd. Keeping symlink paths avoids that; copy installs are
 # unaffected (the fleet scripts import only relative paths + node builtins).
@@ -110,12 +110,12 @@ default:
 #
 # Unified guarded Pi, Hub, peers, teams, lifecycle, and conductor entry point.
 fleet *args:
-    @{{node_ts}} scripts/fleet.ts {{args}}
+    @{{node_ts}} .pi/agent-fleet/scripts/fleet.ts {{args}}
 
 # Headless workflows plus `flow cleanup` / `flow merge` Worktrunk branch maintenance.
 # Exits 0 accepted/success; 1 rejected/failed; 2 invalid/unknown; 3 refused start.
 flow *args:
-    @{{node_ts}} scripts/flow.ts {{args}}
+    @{{node_ts}} .pi/agent-fleet/scripts/flow.ts {{args}}
 
 # Hidden Fleet Core launcher. Positional booleans are emitted only by fleet.ts.
 _fleet-core browser="false" voice="false" all_extensions="false" *args:
@@ -126,7 +126,7 @@ _fleet-core browser="false" voice="false" all_extensions="false" *args:
 # in a pane of its own — splitting the current pane inside herdr, else creating a
 # one-pane workspace. `--here` runs it in the calling terminal instead.
 _fleet-peer-launch *args:
-    {{node_ts}} scripts/peer-launch.ts {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/peer-launch.ts {{args}}
 
 # Hidden guarded peer launcher for an interactive, addressable Fleet node with no
 # persona: Fleet Core + coms under `--name`, plus raw pi arguments. Reached via
@@ -138,7 +138,7 @@ _fleet-peer name browser="false" all_extensions="false" *args:
 # specialist, researcher, and nested delegate even though children use
 # --no-extensions. `solo=true` disables only the embedded coms layer.
 _fleet-hub solo="false" browser="false" voice="false" all_extensions="false" *args:
-    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; voice_ext=""; if [ "{{voice}}" = "true" ]; then voice_ext="{{fleet_voice_extension}}"; fi; solo_flag=""; if [ "{{solo}}" = "true" ]; then solo_flag="--solo"; fi; persona=""; if [ -f agents/orchestrator.md ]; then persona="--append-system-prompt agents/orchestrator.md"; fi; pi $discovery {{fleet_core_extensions}} -e .pi/harnesses/agent-hub/index.ts $browser_ext $voice_ext $solo_flag $persona {{args}}
+    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; voice_ext=""; if [ "{{voice}}" = "true" ]; then voice_ext="{{fleet_voice_extension}}"; fi; solo_flag=""; if [ "{{solo}}" = "true" ]; then solo_flag="--solo"; fi; persona=""; for pd in agents .claude/agents .pi/agents/personas .pi/agents; do if [ -f "$pd/orchestrator.md" ]; then persona="--append-system-prompt $pd/orchestrator.md"; break; fi; done; pi $discovery {{fleet_core_extensions}} -e .pi/harnesses/agent-hub/index.ts $browser_ext $voice_ext $solo_flag $persona {{args}}
 
 # Hidden dependency installer used by `just fleet deps`.
 # It installs only Node runtime dependencies. It does NOT launch Pi, activate a
@@ -146,7 +146,7 @@ _fleet-hub solo="false" browser="false" voice="false" all_extensions="false" *ar
 _fleet-deps:
     npm install --prefix .pi/extensions
     npm install --prefix .pi/harnesses
-    npm install --prefix scripts
+    npm install --prefix .pi/agent-fleet/scripts
 
 # Deterministic lifecycle CLI. `setup` always resolves the published latest
 # package; it needs registry access unless the matching npm cache entry exists.
@@ -162,7 +162,7 @@ _fleet-lifecycle command *args:
 # AGENT_FLEET_SPAWN_DELAY lets one pane refresh a stale shared OAuth token before
 # sibling Pi processes start. Hidden recipes (`_...`) do not appear in --list.
 _peer persona name="" model="" session="" project="default":
-    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; pi --no-extensions {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
+    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} .pi/agent-fleet/scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path=""; for pd in agents .claude/agents .pi/agents/personas .pi/agents; do if [ -f "$pd/{{persona}}.md" ]; then persona_path="$pd/{{persona}}.md"; break; fi; done; if [ -z "$persona_path" ]; then persona_path=".pi/agents/personas/{{persona}}.md"; fi; pi --no-extensions {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
 
 # Guarded peer plus comma-separated explicit extras from .pi/extensions/.
 # Example peers.yaml entry:
@@ -170,14 +170,14 @@ _peer persona name="" model="" session="" project="default":
 # The extra tools stay in this reusable peer; Hub's headless specialists still
 # run --no-extensions and therefore cannot accidentally inherit them.
 _peer-plus extensions persona name="" model="" session="" project="default":
-    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path="agents/{{persona}}.md"; if [ ! -f "$persona_path" ]; then persona_path=".pi/agents/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi --no-extensions {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts $extra --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
+    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} .pi/agent-fleet/scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path=""; for pd in agents .claude/agents .pi/agents/personas .pi/agents; do if [ -f "$pd/{{persona}}.md" ]; then persona_path="$pd/{{persona}}.md"; break; fi; done; if [ -z "$persona_path" ]; then persona_path=".pi/agents/personas/{{persona}}.md"; fi; extra=""; old_ifs="$IFS"; IFS=','; for x in {{extensions}}; do x="$(echo "$x" | xargs)"; if [ -n "$x" ]; then extra="$extra -e .pi/extensions/$x/index.ts"; fi; done; IFS="$old_ifs"; pi --no-extensions {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts $extra --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
 
 # Internal team helper for a `runner: claude-code` peer — interactive
-# Claude Code plus its coms bridge (scripts/coms-claude-bridge.ts) in ONE pane.
+# Claude Code plus its coms bridge (.pi/agent-fleet/scripts/coms-claude-bridge.ts) in ONE pane.
 # The bridge registers the pane as coms peer <name>; the trailing session
 # positional maps to `claude --resume <id>` for `just fleet resume`.
 _claude-peer name model="" session="" project="default":
-    {{node_ts}} scripts/claude-code-preflight.ts || exit $?; {{node_ts}} scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
+    {{node_ts}} .pi/agent-fleet/scripts/claude-code-preflight.ts || exit $?; {{node_ts}} .pi/agent-fleet/scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
 
 # The hidden team implementations take the team as a positional arg (default "full")
 # and pass everything after it straight to the script.
@@ -202,46 +202,46 @@ _claude-peer name model="" session="" project="default":
 #   just fleet team full --no-hub
 #   just fleet team review --no-hub --project af
 _fleet-team-up team="full" *args:
-    {{node_ts}} scripts/team-up.ts --team {{team}} {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-up.ts --team {{team}} {{args}}
 
 # Peers-only dry run:
 #   just fleet team review --no-hub --dry-run --project af
 _fleet-team-up-dry team="full" *args:
-    {{node_ts}} scripts/team-up.ts --team {{team}} --dry-run {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-up.ts --team {{team}} --dry-run {{args}}
 
 # Default team mode: guarded Fleet Hub in the main pane plus guarded peers.
 #   just fleet team docs
 #   just fleet team review --project af
 _fleet-hub-team team="full" *args:
-    {{node_ts}} scripts/team-up.ts --team {{team}} --hub {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-up.ts --team {{team}} --hub {{args}}
 
 # Hub + team preview without touching Herdr:
 #   just fleet team review --dry-run --project af
 _fleet-hub-team-dry team="full" *args:
-    {{node_ts}} scripts/team-up.ts --team {{team}} --hub --dry-run {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-up.ts --team {{team}} --hub --dry-run {{args}}
 
 # Hermes conductor + team:
 #   just fleet conductor hermes docs --project af
 _fleet-conductor team="full" *args:
-    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-up.ts --team {{team}} --conductor {{args}}
 
 # Hermes conductor preview:
 #   just fleet conductor hermes docs --dry-run --project af
 _fleet-conductor-dry team="full" *args:
-    {{node_ts}} scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-up.ts --team {{team}} --conductor --dry-run {{args}}
 
 # Save session refs while the team keeps running:
 #   just fleet snapshot review --project af
 _fleet-team-snapshot team="full" *args:
-    {{node_ts}} scripts/team-snapshot.ts snapshot {{team}} {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-snapshot.ts snapshot {{team}} {{args}}
 
 # Snapshot and close cleanly:
 #   just fleet down review --project af
 _fleet-team-down team="full" *args:
-    {{node_ts}} scripts/team-snapshot.ts down {{team}} {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-snapshot.ts down {{team}} {{args}}
 
 # Rebuild from snapshot; missing session refs start fresh:
 #   just fleet resume review --project af
 _fleet-team-resume team="full" *args:
-    {{node_ts}} scripts/team-snapshot.ts resume {{team}} {{args}}
+    {{node_ts}} .pi/agent-fleet/scripts/team-snapshot.ts resume {{team}} {{args}}
 # <<< agent-fleet:harnesses <<<

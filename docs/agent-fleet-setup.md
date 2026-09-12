@@ -358,8 +358,15 @@ bridge — the one way Claude Code takes part in a fleet. See
 
 Installing `skill:peer-coms` pulls `hook:coms-stop-hook` in as a companion, which
 is what gives a bridged pane exact turn text instead of scraped output.
-Registering that hook in `.claude/settings.json` stays the user's step — the
-installer writes files, and another tool's settings file is not its to merge.
+The hook installs to `.pi/agent-fleet/hooks/coms-stop-hook.mjs` with the rest
+of the fleet runtime. Registering it in `.claude/settings.json` stays the
+user's step — the installer writes files, and another tool's settings file is
+not its to merge. `setup` prints this snippet when the hook is applied:
+
+```json
+{ "hooks": { "Stop": [{ "hooks": [{ "type": "command",
+    "command": "node $CLAUDE_PROJECT_DIR/.pi/agent-fleet/hooks/coms-stop-hook.mjs" }] }] } }
+```
 
 ## Templates
 

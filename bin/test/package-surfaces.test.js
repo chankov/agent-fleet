@@ -149,20 +149,20 @@ function removeClosure(source, workspace, owned) {
 
 test("manifest contains the executable harness runtime closure without product docs", () => {
   const paths = validateManifest(root);
-  assert.deepEqual(paths.directories, ["hermes/skills"]);
-  assert.equal([...paths.directories, ...paths.files].some((path) => path.startsWith("hermes/desktop-plugins/") || path.startsWith("hermes/plugins/")), false);
+  assert.deepEqual(paths.directories, [".pi/agent-fleet/hermes/skills"]);
+  assert.equal([...paths.directories, ...paths.files].some((path) => path.startsWith(".pi/agent-fleet/hermes/desktop-plugins/") || path.startsWith(".pi/agent-fleet/hermes/plugins/")), false);
   assert.equal([...paths.directories, ...paths.files].some((path) => path === "codex" || path.startsWith("docs/")), false);
   for (const required of [
     "justfile",
-    "scripts/coms-cli.ts",
-    "scripts/coms-hermes-bridge.ts",
-    "scripts/team-up.ts",
-    "scripts/lib/coms-envelope.ts",
-    "scripts/lib/herdr-layout.ts",
-    "scripts/lib/hermes-bridge-core.ts",
-    "scripts/lib/team-project.ts",
+    ".pi/agent-fleet/scripts/coms-cli.ts",
+    ".pi/agent-fleet/scripts/coms-hermes-bridge.ts",
+    ".pi/agent-fleet/scripts/team-up.ts",
+    ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
+    ".pi/agent-fleet/scripts/lib/herdr-layout.ts",
+    ".pi/agent-fleet/scripts/lib/hermes-bridge-core.ts",
+    ".pi/agent-fleet/scripts/lib/team-project.ts",
   ]) assert.ok(paths.files.includes(required), required);
-  for (const retired of ["scripts/codex-conductor.ts", "scripts/codex-remote-control.ts", "scripts/lib/codex-conductor.ts", "scripts/lib/codex-remote-control.ts"]) {
+  for (const retired of [".pi/agent-fleet/scripts/codex-conductor.ts", ".pi/agent-fleet/scripts/codex-remote-control.ts", ".pi/agent-fleet/scripts/lib/codex-conductor.ts", ".pi/agent-fleet/scripts/lib/codex-remote-control.ts"]) {
     assert.equal(paths.files.includes(retired), false, retired);
   }
 });
@@ -176,8 +176,8 @@ test("manifest validation fails when a recursive runtime dependency is absent", 
       mkdirSync(dirname(dest), { recursive: true });
       cpSync(src, dest, { recursive: true });
     }
-    rmSync(join(fixture, "scripts", "lib", "team-project.ts"));
-    assert.throws(() => validateManifest(fixture), /scripts\/lib\/team-project\.ts/);
+    rmSync(join(fixture, ".pi", "agent-fleet", "scripts", "lib", "team-project.ts"));
+    assert.throws(() => validateManifest(fixture), /\.pi\/agent-fleet\/scripts\/lib\/team-project\.ts/);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
@@ -198,27 +198,27 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
       assert.doesNotMatch(installedJustfile, /_fleet-conductor-codex/);
       assert.doesNotMatch(installedJustfile, /\n(?:hub|hub-team|team-up|safe-coms|conductor-codex)(?: |:)/);
       assert.equal(existsSync(join(workspace, "codex")), false, `${method}: product contract must not land at repository root`);
-      assert.equal(lstatSync(join(workspace, "scripts", "coms-cli.ts")).isSymbolicLink(), method === "symlink");
-      assert.equal(existsSync(join(workspace, "hermes", "desktop-plugins")), false, `${method}: desktop plugins must not install`);
-      assert.equal(existsSync(join(workspace, "hermes", "plugins")), false, `${method}: generic plugins must not install`);
+      assert.equal(lstatSync(join(workspace, ".pi", "agent-fleet", "scripts", "coms-cli.ts")).isSymbolicLink(), method === "symlink");
+      assert.equal(existsSync(join(workspace, ".pi", "agent-fleet", "hermes", "desktop-plugins")), false, `${method}: desktop plugins must not install`);
+      assert.equal(existsSync(join(workspace, ".pi", "agent-fleet", "hermes", "plugins")), false, `${method}: generic plugins must not install`);
       const fleetHelp = execFileSync(
         process.execPath,
         [
           "--experimental-strip-types",
           "--preserve-symlinks",
           "--preserve-symlinks-main",
-          join(workspace, "scripts", "fleet.ts"),
+          join(workspace, ".pi", "agent-fleet", "scripts", "fleet.ts"),
           "help",
         ],
         { cwd: workspace, encoding: "utf8" },
       );
       assert.match(fleetHelp, /Agent Fleet — one guarded Hub runtime, two work modes, independent topology/, `${method}: installed fleet entrypoint must load`);
 
-      if (method === "copy") writeFileSync(join(workspace, "scripts", "user-owned.ts"), "// keep\n");
+      if (method === "copy") writeFileSync(join(workspace, ".pi", "agent-fleet", "scripts", "user-owned.ts"), "// keep\n");
       removeClosure(root, workspace, owned);
       assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /user-recipe/);
       assert.equal(readFileSync(join(workspace, "justfile"), "utf8").includes("agent-fleet:harnesses"), false);
-      assert.equal(existsSync(join(workspace, "scripts", "user-owned.ts")), method === "copy");
+      assert.equal(existsSync(join(workspace, ".pi", "agent-fleet", "scripts", "user-owned.ts")), method === "copy");
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -255,8 +255,8 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
     assert.ok(paths.has(`.pi/harnesses/lib/hermes-monitor-${module}.ts`), `shared monitor module: ${module}`);
   }
   assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/damage-control/")), false);
-  assert.equal([...paths].some((path) => path.startsWith("hermes/desktop-plugins/")), true, "desktop monitor runtime is packaged");
-  assert.equal([...paths].some((path) => path.startsWith("hermes/plugins/")), true, "backend monitor runtime is packaged");
+  assert.equal([...paths].some((path) => path.startsWith(".pi/agent-fleet/hermes/desktop-plugins/")), true, "desktop monitor runtime is packaged");
+  assert.equal([...paths].some((path) => path.startsWith(".pi/agent-fleet/hermes/plugins/")), true, "backend monitor runtime is packaged");
 });
 
 // The full watchdog release surface — runtime modules, lifecycle commands,
@@ -288,19 +288,21 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
       assert.equal(existsSync(join(workspace, "docs", "plans", "agent-hub", "local-duo-profile.md")), false, "local profile notes must not be installed");
       const desired = JSON.parse(readFileSync(join(workspace, ".ai", "agent-fleet.json"), "utf8"));
       assert.equal(desired.preset, preset);
-      if (preset === "default") assert.equal(existsSync(join(workspace, ".claude")), false);
-      else assert.ok(existsSync(join(workspace, ".claude", "hooks", "coms-stop-hook.mjs")));
-      const workflowPackage = JSON.parse(readFileSync(join(workspace, "scripts", "package.json"), "utf8"));
+      // Nothing installs under .claude/ any more — the bridge Stop hook moved in with
+      // the rest of the fleet runtime, and registering it stays the user's step.
+      assert.equal(existsSync(join(workspace, ".claude")), false, `${preset}: nothing installs under .claude/`);
+      if (preset !== "default") assert.ok(existsSync(join(workspace, ".pi", "agent-fleet", "hooks", "coms-stop-hook.mjs")));
+      const workflowPackage = JSON.parse(readFileSync(join(workspace, ".pi", "agent-fleet", "scripts", "package.json"), "utf8"));
       assert.deepEqual(workflowPackage.dependencies, {
         "@sinclair/typebox": "^0.34.49",
         yaml: "^2.9.0",
       });
-      assert.ok(existsSync(join(workspace, "scripts", "package-lock.json")));
-      assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /npm install --prefix scripts/);
+      assert.ok(existsSync(join(workspace, ".pi", "agent-fleet", "scripts", "package-lock.json")));
+      assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /npm install --prefix \.pi\/agent-fleet\/scripts/);
       // Materialize each isolated runtime root from the already-installed root
       // fixture. `npm ls --prefix` intentionally does not borrow dependencies
       // from a sibling/root node_modules tree.
-      for (const dependencyRoot of [".pi/extensions", ".pi/harnesses", "scripts"]) {
+      for (const dependencyRoot of [".pi/extensions", ".pi/harnesses", ".pi/agent-fleet/scripts"]) {
         const runtimePackage = JSON.parse(readFileSync(join(workspace, dependencyRoot, "package.json"), "utf8"));
         for (const dependency of Object.keys(runtimePackage.dependencies ?? {})) {
           const target = join(workspace, dependencyRoot, "node_modules", dependency);
@@ -308,7 +310,7 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
           cpSync(join(root, "node_modules", dependency), target, { recursive: true });
         }
       }
-      const flowModule = pathToFileURL(join(workspace, "scripts", "flow.ts")).href;
+      const flowModule = pathToFileURL(join(workspace, ".pi", "agent-fleet", "scripts", "flow.ts")).href;
       const flowLoad = execFileSync(process.execPath, [
         "--experimental-strip-types", "--input-type=module", "--eval",
         `await import(${JSON.stringify(flowModule)}); process.stdout.write("loaded")`,
@@ -377,20 +379,20 @@ test("published package hoists extension runtime dependencies for symlink instal
 
 test("package, snapshot, and harness closure surfaces stay aligned", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  for (const required of ["codex/", "hermes/README.md", "hermes/skills/", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md", "docs/codex-session-bridge.md"]) {
+  for (const required of ["codex/", ".pi/agent-fleet/hermes/README.md", ".pi/agent-fleet/hermes/skills/", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md", "docs/codex-session-bridge.md"]) {
     assert.ok(pkg.files.includes(required), `package files missing ${required}`);
   }
-  assert.equal(pkg.files.includes("hermes/"), false);
+  assert.equal(pkg.files.includes(".pi/agent-fleet/hermes/"), false);
   assert.equal(pkg.files.includes("systemd/"), false);
   assert.equal(pkg.files.includes("docs/codex-remote-conductor.md"), false);
-  assert.ok(pkg.files.includes("hermes/plugins/"));
-  assert.ok(pkg.files.includes("hermes/desktop-plugins/"));
-  assert.ok(pkg.files.includes("!hermes/watchdog-tests/"));
-  assert.ok(pkg.files.includes("!hermes/**/__pycache__/"));
-  assert.match(pkg.scripts.test, /scripts\/coms-cli\.test\.ts/);
+  assert.ok(pkg.files.includes(".pi/agent-fleet/hermes/plugins/"));
+  assert.ok(pkg.files.includes(".pi/agent-fleet/hermes/desktop-plugins/"));
+  assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/watchdog-tests/"));
+  assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/**/__pycache__/"));
+  assert.match(pkg.scripts.test, /\.pi\/agent-fleet\/scripts\/coms-cli\.test\.ts/);
   assert.doesNotMatch(pkg.scripts.test, /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");
-  for (const required of ["codex", "hermes", "docs/coms-hermes-bridge.md", "scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
+  for (const required of ["codex", ".pi/agent-fleet/hermes", "docs/coms-hermes-bridge.md", ".pi/agent-fleet/scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);
   }
   assert.doesNotMatch(snapshot, /"systemd"/);

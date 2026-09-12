@@ -24,7 +24,7 @@ import {
 	stockAskUserCandidatePaths,
 	wrapAskUserTool,
 } from "./index.ts";
-import { socketTempRoot } from "../../../scripts/lib/monitor-env.ts";
+import { socketTempRoot } from "../../agent-fleet/scripts/lib/monitor-env.ts";
 import { QuestionChannel } from "./questions.ts";
 
 test("question capability follows wrapper session lifecycle", () => {
@@ -262,7 +262,7 @@ test("a locally-won race settles and closes the per-question remote endpoint (no
 	process.env.PI_COMS_DIR = comsDir;
 	t.after(() => fs.rmSync(comsDir, { recursive: true, force: true }));
 
-	const coms = await import("../../../scripts/lib/coms-envelope.ts");
+	const coms = await import("../../agent-fleet/scripts/lib/coms-envelope.ts");
 	coms.ensureComsDirs("af");
 	const peerSession = coms.ulid();
 	const peerEndpoint = coms.makeEndpoint(peerSession);

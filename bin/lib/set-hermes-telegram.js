@@ -164,7 +164,7 @@ async function resolveHermesProfile(requestedProfile, hermes) {
 export async function inspectHermesTelegram(options) {
 	const hermes = options.hermes ?? (async (args) => runHermesCommand(args));
 	const resolvedProfile = await resolveHermesProfile(options.profile, hermes);
-	const sourceDir = options.skillSourceDir ?? join(options.packageRoot, "hermes", "skills", LIAISON_SKILL);
+	const sourceDir = options.skillSourceDir ?? join(options.packageRoot, ".pi", "agent-fleet", "hermes", "skills", LIAISON_SKILL);
 	const installedDir = join(resolvedProfile.profilePath, "skills", LIAISON_SKILL);
 	const skill = skillState(sourceDir, installedDir);
 	const [skillsOutput, toolsOutput] = await Promise.all([
@@ -299,7 +299,7 @@ async function controlBridge(options, parsed) {
 		await herdr(["pane", "rename", paneId, BRIDGE_LABEL]);
 		const command = [
 			shellQuote(process.execPath), "--experimental-strip-types",
-			shellQuote(join(options.packageRoot, "scripts", "coms-hermes-bridge.ts")),
+			shellQuote(join(options.packageRoot, ".pi", "agent-fleet", "scripts", "coms-hermes-bridge.ts")),
 			"--project", shellQuote(project), "--hermes-profile", shellQuote(hermesProfile),
 			"--timeout", "1800000", "--to", shellQuote(parsed.target),
 		].join(" ");

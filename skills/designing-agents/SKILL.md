@@ -1,6 +1,6 @@
 ---
 name: designing-agents
-description: Designs and writes a focused artifact another agent runs — an agent persona in agents/, a workflow skill in skills/, or a pi session harness in .pi/harnesses/. Use when authoring a reviewer or specialist persona, a repeatable process skill, or a pi extension that reshapes a session — or when rewriting one that is under-specified, overlapping, or being ignored.
+description: Designs and writes a focused artifact another agent runs — an agent persona in .pi/agents/personas/, a workflow skill in skills/, or a pi session harness in .pi/harnesses/. Use when authoring a reviewer or specialist persona, a repeatable process skill, or a pi extension that reshapes a session — or when rewriting one that is under-specified, overlapping, or being ignored.
 ---
 
 # Designing Agents
@@ -9,7 +9,7 @@ description: Designs and writes a focused artifact another agent runs — an age
 
 This repo has three kinds of artifacts that shape how an agent works. Each is authored, versioned, and invoked deliberately:
 
-- **Agent personas** live in `agents/<name>.md`. They define a *role* another agent adopts when it needs specialized review, audit, or analysis. Example: `code-reviewer`, `security-auditor`, `test-engineer`.
+- **Agent personas** live in `.pi/agents/personas/<name>.md`. They define a *role* another agent adopts when it needs specialized review, audit, or analysis. Example: `code-reviewer`, `security-auditor`, `test-engineer`.
 - **Skills** live in `skills/<name>/SKILL.md`. They define a *workflow* — a repeatable process with gated steps, anti-rationalization guardrails, and verification. Example: `spec-driven-development`, `test-driven-development`, `context-engineering`.
 - **pi harnesses** live in `.pi/harnesses/<name>/`. They define a *session environment* — a TypeScript pi extension that reshapes the whole session: setting UI surfaces, gating tool calls, registering new tools or commands, or orchestrating sub-agents. Example: `agent-hub`, `damage-control-continue`, `coms`.
 
@@ -17,7 +17,7 @@ Personas and skills are prose that change an agent's *judgment*. A harness is co
 
 ## When to Use
 
-- Creating a new persona file in `agents/` (reviewer, auditor, domain specialist)
+- Creating a new persona file in `.pi/agents/personas/` (reviewer, auditor, domain specialist)
 - Creating a new skill directory in `skills/` (a process, checklist, or workflow)
 - Creating a new pi harness in `.pi/harnesses/` (a footer, focus gate, safety check, orchestrator, or messaging layer)
 - An existing persona, skill, or harness is vague, overlaps another, or is being ignored in practice
@@ -32,7 +32,7 @@ Personas and skills are prose that change an agent's *judgment*. A harness is co
 
 ## The Workflow
 
-This workflow is abstracted from the three reference personas (`agents/code-reviewer.md`, `agents/security-auditor.md`, `agents/test-engineer.md`), from `docs/skill-anatomy.md`, and from the ported harnesses under `.pi/harnesses/` (catalogued in `docs/pi-extensions.md`). Do not advance to the next step until the current one is settled.
+This workflow is abstracted from the three reference personas (`code-reviewer`, `security-auditor`, `test-engineer`), from `docs/skill-anatomy.md`, and from the ported harnesses under `.pi/harnesses/` (catalogued in `docs/pi-extensions.md`). Do not advance to the next step until the current one is settled.
 
 ### 1. Choose the target type
 
@@ -40,7 +40,7 @@ Ask: is this a *role* the agent should adopt, a *process* it should follow, or a
 
 | Target | Choose when | Output |
 |---|---|---|
-| Persona | The agent needs to evaluate or review through a specific lens (correctness, security, test strategy, accessibility, migration safety…) | `agents/<name>.md` |
+| Persona | The agent needs to evaluate or review through a specific lens (correctness, security, test strategy, accessibility, migration safety…) | `.pi/agents/personas/<name>.md` |
 | Skill | The agent needs to follow a repeatable process with gated steps, verification, and anti-rationalization guards | `skills/<name>/SKILL.md` |
 | pi harness | The session itself must change — footer, status, a blocking gate on tool calls, a new tool or `/command`, or sub-agent orchestration | `.pi/harnesses/<name>/` (a directory) |
 
@@ -59,7 +59,7 @@ Do not proceed until the one-sentence purpose is locked. If the requester cannot
 ### 3. Scan for overlap
 
 Read every existing artifact of the target type:
-- For a persona: every file under `agents/`.
+- For a persona: every persona file already in the workspace.
 - For a skill: every `skills/*/SKILL.md` (start with the Quick Reference table in `skills/using-agent-skills/SKILL.md`).
 - For a harness: the catalog table in `docs/pi-extensions.md`, then the `README.md` of each `.pi/harnesses/*` that looks close.
 
@@ -103,7 +103,7 @@ This step branches by target type.
 
 #### 6a. Persona body (four-block structure)
 
-Used by every persona in `agents/`. See the Persona Template below.
+Used by every installed persona. See the Persona Template below.
 
 ```markdown
 # <Role Heading>
@@ -185,7 +185,7 @@ Cut every sentence that does not change behavior. Read each rule and ask: "If I 
 
 ### 9. Write the file(s)
 
-- Persona → `agents/<name>.md`.
+- Persona → `.pi/agents/personas/<name>.md`.
 - Skill → `skills/<name>/SKILL.md` (create the directory; supporting files only if the skill exceeds ~300 lines or needs separate reference material).
 - Harness → `.pi/harnesses/<name>/` with `index.ts`, `package.json`, and `README.md`. Then add a `just ext-<name>` recipe to the `justfile` under the matching category header, add a catalog row to `docs/pi-extensions.md`, and add any new runtime dependency to `.pi/harnesses/package.json`. Never place a harness under `.pi/extensions/` — pi auto-discovers that directory and would load every harness at once.
 
@@ -321,7 +321,7 @@ A harness is a directory, not a single file. The `ExtensionAPI` surface, the `in
 | "I'll skip the harness README and catalog row — `index.ts` is the real artifact" | A harness with no row in `docs/pi-extensions.md` is undiscoverable; no agent will load it. The README is its discovery surface — the same role frontmatter plays for a skill. |
 | "I'll copy an existing artifact and tweak it" | For prose artifacts, copy-paste creates silent duplication and drift — read the existing files to learn the pattern, then write fresh. For a harness, copying the nearest `index.ts` *is* the recommended start; just rename it cleanly and cut what you don't use. |
 | "I don't need to read prompting-patterns, I know how to write prompts" | Every author thinks this. The reference exists because recurring, measurable mistakes happen anyway. Spend 3 minutes skimming §2 and §6. |
-| "I'll add every tool and capability — flexibility is good" | This repo's `agents/*.md` don't declare tools at all; scope creep happens through the prompt body. Skills and harnesses that try to cover many domains lose their force. Bloated artifacts get skimmed. |
+| "I'll add every tool and capability — flexibility is good" | Agent Fleet's own personas don't declare tools at all; scope creep happens through the prompt body. Skills and harnesses that try to cover many domains lose their force. Bloated artifacts get skimmed. |
 | "The purpose is hard to state in one sentence because it covers a lot" | If you cannot state it in one sentence, the artifact covers too much. Split it or scope it down. |
 | "I'll leave the rules/steps section light so the artifact can be flexible" | Empty Rules or vague steps become empty behavior. The specifics are what differentiate this artifact from a general agent. |
 | "My skill is mostly reference material — I'll inline a 200-line checklist" | Reference material belongs in `references/`. Skills are workflows, not reference docs. Move the long content out and cite it. |
@@ -366,7 +366,7 @@ A harness is a directory, not a single file. The `ExtensionAPI` surface, the `in
 
 ### Persona-specific checklist
 
-- [ ] File exists at `agents/<name>.md`.
+- [ ] File exists at `.pi/agents/personas/<name>.md`.
 - [ ] Body has: Role opening paragraph, Framework/Approach, Output Format, Rules.
 - [ ] Output Format contains a concrete markdown template, not a description of one.
 - [ ] If the persona classifies findings (Critical / High / etc.), the severity table is present with explicit criteria and required action.

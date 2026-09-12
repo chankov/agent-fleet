@@ -3,8 +3,8 @@ import { PANE_PROMPT_TIMEOUT_MS, launchPeerInPane } from "../../lib/spawned-peer
 import { herdrPaneId } from "../../lib/herdr-presence.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "../peer-spawn-plan.ts";
 import { paneTail, peerManifest, peerPersonaExists, spawnDelaySeconds, STAGGER_ENV_VAR, waitForPeerRegistration } from "./fleet-tools.ts";
-import { parseEnvFile, resolveEnvFilePath } from "../../../../scripts/lib/herdr-layout.ts";
-import { worktreeTag } from "../../../../scripts/lib/team-project.ts";
+import { parseEnvFile, resolveEnvFilePath } from "../../../agent-fleet/scripts/lib/herdr-layout.ts";
+import { worktreeTag } from "../../../agent-fleet/scripts/lib/team-project.ts";
 import type { HerdrClosePaneParams, HerdrNotifyParams, HerdrReadPaneParams, HerdrSpawnPaneParams, HerdrSpawnPeerParams, ToolExecutionResult, ToolExecutor } from "./context.ts";
 
 export interface HerdrExecutorDeps {

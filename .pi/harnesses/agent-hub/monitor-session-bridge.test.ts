@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MAX_OUTPUT_BYTES } from "../../../scripts/lib/hermes-monitor-store.ts";
+import { MAX_OUTPUT_BYTES } from "../../agent-fleet/scripts/lib/hermes-monitor-store.ts";
 import { createMonitorSessionBridge } from "./monitor-session-bridge.ts";
 
 const eventIdentity = { profileKey: "a".repeat(64), hubInstanceId: "hub-test" };

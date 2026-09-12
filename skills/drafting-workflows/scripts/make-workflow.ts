@@ -73,7 +73,7 @@ function editDistance(left: PhaseKind[], right: PhaseKind[]): number {
 }
 
 export function selectNearestWorkflow(shapes: WorkflowShape[], requestedPhases: string[]): WorkflowShape {
-	if (!shapes.length) throw new Error("No scripts/workflows/wf-*.ts sources were found.");
+	if (!shapes.length) throw new Error("No .pi/agent-fleet/scripts/workflows/wf-*.ts sources were found.");
 	const requestedKinds = requestedPhases.map(phaseKind);
 	return [...shapes].sort((left, right) => {
 		const leftScore = editDistance(left.kinds, requestedKinds) * 100 + Math.abs(left.kinds.length - requestedKinds.length) * 10;
@@ -118,7 +118,7 @@ export function makeWorkflow(options: {
 }): { outputPath: string; sourcePath: string; phases: string[] } {
 	if (!SAFE_NAME.test(options.name)) throw new Error(`Invalid workflow name: ${options.name}`);
 	if (RESERVED_FLOW_NAMES.has(options.name)) throw new Error(`Workflow name is reserved for maintenance: ${options.name}`);
-	const workflowsDir = resolve(options.workflowsDir ?? resolve(options.cwd, "scripts/workflows"));
+	const workflowsDir = resolve(options.workflowsDir ?? resolve(options.cwd, ".pi/agent-fleet/scripts/workflows"));
 	const outputPath = resolve(workflowsDir, `wf-${options.name}.ts`);
 	if (existsSync(outputPath)) throw new Error(`Refusing to overwrite existing workflow: ${outputPath}`);
 	const nearest = selectNearestWorkflow(readWorkflowShapes(workflowsDir), options.phases);
@@ -141,7 +141,7 @@ export function makeWorkflow(options: {
 export async function verifyDraft(path: string, cwd = process.cwd()): Promise<void> {
 	const resolvedPath = resolve(path);
 	const workflowName = basename(resolvedPath).replace(/^wf-/, "").replace(/\.ts$/, "");
-	const flowModulePath = resolve(cwd, "scripts/flow.ts");
+	const flowModulePath = resolve(cwd, ".pi/agent-fleet/scripts/flow.ts");
 	const { resolveWorkflow } = await import(`${pathToFileURL(flowModulePath).href}?verify=${Date.now()}`) as {
 		resolveWorkflow(name: string, workflowsDir?: string): Promise<{ run: (run: unknown, input: { args: string[]; dryRun: boolean; cwd: string }) => Promise<{ accepted: boolean }> } | undefined>;
 	};

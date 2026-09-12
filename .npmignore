@@ -47,7 +47,6 @@ tmp/
 .claude/settings.local.json
 .claude/.simplify-ignore-cache/
 .pi/settings.json
-scripts/
 
 # Project meta
 AGENTS.md

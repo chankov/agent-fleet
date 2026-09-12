@@ -30,14 +30,14 @@ yourself** — pane lifecycle (herdr) belongs to the orchestrator and the human.
 **Discover** who is alive (name, model, purpose):
 
 ```bash
-node --experimental-strip-types scripts/coms-cli.ts list
+node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts list
 ```
 
 **Ask and wait** (blocking round trip — usually what you want; generous timeout, peers
 run real turns):
 
 ```bash
-node --experimental-strip-types scripts/coms-cli.ts send researcher \
+node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts send researcher \
   "Where is the retry logic for outbound webhooks? file:line please" \
   --await --timeout 300000
 ```
@@ -45,9 +45,9 @@ node --experimental-strip-types scripts/coms-cli.ts send researcher \
 **Fire-and-collect** (returns a `msg_id` immediately; a detached waiter holds the reply):
 
 ```bash
-node --experimental-strip-types scripts/coms-cli.ts send documenter "Draft a README section on X"
+node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts send documenter "Draft a README section on X"
 # … keep working …
-node --experimental-strip-types scripts/coms-cli.ts await <msg_id> --timeout 300000
+node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts await <msg_id> --timeout 300000
 ```
 
 **Answer inbound prompts** by simply replying in the conversation — your final message

@@ -60,7 +60,7 @@ function receiptState(receipt, installedFingerprint) {
 /** Read-only inspection: two Hermes reads, no profile, service, or tool mutation. */
 export async function inspectHermesWatchdog(options) {
   const resolved = await resolveHermesProfile(options.profile, options.hermes);
-  const sourceDir = options.skillSourceDir ?? join(options.packageRoot, "hermes", "skills", NAME);
+  const sourceDir = options.skillSourceDir ?? join(options.packageRoot, ".pi", "agent-fleet", "hermes", "skills", NAME);
   const installedDir = join(resolved.profilePath, "skills", NAME);
   const receipt = join(resolved.profilePath, "agent-fleet", `${NAME}.receipt.json`);
   const skill = artifactState(sourceDir, installedDir);

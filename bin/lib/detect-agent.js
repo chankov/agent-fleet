@@ -2,7 +2,7 @@
 //
 // pi is the only coding agent Agent Fleet installs for. Claude Code still
 // appears in the fleet, but strictly as a coms peer driven by
-// scripts/coms-claude-bridge.ts — never as an install target. See
+// .pi/agent-fleet/scripts/coms-claude-bridge.ts — never as an install target. See
 // docs/claude-code-coms-bridge.md.
 //
 // The list and the detection hook stay because the manifest, the state file,

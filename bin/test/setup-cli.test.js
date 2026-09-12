@@ -278,8 +278,8 @@ test("A9 bare doctor is read-only; doctor --fix recovers transactions and retrie
 
 test("doctor exits 2 for missing runtime dependencies and keeps npm install behind explicit remediation", () => {
   const ws = workspace();
-  mkdirSync(join(ws, "scripts"), { recursive: true });
-  writeFileSync(join(ws, "scripts", "package.json"), JSON.stringify({
+  mkdirSync(join(ws, ".pi", "agent-fleet", "scripts"), { recursive: true });
+  writeFileSync(join(ws, ".pi", "agent-fleet", "scripts", "package.json"), JSON.stringify({
     private: true,
     dependencies: { "definitely-missing-agent-fleet-fixture": "1.0.0" },
   }));
@@ -295,14 +295,14 @@ test("doctor exits 2 for missing runtime dependencies and keeps npm install behi
   // Even a recorded npm repair that exits zero must not hide a still-broken
   // dependency tree; the post-fix npm ls probe remains authoritative.
   writeState(ws, {
-    runtimeRepairs: [{ id: "companion:workflow-deps", command: process.execPath, args: ["-e", "process.exit(0)", "--prefix", "scripts"], cwd: "." }],
+    runtimeRepairs: [{ id: "companion:workflow-deps", command: process.execPath, args: ["-e", "process.exit(0)", "--prefix", ".pi/agent-fleet/scripts"], cwd: "." }],
   });
   result = run(["doctor", "--workspace", ws, "--fix", "--json"]);
   assert.equal(result.status, 2, result.stderr);
   report = JSON.parse(result.stdout);
   assert.equal(report.summary.fixed, 0, "a successful command is not healthy until npm ls agrees");
   assert.equal(report.summary.outstanding, 1, "the repair and dependency finding describe one root");
-  assert.equal(existsSync(join(ws, "scripts", "node_modules")), false);
+  assert.equal(existsSync(join(ws, ".pi", "agent-fleet", "scripts", "node_modules")), false);
 });
 
 test("doctor reports and --fix preserves an unrecoverable installer journal", () => {
@@ -387,7 +387,7 @@ test("A10 uninstall preserves human and foreign files, purges only on request, a
   // The bridge hook is state-owned even though Full does not opt into the
   // Claude bridge feature. A recorded hook must be removed without touching
   // sibling foreign .claude content.
-  const hook = readFileSync(join(root, "hooks", "coms-stop-hook.mjs"));
+  const hook = readFileSync(join(root, ".pi", "agent-fleet", "hooks", "coms-stop-hook.mjs"));
   writeFileSync(join(ws, ".claude", "hooks", "coms-stop-hook.mjs"), hook);
   const statePath = join(ws, ".ai", "agent-fleet-state.json");
   const state = JSON.parse(readFileSync(statePath, "utf8"));

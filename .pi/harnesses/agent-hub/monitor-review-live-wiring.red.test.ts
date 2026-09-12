@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createMonitorLifecycle } from "./monitor-lifecycle.ts";
 import { createMonitorSessionBridge } from "./monitor-session-bridge.ts";
-import { MonitorStore, MONITOR_RETENTION_MAX, pruneMonitorTasks } from "../../../scripts/lib/hermes-monitor-store.ts";
+import { MonitorStore, MONITOR_RETENTION_MAX, pruneMonitorTasks } from "../../agent-fleet/scripts/lib/hermes-monitor-store.ts";
 
 const parent={id:"parent",generation:1,hubInstanceId:"hub",checkoutId:"checkout"};
 

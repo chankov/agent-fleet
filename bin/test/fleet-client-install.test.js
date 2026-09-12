@@ -16,12 +16,12 @@ test('ChatGPT client opt-in installs a runnable copied closure and uninstalls on
  const setup=()=>run('setup','--preset','default','--features','chatgpt-client','--yes');
  let result=setup();assert.equal(result.status,0,result.stdout+result.stderr);
  assert.ok(existsSync(join(ws,'.agents/skills/fleet-session-client/SKILL.md')));
- const client=join(ws,'scripts/fleet-codex-client.ts');
+ const client=join(ws,'.pi/agent-fleet/scripts/fleet-codex-client.ts');
  result=spawnSync(process.execPath,[client,'--help'],{encoding:'utf8',cwd:ws});assert.equal(result.status,0,result.stderr);assert.ok(JSON.parse(result.stdout).usage.includes('status'));
  const catalog=JSON.parse(result.stdout);assert.equal(catalog.schemaVersion,1);assert.equal(catalog.operations.length,16);
  result=spawnSync(process.execPath,[client,'describe','--state-dir',join(ws,'client-state')],{encoding:'utf8',cwd:ws,env:{...process.env,CODEX_THREAD_ID:''}});
  assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).operations.find(o=>o.name==='send').availability.status,'unavailable');
- const python=spawnSync('python3',[join(ws,'scripts/fleet-codex-read.py')],{input:JSON.stringify({entry:{name:'missing',cwd:ws,session_id:'missing',pid:-1},project:'missing'}),encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:15000});
+ const python=spawnSync('python3',[join(ws,'.pi/agent-fleet/scripts/fleet-codex-read.py')],{input:JSON.stringify({entry:{name:'missing',cwd:ws,session_id:'missing',pid:-1},project:'missing'}),encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:15000});
  assert.equal(python.status,0,python.stdout+python.stderr);assert.equal(JSON.parse(python.stdout).activity.available,false);
  result=setup();assert.equal(result.status,0,result.stdout+result.stderr);
  result=run('uninstall','--items','companion:fleet-client-skill,companion:fleet-client-runtime','--yes');

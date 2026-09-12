@@ -4,8 +4,8 @@ import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createMonitorLifecycle } from "./monitor-lifecycle.ts";
 import { createMonitorSessionBridge } from "./monitor-session-bridge.ts";
-import { MonitorRegistry } from "../../../scripts/lib/hermes-monitor-registry.ts";
-import { socketTempRoot } from "../../../scripts/lib/monitor-env.ts";
+import { MonitorRegistry } from "../../agent-fleet/scripts/lib/hermes-monitor-registry.ts";
+import { socketTempRoot } from "../../agent-fleet/scripts/lib/monitor-env.ts";
 
 test("lifecycle snapshot/output/cancel share one bridge-backed task store", async () => {
   const root=mkdtempSync(join(socketTempRoot(),"monitor-live-")); mkdirSync(join(root,"profile"));

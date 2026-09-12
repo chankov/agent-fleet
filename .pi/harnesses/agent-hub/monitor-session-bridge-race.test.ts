@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MonitorStore } from "../../../scripts/lib/hermes-monitor-store.ts";
+import { MonitorStore } from "../../agent-fleet/scripts/lib/hermes-monitor-store.ts";
 import { MonitorPublisher } from "./monitor-publisher.ts";
 import { createMonitorSessionBridge } from "./monitor-session-bridge.ts";
 

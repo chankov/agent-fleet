@@ -9,16 +9,16 @@ the runtime responsibilities and where each module lives in the repository.
 | --- | --- | --- |
 | **Pi Coding Agent** | Primary local runtime — runs the dispatcher and specialist subagents | `.pi/harnesses/`, `.pi/extensions/`, `.pi/agents/`, `.pi/prompts/` |
 | **agent-hub** | Thin-context multi-agent harness: dispatcher + specialists + research helpers + Verification Contract | `.pi/harnesses/agent-hub/` |
-| **Workflows** | Headless, code-owned phase order, retries, gates, writes enforcement, and acceptance through `just flow` | `scripts/flow.ts`, `scripts/workflows/` — see [workflows.md](workflows.md) |
-| **Herdr** | Fleet/workspace control plane — spawns peer teams as tiled workspaces, presence via push events, snapshot/resume | [herdr.dev](https://herdr.dev); client in `.pi/harnesses/lib/herdr-client.ts`, layout in `scripts/lib/herdr-layout.ts` |
-| **coms** | Peer communication protocol/data plane — envelope-based P2P messaging between agents | Shared peer lifecycle in `.pi/harnesses/lib/coms-core.ts` and `coms-core-io.ts`; Pi registrations in `.pi/harnesses/coms/` and `agent-hub/`; wire helpers in `scripts/lib/coms-envelope.ts` and `scripts/coms-cli.ts` |
-| **Claude Code bridge** | Makes an interactive Claude Code pane a bidirectional coms peer | `scripts/coms-claude-bridge.ts`, `hooks/coms-stop-hook.mjs`, `skills/peer-coms/` — see [claude-code-coms-bridge.md](claude-code-coms-bridge.md) |
-| **Hermes bridge** | Remote human control — relays hub questions to Telegram, races phone vs. local answers, conductor/liaison skills | `scripts/coms-hermes-bridge.ts`, `.pi/harnesses/ask-user-remote/`, `hermes/skills/` — see [coms-hermes-bridge.md](coms-hermes-bridge.md) |
-| **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `scripts/lib/`) — see [Hermes artifacts](../hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
-| **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
-| **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `scripts/fleet-codex-client.ts`, `scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
+| **Workflows** | Headless, code-owned phase order, retries, gates, writes enforcement, and acceptance through `just flow` | `.pi/agent-fleet/scripts/flow.ts`, `.pi/agent-fleet/scripts/workflows/` — see [workflows.md](workflows.md) |
+| **Herdr** | Fleet/workspace control plane — spawns peer teams as tiled workspaces, presence via push events, snapshot/resume | [herdr.dev](https://herdr.dev); client in `.pi/harnesses/lib/herdr-client.ts`, layout in `.pi/agent-fleet/scripts/lib/herdr-layout.ts` |
+| **coms** | Peer communication protocol/data plane — envelope-based P2P messaging between agents | Shared peer lifecycle in `.pi/harnesses/lib/coms-core.ts` and `coms-core-io.ts`; Pi registrations in `.pi/harnesses/coms/` and `agent-hub/`; wire helpers in `.pi/agent-fleet/scripts/lib/coms-envelope.ts` and `.pi/agent-fleet/scripts/coms-cli.ts` |
+| **Claude Code bridge** | Makes an interactive Claude Code pane a bidirectional coms peer | `.pi/agent-fleet/scripts/coms-claude-bridge.ts`, `.pi/agent-fleet/hooks/coms-stop-hook.mjs`, `skills/peer-coms/` — see [claude-code-coms-bridge.md](claude-code-coms-bridge.md) |
+| **Hermes bridge** | Remote human control — relays hub questions to Telegram, races phone vs. local answers, conductor/liaison skills | `.pi/agent-fleet/scripts/coms-hermes-bridge.ts`, `.pi/harnesses/ask-user-remote/`, `.pi/agent-fleet/hermes/skills/` — see [coms-hermes-bridge.md](coms-hermes-bridge.md) |
+| **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `.pi/agent-fleet/scripts/lib/`) — see [Hermes artifacts](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
+| **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `.pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `.pi/agent-fleet/scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
+| **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-client.ts`, `.pi/agent-fleet/scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
-| **Personas** | Reusable specialist definitions, installed verbatim | `agents/`, `bin/lib/personas.js` |
+| **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
 
 ## One Hub runtime, independent axes
 
@@ -118,7 +118,7 @@ flowchart TD
     Hub -.->|"one status line:  Assertions: 2✓ 1○ 1✗"| You
 ```
 
-Every specialist session is one persona from [`agents/`](../agents/) — *skills* tell each agent **how** to work; *personas* define **who** they are (see [agents.md](agents.md)).
+Every specialist session is one persona from [`agents/`](../agents/) (installed to `.pi/agents/personas/`) — *skills* tell each agent **how** to work; *personas* define **who** they are (see [agents.md](agents.md)).
 
 The same idea as a tree:
 
@@ -297,19 +297,28 @@ Cross-harness coms lifecycle remains shared in `.pi/harnesses/lib/coms-core.ts` 
 
 ```text
 .pi/                          # Pi runtime: harnesses, extensions, agents config, prompts
+.pi/agent-fleet/              # The fleet runtime, mirrored verbatim into a workspace:
+  scripts/                    #   CLI helpers, bridges, team + one-off peer launchers (pure logic in scripts/lib/)
+  scripts/workflows/          #   deterministic flow graphs + phase/gate/permission/quality runtime
+  hermes/                     #   Hermes-facing skills/integration assets
+  hooks/                      #   the coms bridge Stop hook
+  docs/                       #   the one doc that installs into a workspace (workflows.md)
 skills/                       # Agent Fleet-native skills (shadow vendored names)
-agents/                       # Personas/subagents used by Agent Fleet
-scripts/                      # CLI helpers, bridges, team + one-off peer launchers (pure logic in scripts/lib/)
-scripts/workflows/            # deterministic flow graphs + phase/gate/permission/quality runtime
-hermes/                       # Hermes-facing skills/integration assets
+agents/                       # Personas/subagents; installed to a workspace's .pi/agents/personas/
 codex/                        # Canonical Codex conductor contract (runtime copy lives outside checkout)
 systemd/user/                 # Owned user-unit template for Codex remote control
 vendor/agent-skills-upstream/ # Manually imported upstream skills (pinned SHA)
 bin/                          # npm CLI: init/update/doctor + the installer engine
-hooks/                        # The coms bridge Stop hook
 references/                   # Supplementary checklists, installed with the skills that cite them
 docs/                         # This file, setup guides, bridge references, vendoring policy
 ```
+
+The fleet runtime keeps its *source* layout identical to its *installed* layout.
+That is not cosmetic: `companion:harness-runtime-closure` and its siblings copy
+with `preserveLayout`, so a relative import written here resolves the same way in
+a workspace — including the ones reaching from the stationary `.pi/harnesses/`
+into the movable `.pi/agent-fleet/scripts/`. `bin/test/path-boundaries.test.js`
+holds that invariant.
 
 Reserved for future modules (do not repurpose these paths):
 
@@ -377,8 +386,8 @@ packages/hermes-bridge/       # future Hermes integration package
   tests are not proof of a durable external identity or live delivery contract. `invoke`, where
   available, is Hub-owned and queues dispatcher work rather than exposing tools directly.
 - **Packaged Hermes source is opt-in, never auto-installed.** The npm tarball carries the
-  `hub-watchdog` skill (`hermes/skills/`) plus the backend and Desktop monitor plugin source
-  (`hermes/plugins/`, `hermes/desktop-plugins/`) as runtime-only source. Shipping that source
+  `hub-watchdog` skill (`.pi/agent-fleet/hermes/skills/`) plus the backend and Desktop monitor plugin source
+  (`.pi/agent-fleet/hermes/plugins/`, `.pi/agent-fleet/hermes/desktop-plugins/`) as runtime-only source. Shipping that source
   makes it available to an operator; installing it into a Hermes profile is always an explicit
   action through `agent-fleet set-hermes-watchdog` (skill) or the consumer's own flow (plugins).
   Nothing is enabled, launched, or configured by installing the package.

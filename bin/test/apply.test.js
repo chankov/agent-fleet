@@ -455,7 +455,7 @@ test("real manifest: install pi/recommended, verify clean, re-plan empty", async
   assert.ok(applied.summary.applied > 15, "the recommended profile is not empty");
   assert.ok(existsSync(join(workspace, ".pi/skills/test-driven-development/SKILL.md")));
   assert.ok(existsSync(join(workspace, ".pi/prompts/af-build.md")));
-  assert.ok(existsSync(join(workspace, "agents/builder.md")));
+  assert.ok(existsSync(join(workspace, ".pi/agents/personas/builder.md")));
 
   const report = await runVerify({ ...common, includeDoctor: false });
   assert.equal(hasDrift(report), false, "a fresh install must verify clean");
@@ -473,7 +473,7 @@ test("real manifest: a persona installs as a verbatim copy of the canonical file
   });
   applyPlan({ plan, manifest });
 
-  const installed = read(workspace, "agents/code-reviewer.md");
+  const installed = read(workspace, ".pi/agents/personas/code-reviewer.md");
   const canonical = readFileSync(join(repoRoot, "agents/code-reviewer.md"), "utf8");
 
   // agents/*.md is written in pi's own dialect, so there is nothing to

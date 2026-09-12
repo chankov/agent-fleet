@@ -696,7 +696,7 @@ test("Pi loads a symlinked hub after a package-only update", () => {
 		symlinkSync(join(repoRoot, "node_modules"), join(workspace, "node_modules"), "dir");
 
 		const manifest = JSON.parse(readFileSync(join(repoRoot, "bin", "catalog", "harness-runtime-closure.json"), "utf8"));
-		for (const relativePath of manifest.files.filter((value: string) => value.startsWith("scripts/"))) {
+		for (const relativePath of manifest.files.filter((value: string) => value.startsWith(".pi/agent-fleet/scripts/"))) {
 			const target = join(workspace, relativePath);
 			mkdirSync(dirname(target), { recursive: true });
 			cpSync(join(repoRoot, relativePath), target);

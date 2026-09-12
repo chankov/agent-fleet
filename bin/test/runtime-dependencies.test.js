@@ -10,7 +10,7 @@ import {
   assertRuntimeDependencies,
   checkRuntimeDependencies,
   runtimeDependencyFindings,
-} from "../../scripts/lib/runtime-dependencies.js";
+} from "../../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
 import { runDoctor } from "../lib/doctor.js";
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -39,7 +39,7 @@ test("runtime dependency check runs npm ls for all three installed roots", () =>
     assert.deepEqual(calls.map(({ command, args }) => [command, ...args]), [
       ["npm", "ls", "--prefix", ".pi/extensions", "--depth=0", "--json"],
       ["npm", "ls", "--prefix", ".pi/harnesses", "--depth=0", "--json"],
-      ["npm", "ls", "--prefix", "scripts", "--depth=0", "--json"],
+      ["npm", "ls", "--prefix", ".pi/agent-fleet/scripts", "--depth=0", "--json"],
     ]);
     assert.ok(calls.every((call) => call.cwd === ws));
   } finally {
@@ -47,19 +47,19 @@ test("runtime dependency check runs npm ls for all three installed roots", () =>
   }
 });
 
-test("missing scripts/node_modules is launch-blocking with actionable remediation", () => {
+test("missing .pi/agent-fleet/scripts/node_modules is launch-blocking with actionable remediation", () => {
   const ws = workspace();
   try {
-    mkdirSync(join(ws, "scripts"), { recursive: true });
-    writeFileSync(join(ws, "scripts", "package.json"), JSON.stringify({ dependencies: { yaml: "^2.9.0" } }));
+    mkdirSync(join(ws, ".pi/agent-fleet/scripts"), { recursive: true });
+    writeFileSync(join(ws, ".pi/agent-fleet/scripts", "package.json"), JSON.stringify({ dependencies: { yaml: "^2.9.0" } }));
     const report = checkRuntimeDependencies({ workspace: ws, run: healthyNpm });
     assert.equal(report.healthy, false);
-    assert.equal(report.failures[0].root, "scripts");
-    assert.match(report.failures[0].reason, /scripts\/node_modules is missing/);
+    assert.equal(report.failures[0].root, ".pi/agent-fleet/scripts");
+    assert.match(report.failures[0].reason, /\.pi\/agent-fleet\/scripts\/node_modules is missing/);
 
     const findings = runtimeDependencyFindings({ workspace: ws, run: healthyNpm });
     assert.equal(findings[0].type, "runtime-dependencies");
-    assert.equal(findings[0].path, "scripts/node_modules");
+    assert.equal(findings[0].path, ".pi/agent-fleet/scripts/node_modules");
     assert.match(findings[0].fix, /just fleet deps/);
     assert.match(findings[0].fix, /setup --allow-exec/);
 
@@ -101,8 +101,8 @@ test("npm ls problems identify an incomplete existing dependency tree", () => {
 test("doctor includes runtime dependency findings without auto-installing them", async () => {
   const ws = workspace();
   try {
-    mkdirSync(join(ws, "scripts"), { recursive: true });
-    writeFileSync(join(ws, "scripts", "package.json"), JSON.stringify({ dependencies: { yaml: "^2.9.0" } }));
+    mkdirSync(join(ws, ".pi/agent-fleet/scripts"), { recursive: true });
+    writeFileSync(join(ws, ".pi/agent-fleet/scripts", "package.json"), JSON.stringify({ dependencies: { yaml: "^2.9.0" } }));
     const findings = await runDoctor({
       workspace: ws,
       sourceRoot,
@@ -110,7 +110,7 @@ test("doctor includes runtime dependency findings without auto-installing them",
       checkDependencies: healthyNpm,
     });
     const dependency = findings.find((finding) => finding.type === "runtime-dependencies");
-    assert.equal(dependency.path, "scripts/node_modules");
+    assert.equal(dependency.path, ".pi/agent-fleet/scripts/node_modules");
     assert.match(dependency.issue, /workflow runtime dependencies are incomplete/);
 
     const applied = await runDoctor({

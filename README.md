@@ -283,7 +283,7 @@ flowchart LR
 **Prerequisites:** Hermes v0.19.0+ (the `hermes` CLI on `PATH`, plus the Desktop app), this repo checked out, and a fleet that has run at least once (so `~/.pi/coms/projects/` exists). [herdr](https://herdr.dev) is optional — without it every row reads `unknown` instead of a live state.
 
 ```bash
-scripts/install-hermes-plugin.sh agent-fleet-herdr
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr
 ```
 
 That one command backs up `config.yaml`, symlinks **both halves** into the profile (`plugins/` for the FastAPI backend, `desktop-plugins/` for the pane), runs `hermes plugins enable`, and verifies the result — then **prints** the restart steps instead of performing them, because restarting a live gateway is your call:
@@ -303,10 +303,10 @@ just fleet --agents default --peers default    # monitored Hub + peers; nothing 
 <summary><b>Options and verification</b></summary>
 
 ```bash
-scripts/install-hermes-plugin.sh agent-fleet-herdr --profile dev   # a non-default profile
-scripts/install-hermes-plugin.sh agent-fleet-herdr --copy          # no symlinks
-scripts/install-hermes-plugin.sh agent-fleet-herdr --dry-run       # print, change nothing
-scripts/install-hermes-plugin.sh agent-fleet-herdr --uninstall
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --profile dev   # a non-default profile
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --copy          # no symlinks
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --dry-run       # print, change nothing
+.pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --uninstall
 ```
 
 Working install: `~/.hermes/logs/gui.log` contains `Mounted plugin API routes: /api/plugins/agent-fleet-herdr/` at Desktop start, and `/capabilities` reports both sources. An empty panel with no error means the enable gate 404'd — that is documented, along with every other failure mode that looks identical from the outside, in the runbook.
@@ -319,7 +319,7 @@ Working install: `~/.hermes/logs/gui.log` contains `Mounted plugin API routes: /
 
 Separately from the panel, the **Hermes relay** pipes an agent's `ask_user` question — choices intact, not flattened into a message — to Telegram, and races your phone's answer against a local one. Whichever arrives first wins; the fleet keeps working meanwhile.
 
-See [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) and the [screenshots](hermes/README.md#integration-in-action).
+See [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) and the [screenshots](.pi/agent-fleet/hermes/README.md#integration-in-action).
 
 <details>
 <summary><b>Experimental: ChatGPT Desktop/Android session client</b></summary>
@@ -422,7 +422,7 @@ Full catalog with descriptions and triggers: **[docs/skills-catalog.md](docs/ski
 
 15 pre-configured specialist personas live in [`agents/`](agents/) — reusable subagent definitions your coding agent delegates work to: `planner`, `plan-reviewer`, `builder`, `code-reviewer`, `test-engineer`, `security-auditor`, `web-performance-auditor`, `documenter`, `architect`, `releaser`, `researcher`, `deep-researcher`, plus the pi-only `bowser`, `web-debugger`, and `orchestrator`.
 
-Each persona is one Markdown file in pi's own frontmatter dialect, installed verbatim — there is no per-agent translation step. Personas are the *who*, skills are the *how* — each carries a conditional hook to its primary skill, and they compose into teams under the hub.
+Each persona is one Markdown file in pi's own frontmatter dialect, installed verbatim to `.pi/agents/personas/` in your workspace — there is no per-agent translation step. A persona you write yourself in `agents/` or `.claude/agents/` is scanned first and wins over an installed one of the same name. Personas are the *who*, skills are the *how* — each carries a conditional hook to its primary skill, and they compose into teams under the hub.
 
 Full roster, skill hooks, install matrix, and team composition: **[docs/agents.md](docs/agents.md)**.
 

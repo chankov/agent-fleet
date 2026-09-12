@@ -30,16 +30,16 @@ const RUNTIME_PYTHON = [
 
 test("every runtime watchdog module ships with its skill and manifest", () => {
   for (const module of RUNTIME_PYTHON) {
-    assert.ok(packedSet.has(`hermes/skills/hub-watchdog/scripts/${module}`), `missing runtime module: ${module}`);
+    assert.ok(packedSet.has(`.pi/agent-fleet/hermes/skills/hub-watchdog/scripts/${module}`), `missing runtime module: ${module}`);
   }
-  assert.ok(packedSet.has("hermes/skills/hub-watchdog/SKILL.md"));
-  assert.ok(packedSet.has("hermes/skills/hub-watchdog/manifest.json"));
+  assert.ok(packedSet.has(".pi/agent-fleet/hermes/skills/hub-watchdog/SKILL.md"));
+  assert.ok(packedSet.has(".pi/agent-fleet/hermes/skills/hub-watchdog/manifest.json"));
 });
 
 test("the packaged skill imports nothing that was left out of the tarball", () => {
   const shipped = new Set(RUNTIME_PYTHON.map(name => name.replace(/\.py$/, "")));
   for (const module of RUNTIME_PYTHON) {
-    const source = readFileSync(join(root, "hermes/skills/hub-watchdog/scripts", module), "utf8");
+    const source = readFileSync(join(root, ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts", module), "utf8");
     const imports = [...source.matchAll(/^(?:from|import)\s+(watchdog[A-Za-z_]*)/gm)].map(match => match[1]);
     for (const imported of imports) {
       assert.ok(shipped.has(imported), `${module} imports ${imported}, which is not packaged`);
@@ -48,12 +48,12 @@ test("the packaged skill imports nothing that was left out of the tarball", () =
 });
 
 test("documented plugin and desktop monitor source ships", () => {
-  assert.ok(packedSet.has("hermes/plugins/agent-fleet-monitor/dashboard/adapter.py"));
-  assert.ok(packedSet.has("hermes/plugins/agent-fleet-monitor/dashboard/plugin_api.py"));
-  assert.ok(packedSet.has("hermes/plugins/agent-fleet-monitor/dashboard/manifest.json"));
-  assert.ok(packedSet.has("hermes/desktop-plugins/agent-fleet-monitor/plugin.js"));
-  assert.ok(packedSet.has("hermes/desktop-plugins/agent-fleet-monitor/state.js"));
-  assert.ok(packedSet.has("hermes/README.md"));
+  assert.ok(packedSet.has(".pi/agent-fleet/hermes/plugins/agent-fleet-monitor/dashboard/adapter.py"));
+  assert.ok(packedSet.has(".pi/agent-fleet/hermes/plugins/agent-fleet-monitor/dashboard/plugin_api.py"));
+  assert.ok(packedSet.has(".pi/agent-fleet/hermes/plugins/agent-fleet-monitor/dashboard/manifest.json"));
+  assert.ok(packedSet.has(".pi/agent-fleet/hermes/desktop-plugins/agent-fleet-monitor/plugin.js"));
+  assert.ok(packedSet.has(".pi/agent-fleet/hermes/desktop-plugins/agent-fleet-monitor/state.js"));
+  assert.ok(packedSet.has(".pi/agent-fleet/hermes/README.md"));
 });
 
 test("the lifecycle CLI, its guided commands, and the runbook ship together", () => {
@@ -71,7 +71,7 @@ test("the lifecycle CLI, its guided commands, and the runbook ship together", ()
 
 test("no Python test module, bytecode, or cache directory is published", () => {
   const forbidden = current.filter(path =>
-    path.startsWith("hermes/watchdog-tests/")
+    path.startsWith(".pi/agent-fleet/hermes/watchdog-tests/")
     || /(^|\/)test_[^/]*\.py$/.test(path)
     || /\.test\.py$/.test(path)
     || path.endsWith(".pyc")
@@ -87,15 +87,15 @@ test("the package.json allowlist excludes both Python test naming conventions", 
 
   assert.ok(pkg.files.includes("!**/*.test.py"), "dashboard-style *.test.py exclusion");
   assert.ok(pkg.files.includes("!**/test_*.py"), "unittest-style test_*.py exclusion");
-  assert.ok(pkg.files.includes("!hermes/watchdog-tests/"));
-  assert.ok(pkg.files.includes("!hermes/**/__pycache__/"));
-  assert.ok(pkg.files.includes("!hermes/**/*.pyc"));
+  assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/watchdog-tests/"));
+  assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/**/__pycache__/"));
+  assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/**/*.pyc"));
 });
 
 test("scenario and capability-runner fixtures stay out of the tarball", () => {
   const forbidden = current.filter(path =>
-    path.startsWith("scripts/hermes-monitor-scenario")
-    || path.startsWith("scripts/hermes-monitor-capability-runner")
+    path.startsWith(".pi/agent-fleet/scripts/hermes-monitor-scenario")
+    || path.startsWith(".pi/agent-fleet/scripts/hermes-monitor-capability-runner")
     || /\.test\.(ts|js|mjs)$/.test(path),
   );
 
@@ -118,7 +118,7 @@ test("no local runtime, session, evidence, or journal artifact is published", ()
 
 test("packaged watchdog text carries no secret-like value or raw route identifier", () => {
   const inspectable = current.filter(path =>
-    (path.startsWith("hermes/") || path.startsWith("docs/hermes-") || path.includes("set-hermes-watchdog"))
+    (path.startsWith(".pi/agent-fleet/hermes/") || path.startsWith("docs/hermes-") || path.includes("set-hermes-watchdog"))
     && /\.(py|md|json|js)$/.test(path),
   );
 
@@ -139,7 +139,7 @@ test("packaged watchdog text carries no secret-like value or raw route identifie
 });
 
 test("packaged watchdog runtime hardcodes no token or route literal", () => {
-  const modules = current.filter(path => path.startsWith("hermes/skills/hub-watchdog/scripts/") && path.endsWith(".py"));
+  const modules = current.filter(path => path.startsWith(".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/") && path.endsWith(".py"));
 
   assert.equal(modules.length, RUNTIME_PYTHON.length);
   for (const path of modules) {
@@ -151,7 +151,7 @@ test("packaged watchdog runtime hardcodes no token or route literal", () => {
 });
 
 test("the packaged skill and runbook keep Gate O fail-closed", () => {
-  const skill = readFileSync(join(root, "hermes/skills/hub-watchdog/SKILL.md"), "utf8");
+  const skill = readFileSync(join(root, ".pi/agent-fleet/hermes/skills/hub-watchdog/SKILL.md"), "utf8");
   const runbook = readFileSync(join(root, "docs/hermes-watchdog-supervisor.md"), "utf8");
 
   for (const [label, text] of [["SKILL.md", skill], ["runbook", runbook]]) {

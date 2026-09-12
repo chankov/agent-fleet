@@ -1,6 +1,6 @@
 /** Pure `/af-debate` argument, panel, and digest helpers. The hub command is a thin consumer. */
 
-import { DEBATE_DEFAULT_ROUNDS, resolveDebateRounds } from "../../../scripts/workflows/lib/debate.ts";
+import { DEBATE_DEFAULT_ROUNDS, resolveDebateRounds } from "../../agent-fleet/scripts/workflows/lib/debate.ts";
 import { HUB_POLL_DEFAULT_PERSONA, resolveAfPollPanel } from "./poll-command.ts";
 
 export interface ParsedAfDebateArgs {

@@ -6,7 +6,7 @@ Consolidated prompt-engineering best practices for authoring instructions that c
 
 Three primary audiences:
 
-1. **Persona authors** writing files under `agents/` — check sections 1-3, 6, 7, 12 before writing.
+1. **Persona authors** writing files under `.pi/agents/personas/` — check sections 1-3, 6, 7, 12 before writing.
 2. **Skill authors** writing files under `skills/` — check sections 1, 2, 4, 6.4, 7, 12 before writing.
 3. **Rule-file authors** writing project rules (CLAUDE.md, AGENTS.md, or supplementary rule files) — check sections 1.4, 2, 9, 11, 12.
 

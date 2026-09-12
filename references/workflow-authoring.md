@@ -19,7 +19,7 @@ just flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run]
 The equivalent raw entry point is:
 
 ```text
-node --experimental-strip-types scripts/flow.ts <name> [args]
+node --experimental-strip-types .pi/agent-fleet/scripts/flow.ts <name> [args]
 ```
 
 The script loads the repository `.env` without replacing variables already present in `process.env`.
@@ -230,7 +230,7 @@ Workflow name breaks exact score ties.
 The selected workflow is copied in full.
 The phase docstring block is replaced and workflow/preflight symbols are renamed from the source identity to the unique camel-cased identity derived from the new file name.
 For `wf-plan-build-review.ts`, the required entry is `planBuildReviewWorkflow` (and optional `planBuildReviewWorkflowPreflight`).
-Built-in flows are listed in `scripts/flow.ts`; for a non-built-in name, the dispatcher discovers `wf-<name>.ts` on demand by this exact export convention. A successful draft is therefore immediately reachable through `just flow <name>` without editing the built-in map.
+Built-in flows are listed in `.pi/agent-fleet/scripts/flow.ts`; for a non-built-in name, the dispatcher discovers `wf-<name>.ts` on demand by this exact export convention. A successful draft is therefore immediately reachable through `just flow <name>` without editing the built-in map.
 The generator never overwrites an existing workflow.
 
 Generated TODOs are limited to actual judgment:
@@ -248,7 +248,7 @@ A successful handoff names both the generated file and copied source.
 
 ## Scoped TypeScript
 
-`scripts/workflows/tsconfig.json` includes only workflow production TypeScript.
+`.pi/agent-fleet/scripts/workflows/tsconfig.json` includes only workflow production TypeScript.
 Workflow imports of hub seams cross typed dynamic boundaries so the compiler does not absorb the hub program.
 Tests remain checked by Node's runtime test execution rather than expanding the scoped project.
 The project emits nothing.
@@ -257,12 +257,12 @@ No typecheck failure requires edits under `.pi/harnesses/**`.
 The canonical command is:
 
 ```text
-npx tsc -p scripts/workflows/tsconfig.json --noEmit
+npx tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit
 ```
 
 ## Package and install surface
 
-The npm package includes `scripts/flow.ts`, `scripts/lib/flow-command.ts`, `scripts/workflows/*.ts`, `scripts/workflows/lib/*.ts`, and the scoped tsconfig.
+The npm package includes `.pi/agent-fleet/scripts/flow.ts`, `.pi/agent-fleet/scripts/lib/flow-command.ts`, `.pi/agent-fleet/scripts/workflows/*.ts`, `.pi/agent-fleet/scripts/workflows/lib/*.ts`, and the scoped tsconfig.
 It also includes the complete `skills/` and `references/` trees. The installer maps the workflow guide to `.pi/agent-fleet/docs/workflows.md`, so the drafting skill, generator, authoring reference, and managed guide are packaged without adding product documentation to the target repository's `docs/` tree.
 The install manifest is generated from `manifest-meta.json` and the repository tree.
 Workflow runtime files use preserved repository-relative paths because the justfile recipe imports them there.

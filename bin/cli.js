@@ -32,7 +32,7 @@ import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
 import { setHermesTelegram, runHermesCommand } from "./lib/set-hermes-telegram.js";
 import { setHermesWatchdog } from "./lib/set-hermes-watchdog.js";
-import { runtimeDependencyFindings } from "../scripts/lib/runtime-dependencies.js";
+import { runtimeDependencyFindings } from "../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
@@ -355,6 +355,7 @@ async function cmdSetup() {
   if (opts["allow-exec"] && result.exitCode === 0) result = { ...result, retryRuntimeRepair: retryRuntimeRepairs({ workspace, manifest, output: execOutput }) };
   if (opts.json) writeJson(publicResult(result));
   else if (result.exitCode === 0) {
+    printComsStopHookSnippet(result.results);
     const missing = runtimeDependencyFindings({ workspace });
     console.log(missing.length ? "Files installed; runtime dependencies are missing or unverified. Next: just fleet deps, then just fleet doctor." : "Files installed; existing readiness checks passed.");
   } else console.log(result.failure?.detail ?? "Setup incomplete.");
@@ -842,6 +843,7 @@ function printApplied(plan, applied) {
   }
 
   printOperatorSteps(plan.actions);
+  printComsStopHookSnippet(applied.results);
 
   printSection("Summary");
   console.log(
@@ -983,6 +985,27 @@ function isGitignored(workspace, path) {
     const rule = line.trim();
     return rule === path || rule === `/${path}` || rule === "*";
   });
+}
+
+/**
+ * The bridge Stop hook is a plain file the engine installs, but Claude Code
+ * only runs it once it is named in `.claude/settings.json` — a file the engine
+ * never touches. The path moved with the rest of the fleet runtime, so print
+ * the snippet with the current path rather than leaving the operator to guess.
+ */
+function printComsStopHookSnippet(results) {
+  // Declared inside the function: this module runs its command at top level,
+  // so a const below that line is still in the temporal dead zone when the
+  // printers run.
+  const rel = ".pi/agent-fleet/hooks/coms-stop-hook.mjs";
+  const installed = (results ?? []).some(
+    (r) => r.id === "hook:coms-stop-hook" && !["not-reached", "skipped"].includes(r.status),
+  );
+  if (!installed) return;
+  printSection("Register the bridge Stop hook yourself");
+  console.log("  Claude Code reads hooks from .claude/settings.json only. Add:");
+  console.log('    { "hooks": { "Stop": [{ "hooks": [{ "type": "command",');
+  console.log(`        "command": "node $CLAUDE_PROJECT_DIR/${rel}" }] }] } }`);
 }
 
 function printOperatorSteps(actions) {

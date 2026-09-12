@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "_comment": "Curated metadata for install-manifest.json. Everything mechanical (which artifacts exist, which agent has a source) is derived from the tree by bin/build-manifest.js — only judgement lives here: grouping, recommendations, consent class, companion wiring, and profiles. Run `node bin/build-manifest.js` after editing.",
+  "_comment": "Curated metadata for install-manifest.json. Everything mechanical (which artifacts exist, which agent has a source) is derived from the tree by bin/build-manifest.js \u2014 only judgement lives here: grouping, recommendations, consent class, companion wiring, and profiles. Run `node bin/build-manifest.js` after editing.",
   "groups": [
     {
       "id": "skills",
@@ -289,7 +289,7 @@
         "reference:communication-contract"
       ]
     },
-    "_references_comment": "A reference is the long-form half of a skill that cites it by path — never a standalone choice. Declaring it here as a companion means selecting the skill brings its checklists, and uninstall refuses to strand a skill without them. Keep this in step with the `references/…` citations in the SKILL.md bodies (both skills/ and the vendored copies under vendor/agent-skills-upstream/).",
+    "_references_comment": "A reference is the long-form half of a skill that cites it by path \u2014 never a standalone choice. Declaring it here as a companion means selecting the skill brings its checklists, and uninstall refuses to strand a skill without them. Keep this in step with the `references/\u2026` citations in the SKILL.md bodies (both skills/ and the vendored copies under vendor/agent-skills-upstream/).",
     "skill:using-agent-skills": {
       "companions": [
         "reference:definition-of-done"
@@ -359,7 +359,7 @@
         "reference:performance-checklist"
       ]
     },
-    "_coms_bridge_comment": "Claude Code is not an install target — it joins the fleet only as a coms peer, driven by scripts/coms-claude-bridge.ts. Both halves of that bridge live in one group: the skill the bridged pane reads, and the Stop hook it writes its turn output through. See docs/claude-code-coms-bridge.md.",
+    "_coms_bridge_comment": "Claude Code is not an install target \u2014 it joins the fleet only as a coms peer, driven by .pi/agent-fleet/scripts/coms-claude-bridge.ts. Both halves of that bridge live in one group: the skill the bridged pane reads, and the Stop hook it writes its turn output through. See docs/claude-code-coms-bridge.md.",
     "skill:peer-coms": {
       "group": "coms-bridge",
       "companions": [
@@ -403,7 +403,7 @@
         "external:playwright-cli"
       ]
     },
-    "_fleet_core_comment": "Fleet Core is the set the justfile's `fleet_core_extensions` loads into every pi session and every Herdr peer: two harnesses (damage-control-continue, ask-user-remote) plus compact-and-continue and btw. The package update check is not a standalone extension; damage-control-continue runs `.pi/harnesses/lib/update-check.ts` once per session. The launcher set is encoded twice on purpose — `requires`, so installing any harness pulls the whole set, and `pinnedBy`, so uninstall refuses to break a harness by taking a member out from under it. Keep it in step with the `fleet_core_extensions` line in the justfile; bin/test/damage-control-unification.test.js asserts the two agree.",
+    "_fleet_core_comment": "Fleet Core is the set the justfile's `fleet_core_extensions` loads into every pi session and every Herdr peer: two harnesses (damage-control-continue, ask-user-remote) plus compact-and-continue and btw. The package update check is not a standalone extension; damage-control-continue runs `.pi/harnesses/lib/update-check.ts` once per session. The launcher set is encoded twice on purpose \u2014 `requires`, so installing any harness pulls the whole set, and `pinnedBy`, so uninstall refuses to break a harness by taking a member out from under it. Keep it in step with the `fleet_core_extensions` line in the justfile; bin/test/damage-control-unification.test.js asserts the two agree.",
     "pi-extension:mcp-bridge": {
       "companions": [
         "companion:pi-extension-manifests",
@@ -517,26 +517,26 @@
         "pi-harness:ask-user-remote"
       ]
     },
-    "_operator_comment": "operatorSteps are printed verbatim by `install --profile hermes-plugins|codex-bridge`. These artifacts install into a Hermes profile or user systemd — outside the workspace the engine is allowed to write to — so the engine names the commands and performs none of them. <profile> is the operator's Hermes profile.",
+    "_operator_comment": "operatorSteps are printed verbatim by `install --profile hermes-plugins|codex-bridge`. These artifacts install into a Hermes profile or user systemd \u2014 outside the workspace the engine is allowed to write to \u2014 so the engine names the commands and performs none of them. <profile> is the operator's Hermes profile.",
     "hermes-plugin:agent-fleet-herdr": {
       "operatorSteps": [
-        "clone agent-fleet — scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
-        "scripts/install-hermes-plugin.sh agent-fleet-herdr --profile <profile>",
-        "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
+        "clone agent-fleet \u2014 .pi/agent-fleet/scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        ".pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --profile <profile>",
+        "restart the Hermes Desktop app \u2014 plugin routers mount only when its gateway boots",
         "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
       ]
     },
     "hermes-plugin:agent-fleet-monitor": {
       "operatorSteps": [
-        "clone agent-fleet — scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
-        "scripts/install-hermes-plugin.sh agent-fleet-monitor --profile <profile>",
-        "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
+        "clone agent-fleet \u2014 .pi/agent-fleet/scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        ".pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-monitor --profile <profile>",
+        "restart the Hermes Desktop app \u2014 plugin routers mount only when its gateway boots",
         "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
       ]
     },
     "hermes-skill:hub-conductor": {
       "operatorSteps": [
-        "copy hermes/skills/hub-conductor into <hermes-profile>/skills/hub-conductor",
+        "copy .pi/agent-fleet/hermes/skills/hub-conductor into <hermes-profile>/skills/hub-conductor",
         "hermes --profile <profile> skills config   # enable hub-conductor",
         "hermes --profile <profile> gateway restart"
       ]
@@ -691,12 +691,19 @@
       "agents": {
         "pi": {
           "source": [
-            ".pi/agents"
+            ".pi/agents/dispatch-policy.yaml",
+            ".pi/agents/model-profiles.yaml",
+            ".pi/agents/peers.yaml",
+            ".pi/agents/teams.yaml",
+            ".pi/agents/voices.yaml"
           ],
-          "target": ".pi/agents",
+          "sourceMode": "all",
+          "preserveLayout": true,
+          "target": null,
           "strategy": "copy-tree"
         }
-      }
+      },
+      "_comment": "Declared file by file, not as the .pi/agents tree. The installed personas live in .pi/agents/personas/, and a whole-directory binding would own that subtree too \u2014 under --method symlink it would make .pi/agents itself a link into the package, so writing a persona would escape the workspace and apply() (correctly) refuses. bin/test/manifest.test.js asserts every .pi/agents/*.yaml in the package is listed here."
     },
     "companion:damage-control-rules": {
       "title": ".pi/damage-control-rules.yaml",
@@ -713,7 +720,7 @@
     },
     "companion:stt-config": {
       "title": ".ai/stt.json",
-      "summary": "Non-secret voice provider config; keys stay in .env — asked for, never generated",
+      "summary": "Non-secret voice provider config; keys stay in .env \u2014 asked for, never generated",
       "agents": {
         "pi": {
           "source": [],
@@ -723,9 +730,9 @@
       },
       "consent": "operator",
       "operatorSteps": [
-        "pick a provider and write .ai/stt.json — see docs/pi-extensions.md",
+        "pick a provider and write .ai/stt.json \u2014 see docs/pi-extensions.md",
         "put the API key in a gitignored .env under the env-var name stt.json references; never in stt.json itself",
-        "the extension binds Alt+S only once a provider resolves — until then it is a no-op"
+        "the extension binds Alt+S only once a provider resolves \u2014 until then it is a no-op"
       ]
     },
     "companion:workflow-guide": {
@@ -747,12 +754,12 @@
       "agents": {
         "pi": {
           "source": [
-            "scripts/flow.ts",
-            "scripts/package.json",
-            "scripts/package-lock.json",
-            "scripts/lib/flow-command.ts",
-            "scripts/lib/flow-maintenance.ts",
-            "scripts/workflows"
+            ".pi/agent-fleet/scripts/flow.ts",
+            ".pi/agent-fleet/scripts/package.json",
+            ".pi/agent-fleet/scripts/package-lock.json",
+            ".pi/agent-fleet/scripts/lib/flow-command.ts",
+            ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
+            ".pi/agent-fleet/scripts/workflows"
           ],
           "sourceMode": "all",
           "preserveLayout": true,
@@ -777,7 +784,7 @@
         "args": [
           "ci",
           "--prefix",
-          "scripts"
+          ".pi/agent-fleet/scripts"
         ],
         "cwd": "."
       }
@@ -789,19 +796,19 @@
       "agents": {
         "pi": {
           "source": [
-            "scripts/fleet-codex-client.ts",
-            "scripts/fleet-codex-read.py",
-            "scripts/package.json",
-            "scripts/lib/fleet-codex-session.ts",
-            "scripts/lib/fleet-codex-operations.ts",
-            "scripts/lib/fleet-codex-transport.ts",
-            "scripts/lib/fleet-codex-catalog.ts",
-            "scripts/lib/coms-envelope.ts",
+            ".pi/agent-fleet/scripts/fleet-codex-client.ts",
+            ".pi/agent-fleet/scripts/fleet-codex-read.py",
+            ".pi/agent-fleet/scripts/package.json",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-session.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-operations.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-transport.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-catalog.ts",
+            ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
             ".pi/harnesses/lib/herdr-client.ts",
-            "hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
-            "hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
-            "hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
-            "hermes/skills/hub-watchdog/scripts/watchdog_contract.py"
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
+            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
+            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_contract.py"
           ],
           "sourceMode": "all",
           "preserveLayout": true,
