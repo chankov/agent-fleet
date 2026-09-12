@@ -9,7 +9,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8" }));
+
+// `npm pack --json` lists every shipped file — over 8,000 of them, since each
+// release adds a `.versions/<x.y.z>/` snapshot. The listing passed Node's 1 MiB
+// spawn default at 2.0.8, so give it room that a few hundred releases cannot use up.
+const PACK_MAX_BUFFER = 64 * 1024 * 1024;
+const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER }));
 const paths = packed[0].files.map(({ path }) => path);
 const packedSet = new Set(paths);
 

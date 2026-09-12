@@ -7,6 +7,11 @@ import { spawnSync } from "node:child_process";
 import { loadManifest } from "../lib/manifest.js";
 import { inspectDesiredRepair, applyDesiredRepair, prepareDesiredRepair } from "../lib/repair-desired.js";
 const root = process.cwd();
+
+// `npm pack --json` lists every shipped file — over 8,000 of them, since each
+// release adds a `.versions/<x.y.z>/` snapshot. The listing passed Node's 1 MiB
+// spawn default at 2.0.8, so give it room that a few hundred releases cannot use up.
+const PACK_MAX_BUFFER = 64 * 1024 * 1024;
 const manifest = loadManifest(root);
 function fixture(t, enabled = false) {
   const workspace = mkdtempSync(join(tmpdir(), "af-config-repair-"));
@@ -89,7 +94,7 @@ test("CLI requires repair-specific approval and supports repeat setup", t => cli
 test("packed release supports config repair in a disposable workspace", t => {
   const dir = mkdtempSync(join(tmpdir(), "af-repair-pack-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const pack = spawnSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", dir], { cwd: root, encoding: "utf8" });
+  const pack = spawnSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", dir], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER });
   assert.equal(pack.status, 0, pack.stderr);
   const filename = JSON.parse(pack.stdout)[0].filename;
   const unpack = spawnSync("tar", ["-xzf", join(dir, filename), "-C", dir], { encoding: "utf8" });

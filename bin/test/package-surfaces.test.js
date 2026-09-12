@@ -30,6 +30,11 @@ import { collectModelTargets } from "../lib/doctor.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+// `npm pack --json` lists every shipped file — over 8,000 of them, since each
+// release adds a `.versions/<x.y.z>/` snapshot. The listing passed Node's 1 MiB
+// spawn default at 2.0.8, so give it room that a few hundred releases cannot use up.
+const PACK_MAX_BUFFER = 64 * 1024 * 1024;
+
 function fakePiListingScript() {
   const models = [...new Set(collectModelTargets(root).map((target) => target.model).filter(Boolean))];
   const rows = ["provider model", ...models.map((id) => {
@@ -226,7 +231,7 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
 });
 
 test("package dry-run includes each versioned harness entrypoint, module, and adjacent manifest", () => {
-  const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8" }));
+  const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER }));
   const paths = new Set(packed[0].files.map(({ path }) => path));
   assert.ok(paths.has("bin/catalog/harness-runtime-closure.json"), "relocated harness closure must ship in package");
   assert.equal([...paths].some((path) => /guided-workspace-setup|af-(?:setup|doctor)-agent-fleet/.test(path)), false, "tarball must not ship retired setup surfaces");
@@ -264,7 +269,7 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
 test("isolated tarball supports Default and Full deterministic setup", () => {
   const fixture = mkdtempSync(join(tmpdir(), "af-tarball-"));
   try {
-    const packed = JSON.parse(execFileSync("npm", ["pack", "--json"], { cwd: root, encoding: "utf8" }));
+    const packed = JSON.parse(execFileSync("npm", ["pack", "--json"], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER }));
     const tarball = join(root, packed[0].filename);
     const extracted = join(fixture, "node_modules", "@chankov", "agent-fleet");
     mkdirSync(extracted, { recursive: true });
