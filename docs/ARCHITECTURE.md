@@ -411,6 +411,6 @@ packages/hermes-bridge/       # future Hermes integration package
 Agent Fleet began as a fork of `addyosmani/agent-skills` and was split into a
 standalone repository in July 2026, with upstream demoted to vendored content.
 The one-time migration record, including the history-filtering commands, lives
-in [MIGRATION-agent-fleet.md](MIGRATION-agent-fleet.md); the product
-requirements that drove the split are in
-[prd-agent-fleet-split.md](prd-agent-fleet-split.md).
+in [MIGRATION-agent-fleet.md](MIGRATION-agent-fleet.md). The product
+requirements that drove the split were a one-off planning document and are no
+longer maintained.
