@@ -1,5 +1,44 @@
 # Agent Fleet changelog
 
+## 2.0.8
+
+### Patch Changes
+
+- de60585: Install the whole fleet runtime under `.pi/`, leaving a workspace with five root entries instead of ten.
+
+  A `--preset full` install used to scatter 90 files across `scripts/`, `agents/`, `hermes/`, `docs/` and `.claude/hooks/` at the root of the project it was installed into. They now land under `.pi/agent-fleet/` (`scripts/`, `hermes/`, `hooks/`, `docs/`) and `.pi/agents/personas/`, so a fresh install leaves `.agents/ .ai/ .pi/ justfile` plus your `.env` and nothing else. `.agents/skills/fleet-session-client/` deliberately stays where it is — that path is the external Codex/ChatGPT client's own discovery convention, not ours to move.
+
+  **The old files are retired for you.** Changing where an item installs changes its binding, and `setup` already removes recorded files that leave a binding — byte-identical copies only. A file you edited is kept, becomes yours, and is reported by name; `verify` now summarises a relocation in one finding ("19 item(s) moved: 111 old file(s) to remove, 2 kept") instead of one finding per path, with the full list still under `items[].obsoleteFiles`. Run `agent-fleet setup` once and the move is done; the state file's `schemaVersion` goes 1 → 2 as the marker for it.
+
+  Two things worth knowing:
+
+  - **Personas.** They install to `.pi/agents/personas/<name>.md`. `agents/` and `.claude/agents/` remain yours and are still scanned _first_, so a persona you wrote keeps overriding ours; if one of your copies of a fleet persona survives the upgrade, `verify` says so rather than letting it silently shadow the installed one.
+  - **The Claude Code bridge Stop hook.** It moves from `.claude/hooks/` to `.pi/agent-fleet/hooks/`. Claude Code finds hooks only through `.claude/settings.json`, where the command is a free-form shell string, so nothing breaks until you re-point it — `setup` now prints the snippet with the new path. Nothing installs under `.claude/` any more.
+
+  Three guards keep the layout from drifting back: every relative import in the repository is resolved against disk, shipped code and data may not name a retired root, and the markdown that installs into a workspace — the part agents read and act on — is checked for stale paths too.
+
+- 70c2732: Restore four reference documents that a docs cleanup removed by mistake, and guard the allowlist against the next one.
+
+  `docs/MIGRATION-agent-fleet.md`, `docs/claude-code-coms-bridge.md`, `docs/coms-hermes-bridge.md` and `docs/codex-session-bridge.md` are part of the published surface — all four are named in `package.json`'s `files` allowlist — but they were deleted alongside a batch of genuinely obsolete planning drafts. `npm pack` ships nothing for an allowlist entry that matches no file and says nothing about it, so the loss surfaced only as two failing tests and 26 dangling links across the README, `CLAUDE.md`, `AGENTS.md` and the docs tree.
+
+  The restored copies predate the `.pi/` runtime relocation, so they carry the same path rewrite the surviving docs already got: runtime scripts under `.pi/agent-fleet/scripts/`, and the coms-bridge Stop hook at `.pi/agent-fleet/hooks/coms-stop-hook.mjs` rather than `.claude/hooks/`.
+
+  Two guards now cover the failure mode: every literal markdown entry in the `files` allowlist must exist on disk, and every relative link in the public docs must resolve.
+
+- 17535af: Update the vendored upstream skill library to `addyosmani/agent-skills@6ca0cd7` and add `constraint-driven-development`.
+
+  **New skill and command.** `constraint-driven-development` (phase: Plan) records a project's quality bar as numbers with stated reasons in `CONSTRAINTS.md` and guards the diff against a quietly lowered bar — new suppressions, skipped or deleted tests, stripped assertions, unimplemented stubs, thresholds edited down. It ships with a skill-local `references/floor-guard.md` reference implementation. The new `/af-constraints` command drives it in two modes: `setup` runs the four-question interview and writes the file; `check` runs the guard over the current diff with no interview. In a Fleet project the two halves stay apart on purpose — `CONSTRAINTS.md` holds the dimensions, numbers, and reasoning; `quality:` under `## workflows` stays the single executable gate that `just flow` obeys.
+
+  **Substantially expanded skills.** `performance-optimization` gains a keep-or-revert verification step, regression budgets, and deeper index, connection-pool, and cache-correctness material. `security-and-hardening` gains a Data Privacy & Compliance section, destructive-operations-on-derived-paths guidance, and shared-store rate limiting. `api-and-interface-design` gains idempotency-key handling. `context-engineering` gains Context Budget Management. `spec-driven-development` gains a Phase 0 scope check with a capability map, adapted to Fleet's own spec output location. `observability-and-instrumentation` gains runbook guidance and entry-point stamping. `shipping-and-launch` gains an error-budget release gate.
+
+  **Planning task list target.** `planning-and-task-breakdown` now defines a single task list target, selected by the existing `todo` override key, which accepts a third value: `tracker` routes tasks to a designated issue tracker instead of a markdown checklist. It also refuses to overwrite a plan that still has unchecked tasks for different work.
+
+  **Reference link resolution fixed.** Shared checklists are now addressed as `../../references/<file>.md`, which is what resolves from an installed skill at `.pi/skills/<name>/`. The previous `references/<file>.md` form pointed nowhere. Skill-local `references/` subdirectories keep the relative form.
+
+  **Shadow cleanup.** `code-review-and-quality`, `deprecation-and-migration`, `frontend-ui-engineering`, `performance-optimization`, and `security-and-hardening` were carrying no Agent Fleet customization — only stale upstream text — and are now synchronized verbatim with the vendored copies.
+
+  **Install manifest fix.** `companion:fleet-client-runtime` no longer lists a deleted documentation file as a source, which was failing manifest validation and every test that loads the real manifest.
+
 ## 2.0.7
 
 ### Patch Changes
