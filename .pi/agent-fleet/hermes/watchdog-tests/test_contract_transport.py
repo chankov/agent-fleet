@@ -66,7 +66,7 @@ class GateOContract(unittest.TestCase):
             self.assertFalse(gate_o_valid({**COMPLETE_GATE_O, 'observations': observations}), key)
 
     def test_shared_gate_o_fixture_matrix_has_zero_python_permissive_cases(self):
-        root = Path(__file__).parents[2]
+        root = Path(__file__).parents[4]  # repo root: .pi/agent-fleet/hermes/watchdog-tests/<file>
         matrix = json.loads((root / '.pi/agent-fleet/hermes/gates/gate-o-validator-fixtures.json').read_text())
         unsafe = [fixture for fixture in matrix if not fixture['originDelivery']]
         self.assertEqual(len(unsafe), 365, '8 markers × 9 separators × 5 fields plus 5 target-only send --to spacings')
