@@ -1,6 +1,6 @@
 {
   "name": "@chankov/agent-fleet",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "description": "Subagent orchestration for the pi coding agent — a thin dispatcher runs parallel subagents under a verification contract, keeping their output out of its context window. Multi-agent fleets, 15 personas, skills, herdr panes, peer coms, Hermes desktop.",
   "keywords": [
     "subagents",
