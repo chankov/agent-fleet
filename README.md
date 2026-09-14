@@ -448,7 +448,6 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | [docs/agents.md](docs/agents.md) | All 15 personas: roster, skill hooks, install matrix, teams |
 | [docs/pi-setup.md](docs/pi-setup.md) · [docs/pi-extensions.md](docs/pi-extensions.md) | pi install paths, harnesses, and utility extensions |
 | [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) | Per-project overrides (`.ai/agent-fleet-overrides.md`) — spec/plan paths, dev server, branch policy, per-persona models, dispatcher language, rules/docs targets |
-| [Repository AI rules setup plan](docs/plans/PLAN-repository-ai-rules-setup.md) | Planned common rules catalogue, project prompts/commands, Fleet policy wiring, and interactive setup with grilling |
 | **[docs/hermes-desktop-plugins.md](docs/hermes-desktop-plugins.md)** | **The Hermes Desktop plugin: install, contract, API, failure modes, limits** |
 | [docs/claude-code-coms-bridge.md](docs/claude-code-coms-bridge.md) · [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) · [docs/codex-session-bridge.md](docs/codex-session-bridge.md) | Claude Code as a coms peer · phone relay · experimental ChatGPT Fleet session client |
 | [docs/npm-install.md](docs/npm-install.md) | CLI reference, versioning, update flow |
