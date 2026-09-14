@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	attachFleetDashboardTicker,
+	confirmFleetAction,
 	gridColumnsForItems,
 	gridColumnsForSize,
 	liveTimeline,
@@ -17,6 +18,17 @@ const theme = { fg: (_: string, s: string) => s, bold: (s: string) => s };
 
 const row = (kind: "specialist" | "research" | "delegate" | "peer", name = kind) =>
 	({ key: kind === "research" ? "r1" : kind === "peer" ? "peer:1" : name, kind, name, status: "running" as const });
+
+test("shared confirmation is two seconds and bound to same action, key, and run", () => {
+	const first = confirmFleetAction(null, "kill", { key: "a", runToken: "run-1" }, 1000);
+	assert.equal(first.confirmed, false);
+	assert.equal(confirmFleetAction(first.confirmation, "kill", { key: "a", runToken: "run-2" }, 1100).confirmed, false);
+	assert.equal(confirmFleetAction(first.confirmation, "kill", { key: "b", runToken: "run-1" }, 1100).confirmed, false);
+	assert.equal(confirmFleetAction(first.confirmation, "restart", { key: "a", runToken: "run-1" }, 1100).confirmed, false);
+	assert.equal(confirmFleetAction(first.confirmation, "kill", { key: "a", runToken: "run-1" }, 2999).confirmed, true);
+	assert.equal(confirmFleetAction(first.confirmation, "kill", { key: "a", runToken: "run-1" }, 3000).confirmed, false);
+	assert.deepEqual(confirmFleetAction(null, "kill", { key: "a" }, 1000), { confirmation: null, confirmed: false });
+});
 
 // ── C3: confirmed kill outcomes per row kind ──────────────────────────────
 

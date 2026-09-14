@@ -158,9 +158,9 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `kind: research` personas ship by default: `researcher` (`gpt-5.6-luna`, low thinking) for simple
   reads and `deep-researcher` (`grok-4.6`, medium thinking) for hard, cross-cutting investigation.
   The dispatcher routes by persona; each persona's model + thinking level is shown in its catalog.
-  Live helpers appear **only in the Fleet Dashboard (`Alt+A`)** while they are running — never as
-  cards or compact rows in the main dispatcher view. On every terminal outcome (success, error,
-  timeout, spawn/preflight failure, or operator kill) the live `rN` handle is removed immediately.
+  Live helpers appear in the Fleet Dashboard (`Alt+A`) and bounded fleet widget while they are
+  running. On every terminal outcome (success, error, timeout, spawn/preflight failure, or operator
+  kill) the live `rN` handle is removed immediately.
   Session, transcript, and `findings/*.md` files remain on disk for the requester, and
   `/af-agents-history` keeps the audit/timing record. Finished helpers cannot be restarted; a new
   request always creates a fresh helper. `rN` handles are never reused during a Hub session.
@@ -377,8 +377,20 @@ execution **tree**:
 Navigate with `↑/↓`, press `G` to jump back to the live tail, and `Q`/`Esc` to close. The log resets
 on each session start.
 
-The default agent view is the prompt and footer only (`Alt+A fleet · Alt+M Operator`). There is no
-below-editor compact widget. The coms pool panel lives at the **bottom of the Fleet Dashboard**.
+The default agent view includes a collapsed fleet summary below the editor. When the installed public
+SDK editor contract can be positively verified, an empty focused editor can activate its bounded
+inspection window with the registered `Alt+I` shortcut; the same chord collapses it, and `j`/`k`
+select. Enter opens detail, while `x`/`r` use the same two-press confirmation and ownership checks as
+the dashboard. Plain and Alt arrow keys remain editor input unchanged and exactly once. Existing
+`Alt+M` and `Alt+A` shortcuts continue to open the work-mode picker and Fleet Dashboard exactly once
+from either widget state. Autocomplete, paste, key release,
+non-empty/unfocused editors, modal UI, RPC/print/headless modes, and unsupported custom editors do not
+activate it; unsupported environments retain a noninteractive summary without a key hint. The window
+uses at most `floor(terminal.rows / 3)` rows including chrome, retains completed/error runs for exactly
+10 seconds (or while the same selected run is pinned), and separates active peers from task counts.
+Both fleet surfaces scrub terminal controls and size Unicode by display cells. A confirmed coms kill
+aborts only the local request—the confirmation explicitly notes that the peer pane keeps running.
+The coms pool panel remains at the **bottom of the Fleet Dashboard**.
 
 ### Work Mode picker
 
@@ -391,7 +403,9 @@ terminal must send Option as Meta or Alt+M will not reach the Hub.
 ### Fleet Dashboard and detail
 
 Press **`Alt+A`** or run **`/af-agents-list`** to open the full-screen **Fleet Dashboard**. It is a
-live overlay that lists specialists, nested delegates, running research helpers, and coms peers.
+live overlay backed by the same fleet source as the compact widget and lists specialists, true nested
+delegates, running research helpers, and coms peers. Dashboard filtering remains independent from the
+widget, and `/af-zoom` continues to use an unfiltered key lookup.
 The bordered **coms** panel is pinned to the bottom of this overlay. The dashboard shows status,
 hierarchy, model, context/tokens, elapsed time, tool count, and recent work; its summary counts
 running/done/failed rows, overlap-aware wall time, and visible token totals. Finished/idle/stale

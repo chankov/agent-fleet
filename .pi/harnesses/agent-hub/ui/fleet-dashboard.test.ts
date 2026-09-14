@@ -16,7 +16,9 @@ test("Phase 6.5 UI factories expose narrow public APIs and typed action ports", 
 	assert.match(detail, /return \{ openFleetDetail, loadAvailableModelChoices \}/);
 	assert.match(contextBudget, /export interface ContextBudgetDeps/);
 	assert.match(contextBudget, /return \{ contextPlanes, openContextBudget \}/);
-	for (const action of ["restartSpecialist", "removeResearch", "killSpecialistProcess", "abortComs"]) assert.match(dashboard, new RegExp(`deps\\.${action}`));
+	assert.match(dashboard, /deps\.actions\.execute/);
+	assert.match(dashboard, /deps\.actions\.open/);
+	for (const action of ["restartSpecialist", "removeResearch", "killSpecialistProcess", "abortComs"]) assert.match(root, new RegExp(`${action}:`));
 	assert.doesNotMatch(dashboard, /restartResearch/);
 	assert.doesNotMatch(dashboard, /restart-research/);
 });

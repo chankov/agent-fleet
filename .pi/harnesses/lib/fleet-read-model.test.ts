@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildFleetRows, fleetTiming, summarise, unionMs, type FleetRow, type FleetSource } from "./fleet-read-model.ts";
+import { buildFleetRows, fleetTiming, selectWidgetRows, summarise, summariseWidget, unionMs, type FleetRow, type FleetSource } from "./fleet-read-model.ts";
 
 const base = (key: string, status: FleetRow["status"] = "running"): any => ({ key, name: key, status, model: "model-x", backend: "native", contextPct: 25, contextTokens: 250, elapsed: 1_000, startedAt: 10, toolCount: 2, lastWork: "read file", hasTimeline: true });
 
@@ -54,4 +54,24 @@ test("summarise is deterministic and supplies intervals for overlap-aware wall t
 	assert.deepEqual(summarise(rows), { running: 1, done: 1, failed: 1, totalTokens: 550, intervals: [[0, 100], [50, 150]] });
 	assert.deepEqual(buildFleetRows({ specialists: [], research: [], peers: [] }, { showFinished: false }), []);
 	assert.deepEqual(summarise([]), { running: 0, done: 0, failed: 0, totalTokens: 0, intervals: [] });
+});
+
+test("widget retention is exact at 10 seconds, pins only the same run, and keeps structural ancestors", () => {
+	const source: FleetSource = { specialists: [{ ...base("parent", "done"), endedAt: 1, runToken: "p:1", delegates: [{ ...base("child", "done"), endedAt: 1000, runToken: "c:1" }] }], research: [], peers: [] };
+	const rows = buildFleetRows(source, { showFinished: true });
+	assert.deepEqual(selectWidgetRows(rows, 10_999).map(row => row.key), ["parent", "child"]);
+	assert.deepEqual(selectWidgetRows(rows, 11_000).map(row => row.key), []);
+	assert.deepEqual(selectWidgetRows(rows, 11_000, { key: "child", runToken: "c:1" }).map(row => [row.key, row.structuralOnly]), [["parent", true], ["child", false]]);
+	assert.deepEqual(selectWidgetRows(rows, 11_000, { key: "child", runToken: "c:old" }), []);
+	assert.deepEqual(selectWidgetRows([], 11_000, { key: "child", runToken: "c:1" }), []);
+});
+
+test("widget summary separates peers, uses context max and overlap-aware task wall with known totals", () => {
+	const rows: FleetRow[] = [
+		{ ...base("a"), kind: "specialist", depth: 0, timingKind: "run", contextPct: 38, startedAt: 0, elapsed: 100 },
+		{ ...base("b"), kind: "research", depth: 0, timingKind: "run", contextPct: null, startedAt: 50, elapsed: 100 },
+		{ ...base("peer"), kind: "peer", depth: 0, backend: "coms", timingKind: "wait", contextPct: null, startedAt: 0, elapsed: 999 },
+		{ ...base("struct"), kind: "specialist", depth: 0, structuralOnly: true, contextPct: 99 },
+	];
+	assert.deepEqual(summariseWidget(rows), { running: 2, peerActive: 1, done: 0, failed: 0, contextMax: 38, contextKnown: 1, contextTotal: 2, wallMs: 150, wallKnown: 2, wallTotal: 2 });
 });

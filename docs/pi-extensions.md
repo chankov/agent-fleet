@@ -175,6 +175,9 @@ harnesses:
   restarting or losing session state, while `/af-work-mode` without an argument and **Alt+M** open
   the picker. Orchestrator removes direct coding tools. Budgets and nested delegation follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
   refuse actionably.
+- **Fleet widget** — **`Alt+I`**, registered through Pi's shortcut API, expands or collapses the
+  bounded below-editor fleet view when its focus, empty-editor, autocomplete/modal, row, and height
+  gates allow it. Use `j`/`k` inside the view; plain and Alt arrow keys remain editor input unchanged.
 - **Fleet Dashboard** — **`Alt+A`** or `/af-agents-list` opens a
   full-screen dashboard of the active native roster, delegates, currently running research
   helpers, and coms peers, with the coms pool panel pinned to the bottom. Live research helpers never appear in the

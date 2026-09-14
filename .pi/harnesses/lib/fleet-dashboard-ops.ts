@@ -4,6 +4,23 @@
  * without booting the full agent-hub extension.
  */
 import type { FleetKind } from "./fleet-read-model.ts";
+
+export type FleetAction = "kill" | "restart";
+export type FleetConfirmation = { action: FleetAction; key: string; runToken: string; until: number } | null;
+
+/** Two-press confirmation bound to both stable row identity and the current run. */
+export function confirmFleetAction(
+	current: FleetConfirmation,
+	action: FleetAction,
+	row: { key: string; runToken?: string },
+	now: number,
+): { confirmation: FleetConfirmation; confirmed: boolean } {
+	if (!row.runToken) return { confirmation: null, confirmed: false };
+	if (current?.action === action && current.key === row.key && current.runToken === row.runToken && current.until > now) {
+		return { confirmation: null, confirmed: true };
+	}
+	return { confirmation: { action, key: row.key, runToken: row.runToken, until: now + 2000 }, confirmed: false };
+}
 import type { createPanelResources } from "./fleet-panel.ts";
 
 export type KillHandles = {

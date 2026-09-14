@@ -114,7 +114,8 @@ import {
 	TIMEOUT_MS,
 } from "../lib/coms-core.ts";
 import { createGridUI } from "./ui/grid.ts";
-import { collectRunningStripItems } from "./ui/running-strip.ts";
+import { createFleetSource } from "./ui/fleet-source.ts";
+import { createFleetActions } from "./ui/fleet-actions.ts";
 import { createDetailPanel } from "./ui/detail-panel.ts";
 import { createFleetDashboard } from "./ui/fleet-dashboard.ts";
 import { createContextBudgetUi } from "./ui/context-budget.ts";
@@ -130,7 +131,7 @@ import { openZoom, type TimelineEntry, type Zoomable } from "./ui/zoom.ts";
 import { openHistory } from "./ui/history.ts";
 import { createExecutionHistoryStore, type HistoryEntry } from "./ui/history-store.ts";
 import { createDispatchComs, createDispatchNative, createDispatchObservability, type DelegationChild } from "./dispatch-core.ts";
-import { buildFleetRows, type PeerInput } from "../lib/fleet-read-model.ts";
+import type { FleetRow } from "../lib/fleet-read-model.ts";
 import { gridColumnsForSize } from "../lib/fleet-dashboard-ops.ts";
 import { createFleetTranscriptStore } from "../lib/fleet-transcript-store.ts";
 import type { ContextBudgetComponent } from "../lib/context-budget.ts";
@@ -173,10 +174,11 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Embedded coms: shared peer state ──
 	let currentCtx: ExtensionContext | null = null;
+	let refreshFleetUi = () => {};
 	const coms = createComsPeer({
 		pi,
 		getContext: () => currentCtx,
-		onPeersChanged: () => {},
+		onPeersChanged: () => refreshFleetUi(),
 		acceptInbound: () => currentCtx && modelWorkBlockedByRosterRecovery(currentCtx)
 			? "orchestrator roster recovery required"
 			: null,
@@ -606,70 +608,31 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		return shortModel(resolvedModel(def)) + thinkingSuffix(resolvedThinking(def));
 	}
 
-	// ── Grid Rendering ───────────────────────────
+	// ── Shared fleet source + below-editor widget ───────────────────────────
+	const fleetSource = createFleetSource({
+		getAgents: () => agentStates,
+		getResearch: () => researchStates,
+		getPeerInputs: format => fleetPeerInputs(format),
+		getPeerCards: () => peerCards,
+		getPendingReplies: () => pendingReplies.values(),
+		displayName,
+		modelForAgent: state => state.lastBackend === "coms" ? shortModel(state.comsPeerModel) : modelWithThinking(state.def),
+		modelForResearch: state => shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
+		modelForPeer: abbreviateModel,
+	});
+	let fleetActions: ReturnType<typeof createFleetActions<AgentState, ResearchState>> | null = null;
+	let fleetUiGeneration = 0;
 	const gridUI = createGridUI({
 		getWidgetContext: () => widgetCtx,
-		getRunningItems: () => {
-			const specialists = Array.from(agentStates.values()).map(state => ({
-				name: displayName(state.def.name),
-				status: state.status,
-				model: state.lastBackend === "coms" ? `⇄coms ${shortModel(state.comsPeerModel)}` : modelWithThinking(state.def),
-				elapsed: state.elapsed,
-				toolCount: state.toolCount,
-				messageCount: state.messageCount ?? 0,
-				delegations: Array.from(state.delegations?.values() ?? []).map(child => ({
-					role: child.role || child.id,
-					id: child.id,
-					status: child.status,
-					model: shortModel(child.model),
-					elapsed: child.elapsed,
-					startedAt: child.startedAt,
-					toolCount: child.toolCount,
-					messageCount: child.messageCount ?? 0,
-				})),
-			}));
-			const research = Array.from(researchStates.values()).map(state => ({
-				id: state.id,
-				persona: state.persona,
-				displayName: displayName(state.def.name),
-				status: state.status,
-				model: shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
-				elapsed: state.elapsed,
-				toolCount: state.toolCount,
-				messageCount: state.messageCount ?? 0,
-			}));
-			const pendingByName = new Map<string, { count: number; oldest: number }>();
-			for (const pending of coms.pendingReplies.values()) {
-				if (pending.result || !pending.target_name) continue;
-				const started = Date.parse(pending.created_at) || Date.now();
-				const prev = pendingByName.get(pending.target_name);
-				if (!prev) pendingByName.set(pending.target_name, { count: 1, oldest: started });
-				else pendingByName.set(pending.target_name, { count: prev.count + 1, oldest: Math.min(prev.oldest, started) });
-			}
-			const now = Date.now();
-			const comsRows = [];
-			const seen = new Set<string>();
-			for (const card of peerCards.values()) {
-				const pending = pendingByName.get(card.name);
-				const running = card.status === "working" || (card.queue_depth ?? 0) > 0 || !!pending;
-				if (!running) continue;
-				seen.add(card.name);
-				comsRows.push({
-					name: card.name,
-					model: abbreviateModel(card.model),
-					elapsed: pending ? now - pending.oldest : 0,
-					eventCount: (pending?.count ?? 0) + (card.queue_depth ?? 0),
-					running: true,
-				});
-			}
-			for (const [name, pending] of pendingByName) {
-				if (seen.has(name)) continue;
-				comsRows.push({ name, model: "", elapsed: now - pending.oldest, eventCount: pending.count, running: true });
-			}
-			return collectRunningStripItems({ specialists, research, coms: comsRows }, now);
+		getRows: now => fleetSource.rows(now, { showFinished: true }),
+		handleIntent: async intent => {
+			if (!fleetActions || !widgetCtx) return;
+			if (intent.type === "open") await gridUI.withSuspended(() => fleetActions!.open(intent.key, intent.runToken, widgetCtx!));
+			else await fleetActions.execute(intent.type, intent.key, intent.runToken, widgetCtx);
 		},
 	});
 	const { updateWidget } = gridUI;
+	refreshFleetUi = updateWidget;
 
 	// ── Delegation observability ─────────────────
 	const dispatchObservability = createDispatchObservability({
@@ -1715,16 +1678,31 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		notify: (message, level) => ctx.ui.notify(message, level),
 	});
 
+	fleetActions = createFleetActions<AgentState, ResearchState>({
+		getRows: () => fleetSource.rows(Date.now(), { showFinished: true }),
+		getAgents: () => agentStates,
+		getResearch: () => researchStates,
+		parseResearchHandle,
+		displayName,
+		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
+		restartSpecialist: researchControls.restartSpecialist,
+		removeResearch: researchControls.remove,
+		killSpecialistProcess: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }),
+		abortComs: state => { state.comsAbort?.(); },
+		openDetail: openFleetDetail,
+		generation: () => fleetUiGeneration,
+	});
 	let fleetShowFinished = false;
 	let fleetFilter = "";
 	const fleetDashboard = createFleetDashboard<AgentDef, AgentState, ResearchState>({
+		getFleetRows: (now, unfiltered) => fleetSource.rows(now, unfiltered ? { showFinished: true } : { showFinished: fleetShowFinished, query: fleetFilter }),
+		actions: fleetActions,
 		getAgents: () => agentStates,
 		getResearch: () => researchStates,
 		getShowFinished: () => fleetShowFinished,
 		setShowFinished: value => { fleetShowFinished = value; },
 		getFilter: () => fleetFilter,
 		setFilter: value => { fleetFilter = value; },
-		getPeerInputs: fleetPeerInputs,
 		parseResearchHandle,
 		displayName,
 		shortModel,
@@ -1743,7 +1721,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		abortComs: state => { state.comsAbort?.(); },
 		getComsLines: (width, theme) => poolPresentation.render(width, theme),
 	});
-	const { fleetRows, openFleetDashboard } = fleetDashboard;
+	const { fleetRows, openFleetDashboard: openFleetDashboardRaw } = fleetDashboard;
+	const openFleetDashboard = (ctx: any, startSubstitution = false) => gridUI.withSuspended(() => openFleetDashboardRaw(ctx, startSubstitution));
 
 	const contextBudgetUi = createContextBudgetUi<AgentDef, AgentState, ResearchState>({
 		getAgents: () => agentStates,
@@ -1793,6 +1772,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 
 	registerInputShortcuts(pi, {
 		setWidgetContext: ctx => { widgetCtx = ctx; }, openFleetDashboard,
+		toggleFleetWidget: () => gridUI.toggle(),
 		workModeStatusText, openWorkModePicker,
 	});
 
@@ -1943,9 +1923,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
 			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.reset(); },
-			clearWidgets: ctx => { if (widgetCtx) { ctx.ui.setWidget("agent-team", undefined); } },
+			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
-			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; },
+			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },
 			resolveSafety: cwd => Boolean(safetyHarnessPath = resolveSafetyHarness(cwd)), resolveDelegate: cwd => { delegateExtPath = resolveDelegateExtension(cwd); },
 		}),
 		restartMonitor: _ctx => monitorSession.restart(_ctx),
@@ -2141,6 +2121,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			}
 		},
 		clearPoolWidget: () => {
+			gridUI.dispose();
 			if (currentCtx?.hasUI) try { currentCtx.ui.setWidget("coms-pool", undefined); } catch {}
 		},
 	});

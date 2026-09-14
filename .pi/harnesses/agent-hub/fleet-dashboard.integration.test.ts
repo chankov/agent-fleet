@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { buildFleetRows, type FleetSource } from "../lib/fleet-read-model.ts";
 import { renderFleetDashboard } from "../lib/fleet-dashboard-view.ts";
 
@@ -9,6 +10,8 @@ const shortcutSource = readFileSync(new URL("./input/shortcuts.ts", import.meta.
 const poolSource = readFileSync(new URL("./ui/pool.ts", import.meta.url), "utf8");
 const turnLifecycleSource = readFileSync(new URL("./lifecycle/turn-handlers.ts", import.meta.url), "utf8");
 const dashboardSource = readFileSync(new URL("./ui/fleet-dashboard.ts", import.meta.url), "utf8");
+const fleetSource = readFileSync(new URL("./ui/fleet-source.ts", import.meta.url), "utf8");
+const fleetActions = readFileSync(new URL("./ui/fleet-actions.ts", import.meta.url), "utf8");
 const detailSource = readFileSync(new URL("./ui/detail-panel.ts", import.meta.url), "utf8");
 const uiSource = dashboardSource + detailSource;
 const budgetSource = readFileSync(new URL("./context/budgets.ts", import.meta.url), "utf8");
@@ -24,6 +27,7 @@ const zoomCommandSource = readFileSync(new URL("./commands/zoom.ts", import.meta
 const agentModelsSubstituteCommandSource = readFileSync(new URL("./commands/agent-models-substitute.ts", import.meta.url), "utf8");
 
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
+const metrics = { truncateToWidth, visibleWidth };
 const specialist = (key: string, status: "idle" | "running") => ({ key, name: key[0].toUpperCase() + key.slice(1), status, model: "model", backend: "native" as const, contextPct: 0, contextTokens: 0, elapsed: 0, toolCount: 0, lastWork: "available", hasTimeline: true });
 
 test("running research appears in Fleet Dashboard rows and vanishes after settlement even with showFinished", () => {
@@ -38,7 +42,7 @@ test("fleet integration retains idle roster rows with coms and reconciles the sa
 	const source: FleetSource = { specialists: [specialist("builder", "idle"), specialist("researcher", "idle")], research: [], peers: [{ key: "peer:coms", name: "Coms", model: "peer-model", lastWork: "available", pending: true }] };
 	const initial = buildFleetRows(source, { showFinished: false });
 	assert.deepEqual(initial.map(row => row.key), ["peer:coms", "builder", "researcher"]);
-	assert.match(renderFleetDashboard({ rows: initial, selection: { index: 0 }, summary: { running: 0, done: 0, failed: 0, totalTokens: 0, intervals: [], wallMs: 0 }, showFinished: false }, 120, 4, theme).join("\n"), /Builder[\s\S]*Researcher[\s\S]*Coms|Coms[\s\S]*Builder[\s\S]*Researcher/);
+	assert.match(renderFleetDashboard({ rows: initial, selection: { index: 0 }, summary: { running: 0, done: 0, failed: 0, totalTokens: 0, intervals: [], wallMs: 0 }, showFinished: false }, 120, 4, theme, metrics).join("\n"), /Builder[\s\S]*Researcher[\s\S]*Coms|Coms[\s\S]*Builder[\s\S]*Researcher/);
 
 	const running = buildFleetRows({ ...source, specialists: [specialist("builder", "running"), specialist("researcher", "idle")] }, { showFinished: false });
 	assert.equal(running.filter(row => row.key === "builder").length, 1);
@@ -46,15 +50,15 @@ test("fleet integration retains idle roster rows with coms and reconciles the sa
 });
 
 test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, and wall time", () => {
-	assert.match(dashboardSource, /buildFleetRows\(/);
+	assert.match(fleetSource, /buildFleetRows\(/);
 	assert.match(dashboardSource, /reconcileSelection\(selection, rows\)/);
 	assert.match(dashboardSource, /wallMs: unionMs\(summary\.intervals\)/);
-	// C1: wall time comes from histEntry via fleetTiming, not Date.now()-elapsed re-anchor
-	assert.match(dashboardSource, /\.\.\.fleetTiming\(state\.histEntry\)/);
-	assert.doesNotMatch(dashboardSource, /startedAt:\s*state\.status === "idle" \? undefined : Date\.now\(\) - state\.elapsed/);
+	// C1: the shared source uses authoritative history intervals, not elapsed re-anchoring.
+	assert.match(fleetSource, /\.\.\.fleetTiming\(state\.histEntry, now\)/);
+	assert.doesNotMatch(fleetSource, /Date\.now\(\) - state\.elapsed/);
 	assert.match(dashboardSource, /dashboardTransition\(/);
 	assert.match(dashboardSource, /press \$\{confirm\.action === "kill" \? "x" : "r"\} again/);
-	assert.match(dashboardSource, /deps\.openDetail\(selected, ctx, detailVerbose\)/);
+	assert.match(dashboardSource, /deps\.actions\.open\(selected\.key, selected\.runToken, ctx, detailVerbose\)/);
 	assert.match(detailSource, /resources\.every\(2000, \(\) => tui\.requestRender\(\)\)/);
 	assert.match(source, /createTranscriptStore: createFleetTranscriptStore/);
 	assert.match(researchSpawnSource, /createTranscriptStore\(/);
@@ -78,8 +82,8 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(detailSource, /modelPolicy\.setSubagentOverride/);
 	assert.match(detailSource, /current runs are not interrupted/);
 	// C3–C7 wiring: pure ops drive kill/restart/ticker/timeline/compact guards
-	assert.match(dashboardSource, /resolveFleetKill\(/);
-	assert.match(dashboardSource, /resolveFleetRestart\(/);
+	assert.match(fleetActions, /resolveFleetKill\(/);
+	assert.match(fleetActions, /resolveFleetRestart\(/);
 	assert.match(dashboardSource, /attachFleetDashboardTicker\(/);
 	assert.match(detailSource, /liveTimeline\(target\)/);
 	assert.match(detailSource, /snapshotFleetDetailRow\(detailRow, target\)/);
@@ -92,12 +96,13 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(source, /createFleetDashboard<[\s\S]*?shortModel,[\s\S]*?thinkingSuffix,[\s\S]*?modelWithThinking,/, "dashboard receives shared runtime formatters explicitly");
 	assert.doesNotMatch(source, /declare const (?:shortModel|thinkingSuffix|modelWithThinking)/, "runtime formatters cannot be ambient-only declarations");
 	assert.match(source, /function shortModel\(model: string \| undefined\)[\s\S]*?function thinkingSuffix\(rawThinking: string \| undefined\)[\s\S]*?function modelWithThinking\(def: AgentDef\)/, "composition root owns the shared model presentation helpers");
-	assert.match(source, /createGridUI\(\{[\s\S]*?getWidgetContext/, "grid remains a no-op widget refresh");
+	assert.match(source, /createGridUI\(\{[\s\S]*?getWidgetContext[\s\S]*?getRows:/, "grid consumes the shared source");
 	assert.doesNotMatch(gridSource, /function (?:shortModel|thinkingSuffix|modelWithThinking)\(/, "grid does not duplicate shared presentation semantics");
 	assert.match(source, /import \{[\s\S]*?abbreviateModel,[\s\S]*?\} from "\.\.\/lib\/coms-core\.ts"/, "coms model abbreviation remains separate");
 	// confirmation window is owned by the pure controller
 	const dash = readFileSync(new URL("../lib/fleet-dashboard-view.ts", import.meta.url), "utf8");
-	assert.match(dash, /until: now \+ 2000/);
+	const ops = readFileSync(new URL("../lib/fleet-dashboard-ops.ts", import.meta.url), "utf8");
+	assert.match(ops, /until: now \+ 2000/);
 });
 
 test("task lifecycle closes at agent_end and task-reset mutations are auditable", () => {
@@ -135,6 +140,7 @@ test("shortcuts, command, footer, and pool use the separate fleet flow", () => {
 	assert.match(poolSource, /const peerInputs[\s\S]*?pending: true/);
 	assert.match(poolSource, /const render[\s\S]*?buildFleetRows\([\s\S]*?peers: peerInputs\(\)/);
 	assert.doesNotMatch(poolSource, /const render[\s\S]*?staleCount.*>= 3/);
-	assert.match(dashboardSource, /function fleetRows\(unfiltered = false\)[\s\S]*?Array\.from\(deps\.getAgents\(\)\.entries\(\)\)\.map\(\(\[key, state\]\)[\s\S]*?deps\.getPeerInputs\(model => `⇄ \$\{deps\.abbreviatePeerModel\(model\)\}`\)[\s\S]*?return buildFleetRows/);
+	assert.match(dashboardSource, /function fleetRows\(unfiltered = false, now = Date\.now\(\)\)[\s\S]*?deps\.getFleetRows\(now, unfiltered\)/);
+	assert.match(source, /createFleetSource\(\{[\s\S]*?getPeerCards:[\s\S]*?getPendingReplies:/);
 	assert.match(dashboardSource, /dashboardTransition\(/);
 });

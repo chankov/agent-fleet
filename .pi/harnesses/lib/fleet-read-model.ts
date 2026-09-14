@@ -1,5 +1,6 @@
 export type FleetKind = "specialist" | "research" | "delegate" | "peer";
 export type FleetStatus = "idle" | "running" | "done" | "error" | "pending" | "stale";
+export type FleetTimingKind = "run" | "wait" | "unknown";
 
 export interface FleetRow {
 	key: string;
@@ -14,21 +15,29 @@ export interface FleetRow {
 	contextTokens: number | null;
 	elapsed: number;
 	startedAt?: number;
+	endedAt?: number;
+	timingKind?: FleetTimingKind;
+	runToken?: string;
+	aliasKeys?: readonly string[];
+	peerPresence?: "present" | "pending" | "stale";
 	toolCount: number | null;
 	lastWork: string;
 	hasTimeline: boolean;
 	colorHex?: string;
+	lastAtDepth?: readonly boolean[];
+	/** Included only to preserve the path to an eligible descendant. */
+	structuralOnly?: boolean;
 }
 
-export interface DelegateInput extends Omit<FleetRow, "kind" | "parentKey" | "depth" | "backend" | "hasTimeline"> {
+export interface DelegateInput extends Omit<FleetRow, "kind" | "parentKey" | "depth" | "backend" | "hasTimeline" | "lastAtDepth" | "structuralOnly"> {
 	children?: readonly DelegateInput[];
 }
-export interface SpecialistInput extends Omit<FleetRow, "kind" | "parentKey" | "depth"> {
+export interface SpecialistInput extends Omit<FleetRow, "kind" | "parentKey" | "depth" | "lastAtDepth" | "structuralOnly"> {
 	delegates?: readonly DelegateInput[];
 }
-export interface ResearchInput extends Omit<FleetRow, "kind" | "parentKey" | "depth"> {}
-export interface PeerInput extends Omit<FleetRow, "kind" | "parentKey" | "depth" | "backend" | "hasTimeline" | "status" | "contextPct" | "contextTokens" | "toolCount" | "elapsed"> {
-	/** Registry-only entries have not answered a ping. */
+export interface ResearchInput extends Omit<FleetRow, "kind" | "parentKey" | "depth" | "lastAtDepth" | "structuralOnly"> {}
+export interface PeerInput extends Omit<FleetRow, "kind" | "parentKey" | "depth" | "backend" | "hasTimeline" | "status" | "contextPct" | "contextTokens" | "toolCount" | "elapsed" | "lastAtDepth" | "structuralOnly"> {
+	/** Registry-only entries have not answered a ping; this is presence, not a task queue. */
 	pending?: boolean;
 	staleCount?: number;
 	status?: FleetStatus;
@@ -40,16 +49,16 @@ export interface FleetSource {
 	peers: readonly PeerInput[];
 }
 export interface FleetFilter { showFinished: boolean; query?: string; }
+export interface WidgetSelectionPin { key: string; runToken?: string; }
 
 /** Convert an authoritative run interval into row timing without re-anchoring completed work. */
-export function fleetTiming(interval: { startedAt: number; endedAt: number | null } | undefined, now = Date.now()): Pick<FleetRow, "startedAt" | "elapsed"> {
-	if (!interval) return { startedAt: undefined, elapsed: 0 };
+export function fleetTiming(interval: { startedAt: number; endedAt: number | null } | undefined, now = Date.now()): Pick<FleetRow, "startedAt" | "endedAt" | "elapsed" | "timingKind"> {
+	if (!interval) return { startedAt: undefined, endedAt: undefined, elapsed: 0, timingKind: "unknown" };
 	const endedAt = interval.endedAt ?? now;
-	return { startedAt: interval.startedAt, elapsed: Math.max(0, endedAt - interval.startedAt) };
+	return { startedAt: interval.startedAt, endedAt: interval.endedAt ?? undefined, elapsed: Math.max(0, endedAt - interval.startedAt), timingKind: "run" };
 }
 
 const statusOrder: Record<FleetStatus, number> = { running: 0, pending: 1, error: 2, done: 3, idle: 3, stale: 3 };
-// A roster member is idle until dispatched, not finished; keep it visible by default.
 const hiddenWhenFinished = new Set<FleetStatus>(["done", "stale"]);
 
 function compareRows(a: FleetRow, b: FleetRow): number {
@@ -63,6 +72,27 @@ function matches(row: FleetRow, query: string): boolean {
 }
 
 interface FleetNode { row: FleetRow; children: FleetNode[]; }
+
+/** Add branch metadata after filtering, preserving the supplied pre-order. */
+export function withTreeMetadata(rows: readonly FleetRow[]): FleetRow[] {
+	const included = new Set(rows.map(row => row.key));
+	const children = new Map<string | undefined, FleetRow[]>();
+	for (const row of rows) {
+		const parent = row.parentKey && included.has(row.parentKey) ? row.parentKey : undefined;
+		const list = children.get(parent) ?? [];
+		list.push(row);
+		children.set(parent, list);
+	}
+	const out: FleetRow[] = [];
+	const emit = (row: FleetRow, path: readonly boolean[]) => {
+		out.push({ ...row, depth: path.length, parentKey: row.parentKey && included.has(row.parentKey) ? row.parentKey : undefined, lastAtDepth: path });
+		const nested = children.get(row.key) ?? [];
+		nested.forEach((child, index) => emit(child, [...path, index === nested.length - 1]));
+	};
+	const roots = children.get(undefined) ?? [];
+	roots.forEach(row => emit(row, []));
+	return out;
+}
 
 /** Collapse local specialists, delegate trees, research, and coms peers into stable display rows. */
 export function buildFleetRows(src: FleetSource, filter: FleetFilter): FleetRow[] {
@@ -78,8 +108,9 @@ export function buildFleetRows(src: FleetSource, filter: FleetFilter): FleetRow[
 	});
 	for (const input of src.research) roots.push({ row: { ...input, kind: "research", depth: 0 }, children: [] });
 	for (const input of src.peers) {
-		const status: FleetStatus = input.pending ? "pending" : (input.staleCount ?? 0) >= 3 ? "stale" : (input.status ?? "idle");
-		roots.push({ row: { ...input, kind: "peer", depth: 0, status, backend: "coms", contextPct: null, contextTokens: null, toolCount: null, elapsed: input.elapsed ?? 0, hasTimeline: false }, children: [] });
+		const stale = (input.staleCount ?? 0) >= 3;
+		const status: FleetStatus = input.status ?? (input.pending ? "pending" : stale ? "stale" : "idle");
+		roots.push({ row: { ...input, kind: "peer", depth: 0, status, backend: "coms", contextPct: null, contextTokens: null, toolCount: null, elapsed: input.elapsed ?? 0, timingKind: input.timingKind ?? "unknown", peerPresence: input.peerPresence ?? (input.pending ? "pending" : stale ? "stale" : "present"), hasTimeline: false }, children: [] });
 	}
 	roots.sort((a, b) => compareRows(a.row, b.row));
 	const visible = (node: FleetNode): boolean => {
@@ -89,34 +120,85 @@ export function buildFleetRows(src: FleetSource, filter: FleetFilter): FleetRow[
 		return own || children.length > 0;
 	};
 	const out: FleetRow[] = [];
-	const emit = (node: FleetNode) => {
-		out.push(node.row);
-		for (const child of node.children) emit(child);
-	};
+	const emit = (node: FleetNode) => { out.push(node.row); for (const child of node.children) emit(child); };
 	for (const root of roots) if (visible(root)) emit(root);
-	return out;
+	return withTreeMetadata(out);
+}
+
+/** Select widget rows using a single snapshot clock and exact terminal retention. */
+export function selectWidgetRows(rows: readonly FleetRow[], now: number, pin?: WidgetSelectionPin): FleetRow[] {
+	const byKey = new Map(rows.map(row => [row.key, row]));
+	const include = new Set<string>();
+	for (const row of rows) {
+		const activeTask = row.kind !== "peer" && (row.status === "running" || row.status === "pending");
+		const activePeer = row.kind === "peer" && row.status === "running";
+		const retained = row.kind !== "peer" && (row.status === "done" || row.status === "error") && row.endedAt != null && now < row.endedAt + 10_000;
+		const pinned = !!pin && row.key === pin.key && (row.status === "done" || row.status === "error") && row.runToken === pin.runToken;
+		if (activeTask || activePeer || retained || pinned) include.add(row.key);
+	}
+	for (const key of [...include]) {
+		let row = byKey.get(key);
+		const seen = new Set<string>();
+		while (row?.parentKey && !seen.has(row.parentKey)) {
+			seen.add(row.parentKey); include.add(row.parentKey); row = byKey.get(row.parentKey);
+		}
+	}
+	return withTreeMetadata(rows.filter(row => include.has(row.key)).map(row => ({ ...row, structuralOnly: !(
+		(row.kind !== "peer" && (row.status === "running" || row.status === "pending")) ||
+		(row.kind === "peer" && row.status === "running") ||
+		(row.kind !== "peer" && (row.status === "done" || row.status === "error") && row.endedAt != null && now < row.endedAt + 10_000) ||
+		(!!pin && row.key === pin.key && row.runToken === pin.runToken)
+	) })));
 }
 
 /** Total covered length of possibly overlapping intervals. */
 export function unionMs(intervals: readonly [number, number][]): number {
 	if (intervals.length === 0) return 0;
 	const sorted = intervals.slice().sort((a, b) => a[0] - b[0]);
-	let total = 0;
-	let start = sorted[0][0];
-	let end = sorted[0][1];
+	let total = 0, start = sorted[0][0], end = sorted[0][1];
 	for (let i = 1; i < sorted.length; i++) {
 		const [nextStart, nextEnd] = sorted[i];
-		if (nextStart > end) {
-			total += end - start;
-			[start, end] = [nextStart, nextEnd];
-		} else if (nextEnd > end) {
-			end = nextEnd;
-		}
+		if (nextStart > end) { total += end - start; [start, end] = [nextStart, nextEnd]; }
+		else if (nextEnd > end) end = nextEnd;
 	}
 	return total + end - start;
 }
 
-/** Aggregate visible rows; callers use unionMs(intervals) for overlap-aware wall time. */
+export interface StripSummary {
+	running: number;
+	peerActive: number;
+	done: number;
+	failed: number;
+	contextMax: number | null;
+	contextKnown: number;
+	contextTotal: number;
+	wallMs: number;
+	wallKnown: number;
+	wallTotal: number;
+}
+
+/** Aggregate the whole eligible widget set, excluding peer waits and structural context. */
+export function summariseWidget(rows: readonly FleetRow[]): StripSummary {
+	let running = 0, peerActive = 0, done = 0, failed = 0, contextMax: number | null = null, contextKnown = 0, contextTotal = 0, wallKnown = 0, wallTotal = 0;
+	const intervals: Array<[number, number]> = [];
+	for (const row of rows) {
+		if (row.structuralOnly) continue;
+		if (row.kind === "peer") { if (row.status === "running") peerActive++; continue; }
+		if (row.status === "running") {
+			running++; contextTotal++;
+			if (row.contextPct != null && Number.isFinite(row.contextPct)) { contextKnown++; contextMax = Math.max(contextMax ?? -Infinity, row.contextPct); }
+		}
+		if (row.status === "done") done++;
+		if (row.status === "error") failed++;
+		if (["running", "done", "error"].includes(row.status)) {
+			wallTotal++;
+			if (row.timingKind === "run" && row.startedAt != null) { wallKnown++; intervals.push([row.startedAt, row.endedAt ?? row.startedAt + Math.max(0, row.elapsed)]); }
+		}
+	}
+	return { running, peerActive, done, failed, contextMax, contextKnown, contextTotal, wallMs: unionMs(intervals), wallKnown, wallTotal };
+}
+
+/** Backward-compatible dashboard aggregate. */
 export function summarise(rows: readonly FleetRow[]): { running: number; done: number; failed: number; totalTokens: number; intervals: Array<[number, number]> } {
 	const intervals: Array<[number, number]> = [];
 	let running = 0, done = 0, failed = 0, totalTokens = 0;
@@ -125,7 +207,7 @@ export function summarise(rows: readonly FleetRow[]): { running: number; done: n
 		if (row.status === "done") done++;
 		if (row.status === "error") failed++;
 		if (row.contextTokens != null) totalTokens += row.contextTokens;
-		if (row.startedAt != null) intervals.push([row.startedAt, row.startedAt + Math.max(0, row.elapsed)]);
+		if (row.timingKind !== "wait" && row.startedAt != null) intervals.push([row.startedAt, row.endedAt ?? row.startedAt + Math.max(0, row.elapsed)]);
 	}
 	return { running, done, failed, totalTokens, intervals };
 }
