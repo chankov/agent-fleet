@@ -8,7 +8,7 @@ models:
   - openai-codex/gpt-5.6-terra
   - ollama/minimax-m3:cloud
   - ollama/nemotron-3-ultra:cloud
-  - custom/Qwen3.8-27B-Uncensored-MLX-4bit
+  - omlx/Qwen3.6-35B-A3B-4bit
 color: orange
 skills:
   - bowser
