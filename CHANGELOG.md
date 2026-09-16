@@ -1,5 +1,16 @@
 # Agent Fleet changelog
 
+## 2.0.10
+
+### Patch Changes
+
+- 1c5488a: Run local TypeScript diagnostics once after successful writable native dispatches and conservatively demote current-dispatch proof claims when changed-file compiler errors contradict them.
+- 12608f1: Fix package-internal Pi skill collisions by discovering only unshadowed upstream skills alongside Fleet-native skills, preserving the full skill catalog.
+- a07cf09: Accept and preserve canonical nested voice STT configuration, distinguish installer aliases from runtime provider types, and require prepared provider settings instead of guessing them.
+- 7077fc4: Fix compiler diagnostic path attribution through symlinked worktrees, including macOS temporary directories. Make diagnostics tests independent of `/tmp` and the installed TypeScript version.
+
+  Prevent release-blocking false positives by parsing actual import syntax instead of fixture text and checking untracked source files before commit. Run the shared Linux/macOS validation matrix on pull requests with read-only permissions, plus alternate-temp-directory regressions; reserve publishing permissions for validated main-branch releases.
+
 ## 2.0.9
 
 ### Patch Changes
