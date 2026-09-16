@@ -6,6 +6,7 @@ import {
 	mkdirSync,
 	openSync,
 	readFileSync,
+	realpathSync,
 	unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -209,11 +210,20 @@ export function parseCompilerOutput(output: string, cwd = process.cwd()): Diagno
 	return diagnostics;
 }
 
+function canonicalPath(path: string): string {
+	try { return realpathSync(path); } catch { return resolve(path); }
+}
+
 function normalizeEvidencePath(file: string, cwd: string): string {
-	const normalized = file.replace(/\\/g, "/");
-	if (!isAbsolute(file)) return normalized.replace(/^\.\//, "");
-	const rel = relative(cwd, file).replace(/\\/g, "/");
-	return rel.startsWith("../") ? normalized : rel;
+	// A child process observes the physical cwd, even when the supplied worktree
+	// uses a symlink (macOS /var -> /private/var). tsc may print ../alias/src/a.ts.
+	// Resolve both spellings before grouping, otherwise changed errors become
+	// incorrectly classified as downstream errors and evade contract correction.
+	const root = canonicalPath(cwd);
+	const absolute = canonicalPath(resolve(root, file));
+	const rel = relative(root, absolute).replace(/\\/g, "/");
+	if (rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel)) return rel;
+	return file.replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
 /** Group for display without discarding downstream or global diagnostics. */

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -57,7 +57,8 @@ test("build-info cache leases isolate concurrent runs and preserve the warm lane
 	const otherVersion = acquireBuildInfoCache({ ...input, compilerVersion: "5.8.0", runId: "run-3" });
 	assert.notEqual(concurrent.file, first.file);
 	assert.notEqual(otherVersion.file, first.file);
-	assert.match(first.file, /^\/tmp\//);
+	const cacheRelative = relative(cacheRoot, first.file);
+	assert.ok(!isAbsolute(cacheRelative) && !cacheRelative.startsWith(".."), first.file);
 	first.release();
 	const warm = acquireBuildInfoCache({ ...input, runId: "run-3" });
 	assert.equal(warm.file, first.file);
@@ -306,4 +307,19 @@ test("formatAdvisory bounds display while preserving the result diagnostics", ()
 	assert.match(advisory, /Compiler errors/);
 	assert.match(advisory, /12 more diagnostics omitted|2 more diagnostics omitted/);
 	assert.ok(advisory.split("\n").length <= 25, advisory);
+});
+
+test("real compiler through symlinked worktree keeps changed and downstream paths root-relative", async t => {
+ const root = projectFixture();
+ const holder = mkdtempSync(join(tmpdir(), "af-diagnostics-alias-"));
+ const alias = join(holder, "linked-project");
+ symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
+ t.after(() => { rmSync(holder, { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); });
+ writeFileSync(join(root, "src/api.ts"), "export const value: number = 'broken';\n");
+ writeFileSync(join(root, "src/consumer.ts"), "import {value} from './api.js'; const text: string = value;\n");
+ const result = await diagnoseChangedTypeScript(["src/api.ts"], { cwd: alias, cacheRoot: join(holder, "cache") }, { findGitRoot: () => alias });
+ assert.equal(result.projects[0].status, "errors");
+ const groups = groupDiagnostics(result.projects[0].diagnostics, result.changedFiles);
+ assert.ok(groups.inChangedFiles.some(d => d.file === "src/api.ts" && d.code === 2322), JSON.stringify(result));
+ assert.ok(groups.elsewhere.some(d => d.file === "src/consumer.ts" && d.code === 2322), JSON.stringify(result));
 });

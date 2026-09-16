@@ -100,6 +100,36 @@ a `.changeset/<random-name>.md` file — commit that alongside your change.
 > where the version number is itself the signal (a removed runtime, a retired
 > command, an install-record break).
 
+### Pre-merge release checks
+
+Run these checks before committing, including when new files are still untracked:
+
+```bash
+npm test
+npm run test:portability
+npm run check:manifest
+npm run pack:dry
+git diff --check
+```
+
+The source-path guard includes non-ignored untracked files and parses import
+syntax rather than matching import-looking fixture strings. Temporary-directory
+checks use `os.tmpdir()` and a second, non-default temp root; real-compiler
+regressions also exercise symlinked worktrees (including macOS path aliases).
+
+The Release workflow runs the same Linux/macOS validation on pull requests and
+main. PR jobs have read-only permissions and cannot publish. Publishing runs only
+on main after both validation jobs pass. Repository administrators should make
+`Installer (ubuntu-latest)` and `Installer (macos-latest)` required status checks
+for main and require PRs; workflow files alone do not prevent direct pushes or
+merging failed checks. This change does not configure repository protection.
+
+GitHub suppresses most workflow events created using `GITHUB_TOKEN`, including
+PRs created by the changesets job. If checks are required, explicitly dispatch
+this workflow on `changeset-release/main` for that PR (the publish job is skipped
+on that branch), or separately configure an approved GitHub App authentication
+flow. Do not grant publishing privileges to PR validation to work around this.
+
 ### Release flow
 
 1. PRs merge to `main` with their changeset files.

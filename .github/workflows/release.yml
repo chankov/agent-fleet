@@ -3,15 +3,16 @@ name: Release
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 # Only one release run at a time so the "Version Packages" PR stays sane.
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
+# PR code receives read-only permissions; publishing authority is job-local.
 permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+  contents: read
 
 jobs:
   installer-matrix:
@@ -24,6 +25,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -34,12 +37,21 @@ jobs:
       - name: Full suite (includes packed installer and narrow PTY)
         timeout-minutes: 10
         run: npm test
+      - name: Portability regressions (non-default temp root and symlink paths)
+        run: npm run test:portability
+      - name: Verify generated manifest
+        run: npm run check:manifest
       - name: Verify package contents
         run: npm run pack:dry
 
   release:
     name: Release
     needs: installer-matrix
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:

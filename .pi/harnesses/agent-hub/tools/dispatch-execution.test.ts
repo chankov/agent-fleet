@@ -4,7 +4,7 @@ import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { createDispatchExecutor, createResearchExecutor, prepareDispatch } from "./dispatch-execution.ts";
 
 function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?: number; tools?: string } = {}) {
@@ -520,9 +520,15 @@ test("real native executor finishDispatch times workflows compiler and demotes o
  assert.equal(cold.details.compilerDiagnostics?.status, "completed", JSON.stringify(cold.details.compilerDiagnostics, null, 2));
  assert.equal(cold.project?.status, "passed", JSON.stringify(cold.details.compilerDiagnostics, null, 2));
  assert.equal(cold.project.exitCode, 0);
- assert.equal(cold.project.compilerVersion, "5.9.3");
+ const compilerVersion = JSON.parse(readFileSync(join(repo, "node_modules/typescript/package.json"), "utf8")).version;
+ assert.equal(cold.project.compilerVersion, compilerVersion);
  assert.ok(cold.project.argv.includes("--noEmit") && cold.project.argv.includes("--incremental"));
- assert.match(cold.project.argv.at(-1), /\/tmp\/agent-fleet-diagnostics\/.+\/typescript-5\.9\.3\/checkpoint-timer\.tsbuildinfo/);
+ const cacheParts = relative(join(tmpdir(), "agent-fleet-diagnostics"), cold.project.argv.at(-1)).split(sep);
+ assert.equal(cacheParts.length, 4);
+ assert.match(cacheParts[0], /^[a-f0-9]{16}$/);
+ assert.match(cacheParts[1], /^[a-f0-9]{16}$/);
+ assert.equal(cacheParts[2], `typescript-${compilerVersion}`);
+ assert.equal(cacheParts[3], "checkpoint-timer.tsbuildinfo");
  assert.match(String(cold.project.argv), /scripts\/workflows\/tsconfig\.json/);
  const warm = await run("warm", () => writeFileSync(target, Buffer.concat([original, Buffer.from("\n// finish-path-warm\n")])), "assertions_proven: [A1: clean — evidence: comment]\nassertions_unproven: []\nassertions_failed: []");
  assert.equal(warm.project.status, "passed");

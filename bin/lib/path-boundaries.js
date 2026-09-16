@@ -32,19 +32,18 @@ export const MOVED_TO = Object.freeze({
   agents: ".pi/agents/personas",
 });
 
-const SPECIFIER = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*["'](\.\.?\/[^"']+)["']|new URL\(\s*["'](\.\.?[^"']*)["']/g;
-
 /**
- * Relative specifiers in `source` that do not resolve to a file on disk.
+ * Syntax-extracted relative specifiers that do not resolve to a file on disk.
+ * Parsing is supplied by the test-only caller so the installer does not acquire
+ * a TypeScript runtime dependency. Do not regex-scan source/fixture text here.
  *
  * `.js` is accepted for a `.ts` file: that is the NodeNext spelling the
  * harnesses already use, and Node strips types at runtime.
  */
-export function unresolvedSpecifiers({ root, file, source }) {
+export function unresolvedSpecifiers({ root, file, specifiers }) {
   const dir = dirname(join(root, file));
   const out = [];
-  for (const match of source.matchAll(SPECIFIER)) {
-    const spec = match[1] ?? match[2];
+  for (const spec of specifiers) {
     const target = resolve(dir, spec);
     if (existsSync(target)) continue;
     if (target.endsWith(".js") && existsSync(`${target.slice(0, -3)}.ts`)) continue;

@@ -25,11 +25,11 @@ import {
 } from "../lib/path-boundaries.js";
 import { walkTree } from "../lib/state.js";
 import { pruneEmptyDirs } from "../lib/apply.js";
+import { relativeSpecifiers, workspaceFiles } from "./helpers/source-boundaries.js";
 import { RUNTIME_DEPENDENCY_ROOTS } from "../../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
-  .split("\0").filter(Boolean);
+const tracked = workspaceFiles(root);
 
 const SOURCE_ROOTS = ["bin/", ".pi/", "skills/"];
 const sourceFiles = tracked.filter((f) =>
@@ -47,7 +47,7 @@ test("every relative import resolves — nothing points at a moved directory", (
   const broken = [];
   for (const file of sourceFiles) {
     const source = readFileSync(join(root, file), "utf8");
-    for (const hit of unresolvedSpecifiers({ root, file, source })) {
+    for (const hit of unresolvedSpecifiers({ root, file, source, specifiers: relativeSpecifiers(source, file) })) {
       if (EXPECTED_ABSENT.has(`${file}::${hit.specifier}`)) continue;
       broken.push(`${hit.file}: ${hit.specifier} → ${hit.resolved}`);
     }
@@ -159,4 +159,43 @@ test("a directory the user still owns survives the prune", () => {
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
+});
+
+test("import guard ignores fixture strings/comments but checks executable template expressions", () => {
+  const source = [
+    `// import './comment.js';`,
+    `/* export * from './block.js'; */`,
+    `const fixture = "import { value } from './api.js';";`,
+    "const template = `require('./fixture.js'); import './template.js';`;",
+    "const expression = `${import('./real-dynamic.js')}`;",
+    `import './real-side-effect.js';`,
+    `export * from './real-export.js';`,
+    `import value from './real-static.js';`,
+    "require(`./real-require.js`);",
+    `new URL('./real-resource.json', import.meta.url);`,
+    `type T = import('./real-type.ts').T;`,
+    `import legacy = require('./real-legacy.cjs');`,
+  ].join('\n');
+  const specifiers = relativeSpecifiers(source, 'fixture.ts');
+  assert.deepEqual(specifiers, [
+    './real-dynamic.js', './real-side-effect.js', './real-export.js',
+    './real-static.js', './real-require.js', './real-resource.json',
+    './real-type.ts', './real-legacy.cjs',
+  ]);
+  assert.deepEqual(unresolvedSpecifiers({ root, file: 'fixture.ts', source, specifiers }).map(hit => hit.specifier), specifiers);
+});
+
+test("source inventory includes untracked files before commit and omits ignored/deleted files", t => {
+  const dir = mkdtempSync(join(tmpdir(), 'af-source-inventory-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  writeFileSync(join(dir, '.gitignore'), 'ignored.js\n');
+  writeFileSync(join(dir, 'tracked.js'), 'export {};');
+  execFileSync('git', ['add', '.'], { cwd: dir });
+  rmSync(join(dir, 'tracked.js'));
+  writeFileSync(join(dir, 'new.js'), "import './missing.js';");
+  writeFileSync(join(dir, 'ignored.js'), 'not source');
+  assert.deepEqual(workspaceFiles(dir).sort(), ['.gitignore', 'new.js']);
+  const source = readFileSync(join(dir, 'new.js'), 'utf8');
+  assert.equal(unresolvedSpecifiers({ root: dir, file: 'new.js', source, specifiers: relativeSpecifiers(source, 'new.js') })[0].specifier, './missing.js');
 });
