@@ -139,6 +139,54 @@ function startRpcProbe(
 	return { request, activeTools, notificationAfter, waitForNotification, close };
 }
 
+type JsonReadinessState = {
+	state: "missing" | "read" | "parse";
+	error: string;
+	length?: number;
+};
+
+async function waitForValidJson<T>(
+	capturePath: string,
+	profile: string,
+	deadline: number,
+	options: { pollMs?: number; onRetry?: (state: JsonReadinessState) => void | Promise<void> } = {},
+): Promise<T> {
+	const pollMs = options.pollMs ?? 20;
+	let lastState: JsonReadinessState = { state: "missing", error: "not attempted" };
+	for (;;) {
+		let contents: string;
+		try {
+			contents = readFileSync(capturePath, "utf8");
+		} catch (error) {
+			if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "string") throw error;
+			const code = error.code;
+			if (!new Set(["ENOENT", "EACCES", "EBUSY", "EPERM"]).has(code)) throw error;
+			lastState = {
+				state: code === "ENOENT" ? "missing" : "read",
+				error: `${error.name}:${code}`,
+			};
+			if (Date.now() >= deadline) {
+				assert.fail(`${profile} capture JSON was not ready at ${capturePath}; last read/parse state=${lastState.state} error=${lastState.error} length=unavailable`);
+			}
+			await options.onRetry?.(lastState);
+			await new Promise(resolve => setTimeout(resolve, pollMs));
+			continue;
+		}
+
+		try {
+			return JSON.parse(contents) as T;
+		} catch (error) {
+			if (!(error instanceof SyntaxError)) throw error;
+			lastState = { state: "parse", error: error.name, length: contents.length };
+			if (Date.now() >= deadline) {
+				assert.fail(`${profile} capture JSON was not ready at ${capturePath}; last read/parse state=${lastState.state} error=${lastState.error} length=${lastState.length}`);
+			}
+			await options.onRetry?.(lastState);
+			await new Promise(resolve => setTimeout(resolve, pollMs));
+		}
+	}
+}
+
 test("Pi loads the guarded agent-hub extension stack through jiti", () => {
 	assertExtensionStackLoaded(runExtensionStack(repoRoot));
 });
@@ -170,6 +218,56 @@ export default function (pi) {
 			const tool = selected.find((entry: any) => entry.name === name);
 			assert.deepEqual(Object.keys(tool.parameters.properties), fields, `${name} accepted fields`);
 		}
+	} finally {
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
+test("capture JSON waits through missing, empty, and partial states until valid", async () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-capture-json-"));
+	const capturePath = join(workspace, "profile-budget.json");
+	const observed: Array<{ state: string; length?: number }> = [];
+	try {
+		const measured = await waitForValidJson<{ ready: boolean }>(capturePath, "regression-profile", Date.now() + 1_000, {
+			pollMs: 1,
+			onRetry(state) {
+				observed.push(state);
+				if (state.state === "missing") writeFileSync(capturePath, "");
+				else if (state.state === "parse" && state.length === 0) writeFileSync(capturePath, '{"ready":');
+				else if (state.state === "parse") writeFileSync(capturePath, '{"ready":true}');
+			},
+		});
+
+		assert.deepEqual(measured, { ready: true });
+		assert.deepEqual(observed.map(state => [state.state, state.length]), [
+			["missing", undefined],
+			["parse", 0],
+			["parse", 9],
+		]);
+	} finally {
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
+test("capture JSON times out with bounded diagnostics for persistent malformed data", async () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-capture-json-timeout-"));
+	const capturePath = join(workspace, "profile-budget.json");
+	const secretPayload = '{"private":"do-not-dump"';
+	try {
+		writeFileSync(capturePath, secretPayload);
+		await assert.rejects(
+			waitForValidJson(capturePath, "malformed-profile", Date.now() + 20, { pollMs: 1 }),
+			(error: unknown) => {
+				assert.ok(error instanceof Error);
+				assert.match(error.message, /malformed-profile/);
+				assert.ok(error.message.includes(capturePath));
+				assert.match(error.message, /state=parse/);
+				assert.match(error.message, /error=SyntaxError/);
+				assert.match(error.message, new RegExp(`length=${secretPayload.length}\\b`));
+				assert.ok(!error.message.includes("do-not-dump"));
+				return true;
+			},
+		);
 	} finally {
 		rmSync(workspace, { recursive: true, force: true });
 	}
@@ -237,11 +335,12 @@ test("effective Hub profiles stay within deterministic prompt plus active-schema
 			const promptResponse = await rpc.request({ type: "prompt", message: profile.message });
 			assert.equal(promptResponse.success, true, `${profile.name}: ${JSON.stringify(promptResponse)}`);
 			const captureDeadline = Date.now() + 10_000;
-			while (!existsSync(capturePath)) {
-				if (Date.now() >= captureDeadline) assert.fail(`${profile.name} provider context was not captured`);
-				await new Promise(resolve => setTimeout(resolve, 20));
-			}
-			const measured = JSON.parse(readFileSync(capturePath, "utf8"));
+			const measured = await waitForValidJson<{ promptChars: number; schemaChars: number; active: string[] }>(
+				capturePath,
+				profile.name,
+				captureDeadline,
+				{ pollMs: 20 },
+			);
 			assert.ok(measured.promptChars > 0, `${profile.name} must expose its effective replacement prompt`);
 			assert.ok(measured.promptChars + measured.schemaChars <= profile.maxChars,
 				`${profile.name} effective chars=${measured.promptChars + measured.schemaChars} > ${profile.maxChars}`);
