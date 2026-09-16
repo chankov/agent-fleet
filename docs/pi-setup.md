@@ -69,6 +69,22 @@ Harness-only composition (package-native skills/prompts plus copied harnesses)
 is supported. The package bundles `pi-ask-user`; copied plain-pi installations
 need their own compatible `pi-ask-user` source.
 
+Within the package, Pi discovery is explicitly native-first: it loads the
+complete Fleet-native `skills/` root and only the individual vendored skill
+directories that have no native winner. Maintainers must keep those
+upstream-only `package.json` declarations aligned with the manifest-derived
+winner set whenever skills are imported, customized, or retired, then run
+`node --test bin/test/pi-skill-discovery.test.js` and
+`npm run check:manifest`. See [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) for the
+procedure.
+
+This prevents collisions between Fleet's native and vendored copies, not
+collisions with independently installed packages. Fleet retains the upstream
+`test-driven-development` skill, so another package that exports that name
+(such as Superpowers) can still conflict; resolve that external overlap by
+choosing which package should provide the skill rather than removing it from
+Fleet's catalog.
+
 ## Project-owned configuration
 
 `.ai/agent-fleet-overrides.md` is minimal committed project configuration;

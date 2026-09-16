@@ -26,6 +26,13 @@ in `skills/` wins**. Install/setup tooling must resolve `skills/` first and
 only fall back to `vendor/agent-skills-upstream/skills/` for names not
 shadowed locally.
 
+Pi package discovery makes that precedence explicit: `package.json` declares
+the complete native `./skills` root, followed by individual directories only
+for upstream-only winners. It does not recursively expose both complete roots,
+which would make Pi discover the shadowed copies as duplicate skill names. The
+explicit upstream-only entries are derived from the native-first install
+manifest; they are declarations to maintain, not a separate source of truth.
+
 Two kinds of native skills exist:
 
 - **Fleet-original skills** with no upstream counterpart:
@@ -56,9 +63,11 @@ Two kinds of native skills exist:
   re-import.
 - To customize an upstream skill, copy it into `skills/<name>/` and edit
   there; the native copy shadows the vendored one. Document why in the skill
-  or in this file.
+  or in this file, remove that skill's explicit vendor directory from
+  `package.json` `pi.skills`, and run the discovery test below.
 - To retire a customization, delete `skills/<name>/`; the vendored version
-  becomes active again.
+  becomes active again. Add its explicit vendor directory to `package.json`
+  `pi.skills` and run the discovery test below.
 
 ## Update procedure
 
@@ -71,9 +80,23 @@ Upstream updates are explicit maintainer actions, never automatic merges:
    native copy (`diff -r skills/<name> vendor/agent-skills-upstream/skills/<name>`)
    and manually merge upstream improvements worth keeping into the native
    copy.
-4. Update the "Current import" table above (commit SHA, date).
-5. Commit as a single `chore(vendor): update agent-skills-upstream to <sha>`
+4. Rebuild the manifest and refresh the explicit upstream-only directories in
+   `package.json` `pi.skills` whenever the native-first winner set changes.
+   Do not add the broad vendor skill root.
+5. Run `node --test bin/test/pi-skill-discovery.test.js` and
+   `npm run check:manifest`. The discovery regression derives expected
+   upstream-only declarations from `buildManifest()`, checks frontmatter names,
+   and rejects duplicate names or lost catalog winners.
+6. Update the "Current import" table above (commit SHA, date).
+7. Commit as a single `chore(vendor): update agent-skills-upstream to <sha>`
    commit.
+
+This package-level policy removes collisions between Fleet's own native and
+vendored copies. It cannot prevent a separately installed package from
+exporting the same skill name. In particular, Fleet intentionally retains the
+upstream `test-driven-development` skill; installing another provider such as
+Superpowers alongside Fleet may still produce an external collision that the
+user must resolve between those packages.
 
 Reference links inside a skill resolve from the **skill directory**, which at
 install time is `.pi/skills/<name>/`. A shared checklist is therefore

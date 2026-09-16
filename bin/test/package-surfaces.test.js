@@ -27,6 +27,8 @@ import { buildPlan } from "../lib/plan.js";
 import { applyPlan } from "../lib/apply.js";
 import { extractRegion } from "../lib/merge-forms.js";
 import { collectModelTargets } from "../lib/doctor.js";
+import { buildManifest } from "../lib/manifest.js";
+import { assertPiSkillDiscovery } from "./helpers/pi-skill-discovery.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -274,6 +276,16 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
     const extracted = join(fixture, "node_modules", "@chankov", "agent-fleet");
     mkdirSync(extracted, { recursive: true });
     execFileSync("tar", ["-xzf", tarball, "--strip-components=1", "-C", extracted]);
+    const extractedPackage = JSON.parse(readFileSync(join(extracted, "package.json"), "utf8"));
+    const extractedManifest = buildManifest({
+      sourceRoot: extracted,
+      packageVersion: extractedPackage.version,
+    });
+    assertPiSkillDiscovery({
+      packageRoot: extracted,
+      packageJson: extractedPackage,
+      manifest: extractedManifest,
+    });
     assert.equal(existsSync(join(extracted, "docs", "plans")), false, "local planning notes must not be packaged");
     const fakeBin = join(fixture, "bin");
     mkdirSync(fakeBin);

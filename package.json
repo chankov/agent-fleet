@@ -168,7 +168,16 @@
   "pi": {
     "skills": [
       "./skills",
-      "./vendor/agent-skills-upstream/skills",
+      "./vendor/agent-skills-upstream/skills/api-and-interface-design",
+      "./vendor/agent-skills-upstream/skills/ci-cd-and-automation",
+      "./vendor/agent-skills-upstream/skills/code-simplification",
+      "./vendor/agent-skills-upstream/skills/debugging-and-error-recovery",
+      "./vendor/agent-skills-upstream/skills/documentation-and-adrs",
+      "./vendor/agent-skills-upstream/skills/doubt-driven-development",
+      "./vendor/agent-skills-upstream/skills/observability-and-instrumentation",
+      "./vendor/agent-skills-upstream/skills/shipping-and-launch",
+      "./vendor/agent-skills-upstream/skills/source-driven-development",
+      "./vendor/agent-skills-upstream/skills/test-driven-development",
       "./.pi/skills",
       "./node_modules/pi-ask-user/skills"
     ],
