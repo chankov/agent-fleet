@@ -10,7 +10,8 @@ import { checkDocsLane, docsLaneNotice } from "../docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "../external-blocker.js";
 import type { BudgetRecovery } from "../budget-recovery.ts";
 import { checkScope, diffAgainst, snapshotWorktree } from "../scope-gate.js";
-import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "../return-contract.js";
+import { diagnoseChangedTypeScript, formatAdvisory, type DiagnosticsResult } from "../../lib/changed-file-diagnostics.ts";
+import { correctStructuredReturnForCompiler, crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "../return-contract.js";
 import { shouldExtractReturn } from "../return-extract.js";
 import { normalizeAgentInput, safeAgentKey, safePathWithin, taskFingerprint } from "../helpers.ts";
 import { MAX_AUTO_RESEARCH_QUESTIONS, MAX_AUTO_RESEARCH_ROUNDS, type ResearchAgentDef, type ResearchRuntime } from "../research/runtime.ts";
@@ -58,11 +59,13 @@ export interface DispatchExecutorDeps {
 	extractAskUserQuestions(output: string): string[];
 	contextPressure(percent: number): boolean;
 	displayName(name: string): string;
+	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
 interface PreparedDispatch { taskToken: object; contract: DeliverableContract; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; autoResearchTaskCapped: boolean; }
 interface Tracking { writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
+interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; concurrentWritableOverlap: boolean; }
 
 export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
 	const s = d.state;
@@ -140,7 +143,7 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
 		if (tracking.concurrentAtStart) s.setWritableOverlapCounter(s.getWritableOverlapCounter() + 1);
 		s.setActiveWritableDispatches(s.getActiveWritableDispatches() + 1);
-		if (prepared.scopeGlobs.length > 0) tracking.snapshot = snapshotWorktree(ctx.cwd || process.cwd());
+		tracking.snapshot = snapshotWorktree(ctx.cwd || process.cwd());
 	}
 	return tracking;
 }
@@ -168,36 +171,89 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 	return { result, billed, out, researchRounds, autoResearchTaskCapped };
 }
 
-function scopeResult(d: DispatchExecutorDeps, p: PreparedDispatch, tracking: Tracking, ctx: ExtensionContext): any {
-	if (!tracking.snapshot) return null; const diff = diffAgainst(tracking.snapshot, ctx.cwd || process.cwd());
+function observeWorktree(d: DispatchExecutorDeps, tracking: Tracking, ctx: ExtensionContext): WorktreeObservation | null {
+	if (!tracking.snapshot) return null;
+	const diff = diffAgainst(tracking.snapshot, ctx.cwd || process.cwd());
 	const concurrentWritableOverlap = tracking.concurrentAtStart || d.state.getWritableOverlapCounter() !== tracking.overlapBaseline;
-	if (diff.skipped) return { skipped: true, reason: diff.reason, declaredScope: p.scopeGlobs, concurrentWritableOverlap };
-	return { ...checkScope(diff.paths, p.scopeGlobs), changedPaths: diff.paths, declaredScope: p.scopeGlobs, concurrentWritableOverlap };
+	return diff.skipped
+		? { skipped: true, reason: diff.reason, paths: [], concurrentWritableOverlap }
+		: { skipped: false, paths: diff.paths, concurrentWritableOverlap };
+}
+
+function scopeResult(p: PreparedDispatch, observation: WorktreeObservation | null): any {
+	if (!observation || p.scopeGlobs.length === 0) return null;
+	if (observation.skipped) return { skipped: true, reason: observation.reason, declaredScope: p.scopeGlobs, concurrentWritableOverlap: observation.concurrentWritableOverlap };
+	return { ...checkScope(observation.paths, p.scopeGlobs), changedPaths: observation.paths, declaredScope: p.scopeGlobs, concurrentWritableOverlap: observation.concurrentWritableOverlap };
+}
+
+function incompleteObservation(reason: string, overlap: boolean): DiagnosticsResult {
+	return { status: "incomplete", reason, changedFiles: [], attribution: overlap ? "uncertain" : "no_observed_overlap", projects: [], uncoveredFiles: [] };
 }
 
 async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, run: RunData, tracking: Tracking, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<ToolExecutionResult> {
-	const s = d.state; const { result, researchRounds } = run;
-	const sameTask = p.taskToken === d.noProgress.taskToken() && p.sessionDir === s.getSessionDir(); const ids = extractAssertionIds(p.task); const disposition = deliveryDisposition(result.exitCode, result.pending === true);
-	let { parsed: parsedReturn, notices: contractNotices } = parseDeliveredReturn(result.output, ids, disposition.delivered); const shouldUseDigest = ids.length > 0 || !!parsedReturn;
-	const state = sameTask ? s.getAgentStates().get(p.agent.toLowerCase()) : undefined; const key = safeAgentKey(state?.def.name ?? p.agent);
+	const s = d.state; const { result, researchRounds } = run; const cwd = ctx.cwd || process.cwd();
+	const sameTaskNow = () => p.taskToken === d.noProgress.taskToken() && p.sessionDir === s.getSessionDir();
+	const ids = extractAssertionIds(p.task); const disposition = deliveryDisposition(result.exitCode, result.pending === true);
+	// Observe immediately at logical child completion, before Hub-owned artifacts are written.
+	const observation = tracking.writable ? observeWorktree(d, tracking, ctx) : null;
+	const deliveredReturn = parseDeliveredReturn(result.output, ids, disposition.delivered);
+	let parsedReturn: any = deliveredReturn.parsed; let contractNotices: any[] = deliveredReturn.notices;
+	const shouldUseDigest = ids.length > 0 || !!parsedReturn; const state = sameTaskNow() ? s.getAgentStates().get(p.agent.toLowerCase()) : undefined;
+	const key = safeAgentKey(state?.def.name ?? p.agent); const backendUsed = state?.lastBackend ?? null;
 	const failureMetadata = { dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null,
 		agent: p.agent, task: p.task, scope: p.scopeGlobs, exitCode: result.exitCode, diagnostics: result.diagnostics ?? null };
 	const artifactOutput = disposition.delivered ? result.output
 		: `# Dispatch failure\n\n\`\`\`json\n${JSON.stringify(failureMetadata, null, 2)}\n\`\`\`\n\n## Output\n\n${result.output}`;
-	const runPath = disposition.artifactKind ? d.artifacts.writeRunArtifact(key, state?.runCount ?? 0, artifactOutput, disposition.artifactKind, result.dispatchId, p.sessionDir) : null;
+	const runPath = disposition.artifactKind ? d.artifacts.writeRunArtifact(key, state?.runCount ?? 0, artifactOutput, disposition.artifactKind as any, result.dispatchId, p.sessionDir) : null;
 	const returnPath = disposition.delivered ? runPath : null; const failurePath = disposition.delivered ? null : runPath; let returnExtracted = false;
 	if (returnPath && shouldExtractReturn(parsedReturn, ids)) {
 		onUpdate?.({ content: [{ type: "text", text: `${p.agent} returned no structured block — extracting it from the report...` }], details: { agent: p.agent, task: p.task, status: "extracting_return" } });
-		const recovered = await d.runReturnExtraction(returnPath, ids, ctx); if (recovered) { parsedReturn = recovered; contractNotices = crossCheck(recovered, ids); returnExtracted = true; }
+		const recovered = await d.runReturnExtraction(returnPath, ids, ctx);
+		if (recovered) { parsedReturn = recovered; contractNotices = crossCheck(recovered, ids); returnExtracted = true; }
+	}
+
+	// The one shared post-run delta feeds both scope reporting and compiler selection.
+	let compilerDiagnostics: DiagnosticsResult | null = null; let compilerEvidencePath: string | null = null; let compilerEvidenceError: string | null = null;
+	const eligibleForCompiler = disposition.delivered && tracking.writable && backendUsed === "native" && sameTaskNow();
+	if (eligibleForCompiler && observation?.skipped) {
+		compilerDiagnostics = incompleteObservation(`worktree observation unavailable: ${observation.reason ?? "unknown reason"}`, observation.concurrentWritableOverlap);
+	} else if (eligibleForCompiler && observation && observation.paths.some(path => /\.(?:ts|tsx|mts|cts)$/i.test(path))) {
+		try {
+			compilerDiagnostics = await (d.diagnoseChangedTypeScript ?? diagnoseChangedTypeScript)(observation.paths, {
+				cwd,
+				attribution: observation.concurrentWritableOverlap ? "uncertain" : "no_observed_overlap",
+				cacheLane: key,
+				runId: result.dispatchId ?? randomUUID(),
+			});
+		} catch (error) {
+			compilerDiagnostics = incompleteObservation(`compiler diagnostics failed safely: ${String(error)}`, observation.concurrentWritableOverlap);
+		}
+	}
+	if (observation) {
+		observation.concurrentWritableOverlap = observation.concurrentWritableOverlap || tracking.concurrentAtStart || s.getWritableOverlapCounter() !== tracking.overlapBaseline;
+		if (compilerDiagnostics && observation.concurrentWritableOverlap) compilerDiagnostics = { ...compilerDiagnostics, attribution: "uncertain" };
+	}
+	const sameTask = sameTaskNow();
+	if (sameTask && compilerDiagnostics) {
+		const correction = correctStructuredReturnForCompiler(parsedReturn, ids, compilerDiagnostics);
+		parsedReturn = correction.parsed;
+		contractNotices = [...crossCheck(parsedReturn, ids), ...correction.demotedIds.map(id => ({ type: "compiler_diagnostics", id }))];
 	}
 	const assessmentId = result.dispatchId ?? randomUUID();
-	const readback = disposition.pending ? [] : readBackDeliverables(p.contract, { cwd: ctx.cwd || process.cwd(), sessionDir: p.sessionDir },
+	if (compilerDiagnostics && compilerDiagnostics.status !== "skipped") {
+		try {
+			compilerEvidencePath = d.artifacts.writeRunArtifact(`${key}-compiler`, state?.runCount ?? 0,
+				`# Compiler diagnostics\n\n\`\`\`json\n${JSON.stringify(compilerDiagnostics, null, 2)}\n\`\`\`\n`, "evidence", assessmentId, p.sessionDir);
+		} catch (error) { compilerEvidenceError = String(error); }
+	}
+	const readback = disposition.pending ? [] : readBackDeliverables(p.contract, { cwd, sessionDir: p.sessionDir },
 		(index, bytes) => retainDeliverable(p.sessionDir, assessmentId, index, bytes));
 	const deliverableFailed = readback.some(file => file.status !== "read");
 	const executionStatus = disposition.pending ? "pending" : disposition.delivered ? "completed" : "failed";
 	const status = disposition.delivered ? deliverableFailed ? "verification_failed" : "completed_unverified" : disposition.status;
 	const acceptanceStatus = disposition.pending || !disposition.delivered ? "not_available" : deliverableFailed ? "deliverable_failed" : "needs_verification";
-	const assessment = { executionStatus, acceptanceStatus, accepted: false, dispatchId: result.dispatchId ?? null, readback, scopeRoots: p.contract.scopeRoots, assertions: ids };
+	const assessment = { executionStatus, acceptanceStatus, accepted: false, dispatchId: result.dispatchId ?? null, readback, scopeRoots: p.contract.scopeRoots,
+		assertions: ids, structuredReturn: parsedReturn, contractNotices, compilerDiagnostics, compilerEvidencePath };
 	const assessmentPath = disposition.pending ? null : d.artifacts.writeRunArtifact(`${key}-acceptance`, state?.runCount ?? 0, JSON.stringify(assessment, null, 2), "evidence", assessmentId, p.sessionDir);
 	if (sameTask && [0, 124, 125].includes(result.exitCode)) s.getTurnDispatchFingerprints().add(p.fingerprint);
 	if (sameTask) { s.getTurnReport().dispatches.push({ agent: p.agent, status, elapsed: result.elapsed, billed: run.billed, out: run.out }); s.getSessionTotals().billed += run.billed; s.getSessionTotals().out += run.out; }
@@ -214,14 +270,20 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	if (returnPath) notices.push(`Full specialist output: ${returnPath}`);
 	if (disposition.pending) notices.push("⏳ DELIVERY PENDING — no result or assertion evidence is available yet, and no return/failure artifact was written. Use the msg_id above with coms_get/coms_await; do not re-dispatch.");
 	if (failurePath) notices.push(`⚠ DELIVERY FAILURE (exit ${result.exitCode}) — no specialist result was returned. The error output is at ${failurePath}; it is NOT a return and carries no assertion evidence. The work may or may not have happened — check the artifacts the task was supposed to produce before re-dispatching.`);
+	if (compilerDiagnostics && compilerDiagnostics.status !== "skipped") {
+		const advisory = formatAdvisory(compilerDiagnostics);
+		const evidence = compilerEvidencePath ? `Full compiler evidence: ${compilerEvidencePath}` : `Compiler evidence artifact unavailable: ${compilerEvidenceError ?? "unknown error"}`;
+		if (advisory) notices.push(`${advisory}\n${evidence}`);
+		else if (compilerDiagnostics.projects.length) notices.push(`Compiler diagnostics completed with no errors. ${evidence}`);
+	}
 	const corrected = p.inputArtifacts.filter(a => a.resolvedFromKind); if (corrected.length) notices.push(`ℹ Artifact path corrected: ${corrected.map(a => `"${a.input}" → ${a.displayPath}`).join("; ")}. Use the corrected path from now on.`);
 	if (state && d.contextPressure(state.contextPct)) notices.push(`⚠ ${d.displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /af-agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`);
-	const scopeViolations = scopeResult(d, p, tracking, ctx); const scopeNotice = scopeNoticeText(scopeViolations); if (scopeNotice) notices.push(scopeNotice.trim());
+	const scopeViolations = scopeResult(p, observation); const scopeNotice = scopeNoticeText(scopeViolations); if (scopeNotice) notices.push(scopeNotice.trim());
 	const finding = isReviewPersona(p.agent) ? findingBudgetNotice(p.agent, blockingFindingCap(s.getTaskTier()), countReviewFindings(result.output), s.getTaskReviewRounds(), reviewRoundCap(s.getTaskTier())) || "" : ""; if (finding) notices.push(finding.trim());
 	const docs = docsLaneNotice(p.agent, p.scopeGlobs); if (docs) notices.push(docs);
 	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
 	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
-	return { content: [{ type: "text", text: `[${p.agent}] ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, executionStatus, acceptanceStatus, accepted: false, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed: state?.lastBackend ?? null, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+	return { content: [{ type: "text", text: `[${p.agent}] ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, executionStatus, acceptanceStatus, accepted: false, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
 }
 
 export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<DispatchAgentParams> {
@@ -269,5 +331,5 @@ export function createResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<Sp
 
 function hasWriteCapability(tools: string): boolean { const set = new Set(String(tools || "").split(",").map(x => x.trim()).filter(Boolean)); return ["write", "edit", "bash"].some(x => set.has(x)); }
 function scopeNoticeText(v: any): string { if (!v) return ""; if (v.skipped) return `\n\n⚠ Scope gate skipped: ${v.reason || "not a git worktree"}.`; if (!v.outOfScope?.length) return ""; const overlap = v.concurrentWritableOverlap ? " Concurrent writable dispatches overlapped this run, so attribution is approximate." : ""; return `\n\n⚠ Scope advisory: changed outside declared scope: ${v.outOfScope.join(", ")}. Review these paths and decide whether to accept them or explicitly order cleanup; the hub did not revert anything.${overlap}`; }
-function structuredReturnDigest(parsed: any): string { if (!parsed) return ""; const lines = ["Structured return (parsed):"]; for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) { const entries = parsed[key] || []; if (!entries.length) continue; lines.push(`${key}:`); for (const entry of entries) { const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : ""; const note = entry.note || (entry.evidence ? "" : "(no note)"); lines.push(`- ${entry.id}${note ? `: ${note}` : ""}${evidence}`); } } for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) { const entries = parsed[key] || []; if (entries.length) lines.push(`${key}: ${entries.slice(0, 5).join("; ")}${entries.length > 5 ? " …" : ""}`); } return lines.join("\n"); }
-function contractNoticeText(notices: any[]): string { if (!notices?.length) return ""; const lines = ["⚠ Structured return contract notices:"]; const missing = notices.filter(n => n.type === "missing").map(n => n.id); const noStructured = notices.find(n => n.type === "no_structured_return"); if (noStructured) lines.push(`- no_structured_return: no parseable structured return for dispatched assertions ${(noStructured.ids || []).join(", ")} — treat all as unproven; full output is on disk.`); if (missing.length) lines.push(`- missing: return does not cover ${missing.join(", ")} — treat as unproven.`); for (const n of notices.filter(n => n.type === "proven_without_evidence")) lines.push(`- proven_without_evidence: ${n.id} claimed proven without named evidence — demoted to unproven.`); return lines.join("\n"); }
+function structuredReturnDigest(parsed: any): string { if (!parsed) return ""; const lines = ["Structured return (parsed):"]; for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) { const entries = parsed[key] || []; if (!entries.length) continue; lines.push(`${key}:`); for (const entry of entries) { const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : ""; const reason = entry.reason ? ` — reason: ${entry.reason}` : ""; const note = entry.note || (entry.evidence ? "" : "(no note)"); lines.push(`- ${entry.id}${note ? `: ${note}` : ""}${evidence}${reason}`); } } for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) { const entries = parsed[key] || []; if (entries.length) lines.push(`${key}: ${entries.slice(0, 5).join("; ")}${entries.length > 5 ? " …" : ""}`); } return lines.join("\n"); }
+function contractNoticeText(notices: any[]): string { if (!notices?.length) return ""; const lines = ["⚠ Structured return contract notices:"]; const missing = notices.filter(n => n.type === "missing").map(n => n.id); const noStructured = notices.find(n => n.type === "no_structured_return"); if (noStructured) lines.push(`- no_structured_return: no parseable structured return for dispatched assertions ${(noStructured.ids || []).join(", ")} — treat all as unproven; full output is on disk.`); if (missing.length) lines.push(`- missing: return does not cover ${missing.join(", ")} — treat as unproven.`); for (const n of notices.filter(n => n.type === "proven_without_evidence")) lines.push(`- proven_without_evidence: ${n.id} claimed proven without named evidence — demoted to unproven.`); for (const n of notices.filter(n => n.type === "compiler_diagnostics")) lines.push(`- compiler_diagnostics: ${n.id} was claimed proven but a completed compiler check found an error in an observed changed file — demoted to unproven with original evidence retained.`); return lines.join("\n"); }

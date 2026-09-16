@@ -102,6 +102,40 @@ export function crossCheck(parsed, dispatchedIds) {
 	return notices;
 }
 
+/**
+ * Runtime compiler facts outrank a specialist's raw claim, but only for ids in
+ * this dispatch and only when a completed, non-overlapped check found an error
+ * in an observed changed file. This returns a copy and never touches the ledger.
+ */
+export function correctStructuredReturnForCompiler(parsed, dispatchedIds, compilerDiagnostics) {
+	if (!parsed || compilerDiagnostics?.status !== "completed" || compilerDiagnostics?.attribution !== "no_observed_overlap") {
+		return { parsed, demotedIds: [] };
+	}
+	const normalize = value => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
+	const changed = new Set((compilerDiagnostics.changedFiles || []).map(normalize));
+	const hasChangedFileError = (compilerDiagnostics.projects || []).some(project =>
+		project?.status === "errors" && (project.diagnostics || []).some(diagnostic => diagnostic?.file && changed.has(normalize(diagnostic.file))),
+	);
+	if (!hasChangedFileError) return { parsed, demotedIds: [] };
+	const currentIds = new Set(dispatchedIds || []);
+	const demoted = (parsed.assertions_proven || [])
+		.filter(entry => entry?.id && currentIds.has(entry.id))
+		.map(entry => ({ ...entry, reason: "compiler_diagnostics" }));
+	if (!demoted.length) return { parsed, demotedIds: [] };
+	const demotedIds = new Set(demoted.map(entry => entry.id));
+	return {
+		parsed: {
+			...parsed,
+			assertions_proven: (parsed.assertions_proven || []).filter(entry => !demotedIds.has(entry?.id)),
+			assertions_unproven: [
+				...(parsed.assertions_unproven || []).filter(entry => !demotedIds.has(entry?.id)),
+				...demoted,
+			],
+		},
+		demotedIds: [...demotedIds],
+	};
+}
+
 function fencedBlocks(text) {
 	const blocks = [];
 	const re = /```[^\n]*\n([\s\S]*?)```/g;

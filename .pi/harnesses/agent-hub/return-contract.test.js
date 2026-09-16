@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn, parseStructuredReturn } from "./return-contract.js";
+import { correctStructuredReturnForCompiler, crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn, parseStructuredReturn } from "./return-contract.js";
 
 test("extractAssertionIds dedupes assertion ids in first-seen order", () => {
 	assert.deepEqual(extractAssertionIds("A1 then A3, A1 again, not BA2 or A2b, then A2"), ["A1", "A3", "A2"]);
@@ -176,4 +176,53 @@ test("crossCheck reports proven entries without evidence", () => {
 test("crossCheck reports no structured return only when assertions were dispatched", () => {
 	assert.deepEqual(crossCheck(null, ["A1", "A2"]), [{ type: "no_structured_return", ids: ["A1", "A2"] }]);
 	assert.deepEqual(crossCheck(null, []), []);
+});
+
+function compilerResult(overrides = {}) {
+	return {
+		status: "completed",
+		changedFiles: ["src/api.ts"],
+		attribution: "no_observed_overlap",
+		projects: [{ status: "errors", diagnostics: [{ file: "src/api.ts", code: 2322, message: "bad" }] }],
+		...overrides,
+	};
+}
+
+test("compiler correction demotes only dispatched proven ids and retains evidence without mutating input", () => {
+	const parsed = parseStructuredReturn(`assertions_proven:
+- A1: current done — evidence: test A1
+- A9: foreign done — evidence: test A9
+assertions_unproven: [A2: already open]
+assertions_failed: []`);
+	const original = structuredClone(parsed);
+	const corrected = correctStructuredReturnForCompiler(parsed, ["A1", "A2"], compilerResult());
+	assert.deepEqual(parsed, original, "raw parsed return is not mutated");
+	assert.deepEqual(corrected.demotedIds, ["A1"]);
+	assert.deepEqual(corrected.parsed.assertions_proven.map(entry => entry.id), ["A9"]);
+	const demoted = corrected.parsed.assertions_unproven.find(entry => entry.id === "A1");
+	assert.equal(demoted.evidence, "test A1");
+	assert.equal(demoted.reason, "compiler_diagnostics");
+	assert.equal(demoted.note, "current done");
+});
+
+test("compiler correction requires completed changed-file errors without overlap", () => {
+	const parsed = parseStructuredReturn("assertions_proven: [A1: done — evidence: test]");
+	const cases = [
+		compilerResult({ status: "incomplete" }),
+		compilerResult({ attribution: "uncertain" }),
+		compilerResult({ projects: [{ status: "errors", diagnostics: [{ file: "src/consumer.ts", code: 2339, message: "downstream" }] }] }),
+		compilerResult({ projects: [{ status: "passed", diagnostics: [] }] }),
+	];
+	for (const diagnostics of cases) {
+		const corrected = correctStructuredReturnForCompiler(parsed, ["A1"], diagnostics);
+		assert.deepEqual(corrected.demotedIds, []);
+		assert.deepEqual(corrected.parsed, parsed);
+	}
+});
+
+test("compiler correction never promotes an unproven assertion", () => {
+	const parsed = parseStructuredReturn("assertions_unproven: [A1: not proven]\nassertions_proven: []");
+	const corrected = correctStructuredReturnForCompiler(parsed, ["A1"], compilerResult({ projects: [{ status: "passed", diagnostics: [] }] }));
+	assert.deepEqual(corrected.parsed.assertions_unproven, parsed.assertions_unproven);
+	assert.deepEqual(corrected.parsed.assertions_proven, []);
 });
