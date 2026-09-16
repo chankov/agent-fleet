@@ -4,7 +4,7 @@ Push-to-talk voice dictation for pi's terminal UI. Press a hotkey, speak, and th
 transcript is inserted into the prompt — or transcribed and sent in one step.
 
 A simplified, self-contained port of [`cgarrot/pi-voice-stt`](https://github.com/cgarrot/pi-voice-stt),
-trimmed to **two** transcription backends and adapted to this repo's pi runtime.
+trimmed to **three** transcription backends and adapted to this repo's pi runtime.
 
 ## How it works
 
@@ -47,15 +47,24 @@ Secrets are **never** stored in the file: the config names an environment variab
 key is read from the process environment — a gitignored `.env` at the repo root, auto-loaded by
 the `justfile`'s `dotenv-load`. See [`examples/stt.json`](examples/stt.json).
 
-> **Deterministic setup** can write `.ai/stt.json` and append an empty `.env`
-> placeholder — select the voice feature in `npx @chankov/agent-fleet setup` and answer
-> the provider prompts. See
+> **Deterministic setup** uses the canonical nested `provider` format below. Its CLI aliases
+> are `openai`, `groq`, `azure`, and `azure-openai`; these are not all runtime types. Setup can
+> generate OpenAI defaults. For Groq, prepare complete nested JSON with runtime type
+> `openai-compatible` and the actual Groq endpoint/model, then run setup without
+> `--stt-provider groq`; other OpenAI-compatible services are not Groq. Azure Speech and Azure
+> OpenAI also require complete prepared JSON when settings are missing. Setup does not guess
+> provider-specific endpoints, models, deployments, or API versions. Existing supported flat
+> legacy files are preserved with a runtime-compatibility warning and are not migrated
+> automatically. See
 > [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md).
 
 ### Option 1 — Generic OpenAI-compatible endpoint
 
 Works with OpenAI Whisper, Groq, and local servers (`whisper.cpp`, `faster-whisper`) that
-expose `POST /v1/audio/transcriptions`.
+expose `POST /v1/audio/transcriptions`. Use runtime type `openai` for the standard OpenAI
+shape or `openai-compatible` to label a custom compatible service. The CLI alias `groq` does
+not become a runtime `provider.type`; prepare the compatible service's real `baseUrl`, `model`,
+and environment-variable name instead.
 
 ```json
 {
@@ -165,6 +174,16 @@ Whisper accepts longer audio than the short-audio REST (up to ~25 MB), so `captu
 can be raised.
 
 ### All options
+
+The canonical runtime types are `openai`, `openai-compatible`, `azure`, and `azure-openai`.
+`azure` calls Azure Speech; it is not shorthand for Azure OpenAI.
+
+Keep API keys and optional endpoint values in the workspace root's gitignored `.env`. The
+config stores only names such as `apiKeyEnv` and `endpointEnv`. Deterministic setup recognizes
+both `NAME=value` and `export NAME=value`, preserves existing declarations and values, and
+adds only missing empty placeholders. A literal `provider.endpoint` needs no endpoint
+placeholder. Setup validates the JSON shape and environment-variable names only: it neither
+requires a credential to be set nor sends a request to validate one.
 
 | Key | Default | Notes |
 | --- | --- | --- |

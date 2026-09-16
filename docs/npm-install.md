@@ -84,6 +84,33 @@ package:
 node bin/cli.js setup --workspace ~/projects/my-app --preset default --features none --yes
 ```
 
+### Voice STT configuration
+
+Voice setup uses a nested `.ai/stt.json` provider object. Runtime types are `openai`,
+`openai-compatible`, `azure` (Azure Speech), and `azure-openai` (Azure OpenAI Whisper).
+The CLI aliases are `openai`, `groq`, `azure`, and `azure-openai`; `groq` is an installer
+alias, not a runtime type, and the two Azure aliases select different services.
+
+First-time OpenAI setup can use runtime defaults. For Groq, prepare complete nested JSON
+with runtime type `openai-compatible` and the actual Groq endpoint/model, then run setup
+without `--stt-provider groq`; that flag selects an installer alias, not the prepared runtime
+type. Other OpenAI-compatible services use their own endpoint/model and are not Groq. For
+Azure Speech or Azure OpenAI, prepare the complete nested JSON before setup. The installer
+does not invent an endpoint, model, deployment, or API version. Existing canonical files
+remain unchanged. Supported legacy flat files are preserved with a runtime-compatibility
+warning and are not migrated automatically.
+
+Keep credential values in the gitignored root `.env`, not in `.ai/stt.json`. The JSON names
+the variables through fields such as `provider.apiKeyEnv` and `provider.endpointEnv`. Setup
+preserves existing assignments (including `export NAME=...`) and adds only missing empty
+placeholders. It checks structure and variable names, not whether credentials are present or
+valid. See [the STT configuration guide](../.pi/extensions/pi-voice-stt/README.md).
+
+A local checkout contains unreleased fixes only for commands run through `node bin/cli.js`.
+Users invoking `npx @chankov/agent-fleet@latest` receive this behavior only after a corrected
+package has been published; editing this repository does not change the already published
+`2.0.9` package.
+
 ## Updating an existing install
 
 ### 1. Notice there is one
@@ -152,8 +179,8 @@ you do not restate the preset on every update. Flags passed on an update are
 ephemeral for that run only unless you add `--save-desired`:
 
 ```bash
-just fleet setup --features voice,browser --stt-provider groq --yes                  # this run only
-just fleet setup --features voice,browser --stt-provider groq --save-desired --yes   # persisted
+just fleet setup --features voice,browser --yes                  # this run only
+just fleet setup --features voice,browser --save-desired --yes   # persisted
 ```
 
 ### 4. Handle a conflict

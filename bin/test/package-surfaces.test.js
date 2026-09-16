@@ -341,7 +341,7 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
 
     const allPreviewWorkspace = join(fixture, "all-features-preview"); mkdirSync(allPreviewWorkspace);
     const allPreview = JSON.parse(execFileSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", allPreviewWorkspace,
-      "--preset", "full", "--features", "browser, chatgpt-client, claude-bridge, hermes, telegram, voice", "--stt-provider", "groq", "--dry-run", "--json"], { encoding: "utf8" }));
+      "--preset", "full", "--features", "browser, chatgpt-client, claude-bridge, hermes, telegram, voice", "--stt-provider", "openai", "--dry-run", "--json"], { encoding: "utf8" }));
     assert.equal(allPreview.stage, "preview"); assert.ok(allPreview.selection.desired.features.includes("chatgpt-client"));
     const nonTtyWorkspace = join(fixture, "non-tty"); mkdirSync(nonTtyWorkspace);
     const refused = spawnSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", nonTtyWorkspace, "--preset", "default", "--features", "none"], { encoding: "utf8" });

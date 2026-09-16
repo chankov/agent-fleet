@@ -25,6 +25,12 @@ const cli = join(root, "bin", "cli.js");
 const workspace = () => mkdtempSync(join(tmpdir(), "af-setup-cli-"));
 const run = (args, input = undefined) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", input });
 const setup = (ws, ...args) => run(["setup", "--workspace", ws, ...args]);
+const azureOpenAiConfig = '{\n  "language": "bg-BG",\n  "capture": {\n    "inputFormat": "pulse",\n    "input": "alsa_input.usb-0c76_Razer_Seiren_Mini-00.mono-fallback",\n    "maxSeconds": 300\n  },\n  "provider": {\n    "type": "azure-openai",\n    "endpoint": "https://fd-ai-credits.openai.azure.com",\n    "deployment": "gpt-4o-transcribe",\n    "apiVersion": "2025-03-01-preview",\n    "apiKeyEnv": "AZURE_SPEECH_KEY"\n  }\n}\n';
+
+function writeStt(ws, text) {
+  mkdirSync(join(ws, ".ai"), { recursive: true });
+  writeFileSync(join(ws, ".ai", "stt.json"), text);
+}
 
 function writeState(ws, extra = {}) {
   mkdirSync(join(ws, ".ai"), { recursive: true });
@@ -94,7 +100,7 @@ test("setup --json --yes applies, --allow-exec reaches the plan, and dry-run rem
   assert.ok(existsSync(join(applyWorkspace, ".ai", "agent-fleet.json")), "consented JSON setup applies");
 
   const previewWorkspace = workspace();
-  result = setup(previewWorkspace, "--preset", "full", "--features", " browser, voice ", "--stt-provider", "groq", "--allow-exec", "--json", "--dry-run");
+  result = setup(previewWorkspace, "--preset", "full", "--features", " browser, voice ", "--stt-provider", "openai", "--allow-exec", "--json", "--dry-run");
   assert.equal(result.status, 0, result.stderr);
   const preview = JSON.parse(result.stdout);
   assert.equal(preview.verb, "setup"); assert.equal(preview.publicSchemaVersion, 1); assert.equal(preview.stage, "preview");
@@ -102,6 +108,63 @@ test("setup --json --yes applies, --allow-exec reaches the plan, and dry-run rem
   assert.deepEqual(preview.selection.desired.requestedFeatures, ["browser", "voice"], "CLI flags take precedence and exact features are trimmed");
   assert.ok(preview.actions.some((action) => action.id === "companion:workflow-deps" && action.kind === "exec"));
   assert.equal(existsSync(join(previewWorkspace, ".ai")), false, "JSON dry-run remains write-free");
+});
+
+test("STT CLI preserves canonical and legacy files, warns without migration, and is idempotent", () => {
+  const canonical = workspace();
+  writeStt(canonical, azureOpenAiConfig);
+  let result = setup(canonical, "--preset", "default", "--features", "voice", "--stt-provider", "azure-openai", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(join(canonical, ".ai/stt.json"), "utf8"), azureOpenAiConfig);
+  result = setup(canonical, "--preset", "default", "--features", "voice", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Nothing to do — the workspace already matches this plan/);
+  assert.equal(readFileSync(join(canonical, ".ai/stt.json"), "utf8"), azureOpenAiConfig);
+
+  const legacy = workspace();
+  const legacyConfig = '{\n    "provider": "azure",\n    "apiKeyEnv": "TEAM_AZURE_KEY",\n    "endpointEnv": "TEAM_AZURE_ENDPOINT",\n    "notes": "keep"\n}\n';
+  writeStt(legacy, legacyConfig);
+  result = setup(legacy, "--preset", "default", "--features", "voice", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Warning: legacy STT config preserved without automatic migration; runtime compatibility is not guaranteed/);
+  assert.equal(readFileSync(join(legacy, ".ai/stt.json"), "utf8"), legacyConfig);
+  result = setup(legacy, "--preset", "default", "--features", "voice", "--dry-run", "--json");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(JSON.parse(result.stdout).stt.warning, /legacy STT config preserved without automatic migration/);
+  assert.equal(readFileSync(join(legacy, ".ai/stt.json"), "utf8"), legacyConfig);
+  result = setup(legacy, "--preset", "default", "--features", "voice", "--yes", "--json");
+  assert.equal(result.status, 0, result.stderr);
+  JSON.parse(result.stdout);
+  assert.match(result.stderr, /Warning: legacy STT config preserved without automatic migration/);
+  assert.equal(readFileSync(join(legacy, ".ai/stt.json"), "utf8"), legacyConfig);
+});
+
+test("STT CLI previews and applies only explicit supported changes without guessing aliases", () => {
+  const ws = workspace();
+  writeStt(ws, azureOpenAiConfig);
+  let result = setup(ws, "--preset", "default", "--features", "voice", "--stt-provider", "openai", "--dry-run", "--json");
+  assert.equal(result.status, 0, result.stderr);
+  const preview = JSON.parse(result.stdout);
+  assert.equal(preview.stt.write, true);
+  assert.equal(preview.stt.replacing, "azure-openai");
+  assert.equal(readFileSync(join(ws, ".ai/stt.json"), "utf8"), azureOpenAiConfig, "dry-run preserves the prepared file");
+
+  result = setup(ws, "--preset", "default", "--features", "voice", "--stt-provider", "openai", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  const replaced = JSON.parse(readFileSync(join(ws, ".ai/stt.json"), "utf8"));
+  assert.deepEqual(replaced.provider, { type: "openai" });
+  assert.equal(replaced.language, "bg-BG");
+  assert.equal(replaced.capture.inputFormat, "pulse");
+
+  const custom = workspace();
+  const customConfig = '{\n  "provider": {\n    "type": "openai-compatible",\n    "baseUrl": "https://groq.example.invalid/openai/v1",\n    "model": "human-selected"\n  },\n  "notes": "do not infer groq"\n}\n';
+  writeStt(custom, customConfig);
+  result = setup(custom, "--preset", "default", "--features", "voice", "--stt-provider", "groq", "--yes");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /groq setup requires a prepared nested \.ai\/stt\.json/);
+  assert.equal(readFileSync(join(custom, ".ai/stt.json"), "utf8"), customConfig);
+  assert.equal(existsSync(join(custom, ".env")), false);
+  assert.equal(existsSync(join(custom, ".ai", "agent-fleet.json")), false);
 });
 
 test("primary setup rollback removes partial files and does not commit desired or state", () => {

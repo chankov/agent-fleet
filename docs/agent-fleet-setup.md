@@ -454,9 +454,9 @@ updated:    2026-05-22
 ### `.ai/stt.json`
 
 Optional. Present only when the `pi-voice-stt` extension is installed and configured. Read by
-the extension on every pi session start, ahead of the global `~/.pi/agent/stt.json`. Holds the
-non-secret provider config; the API key (and Azure endpoint) live in a gitignored root `.env`
-as named env vars, which the `justfile`'s `dotenv-load` exposes to the session.
+the extension on every pi session start, ahead of the global `~/.pi/agent/stt.json`. The
+canonical format has a nested `provider` object. Runtime `provider.type` values are `openai`,
+`openai-compatible`, `azure` (Azure Speech), and `azure-openai` (Azure OpenAI Whisper):
 
 ```json
 {
@@ -469,15 +469,33 @@ as named env vars, which the `justfile`'s `dotenv-load` exposes to the session.
 }
 ```
 
-Corresponding gitignored `.env` at the repo root:
+The setup CLI accepts the aliases `openai`, `groq`, `azure`, and `azure-openai`. These are
+installer selections, not interchangeable runtime types: in particular, `groq` is not a
+`provider.type`, and `azure` means Azure Speech rather than Azure OpenAI. Setup can generate
+the OpenAI configuration from runtime defaults. For Groq, create a complete nested
+`.ai/stt.json` with runtime type `openai-compatible` and the actual Groq endpoint/model, then
+run setup without `--stt-provider groq`; the alias does not identify the prepared runtime type.
+Other OpenAI-compatible services are not Groq and use their own endpoint/model. For Azure
+Speech or Azure OpenAI in a workspace without STT settings, create complete nested JSON with
+the provider-specific endpoint/deployment settings before setup. Setup does not guess them.
+
+Existing valid nested files are preserved. Supported legacy flat files are also preserved and
+produce a warning that runtime compatibility is not guaranteed; setup does not migrate them
+automatically. Provider migration or replacement requires a separate explicit action.
+
+The JSON stores only environment-variable names, never credential values. Put values in the
+gitignored `.env` at the workspace root, which the managed justfile loads:
 
 ```sh
-AZURE_SPEECH_ENDPOINT=https://<resource>.cognitiveservices.azure.com
-AZURE_SPEECH_KEY=<your-resource-key>
+export AZURE_SPEECH_ENDPOINT=https://<resource>.cognitiveservices.azure.com
+export AZURE_SPEECH_KEY=<your-resource-key>
 ```
 
-For the OpenAI-compatible backend, `provider.type` is `openai` with `baseUrl` / `model` and an
-`OPENAI_API_KEY` env var instead. Full schema: [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).
+Setup preserves existing `.env` declarations and values, including `export NAME=...` syntax,
+and appends only missing empty placeholders. A direct `provider.endpoint` needs no endpoint
+environment variable. Setup validates JSON structure and environment-variable names, but it
+does not validate credentials or contact the provider. Full schema and provider examples:
+[.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).
 
 ### Complete model profiles
 

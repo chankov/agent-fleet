@@ -11,21 +11,21 @@
     "apiKeyEnv": "OPENAI_API_KEY"
   },
 
-  "_azureExample": {
+  "_azureSpeechDocumentationExample": {
     "type": "azure",
-    "endpoint": "https://fd-ai-credits.cognitiveservices.azure.com",
+    "endpoint": "https://<resource>.cognitiveservices.azure.com",
     "apiKeyEnv": "AZURE_SPEECH_KEY",
     "format": "detailed"
   },
 
-  "_azureLanguageIdExample": {
+  "_azureSpeechLanguageIdDocumentationExample": {
     "type": "azure",
     "apiKeyEnv": "AZURE_SPEECH_KEY",
     "locales": ["bg-BG", "en-US"],
     "apiVersion": "2024-11-15"
   },
 
-  "_azureOpenAIExample": {
+  "_azureOpenAIDocumentationExample": {
     "type": "azure-openai",
     "endpoint": "https://<resource>.openai.azure.com",
     "deployment": "gpt-4o-transcribe",

@@ -301,13 +301,13 @@ async function cmdSetup() {
         });
         if (provider.cancelled || !provider.value) selection = { cancelled: true, reason: provider.reason ?? "no provider" };
         else sttProvider = provider.value;
-      } else if (!selection.cancelled && existingStt && sttProvider && sttProvider !== existingStt.config.provider) {
+      } else if (!selection.cancelled && existingStt && sttProvider && sttProvider !== existingStt.providerAlias) {
         const replacement = await askChoice({ output: stdout, readLine: setupReadLine,
-          prompt: `Replace STT provider ${existingStt.config.provider} with ${sttProvider}? yes/y | no/n | cancel; Enter = no (keep existing provider) > `,
+          prompt: `Replace STT provider ${existingStt.provider} with ${sttProvider}? yes/y | no/n | cancel; Enter = no (keep existing provider) > `,
           validate: (value) => /^y(?:es)?$/i.test(value) ? { ok: true, value: true } : value === "" || /^n(?:o)?$/i.test(value) ? { ok: true, value: false } : { ok: false, error: "Invalid answer. Enter yes/y to replace or no/n to keep the existing provider." },
         });
         if (replacement.cancelled) selection = { cancelled: true, reason: replacement.reason };
-        else if (!replacement.value) sttProvider = existingStt.config.provider;
+        else if (!replacement.value) sttProvider = null;
         else sttReplacementApproved = true;
       }
     } catch (err) { setupRl.close(); fail(err.message); }
@@ -340,6 +340,7 @@ async function cmdSetup() {
     setupRl?.close();
     fail(plan.migrationError);
   }
+  if (opts.json && !dryRun && plan.stt?.warning) console.error(`Warning: ${plan.stt.warning}`);
   plan.fingerprints = capturePlanFingerprints(plan, manifest);
   if (dryRun) {
     setupRl?.close(); writeJson(publicPlan(plan)); exit(plan.conflicts.length ? 3 : 0);
@@ -903,6 +904,7 @@ function printPlan(plan) {
   }
 
   for (const note of plan.notes) console.log(`\nNote: ${note.detail}`);
+  if (plan.stt?.warning) console.log(`\nWarning: ${plan.stt.warning}`);
 
   // Only the interesting half. A hundred `keep` lines buries the four that matter.
   const shown = plan.actions.filter((a) => a.kind !== "keep");
@@ -967,7 +969,7 @@ function printConfigurationWrites(plan) {
   const writes = [
     plan.writeDesired ? plan.desiredPath : null,
     plan.overrides?.write ? plan.overrides.path : null,
-    plan.stt?.path ?? null,
+    plan.stt?.write ? plan.stt.path : null,
     plan.stt?.env?.missing?.length ? plan.stt.env.path : null,
   ].filter(Boolean);
   if (writes.length === 0) return;
@@ -1186,7 +1188,8 @@ Options:
   --preset <default|full>              Desired preset
   --repair-config                     With --yes, approve known retired config removal (backup saved)
   --features <name[,name]|none>        Exact feature snapshot (replaces, never adds)
-  --stt-provider <openai|groq|azure>    First-time voice provider; no secret is prompted
+  --stt-provider <openai|groq|azure|azure-openai>
+                                        Select provider explicitly; non-OpenAI setup requires prepared .ai/stt.json
   --save-desired                       Persist CLI overrides to .ai/agent-fleet.json
   --migrate                            Permit non-interactive first migration (with explicit preset/features and --yes)
   --allow-exec                         Run consented runtime commands after the file transaction

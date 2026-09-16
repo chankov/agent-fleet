@@ -16,11 +16,11 @@ const PTY_DRIVER = String.raw`
 import json, os, pty, select, sys, time
 node, cli, workspace, answers = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3], json.loads(sys.argv[4])
 needles = [s.encode() for s in json.loads(sys.argv[5])]
-cols = int(sys.argv[6])
+cols = int(sys.argv[6]); extra = json.loads(sys.argv[7])
 os.environ["COLUMNS"], os.environ["LINES"] = str(cols), "24"
 pid, fd = pty.fork()
 if pid == 0:
-    os.execv(node, [node, cli, "setup", "--workspace", workspace])
+    os.execv(node, [node, cli, "setup", "--workspace", workspace, *extra])
 def rendered(raw):
     # Minimal VT screen model: cursor motion, CR/LF, erase, wrapping and scroll.
     import re
@@ -96,8 +96,8 @@ for i, screen in enumerate(screens): print(f"\n[[RENDERED-BEFORE-INPUT-{i}]]\n{s
 sys.exit(os.waitstatus_to_exitcode(status))
 `;
 
-function interactiveSetup(ws, answers, needles = ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Enter = no (cancel without applying) >"]) {
-  return spawnSync("python3", ["-c", PTY_DRIVER, JSON.stringify(process.execPath), cli, ws, JSON.stringify(answers), JSON.stringify(needles), "52"], { encoding: "utf8", timeout: 30000 });
+function interactiveSetup(ws, answers, needles = ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Enter = no (cancel without applying) >"], args = []) {
+  return spawnSync("python3", ["-c", PTY_DRIVER, JSON.stringify(process.execPath), cli, ws, JSON.stringify(answers), JSON.stringify(needles), "52", JSON.stringify(args)], { encoding: "utf8", timeout: 30000 });
 }
 function renderedScreen(result, index) {
   return result.stdout.match(new RegExp(`\\[\\[RENDERED-BEFORE-INPUT-${index}\\]\\]\\n([\\s\\S]*?)\\n\\[\\[LAST-NONEMPTY-${index}\\]\\]`))?.[1] ?? "";
@@ -106,6 +106,11 @@ function lastVisibleInputLine(result, index) {
   return result.stdout.match(new RegExp(`\\[\\[LAST-NONEMPTY-${index}\\]\\]([^\\n]*)\\[\\[END-LAST\\]\\]`))?.[1] ?? "";
 }
 const compactScreen = (result, index) => renderedScreen(result, index).replace(/\n/g, "");
+const azureOpenAiConfig = '{\n  "language": "bg-BG",\n  "capture": {\n    "inputFormat": "pulse",\n    "input": "alsa_input.usb-0c76_Razer_Seiren_Mini-00.mono-fallback",\n    "maxSeconds": 300\n  },\n  "provider": {\n    "type": "azure-openai",\n    "endpoint": "https://fd-ai-credits.openai.azure.com",\n    "deployment": "gpt-4o-transcribe",\n    "apiVersion": "2025-03-01-preview",\n    "apiKeyEnv": "AZURE_SPEECH_KEY"\n  }\n}\n';
+function writeStt(ws, text) {
+  mkdirSync(join(ws, ".ai"), { recursive: true });
+  writeFileSync(join(ws, ".ai", "stt.json"), text);
+}
 
 function writeLegacyState(ws) {
   const content = "legacy\n";
@@ -134,7 +139,7 @@ test("readline-owned prompt survives a quiescent redraw without losing its initi
 });
 
 test("real TTY setup reaches one final confirmation for Default, feature, and Full", { timeout: 90000 }, () => {
-  for (const answers of [["1\n", "\n", "y\n"], ["1\n", "voice\n", "groq\n", "y\n"], ["2\n", "\n", "y\n"], ["3\n", "none\n", "y\n"]]) {
+  for (const answers of [["1\n", "\n", "y\n"], ["1\n", "voice\n", "openai\n", "y\n"], ["2\n", "\n", "y\n"], ["3\n", "none\n", "y\n"]]) {
     const ws = workspace();
     try {
       const needles = answers.length === 4 ? ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Enter = cancel (no secret values requested) >", "Enter = no (cancel without applying) >"] : undefined;
@@ -146,8 +151,8 @@ test("real TTY setup reaches one final confirmation for Default, feature, and Fu
       assert.match(compactScreen(result, 1), /Features: <name>\[,<name>\.\.\.\] \| none \| cancel; Enter\s*=\s*keep/);
       assert.match(lastVisibleInputLine(result, 1), />$/);
       if (answers.length === 4) {
-        assert.match(compactScreen(result, 2), /STT provider: openai \| groq \| azure \| cancel; Enter\s*=\s*cancel/);
-        assert.match(lastVisibleInputLine(result, 2), /cancel \(no secret values requested\) >$/);
+        assert.match(compactScreen(result, 2), /STT provider: openai \| groq \| azure \| azure-openai \| cancel; Enter\s*=\s*cancel/);
+        assert.match(lastVisibleInputLine(result, 2), />$/);
       }
       const approvalIndex = answers.length === 4 ? 3 : 2;
       assert.match(compactScreen(result, approvalIndex), /Preset: .*Selected features: .*Dependency features: .*Apply this setup plan\? yes\/y \| no\/n; Enter = no/);
@@ -162,7 +167,7 @@ test("real TTY setup reaches one final confirmation for Default, feature, and Fu
 test("real TTY Full + all persists an explicit feature snapshot", { timeout: 30000 }, () => {
   const ws = workspace();
   try {
-    const result = interactiveSetup(ws, ["3\n", "\n", "groq\n", "y\n"], ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Enter = cancel (no secret values requested) >", "Enter = no (cancel without applying) >"]);
+    const result = interactiveSetup(ws, ["3\n", "\n", "openai\n", "y\n"], ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Enter = cancel (no secret values requested) >", "Enter = no (cancel without applying) >"]);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const desired = JSON.parse(readFileSync(join(ws, ".ai/agent-fleet.json"), "utf8"));
     assert.equal(desired.preset, "full");
@@ -178,7 +183,7 @@ test("real TTY setup preserves an existing desired selection when its inputs are
     const desiredPath = join(ws, ".ai", "agent-fleet.json");
     const desired = { schemaVersion: 1, preset: "full", features: { voice: true } };
     writeFileSync(desiredPath, JSON.stringify(desired, null, 2) + "\n");
-    const result = interactiveSetup(ws, ["\n", "\n", "groq\n", "y\n"], ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Enter = cancel (no secret values requested) >", "Enter = no (cancel without applying) >"]);
+    const result = interactiveSetup(ws, ["\n", "\n", "openai\n", "y\n"], ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Enter = cancel (no secret values requested) >", "Enter = no (cancel without applying) >"]);
     assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
     assert.match(result.stdout, /Enter = Full/);
     assert.match(result.stdout, /Enter = keep \[voice\]/);
@@ -187,6 +192,71 @@ test("real TTY setup preserves an existing desired selection when its inputs are
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
+});
+
+test("real TTY preserves Azure OpenAI for ordinary and same-provider setup without replacement prompts", { timeout: 60000 }, () => {
+  for (const args of [[], ["--stt-provider", "azure-openai"]]) {
+    const ws = workspace();
+    try {
+      writeStt(ws, azureOpenAiConfig);
+      const result = interactiveSetup(ws, ["1\n", "voice\n", "y\n"], undefined, args);
+      assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+      assert.doesNotMatch(result.stdout, /Replace STT provider/);
+      assert.doesNotMatch(result.stdout, /STT provider: .*no secret values requested/);
+      assert.equal(readFileSync(join(ws, ".ai/stt.json"), "utf8"), azureOpenAiConfig);
+    } finally { rmSync(ws, { recursive: true, force: true }); }
+  }
+});
+
+test("real TTY provider replacement supports refusal, cancel, and explicit approval", { timeout: 90000 }, () => {
+  const cases = [
+    { answer: "n\n", final: "y\n", replaced: false },
+    { answer: "cancel\n", final: null, replaced: false, cancelled: true },
+    { answer: "y\n", final: "y\n", replaced: true },
+  ];
+  for (const scenario of cases) {
+    const ws = workspace();
+    try {
+      writeStt(ws, azureOpenAiConfig);
+      const answers = ["1\n", "voice\n", scenario.answer, ...(scenario.final ? [scenario.final] : [])];
+      const needles = ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Replace STT provider", ...(scenario.final ? ["Enter = no (cancel without applying) >"] : [])];
+      const result = interactiveSetup(ws, answers, needles, ["--stt-provider", "openai"]);
+      assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+      assert.match(result.stdout, /Replace STT provider azure-openai with openai/);
+      if (scenario.cancelled) assert.match(result.stdout, /Aborted — nothing was written/);
+      if (scenario.replaced) {
+        const config = JSON.parse(readFileSync(join(ws, ".ai/stt.json"), "utf8"));
+        assert.deepEqual(config.provider, { type: "openai" });
+        assert.equal(config.language, "bg-BG");
+      } else {
+        assert.equal(readFileSync(join(ws, ".ai/stt.json"), "utf8"), azureOpenAiConfig);
+      }
+    } finally { rmSync(ws, { recursive: true, force: true }); }
+  }
+});
+
+test("real TTY warns for preserved legacy config and never infers Groq from openai-compatible", { timeout: 60000 }, () => {
+  const legacy = workspace();
+  try {
+    const original = '{\n  "provider": "groq",\n  "apiKeyEnv": "TEAM_GROQ_KEY"\n}\n';
+    writeStt(legacy, original);
+    const result = interactiveSetup(legacy, ["1\n", "voice\n", "y\n"]);
+    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+    assert.match(result.stdout, /Warning: legacy STT config preserved without automatic migration/);
+    assert.equal(readFileSync(join(legacy, ".ai/stt.json"), "utf8"), original);
+  } finally { rmSync(legacy, { recursive: true, force: true }); }
+
+  const custom = workspace();
+  try {
+    const original = '{\n  "provider": {\n    "type": "openai-compatible",\n    "baseUrl": "https://custom.example.invalid/v1",\n    "model": "selected-model"\n  }\n}\n';
+    writeStt(custom, original);
+    const result = interactiveSetup(custom, ["1\n", "voice\n", "y\n"], ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Replace STT provider"], ["--stt-provider", "groq"]);
+    assert.equal(result.status, 1, `${result.stderr}\n${result.stdout}`);
+    assert.match(result.stdout, /Replace STT provider openai-compatible with groq/);
+    assert.match(result.stdout + result.stderr, /groq setup requires a prepared nested \.ai\/stt\.json/);
+    assert.equal(readFileSync(join(custom, ".ai/stt.json"), "utf8"), original);
+    assert.equal(existsSync(join(custom, ".env")), false);
+  } finally { rmSync(custom, { recursive: true, force: true }); }
 });
 
 test("real TTY first migration is authorized only by the exact preview and final confirmation", { timeout: 60000 }, () => {

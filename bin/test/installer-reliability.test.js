@@ -74,7 +74,7 @@ test("doctor fix dry-run and with-state purge previews are recursively mutation-
   assert.deepEqual(snapshot(workspace), before); assert.doesNotMatch(result.stdout + result.stderr, /SYNTHETIC_ERROR_SECRET_71/);
 });
 
-test("existing STT config is bytewise preserved and replacement is explicit", () => {
+test("existing legacy STT config is bytewise preserved and replacement is explicit", () => {
   const workspace = ws(); mkdirSync(join(workspace, ".ai"), { recursive: true });
   const original = '{\n  "provider": "groq",\n  "apiKeyEnv": "TEAM_GROQ_KEY",\n  "endpoint": "custom",\n  "unknown": {"human": true}\n}\n';
   writeFileSync(join(workspace, ".ai/stt.json"), original);
@@ -84,9 +84,31 @@ test("existing STT config is bytewise preserved and replacement is explicit", ()
   result = run(workspace, "setup", "--preset", "default", "--features", "voice", "--stt-provider", "openai", "--yes");
   assert.equal(result.status, 0, result.stderr);
   const replaced = JSON.parse(readFileSync(join(workspace, ".ai/stt.json"), "utf8"));
-  assert.equal(replaced.provider, "openai"); assert.equal(replaced.unknown.human, true); assert.equal(replaced.endpoint, "custom");
+  assert.deepEqual(replaced.provider, { type: "openai" }); assert.equal(replaced.unknown.human, true); assert.equal("endpoint" in replaced, false);
   const fresh = ws(); result = run(fresh, "setup", "--preset", "default", "--features", "voice", "--yes");
   assert.equal(result.status, 1); assert.match(result.stderr, /explicit STT provider/);
+});
+
+test("canonical Azure OpenAI config survives normal setup and --yes byte-for-byte", () => {
+  const workspace = ws(); mkdirSync(join(workspace, ".ai"), { recursive: true });
+  const original = '{\n    "language": "bg-BG",\n    "capture": {\n        "inputFormat": "pulse",\n        "input": "alsa_input.usb-0c76_Razer_Seiren_Mini-00.mono-fallback",\n        "maxSeconds": 300\n    },\n    "provider": {\n        "type": "azure-openai",\n        "endpoint": "https://fd-ai-credits.openai.azure.com",\n        "deployment": "gpt-4o-transcribe",\n        "apiVersion": "2025-03-01-preview",\n        "apiKeyEnv": "AZURE_SPEECH_KEY"\n    }\n}\n';
+  writeFileSync(join(workspace, ".ai/stt.json"), original);
+
+  assert.equal(planStt(workspace).write, false, "ordinary setup planning preserves the file");
+  let result = run(workspace, "setup", "--preset", "default", "--features", "voice", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(join(workspace, ".ai/stt.json"), "utf8"), original);
+});
+
+test("unsupported first-time providers fail before setup writes anything", () => {
+  for (const provider of ["groq", "azure", "azure-openai"]) {
+    const workspace = ws();
+    const before = snapshot(workspace);
+    const result = run(workspace, "setup", "--preset", "default", "--features", "voice", "--stt-provider", provider, "--yes");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /prepared.*\.ai\/stt\.json/i);
+    assert.deepEqual(snapshot(workspace), before);
+  }
 });
 
 test("lock, pending journal, fingerprints and symlink parents fail closed", () => {
