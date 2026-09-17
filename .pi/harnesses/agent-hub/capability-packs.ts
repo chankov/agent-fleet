@@ -110,7 +110,10 @@ function intentFor(text: string): Record<Exclude<CapabilityPack, "core">, boolea
 	const normalized = text.toLowerCase();
 	return {
 		fleet: matches(normalized, /\b(dispatch|delegate|delegation|specialist|research(?:\s+helper)?|spawn\s+(?:an?\s+)?agent)\b/),
-		verification: matches(normalized, /\b(verification|verify|acceptance\s+(?:criteria|gate|work)|assertions?|parity)\b/),
+		// Language is supplementary discovery only. Writable-operation acceptance is
+		// enforced independently by the dispatch task contract.
+		verification: matches(normalized, /\b(verification|verify|acceptance\s+(?:criteria|gate|work)|assertions?|parity)\b/)
+			|| matches(normalized, /(?:провери|проверка|критери(?:и|ите)\s+за\s+приемане|приемателн(?:и|ите)\s+критерии|верификац)/),
 		peer: matches(normalized, /\b(coms|existing\s+peer|peer\s+(?:message|reply|channel)|message\s+(?:the\s+)?peer)\b/),
 		workspace: matches(normalized, /\b(herdr|(?:open|spawn)\s+(?:a\s+)?pane|watcher|notify|notification)\b/),
 		compaction: matches(normalized, /\b(compaction|request_compaction|compact\s+(?:the\s+)?(?:context|conversation|session))\b/),

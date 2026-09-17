@@ -1,76 +1,189 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { posix, resolve } from "node:path";
 import { worktreeRevision } from "./scope-gate.js";
+import { checkTaskBudget, checkTurnBudget } from "./run-budget.js";
+import { recoveryCategoryFromDetails, recoveryDecision, type RecoveryCategory } from "./recovery-contract.ts";
 import type { DispatchExecutorDeps } from "./tools/dispatch-execution.ts";
 import type { ToolExecutor, DispatchAgentParams, SpawnResearchParams } from "./tools/context.ts";
 
-interface Failure { dispatchId: string; reason: string; evidencePath?: string; }
-interface Ticket { allowed: boolean; key: string; generation: object; id: object; failure?: Failure; stopParent?: boolean; }
+interface Failure {
+	dispatchId: string;
+	reason: string;
+	category: RecoveryCategory;
+	evidencePath?: string;
+	effectsEstablished?: boolean;
+}
+interface Ticket { allowed: boolean; key: string; executorKey: string; scope: string[]; generation: object; id: object; failure?: Failure; refusal?: "busy" | "recovery"; }
+interface RecordedFailure { fingerprint: string; failure: Failure; authorized: boolean; }
 
 export function createNoProgressGuard() {
- let generation = {};
- const pending = new Map<string, object>();
- const refusals = new Map<string, number>();
- const failures = new Map<string, { revision: string; failure: Failure; authorized: boolean }>();
- return {
-  taskToken: () => generation,
-  begin(key: string, revision: string): Ticket {
-   const old = failures.get(key), id = {};
-   if (pending.has(key) || (old?.revision === revision && !old.authorized)) {
-    const count = (refusals.get(key) ?? 0) + 1; refusals.set(key, count);
-    return { allowed: false, key, generation, id, failure: old?.failure, stopParent: count >= 2 };
-   }
-   failures.delete(key); refusals.delete(key); pending.set(key, id);
-   return { allowed: true, key, generation, id };
-  },
-  finish(ticket: Ticket, revision: string, failure?: Failure) {
-   if (!ticket.allowed || ticket.generation !== generation || pending.get(ticket.key) !== ticket.id) return;
-   pending.delete(ticket.key);
-   if (failure) failures.set(ticket.key, { revision, failure, authorized: false });
-  },
-  authorize(dispatchId: string): boolean {
-   for (const entry of failures.values()) if (entry.failure.dispatchId === dispatchId && !entry.authorized) { entry.authorized = true; return true; }
-   return false;
-  },
-  reset() { generation = {}; pending.clear(); failures.clear(); refusals.clear(); },
- };
+	let generation = {};
+	let taskId = randomUUID();
+	const pending = new Map<string, object>();
+	const pendingExecutors = new Map<string, object>();
+	const failures = new Map<string, RecordedFailure>();
+	const cancellations = new Map<string, { executorKey: string; scope: string[]; entry: RecordedFailure }>();
+	return {
+		taskToken: () => generation,
+		taskId: () => taskId,
+		begin(key: string, fingerprint: string, executorKey = key, scope: string[] = []): Ticket {
+			const cancelled = [...cancellations.values()].filter(item => item.executorKey === executorKey);
+			const old = cancelled.find(item => !item.entry.authorized)?.entry ?? cancelled[0]?.entry ?? failures.get(key), id = {};
+			if (pendingExecutors.has(executorKey)) return { allowed: false, key, executorKey, scope, generation, id, refusal: "busy" };
+			if (old) {
+				const category = old.failure.category ?? "indeterminate";
+				const changed = old.fingerprint !== fingerprint;
+				const decision = recoveryDecision(category, {
+					explicitInvocation: true,
+					relevantConditionsChanged: changed || category === "busy",
+					freshOneUseAuthorization: old.authorized,
+					effectsEstablished: old.failure.effectsEstablished === true,
+                    executorIdle: !pendingExecutors.has(executorKey),
+				});
+				if (!decision.allowed) return { allowed: false, key, executorKey, scope, generation, id, failure: { ...old.failure, category }, refusal: "recovery" };
+			}
+			for (const item of cancelled) { cancellations.delete(item.entry.failure.dispatchId); for (const [failedKey, entry] of failures) if (entry === item.entry) failures.delete(failedKey); }
+			failures.delete(key);
+			pending.set(key, id);
+			pendingExecutors.set(executorKey, id);
+			return { allowed: true, key, executorKey, scope, generation, id };
+		},
+		finish(ticket: Ticket, fingerprint: string, failure?: Failure) {
+			if (!ticket.allowed || ticket.generation !== generation || pending.get(ticket.key) !== ticket.id || pendingExecutors.get(ticket.executorKey) !== ticket.id) return;
+			pending.delete(ticket.key);
+			pendingExecutors.delete(ticket.executorKey);
+			if (failure) {
+				const entry = { fingerprint, failure, authorized: false };
+				failures.set(ticket.key, entry);
+				if (failure.category === "operator_cancelled") cancellations.set(failure.dispatchId, { executorKey: ticket.executorKey, scope: ticket.scope, entry });
+			}
+		},
+        /** Internal runtime port, not model input. Caller must retain an effects inspection artifact;
+         * unchanged conditions still cannot retry or replay observed effects. */
+        establishEffects(dispatchId: string, token: object, evidenceRef: string): boolean {
+            if (token !== generation || !evidenceRef.trim()) return false;
+            for (const entry of failures.values()) {
+                if (entry.failure.dispatchId !== dispatchId || entry.failure.category !== "tool_protocol_error") continue;
+                entry.failure.effectsEstablished = true;
+                entry.failure.evidencePath = evidenceRef;
+                return true;
+            }
+            return false;
+        },
+		authorize(dispatchId: string): boolean {
+			for (const { entry } of cancellations.values()) {
+				if (entry.failure.dispatchId !== dispatchId || entry.authorized || entry.failure.category !== "operator_cancelled") continue;
+				entry.authorized = true;
+				return true;
+			}
+			return false;
+		},
+		reset() { generation = {}; taskId = randomUUID(); pending.clear(); pendingExecutors.clear(); failures.clear(); },
+	};
 }
 export type NoProgressGuard = ReturnType<typeof createNoProgressGuard>;
 
-/** Wording is intentionally absent: prose cannot manufacture new execution inputs. */
-export function withNoProgress<P extends DispatchAgentParams | SpawnResearchParams>(d: Pick<DispatchExecutorDeps, "noProgress" | "artifacts">, kind: "dispatch" | "research", execute: ToolExecutor<P>): ToolExecutor<P> {
- return async (id, params, signal, onUpdate, ctx) => {
-  const cwd = ctx.cwd || process.cwd();
-  const scope = ("scope" in params ? params.scope ?? [] : []).map(path => path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "")).sort();
-  const actor = ("agent" in params ? params.agent : params.persona ?? "research").toLowerCase();
-  let inputs: { path: string }[];
-  try { inputs = d.artifacts.loadInputArtifacts(params.artifacts, ctx); }
-  catch { return execute(id, params, signal, onUpdate, ctx); } // Existing artifact preflight reports the exact path failure.
-  const revision = () => JSON.stringify([worktreeRevision(cwd, scope), inputs.map(input => {
-   try { return [input.path, createHash("sha256").update(readFileSync(input.path)).digest("hex")]; }
-   catch { return [input.path, "unreadable"]; }
-  }).sort(([a], [b]) => a.localeCompare(b))]);
-  const contract = "agent" in params ? [params.scope_mode ?? "existing", [...(params.deliverables ?? [])].sort()] : null;
-  const key = JSON.stringify([kind, resolve(cwd), actor, scope, inputs.map(input => input.path).sort(), contract]);
-  const ticket = d.noProgress.begin(key, revision());
-  if (!ticket.allowed) {
-   if (ticket.stopParent) ctx.abort?.();
-   const failure = ticket.failure;
-   const message = failure
-    ? `No-progress refusal: unchanged inputs after ${failure.reason}. Previous attempt: ${failure.dispatchId}${failure.evidencePath ? ` (${failure.evidencePath})` : ""}. Rewording, another turn or renewed budget is not new evidence. Supply corrected scope/inputs or actual file changes. The human may authorize ONE retry with /af-retry ${failure.dispatchId}; prose is not authorization.`
-    : "No-progress stop: an operation with the same actor/scope is already in flight. Wait for its result; do not duplicate it.";
-   return { content: [{ type: "text", text: message }], details: { status: "no_progress_refused", reason: "unchanged_inputs", stopParent: ticket.stopParent === true, exitCode: 1, previousDispatchId: failure?.dispatchId, evidencePath: failure?.evidencePath } };
-  }
-  let failure: Failure | undefined;
-  try {
-   const result = await execute(id, params, signal, onUpdate, ctx);
-   const details = result.details as any;
-   if (details && ((details.exitCode !== 0 && (details.status === "error" || details.failurePath || details.evidencePath)) || details.acceptanceStatus === "deliverable_failed")) {
-    failure = { dispatchId: details.dispatchId ?? randomUUID(), evidencePath: details.evidencePath ?? details.failurePath ?? undefined, reason: details.diagnostics?.reason ?? details.status ?? "execution_failure" };
-   }
-   return result;
-  } catch (error) { failure = { dispatchId: randomUUID(), reason: "execution_exception" }; throw error; }
-  finally { d.noProgress.finish(ticket, revision(), failure); }
- };
+export interface ResearchContract {
+	readScope: string[];
+	goal?: string;
+	expectedResult?: string;
+}
+
+export function normalizePaths(paths: readonly string[] | undefined): string[] {
+	return [...new Set((paths ?? []).map(path => posix.normalize(String(path).trim().replace(/\\/g, "/")).replace(/\/+$/, "")).filter(Boolean))].sort();
+}
+
+export function normalizeResearchContract(params: Pick<SpawnResearchParams, "read_scope" | "goal" | "expected_result">): ResearchContract {
+	const text = (value: string | undefined) => value?.trim().replace(/\s+/g, " ") || undefined;
+	for (const path of (params.read_scope ?? []).map(value => value.trim().replace(/\\/g, "/"))) if (/^(?:\/|[A-Za-z]:)/.test(path) || path.split("/").includes("..")) throw new Error("read_scope must be repository-relative and cannot escape through ..");
+ const readScope = normalizePaths(params.read_scope);
+ return { readScope, goal: text(params.goal), expectedResult: text(params.expected_result) };
+}
+
+function canonical(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+	if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
+	return JSON.stringify(value);
+}
+
+/** Wording and scope_mode are intentionally absent: neither can manufacture changed execution conditions. */
+export function withNoProgress<P extends DispatchAgentParams | SpawnResearchParams>(
+	d: Pick<DispatchExecutorDeps, "noProgress" | "artifacts"> & Partial<Pick<DispatchExecutorDeps, "budget" | "state">>,
+	kind: "dispatch" | "research",
+	execute: ToolExecutor<P>,
+	executionConditions: (params: P, ctx: any, result?: any) => Record<string, unknown> = () => ({}),
+): ToolExecutor<P> {
+	return async (id, params, signal, onUpdate, ctx) => {
+		const cwd = ctx.cwd || process.cwd();
+		let research: ResearchContract | null;
+        try { research = "agent" in params ? null : normalizeResearchContract(params); }
+        catch (error) { return { content: [{ type: "text", text: String(error) }], details: { status: "invalid_input", recoveryCategory: "invalid_input", started: false, exitCode: 1 } }; }
+		const scope = "agent" in params ? normalizePaths(params.scope) : research!.readScope;
+		const actor = "agent" in params ? params.agent.trim().toLowerCase().replace(/[\s_]+/g, "-") : (params.persona ?? "research").trim().toLowerCase().replace(/[\s_]+/g, "-");
+		let inputs: { path: string }[];
+		try { inputs = d.artifacts.loadInputArtifacts(params.artifacts, ctx); }
+		catch { return execute(id, params, signal, onUpdate, ctx); }
+		const artifactRevision = () => inputs.map(input => {
+			try { return [input.path, createHash("sha256").update(readFileSync(input.path)).digest("hex")]; }
+			catch { return [input.path, "unreadable"]; }
+		}).sort(([a], [b]) => a.localeCompare(b));
+		const contractIdentity = "agent" in params ? normalizePaths(params.deliverables) : scope;
+		const key = canonical([kind, resolve(cwd), actor, scope, inputs.map(input => input.path).sort(), contractIdentity]);
+		const conditions = executionConditions(params, ctx);
+		const fingerprint = () => canonical({
+			worktree: worktreeRevision(cwd, scope),
+			artifacts: artifactRevision(),
+			structuredContract: research ? { readScope: research.readScope, goalDeclared: !!research.goal, expectedResultDeclared: !!research.expectedResult } : { scope, deliverables: contractIdentity },
+			conditions,
+		});
+		const executorKey = canonical([resolve(cwd), actor]);
+		const ticket = d.noProgress.begin(key, fingerprint(), executorKey, scope);
+		if (!ticket.allowed) {
+			if (ticket.refusal === "busy") {
+				const recovery = recoveryDecision("busy", { explicitInvocation: true, relevantConditionsChanged: false, executorIdle: false });
+				return { content: [{ type: "text", text: "Busy refusal: the same operation is already in flight. Nothing was queued or retried. Re-invoke explicitly only after the executor is evidenced idle; existing budgets still apply." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", recovery, exitCode: 1, started: false } };
+			}
+			const failure = ticket.failure!;
+            if (d.budget && d.state) {
+                const b = d.budget, s = d.state;
+                b.ensureTaskTier();
+                s.getTurnReport().refusals++; s.getSessionTotals().refusals++;
+                const block = checkTaskBudget(kind, b.taskCounters(), b.currentTaskBudget(), b.taskActiveElapsedMs(), s.getTaskTier())
+                    ?? checkTurnBudget(kind, { dispatches: s.getTurnDispatchCount(), research: s.getTurnResearchCount() }, b.currentBudget(), b.turnBudgetActiveElapsedMs(), s.getTaskTier());
+                if (block) return { content: [{ type: "text", text: block.message }], details: { status: "budget_refused", reason: block.reason, started: false, recoveryCategory: failure.category, exitCode: 1 } };
+                if (kind === "dispatch") { s.setTurnDispatchCount(s.getTurnDispatchCount() + 1); s.setTaskDispatchCount(s.getTaskDispatchCount() + 1); s.getTurnReport().dispatches.push({ agent: actor, status: "no_progress_refused", elapsed: 0, billed: 0, out: 0 }); }
+                else { s.setTurnResearchCount(s.getTurnResearchCount() + 1); s.setTaskResearchCount(s.getTaskResearchCount() + 1); s.getTurnReport().research++; }
+                b.updateModeStatus();
+            }
+			const recovery = recoveryDecision(failure.category, { explicitInvocation: true });
+			const authorization = failure.category === "operator_cancelled"
+				? `Fresh one-use authorization is required: /af-retry ${failure.dispatchId}. Scope mode, model, and prose changes are not authorization.`
+				: recovery.reason;
+			return { content: [{ type: "text", text: `No-progress refusal after ${failure.category}: ${failure.reason}. Previous attempt: ${failure.dispatchId}${failure.evidencePath ? ` (${failure.evidencePath})` : ""}. ${authorization} No automatic retry or waiting was performed.` }], details: { status: "no_progress_refused", reason: "unchanged_or_unauthorized", recoveryCategory: failure.category, recovery, exitCode: 1, previousDispatchId: failure.dispatchId, evidencePath: failure.evidencePath } };
+		}
+		let failure: Failure | undefined;
+		let result: any;
+		try {
+			result = await execute(id, params, signal, onUpdate, ctx);
+			const details = result.details as any;
+			const category = recoveryCategoryFromDetails(details);
+			if (category) failure = {
+				dispatchId: details.dispatchId ?? randomUUID(),
+				evidencePath: details.evidencePath ?? details.failurePath ?? details.protocolEvidencePath ?? undefined,
+				reason: details.diagnostics?.reason ?? details.reason ?? details.status ?? "execution_failure",
+				category,
+			};
+			return result;
+		} catch (error) {
+			failure = { dispatchId: randomUUID(), reason: "execution_exception", category: "indeterminate" };
+			throw error;
+		} finally {
+			d.noProgress.finish(ticket, fingerprint(), failure);
+			const effectsRef = (result?.details as any)?.protocolEffectsEvidenceRef;
+			if (failure?.category === "tool_protocol_error" && typeof effectsRef === "string") {
+				d.noProgress.establishEffects(failure.dispatchId, ticket.generation, effectsRef);
+			}
+		}
+	};
 }

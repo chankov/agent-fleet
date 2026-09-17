@@ -21,6 +21,10 @@ export interface SpawnResearchParams {
 	persona?: string;
 	model?: string;
 	artifacts?: string[];
+	/** Optional structured contract; legacy task-only calls remain valid. */
+	read_scope?: string[];
+	goal?: string;
+	expected_result?: string;
 }
 
 export interface SetTaskTierParams {
@@ -36,7 +40,7 @@ export interface TeamAdjustParams {
 }
 
 export interface SetAssertionsParams {
-	assertions: Array<{ id: string; tag: string; text: string; source?: string }>;
+	assertions: Array<{ id: string; tag: string; text: string; source?: string; reference?: string; critical_conditions?: string[]; test_command?: string }>;
 }
 
 export interface UpdateAssertionParams {

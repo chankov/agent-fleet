@@ -14,8 +14,11 @@ export function registerVerificationContract(pi: ExtensionAPI, toolCtx: ToolCont
 				Type.Object({
 					id: Type.String({ description: "Stable id (A1, A2)." }),
 					tag: Type.String({ description: "test | runtime-ui | code-grep | manual." }),
-					text: Type.String({ description: "One pass condition." }),
-					source: Type.String({ description: "Requirement origin." }),
+					text: Type.String(),
+					source: Type.String(),
+					reference: Type.Optional(Type.String()),
+                    test_command: Type.Optional(Type.String({ description: "Exact bash check for test/code-grep; execution is not semantic adequacy." })),
+					critical_conditions: Type.Optional(Type.Array(Type.String())),
 				}),
 				{ description: `Replacement list; soft cap ${MAX_OPEN_ASSERTIONS}.` },
 			),

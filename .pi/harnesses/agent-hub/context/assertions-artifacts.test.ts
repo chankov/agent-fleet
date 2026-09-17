@@ -19,7 +19,7 @@ function fixture(assertions: Assertion[] = []) {
 
 test("assertion context persists statuses and appends evidence to machine handoffs", () => {
 	const assertions: Assertion[] = [
-		{ id: "A1", tag: "test", text: "passes", source: "plan", status: "proven", evidence: "suite" },
+		{ id: "A1", tag: "test", text: "passes", source: "plan", reference: "PLAN.md:42", criticalConditions: ["UTC calendar day"], status: "proven", evidence: "suite", evidenceTaskId: "task-1", evidenceRevision: "rev-1" },
 		{ id: "A7", tag: "code-grep", text: "is wired", source: "plan", status: "open" },
 	];
 	const { context, sessionDir, statuses } = fixture(assertions);
@@ -33,6 +33,7 @@ test("assertion context persists statuses and appends evidence to machine handof
 	assert.equal(context.evidencePathExists("artifacts/evidence/proof.txt"), true);
 	const handoff = context.appendMachineHandoffSections("brief");
 	assert.match(handoff, /Verification ledger \(verbatim, machine-appended\)[\s\S]*A1 \[test\] PROVEN/);
+	assert.match(handoff, /PLAN\.md:42[\s\S]*critical: UTC calendar day[\s\S]*bound: task-1@rev-1/);
 	assert.match(handoff, /Artifact index[\s\S]*artifacts\/evidence\/proof\.txt/);
 });
 

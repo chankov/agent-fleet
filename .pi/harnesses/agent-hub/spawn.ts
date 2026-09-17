@@ -1,3 +1,5 @@
+import { runtimeTestFromResult, type RuntimeTestRecord } from "./runtime-test-check.ts";
+import { createToolEventRecorder, type ToolExecutionEvent } from "./tool-protocol.ts";
 import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV } from './policy/profile-runtime.ts';
 /**
  * spawnPiAgent — the ONE place agent-hub code spawns a headless `pi` child and
@@ -47,6 +49,8 @@ export interface ToolWatchdogOptions {
 }
 
 export interface SpawnPiAgentOptions {
+ /** Enabled only by native preparation with the runtime observer extension. */
+ runtimeTestObserver?: boolean;
 	model: string;
 	tools: string;
 	thinking: string;
@@ -98,6 +102,8 @@ export interface SpawnPiAgentCallbacks {
 }
 
 export interface SpawnPiAgentResult {
+ runtimeTests?: RuntimeTestRecord[];
+ toolEvents?: ToolExecutionEvent[];
 	output: string;
 	exitCode: number | null;
 	stderr: string;
@@ -201,6 +207,10 @@ function spawnPiAgentUnchecked(
 		};
 		let assistantError: string | undefined;
 		let toolCallsStarted = 0;
+ const runtimeTests: RuntimeTestRecord[] = [];
+ const runtimeTestStarts = new Map<string, string>();
+ const toolEventRecorder = createToolEventRecorder();
+ const toolEvents: ToolExecutionEvent[] = toolEventRecorder.events;
 		const settle = (code: number | null, spawnError?: string) => {
 			if (settled) return;
 			settled = true;
@@ -217,7 +227,7 @@ function spawnPiAgentUnchecked(
 				// never mark a provider/model error as successful.
 				exitCode: assistantError && code === 0 ? 1 : code,
 				stderr: stderrChunks.join(""),
-				toolCallsStarted,
+				toolCallsStarted, runtimeTests, toolEvents,
 				modelUsed: opts.model,
 				...(spawnError ? { spawnError } : {}),
 				...(assistantError ? { assistantError } : {}),
@@ -273,7 +283,12 @@ function spawnPiAgentUnchecked(
 				const id = toolId(event);
 				const name = event.toolName || "tool";
 				if (id && !toolStarts.has(id)) toolStarts.set(id, Date.now());
-				cbs.onToolStart?.(name, argStr, id || undefined);
+				const protocolArgs = event.args && typeof event.args === "object"
+					? JSON.stringify(Object.fromEntries(["path", "file", "filePath"].filter(key => typeof event.args[key] === "string").map(key => [key, event.args[key]])))
+					: "{}";
+				toolEventRecorder.start(name, protocolArgs, id || undefined);
+				if (opts.runtimeTestObserver && event.toolName === "bash" && typeof event.args?.command === "string" && toolId(event)) runtimeTestStarts.set(toolId(event), event.args.command);
+                cbs.onToolStart?.(name, argStr, id || undefined);
 				if (timeoutMs != null && id && watchedTools.has(name) && !calls.has(id)) {
 					const startedAt = Date.now();
 					const call: ToolTimeout = { toolCallId: id, toolName: name, args: argStr, startedAt, deadlineAt: startedAt + timeoutMs };
@@ -286,6 +301,11 @@ function spawnPiAgentUnchecked(
 					if (call) { clearTimeout(call.timer); calls.delete(id); }
 				}
 				const rawIsError = event.isError ?? event.is_error ?? event.result?.isError ?? event.result?.is_error;
+				toolEventRecorder.end(id || undefined, typeof rawIsError === "boolean" ? rawIsError : undefined);
+				const startedCommand = id ? runtimeTestStarts.get(id) : undefined;
+                if (id) runtimeTestStarts.delete(id);
+                const check = runtimeTestFromResult(opts.runtimeTestObserver, startedCommand, event.toolName, event.result);
+                if (check) runtimeTests.push(check);
 				const startedAt = id ? toolStarts.get(id) : undefined;
 				if (id) toolStarts.delete(id);
 				cbs.onToolEnd?.(

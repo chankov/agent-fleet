@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { profileFallback, profileChild } from './policy/profile-runtime.ts';
 import { chmodSync, mkdirSync, existsSync, copyFileSync, unlinkSync } from "node:fs";
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, MAX_DELEGATE_DEPTH, safePathWithin } from "./helpers.ts";
@@ -65,6 +66,7 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 	const safety = requireSafetyHarness(safetyHarnessPath);
 	if (!safety.ok) return base.finishRun(safety.error, 1);
 	const extensions = [...safety.extensions];
+ if (state.def.tools.split(",").map(tool => tool.trim()).includes("bash")) extensions.push(fileURLToPath(new URL("./runtime-test-check.ts", import.meta.url)));
 	let effectiveTools = state.def.tools;
 	let delegateEnv: Record<string, string> | undefined;
 	if (delegationActive) {

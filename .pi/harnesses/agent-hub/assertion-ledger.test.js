@@ -74,3 +74,8 @@ test("fields are trimmed and non-array input is treated as empty", () => {
 	assert.equal(validateAssertionBatch(undefined).ok, true);
 	assert.deepEqual(validateAssertionBatch(null).assertions, []);
 });
+
+test("requirement reference and critical conditions normalize without breaking legacy assertions", () => {
+ const res = validateAssertionBatch([{ id: "A1", tag: "test", text: "UTC rule", source: "user request", reference: " PLAN.md:42 ", critical_conditions: [" UTC calendar day ", "", "not current instant"] }]);
+ assert.deepEqual(res.assertions[0], { id: "A1", tag: "test", text: "UTC rule", source: "user request", reference: "PLAN.md:42", criticalConditions: ["UTC calendar day", "not current instant"] });
+});

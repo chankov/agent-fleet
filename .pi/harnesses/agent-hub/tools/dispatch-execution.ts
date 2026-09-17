@@ -1,6 +1,6 @@
 import { retainDeliverable } from "../execution-evidence.ts";
-import { preflightDeliverables, readBackDeliverables, type DeliverableContract } from "../acceptance.ts";
-import { withNoProgress, type NoProgressGuard } from "../no-progress.ts";
+import { buildRuntimeResult, minimalChangeRequirement, preflightDeliverables, readBackDeliverables, type AcceptanceRequirement, type DeliverableContract, type VerificationCheckInput } from "../acceptance.ts";
+import { normalizeResearchContract, withNoProgress, type NoProgressGuard } from "../no-progress.ts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -9,7 +9,7 @@ import { countReviewFindings, findingBudgetNotice } from "../review-findings.js"
 import { checkDocsLane, docsLaneNotice } from "../docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "../external-blocker.js";
 import type { BudgetRecovery } from "../budget-recovery.ts";
-import { checkScope, diffAgainst, snapshotWorktree } from "../scope-gate.js";
+import { checkScope, diffAgainst, snapshotWorktree, worktreeRevision } from "../scope-gate.js";
 import { diagnoseChangedTypeScript, formatAdvisory, type DiagnosticsResult } from "../../lib/changed-file-diagnostics.ts";
 import { correctStructuredReturnForCompiler, crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "../return-contract.js";
 import { shouldExtractReturn } from "../return-extract.js";
@@ -18,10 +18,11 @@ import { MAX_AUTO_RESEARCH_QUESTIONS, MAX_AUTO_RESEARCH_ROUNDS, type ResearchAge
 import type { BudgetContext, SessionTotals, TurnReport } from "../context/budgets.ts";
 import type { AssertionsArtifactsContext, InputArtifactPreview } from "../context/assertions-artifacts.ts";
 import type { DispatchAgentParams, SpawnResearchParams, ToolExecutionResult, ToolExecutor, ToolUpdate } from "./context.ts";
+import type { AgentState } from "../types.ts";
+import { diagnoseToolProtocol, type ToolProtocolDiagnostic } from "../tool-protocol.ts";
 
 type Gate = { reason: string; message: string } | null;
 type DispatchResult = import("../dispatch-native-types.ts").NativeDispatchResult;
-type AgentState = { def: { name: string; tools: string }; runCount: number; contextPct: number; lastBackend?: string | null };
 
 export interface DispatchExecutionState {
 	getTurnDispatchCount(): number; setTurnDispatchCount(value: number): void;
@@ -40,6 +41,7 @@ export interface DispatchExecutionState {
 	getUserLanguage(): string;
 	getSessionDir(): string;
 	getAgentStates(): Map<string, AgentState>;
+	getAssertions(): Array<{ id: string; tag: string; text: string; source: string; reference?: string; criticalConditions?: string[]; testCommand?: string; status: string; evidence?: string; evidenceTaskId?: string; evidenceRevision?: string }>;
 	getResearchPersonas(): ResearchAgentDef[];
 	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
 	getWritableOverlapCounter(): number; setWritableOverlapCounter(value: number): void;
@@ -59,10 +61,11 @@ export interface DispatchExecutorDeps {
 	extractAskUserQuestions(output: string): string[];
 	contextPressure(percent: number): boolean;
 	displayName(name: string): string;
+	resolvedAgentModel?(def: AgentState["def"], ctx: ExtensionContext): string | undefined;
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { taskToken: object; contract: DeliverableContract; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
+interface PreparedDispatch { taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; autoResearchTaskCapped: boolean; }
 interface Tracking { writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
 interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; concurrentWritableOverlap: boolean; }
@@ -110,11 +113,35 @@ export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, ta
 	return null;
 }
 
+function dispatchRequirements(d: DispatchExecutorDeps, agent: string, task: string): AcceptanceRequirement[] {
+	const state = d.state.getAgentStates().get(agent.toLowerCase());
+	if (!state || !hasWriteCapability(state.def.tools)) return [];
+	const ids = new Set(extractAssertionIds(task));
+	const ledger = d.state.getAssertions().filter(assertion => ids.size === 0 || ids.has(assertion.id)).map(assertion => ({
+		id: assertion.id, tag: assertion.tag, text: assertion.text, source: assertion.source,
+		reference: assertion.reference, criticalConditions: assertion.criticalConditions, testCommand: assertion.testCommand,
+		status: assertion.status as AcceptanceRequirement["status"], evidenceTaskId: assertion.evidenceTaskId,
+		evidenceRevision: assertion.evidenceRevision, evidenceRefs: assertion.evidence ? [assertion.evidence] : [],
+	}));
+	return [...ledger, minimalChangeRequirement()];
+}
+
+function appendRuntimeAcceptanceContract(task: string, requirements: AcceptanceRequirement[]): string {
+	if (!requirements.length) return task;
+	const lines = requirements.map(requirement => {
+		const origin = [requirement.source, requirement.reference].filter(Boolean).join(" · ");
+		const critical = requirement.criticalConditions?.length ? ` Critical: ${requirement.criticalConditions.join("; ")}.` : "";
+		return `- ${requirement.id} [${requirement.tag}]: ${requirement.text} (source: ${origin}).${critical}${requirement.testCommand ? ` Explicit verification command: ${JSON.stringify(requirement.testCommand)} (execute only through approved bash).` : ""}`;
+	});
+	return `${task}\n\n## Runtime acceptance contract (machine-appended)\nThese requirements survive dispatch and compaction. A claim, file presence, or listed command is not proof; report evidence, while the runtime decides acceptance.\n${lines.join("\n")}`;
+}
+
 export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): PreparedDispatch | ToolExecutionResult {
 	const s = d.state; const { task, artifacts, scope, review_reason } = params; const agent = normalizeAgentInput(params.agent);
 	d.budget.ensureTaskTier();
 	const rosterRefusal = validateDispatchAgent(d, agent, task);
 	if (rosterRefusal) return rosterRefusal;
+ if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 	const preflight = preflightGate(d, agent) ?? checkReviewRoundCap(s.getTaskTier(), agent, s.getTaskReviewRounds()) ?? checkDocsLane(agent, scope || [], review_reason);
 	if (preflight) return refusal(d, agent, task, preflight.reason, preflight.message, preflight.reason);
 	const taskRefusal = checkTaskBudget("dispatch", d.budget.taskCounters(), d.budget.currentTaskBudget(), d.budget.taskActiveElapsedMs(), s.getTaskTier());
@@ -132,8 +159,11 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	s.setTurnDispatchCount(s.getTurnDispatchCount() + 1); s.setTaskDispatchCount(s.getTaskDispatchCount() + 1);
 	if (isReviewPersona(agent)) s.setTaskReviewRounds(s.getTaskReviewRounds() + 1);
 	s.getSessionTotals().dispatches++; d.budget.updateModeStatus();
-	const declaredTask = contract.files.length ? `${task}\n\n## Expected deliverables (explicit contract)\nProduce these exact files and report their paths. The hub will read them back; a prose claim is not delivery.\n${contract.files.map(file => `- ${file.path}`).join("\n")}` : task;
-	return { taskToken: d.noProgress.taskToken(), contract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs: (scope || []).map(String).map(x => x.trim()).filter(Boolean), fingerprint };
+	const scopeGlobs = (scope || []).map(String).map(x => x.trim()).filter(Boolean);
+	const requirements = dispatchRequirements(d, agent, task);
+	const acceptedTask = appendRuntimeAcceptanceContract(task, requirements);
+	const declaredTask = contract.files.length ? `${acceptedTask}\n\n## Expected deliverables (explicit contract)\nProduce these exact files and report their paths. The hub will read them back; a prose claim is not delivery.\n${contract.files.map(file => `- ${file.path}`).join("\n")}` : acceptedTask;
+	return { taskToken: d.noProgress.taskToken(), taskId: d.noProgress.taskId(), beforeRevision: worktreeRevision(ctx.cwd || process.cwd(), []), requirements, contract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
@@ -214,6 +244,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 
 	// The one shared post-run delta feeds both scope reporting and compiler selection.
 	let compilerDiagnostics: DiagnosticsResult | null = null; let compilerEvidencePath: string | null = null; let compilerEvidenceError: string | null = null;
+	const compilerInspectedRevision = worktreeRevision(cwd, []);
 	const eligibleForCompiler = disposition.delivered && tracking.writable && backendUsed === "native" && sameTaskNow();
 	if (eligibleForCompiler && observation?.skipped) {
 		compilerDiagnostics = incompleteObservation(`worktree observation unavailable: ${observation.reason ?? "unknown reason"}`, observation.concurrentWritableOverlap);
@@ -248,19 +279,71 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	}
 	const readback = disposition.pending ? [] : readBackDeliverables(p.contract, { cwd, sessionDir: p.sessionDir },
 		(index, bytes) => retainDeliverable(p.sessionDir, assessmentId, index, bytes));
-	const deliverableFailed = readback.some(file => file.status !== "read");
+	let protocolDiagnostic: ToolProtocolDiagnostic | null = null; let protocolEvidencePath: string | null = null;
+	if (disposition.delivered && backendUsed === "native") {
+		protocolDiagnostic = diagnoseToolProtocol({
+			output: result.output,
+			toolEvents: result.toolEvents ?? [],
+			deliverables: readback,
+			origin: { kind: "task", taskId: p.taskId, dispatchId: result.dispatchId ?? assessmentId },
+			effectiveConfiguration: {
+				backend: backendUsed,
+				model: result.diagnostics?.modelUsed ?? state?.def.model ?? null,
+				tools: result.diagnostics?.effectiveTools ?? String(state?.def.tools ?? "").split(",").map(tool => tool.trim()).filter(Boolean),
+			},
+			evidenceRefs: [returnPath ?? undefined, ...readback.map(item => item.retainedPath)].filter((value): value is string => !!value),
+		});
+		if (protocolDiagnostic) {
+			protocolEvidencePath = d.artifacts.writeRunArtifact(`${key}-tool-protocol`, state?.runCount ?? 0,
+				JSON.stringify(protocolDiagnostic, null, 2), "evidence", randomUUID(), p.sessionDir);
+			protocolDiagnostic.evidenceRefs = [...new Set([...protocolDiagnostic.evidenceRefs, protocolEvidencePath])];
+		}
+	}
 	const executionStatus = disposition.pending ? "pending" : disposition.delivered ? "completed" : "failed";
-	const status = disposition.delivered ? deliverableFailed ? "verification_failed" : "completed_unverified" : disposition.status;
-	const acceptanceStatus = disposition.pending || !disposition.delivered ? "not_available" : deliverableFailed ? "deliverable_failed" : "needs_verification";
-	const assessment = { executionStatus, acceptanceStatus, accepted: false, dispatchId: result.dispatchId ?? null, readback, scopeRoots: p.contract.scopeRoots,
-		assertions: ids, structuredReturn: parsedReturn, contractNotices, compilerDiagnostics, compilerEvidencePath };
+	const afterRevision = worktreeRevision(cwd, []);
+	const changes = !tracking.writable || !observation
+		? { status: "unknown" as const, paths: [] as string[], attribution: "not_observed" as const }
+		: observation.skipped
+			? { status: "unknown" as const, paths: [] as string[], attribution: "not_observed" as const }
+			: { status: observation.paths.length ? "changed" as const : "unchanged" as const, paths: observation.paths, attribution: observation.concurrentWritableOverlap ? "uncertain" as const : "certain" as const };
+	const checks: VerificationCheckInput[] = (compilerDiagnostics?.projects ?? []).map(project => ({
+		producer: "runtime", kind: "compilation", taskId: p.taskId, command: [...(project.argv ?? [])], exitCode: project.exitCode,
+		inspectedRevision: compilerInspectedRevision, evidenceRef: compilerEvidencePath ?? "",
+		requirementIds: ["AF-MIN-CHANGE"],
+	}));
+    for (const record of backendUsed === "native" && tracking.writable ? result.runtimeTests ?? [] : []) for (const kind of ["test", "code-grep"] as const) {
+        const covered = p.requirements.filter(requirement => requirement.tag === kind && requirement.source && requirement.testCommand === record.command);
+        if (!covered.length) continue;
+        const evidenceRef = d.artifacts.writeRunArtifact(`${key}-test-check`, state?.runCount ?? 0, JSON.stringify({ taskId: p.taskId, dispatchId: result.dispatchId, record, requirements: covered }, null, 2), "evidence", randomUUID(), p.sessionDir);
+        checks.push({ producer: "runtime", kind, command: [record.command], exitCode: record.exitCode,
+            inspectedRevision: record.beforeRevision === record.afterRevision ? record.afterRevision : "changed-during-check",
+            evidenceRef, requirementIds: ["AF-MIN-CHANGE", ...covered.map(requirement => requirement.id)], taskId: p.taskId,
+            coverage: covered.map(requirement => ({ id: requirement.id, source: requirement.source, text: requirement.text, reference: requirement.reference, criticalConditions: requirement.criticalConditions ?? [] })),
+        });
+    }
+	const runtimeResult = buildRuntimeResult({
+		task: { id: p.taskId, current: sameTask && p.taskId === d.noProgress.taskId(), beforeRevision: p.beforeRevision, afterRevision },
+		execution: { status: executionStatus, exitCode: result.exitCode, dispatchId: result.dispatchId ?? null },
+		changes, requirements: p.requirements, deliverables: readback, checks,
+		evidenceRefs: [returnPath ?? undefined, failurePath ?? undefined, compilerEvidencePath ?? undefined, protocolEvidencePath ?? undefined].filter((value): value is string => !!value),
+	});
+	const accepted = runtimeResult.acceptance.accepted;
+	const acceptanceStatus = runtimeResult.compatibility.hubAcceptanceStatus;
+	const status = protocolDiagnostic ? "tool_protocol_error" : accepted ? "accepted" : executionStatus === "completed" && (runtimeResult.verification.status === "failed" || acceptanceStatus === "deliverable_failed") ? "verification_failed" : executionStatus === "completed" ? "completed_unverified" : disposition.status;
+	const assessment = { ...runtimeResult,
+		executionStatus, acceptanceStatus, accepted, dispatchId: result.dispatchId ?? null, readback, scopeRoots: p.contract.scopeRoots,
+		assertions: ids, structuredReturn: parsedReturn, contractNotices, compilerDiagnostics, compilerEvidencePath, protocolDiagnostic, protocolEvidencePath };
 	const assessmentPath = disposition.pending ? null : d.artifacts.writeRunArtifact(`${key}-acceptance`, state?.runCount ?? 0, JSON.stringify(assessment, null, 2), "evidence", assessmentId, p.sessionDir);
 	if (sameTask && [0, 124, 125].includes(result.exitCode)) s.getTurnDispatchFingerprints().add(p.fingerprint);
 	if (sameTask) { s.getTurnReport().dispatches.push({ agent: p.agent, status, elapsed: result.elapsed, billed: run.billed, out: run.out }); s.getSessionTotals().billed += run.billed; s.getSessionTotals().out += run.out; }
 	const questions = d.extractAskUserQuestions(result.output); const unresolved = d.extractNeedsResearch(result.output); const answered = researchRounds.reduce((n, r) => n + r.questions.length, 0);
 	const notices: string[] = [];
 	if (!sameTask) notices.push("Late result from a prior task/session: evidence retained in its original namespace; current-task counters and blockers were not changed.");
-	if (disposition.delivered) notices.push(`Execution completed, NOT accepted. ${deliverableFailed ? "Expected deliverable readback failed." : "Verify correctness against the assertion ledger; file presence and exit 0 are not proof."} Acceptance check: ${assessmentPath}`);
+	if (disposition.delivered) notices.push(accepted
+		? `Execution and current-state verification accepted by the runtime contract. Acceptance check: ${assessmentPath}`
+		: protocolDiagnostic
+			? `Tool protocol error: ${protocolDiagnostic.message} Evidence: ${protocolEvidencePath}. No text was executed and no retry was started.`
+			: `Execution completed, NOT accepted. ${acceptanceStatus === "deliverable_failed" ? "Expected deliverable readback failed." : "Verification is missing, failed, stale, unsupported, or attribution-uncertain; file presence, exit 0, and claims are not proof."} Acceptance check: ${assessmentPath}`);
 	if (readback.some(file => file.changed === false)) notices.push("Some deliverables already existed unchanged. Do not attribute their creation to this execution.");
 	const blockers = extractExternalBlockers(result.output); if (sameTask && blockers.length) { for (const what of blockers) if (!s.getExternalBlockers().some(b => b.what === what)) s.getExternalBlockers().push({ agent: p.agent, what }); s.setExternalBlockerAcknowledged(false); s.setExternalBlockerRefusedOnce(false); notices.push(`⛔ ${p.agent} reported an EXTERNAL BLOCKER — something outside the fleet's reach is missing:\n${blockers.map((w, i) => `  ${i + 1}. ${w}`).join("\n")}\nThe next dispatch/research call is refused until you escalate this to the human. Do not build a substitute for the missing fact.`); }
 	if (questions.length) notices.push(`⚠ ${questions.length} ASK_USER question(s) raised by ${p.agent}. You MUST call ask_user for each (in ${s.getUserLanguage()}) before re-dispatching:\n${questions.map((q, i) => `  ${i + 1}. ${q}`).join("\n")}`);
@@ -283,7 +366,35 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const docs = docsLaneNotice(p.agent, p.scopeGlobs); if (docs) notices.push(docs);
 	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
 	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
-	return { content: [{ type: "text", text: `[${p.agent}] ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, executionStatus, acceptanceStatus, accepted: false, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+	return { content: [{ type: "text", text: `[${p.agent}] ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : { protocolDiagnostic: null, protocolEvidencePath: null }), executionStatus, acceptanceStatus, accepted, runtimeResult, taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+}
+
+function dispatchExecutionConditions(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): Record<string, unknown> {
+	const state = d.state.getAgentStates().get(normalizeAgentInput(params.agent));
+	return {
+		model: (state ? d.resolvedAgentModel?.(state.def, ctx) : undefined) ?? state?.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null),
+		backend: params.backend ?? "auto",
+	};
+}
+
+function researchExecutionConditions(d: DispatchExecutorDeps, params: SpawnResearchParams, ctx: ExtensionContext): Record<string, unknown> {
+	const persona = params.persona ? d.state.getResearchPersonas().find(item => item.name.toLowerCase() === params.persona!.toLowerCase()) : undefined;
+	try {
+		const def = persona ?? d.research.anonymousDef();
+		return { model: d.research.resolveModel(def, persona ? undefined : params.model, ctx), tools: "read,grep,find,ls" };
+	} catch {
+		return { model: params.model ?? null, tools: "read,grep,find,ls" };
+	}
+}
+
+export function structuredResearchPrompt(params: SpawnResearchParams): string {
+	const contract = normalizeResearchContract(params);
+	if (!contract.readScope.length && !contract.goal && !contract.expectedResult) return params.task;
+	return [params.task, "", "## Structured research contract",
+		contract.readScope.length ? `Read scope:\n${contract.readScope.map(path => `- ${path}`).join("\n")}` : "Read scope: not declared",
+		contract.goal ? `Goal: ${contract.goal}` : "Goal: not declared",
+		contract.expectedResult ? `Expected result: ${contract.expectedResult}` : "Expected result: not declared",
+	].join("\n");
 }
 
 export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<DispatchAgentParams> {
@@ -304,7 +415,7 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		try { onUpdate?.({ content: [{ type: "text", text: `Dispatching to ${prepared.agent}...` }], details: { agent: prepared.agent, task: prepared.task, status: "dispatching" } }); return await finishDispatch(d, prepared, params, await runWithAutoResearch(d, prepared, params, ctx, onUpdate), tracking, ctx, onUpdate); }
 		catch (err: any) { return { content: [{ type: "text", text: `Error dispatching to ${prepared.agent}: ${err?.message || err}` }], details: { agent: prepared.agent, task: prepared.task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
 		finally { if (tracking.writable) d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); }
-	});
+	}, (params, ctx) => dispatchExecutionConditions(d, params, ctx));
 }
 
 export function createResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchParams> {
@@ -324,9 +435,9 @@ export function createResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<Sp
 		try { artifacts = d.artifacts.loadInputArtifacts(params.artifacts, ctx); } catch (err: any) { return { content: [{ type: "text", text: `⚠ Research NOT spawned and NOT counted against the turn budget — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and try again.` }], details: { status: "artifact_preflight_failed" } }; }
 		s.setTurnResearchCount(s.getTurnResearchCount() + 1); s.setTaskResearchCount(s.getTaskResearchCount() + 1); s.getTurnReport().research++; s.getSessionTotals().research++; d.budget.updateModeStatus();
 		const state = d.research.createState(def, persona, model); onUpdate?.({ content: [{ type: "text", text: `Spawning research helper r${state.id}...` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, status: "spawning" } });
-		try { const result = await d.research.spawn(state, params.task, ctx, artifacts, signal); const status = result.termination ? result.termination.reason : result.exitCode === 0 ? "done" : "error"; const output = result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output; return { content: [{ type: "text", text: `[research r${state.id} · ${persona ? d.displayName(def.name) : "ad-hoc"} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s\n\n${output}${result.evidencePath ? `\n\nFull execution evidence: ${result.evidencePath}` : ""}` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, model, status, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId, evidencePath: result.evidencePath, transcriptPath: result.transcriptPath, termination: result.termination, artifacts: artifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } }; }
-		catch (err: any) { return { content: [{ type: "text", text: `Error spawning research helper: ${err?.message || err}` }], details: { handle: `r${state.id}`, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
-	});
+		try { const result = await d.research.spawn(state, structuredResearchPrompt(params), ctx, artifacts, signal); const status = result.termination ? result.termination.reason : result.exitCode === 0 ? "done" : "error"; const output = result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output; return { content: [{ type: "text", text: `[research r${state.id} · ${persona ? d.displayName(def.name) : "ad-hoc"} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s\n\n${output}${result.evidencePath ? `\n\nFull execution evidence: ${result.evidencePath}` : ""}` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, model, status, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId, evidencePath: result.evidencePath, transcriptPath: result.transcriptPath, termination: result.termination, researchContract: normalizeResearchContract(params), artifacts: artifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } }; }
+		catch (err: any) { return { content: [{ type: "text", text: `Error spawning research helper: ${err?.message || err}` }], details: { handle: `r${state.id}`, model, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
+	}, (params, ctx) => researchExecutionConditions(d, params, ctx));
 }
 
 function hasWriteCapability(tools: string): boolean { const set = new Set(String(tools || "").split(",").map(x => x.trim()).filter(Boolean)); return ["write", "edit", "bash"].some(x => set.has(x)); }

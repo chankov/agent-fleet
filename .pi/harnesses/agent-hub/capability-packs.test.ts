@@ -38,6 +38,7 @@ const explicitIntentCases: Array<{
 		{ name: "explicit research enables fleet", input: { userText: "Spawn a research helper for this." }, active: ["core", "fleet"] },
 		{ name: "feature acceptance work enables verification", input: { userText: "Implement this feature.", taskTier: "feature" }, active: ["core", "verification"] },
 		{ name: "explicit assertions enable verification", input: { userText: "Verify the acceptance criteria." }, active: ["core", "verification"] },
+		{ name: "equivalent Bulgarian acceptance request enables verification", input: { userText: "Провери критериите за приемане." }, active: ["core", "verification"] },
 		{ name: "explicit ready coms enables peer", input: { userText: "Send this through coms to the existing peer.", comsReady: true }, active: ["core", "peer"] },
 		{ name: "unready coms never enables peer", input: { userText: "Send this through coms to the existing peer.", comsReady: false }, active: ["core"] },
 		{ name: "explicit ready pane enables workspace", input: { userText: "Open a Herdr pane for the watcher.", herdrReady: true }, active: ["core", "workspace"] },
@@ -57,6 +58,14 @@ for (const row of explicitIntentCases) {
 		assert.deepEqual(actual.confirmationRequired, row.provisional ?? []);
 	});
 }
+
+test("minimal changed-task verification does not require the heavy verification pack at low tiers", () => {
+	for (const taskTier of ["trivial", "small"] as const) {
+		assert.deepEqual(surface({ userText: "fully implement PLAN54", taskTier }), {
+			active: ["core"], provisional: [], confirmationRequired: [],
+		});
+	}
+});
 
 test("readiness is a prerequisite and never becomes intent", () => {
 	assert.deepEqual(surface({ comsReady: true, herdrReady: true }), {

@@ -304,6 +304,16 @@ for (const sample of [
 	});
 }
 
+test("native completion preserves trusted tool events for parent protocol correlation", async () => {
+ const state = nativeState();
+ const toolEvents = [{ toolName: "write", toolCallId: "w1", args: JSON.stringify({ path: "docs/out.md" }), completed: true, isError: false }];
+ const native = createDispatchNative(nativeDeps(state, {
+  spawnPiAgentWithModelFallback: async () => ({ output: "done", exitCode: 0, stderr: "", toolCallsStarted: 1, modelUsed: "provider/model", toolEvents }),
+ }));
+ const result = await native.dispatchAgent("builder", "task", extensionContext);
+ assert.deepEqual((result as any).toolEvents, toolEvents);
+});
+
 test("native retries preserve complete per-dispatch evidence and previous raw session", async t => {
  const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import("node:fs");
  const { tmpdir } = await import("node:os"); const { join, dirname } = await import("node:path");

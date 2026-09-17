@@ -40,6 +40,8 @@ function comsDeps(overrides: Record<string, unknown> = {}) {
 		getTurnReport: () => ({}),
 		getAssertions: () => [],
 		setAssertions() {},
+		currentTaskId: () => "task-1",
+		currentRevision: () => "rev-1",
 		getAgentStates: () => new Map(),
 		rosterAdd: () => ({ ok: true, message: "ok" }),
 		rosterDrop: () => ({ ok: true, message: "ok" }),
@@ -102,6 +104,33 @@ test("coms_send with allowlist and missing target does not use the profile gate"
 		);
 		assert.equal(sendCalls, 1);
 	});
+});
+
+test("assertion source, critical conditions, and current task revision bind through persistence", async () => {
+ let assertions: any[] = [], persisted = 0;
+ const deps = comsDeps({
+  getAssertions: () => assertions, setAssertions: (value: any[]) => { assertions = value; },
+  artifacts: { persistAssertions: () => { persisted++; }, updateAssertionStatus() {}, evidencePathExists: () => false, artifactsRoot: () => "/tmp/artifacts" },
+  currentTaskId: () => "task-current", currentRevision: () => "revision-current",
+ });
+ const actions = createActionExecutors(deps as any);
+ await actions.executeSetAssertions("set", { assertions: [{ id: "A1", tag: "test", text: "UTC day", source: "user request", reference: "PLAN.md:42", critical_conditions: ["UTC calendar day"], test_command: "node --test utc.test.js" }] } as any, undefined, undefined, { ui: { notify() {} } } as any);
+ await actions.executeUpdateAssertion("update", { id: "A1", status: "proven", evidence: "node --test acceptance.test.ts → 11/11 pass" }, undefined, undefined, {} as any);
+ assert.equal(assertions[0].testCommand, "node --test utc.test.js"); assert.equal(assertions[0].source, "user request"); assert.equal(assertions[0].reference, "PLAN.md:42");
+ assert.deepEqual(assertions[0].criticalConditions, ["UTC calendar day"]);
+ assert.equal(assertions[0].evidenceTaskId, "task-current"); assert.equal(assertions[0].evidenceRevision, "revision-current");
+ assert.equal(persisted, 2);
+});
+
+test("new-task reset clears prior acceptance assertions with the task window", async () => {
+ let assertions: any[] = [{ id: "A1" }], reset = 0, persisted = 0;
+ const deps = comsDeps({
+  getAssertions: () => assertions, setAssertions: (value: any[]) => { assertions = value; },
+  budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { reset++; }, appendTaskResetEntry() {}, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+  artifacts: { persistAssertions: () => { persisted++; } },
+ });
+ const result = await createActionExecutors(deps as any).executeSetTaskTier("tier", { tier: "small", new_task: true } as any, undefined, undefined, {} as any);
+ assert.match(result.content[0].text, /prior assertion ledger cleared/); assert.deepEqual(assertions, []); assert.equal(reset, 1); assert.equal(persisted, 1); assert.equal((result.details as any).newTask, true);
 });
 
 test("handoff and herdr spawn call the allowlist-aware gate rather than a blanket native ban", () => {

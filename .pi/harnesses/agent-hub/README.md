@@ -1181,21 +1181,56 @@ tool results; `artifacts/...` is a session-relative handoff alias, not a read-to
 
 ### No-progress stops
 
-The first unchanged retry after a failed dispatch/research operation is refused across
-turns. Identity uses actor, scope, supplied artifact contents and worktree content,
-not task wording; generated runtime files are not progress. Budget renewal preserves
-the guard. New input content/scope or a genuine new task can permit work. For research
-without scope/artifacts, the guard conservatively treats the repository as its scope.
+Unchanged failed dispatch/research retries are refused across turns using normalized
+actor, structured scope, input artifacts, actual execution conditions and worktree
+state, not task wording or scope_mode. Research scope is advisory, not isolation.
 
-A human may type `/af-retry <failed-dispatchId>` to authorize exactly one retry of
-that failure. The command is audited, does not dispatch or renew budget, and stale
-IDs/prose do not authorize. Same-input concurrent operations are also refused.
+Operator cancellation fences the **agent identity**, including disjoint scopes,
+model/prose changes and dispatch/research inputs. Other agents' already-running work
+is not cancelled. A human `/af-retry <cancelled-dispatchId>` supplies one-use
+explicit authorization; it never dispatches or renews budget. Stale IDs cannot grant
+permission. Other failure categories cannot be authorized with this command.
 
-The first unchanged refusal leaves the parent turn running so corrected inputs can
-be supplied; a second unchanged refusal stops the turn. Successful-but-unverified
-execution is **not** a no-progress failure; actual execution failure or failed
-deliverable readback is. This distinction prevents acceptance policy from blocking
-normal successful follow-up work.
+Non-busy recovery refusals spend existing turn/task operation allowances. Exhaustion
+returns budget_refused; no new limit, parent abort, retry, wait or queue is added.
+Busy operations that never started spend no allowance. Turn reports include charged
+refusals as zero-time/zero-token no_progress_refused rows (research in its count);
+refusal totals include even uncharged budget refusals. Session execution totals
+still count real dispatch attempts rather than guard refusals.
+
+The shared recovery contract is fail-closed. Protocol errors require changed
+conditions plus a trusted prior-effects inspection. The internal task-generation-bound
+establishEffects port accepts a retained inspection reference; it is not a model
+parameter or a promise that T3 exists. No T3 producer is installed yet. Unknown-tool
+recovery likewise has no trusted catalog-change producer in this slice.
+
+### Runtime verification contract
+
+set_assertions.test_command declares an exact bash verification command for a test
+or code-grep requirement. It does not execute the command. For code-grep, the command
+must exit nonzero when the declared presence/absence condition fails. Native children
+run it through the existing approved bash path after edits. The child-loaded
+runtime-test-check observer preserves Pi's configured shell/prefix, execution context,
+renderers and tool_result error flag; the parent retains command, actual exit and
+before/after revisions, binding source/text/reference/critical conditions to task ID.
+Compilation only checks the minimal change requirement, never semantic assertions.
+
+manual/runtime-ui requirements are explicitly unsupported by this producer. A test
+or code-grep without a command/check remains missing/unverified; a model's proven
+stamp is not runtime proof. Fresh bound runtime checks supersede old claimed ledger
+stamps; stale runtime checks do not. Runtime refs and claimedEvidenceRefs are separate.
+
+agent-fleet.runtime-result/v1 reports orthogonal execution, changes, verification,
+acceptance and compatibility dimensions. Acceptance requires completed execution,
+current task, certain changed state, and all requirements/checks passing with current
+revision and retained runtime evidence. Missing/failed/stale/unsupported checks,
+unchanged/missing deliverables and uncertain attribution never accept, at any tier.
+needs_verification means unaccepted, not nearly done.
+
+**Semantic limitation (operator accepted):** specialist-authored tests may pass the
+runtime gate. Runtime proves execution/state, NOT the adequacy of those tests or
+code-grep predicates. Separate code review remains required; accepted is not human
+Checkpoint A approval. No live model runs or T3/T7 implementation are included.
 
 ### Explicit delivery contract
 
@@ -1205,9 +1240,9 @@ records size/hash/preview and whether it changed, retains the inspected content,
 saves `details.assessmentPath`. Missing files, directories and unsafe symlink paths
 do not pass readback. An existing unchanged file is not attributed to this run.
 
-Exit 0 returns `executionStatus: completed`, **not** acceptance. Tool status is
-`completed_unverified` or `verification_failed`; `accepted: false` and the assertion
-ledger keep semantic verification in the operator's hands. Every delivered return is
+Exit 0 returns `executionStatus: completed`, **not** acceptance. Without qualifying runtime checks, tool status is
+`completed_unverified` or `verification_failed` and `accepted: false`. Only the
+runtime verification contract above can produce `accepted: true`. Every delivered return is
 saved even without assertion IDs. Pending peer delivery remains pending.
 
 Scope roots are checked before budget confirmation/counters. Missing roots are not

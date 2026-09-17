@@ -74,12 +74,15 @@ export interface NativeExecutionDiagnostics {
 	stderr: string;
 	spawnError: string | null;
 	modelUsed: string | null;
+	effectiveTools: string[];
 	toolCallsStarted: number | null;
 	termination: SpawnPiAgentResult["termination"] | null;
 	modelFallback: SpawnPiAgentResult["modelFallback"] | null;
 }
 
 export interface NativeDispatchResult {
+ runtimeTests?: import("./runtime-test-check.ts").RuntimeTestRecord[];
+ toolEvents?: import("./tool-protocol.ts").ToolExecutionEvent[];
 	evidencePath?: string;
 	sessionPath?: string;
 	dispatchId?: string;

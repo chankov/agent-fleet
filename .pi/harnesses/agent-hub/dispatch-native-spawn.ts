@@ -138,6 +138,7 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeSpawnOutcome> {
 	const { deps, state, ctx, model, effectiveTools, thinkingLevel, replacementSystemPrompt, agentSessionFile, runPrompt, extensions, delegateEnv, turnBudget, personaKey, originalModelFallback } = run;
 	const spawnOptions: SpawnPiAgentOptions = {
+        runtimeTestObserver: extensions.some(path => path.endsWith("/runtime-test-check.ts")),
 		model,
 		tools: effectiveTools,
 		thinking: thinkingLevel,

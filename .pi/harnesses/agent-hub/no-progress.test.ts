@@ -1,46 +1,173 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createNoProgressGuard } from "./no-progress.ts";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createNoProgressGuard, normalizeResearchContract, withNoProgress } from "./no-progress.ts";
 
-test("unchanged failure blocks rewording and new turns; one human approval buys only one retry", () => {
- const guard = createNoProgressGuard();
- const ticket = guard.begin("dispatch", "same-input"); assert.equal(ticket.allowed, true);
- guard.finish(ticket, "same-input", { dispatchId: "failed-1", evidencePath: "/failure.json", reason: "assistant_error" });
- const blocked = guard.begin("dispatch", "same-input"); assert.equal(blocked.allowed, false);
- assert.equal(blocked.failure?.dispatchId, "failed-1");
- assert.equal(guard.authorize("stale-id"), false); assert.equal(guard.authorize("failed-1"), true);
- const retried = guard.begin("dispatch", "same-input"); assert.equal(retried.allowed, true);
- assert.equal(guard.begin("dispatch", "same-input").allowed, false, "parallel same-input retry blocked");
- guard.finish(retried, "same-input", { dispatchId: "failed-2", reason: "assistant_error" });
- assert.equal(guard.begin("dispatch", "same-input").allowed, false);
- assert.equal(guard.authorize("failed-1"), false, "previous authorization cannot acknowledge a later failure");
+function failed(id: string, category: any, reason = category) {
+	return { dispatchId: id, reason, category };
+}
+
+test("operator cancellation requires fresh one-use authorization; model or fingerprint changes cannot bypass it", () => {
+	const guard = createNoProgressGuard();
+	const first = guard.begin("operation", "model-a");
+	guard.finish(first, "model-a", failed("cancel-1", "operator_cancelled"));
+	assert.equal(guard.begin("operation", "model-b").allowed, false, "changed effective model is not cancellation authorization");
+	assert.equal(guard.authorize("cancel-1"), true);
+	assert.equal(guard.authorize("cancel-1"), false, "authorization is one-use and cannot be duplicated");
+	const authorized = guard.begin("operation", "model-b");
+	assert.equal(authorized.allowed, true);
+	guard.finish(authorized, "model-b", failed("cancel-2", "operator_cancelled"));
+	assert.equal(guard.begin("operation", "model-c").allowed, false, "the next cancellation needs a fresh authorization");
+	assert.equal(guard.authorize("cancel-1"), false, "old completion cannot authorize the new cancellation");
 });
 
-test("changed inputs permit work; stale completion after genuine task reset cannot poison new task", () => {
- const guard = createNoProgressGuard(); const old = guard.begin("research", "old-revision");
- guard.finish(old, "old-revision", { dispatchId: "r1", reason: "exit_code" });
- assert.equal(guard.begin("research", "new-revision").allowed, true);
- const late = guard.begin("dispatch", "old-revision"); guard.reset();
- guard.finish(late, "old-revision", { dispatchId: "stale", reason: "exit_code" });
- assert.equal(guard.authorize("stale"), false);
- assert.equal(guard.begin("dispatch", "old-revision").allowed, true);
+test("evidenced changes permit supported recovery, while indeterminate cause never authorizes retry", () => {
+	const guard = createNoProgressGuard();
+	const verification = guard.begin("verify", "rev-a");
+	guard.finish(verification, "rev-a", failed("verify-1", "verification_failed"));
+	assert.equal(guard.begin("verify", "rev-a").allowed, false);
+	assert.equal(guard.begin("verify", "rev-b").allowed, true);
+
+	const unknown = guard.begin("unknown", "rev-a");
+	guard.finish(unknown, "rev-a", failed("unknown-1", "indeterminate"));
+	assert.equal(guard.authorize("unknown-1"), false);
+	assert.equal(guard.begin("unknown", "rev-b").allowed, false, "unknown cause stays fail-closed despite changed conditions");
 });
 
-test("real changed content unlocks a retry but prose and generated runtime files do not", async t => {
- const { withNoProgress } = await import("./no-progress.ts");
- const { mkdtempSync, writeFileSync, mkdirSync, rmSync } = await import("node:fs");
- const { join } = await import("node:path"); const { tmpdir } = await import("node:os"); const { execFileSync } = await import("node:child_process");
- const cwd = mkdtempSync(join(tmpdir(), "progress-revision-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
- execFileSync("git", ["init", cwd], { stdio: "ignore" });
- writeFileSync(join(cwd, "source.ts"), "before");
+test("busy is an immediate refusal and does not poison completion or unrelated work", () => {
+	const guard = createNoProgressGuard();
+	const active = guard.begin("same", "rev");
+	const busy = guard.begin("same", "rev");
+	assert.equal(busy.allowed, false); assert.equal(busy.refusal, "busy");
+	assert.equal(guard.begin("unrelated", "rev").allowed, true);
+	guard.finish(busy, "rev", failed("must-not-record", "indeterminate"));
+	guard.finish(active, "rev");
+	assert.equal(guard.begin("same", "rev").allowed, true, "a busy refusal records no failure");
+});
+
+test("stale completion after task reset cannot consume or grant authorization", () => {
+	const guard = createNoProgressGuard(); const oldTaskId = guard.taskId();
+	const stale = guard.begin("operation", "old");
+	guard.reset(); assert.notEqual(guard.taskId(), oldTaskId, "new-task reset rotates runtime task identity");
+	guard.finish(stale, "old", failed("stale-cancel", "operator_cancelled"));
+	assert.equal(guard.authorize("stale-cancel"), false);
+	assert.equal(guard.begin("operation", "old").allowed, true);
+});
+
+test("structured research contract normalizes paths and prose without changing legacy calls", () => {
+	assert.deepEqual(normalizeResearchContract({ read_scope: ["./src/", "src", " docs\\plan.md "], goal: "  find   facts ", expected_result: " lines  " }), {
+		readScope: ["docs/plan.md", "src"], goal: "find facts", expectedResult: "lines",
+	});
+	assert.deepEqual(normalizeResearchContract({}), { readScope: [], goal: undefined, expectedResult: undefined });
+});
+
+test("research progress ignores paraphrase but recognizes a normalized read-scope change and effective model", async t => {
+	const cwd = mkdtempSync(join(tmpdir(), "research-progress-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	execFileSync("git", ["init", cwd], { stdio: "ignore" }); writeFileSync(join(cwd, "source.ts"), "same");
+	let calls = 0; let model = "local/a";
+	const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
+	const run = withNoProgress(d, "research", async () => ({ content: [], details: { status: "verification_failed", exitCode: 1, dispatchId: `r-${++calls}` } }), () => ({ model, tools: "read,grep,find,ls" }));
+	const base: any = { task: "original wording", read_scope: ["src/**"], goal: "locate API", expected_result: "path:line" };
+	await run("1", base, undefined, undefined, { cwd } as any);
+	const paraphrase = await run("2", { ...base, task: "completely rephrased", goal: "locate   API" }, undefined, undefined, { cwd } as any);
+	assert.equal((paraphrase.details as any).status, "no_progress_refused"); assert.equal(calls, 1);
+	await run("3", { ...base, read_scope: ["src/narrow/**"] }, undefined, undefined, { cwd } as any);
+	assert.equal(calls, 2, "a real structured scope change is a distinct bounded operation");
+	model = "local/b";
+	await run("4", base, undefined, undefined, { cwd } as any);
+	assert.equal(calls, 3, "effective model is part of execution conditions");
+});
+
+test("scope_mode, prose and disjoint scope do not bypass same-agent cancellation", async t => {
+	const cwd = mkdtempSync(join(tmpdir(), "dispatch-cancel-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	execFileSync("git", ["init", cwd], { stdio: "ignore" }); writeFileSync(join(cwd, "a.ts"), "a"); writeFileSync(join(cwd, "b.ts"), "b");
+	let calls = 0;
+	const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
+	const run = withNoProgress(d, "dispatch", async () => ({ content: [], details: { status: "cancelled", reason: "cancelled", exitCode: 1, dispatchId: `d-${++calls}` } }), () => ({ model: "m" }));
+	const base: any = { agent: "builder", task: "first wording", scope: ["a.ts"], scope_mode: "existing" };
+	await run("1", base, undefined, undefined, { cwd } as any);
+	const blocked = await run("2", { ...base, task: "new prose", scope_mode: "create" }, undefined, undefined, { cwd } as any);
+	assert.equal((blocked.details as any).recoveryCategory, "operator_cancelled"); assert.equal(calls, 1);
+	await run("3", { ...base, task: "unrelated", scope: ["b.ts"] }, undefined, undefined, { cwd } as any);
+	assert.equal(calls, 1, "advisory scope cannot bypass the agent fence");
+});
+
+for (const kind of ["dispatch", "research"] as const) test(`${kind}: cancellation survives scope widening, narrowing, and omitted scope`, async () => {
  let calls = 0;
  const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
- const run = withNoProgress(d, "dispatch", async () => { calls++; return { content: [], details: { status: "error", exitCode: 1, dispatchId: `failure-${calls}` } }; });
- const request = { agent: "builder", task: "do work" }; const ctx: any = { cwd };
- await run("1", request, undefined, undefined, ctx);
- mkdirSync(join(cwd, ".pi/agent-sessions"), { recursive: true }); writeFileSync(join(cwd, ".pi/agent-sessions/new-result"), "mere runtime activity");
- const unchanged = await run("2", { ...request, task: "rephrased" }, undefined, undefined, ctx);
- assert.equal((unchanged.details as any).status, "no_progress_refused"); assert.equal(calls, 1);
- writeFileSync(join(cwd, "source.ts"), "corrected content");
- await run("3", request, undefined, undefined, ctx); assert.equal(calls, 2);
+ const run = withNoProgress(d, kind, async () => ({ content: [], details: { status: "cancelled", exitCode: 1, dispatchId: `cancel-${++calls}` } }));
+ const field = kind === "dispatch" ? "scope" : "read_scope";
+ const base: any = { task: "work", ...(kind === "dispatch" ? { agent: "builder" } : {}), [field]: ["src/**"] };
+ await run("1", base, undefined, undefined, {} as any);
+ for (const scope of [["src/**", "docs/**"], ["src/a.ts"], ["src//a.ts"], ["."], []]) {
+  const refused = await run("2", { ...base, [field]: scope }, undefined, undefined, {} as any);
+  assert.equal((refused.details as any).recoveryCategory, "operator_cancelled");
+ }
+ assert.equal(calls, 1);
+ assert.equal(d.noProgress.authorize("cancel-1"), true);
+ await run("3", { ...base, [field]: ["src/**", "docs/**"] }, undefined, undefined, {} as any);
+ assert.equal(calls, 2);
+});
+
+test("result-enriched execution conditions do not fabricate relevant changes", async () => {
+ let calls = 0;
+ const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
+ const run = withNoProgress(d, "dispatch", async () => ({ content: [], details: { status: "verification_failed", exitCode: 0, dispatchId: `v-${++calls}` } }), (_p, _c, result) => ({ model: result ? "actual/model" : "configured/model", backend: result ? "native" : "auto" }));
+ const params = { agent: "builder", task: "work" };
+ await run("1", params, undefined, undefined, {} as any);
+ const result = await run("2", params, undefined, undefined, {} as any);
+ assert.equal((result.details as any).status, "no_progress_refused"); assert.equal(calls, 1);
+});
+
+test("research scope is repository-relative advisory input, not an escaping path", () => {
+ for (const path of ["/etc", "../src", "src/../../etc", "C:\\secret"]) assert.throws(() => normalizeResearchContract({ read_scope: [path] }), /relative|escape/i);
+});
+
+test("cancellation fences agent identity across disjoint contracts and leaves other running agents intact", () => {
+ const g = createNoProgressGuard();
+ const other = g.begin("other", "r", "reviewer");
+ const first = g.begin("original", "r", "builder", ["src/a"]);
+ g.finish(first, "r", failed("cancel", "operator_cancelled"));
+ for (const scope of [["docs/throwaway"], ["src", "docs"], []]) assert.equal(g.begin(JSON.stringify(scope), "new-model-and-prose", "builder", scope).allowed, false);
+ g.finish(other, "r");
+ assert.equal(g.begin("other", "r", "reviewer").allowed, true);
+ assert.equal(g.authorize("cancel"), true);
+ const retry = g.begin("disjoint", "new", "builder", ["docs"]);
+ assert.equal(retry.allowed, true);
+ assert.equal(g.authorize("cancel"), false);
+ g.finish(retry, "new", failed("cancel2", "operator_cancelled"));
+ assert.equal(g.begin("original", "r", "builder").allowed, false);
+});
+
+test("trusted effects-established recovery is task-bound and never authorizes cancellation", () => {
+ const g = createNoProgressGuard(); const token = g.taskToken();
+ const first = g.begin("protocol", "before"); g.finish(first, "before", failed("p1", "tool_protocol_error"));
+ assert.equal(g.begin("protocol", "corrected").allowed, false);
+ assert.equal(g.establishEffects("p1", token, ""), false);
+ assert.equal(g.establishEffects("p1", token, "/e/effects.json"), true);
+ assert.equal(g.begin("protocol", "before").allowed, false);
+ assert.equal(g.begin("protocol", "corrected").allowed, true);
+ const cancelled = g.begin("cancel", "r"); g.finish(cancelled, "r", failed("c1", "operator_cancelled"));
+ assert.equal(g.establishEffects("c1", token, "/e/effects.json"), false);
+ g.reset(); assert.equal(g.establishEffects("p1", token, "/e/effects.json"), false);
+});
+
+test("same persona cancellation also fences research vs dispatch operations", async () => {
+ const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } }; let runs = 0;
+ const execute = async () => { runs++; return { content: [], details: { status: "cancelled", exitCode: 1, dispatchId: "cross-mode" } }; };
+ const dispatch = withNoProgress(d, "dispatch", execute), research = withNoProgress(d, "research", execute);
+ await dispatch("d", { agent: "deep-researcher", task: "work" }, undefined, undefined, {} as any);
+ const result = await research("r", { persona: "Deep_Researcher", task: "other", read_scope: ["docs"] }, undefined, undefined, {} as any);
+ assert.equal((result.details as any).status, "no_progress_refused"); assert.equal(runs, 1);
+});
+
+test("task reset does not silently authorize a recorded operator cancellation", () => {
+ const g = createNoProgressGuard(); const first = g.begin("work", "r", "builder");
+ g.finish(first, "r", failed("cancel-persistent", "operator_cancelled"));
+ g.reset(); assert.equal(g.begin("new-task", "new", "builder").allowed, false);
+ assert.equal(g.authorize("cancel-persistent"), true);
+ assert.equal(g.begin("new-task", "new", "builder").allowed, true);
 });

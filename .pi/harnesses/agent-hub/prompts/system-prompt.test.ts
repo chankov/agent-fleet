@@ -54,7 +54,7 @@ function digest(text: string): string {
 
 test("full extracted Hub prompt preserves exact text, ordering, and ledger", () => {
 	const built = buildHubSystemPrompt(fixture());
-	assert.equal(digest(built.systemPrompt), "eeb2eeae74bfecfe1e7439a3db2a4bef12b011d92b1d6e515526b10dd082a8bb");
+	assert.equal(digest(built.systemPrompt), "ca415ea2fd41425089dcf6b234238514404306e5cf80162f13cc508ac1964471");
 	assert.deepEqual(built.ledger.map(entry => entry.id), [
 		"hub/policy/work-mode", "hub/policy/language", "hub/roster-header", "hub/roster/builder",
 		"hub/policy/dispatch", "hub/policy/triage", "hub/policy/verification", "hub/state",

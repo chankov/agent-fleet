@@ -214,7 +214,7 @@ export default function (pi) {
 		const selected = tools.filter((tool: any) => names.includes(tool.name));
 		assert.equal(selected.length, names.length);
 		assert.ok(JSON.stringify(selected).length < 8_000, `compact serialized schemas=${JSON.stringify(selected).length}`);
-		for (const [name, fields] of [["dispatch_agent", ["agent", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "backend"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
+		for (const [name, fields] of [["dispatch_agent", ["agent", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "backend"]], ["spawn_research", ["task", "persona", "model", "artifacts", "read_scope", "goal", "expected_result"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
 			const tool = selected.find((entry: any) => entry.name === name);
 			assert.deepEqual(Object.keys(tool.parameters.properties), fields, `${name} accepted fields`);
 		}
@@ -875,4 +875,28 @@ export default function(pi) {
   assertExtensionStackLoaded(result);
   assert.deepEqual(JSON.parse(readFileSync(capture,'utf8')),{enabled:true,opened:true});
  } finally {rmSync(workspace,{recursive:true,force:true});}
+});
+
+test("runtime test observer loads on the installed guarded Pi tool surface without models", () => {
+ assertExtensionStackLoaded(runExtensionStack(repoRoot, ["-e", ".pi/harnesses/agent-hub/runtime-test-check.ts"]));
+});
+
+test("runtime test observer captures real process exits, not tool prose", () => {
+ const dir = mkdtempSync(join(tmpdir(), "runtime-test-observer-"));
+ try {
+  const output = join(dir, "checks.json"), probe = join(dir, "probe.ts");
+  writeFileSync(probe, `import observer from ${JSON.stringify(join(repoRoot, ".pi/harnesses/agent-hub/runtime-test-check.ts"))};
+import { writeFileSync } from "node:fs";
+export default async function(pi) {
+ let tool;
+ await observer({ registerTool: value => { tool = value; }, on: (...args) => pi.on(...args) });
+ const records = [];
+ for (const code of [0, 7]) { const result = await tool.execute("fixture", { command: "node -e \\\"process.exit(" + code + ")\\\"" }, undefined, undefined); records.push(result.details.runtimeTest); }
+ writeFileSync(${JSON.stringify(output)}, JSON.stringify(records));
+}`);
+  assertExtensionStackLoaded(runExtensionStack(repoRoot, ["-e", probe]));
+  const records = JSON.parse(readFileSync(output, "utf8"));
+  assert.deepEqual(records.map((record: any) => record.exitCode), [0, 7]);
+  for (const record of records) { assert.equal(record.beforeRevision, record.afterRevision); assert.ok(record.beforeRevision); }
+ } finally { rmSync(dir, { recursive: true, force: true }); }
 });

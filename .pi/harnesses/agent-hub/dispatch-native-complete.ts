@@ -12,12 +12,14 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 		reason: res.spawnError ? "spawn_error" : res.termination?.reason ?? (state.killedByOperator ? "operator_cancelled" : res.assistantError ? "assistant_error" : res.exitCode !== 0 ? "exit_code" : null),
 		processExitCode: res.exitCode,
 		assistantError: res.assistantError ?? null, stderr: res.stderr, spawnError: res.spawnError ?? null,
-		modelUsed: res.modelUsed ?? null, toolCallsStarted: res.toolCallsStarted ?? null,
+		modelUsed: res.modelUsed ?? null,
+		effectiveTools: run.effectiveTools.split(",").map(tool => tool.trim()).filter(Boolean),
+		toolCallsStarted: res.toolCallsStarted ?? null,
 		termination: res.termination ?? null, modelFallback: res.modelFallback ?? null,
 	};
 	const diagnosticText = diagnostics.reason ? formatDiagnostics(diagnostics) : "";
 	const finish = (result: NativeDispatchResult): NativeDispatchResult => ({
-		...result, dispatchId: run.dispatchId, transcriptPath: run.transcriptPath, diagnostics, sessionReset,
+		...result, runtimeTests: res.runtimeTests, toolEvents: res.toolEvents, dispatchId: run.dispatchId, transcriptPath: run.transcriptPath, diagnostics, sessionReset,
 		output: result.output + diagnosticText,
 	});
 	if (diagnosticText) deps.appendTimelineText(state, "text", diagnosticText);

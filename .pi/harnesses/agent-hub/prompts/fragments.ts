@@ -98,7 +98,9 @@ Call \`set_task_tier\` honestly: trivial/small work uses minimal ceremony; featu
 
 export function verificationFragment(maxOpenAssertions: number): string {
 	return `## Verification Contract
-For non-trivial work, record at most ${maxOpenAssertions} narrow, sourced assertions before building and pass them verbatim to specialists. Advance only on named evidence; unproven/failed is not done. Runtime-UI claims require runtime observation. Use \`skills/orchestration-verification/SKILL.md\` for formats, parity inventories, and regression resets. After compaction, read the ledger before continuing.`;
+For non-trivial work, record at most ${maxOpenAssertions} narrow, sourced assertions before building and pass them verbatim to specialists. Advance only on named evidence; unproven/failed is not done. Runtime-UI claims require runtime observation. Use \`skills/orchestration-verification/SKILL.md\` for formats, parity inventories, and regression resets. After compaction, read the ledger before continuing.
+In set_assertions, text is one pass condition, source its requirement origin, reference the exact source location, and critical_conditions the semantic constraints that must survive handoff. For test or code-grep assertions declare test_command: the exact approved bash command whose exit 0 checks that condition (a grep check must assert the intended presence/absence). Tell the specialist to run it after edits. Declaration does not execute it. Runtime proves execution, task/revision and state, NOT semantic test adequacy; specialist-authored tests are allowed but require separate code review. manual and runtime-ui requirements are explicitly unsupported by this producer, never silently accepted; missing checkable commands remain unverified. needs_verification does not mean nearly done.
+In spawn_research, task describes the investigation, goal its question, expected_result the desired findings format, and read_scope the advisory relative paths, not isolation.`;
 }
 
 export function comsFragment(peerActive: boolean, comsReady: boolean, identity: { name: string; project: string } | null): string {

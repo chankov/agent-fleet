@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import { createDispatchExecutor, createResearchExecutor, prepareDispatch } from "./dispatch-execution.ts";
+import { createDispatchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt } from "./dispatch-execution.ts";
 
 function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?: number; tools?: string } = {}) {
 	let turn = overrides.turn ?? 0;
@@ -39,6 +39,7 @@ function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?:
 			getUserLanguage: () => "English",
 			getSessionDir: () => "/tmp",
 			getAgentStates: () => agents,
+			getAssertions: () => [],
 			getResearchPersonas: () => (overrides.research ?? ["researcher", "deep-researcher"]).map(name => ({ name })),
 			getActiveWritableDispatches: () => activeWriters,
 			setActiveWritableDispatches(v: number) { activeWriters = v; },
@@ -111,6 +112,61 @@ test("known roster agent still increments after validation", () => {
 	assert.equal((result as any).agent, "builder");
 	assert.equal(d._turn(), 1);
 	assert.equal(d._task(), 1);
+});
+
+test("every tier machine-appends the minimal changed-task contract and verbatim critical requirements", () => {
+ for (const tier of ["trivial", "small", "feature", "project"]) {
+  const d = prepareDeps({ tools: "read,write" });
+  d.state.getTaskTier = () => tier;
+  d.state.getAssertions = () => [{ id: "A1", tag: "test", text: "Use UTC calendar day", source: "user request", reference: "PLAN.md:42", criticalConditions: ["UTC day, not current instant"], status: "open" }];
+  const prepared = prepareDispatch(d as any, { agent: "builder", task: "Implement A1" } as any, { cwd: process.cwd() } as any) as any;
+  assert.match(prepared.task, /Runtime acceptance contract/); assert.match(prepared.task, /user request · PLAN\.md:42/);
+  assert.match(prepared.task, /UTC day, not current instant/); assert.equal(prepared.requirements[0].source, "user request");
+ }
+});
+
+test("low-tier PLAN54 and prose-free write operations derive minimal acceptance from operation capabilities", () => {
+ for (const tier of ["trivial", "small"] as const) for (const task of ["fully implement PLAN54", "", "hello"] as const) {
+  const d = prepareDeps({ tools: "read,edit" });
+  d.state.getTaskTier = () => tier;
+  const prepared = prepareDispatch(d as any, { agent: "builder", task } as any, { cwd: process.cwd() } as any) as any;
+  assert.deepEqual(prepared.requirements.map((requirement: any) => requirement.id), ["AF-MIN-CHANGE"]);
+  assert.match(prepared.task, /Runtime acceptance contract \(machine-appended\)/);
+  assert.match(prepared.task, /AF-MIN-CHANGE \[test\]/);
+ }
+});
+
+test("genuine read-only operations stay lightweight regardless of task prose", () => {
+ for (const task of ["Read PLAN54 and summarize it", "Провери критериите за приемане", "hello", ""] as const) {
+  const d = prepareDeps({ tools: "read,grep,find,ls" });
+  d.state.getTaskTier = () => "project";
+  const prepared = prepareDispatch(d as any, { agent: "builder", task } as any, { cwd: process.cwd() } as any) as any;
+  assert.deepEqual(prepared.requirements, []);
+  assert.doesNotMatch(prepared.task, /Runtime acceptance contract/);
+ }
+});
+
+test("structured research prompt is additive and task-only calls remain byte-compatible", () => {
+	assert.equal(structuredResearchPrompt({ task: "legacy task" }), "legacy task");
+	const prompt = structuredResearchPrompt({ task: "legacy task", read_scope: ["./src/", "docs\\a.md"], goal: " find   API ", expected_result: " path:line " });
+	assert.match(prompt, /## Structured research contract/);
+	assert.match(prompt, /- docs\/a\.md\n- src/);
+	assert.match(prompt, /Goal: find API/);
+	assert.match(prompt, /Expected result: path:line/);
+});
+
+test("busy dispatch refuses immediately before budget accounting and does not abort parent", async () => {
+	const d = prepareDeps(); let budgetChecks = 0, runs = 0, aborts = 0; let release!: () => void;
+	const gate = new Promise<void>(resolve => { release = resolve; });
+	d.budgetRecovery.ensure = async () => { budgetChecks++; return null; };
+	d.dispatchAgent = async () => { runs++; await gate; return { output: "done", exitCode: 0, elapsed: 1 }; };
+	const execute = createDispatchExecutor(d as any); const params = { agent: "builder", task: "same operation", scope: [] };
+	const first = execute("one", params, undefined, undefined, { abort: () => { aborts++; } } as any);
+	await new Promise(resolve => setImmediate(resolve));
+	const busy = await execute("two", { ...params, task: "paraphrased" }, undefined, undefined, { abort: () => { aborts++; } } as any);
+	assert.equal((busy.details as any).status, "busy"); assert.equal((busy.details as any).started, false);
+	assert.equal((busy.details as any).recoveryCategory, "busy"); assert.equal(budgetChecks, 1); assert.equal(runs, 1); assert.equal(aborts, 0);
+	release(); await first;
 });
 
 for (const operation of ["dispatch", "research"] as const) {
@@ -218,7 +274,7 @@ test("native diagnostic details survive the tool boundary and full failure artif
 	assert.ok(details.failurePath.includes("diagnostic-run-1"));
 });
 
-for (const kind of ["dispatch", "research"] as const) test(`${kind}: failed unchanged work is blocked across turns and rewording before budget confirmation`, async () => {
+for (const kind of ["dispatch", "research"] as const) test(`${kind}: indeterminate failed work is blocked across turns, rewording, and unsupported authorization`, async () => {
  const { createNoProgressGuard } = await import("../no-progress.ts");
  const d = prepareDeps(); (d as any).noProgress = createNoProgressGuard();
  let executions = 0, budgetChecks = 0;
@@ -230,12 +286,14 @@ for (const kind of ["dispatch", "research"] as const) test(`${kind}: failed unch
  const run = kind === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
  const params: any = kind === "dispatch" ? { agent: "builder", task: "Fix original task" } : { task: "Investigate original failure" };
  await run("first", params, undefined, undefined, {} as any);
- d.state.setTurnDispatchCount(0); // Ordinary turn renewal must not reset task progress.
+ d.state.setTurnDispatchCount(0);
  const refused = await run("second", { ...params, task: "Completely different wording of the same bounded work" }, undefined, undefined, {} as any);
  assert.equal((refused.details as any).status, "no_progress_refused");
+ assert.equal((refused.details as any).recoveryCategory, "indeterminate");
  assert.equal(executions, 1); assert.equal(budgetChecks, 1);
- assert.equal((d as any).noProgress.authorize(`${kind}-failed`), true);
- await run("third", params, undefined, undefined, {} as any); assert.equal(executions, 2);
+ assert.equal((d as any).noProgress.authorize(`${kind}-failed`), false, "unknown cause cannot be authorized as a retry");
+ const stillRefused = await run("third", params, undefined, undefined, {} as any);
+ assert.equal((stillRefused.details as any).status, "no_progress_refused"); assert.equal(executions, 1);
 });
 
 test("exit zero without assertions is execution completion, not acceptance", async () => {
@@ -244,6 +302,55 @@ test("exit zero without assertions is execution completion, not acceptance", asy
  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "Produce requested work" }, undefined, undefined, {} as any);
  assert.equal((result.details as any).executionStatus, "completed"); assert.equal((result.details as any).accepted, false);
  assert.equal((result.details as any).status, "completed_unverified"); assert.ok((result.details as any).returnPath);
+});
+
+test("exit-zero pseudo-write becomes evidenced tool_protocol_error and unchanged retry never replays partial effects", async t => {
+ const cwd = mkdtempSync(join(tmpdir(), "pseudo-tool-partial-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ const sessionDir = join(cwd, ".pi", "agent-sessions", "sessions", "test"); mkdirSync(sessionDir, { recursive: true }); mkdirSync(join(cwd, "docs"));
+ execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+ execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "fixture"], { cwd, stdio: "ignore" });
+ const d = prepareDeps({ tools: "read,write" }); d.state.getSessionDir = () => sessionDir;
+ const { createAssertionsArtifactsContext } = await import("../context/assertions-artifacts.ts");
+ d.artifacts = createAssertionsArtifactsContext({ getSessionDir: () => sessionDir, getAssertions: () => [], getRunHistoryKeep: () => 2, setStatus() {} }) as any;
+ (d._agents.get("builder") as any).lastBackend = "native";
+ let runs = 0;
+ d.dispatchAgent = async () => {
+  runs++;
+  writeFileSync(join(cwd, "docs", "one.md"), "completed effect\n");
+  return {
+   output: "One file is done.\n<tool_call><function=write>docs/two.md</function></tool_call>",
+   exitCode: 0, elapsed: 1, dispatchId: "pseudo-partial",
+   toolEvents: [{ toolName: "write", toolCallId: "write-one", args: JSON.stringify({ path: "docs/one.md", content: "completed effect" }), completed: true, isError: false }],
+  };
+ };
+ const execute = createDispatchExecutor(d as any);
+ const params = { agent: "builder", task: "Produce both files", scope: ["docs/**"], deliverables: ["docs/one.md", "docs/two.md"] };
+ const first = await execute("first", params, undefined, undefined, { cwd } as any); const details = first.details as any;
+ assert.equal(details.executionStatus, "completed"); assert.equal(details.accepted, false);
+ assert.equal(details.changeResult.status, "changed"); assert.equal(details.verificationResult.status, "failed");
+ assert.equal(details.status, "tool_protocol_error"); assert.equal(details.recoveryCategory, "tool_protocol_error");
+ assert.equal(details.protocolDiagnostic.effects.status, "partial"); assert.ok(existsSync(details.protocolEvidencePath));
+ assert.match((first.content[0] as any).text, /No matching write event.*docs\/two\.md.*missing/i);
+ const second = await execute("second", { ...params, task: "Please try those same two files again" }, undefined, undefined, { cwd } as any);
+ assert.equal((second.details as any).status, "no_progress_refused"); assert.equal((second.details as any).recoveryCategory, "tool_protocol_error");
+ assert.equal(runs, 1, "the already-executed first write is never replayed blindly");
+});
+
+test("executed write with failed deliverable readback stays verification_failed, not tool_protocol_error", async t => {
+ const cwd = mkdtempSync(join(tmpdir(), "executed-write-readback-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ const sessionDir = join(cwd, ".pi", "agent-sessions", "sessions", "test"); mkdirSync(sessionDir, { recursive: true }); mkdirSync(join(cwd, "docs"));
+ const d = prepareDeps({ tools: "read,write" }); d.state.getSessionDir = () => sessionDir;
+ const { createAssertionsArtifactsContext } = await import("../context/assertions-artifacts.ts");
+ d.artifacts = createAssertionsArtifactsContext({ getSessionDir: () => sessionDir, getAssertions: () => [], getRunHistoryKeep: () => 2, setStatus() {} }) as any;
+ (d._agents.get("builder") as any).lastBackend = "native";
+ d.dispatchAgent = async () => ({
+  output: "<tool_call><function=write>docs/out.md</function></tool_call>", exitCode: 0, elapsed: 1, dispatchId: "write-readback-failed",
+  toolEvents: [{ toolName: "write", toolCallId: "write-out", args: JSON.stringify({ path: "docs/out.md", content: "x" }), completed: true, isError: false }],
+ });
+ const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "Write output", scope: ["docs/**"], deliverables: ["docs/out.md"] }, undefined, undefined, { cwd } as any);
+ assert.equal((result.details as any).status, "verification_failed");
+ assert.equal((result.details as any).recoveryCategory, undefined);
+ assert.equal((result.details as any).protocolDiagnostic, null);
 });
 
 test("missing scope roots refuse before budget confirmation or dispatch", async () => {
@@ -259,7 +366,7 @@ for (const writes of [false, true]) test(`explicit deliverable readback and reta
  const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
  const { createAssertionsArtifactsContext } = await import("../context/assertions-artifacts.ts");
  const cwd = mkdtempSync(join(tmpdir(), "deliverable-boundary-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
- const sessionDir = join(cwd, ".pi/session"); mkdirSync(sessionDir, { recursive: true }); mkdirSync(join(cwd, "src"));
+ const sessionDir = join(cwd, ".pi/agent-sessions/sessions/test"); mkdirSync(sessionDir, { recursive: true }); mkdirSync(join(cwd, "src"));
  const target = join(cwd, "src/report.md"); const d = prepareDeps();
  d.state.getSessionDir = () => sessionDir;
  d.artifacts = createAssertionsArtifactsContext({ getSessionDir: () => sessionDir, getAssertions: () => [], getRunHistoryKeep: () => 2, setStatus() {} }) as any;
@@ -294,16 +401,19 @@ test("successful unverified completion permits a same-scope follow-up without pa
  assert.equal((followup.details as any).status, "completed_unverified"); assert.equal(runs, 2); assert.equal(aborts, 0);
 });
 
-test("first failed-work refusal permits correction; second unchanged refusal stops parent", async () => {
+test("repeated failed-work refusals stop only the requested operation, not the parent", async () => {
  const d = prepareDeps(); let runs = 0, aborts = 0;
  d.dispatchAgent = async () => { runs++; return { output: "failure", exitCode: 1, elapsed: 0, dispatchId: "failure" }; };
  const run = createDispatchExecutor(d as any); const ctx = { abort: () => { aborts++; } } as any;
  const params = { agent: "builder", task: "Original work" };
  await run("first", params, undefined, undefined, ctx);
  const first = await run("second", { ...params, task: "Rephrased work" }, undefined, undefined, ctx);
- assert.equal((first.details as any).status, "no_progress_refused"); assert.equal(aborts, 0);
+ assert.equal((first.details as any).status, "no_progress_refused");
  const second = await run("third", { ...params, task: "Again rephrased work" }, undefined, undefined, ctx);
- assert.equal((second.details as any).status, "no_progress_refused"); assert.equal(aborts, 1); assert.equal(runs, 1);
+ assert.equal((second.details as any).status, "budget_refused"); assert.equal(aborts, 0); assert.equal(runs, 1);
+ assert.equal(d.state.getTurnDispatchCount(), 2, "non-busy refusal spent existing dispatch budget without a child execution");
+ assert.equal(d.state.getTurnReport().dispatches.length, 2);
+ assert.equal(d.state.getTurnReport().dispatches[1].status, "no_progress_refused");
 });
 
 test("late result artifacts stay with the originating session namespace", async t => {
@@ -331,7 +441,7 @@ test("late old-task completion cannot auto-resume research or mutate new-task re
 
 function gitDiagnosticsFixture(t: any, git = true) {
  const cwd = mkdtempSync(join(tmpdir(), "dispatch-compiler-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
- const sessionDir = join(cwd, ".pi", "session"); mkdirSync(sessionDir, { recursive: true }); mkdirSync(join(cwd, "src"));
+ const sessionDir = join(cwd, ".pi", "agent-sessions", "sessions", "test"); mkdirSync(sessionDir, { recursive: true }); mkdirSync(join(cwd, "src"));
  writeFileSync(join(cwd, "src", "api.ts"), "export const value = 1;\n"); writeFileSync(join(cwd, "README.md"), "fixture\n");
  if (git) {
   execFileSync("git", ["init"], { cwd, stdio: "ignore" }); execFileSync("git", ["add", "."], { cwd, stdio: "ignore" });
@@ -373,7 +483,9 @@ test("native writable finish uses one no-scope delta and compiler facts survive 
  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 implement diagnostics" }, undefined, undefined, { cwd } as any);
  const details = result.details as any; const text = (result.content[0] as any).text;
  assert.equal(calls, 1); assert.deepEqual(observed, ["src/api.ts"]); assert.equal(details.scopeViolations, null, "no scope globs still snapshots without inventing a scope violation");
- assert.equal(details.accepted, false); assert.ok(details.fullOutput.length > 8000); assert.equal(details.compilerDiagnostics.projects[0].diagnostics.length, 3);
+ assert.equal(details.accepted, false); assert.equal(details.changeResult.status, "changed"); assert.equal(details.verificationResult.status, "failed");
+ assert.equal(details.runtimeResult.task.current, true); assert.equal(details.runtimeResult.execution.status, "completed");
+ assert.ok(details.fullOutput.length > 8000); assert.equal(details.compilerDiagnostics.projects[0].diagnostics.length, 3);
  assert.match(text, /Observed changed files:/); assert.match(text, /Elsewhere:/); assert.match(text, /global — TS5083/); assert.match(text, /Full compiler evidence:/);
  assert.deepEqual(details.structuredReturn.assertions_proven.map((entry: any) => entry.id), ["A9"]);
  const demoted = details.structuredReturn.assertions_unproven.find((entry: any) => entry.id === "A1");
@@ -381,8 +493,23 @@ test("native writable finish uses one no-scope delta and compiler facts survive 
  assert.ok(details.contractNotices.some((notice: any) => notice.type === "compiler_diagnostics" && notice.id === "A1"));
  assert.deepEqual(assertions, [{ id: "A1", status: "open" }], "global ledger is untouched");
  const evidence = readFileSync(details.compilerEvidencePath, "utf8"); assert.match(evidence, /raw compiler stdout/); assert.match(evidence, /raw compiler stderr/); assert.match(evidence, /tsBuildInfoFile/);
- const assessment = JSON.parse(readFileSync(details.assessmentPath, "utf8")); assert.equal(assessment.accepted, false); assert.equal(assessment.structuredReturn.assertions_unproven.at(-1).reason, "compiler_diagnostics");
- assert.equal(assessment.compilerEvidencePath, details.compilerEvidencePath); assert.ok(details.returnPath.startsWith(sessionDir));
+ const assessment = JSON.parse(readFileSync(details.assessmentPath, "utf8")); assert.equal(assessment.schema, "agent-fleet.runtime-result/v1"); assert.equal(assessment.accepted, false); assert.equal(assessment.structuredReturn.assertions_unproven.at(-1).reason, "compiler_diagnostics");
+ assert.equal(assessment.compilerEvidencePath, details.compilerEvidencePath); assert.ok(assessment.verification.evidenceRefs.includes(details.compilerEvidencePath)); assert.ok(details.returnPath.startsWith(sessionDir));
+});
+
+test("runtime accepts a changed task only with a current recorded command and passing exit", async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "export const value = 2;\n"); return { output: "Done! tests pass", exitCode: 0, elapsed: 1, dispatchId: "compiler-pass" }; };
+ d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({
+  status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [],
+  projects: [{ project: "/fixture/tsconfig.json", status: "passed", exitCode: 0, compilerVersion: "5.9.3", argv: ["node", "tsc", "-p", "tsconfig.json", "--noEmit"], stdout: "", stderr: "", diagnostics: [], changedFiles: [...paths] }],
+ } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "change implementation" }, undefined, undefined, { cwd } as any);
+ const details = result.details as any;
+ assert.equal(details.status, "accepted"); assert.equal(details.accepted, true); assert.equal(details.acceptanceStatus, "accepted");
+ assert.equal(details.changeResult.status, "changed"); assert.equal(details.verificationResult.status, "passed");
+ assert.deepEqual(details.verificationResult.checks[0].command, ["node", "tsc", "-p", "tsconfig.json", "--noEmit"]);
+ assert.equal(details.verificationResult.checks[0].exitCode, 0); assert.equal(details.verificationResult.checks[0].inspectedRevision, details.taskIdentity.revision.after);
 });
 
 test("compiler correction runs after return extraction", async t => {
@@ -412,6 +539,7 @@ for (const scenario of ["read-only", "remote", "failed", "cancelled", "pending",
   };
   const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: `scenario ${scenario}` }, undefined, undefined, { cwd } as any);
   assert.equal(calls, 0); assert.equal((result.details as any).compilerDiagnostics, null);
+  if (scenario === "no-ts") { assert.equal((result.details as any).changeResult.status, "changed"); assert.equal((result.details as any).verificationResult.status, "missing"); assert.equal((result.details as any).accepted, false); }
  });
 }
 
@@ -446,6 +574,7 @@ test("overlap observed during compiler checking makes attribution uncertain and 
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => { d._setOverlap(1); return compilerErrors([...paths]); };
  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 overlap" }, undefined, undefined, { cwd } as any);
  const details = result.details as any; assert.equal(details.compilerDiagnostics.attribution, "uncertain");
+ assert.equal(details.changeResult.status, "changed"); assert.equal(details.changeResult.attribution, "uncertain"); assert.equal(details.verificationResult.status, "unsupported"); assert.equal(details.accepted, false);
  assert.deepEqual(details.structuredReturn.assertions_proven.map((entry: any) => entry.id), ["A1"]); assert.match((result.content[0] as any).text, /attribution is uncertain/);
 });
 
@@ -454,7 +583,7 @@ test("task staleness arising during async compiler work prevents contract correc
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "late stale\n"); return { output: "assertions_proven: [A1: done — evidence: test]", exitCode: 0, elapsed: 1, dispatchId: "compiler-late-stale" }; };
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => { await new Promise(resolve => setImmediate(resolve)); d.noProgress.reset(); return compilerErrors([...paths]); };
  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 late stale" }, undefined, undefined, { cwd } as any);
- const details = result.details as any; assert.equal(details.staleTask, true); assert.deepEqual(details.structuredReturn.assertions_proven.map((entry: any) => entry.id), ["A1"]);
+ const details = result.details as any; assert.equal(details.staleTask, true); assert.equal(details.taskIdentity.current, false); assert.equal(details.verificationResult.status, "stale"); assert.equal(details.accepted, false); assert.deepEqual(details.structuredReturn.assertions_proven.map((entry: any) => entry.id), ["A1"]);
  assert.equal(d._report.dispatches.length, 0); assert.ok(existsSync(details.compilerEvidencePath), "old-task compiler evidence remains in the original namespace");
 });
 
@@ -545,4 +674,37 @@ test("real native executor finishDispatch times workflows compiler and demotes o
  const uncovered = await run("uncovered", () => {}, "no typescript delta");
  assert.equal(uncovered.details.compilerDiagnostics, null);
  writeFileSync(join(tmpdir(), "finish-path-timings.json"), JSON.stringify(timings, null, 2));
+});
+
+for (const tag of ["test", "code-grep"]) test(`explicit ${tag} runtime evidence satisfies ledger requirements without compiler substitution`, async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ const { worktreeRevision } = await import("../scope-gate.js");
+ d.state.getAssertions = () => [{ id: "A1", tag, text: "UTC day semantics", source: "request", testCommand: "node --test utc.test.js", status: "open", evidence: "untrusted all green" }];
+ d.dispatchAgent = async () => {
+  writeFileSync(join(cwd, "semantic.js"), "export const utc = true;\n");
+  const revision = worktreeRevision(cwd, []);
+  return { output: "This prose grants nothing", exitCode: 0, elapsed: 1, dispatchId: "semantic", runtimeTests: [{ command: "node --test utc.test.js", exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
+ };
+ const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 semantic check" }, undefined, undefined, { cwd } as any);
+ const details = result.details as any;
+ assert.equal(details.accepted, true);
+ assert.equal(details.verificationResult.checks[0].kind, tag);
+ assert.equal(details.verificationResult.checks[0].taskId, details.taskIdentity.id);
+ assert.equal(details.verificationResult.evidenceRefs.includes("untrusted all green"), false);
+ assert.deepEqual(details.verificationResult.requirements[0].claimedEvidenceRefs, ["untrusted all green"]);
+ assert.ok(existsSync(details.verificationResult.checks[0].evidenceRef));
+});
+
+test("compiler evidence cannot be relabelled with a revision changed during verification", async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ d.dispatchAgent = async () => { writeFileSync(join(cwd, "src/api.ts"), "export const value = 2;\n"); return { output: "done", exitCode: 0, elapsed: 1 }; };
+ d.diagnoseChangedTypeScript = async () => { writeFileSync(join(cwd, "src/api.ts"), "later unverified state\n"); return { status: "completed", projects: [{ argv: ["node", "tsc"], exitCode: 0, status: "passed", diagnostics: [] }], changedFiles: ["src/api.ts"], uncoveredFiles: [], attribution: "no_observed_overlap" } as any; };
+ const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "change" }, undefined, undefined, { cwd } as any);
+ assert.equal((result.details as any).accepted, false); assert.equal((result.details as any).verificationResult.status, "stale");
+});
+
+test("already-running agent rejected before prepare consumes no budget", async () => {
+ const d = prepareDeps(); d.state.getAgentStates().get("builder").status = "running";
+ const result = await createDispatchExecutor(d as any)("busy", { agent: "builder", task: "work" }, undefined, undefined, {} as any);
+ assert.equal((result.details as any).status, "busy"); assert.equal(d.state.getTurnDispatchCount(), 0);
 });

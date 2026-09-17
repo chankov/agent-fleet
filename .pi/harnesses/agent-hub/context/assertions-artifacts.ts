@@ -12,8 +12,13 @@ export interface Assertion {
 	tag: string;
 	text: string;
 	source: string;
+	reference?: string;
+	criticalConditions?: string[];
+ testCommand?: string;
 	status: AssertionStatus;
 	evidence?: string;
+	evidenceTaskId?: string;
+	evidenceRevision?: string;
 }
 
 export interface InputArtifactPreview {
@@ -70,8 +75,11 @@ export function createAssertionsArtifactsContext(state: AssertionsArtifactsState
 	};
 	const renderAssertionLedgerLines = () => state.getAssertions().map(assertion => {
 		const evidence = assertion.evidence ? ` — evidence: ${assertion.evidence}` : "";
-		const source = assertion.source ? ` ⇐ ${assertion.source}` : "";
-		return `${assertion.id} [${assertion.tag}] ${assertion.status.toUpperCase()}: ${assertion.text}${source}${evidence}`;
+		const origin = [assertion.source, assertion.reference].filter(Boolean).join(" · ");
+		const source = origin ? ` ⇐ ${origin}` : "";
+		const critical = assertion.criticalConditions?.length ? ` — critical: ${assertion.criticalConditions.join("; ")}` : "";
+		const binding = assertion.evidenceTaskId || assertion.evidenceRevision ? ` — bound: ${assertion.evidenceTaskId ?? "?"}@${assertion.evidenceRevision ?? "?"}` : "";
+		return `${assertion.id} [${assertion.tag}] ${assertion.status.toUpperCase()}: ${assertion.text}${source}${critical}${assertion.testCommand ? ` — test command: ${JSON.stringify(assertion.testCommand)}` : ""}${evidence}${binding}`;
 	});
 	const renderAssertionLedgerText = () => state.getAssertions().length === 0
 		? ""

@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { preflightDeliverables, readBackDeliverables } from "./acceptance.ts";
+import { buildRuntimeResult, mapCompatibilityStatus, minimalChangeRequirement, preflightDeliverables, readBackDeliverables } from "./acceptance.ts";
 
 function fixture(t: any) {
  const cwd = mkdtempSync(join(tmpdir(), "fleet-acceptance-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
@@ -41,4 +41,112 @@ test("deliverable readback refuses symlink escape and does not guess between art
  writeFileSync(join(f.sessionDir, "artifacts/returns/report.md"), "old return, not requested review");
  const contract = preflightDeliverables({ deliverables: ["artifacts/reviews/report.md"] }, f);
  assert.equal(readBackDeliverables(contract, f)[0].status, "missing");
+});
+
+function runtime(overrides: any = {}) {
+ const requirement = minimalChangeRequirement();
+ return buildRuntimeResult({
+  task: { id: "task-1", current: true, beforeRevision: "rev-before", afterRevision: "rev-after" },
+  execution: { status: "completed", exitCode: 0, dispatchId: "run-1" },
+  changes: { status: "changed", paths: ["src/a.ts"], attribution: "certain" },
+  requirements: [requirement], deliverables: [], checks: [], evidenceRefs: [],
+  ...overrides,
+ });
+}
+
+test("empty assertions stay unaccepted without runtime checks", () => {
+ const result = runtime();
+ assert.equal(result.execution.status, "completed"); assert.equal(result.changes.status, "changed");
+ assert.equal(result.verification.status, "missing"); assert.equal(result.acceptance.accepted, false);
+ assert.equal(result.compatibility.hubAcceptanceStatus, "needs_verification");
+});
+
+test("missing and unchanged deliverables remain distinct and neither implies acceptance", () => {
+ const missing = runtime({ deliverables: [{ path: "report.md", status: "missing" }] });
+ assert.equal(missing.verification.status, "failed"); assert.equal(missing.compatibility.hubAcceptanceStatus, "deliverable_failed");
+ const unchanged = runtime({ deliverables: [{ path: "report.md", status: "read", changed: false, retainedPath: "/e/report" }], checks: [{ producer: "runtime", taskId: "task-1", command: ["node", "--test"], exitCode: 0, inspectedRevision: "rev-after", evidenceRef: "/e/test", requirementIds: ["AF-MIN-CHANGE"] }] });
+ assert.equal(unchanged.changes.status, "changed"); assert.equal(unchanged.verification.status, "failed"); assert.equal(unchanged.compatibility.hubAcceptanceStatus, "deliverable_failed"); assert.equal(unchanged.acceptance.accepted, false);
+ assert.ok(unchanged.verification.evidenceRefs.includes("/e/report"));
+});
+
+test("UTC calendar-day requirement cannot be proven by semantic drift or a self-reported command", () => {
+ const result = runtime({
+  requirements: [{ id: "A1", tag: "test", text: "Compare by UTC calendar day", source: "PLAN.md:UTC", reference: "user requirement", criticalConditions: ["UTC calendar day, not current instant"], status: "proven", evidenceTaskId: "task-1", evidenceRevision: "rev-after", evidenceRefs: ["self:npm test"] }],
+  checks: [{ producer: "specialist", command: ["npm", "test"], exitCode: 0, inspectedRevision: "rev-after", evidenceRef: "self:npm test", requirementIds: ["A1"] }],
+ });
+ assert.equal(result.verification.requirements[0].status, "unsupported"); assert.equal(result.verification.requirements[0].taskId, "task-1"); assert.equal(result.verification.requirements[0].revision, "rev-after"); assert.equal(result.acceptance.accepted, false);
+ assert.match(result.verification.requirements[0].criticalConditions[0], /UTC calendar day/);
+});
+
+test("evidence from a prior task or revision is stale and cannot accept current changes", () => {
+ for (const requirement of [
+  { ...minimalChangeRequirement(), status: "proven", evidenceTaskId: "task-old", evidenceRevision: "rev-after" },
+  { ...minimalChangeRequirement(), status: "proven", evidenceTaskId: "task-1", evidenceRevision: "rev-old" },
+ ]) {
+  const result = runtime({ requirements: [requirement] });
+  assert.equal(result.verification.status, "stale"); assert.equal(result.acceptance.accepted, false);
+ }
+});
+
+test("changed and verification_failed coexist with command, exit, revision, and evidence", () => {
+ const result = runtime({ checks: [{ producer: "runtime", taskId: "task-1", command: ["node", "--test"], exitCode: 1, inspectedRevision: "rev-after", evidenceRef: "/e/check.json", requirementIds: ["AF-MIN-CHANGE"] }] });
+ assert.equal(result.changes.status, "changed"); assert.equal(result.verification.status, "failed");
+ assert.equal(result.verification.checks[0].exitCode, 1); assert.equal(result.verification.checks[0].inspectedRevision, "rev-after");
+ assert.equal(result.acceptance.accepted, false);
+});
+
+test("a current runtime-owned passing check can accept the minimal changed-task contract", () => {
+ const result = runtime({ checks: [{ producer: "runtime", taskId: "task-1", command: ["node", "node_modules/typescript/bin/tsc", "-p", "tsconfig.json", "--noEmit"], exitCode: 0, inspectedRevision: "rev-after", evidenceRef: "/e/compiler.json", requirementIds: ["AF-MIN-CHANGE"] }] });
+ assert.equal(result.verification.status, "passed"); assert.equal(result.acceptance.accepted, true);
+ assert.equal(result.compatibility.flowStatus, "accepted"); assert.deepEqual(result.verification.evidenceRefs, ["/e/compiler.json"]);
+});
+
+test("concurrent attribution uncertainty and execution failure fail closed", () => {
+ const uncertain = runtime({ changes: { status: "changed", paths: ["src/a.ts"], attribution: "uncertain" }, checks: [{ producer: "runtime", taskId: "task-1", command: ["node", "--test"], exitCode: 0, inspectedRevision: "rev-after", evidenceRef: "/e/test", requirementIds: ["AF-MIN-CHANGE"] }] });
+ assert.equal(uncertain.verification.status, "unsupported"); assert.equal(uncertain.acceptance.accepted, false);
+ const failed = runtime({ execution: { status: "failed", exitCode: 1, dispatchId: "run-1" }, changes: { status: "unknown", paths: [], attribution: "not_observed" } });
+ assert.equal(failed.execution.status, "failed"); assert.equal(failed.verification.status, "unsupported");
+ assert.equal(failed.compatibility.hubAcceptanceStatus, "not_available");
+});
+
+test("legacy Hub and flow status mappings preserve meaning", () => {
+ assert.deepEqual(mapCompatibilityStatus({ execution: "failed", verification: "unsupported", accepted: false, deliverableFailed: false }), { hubAcceptanceStatus: "not_available", flowStatus: "rejected" });
+ assert.deepEqual(mapCompatibilityStatus({ execution: "completed", verification: "failed", accepted: false, deliverableFailed: true }), { hubAcceptanceStatus: "deliverable_failed", flowStatus: "rejected" });
+ assert.deepEqual(mapCompatibilityStatus({ execution: "completed", verification: "missing", accepted: false, deliverableFailed: false }), { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" });
+ assert.deepEqual(mapCompatibilityStatus({ execution: "completed", verification: "passed", accepted: true, deliverableFailed: false }), { hubAcceptanceStatus: "accepted", flowStatus: "accepted" });
+});
+
+test("untrusted ledger claims never become runtime evidence references", () => {
+ const result = runtime({ requirements: [{ id: "A1", tag: "test", text: "semantic", source: "request", evidenceRefs: ["I ran tests, all green"], status: "proven" }] });
+ assert.equal(result.verification.evidenceRefs.includes("I ran tests, all green"), false);
+ assert.deepEqual(result.verification.requirements[0].claimedEvidenceRefs, ["I ran tests, all green"]);
+});
+
+test("explicit semantic test coverage accepts only the exact task, source, requirement and command", () => {
+ const requirement = { id: "A1", tag: "test", text: "UTC calendar day", source: "request", criticalConditions: ["UTC, not local time"], testCommand: "node --test utc.test.js" };
+ const check = { producer: "runtime", kind: "test", taskId: "task-1", command: [requirement.testCommand], exitCode: 0, inspectedRevision: "rev-after", evidenceRef: "/e/runtime-test", requirementIds: ["A1"], coverage: [{ id: requirement.id, source: requirement.source, text: requirement.text, criticalConditions: requirement.criticalConditions }] };
+ const evaluate = (checks: any[]) => runtime({ requirements: [requirement], checks });
+ assert.equal(evaluate([check]).acceptance.accepted, true);
+ for (const changed of [{ taskId: "old-task" }, { kind: "compilation" }, { command: ["echo all green"] }, { producer: "specialist" }, { coverage: [{ ...check.coverage[0], source: "other" }] }, { inspectedRevision: "old" }, { exitCode: 1 }]) assert.equal(evaluate([{ ...check, ...changed }]).acceptance.accepted, false);
+});
+
+test("current bound runtime check supersedes old ledger stamps; code-grep is checkable, manual and UI remain unsupported", () => {
+ for (const tag of ["test", "code-grep", "manual", "runtime-ui"]) {
+  const requirement = { id: "A1", tag, text: "declared condition", source: "user", testCommand: "node check.js", status: "proven", evidenceTaskId: "old-task", evidenceRevision: "old-revision" };
+  const check = { producer: "runtime", kind: tag, taskId: "task-1", command: [requirement.testCommand], exitCode: 0, inspectedRevision: "rev-after", evidenceRef: "/e/check", requirementIds: ["A1"], coverage: [{ id: "A1", text: requirement.text, source: requirement.source, criticalConditions: [] }] };
+  const result = runtime({ requirements: [requirement], checks: [check] });
+  assert.equal(result.verification.requirements[0].status, ["test", "code-grep"].includes(tag) ? "passed" : "unsupported");
+  assert.equal(result.acceptance.accepted, ["test", "code-grep"].includes(tag));
+ }
+ for (const tag of ["manual", "runtime-ui", "code-grep"]) {
+  const result = runtime({ requirements: [{ id: "A2", tag, text: "condition", source: "user" }] });
+  assert.equal(result.verification.status, tag === "code-grep" ? "missing" : "unsupported");
+  assert.equal(result.acceptance.accepted, false);
+ }
+});
+
+test("dispatcher prompt makes declared checks and unsupported requirement limits discoverable", async () => {
+ const { verificationFragment } = await import("./prompts/fragments.ts");
+ const prompt = verificationFragment(12);
+ for (const phrase of ["test_command", "critical_conditions", "expected_result", "code-grep", "manual", "runtime-ui", "separate code review", "NOT semantic test adequacy"]) assert.ok(prompt.includes(phrase), phrase);
 });

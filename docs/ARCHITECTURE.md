@@ -199,6 +199,64 @@ for genuinely different work and clears task identity/state. This is the guardra
 post-mortem run never hit: every steering message reopened the turn window,
 so one workspace stayed open 47 hours on a change that took 13 minutes in a narrow one.
 
+### Runtime acceptance and recovery
+
+Writable specialist operations (`write`, `edit`, or `bash`) receive the same T2 minimal
+acceptance contract at every task tier. The trigger is the actual operation/tool contract and
+current assertion ledger, not user-language matching or the model's tier label. Read-only
+operations remain lightweight. Language heuristics only expose the fuller verification pack;
+they are supplementary and do not decide whether changed work needs evidence. Pending
+capability leases survive a new-task transition, while stale task packs and assertion state
+reset through the explicit lifecycle path.
+
+The runtime-owned result schema is `agent-fleet.runtime-result/v1`. It records orthogonal
+`execution` (`completed | failed | pending`), `changes` (`changed | unchanged | unknown`, with
+`certain | uncertain | not_observed` attribution), `verification`
+(`passed | failed | missing | stale | unsupported`), and `acceptance`
+(`accepted | not_accepted`) dimensions, bound to task identity, before/after revision, command,
+integer exit status, and evidence references. A changed result and failed verification can
+therefore both be true. Compatibility presentation remains
+`not_available | deliverable_failed | needs_verification | accepted` for the Hub and
+`accepted | rejected` for flows.
+
+Only native Pi children support trusted runtime checks. The Hub injects the code-owned
+`runtime-test-check.ts` observer only when the native persona has `bash`; the observer wraps the
+existing bash implementation and preserves the normal damage-control `tool_call` approval and
+bash error-event semantics. The parent accepts a check only when producer schema, observed bash
+start, exact declared command, task, coverage metadata, exit status, and unchanged inspected
+revision agree. This proves exact command execution, not semantic adequacy: even a declared
+`true` command can pass, so test quality remains subject to independent or human review.
+Coms peers cannot produce trusted checks, and `manual`/`runtime-ui` requirements currently have
+no trusted producer; all three paths fail closed as missing or unsupported.
+
+The observer and trusted event-correlation path have an observed compatibility dependency on
+`@earendil-works/pi-coding-agent@0.84.2`: they rely on its `createBashToolDefinition`, `tool_result`
+hook, `args.path`, and JSON-event passthrough contracts. This records the currently verified API
+surface rather than changing or independently pinning the package version; Pi upgrades must
+re-verify these integration points.
+
+Native runs also retain a bounded record of actual tool starts/ends by tool-call identity. T3
+uses those code-owned events only to correlate a terminal, unfenced pseudo-write claim with the
+readback of an explicitly declared deliverable. It never executes tool-shaped text. Fenced
+XML/JSON documentation examples are excluded; a real matching write event with failed readback
+remains a T2 verification/effect failure rather than being relabelled as a protocol failure.
+
+A mismatch emits `agent-fleet.tool-protocol-diagnostic/v1` with category
+`tool_protocol_error`, task-or-controlled-probe origin, effective backend/model/tool
+configuration, the claimed effect, matching-event and deliverable facts, `none | partial`
+effects, this-run-only conclusion, and evidence references. The T2 runtime-result dimensions
+remain unchanged and orthogonal. For a real task, the retained diagnostic artifact is the only
+input accepted by the task-generation-bound `establishEffects` recovery port; it records what
+already happened so unchanged retries cannot replay partial effects. It does not authorize a
+retry by itself and does not turn a task failure into a probe result or a universal model
+judgment. A future T12 probe runner may reuse the schema but is not part of this path.
+
+Recovery remains the single T1 contract: no automatic retry, queue, model fallback, or new
+numeric allowance. Busy work is refused before execution accounting; indeterminate failures do
+not authorize retry. Operator cancellation fences the same agent identity until a fresh,
+one-use authorization is consumed. Other agent identities—including the anonymous, read-only
+research actor—remain independent, and a task reset does not erase the cancellation fence.
+
 On top of the tier envelope sit several qualitative guardrails. **Task triage**: the dispatcher
 classifies the current TASK via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)
 and that classification *is* the budget. The tier is task-scoped and **ratcheted** — it survives
@@ -284,6 +342,10 @@ agent-hub/
 ├── tools/                    # 16 tools plus dispatch/research execution orchestration
 ├── dispatch-core.ts          # facade over native, coms, and observability dispatch
 ├── dispatch-*.ts             # native preparation/spawn/completion and backend adapters
+├── acceptance.ts             # agent-fleet.runtime-result/v1 and minimal acceptance evaluation
+├── runtime-test-check.ts     # code-owned native bash observer for trusted runtime checks
+├── tool-protocol.ts          # T3 event/readback correlation and shared diagnostic schema
+├── recovery-contract.ts      # shared typed failure/recovery policy
 ├── policy/                   # model, roster, capability, and work-mode decisions
 ├── research/                 # helper runtime, spawn transitions, and controls
 ├── ui/                       # grid, dashboard, detail, context, pool, zoom, and history

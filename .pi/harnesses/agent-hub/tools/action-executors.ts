@@ -30,6 +30,8 @@ export interface ActionExecutorDeps {
 	getTurnReport(): TurnReport;
 	getAssertions(): Assertion[];
 	setAssertions(value: Assertion[]): void;
+	currentTaskId(): string;
+	currentRevision(ctx: ExtensionContext): string;
 	getAgentStates(): Map<string, { def: { name: string } }>;
 	rosterAdd(agent: string): { ok: boolean; message: string };
 	rosterDrop(agent: string): { ok: boolean; message: string };
@@ -63,13 +65,15 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 			const resetAt = Date.now();
 			const prior = d.budget.taskResetSnapshot(resetAt);
 			d.budget.resetTaskWindow(null, resetAt);
+			d.setAssertions([]);
+			d.artifacts.persistAssertions();
 			d.budget.appendTaskResetEntry("tool:set_task_tier", null, prior, ctx);
 		}
 		d.setTaskTier(change.tier); d.setTaskTierAssumed(false); d.getTurnReport().tier = change.tier; d.budget.updateModeStatus();
 		const b = d.budget.currentBudget(); const tb = d.budget.currentTaskBudget();
 		const cap = (n: number | null) => n == null ? "unlimited" : String(n);
 		const spent = `${d.getTaskDispatchCount()}/${cap(tb.maxDispatches)} dispatches, ${d.getTaskResearchCount()}/${cap(tb.maxResearch)} research`;
-		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened)" : ""}\nPer turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Whole task: ${spent} spent. Size the apparatus accordingly — do not spend a cap just because it exists.` }], details: { status: "ok", tier: change.tier, escalated: change.escalated, newTask: !!new_task } };
+		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\nPer turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Whole task: ${spent} spent. Size the apparatus accordingly — do not spend a cap just because it exists.` }], details: { status: "ok", tier: change.tier, escalated: change.escalated, newTask: !!new_task } };
 	};
 
 	const executeTeamAdjust: ToolExecutor<TeamAdjustParams> = async (_id, params, _signal, _update, ctx) => {
@@ -97,7 +101,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		return { content: [{ type: "text", text: verdict.warning ? `${head}\n\n${verdict.warning}` : head }], details: { count: assertions.length, capWarning: Boolean(verdict.warning) } };
 	};
 
-	const executeUpdateAssertion: ToolExecutor<UpdateAssertionParams> = async (_id, params) => {
+	const executeUpdateAssertion: ToolExecutor<UpdateAssertionParams> = async (_id, params, _signal, _update, ctx) => {
 		const assertions = d.getAssertions(); const wanted = String(params.status).trim().toLowerCase();
 		if (!["proven", "unproven", "failed"].includes(wanted)) return { content: [{ type: "text", text: `status must be one of proven | unproven | failed (got "${params.status}").` }], details: { status: "error" } };
 		const a = assertions.find(x => x.id.toLowerCase() === String(params.id).trim().toLowerCase());
@@ -107,6 +111,8 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 			if (!validation.ok) return { content: [{ type: "text", text: `${a.id} stays ${a.status}: ${validation.reason}` }], details: { status: "rejected", reason: validation.reason } };
 		}
 		a.status = wanted as AssertionStatus; a.evidence = wanted === "unproven" ? undefined : (params.evidence?.trim() || undefined);
+		if (wanted === "unproven") { a.evidenceTaskId = undefined; a.evidenceRevision = undefined; }
+		else { a.evidenceTaskId = d.currentTaskId(); a.evidenceRevision = d.currentRevision(ctx); }
 		d.artifacts.persistAssertions(); d.artifacts.updateAssertionStatus();
 		const open = assertions.filter(x => x.status === "open" || x.status === "unproven").map(x => x.id); const failed = assertions.filter(x => x.status === "failed").map(x => x.id);
 		const tail = failed.length ? `Failed: ${failed.join(", ")}. Still open: ${open.join(", ") || "none"}.` : open.length ? `Still open: ${open.join(", ")}.` : "All assertions proven.";

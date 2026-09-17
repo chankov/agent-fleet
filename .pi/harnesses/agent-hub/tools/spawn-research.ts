@@ -9,10 +9,13 @@ export function registerSpawnResearch(pi: ExtensionAPI, toolCtx: ToolContext): v
 		label: "Spawn Research",
 		description: "Run a read-only (read/grep/find/ls) helper and return findings.",
 		parameters: Type.Object({
-			task: Type.String({ description: "Investigation and expected findings." }),
+			task: Type.String(),
 			persona: Type.Optional(Type.String({ description: "Research persona; omit for ad-hoc." })),
 			model: Type.Optional(Type.String({ description: "Anonymous-helper model; ignored with persona." })),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path." }))),
+			read_scope: Type.Optional(Type.Array(Type.String({ description: "Advisory relative scope; not isolation.", pattern: "^(?![/\\\\])(?![A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" }))),
+			goal: Type.Optional(Type.String()),
+			expected_result: Type.Optional(Type.String()),
 		}),
 
 		execute(toolCallId, params, signal, onUpdate, ctx) {

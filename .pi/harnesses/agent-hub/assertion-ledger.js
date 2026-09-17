@@ -40,12 +40,21 @@ export function validateAssertionBatch(input) {
 		};
 	}
 
-	const assertions = batch.map((a) => ({
-		id: str(a?.id),
-		tag: str(a?.tag),
-		text: str(a?.text),
-		source: str(a?.source),
-	}));
+	const assertions = batch.map((a) => {
+		const reference = str(a?.reference);
+		const criticalConditions = Array.isArray(a?.critical_conditions)
+			? a.critical_conditions.map(str).filter(Boolean)
+			: Array.isArray(a?.criticalConditions) ? a.criticalConditions.map(str).filter(Boolean) : [];
+		return {
+			id: str(a?.id),
+			tag: str(a?.tag),
+			text: str(a?.text),
+			source: str(a?.source),
+			...(reference ? { reference } : {}),
+            ...(str(a?.test_command) ? { testCommand: str(a.test_command) } : {}),
+			...(criticalConditions.length ? { criticalConditions } : {}),
+		};
+	});
 
 	const warning =
 		assertions.length > MAX_OPEN_ASSERTIONS

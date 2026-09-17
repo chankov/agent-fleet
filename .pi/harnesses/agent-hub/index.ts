@@ -47,7 +47,7 @@ import { contextPct, estimatePromptTokens, resolveContextWindow } from "./contex
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, normalizeWatchdogSetting, resolveWatchdogActive } from "./drift-watchdog.js";
 import { shouldExtractReturn } from "./return-extract.js";
 import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "./return-contract.js";
-import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
+import { checkScope, diffAgainst, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
 import { NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState, resolveSessionWorkMode, resolveSessionRoster } from "./work-mode.ts";
@@ -851,13 +851,14 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				getExternalBlockerAcknowledged: () => externalBlockerAcknowledged, setExternalBlockerAcknowledged: value => { externalBlockerAcknowledged = value; },
 				getExternalBlockerRefusedOnce: () => externalBlockerRefusedOnce, setExternalBlockerRefusedOnce: value => { externalBlockerRefusedOnce = value; },
 				isAskUserAvailable: () => askUserAvailable, getUserLanguage: () => userLanguage, getSessionDir: () => sessionDir,
-				getAgentStates: () => agentStates as any, getResearchPersonas: () => researchPersonas,
+				getAgentStates: () => agentStates as any, getAssertions: () => assertions, getResearchPersonas: () => researchPersonas,
 				getActiveWritableDispatches: () => activeWritableDispatches, setActiveWritableDispatches: value => { activeWritableDispatches = value; },
 				getWritableOverlapCounter: () => writableOverlapCounter, setWritableOverlapCounter: value => { writableOverlapCounter = value; },
 			},
 			budget: budgetCtx, budgetRecovery, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime,
 			provisionalCapabilityRefusal, dispatchAgent, runReturnExtraction,
 			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
+			resolvedAgentModel: (def, ctx) => resolvedModel(def as AgentDef) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
 		},
 		actions: {
 			budget: budgetCtx, artifacts: assertionsArtifactsCtx, hubState: hubStateCtx,
@@ -866,6 +867,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			getTaskTierAssumed: () => taskTierAssumed, setTaskTierAssumed: value => { taskTierAssumed = value; },
 			getTaskDispatchCount: () => taskDispatchCount, getTaskResearchCount: () => taskResearchCount,
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
+			currentTaskId: () => noProgress.taskId(), currentRevision: ctx => worktreeRevision(ctx.cwd || process.cwd(), []),
 			getAgentStates: () => agentStates, rosterAdd, rosterDrop,
 			getIdentity: () => identity, getComs: () => coms, resolveTarget,
 			appendMachineHandoffSections, markPeerAddressed,
@@ -935,7 +937,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		handleBudgetContinue: async ctx => { await budgetRecovery.resume(ctx); },
 		handleRetry: async (args, ctx) => {
 			const dispatchId = args?.trim();
-			if (!dispatchId || !noProgress.authorize(dispatchId)) { ctx.ui.notify("Unknown, stale or already authorized failure. Use /af-retry <dispatchId> from the no-progress refusal.", "error"); return; }
+			if (!dispatchId || !noProgress.authorize(dispatchId)) { ctx.ui.notify("/af-retry authorizes only a current, not-yet-authorized operator cancellation. Other failures require evidenced corrections; indeterminate causes cannot be retried. Unknown or stale IDs grant no authorization.", "error"); return; }
 			pi.appendEntry("agent-hub-retry-authorized", { dispatchId, identity: hubAuditIdentity(ctx) });
 			ctx.ui.notify(`One retry authorized for ${dispatchId}. Budget and safety gates still apply; no operation was dispatched.`, "info");
 		},
