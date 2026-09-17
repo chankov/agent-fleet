@@ -10,6 +10,16 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 Agent Fleet — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of lifecycle skills and agent personas for pi. Skills live in two roots: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (native wins on name collisions — see `docs/UPSTREAM-SKILLS.md`).
 
+## Project Philosophy
+
+Read [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) before proposing or revising Agent
+Fleet plans, architecture, or process changes. It is the canonical project
+direction: deterministic lifecycle control, proportional workflows, adaptive
+model assistance, and evidence-based completion. Plans and design reviews must
+include a proportionate alignment note and distinguish current guarantees from
+proposed behavior. Surface conflicts for a maintainer decision rather than
+silently changing these principles.
+
 ## Skill-Driven Execution
 
 Agent Fleet runs on a **skill-driven execution model** powered by this repository's `/skills` directory.

@@ -3,6 +3,10 @@
 Agent Fleet is a Pi-centered multi-agent orchestration system. This page maps
 the runtime responsibilities and where each module lives in the repository.
 
+For the principles governing future plans and design decisions, read the
+[project philosophy](PHILOSOPHY.md). That document states the intended direction;
+this page describes the current architecture.
+
 ## Runtime layers
 
 | Layer | Role | Implementation |

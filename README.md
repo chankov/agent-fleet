@@ -442,6 +442,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 
 | Doc | Covers |
 |---|---|
+| [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) | Canonical project direction: deterministic methodology, proportional workflows, adaptive model assistance, and evidence-based completion |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Runtime layers, fleet hierarchy, module map, external dependencies |
 | [docs/getting-started.md](docs/getting-started.md) | First session walkthrough |
 | [docs/skills-catalog.md](docs/skills-catalog.md) | All 29 skills with descriptions and triggers |

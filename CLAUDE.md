@@ -2,6 +2,14 @@
 
 This is the Agent Fleet project — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of production-grade engineering skills for AI coding agents. Lifecycle skills are partly vendored from upstream addyosmani/agent-skills — see docs/UPSTREAM-SKILLS.md.
 
+## Project Philosophy
+
+Read [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) before proposing or revising Agent
+Fleet plans, architecture, or process changes. Plans and design reviews must
+include a proportionate alignment note, distinguish current guarantees from
+proposals, and surface conflicts for a maintainer decision. Keep the principles
+in that canonical document rather than duplicating them here.
+
 ## Project Structure
 
 ```
