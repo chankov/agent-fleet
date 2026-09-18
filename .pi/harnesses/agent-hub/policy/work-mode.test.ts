@@ -2,19 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createWorkModePolicy } from "./work-mode.ts";
 
-function fixture(rosterSize = 1, fallbackRosterSize = 0) {
-	let activeTools: string[] = []; const entries: [string, unknown][] = []; let replayed = 0; let fallbackAttempts = 0;
+function fixture(rosterSize = 1, fallbackRosterSize = 0, pendingOperations: any[] = []) {
+	let activeTools: string[] = []; const entries: [string, unknown][] = []; const catalogChanges: any[] = []; let replayed = 0; let fallbackAttempts = 0;
 	const policy = createWorkModePolicy({
 		getBaselineTools: () => ["read", "edit"], getRosterSize: () => rosterSize, getActiveTeamName: () => rosterSize ? "default" : "",
 		activateFallbackRoster: () => { fallbackAttempts++; rosterSize = fallbackRosterSize; },
 		getComsReady: () => false, getHerdrReady: () => false, getAskUserAvailable: () => true, getIdentityLabel: () => null,
-		getTaskTier: () => "feature", getPendingOperations: () => [], getContextState: () => "normal",
-		setActiveTools: tools => { activeTools = tools; }, persist: (type, data) => entries.push([type, data]),
+		getTaskTier: () => "feature", getPendingOperations: () => pendingOperations, getContextState: () => "normal",
+		getActiveTools: () => activeTools, setActiveTools: tools => { activeTools = tools; }, recordToolCatalog: change => catalogChanges.push(change), persist: (type, data) => entries.push([type, data]),
 		replayDeferredInputs: () => { replayed++; }, watchdogArmed: () => true,
 	});
 	const notices: [string, string][] = [];
 	const ctx = { hasUI: true, ui: { notify: (message: string, level: string) => notices.push([message, level]), setStatus: () => {}, select: async () => undefined } } as any;
-	return { policy, ctx, notices, entries, tools: () => activeTools, replayed: () => replayed, fallbackAttempts: () => fallbackAttempts };
+	return { policy, ctx, notices, entries, catalogChanges, tools: () => activeTools, replayed: () => replayed, fallbackAttempts: () => fallbackAttempts };
 }
 
 test("validated work-mode commit persists, recomputes capabilities, and applies active tools", async () => {
@@ -23,6 +23,10 @@ test("validated work-mode commit persists, recomputes capabilities, and applies 
 	assert.equal(f.policy.getWorkMode(), "orchestrator");
 	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
 	assert.ok(f.tools().includes("dispatch_agent"));
+	assert.equal(f.catalogChanges.at(-1).reason, "mode_switch");
+	assert.equal(f.catalogChanges.at(-1).fromMode, "operator");
+	assert.equal(f.catalogChanges.at(-1).toMode, "orchestrator");
+	assert.deepEqual(f.catalogChanges.at(-1).next, f.tools());
 	assert.deepEqual(f.entries.at(-1), ["agent-hub-work-mode", { workMode: "orchestrator" }]);
 	assert.equal(await f.policy.commit("orchestrator", f.ctx), "unchanged");
 	assert.equal(await f.policy.commit("operator", f.ctx), "ok");
@@ -63,6 +67,15 @@ test("work-mode apply refuses orchestrator when no fallback roster is available"
 	assert.equal(f.policy.getWorkMode(), "operator");
 	assert.match(f.notices[0][0], /requires at least one native specialist/);
 	assert.equal(f.entries.some(([type]) => type === "agent-hub-work-mode"), false);
+});
+
+test("pending operation leases survive a mode switch without restoring direct write or bash", async () => {
+	const f = fixture(1, 0, [{ kind: "dispatch", status: "running" }]);
+	await f.policy.commit("orchestrator", f.ctx);
+	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
+	assert.ok(f.tools().includes("dispatch_agent"));
+	assert.ok(!f.tools().includes("write"));
+	assert.ok(!f.tools().includes("bash"));
 });
 
 test("capability confirmation promotes provisional packs and operation leases keep packs active", () => {

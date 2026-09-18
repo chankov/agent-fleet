@@ -17,11 +17,14 @@ export interface WorkModePolicyPorts {
 	getComsReady(): boolean;
 	getHerdrReady(): boolean;
 	getAskUserAvailable(): boolean;
+	getDeterministicToolsEnabled?(): boolean;
 	getIdentityLabel(): string | null;
 	getTaskTier(): string | null;
 	getPendingOperations(): PendingOperation[];
 	getContextState(): ContextState;
+	getActiveTools?(): readonly string[];
 	setActiveTools(tools: string[]): void;
+	recordToolCatalog?(change: { fromMode: WorkMode; toMode: WorkMode; previous: readonly string[]; next: readonly string[]; reason: "refresh" | "mode_switch" }): void;
 	persist(type: string, data: unknown): void;
 	replayDeferredInputs(): void;
 	watchdogArmed(workMode: WorkMode): boolean;
@@ -75,8 +78,11 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 		provisionalPacks = resolution.provisional.filter(pack => confirmation[pack as ConfirmableCapabilityPack] !== "declined");
 		try { ports.persist("agent-hub-capability-packs", persistedCapabilityState(resolution, confirmation)); } catch { /* best effort */ }
 	}
-	function applyWorkModeTools(): void {
-		ports.setActiveTools(resolveWorkModeTools({ workMode, baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), capabilityPacks: [...resolution.active, ...resolution.provisional] }));
+	function applyWorkModeTools(fromMode: WorkMode = workMode, reason: "refresh" | "mode_switch" = "refresh"): void {
+		const previous = [...(ports.getActiveTools?.() ?? [])];
+		const requested = resolveWorkModeTools({ workMode, baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), deterministicTools: ports.getDeterministicToolsEnabled?.() === true, capabilityPacks: [...resolution.active, ...resolution.provisional] });
+		ports.setActiveTools(requested);
+		ports.recordToolCatalog?.({ fromMode, toMode: workMode, previous, next: [...(ports.getActiveTools?.() ?? requested)], reason });
 	}
 	function statusText(): string {
 		return [`Work Mode: ${workMode}`, `Direct tools: ${workMode === "operator" ? "enabled" : "disabled"}`, `Native roster: ${ports.getActiveTeamName() || "(none)"} (${ports.getRosterSize()})`, `Coms: ${ports.getComsReady() ? `ready${ports.getIdentityLabel() ? ` (${ports.getIdentityLabel()})` : ""}` : "unavailable"}`, `Herdr: ${ports.getHerdrReady() ? "ready" : "unavailable"}`].join("\n");
@@ -87,9 +93,10 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 		if (workModeChangeBlockedByRoster(workMode, next, ports.getRosterSize())) ports.activateFallbackRoster(ctx);
 		if (orchestratorNeedsRoster(next, ports.getRosterSize())) return "roster";
 		if (next === workMode) return "unchanged";
+		const previousMode = workMode;
 		workMode = next;
 		if (workMode === "operator") { rosterRecoveryRequired = false; rosterRecoveryDiagnostic = ""; setTimeout(ports.replayDeferredInputs, 0); }
-		resolveIncomingCapabilities(""); applyWorkModeTools(); ctx.ui.setStatus("hub-work-mode", `Work Mode: ${workMode}`); ports.persist(WORK_MODE_ENTRY_TYPE, { workMode });
+		resolveIncomingCapabilities(""); applyWorkModeTools(previousMode, "mode_switch"); ctx.ui.setStatus("hub-work-mode", `Work Mode: ${workMode}`); ports.persist(WORK_MODE_ENTRY_TYPE, { workMode });
 		return "ok";
 	}
 	async function applySelection(next: WorkMode, ctx: WorkModeUiPort): Promise<void> {

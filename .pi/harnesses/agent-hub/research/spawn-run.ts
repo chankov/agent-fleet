@@ -1,6 +1,11 @@
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beginExecutionEvidence, finishExecutionEvidence } from "../execution-evidence.ts";
-import { profileFallback } from '../policy/profile-runtime.ts';
+import { profileFallback, readActiveProfile } from '../policy/profile-runtime.ts';
+import { resolveAssist } from '../assist-profile.ts';
+import { BOUNDED_OUTPUT_DIR_ENV } from '../bounded-output.ts';
+import { FILESYSTEM_SESSION_DIR_ENV } from '../filesystem-tool.ts';
+import { boundOutput } from '../deterministic-fs.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { contextPct, resolveContextWindow } from "../context-window.js";
 import { isReadOnlyToolList, safePathWithin } from "../helpers.ts";
@@ -77,15 +82,23 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		let fullText = "";
 		deps.notifyProviderQueue(state.model, `Research r${state.id}`, ctx);
 
+		const assist = resolveAssist(readActiveProfile()?.profile.assist);
+		const boundedOutput = assist['bounded-output'];
+		const declaredTools = state.def.tools.split(",").map(tool => tool.trim()).filter(Boolean);
+		const deterministicTools = assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
+		const boundedOutputDir = safePathWithin(state.evidenceDir, "bounded-output");
+		const researchTools = deterministicTools && !deps.researchTools.split(",").includes("filesystem") ? `${deps.researchTools},filesystem` : deps.researchTools;
 		const res = await deps.providerSemaphore.run(state.model, () => deps.spawnPiAgentWithModelFallback({
-			model: state.model, tools: deps.researchTools, thinking: thinkingLevel,
+			model: state.model, tools: researchTools, thinking: thinkingLevel,
 			systemPrompt: deps.nativeResearchSystemPrompt({
 				...(state.persona ? { personaName: state.def.name, personaPath: state.def.file } : {}),
 				cwd: ctx.cwd || process.cwd(),
 			}),
 			noSkills: true, noContextFiles: true, sessionFile: sessionPath, resume: false,
 			prompt: deps.artifacts.appendInputArtifacts(prompt, inputArtifacts), cwd: ctx.cwd || process.cwd(),
-			extensions: safety.extensions, env: deps.guardrailEnv(`research-r${state.id}`),
+			extensions: [...safety.extensions, ...(boundedOutput ? [fileURLToPath(new URL("../bounded-output.ts", import.meta.url))] : []), ...(deterministicTools ? [fileURLToPath(new URL("../filesystem-tool.ts", import.meta.url))] : [])],
+			env: { ...deps.guardrailEnv(`research-r${state.id}`), ...(boundedOutput ? { [BOUNDED_OUTPUT_DIR_ENV]: boundedOutputDir } : {}), ...(deterministicTools ? { [FILESYSTEM_SESSION_DIR_ENV]: dirname(dirname(state.evidenceDir)) } : {}) },
+			...(boundedOutput ? { boundedOutputDir } : {}),
 			...researchWatchdogSpawnOptions(deps.getReconSearchTimeoutMs(), signal),
 			turnDeadlineMs: deps.budget.currentBudget().agentTurnMs,
 		}, fallback, {
@@ -121,7 +134,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 					state.contextPct = contextPct(usage, researchWindow.window);
 				}
 			},
-		}, { midRun: isReadOnlyToolList(deps.researchTools) }));
+		}, { midRun: isReadOnlyToolList(researchTools) }));
 
 		diagnostics = { assistantError: res.assistantError ?? null, stderr: res.stderr, spawnError: res.spawnError ?? null, modelUsed: res.modelUsed ?? null, toolCallsStarted: res.toolCallsStarted ?? null, termination: res.termination ?? null, processExitCode: res.exitCode };
 		state.elapsed = Date.now() - startTime;
@@ -140,7 +153,9 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 
 		const status = res.exitCode === 0 ? "done" : "error";
 		const lastWork = String(res.output ?? "").split("\n").filter((line: string) => line.trim()).pop() || "";
-		const settled = settle(status, status, lastWork, { output: completeOutput(state, res), exitCode: res.exitCode ?? 1, elapsed: state.elapsed });
+		const completed = completeOutput(state, res);
+		const parent = res.boundedOutput ? boundOutput({ content: completed, retentionDir: safePathWithin(state.evidenceDir, "bounded-output", "parent"), label: "parent-summary" }) : null;
+		const settled = settle(status, status, lastWork, { output: parent?.reply ?? completed, exitCode: res.exitCode ?? 1, elapsed: state.elapsed });
 		ctx.ui.notify(`Research r${state.id} ${status} in ${Math.round(state.elapsed / 1000)}s`, status === "done" ? "success" : "error");
 		return settled;
 	} catch (err: unknown) {

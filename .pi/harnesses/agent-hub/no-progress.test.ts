@@ -155,6 +155,25 @@ test("trusted effects-established recovery is task-bound and never authorizes ca
  g.reset(); assert.equal(g.establishEffects("p1", token, "/e/effects.json"), false);
 });
 
+test("real unknown-tool dispatch failures bind the runtime catalog producer to shared T1 recovery", async () => {
+ const g = createNoProgressGuard(); let calls = 0;
+ const d: any = {
+  noProgress: g, artifacts: { loadInputArtifacts: () => [] },
+  getToolCatalogVersion: () => "trusted-cat-v1",
+ };
+ const run = withNoProgress(d, "dispatch", async () => ({
+  content: [],
+  details: { status: "unknown_tool", recoveryCategory: "unknown_tool", exitCode: 1, dispatchId: `u${++calls}`, catalogVersion: "model-fake" },
+ }), () => ({ conditions: "unchanged" }));
+ const params: any = { agent: "builder", task: "use an unavailable tool" };
+ await run("1", params, undefined, undefined, {} as any);
+ assert.equal((await run("2", params, undefined, undefined, {} as any).then(result => (result.details as any).status)), "no_progress_refused");
+ assert.equal(g.establishToolStateChange("model-fake", "trusted-cat-v2", "/e/fake.json"), 0, "model result cannot manufacture catalog evidence");
+ assert.equal(g.establishToolStateChange("trusted-cat-v1", "trusted-cat-v2", "session-entry:agent-hub-tool-catalog-state:trusted-cat-v2"), 1);
+ assert.equal((await run("3", params, undefined, undefined, {} as any).then(result => (result.details as any).status)), "unknown_tool");
+ assert.equal(calls, 2, "recovery only permits the explicit post-change invocation; it never auto-retries");
+});
+
 test("same persona cancellation also fences research vs dispatch operations", async () => {
  const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } }; let runs = 0;
  const execute = async () => { runs++; return { content: [], details: { status: "cancelled", exitCode: 1, dispatchId: "cross-mode" } }; };

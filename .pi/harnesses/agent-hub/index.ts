@@ -4,6 +4,8 @@ import { closeEvidenceSession, pruneEvidenceSessions } from "./execution-evidenc
 import { isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
 import { createProfileActivation } from './policy/profile-activation.ts';
 import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerGate } from './policy/profile-runtime.ts';
+import { resolveAssist } from './assist-profile.ts';
+import { registerFilesystemTool } from './filesystem-tool.ts';
 /** Agent Hub composition root: constructs mutable state, contexts, registrars, and ordered lifecycle ports. */
 
 import type { AgentDef, AgentState, ResearchState } from "./types.ts";
@@ -50,7 +52,7 @@ import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredRet
 import { checkScope, diffAgainst, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
-import { NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState, resolveSessionWorkMode, resolveSessionRoster } from "./work-mode.ts";
+import { NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState, resolveSessionWorkMode, resolveSessionRoster, type WorkMode } from "./work-mode.ts";
 import { compactWorkMode } from "./work-mode-controls.ts";
 import { registerWorkMode } from "./commands/work-mode.ts";
 import { registerAgentsTeam } from "./commands/agents-team.ts";
@@ -146,6 +148,9 @@ import { createAssertionsArtifactsContext, type Assertion, type InputArtifactPre
 import { createModelPolicy } from "./policy/models.ts";
 import { createRosterPolicy } from "./policy/roster.ts";
 import { createWorkModePolicy } from "./policy/work-mode.ts";
+import { catalogSnapshot, latestPersistedToolCatalog, toolCatalogNotice, TOOL_CATALOG_ENTRY_TYPE, type ToolCatalogDelta } from "./tool-catalog-state.ts";
+import { createToolCatalogRuntime } from "./tool-catalog-runtime.ts";
+import { createUnknownToolCounter, latestPersistedUnknownToolCounter, observeUnknownToolCalls, restoreUnknownToolCounter, unknownToolNotice, UNKNOWN_TOOL_COUNTER_ENTRY_TYPE } from "./unknown-tool-counter.ts";
 import { nativeResearchSystemPrompt } from "../lib/context-budget-child-prompt.ts";
 import { parseEnvFile, resolveEnvFilePath } from "../../agent-fleet/scripts/lib/herdr-layout.ts";
 import { worktreeTag } from "../../agent-fleet/scripts/lib/team-project.ts";
@@ -432,13 +437,23 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	let delegatedTokens = 0;
 
 	const noProgress = createNoProgressGuard();
+	let unknownToolCounter = createUnknownToolCounter({ limit: 3 });
+	const toolCatalogRuntime = createToolCatalogRuntime(catalogSnapshot("operator", []));
+	let latestToolCatalogDelta: ToolCatalogDelta | null = null;
+	let latestUnknownToolNotice = "";
+	const seenUnknownToolCalls = new Set<string>();
+	const resetUnknownToolCounterForCurrentTask = () => {
+		unknownToolCounter.resetForNewTask(noProgress.taskId());
+		seenUnknownToolCalls.clear();
+		latestUnknownToolNotice = "";
+	};
 	const budgetCtx = createBudgetContext({
 		getBudgetOverrides: () => budgetOverrides,
 		getTurnDispatchCount: () => turnDispatchCount, setTurnDispatchCount: value => { turnDispatchCount = value; },
 		getTurnResearchCount: () => turnResearchCount, setTurnResearchCount: value => { turnResearchCount = value; },
 		getTurnBudgetAskUserWaitMs: () => turnBudgetAskUserWaitMs, setTurnBudgetAskUserWaitMs: value => { turnBudgetAskUserWaitMs = value; },
 		resetBudgetRecovery: () => budgetRecovery.reset(),
-		resetNoProgress: () => noProgress.reset(),
+		resetNoProgress: () => noProgress.reset(), resetUnknownToolCounter: resetUnknownToolCounterForCurrentTask,
 		getTaskContinuationCount: () => taskContinuationCount, setTaskContinuationCount: value => { taskContinuationCount = value; },
 		getTurnContinuationCount: () => turnContinuationCount, setTurnContinuationCount: value => { turnContinuationCount = value; },
 		getTaskDispatchCount: () => taskDispatchCount, setTaskDispatchCount: value => { taskDispatchCount = value; },
@@ -803,6 +818,15 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		if (hubSpawnedPeers.size > 0) pending.push({ pack: "workspace", kind: "pane" });
 		return pending;
 	}
+	function recordToolCatalogChange(change: { fromMode: WorkMode; toMode: WorkMode; previous: readonly string[]; next: readonly string[]; reason: "refresh" | "mode_switch" }): void {
+		const { snapshot, delta } = toolCatalogRuntime.reconcile(change);
+		latestToolCatalogDelta = delta;
+		unknownToolCounter.noteCatalogChange(delta.catalogVersion);
+		const evidenceRef = `session-entry:${TOOL_CATALOG_ENTRY_TYPE}:${delta.catalogVersion}`;
+		let persisted = false;
+		try { pi.appendEntry(TOOL_CATALOG_ENTRY_TYPE, { snapshot, delta, reason: change.reason }); persisted = true; } catch {}
+		if (persisted && delta.evidence.changed) noProgress.establishToolStateChange(delta.evidence.previousCatalogVersion, delta.evidence.catalogVersion, evidenceRef);
+	}
 	function capabilityContextState(): ContextState {
 		if (contextPressureState.phase === "warning") return "approaching-compaction";
 		if (contextPressureState.phase !== "normal" || contextPressureState.pressure === "imminent") return "imminent-compaction";
@@ -814,6 +838,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	}
 	const workModePolicy = createWorkModePolicy({
 		getBaselineTools: () => baselineTools, getRosterSize: () => agentStates.size,
+		getDeterministicToolsEnabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
 		activateFallbackRoster: ctx => {
 			if (!rosterPolicy.activateFirstValidTeam()) return;
 			workModePolicy.clearRosterRecovery();
@@ -826,7 +851,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getHerdrReady: () => herdrFleetReady, getAskUserAvailable: () => askUserAvailable,
 		getIdentityLabel: () => identity ? `${identity.name}@${identity.project}` : null,
 		getTaskTier: () => taskTier, getPendingOperations: pendingCapabilityOperations,
-		getContextState: capabilityContextState, setActiveTools: tools => pi.setActiveTools(tools),
+		getContextState: capabilityContextState, getActiveTools: () => pi.getActiveTools(), setActiveTools: tools => pi.setActiveTools(tools),
+		recordToolCatalog: recordToolCatalogChange,
 		persist: (type, data) => pi.appendEntry(type, data), replayDeferredInputs: replayDeferredRecoveryInputs,
 		watchdogArmed: mode => resolveWatchdogActive(undefined, undefined, watchdogSetting, mode),
 	});
@@ -859,6 +885,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			provisionalCapabilityRefusal, dispatchAgent, runReturnExtraction,
 			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
 			resolvedAgentModel: (def, ctx) => resolvedModel(def as AgentDef) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
+			getToolCatalogVersion: () => toolCatalogRuntime.catalogForMessage().catalogVersion,
 		},
 		actions: {
 			budget: budgetCtx, artifacts: assertionsArtifactsCtx, hubState: hubStateCtx,
@@ -890,6 +917,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	registerVerificationContract(pi, toolCtx);
 	registerComsTools(pi, toolCtx);
 	registerFleetTools(pi, toolCtx);
+	registerFilesystemTool(pi, {
+		enabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
+		sessionDir: () => sessionDir,
+	});
 
 	const researchControls = createResearchControls({
 		runtime: researchRuntime,
@@ -1296,6 +1327,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			profileCommandContext=ctx;
 			try {
 				const applied=await profileActivation.activate(profileName,profile);
+				applyWorkModeTools();
 				ctx.ui.setStatus('hub-model-profile',isCompleteProfile(profile)?`Models: ${profileName}`:undefined);
 				ctx.ui.notify(`Profile "${profileName}": ${applied.length} personas${isCompleteProfile(profile)?', all children, dispatcher and auxiliary models':''} switched.`, 'success');
 			} catch(error) {ctx.ui.notify(String(error),'error');}
@@ -1820,6 +1852,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getArtifactRoot: () => sessionDir ? artifactsRoot() : null,
 		getCapabilityResolution,
 		getActiveTools: () => pi.getActiveTools(),
+		getToolCatalogNotice: () => [latestToolCatalogDelta ? toolCatalogNotice(latestToolCatalogDelta) : "", latestUnknownToolNotice].filter(Boolean).join("\n"),
 		getAgents: () => Array.from(agentStates.values()).map(state => ({
 			name: state.def.name,
 			displayName: displayName(state.def.name),
@@ -1886,7 +1919,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		unaddressedPeerWarning: () => unaddressedPeerSweep(Array.from(hubSpawnedPeers.values()))?.message ?? null,
 		respondToPeer: ctx => coms.respond(ctx),
 	});
-	pi.on("before_agent_start", async () => turnHandlers.beforeAgentStart());
+	pi.on("before_agent_start", async () => {
+		const result = turnHandlers.beforeAgentStart();
+		toolCatalogRuntime.beginTurn();
+		return result;
+	});
 
 	const pressureLifecycle = createContextPressureLifecycle({
 		getState: () => pressureRootState,
@@ -1898,11 +1935,28 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 	});
 	function replayDeferredRecoveryInputs(): void { pressureLifecycle.replayDeferred(); }
-	pi.on("message_end", async (event, ctx) => pressureLifecycle.messageEnd(event, ctx));
+	pi.on("message_end", async (event, ctx) => {
+		const diagnostics = observeUnknownToolCalls({ message: event.message, catalog: toolCatalogRuntime.catalogForMessage(), taskId: unknownToolCounter.snapshot().activeTaskId || noProgress.taskId(), counter: unknownToolCounter, seenCallIds: seenUnknownToolCalls });
+		for (const diagnostic of diagnostics) {
+			latestUnknownToolNotice = unknownToolNotice(diagnostic);
+			try { pi.appendEntry(UNKNOWN_TOOL_COUNTER_ENTRY_TYPE, { snapshot: unknownToolCounter.snapshot(), diagnostic }); } catch {}
+		}
+		pressureLifecycle.messageEnd(event, ctx);
+	});
 	pi.on("turn_end", async (_event, ctx) => pressureLifecycle.turnEnd(ctx));
 	pi.on("context", async (_event, ctx) => pressureLifecycle.context(ctx));
 	pi.on("agent_settled", async (_event, ctx) => pressureLifecycle.agentSettled(ctx));
-	pi.on("session_compact", async () => pressureLifecycle.sessionCompact());
+	pi.on("session_compact", async () => {
+		const result = toolCatalogRuntime.compact({
+			mode: getWorkMode(), getEffectiveTools: () => pi.getActiveTools(),
+			persist: (type, data) => pi.appendEntry(type, data), counterSnapshot: () => unknownToolCounter.snapshot(),
+			retainCounter: () => unknownToolCounter.noteCompaction(),
+			establishToolStateChange: (previous, next, evidenceRef) => noProgress.establishToolStateChange(previous, next, evidenceRef),
+			settle: () => pressureLifecycle.sessionCompact(),
+			onError: error => { try { pi.appendEntry("agent-hub-tool-catalog-error", { reason: "compaction_restore", error: error instanceof Error ? error.message : String(error) }); } catch {} },
+		});
+		if (result) latestToolCatalogDelta = result.delta;
+	});
 	pi.on("input", async (event, ctx) => pressureLifecycle.input(event, ctx));
 
 	// ── Session Start ────────────────────────────
@@ -1924,7 +1978,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			resetAccessApproval: accessApprovalRouter.reset,
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
-			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.reset(); },
+			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.reset(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
 			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },
@@ -1990,7 +2044,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				setWatchdog: (setting, judge) => { watchdogSetting = setting; watchdogJudgeModel = judge; },
 				resetTurnCounts: () => { turnDispatchCount = 0; turnResearchCount = 0; }, resetTaskWindow: () => resetTaskWindow(null), updateModeStatus,
 				setProjectRules: value => { projectRulesDirs = value; }, setProjectDocs: value => { projectDocsPaths = value; },
-				resetModelPolicy: () => {modelPolicy.reset();profileActivation.reset();}, getModelProfileErrors: () => modelProfileErrors, getAgentDefs: () => allAgentDefs, getModelProfiles: () => modelProfiles,
+				resetModelPolicy: () => {modelPolicy.reset();profileActivation.reset();applyWorkModeTools();}, getModelProfileErrors: () => modelProfileErrors, getAgentDefs: () => allAgentDefs, getModelProfiles: () => modelProfiles,
 				deleteModelProfile: name => { delete modelProfiles[name]; }, allowedModels,
 				getDispatchPolicyWarnings: () => dispatchPolicyWarnings, setResearchPersonas: value => { researchPersonas = value; },
 			});
@@ -2005,6 +2059,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			comsMissNotified.clear();
 			recomputeGrid();
 			const sessionEntries = _ctx.sessionManager.getEntries();
+			const persistedCatalog = latestPersistedToolCatalog(sessionEntries);
+			if (persistedCatalog) toolCatalogRuntime.restore(persistedCatalog);
+			const persistedUnknownTools = latestPersistedUnknownToolCounter(sessionEntries);
+			if (persistedUnknownTools) unknownToolCounter = restoreUnknownToolCounter(persistedUnknownTools, { limit: 3 });
 			const explicitWorkMode = pi.getFlag("work-mode");
 			const explicitRoster = pi.getFlag("agent-team");
 			const hasExplicitRoster = typeof explicitRoster === "string" && explicitRoster.trim() !== "";
@@ -2129,6 +2187,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	});
 
 	// Ordered end-turn peer response remains after session-start registration.
-	pi.on("agent_end", async (_event, ctx) => turnHandlers.agentEnd(ctx));
+	pi.on("agent_end", async (_event, ctx) => {
+		toolCatalogRuntime.endTurn();
+		await turnHandlers.agentEnd(ctx);
+	});
 
 }

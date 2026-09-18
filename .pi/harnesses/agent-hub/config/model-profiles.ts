@@ -7,6 +7,11 @@ export interface ProfileVoice extends ModelSelection {
     name: string;
     integrator?: boolean;
 }
+export interface AssistFlags {
+    'deterministic-tools'?: boolean;
+    'bounded-output'?: boolean;
+    'write-isolation'?: boolean;
+}
 export interface CompleteModelProfile {
     version: 2;
     defaults: ModelSelection;
@@ -21,6 +26,7 @@ export interface CompleteModelProfile {
     routing?: 'native' | 'configured';
     fallback?: 'none' | 'declared';
     'allowed-models'?: string[];
+    assist?: AssistFlags;
 }
 export type ModelProfile = Record<string, string> | CompleteModelProfile;
 export type ModelProfiles = Record<string, ModelProfile>;
@@ -65,10 +71,23 @@ function namedSelections(value: unknown, label: string): Record<string, ModelSel
 export function parseCompleteProfile(raw: unknown): CompleteModelProfile {
     if (!object(raw))
         throw new Error('profile: expected mapping');
-    keys(raw, ['version', 'defaults', 'agents', 'subagents', 'dispatcher', 'services', 'panel', 'routing', 'fallback', 'allowed-models'], 'profile');
+    keys(raw, ['version', 'defaults', 'agents', 'subagents', 'dispatcher', 'services', 'panel', 'routing', 'fallback', 'allowed-models', 'assist'], 'profile');
     if (raw.version !== 2)
         throw new Error('profile: version must be 2');
     const p: CompleteModelProfile = { version: 2, defaults: selection(raw.defaults, 'defaults'), routing: 'native', fallback: 'none' };
+    if (raw.assist !== undefined) {
+        if (!object(raw.assist))
+            throw new Error('assist: expected mapping');
+        keys(raw.assist, ['deterministic-tools', 'bounded-output', 'write-isolation'], 'assist');
+        p.assist = {};
+        for (const key of ['deterministic-tools', 'bounded-output', 'write-isolation'] as const) {
+            if (raw.assist[key] !== undefined) {
+                if (typeof raw.assist[key] !== 'boolean')
+                    throw new Error(`assist.${key}: expected boolean`);
+                p.assist[key] = raw.assist[key];
+            }
+        }
+    }
     if (raw.agents !== undefined)
         p.agents = namedSelections(raw.agents, 'agents');
     if (raw.subagents !== undefined) {

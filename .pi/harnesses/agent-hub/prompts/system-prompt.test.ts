@@ -23,7 +23,7 @@ function resolution(active: CapabilityPack[]): CapabilityResolution {
 	};
 }
 
-function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; language?: string } = {}): HubPromptContext {
+function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; language?: string; catalogNotice?: string } = {}): HubPromptContext {
 	let promptState: HubPromptState = {
 		taskTier: "feature", taskTierAssumed: false,
 		turnDispatchCount: 1, turnResearchCount: 2,
@@ -35,6 +35,7 @@ function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; lang
 	return {
 		getCapabilityResolution: () => resolution(active),
 		getActiveTools: () => ["dispatch_agent", "ask_user"],
+		getToolCatalogNotice: () => overrides.catalogNotice ?? "",
 		getAgents: () => [{ name: "builder", displayName: "Builder", description: "Builds changes.", tools: "read,write" }],
 		getResearchPersonas: () => [{ name: "recon", displayName: "Recon", description: "Maps code.", model: "fast/model", thinking: "low" }],
 		getPromptState: () => promptState,
@@ -54,7 +55,7 @@ function digest(text: string): string {
 
 test("full extracted Hub prompt preserves exact text, ordering, and ledger", () => {
 	const built = buildHubSystemPrompt(fixture());
-	assert.equal(digest(built.systemPrompt), "ca415ea2fd41425089dcf6b234238514404306e5cf80162f13cc508ac1964471");
+	assert.equal(digest(built.systemPrompt), "87a66d1b618d47219d726c58694749c984dff620185b3c408f97d70decf0d85e");
 	assert.deepEqual(built.ledger.map(entry => entry.id), [
 		"hub/policy/work-mode", "hub/policy/language", "hub/roster-header", "hub/roster/builder",
 		"hub/policy/dispatch", "hub/policy/triage", "hub/policy/verification", "hub/state",
@@ -65,9 +66,28 @@ test("full extracted Hub prompt preserves exact text, ordering, and ledger", () 
 	assert.equal(built.systemPrompt.includes("hub/capability/"), false, "ledger stays metadata-only");
 });
 
+test("trusted tool catalog producer and refusal state survive the production prompt pipeline", async () => {
+	const catalog = await import("../tool-catalog-state.ts");
+	const refusals = await import("../unknown-tool-counter.ts");
+	assert.ok(refusals.unknownToolNotice, "missing production unknown-tool notice formatter");
+	const delta = catalog.emitToolCatalogDelta({ fromMode: "operator", toMode: "orchestrator", previous: ["bash", "read", "write"], next: ["dispatch_agent", "spawn_research"] });
+	const counter = refusals.createUnknownToolCounter({ limit: 3 });
+	const [diagnostic] = refusals.observeUnknownToolCalls({
+		message: { role: "assistant", content: [{ type: "toolCall", id: "call-3", name: "bash", arguments: { command: "pwd" } }] },
+		catalog: catalog.catalogSnapshot("orchestrator", delta.available), taskId: "task", counter, seenCallIds: new Set<string>(),
+	});
+	const notice = [catalog.toolCatalogNotice(delta), refusals.unknownToolNotice(diagnostic)].join("\n");
+	const built = buildHubSystemPrompt(fixture({ catalogNotice: notice }));
+	assert.match(built.systemPrompt, /Removed: bash, read, write/);
+	assert.match(built.systemPrompt, /Valid active substitute: dispatch_agent/);
+	assert.match(built.systemPrompt, /Permission expansion: false/);
+	assert.match(built.systemPrompt, /Unknown tool bash was refused \(1\/3\)/);
+	assert.match(built.systemPrompt, /No automatic retry was performed/);
+});
+
 test("language and unavailable ask_user branch preserve exact prompt text", () => {
 	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "9b458863549ef86b0ba57181fb1fb3ed7aca3a29d6e466e871fda3eb50a8b599");
+	assert.equal(digest(built.systemPrompt), "638fc7f5c075173aba00b2da24169e6bd2a30dab02a4d8364d4d4dc18ab30b42");
 	assert.match(built.systemPrompt, /ask_user is NOT available/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);

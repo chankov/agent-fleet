@@ -23,6 +23,7 @@ const CONDITIONAL_TOOLS = new Set<string>([...COMS_TOOLS, ...HERDR_TOOLS, "ask_u
 const HUB_OWNED_TOOLS = new Set<string>([
 	...ORCHESTRATION_TOOLS,
 	...CONDITIONAL_TOOLS,
+	"filesystem",
 ]);
 
 export function parseWorkMode(value: unknown): WorkMode | null {
@@ -137,8 +138,9 @@ export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: 
 		};
 	}
 	return {
-		intro: "You are a dispatcher agent — an orchestrator. You coordinate specialist agents to accomplish tasks. You do NOT have direct access to the codebase.",
-		hardRules: `- NEVER try to read, write, or execute code directly — you have no such tools.
+		intro: "You are a dispatcher agent — an orchestrator. You coordinate specialist agents to accomplish tasks. You have no generic direct coding tools.",
+		hardRules: `- NEVER try to execute, edit, or write repository code directly — you have no generic bash/write/edit tools.
+- When explicitly enabled, \`filesystem\` is the only narrow direct exception: deterministic inspection plus managed current-session snapshots; it grants no arbitrary write or shell authority.
 - ALWAYS use \`dispatch_agent\` to get implementation work done; use \`spawn_research\` for read-only recon.`,
 	};
 }
@@ -149,6 +151,7 @@ export function resolveWorkModeTools(options: {
 	comsReady: boolean;
 	herdrReady: boolean;
 	askUserAvailable: boolean;
+	deterministicTools?: boolean;
 	/** Active and provisional packs; omitted only for legacy callers. */
 	capabilityPacks?: readonly ("core" | "fleet" | "verification" | "peer" | "workspace" | "compaction")[];
 }): string[] {
@@ -163,5 +166,8 @@ export function resolveWorkModeTools(options: {
 	if (packs.has("workspace") && options.herdrReady) tools.push(...HERDR_TOOLS);
 	if (packs.has("core") && options.askUserAvailable) tools.push("ask_user");
 	if (packs.has("compaction")) tools.push("request_compaction");
+	// Profile-gated deterministic inspection is safe in either work mode, but never
+	// appears in the effective surface when the explicit opt-in is absent.
+	if (options.deterministicTools === true) tools.push("filesystem");
 	return [...new Set(tools)];
 }

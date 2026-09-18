@@ -251,11 +251,101 @@ already happened so unchanged retries cannot replay partial effects. It does not
 retry by itself and does not turn a task failure into a probe result or a universal model
 judgment. A future T12 probe runner may reuse the schema but is not part of this path.
 
+T5's opt-in `filesystem` tool performs deterministic inventory, byte excerpts, artifact readback, and
+local-file-only source snapshots without another model run. It is registered in the Hub and native
+children but appears in their effective tool surface only while the inherited complete profile has
+`assist.deterministic-tools: true`; stale or forged calls are refused at execution too. Profile and
+work-mode changes rebuild the truthful T4 catalog, and compaction reconciles that effective surface.
+Orchestrator mode may use this narrow inspection/managed-snapshot exception, but still has no generic
+bash, edit, or write tools. Native specialist, research, and nested-delegate explicit tool caps remain
+authoritative: the assist flag cannot append `filesystem` outside a declared cap.
+Opaque handles bind canonical paths,
+content hashes/fingerprints, and offsets; continuation fails on stale bytes or directory state,
+and canonical-root checks reject symlink escape. Snapshot bytes and provenance metadata are
+stored separately under the owning current session, marked untrusted, and never interpreted as analysis
+or fetched from a network origin. Snapshot destinations are runtime-owned and cannot be supplied by the
+caller; this narrow artifact creation path grants no general write or shell authority. Every source
+path—including the path resolved from a readback handle—passes through the existing damage-control
+`zeroAccessPaths` hook before execution, preserving its exemptions and interactive/headless approval
+semantics; a denial occurs before source bytes or snapshot artifacts are created. Handle decoding is
+single-sourced in `.pi/harnesses/lib/deterministic-handle-path.ts`, so damage-control retains this guard
+when installed with its declared shared-library companion but without agent-hub. Inventory names and
+all other operation results are marked untrusted. Because snapshot has a managed artifact side effect,
+`filesystem` is not classified as replay-safe for automatic mid-run model fallback.
+`assist.deterministic-tools` and `assist.bounded-output` are independent. Enabling
+`bounded-output` alone bounds read-only tool results inside native specialists, research helpers,
+and nested delegates before the next model continuation, and bounds parent reply transport too;
+`deterministic-tools` controls the deterministic filesystem assistance without being a prerequisite
+for output bounds. The fixed bounds are 500 inventory entries per page, 64 KiB per content/reply,
+and 180 Unicode characters per preview; truncation always names a retained full-output path and
+retrieval handle. With `bounded-output` off, legacy transport is preserved regardless of the
+`deterministic-tools` setting. Inventory records an escaping or unavailable symlink as a denied
+entry without traversing it or disclosing its target outside the authorized inventory.
+T5 does not consume `assist.write-isolation`; the separate T6c native launch boundary does.
+
 Recovery remains the single T1 contract: no automatic retry, queue, model fallback, or new
-numeric allowance. Busy work is refused before execution accounting; indeterminate failures do
-not authorize retry. Operator cancellation fences the same agent identity until a fresh,
-one-use authorization is consumed. Other agent identities—including the anonymous, read-only
-research actor—remain independent, and a task reset does not erase the cancellation fence.
+numeric allowance. Busy work is refused before execution accounting or history mutation and is
+not recorded as no-progress failure; indeterminate failures do not authorize retry. Operator
+cancellation fences the same agent identity until a fresh, one-use authorization is consumed.
+Other agent identities—including the anonymous, read-only research actor—remain independent,
+and a task reset does not erase the cancellation fence. Native session reuse is bound to an exact,
+normalized current-task contract (task identity, instructions, scope, deliverables, input artifacts,
+effective model, and permissions). A different/narrower task starts with a fresh session and
+replacement manifest; only an exact continuation, including the auto-research continuation path,
+receives Pi resume transport. This remains context hygiene rather than confinement.
+
+When `assist.write-isolation` is explicitly true, dispatch snapshots that effective setting before
+routing and forces a native child. Explicit coms is refused because remote isolation cannot be
+claimed. The complete Pi process and descendants run under Linux bubblewrap or macOS Seatbelt;
+the repository/root view is read-only except for existing exact relative files, expressly allowed
+existing recursive directories, and separate current-run runtime/artifact/temp roots. Glob scope,
+absolute/escaping scope, symlinked grants, an empty writable grant set, absent or wrong-platform
+backends, and sandbox launch failure all fail closed without an unsandboxed retry. Damage-control remains the policy/audit/
+approval overlay, but an approval cannot widen the OS boundary already created for a run; a wider
+path requires a new explicitly authorized dispatch contract. Network, model, and read access are
+otherwise unchanged. Turning the profile flag off does not dismantle an
+active process boundary; the next run takes a new snapshot. Opt-out retains the legacy spawn path.
+The sandbox never rolls back or deletes user edits, and it cannot protect an allowlisted file from
+a concurrent writer. Exact-file grants support direct writes to the existing inode but intentionally
+block temp-file-plus-rename atomic saves; callers must explicitly grant the containing directory for
+that behavior, and the runtime never widens the grant automatically. Sandboxed spawn uses exactly
+three pipe stdio entries and rejects extra inherited descriptors, closing the known writable-FD
+bypass. Linux deliberately preserves the Hub-owned process group instead of adding a PID namespace,
+and `/dev/tty` remains narrowly available; confinement therefore assumes host ptrace and terminal
+injection controls prevent same-uid cross-process escape (for example Linux Yama ptrace restrictions
+and disabled legacy TIOCSTI). Linux enforcement is exercised on a real bubblewrap host. Seatbelt
+canonicalizes only trusted runtime/artifact/temp aliases such as `/tmp` → `/private/tmp`, while user
+scope grants retain strict symlink rejection; its only device write exceptions are literal
+`/dev/null` and `/dev/tty`, never a blanket `/dev` grant. The Seatbelt profile has contract coverage
+but still requires a Darwin runtime check before T6c is fully verified.
+
+T4 adds a code-owned effective-tool catalog without creating another recovery policy. Every
+application of work-mode tools compares the actual active catalog before and after
+`setActiveTools` and can emit `agent-fleet.tool-catalog-delta/v1`: removed, added/available,
+active substitutes with explicit limitations, `permissionExpansion: false`, and SHA-256 catalog
+identities. The delta is persisted as a trusted session entry and included in the next system
+prompt. Orchestrator mode still excludes direct `write`, `edit`, and `bash`; a substitute is only
+an already-active path such as `dispatch_agent` or read-only inspection, and is never invoked by
+the catalog machinery.
+
+The runtime latches the effective catalog at `before_agent_start`. Actual assistant tool-call
+blocks are compared to that originating-turn catalog on the real `message_end` path, so a
+next-turn mode switch cannot charge an unknown-tool refusal for a call that was legal when the
+turn began; text blocks are ignored and no pseudo-tool text is executed. On `session_compact`,
+the runtime reconciles the restored `agent-fleet.tool-catalog-state/v1` identity with Pi's current
+active tools, persists restore evidence, and retains the task-scoped unknown-tool counter. Catalog
+errors are recorded fail-closed but cannot skip the existing compaction settlement/deferred-input
+lifecycle.
+
+Each unavailable tool refusal is keyed by normalized task and tool, while normalized arguments
+and catalog identity record whether the request or availability was reevaluated. The
+operator-approved limit is exactly three counted refusals, including the first. Mode switches,
+compaction, prose, and real catalog changes never refill it; only the explicit new-task lifecycle
+resets it. A real `unknown_tool` dispatch failure is stamped by the Hub with the latched,
+code-owned catalog identity; a result-supplied identity is ignored. A later successfully persisted
+effective-catalog event can establish `toolStateChanged` evidence for the existing T1
+`unknown_tool` `recoveryDecision`, but still requires explicit reinvocation and existing general
+budgets; it never schedules an automatic retry.
 
 On top of the tier envelope sit several qualitative guardrails. **Task triage**: the dispatcher
 classifies the current TASK via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)

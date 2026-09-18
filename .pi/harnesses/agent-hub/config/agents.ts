@@ -97,6 +97,7 @@ export function parseAgentFile(filePath: string): AgentDef | null {
 		}
 		return {
 			name: frontmatter.name, description: frontmatter.description || "", tools: frontmatter.tools || "read,grep,find,ls",
+			toolsExplicit: typeof frontmatter.tools === "string" && frontmatter.tools.trim().length > 0,
 			model: frontmatter.model || undefined, models: lists.models, subagents, delegateDepth,
 			warnings: warnings.length ? warnings : undefined, kind: frontmatter.kind || undefined,
 			thinking: frontmatter.thinking || undefined, systemPrompt: match[2].trim(), file: filePath,

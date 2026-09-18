@@ -58,8 +58,8 @@ test("T0a catalog covers exactly the nine requested synthetic scenarios", () => 
 	}
 });
 
-test("T0a fixtures that name T4/T6/T9b remain contract-only (no production implementation required)", () => {
-	assert.equal(T0A_SYNTHETIC_FIXTURES["mode-switch"].requiresUnimplementedSlice, "T4");
+test("T0a marks implemented T4 separately while T6/T9b remain contract-only", () => {
+	assert.equal(T0A_SYNTHETIC_FIXTURES["mode-switch"].requiresUnimplementedSlice, null);
 	assert.equal(T0A_SYNTHETIC_FIXTURES["busy-agent"].requiresUnimplementedSlice, "T6");
 	assert.equal(T0A_SYNTHETIC_FIXTURES["missing-worktree-installation"].requiresUnimplementedSlice, "T9b");
 	for (const id of T0A_FIXTURE_IDS) {
@@ -110,11 +110,13 @@ test("missing deliverable is not acceptance", () => {
 	assert.match(fixture.expectedPostFix, /not acceptance/);
 });
 
-test("mode-switch fixture is contract-only and does not implement T4", () => {
+test("mode-switch baseline now maps to the implemented T4 contract", () => {
 	const fixture = T0A_SYNTHETIC_FIXTURES["mode-switch"];
-	assert.equal(fixture.requiresUnimplementedSlice, "T4");
+	assert.equal(fixture.requiresUnimplementedSlice, null);
 	assert.match(fixture.expectedPostFix, /tool-state delta/);
-	assert.doesNotMatch(fixture.check, /implements T4/);
+	assert.match(fixture.check, /implemented T4 contract/);
+	assert.match(fixture.observedBaseline, /now emits|implemented/i);
+	assert.doesNotMatch(fixture.observedBaseline, /There is no runtime tool-state delta|does not implement T4/i);
 });
 
 test("BG and EN fixtures share one contract id pair", () => {

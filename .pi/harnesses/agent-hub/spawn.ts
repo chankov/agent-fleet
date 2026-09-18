@@ -1,6 +1,7 @@
 import { runtimeTestFromResult, type RuntimeTestRecord } from "./runtime-test-check.ts";
 import { createToolEventRecorder, type ToolExecutionEvent } from "./tool-protocol.ts";
-import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV } from './policy/profile-runtime.ts';
+import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV, type ActiveModelProfile } from './policy/profile-runtime.ts';
+import { confineNativeChild, type WriteIsolationRequest, type WriteIsolationResult } from "./write-isolation.ts";
 /**
  * spawnPiAgent — the ONE place agent-hub code spawns a headless `pi` child and
  * parses its JSON event stream. Research helpers and read-only delegate children
@@ -9,6 +10,7 @@ import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork
 
 import { spawn, type ChildProcess } from "child_process";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { boundOutput } from "./deterministic-fs.ts";
 
 export interface PiUsage {
 	input?: number;
@@ -51,6 +53,10 @@ export interface ToolWatchdogOptions {
 export interface SpawnPiAgentOptions {
  /** Enabled only by native preparation with the runtime observer extension. */
  runtimeTestObserver?: boolean;
+ /** Snapshotted at dispatch start; presence prevents a mid-run profile switch changing this launch. */
+ activeProfileSnapshot?: ActiveModelProfile;
+ /** Native-only whole-process write boundary. Omission preserves the legacy launch. */
+ writeIsolation?: WriteIsolationRequest;
 	model: string;
 	tools: string;
 	thinking: string;
@@ -80,6 +86,8 @@ export interface SpawnPiAgentOptions {
 	 * this bounds the ENTIRE run, thinking and non-watched tools included.
 	 */
 	turnDeadlineMs?: number | null;
+	/** Opt-in T5 transport bound; complete original output is retained under this directory. */
+	boundedOutputDir?: string;
 }
 
 export interface ModelFallbackNotice {
@@ -115,11 +123,19 @@ export interface SpawnPiAgentResult {
 	modelFallback?: ModelFallbackNotice;
 	/** Present only when parent-side bounded termination was requested. */
 	termination?: Termination;
+	boundedOutput?: { truncated: boolean; totalBytes: number; handle: string; contentPath: string; sha256: string };
+	writeIsolation?: Pick<WriteIsolationResult, "applied" | "failClosed" | "mechanism" | "permissionExpansion" | "rollsBackUserEdits" | "protectsConcurrentUserWrites">;
 }
 
 const DEFAULT_TERM_GRACE_MS = 1_000;
 const DEFAULT_SETTLE_GRACE_MS = 1_000;
 const WATCHED_TOOLS = new Set(["read", "grep", "find", "ls"]);
+
+/** Sandboxed children must not inherit writable descriptors outside the mount policy. */
+export function assertSafeSandboxStdio(stdio: readonly unknown[]): void {
+	if (stdio.length !== 3) throw new Error("write isolation refuses extra inherited file descriptors");
+	if (stdio.some(value => value !== "pipe")) throw new Error("write isolation requires safe stdio pipes");
+}
 
 /** Signal an explicitly owned process group, falling back only for legacy callers. */
 export function killPiTree(proc: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
@@ -135,7 +151,9 @@ export function killPiTree(proc: ChildProcess, signal: NodeJS.Signals = "SIGTERM
 export function spawnPiAgent(opts: SpawnPiAgentOptions, cbs: SpawnPiAgentCallbacks = {}): Promise<SpawnPiAgentResult> {
 	return withProfileWork(async () => {
 		try {
-			const active=readActiveProfile()??readActiveProfile(opts.env);
+			const active = Object.prototype.hasOwnProperty.call(opts, "activeProfileSnapshot")
+				? opts.activeProfileSnapshot
+				: (readActiveProfile() ?? readActiveProfile(opts.env));
 			assertProfileModel(opts.model,active);
 			if(active) opts={...opts,env:{...opts.env,[PROFILE_ENV]:JSON.stringify(active)}};
 			return await spawnPiAgentUnchecked(opts,cbs);
@@ -162,6 +180,16 @@ function spawnPiAgentUnchecked(
 	];
 	if (opts.resume) args.push("-c");
 
+	const isolation = opts.writeIsolation ? confineNativeChild({ ...opts.writeIsolation, command: "pi", args, env: opts.env }) : undefined;
+	if (isolation && !isolation.applied) {
+		return Promise.resolve({
+			output: "", stderr: isolation.reason ?? "write isolation unavailable", exitCode: 1,
+			spawnError: isolation.reason ?? "write isolation unavailable; unsandboxed execution refused",
+			modelUsed: opts.model, toolCallsStarted: 0, writeIsolation: isolation,
+		});
+	}
+	const launchCommand = isolation?.command ?? "pi";
+	const launchArgs = isolation?.args ?? args;
 	const watchdog = opts.toolWatchdog;
 	const turnDeadlineMs = opts.turnDeadlineMs ?? null;
 	// A watchdog or deadline must own its group: group signalling remains valid even
@@ -175,8 +203,10 @@ function spawnPiAgentUnchecked(
 	const textChunks: string[] = [];
 	const stderrChunks: string[] = [];
 	return new Promise((resolve) => {
-		const proc = spawn("pi", args, {
-			stdio: ["pipe", "pipe", "pipe"],
+		const stdio = ["pipe", "pipe", "pipe"];
+		if (isolation) assertSafeSandboxStdio(stdio);
+		const proc = spawn(launchCommand, launchArgs, {
+			stdio,
 			env: { ...process.env, ...(opts.env || {}) },
 			...(opts.cwd ? { cwd: opts.cwd } : {}),
 			...(ownsGroup ? { detached: true } : {}),
@@ -220,8 +250,10 @@ function spawnPiAgentUnchecked(
 			try { proc.stdin?.destroy(); } catch {}
 			try { proc.stdout?.destroy(); } catch {}
 			try { proc.stderr?.destroy(); } catch {}
+			const rawOutput = textChunks.join("");
+			const bounded = opts.boundedOutputDir ? boundOutput({ content: rawOutput, retentionDir: opts.boundedOutputDir, label: "assistant-reply" }) : null;
 			resolve({
-				output: textChunks.join(""),
+				output: bounded?.reply ?? rawOutput,
 				// Pi's headless process can exit 0 while the assistant message itself
 				// reports stopReason:error. Normalize that to a failed run so callers
 				// never mark a provider/model error as successful.
@@ -232,6 +264,8 @@ function spawnPiAgentUnchecked(
 				...(spawnError ? { spawnError } : {}),
 				...(assistantError ? { assistantError } : {}),
 				...(termination ? { termination } : {}),
+				...(isolation ? { writeIsolation: isolation } : {}),
+				...(bounded ? { boundedOutput: { truncated: bounded.truncated, totalBytes: bounded.totalBytes, handle: bounded.handle, contentPath: bounded.contentPath, sha256: bounded.hash } } : {}),
 			});
 		};
 		const terminate = (reason: Termination["reason"], tool?: ToolTimeout) => {

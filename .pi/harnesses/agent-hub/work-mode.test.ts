@@ -121,7 +121,9 @@ test("work mode prompt permits direct work only for operators", () => {
 
 	const orchestrator = workModePrompt("orchestrator");
 	assert.match(orchestrator.intro, /dispatcher agent/);
-	assert.match(orchestrator.hardRules, /NEVER try to read, write, or execute/);
+	assert.match(orchestrator.hardRules, /NEVER try to execute, edit, or write repository code directly/);
+	assert.match(orchestrator.hardRules, /`filesystem` is the only narrow direct exception/);
+	assert.match(orchestrator.hardRules, /no arbitrary write or shell authority/);
 	assert.doesNotMatch(orchestrator.hardRules, /herdr_spawn_pane/);
 });
 

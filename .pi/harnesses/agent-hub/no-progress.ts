@@ -13,6 +13,8 @@ interface Failure {
 	category: RecoveryCategory;
 	evidencePath?: string;
 	effectsEstablished?: boolean;
+	catalogVersion?: string;
+	toolStateChanged?: boolean;
 }
 interface Ticket { allowed: boolean; key: string; executorKey: string; scope: string[]; generation: object; id: object; failure?: Failure; refusal?: "busy" | "recovery"; }
 interface RecordedFailure { fingerprint: string; failure: Failure; authorized: boolean; }
@@ -33,12 +35,13 @@ export function createNoProgressGuard() {
 			if (pendingExecutors.has(executorKey)) return { allowed: false, key, executorKey, scope, generation, id, refusal: "busy" };
 			if (old) {
 				const category = old.failure.category ?? "indeterminate";
-				const changed = old.fingerprint !== fingerprint;
+				const changed = old.fingerprint !== fingerprint || (category === "unknown_tool" && old.failure.toolStateChanged === true);
 				const decision = recoveryDecision(category, {
 					explicitInvocation: true,
 					relevantConditionsChanged: changed || category === "busy",
 					freshOneUseAuthorization: old.authorized,
 					effectsEstablished: old.failure.effectsEstablished === true,
+					toolStateChanged: old.failure.toolStateChanged === true,
                     executorIdle: !pendingExecutors.has(executorKey),
 				});
 				if (!decision.allowed) return { allowed: false, key, executorKey, scope, generation, id, failure: { ...old.failure, category }, refusal: "recovery" };
@@ -71,6 +74,17 @@ export function createNoProgressGuard() {
             }
             return false;
         },
+		establishToolStateChange(previousCatalogVersion: string, nextCatalogVersion: string, evidenceRef: string): number {
+			if (!previousCatalogVersion || !nextCatalogVersion || previousCatalogVersion === nextCatalogVersion || !evidenceRef.trim()) return 0;
+			let established = 0;
+			for (const entry of failures.values()) {
+				if (entry.failure.category !== "unknown_tool" || entry.failure.catalogVersion !== previousCatalogVersion) continue;
+				entry.failure.toolStateChanged = true;
+				entry.failure.evidencePath = evidenceRef;
+				established++;
+			}
+			return established;
+		},
 		authorize(dispatchId: string): boolean {
 			for (const { entry } of cancellations.values()) {
 				if (entry.failure.dispatchId !== dispatchId || entry.authorized || entry.failure.category !== "operator_cancelled") continue;
@@ -109,7 +123,7 @@ function canonical(value: unknown): string {
 
 /** Wording and scope_mode are intentionally absent: neither can manufacture changed execution conditions. */
 export function withNoProgress<P extends DispatchAgentParams | SpawnResearchParams>(
-	d: Pick<DispatchExecutorDeps, "noProgress" | "artifacts"> & Partial<Pick<DispatchExecutorDeps, "budget" | "state">>,
+	d: Pick<DispatchExecutorDeps, "noProgress" | "artifacts"> & Partial<Pick<DispatchExecutorDeps, "budget" | "state" | "getToolCatalogVersion">>,
 	kind: "dispatch" | "research",
 	execute: ToolExecutor<P>,
 	executionConditions: (params: P, ctx: any, result?: any) => Record<string, unknown> = () => ({}),
@@ -168,11 +182,13 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 			result = await execute(id, params, signal, onUpdate, ctx);
 			const details = result.details as any;
 			const category = recoveryCategoryFromDetails(details);
-			if (category) failure = {
+			// A busy refusal never started work, so it must not become no-progress history.
+			if (category && category !== "busy") failure = {
 				dispatchId: details.dispatchId ?? randomUUID(),
 				evidencePath: details.evidencePath ?? details.failurePath ?? details.protocolEvidencePath ?? undefined,
 				reason: details.diagnostics?.reason ?? details.reason ?? details.status ?? "execution_failure",
 				category,
+				catalogVersion: category === "unknown_tool" ? d.getToolCatalogVersion?.() : undefined,
 			};
 			return result;
 		} catch (error) {

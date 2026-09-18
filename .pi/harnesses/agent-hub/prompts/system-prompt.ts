@@ -69,7 +69,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const compactionSection = compactionActive ? COMPACTION_FRAGMENT : "";
 	const systemPrompt = assembleHubSystemPrompt({
 		intro: workModeText.intro,
-		toolList: `these active packs: ${[...modelPacks].join(", ")}. Tools: ${ctx.getActiveTools().map(name => `\`${name}\``).join(", ") || "(none)"}`,
+		toolList: `these active packs: ${[...modelPacks].join(", ")}. Tools: ${ctx.getActiveTools().map(name => `\`${name}\``).join(", ") || "(none)"}${ctx.getToolCatalogNotice?.() ? `\n${ctx.getToolCatalogNotice()}` : ""}`,
 		languageLines,
 		activeTeamName: ctx.getActiveTeamName(),
 		teamMembers,

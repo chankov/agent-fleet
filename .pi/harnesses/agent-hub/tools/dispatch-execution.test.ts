@@ -497,6 +497,17 @@ test("native writable finish uses one no-scope delta and compiler facts survive 
  assert.equal(assessment.compilerEvidencePath, details.compilerEvidencePath); assert.ok(assessment.verification.evidenceRefs.includes(details.compilerEvidencePath)); assert.ok(details.returnPath.startsWith(sessionDir));
 });
 
+test("T6b out-of-scope attempts remain an advisory and are not reported as sandbox confinement", async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ d.dispatchAgent = async () => { writeFileSync(join(cwd, "outside.txt"), "attempted outside scope\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "scope-advisory" }; };
+ const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "edit one file", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
+ const details = result.details as any; const text = (result.content[0] as any).text;
+ assert.deepEqual(details.scopeViolations.outOfScope, ["outside.txt"]);
+ assert.match(text, /Scope advisory/); assert.match(text, /hub did not revert anything/);
+ assert.doesNotMatch(text, /sandbox|confined|blocked the write/i);
+ assert.equal(readFileSync(join(cwd, "outside.txt"), "utf8"), "attempted outside scope\n");
+});
+
 test("runtime accepts a changed task only with a current recorded command and passing exit", async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "export const value = 2;\n"); return { output: "Done! tests pass", exitCode: 0, elapsed: 1, dispatchId: "compiler-pass" }; };
@@ -703,8 +714,13 @@ test("compiler evidence cannot be relabelled with a revision changed during veri
  assert.equal((result.details as any).accepted, false); assert.equal((result.details as any).verificationResult.status, "stale");
 });
 
-test("already-running agent rejected before prepare consumes no budget", async () => {
- const d = prepareDeps(); d.state.getAgentStates().get("builder").status = "running";
+test("already-running agent rejected before prepare consumes budget or poisons the next task", async () => {
+ const d = prepareDeps(); let budgetChecks = 0, runs = 0; d.budgetRecovery.ensure = async () => { budgetChecks++; return null; };
+ d.dispatchAgent = async () => { runs++; return { output: "done", exitCode: 0, elapsed: 0 }; };
+ d.state.getAgentStates().get("builder").status = "running";
  const result = await createDispatchExecutor(d as any)("busy", { agent: "builder", task: "work" }, undefined, undefined, {} as any);
- assert.equal((result.details as any).status, "busy"); assert.equal(d.state.getTurnDispatchCount(), 0);
+ assert.equal((result.details as any).status, "busy"); assert.equal(d.state.getTurnDispatchCount(), 0); assert.equal(budgetChecks, 0); assert.equal(runs, 0);
+ d.state.getAgentStates().get("builder").status = "idle";
+ const next = await createDispatchExecutor(d as any)("next", { agent: "builder", task: "new task after idle" }, undefined, undefined, {} as any);
+ assert.equal((next.details as any).exitCode, 0); assert.equal(budgetChecks, 1); assert.equal(runs, 1);
 });

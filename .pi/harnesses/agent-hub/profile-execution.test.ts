@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnPiAgent, spawnPiAgentWithModelFallback } from './spawn.ts';
 import { PROFILE_ENV, setActiveProfile, readActiveProfile, profileWorkInFlight, profilePanel } from './policy/profile-runtime.ts';
-const profile: any = { version: 2, defaults: { model: 'omlx/laguna', thinking: 'off' }, fallback: 'none', routing: 'native', 'allowed-models': ['omlx/laguna', 'omlx/qwen'], panel: [{ name: 'laguna', model: 'omlx/laguna', integrator: true }, { name: 'qwen', model: 'omlx/qwen' }] };
+const profile: any = { version: 2, defaults: { model: 'omlx/laguna', thinking: 'off' }, fallback: 'none', routing: 'native', 'allowed-models': ['omlx/laguna', 'omlx/qwen'], assist: { 'deterministic-tools': true, 'bounded-output': true, 'write-isolation': true }, panel: [{ name: 'laguna', model: 'omlx/laguna', integrator: true }, { name: 'qwen', model: 'omlx/qwen' }] };
 test('actual child launch inherits profile; missing local provider never attempts cloud fallback', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'fleet-profile-'));
     const log = join(dir, 'attempts');
@@ -22,7 +22,10 @@ test('actual child launch inherits profile; missing local provider never attempt
         assert.equal(failed.exitCode, 1);
         const attempts = readFileSync(log, 'utf8').trim().split('\n').map(s => JSON.parse(s));
         assert.equal(attempts.length, 1);
-        assert.equal(JSON.parse(attempts[0].profile).name, 'local');
+        const inherited = JSON.parse(attempts[0].profile);
+        assert.equal(inherited.name, 'local');
+        assert.deepEqual(inherited.profile.assist, profile.assist);
+        assert.deepEqual(readActiveProfile({ [PROFILE_ENV]: attempts[0].profile })?.profile.assist, profile.assist);
         assert.ok(attempts[0].args.includes('omlx/laguna'));
         assert.equal(profileWorkInFlight(), 0);
     }

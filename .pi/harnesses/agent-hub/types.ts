@@ -5,6 +5,7 @@ import type { FleetTranscriptStore } from "../lib/fleet-transcript-store.ts";
 import type { HistoryEntry } from "./ui/history-store.ts";
 import type { TimelineEntry } from "./ui/zoom.ts";
 import type { ResearchAgentDef, ResearchState as RuntimeResearchState } from "./research/runtime.ts";
+import type { TaskResumeContract } from "./task-resume-contract.ts";
 
 export interface SubagentRole {
 	model: string;
@@ -42,6 +43,7 @@ export interface AgentState {
 	contextTokens: number;
 	sessionFile: string | null;
 	specialistManifest?: SpecialistContextManifest;
+	resumeContract?: TaskResumeContract;
 	runCount: number;
 	runsSinceFresh: number;
 	timer?: ReturnType<typeof setInterval>;

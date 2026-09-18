@@ -32,6 +32,9 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { fileURLToPath } from "node:url";
+import { BOUNDED_OUTPUT_DIR_ENV } from "./bounded-output.ts";
+import { FILESYSTEM_SESSION_DIR_ENV } from "./filesystem-tool.ts";
 import { Type } from "@sinclair/typebox";
 import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
@@ -75,6 +78,10 @@ export interface DelegateConfig {
 	reconSearchTimeoutMs?: number | null;
 	/** Whole-run deadline per delegate child (hub mode budget); null/absent = off. */
 	turnDeadlineMs?: number | null;
+	boundedOutput?: boolean;
+	boundedOutputDir?: string;
+	deterministicTools?: boolean;
+	filesystemSessionDir?: string;
 	cwd: string;
 }
 
@@ -259,7 +266,11 @@ export default function (pi: ExtensionAPI) {
 			const childDepth = plan.childDepth;
 			const childRemainingSpawns = plan.childRemainingSpawns;
 			const childCanDelegate = plan.childCanDelegate;
-			const childExtensions = plan.childExtensions;
+			const childExtensions = [
+				...plan.childExtensions,
+				...(config.boundedOutput ? [fileURLToPath(new URL("./bounded-output.ts", import.meta.url))] : []),
+				...(config.deterministicTools ? [fileURLToPath(new URL("./filesystem-tool.ts", import.meta.url))] : []),
+			];
 			const childTools = plan.childTools;
 			const childConfig: DelegateConfig | null = plan.includeDelegateConfig ? {
 				...config,
@@ -272,6 +283,7 @@ export default function (pi: ExtensionAPI) {
 			const sessionsDir = safePathWithin(config.eventDir, "sessions");
 			const resultsDir = safePathWithin(config.eventDir, "results");
 			const childSessionFile = safePathWithin(sessionsDir, `${childId}.jsonl`);
+			const boundedOutputDir = config.boundedOutput ? safePathWithin(config.boundedOutputDir ?? config.eventDir, childId) : undefined;
 			const childResultFile = safePathWithin(resultsDir, `${childId}.md`);
 			try { mkdirSync(sessionsDir, { recursive: true }); } catch {}
 			try { mkdirSync(resultsDir, { recursive: true }); } catch {}
@@ -336,7 +348,12 @@ export default function (pi: ExtensionAPI) {
 					sessionFile: childSessionFile,
 					prompt,
 					extensions: childExtensions,
-					env: childConfig ? { AGENT_HUB_DELEGATE_CONFIG: JSON.stringify(childConfig) } : undefined,
+					env: {
+						...(childConfig ? { AGENT_HUB_DELEGATE_CONFIG: JSON.stringify(childConfig) } : {}),
+						...(boundedOutputDir ? { [BOUNDED_OUTPUT_DIR_ENV]: boundedOutputDir } : {}),
+						...(config.deterministicTools && config.filesystemSessionDir ? { [FILESYSTEM_SESSION_DIR_ENV]: config.filesystemSessionDir } : {}),
+					},
+					...(boundedOutputDir ? { boundedOutputDir } : {}),
 					cwd: config.cwd,
 					// Each nested child owns its group. The SIGTERM trap above forwards
 					// parent cancellation so detached children cannot become orphans.

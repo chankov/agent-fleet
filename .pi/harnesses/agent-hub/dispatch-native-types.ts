@@ -8,6 +8,10 @@ import type { TimelineEntry } from "./ui/zoom.ts";
 import type { DelegationChild, DelegationObservableState } from "./dispatch-observability.ts";
 import type { ComsDispatchResult, DispatchInputArtifactPreview } from "./dispatch-coms.ts";
 import type { PiRunControl, SpawnPiAgentCallbacks, SpawnPiAgentOptions, SpawnPiAgentResult } from "./spawn.ts";
+import type { TaskResumeContract } from "./task-resume-contract.ts";
+import type { ResolvedAssistFlags } from "./assist-profile.ts";
+import type { ActiveModelProfile } from "./policy/profile-runtime.ts";
+import type { WriteIsolationRequest, WriteIsolationResult } from "./write-isolation.ts";
 
 export type NativeBackend = "auto" | "native" | "coms";
 
@@ -53,6 +57,7 @@ export interface NativeDispatchState extends NativeTimelineTarget, DelegationObs
 	contextTokens: number;
 	sessionFile: string | null;
 	specialistManifest?: SpecialistContextManifest;
+	resumeContract?: TaskResumeContract;
 	runCount: number;
 	runsSinceFresh: number;
 	timer?: ReturnType<typeof setInterval>;
@@ -82,6 +87,7 @@ export interface NativeExecutionDiagnostics {
 
 export interface NativeDispatchResult {
  runtimeTests?: import("./runtime-test-check.ts").RuntimeTestRecord[];
+ writeIsolation?: Pick<WriteIsolationResult, "applied" | "failClosed" | "mechanism" | "permissionExpansion" | "rollsBackUserEdits" | "protectsConcurrentUserWrites">;
  toolEvents?: import("./tool-protocol.ts").ToolExecutionEvent[];
 	evidencePath?: string;
 	sessionPath?: string;
@@ -200,6 +206,8 @@ export interface NativeRunBase {
 	monitorKey: string;
 	monitorStart?: Promise<any>;
 	startTime: number;
+	assistSnapshot: ResolvedAssistFlags;
+	activeProfileSnapshot?: ActiveModelProfile;
 	finishRun(output: string, exitCode: number, options?: { idle?: boolean; pending?: boolean; notice?: string }): Promise<NativeDispatchResult>;
 }
 
@@ -214,8 +222,12 @@ export interface PreparedNativeRun extends NativeRunBase {
 	effectiveTools: string;
 	extensions: string[];
 	delegateEnv?: Record<string, string>;
+	writeIsolation?: WriteIsolationRequest;
+	writeIsolationPolicy?: WriteIsolationResult;
 	thinkingLevel: string;
 	wantThinking: boolean;
+	resumeContract: TaskResumeContract;
+	resumeAllowed: boolean;
 	replacementSystemPrompt: string;
 	runPrompt: string;
 }

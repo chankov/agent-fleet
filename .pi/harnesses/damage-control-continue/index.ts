@@ -55,6 +55,7 @@ import {
 } from "../lib/damage-control-shared.ts";
 import { registerVersionStatus } from "./version.ts";
 import { scheduleFleetUpdateCheck } from "../lib/update-check.ts";
+import { deterministicHandlePath } from "../lib/deterministic-handle-path.ts";
 
 interface Rule {
 	pattern: string;
@@ -325,6 +326,14 @@ export default function (pi: ExtensionAPI) {
 			inputPaths.push(event.input.path);
 		} else if (isToolCallEventType("grep", event) || isToolCallEventType("find", event) || isToolCallEventType("ls", event)) {
 			inputPaths.push(event.input.path || ".");
+		} else if (event.toolName === "filesystem") {
+			// Reuse the same path-policy/exemption/approval pipeline as built-in reads.
+			// Handle decoding is metadata-only: policy runs before any source bytes are read.
+			if (typeof (event.input as any).path === "string") inputPaths.push((event.input as any).path);
+			if (typeof (event.input as any).handle === "string") {
+				try { inputPaths.push(deterministicHandlePath((event.input as any).handle)); }
+				catch { /* the filesystem tool itself refuses malformed handles */ }
+			}
 		}
 
 		if (isToolCallEventType("grep", event) && event.input.glob) {

@@ -39,6 +39,7 @@ export interface BudgetStatePorts {
 	setTurnBudgetAskUserWaitMs(value: number): void;
 	resetBudgetRecovery(): void;
 	resetNoProgress(): void;
+	resetUnknownToolCounter(): void;
 	getTaskContinuationCount(): number;
 	setTaskContinuationCount(value: number): void;
 	getTurnContinuationCount(): number;
@@ -157,6 +158,7 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 			state.setTaskContinuationCount(0);
 			state.resetBudgetRecovery();
 			state.resetNoProgress();
+			state.resetUnknownToolCounter();
 			state.setTaskLabel(label);
 			state.setTaskTier(null);
 			state.setTaskTierAssumed(false);

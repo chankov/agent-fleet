@@ -20,6 +20,7 @@ function fixture() {
 		getTurnResearchCount: () => values.turnResearch, setTurnResearchCount: value => { values.turnResearch = value; events.push("turn-research"); },
 		getTurnBudgetAskUserWaitMs: () => values.turnWait, setTurnBudgetAskUserWaitMs: value => { values.turnWait = value; events.push("turn-wait"); },
 		resetNoProgress() { events.push("progress-reset"); },
+		resetUnknownToolCounter() { events.push("unknown-tool-reset"); },
 		resetBudgetRecovery: () => { values.pending = null; events.push("recovery-reset"); },
 		getTaskContinuationCount: () => values.taskContinuation, setTaskContinuationCount: value => { values.taskContinuation = value; events.push("task-continuation"); },
 		getTurnContinuationCount: () => values.turnContinuation, setTurnContinuationCount: value => { values.turnContinuation = value; events.push("turn-continuation"); },
@@ -64,6 +65,8 @@ test("new-task reset preserves the capability, blocker, and status side-effect o
 	assert.equal(values.tier, null);
 	assert.equal(values.pending, null);
 	assert.equal(events.filter(event => event === "progress-reset").length, 1);
+	assert.equal(events.filter(event => event === "unknown-tool-reset").length, 1);
+	assert.ok(events.indexOf("unknown-tool-reset") > events.indexOf("progress-reset"));
 	const ordered = ["capabilities", "blockers", "fingerprints", "resolve-capabilities", "work-mode-tools", "status"];
 	assert.deepEqual(events.filter(event => ordered.includes(event)), ordered);
 });

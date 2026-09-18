@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
-import { profileFallback, profileChild } from './policy/profile-runtime.ts';
+import { profileFallback, profileChild, PROFILE_ENV } from './policy/profile-runtime.ts';
+import { BOUNDED_OUTPUT_DIR_ENV } from './bounded-output.ts';
+import { FILESYSTEM_SESSION_DIR_ENV } from './filesystem-tool.ts';
 import { chmodSync, mkdirSync, existsSync, copyFileSync, unlinkSync } from "node:fs";
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, MAX_DELEGATE_DEPTH, safePathWithin } from "./helpers.ts";
 import { contextOverflowDiagnostic, shouldRecycleSession } from "./run-budget.js";
@@ -9,8 +11,10 @@ import { requireSafetyHarness } from "./safety-routing.ts";
 import { buildSpecialistContextManifest, nativeSpecialistSystemPrompt } from "../lib/context-budget-child-prompt.ts";
 import { extractAssertionIds } from "./return-contract.js";
 import type { NativeDispatchResult, NativeRunBase, PreparedNativeRun } from "./dispatch-native-types.ts";
+import { bindResume, type TaskResumeInput } from "./task-resume-contract.ts";
+import { confineNativeChild, type WriteIsolationRequest } from "./write-isolation.ts";
 
-export async function prepareNativeRun(base: NativeRunBase, preserveManifest: boolean): Promise<PreparedNativeRun | NativeDispatchResult> {
+export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: boolean, requestedContract?: Omit<TaskResumeInput, "previous">): Promise<PreparedNativeRun | NativeDispatchResult> {
 	const { deps, state, ctx, task, inputArtifacts, scopeGlobs, personaKey, agentKey, runNumber } = base;
 	const model = deps.resolvedModel(state.def)
 		?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
@@ -18,7 +22,25 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 	const originalModelFallback = fallbackCandidate === model ? undefined : fallbackCandidate;
 	const agentWindow = resolveContextWindow(model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
 	const agentSessionFile = safePathWithin(base.evidenceDir, "session.json");
-	if (state.sessionFile && existsSync(state.sessionFile)) copyFileSync(state.sessionFile, agentSessionFile);
+	const resumeContract = bindResume({
+		taskId: requestedContract?.taskId ?? task,
+		instructions: requestedContract?.instructions ?? task,
+		scope: requestedContract?.scope ?? scopeGlobs,
+		deliverables: requestedContract?.deliverables,
+		artifacts: requestedContract?.artifacts ?? inputArtifacts.map(artifact => artifact.path),
+		model: requestedContract?.model ?? model,
+		permissions: requestedContract?.permissions ?? state.def.tools,
+		previous: state.resumeContract,
+	});
+	let resumeAllowed = resumeContract.resumeAllowed && !!state.sessionFile && existsSync(state.sessionFile);
+	if (resumeAllowed) copyFileSync(state.sessionFile!, agentSessionFile);
+	else if (state.sessionFile) {
+		state.sessionFile = null;
+		state.specialistManifest = undefined;
+		state.runsSinceFresh = 0;
+		state.contextPct = 0;
+		state.contextTokens = 0;
+	}
 	const turnBudget = deps.currentBudget();
 	let sessionRecycled = false;
 
@@ -29,6 +51,7 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 		state.contextPct = 0;
 		state.contextTokens = 0;
 		sessionRecycled = true;
+		resumeAllowed = false;
 		deps.bumpRecycle();
 		ctx.ui.notify(`${deps.displayName(state.def.name)}: session recycled (stale context) — starting fresh`, "info");
 	} else {
@@ -47,6 +70,7 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 		state.runsSinceFresh = 0;
 		state.contextPct = 0;
 		state.contextTokens = 0;
+		resumeAllowed = false;
 		ctx.ui.notify(`${deps.displayName(state.def.name)}: unusable session file quarantined (${health.reason}) — starting fresh`, "warning");
 	}
 
@@ -66,8 +90,14 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 	const safety = requireSafetyHarness(safetyHarnessPath);
 	if (!safety.ok) return base.finishRun(safety.error, 1);
 	const extensions = [...safety.extensions];
- if (state.def.tools.split(",").map(tool => tool.trim()).includes("bash")) extensions.push(fileURLToPath(new URL("./runtime-test-check.ts", import.meta.url)));
-	let effectiveTools = state.def.tools;
+ const assist = base.assistSnapshot;
+ const boundedOutput = assist['bounded-output'];
+ const declaredTools = state.def.tools.split(",").map(tool => tool.trim()).filter(Boolean);
+ const deterministicTools = assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
+ if (boundedOutput) extensions.push(fileURLToPath(new URL("./bounded-output.ts", import.meta.url)));
+ if (deterministicTools) extensions.push(fileURLToPath(new URL("./filesystem-tool.ts", import.meta.url)));
+ if (declaredTools.includes("bash")) extensions.push(fileURLToPath(new URL("./runtime-test-check.ts", import.meta.url)));
+	let effectiveTools = deterministicTools && !declaredTools.includes("filesystem") ? `${state.def.tools},filesystem` : state.def.tools;
 	let delegateEnv: Record<string, string> | undefined;
 	if (delegationActive) {
 		const delegationDir = safePathWithin(base.evidenceDir, "delegations");
@@ -83,20 +113,24 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 				depth: clampDelegateDepth(state.def.delegateDepth ?? MAX_DELEGATE_DEPTH),
 				callBudget: DELEGATE_TREE_SPAWN_BUDGET,
 				remainingSpawns: DELEGATE_TREE_SPAWN_BUDGET,
-				parentTools: state.def.tools,
+				parentTools: effectiveTools,
 				personaPrompt: state.def.systemPrompt,
 				eventDir: delegationDir,
 				damageControl: safetyHarnessPath || undefined,
 				delegateExt: delegateExtPath,
 				reconSearchTimeoutMs: deps.getReconSearchTimeoutMs(),
 				turnDeadlineMs: turnBudget.agentTurnMs,
+				boundedOutput,
+				boundedOutputDir: safePathWithin(base.evidenceDir, "delegations", "bounded-output"),
+				deterministicTools,
+				filesystemSessionDir: base.sessionDir,
 				cwd: ctx.cwd || process.cwd(),
 			}),
 		};
 		deps.startDelegationWatch(state, delegationDir);
 	}
 
-	const manifest = preserveManifest && state.specialistManifest
+	const manifest = resumeAllowed && state.specialistManifest
 		? state.specialistManifest
 		: buildSpecialistContextManifest({
 			personaName: state.def.name,
@@ -115,6 +149,28 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 	const wantThinking = thinkingLevel !== "off";
 	const runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs);
+	let writeIsolation: WriteIsolationRequest | undefined;
+	let writeIsolationPolicy;
+	if (assist['write-isolation']) {
+		const artifactRoot = safePathWithin(base.sessionDir, "artifacts");
+		const tempRoot = safePathWithin(base.evidenceDir, "runtime-tmp");
+		mkdirSync(artifactRoot, { recursive: true, mode: 0o700 });
+		mkdirSync(tempRoot, { recursive: true, mode: 0o700 });
+		writeIsolation = {
+			enabled: true,
+			cwd: ctx.cwd || process.cwd(),
+			allowlist: [...scopeGlobs],
+			runtimePaths: [base.evidenceDir],
+			artifactPaths: [artifactRoot],
+			tempPaths: [tempRoot],
+		};
+		writeIsolationPolicy = confineNativeChild(writeIsolation);
+		if (!writeIsolationPolicy.applied) return base.finishRun(`Write isolation refused: ${writeIsolationPolicy.reason ?? "native backend unavailable"}. No unsandboxed child was started.`, 1);
+		writeIsolation.backend = writeIsolationPolicy.mechanism;
+		writeIsolation.backendPath = writeIsolationPolicy.command;
+		delegateEnv = { ...delegateEnv, TMPDIR: tempRoot, TMP: tempRoot, TEMP: tempRoot };
+	}
+	if (base.activeProfileSnapshot) delegateEnv = { ...delegateEnv, [PROFILE_ENV]: JSON.stringify(base.activeProfileSnapshot) };
 
 	if (state.sessionFile && !sessionRecycled) {
 		const overflow = shouldRecycleBeforeSpawn({
@@ -129,6 +185,7 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 			state.contextPct = 0;
 			state.contextTokens = 0;
 			sessionRecycled = true;
+			resumeAllowed = false;
 			deps.bumpRecycle();
 			ctx.ui.notify(
 				`${deps.displayName(state.def.name)}: session recycled before spawn — ${overflow.message}. ` +
@@ -149,9 +206,17 @@ export async function prepareNativeRun(base: NativeRunBase, preserveManifest: bo
 		sessionReset,
 		effectiveTools,
 		extensions,
-		delegateEnv,
+		delegateEnv: {
+			...delegateEnv,
+			...(boundedOutput ? { [BOUNDED_OUTPUT_DIR_ENV]: safePathWithin(base.evidenceDir, "bounded-output") } : {}),
+			...(deterministicTools ? { [FILESYSTEM_SESSION_DIR_ENV]: base.sessionDir } : {}),
+		},
+		writeIsolation,
+		writeIsolationPolicy,
 		thinkingLevel,
 		wantThinking,
+		resumeContract,
+		resumeAllowed,
 		replacementSystemPrompt,
 		runPrompt,
 	};

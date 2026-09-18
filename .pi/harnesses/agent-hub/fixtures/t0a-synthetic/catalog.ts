@@ -121,18 +121,18 @@ export const T0A_SYNTHETIC_FIXTURES: Record<T0aFixtureId, T0aFixture> = {
 		id: "mode-switch",
 		kind: "synthetic",
 		title: "Operator to orchestrator mode switch leaves stale tool catalog",
-		followOnTask: "T4 (later; not this slice)",
-		check: "t0a-synthetic-fixtures.test.ts / mode-switch fixture is contract-only and does not implement T4",
+		followOnTask: "T4 (implemented after this baseline)",
+		check: "t0a-synthetic-fixtures.test.ts / mode-switch baseline now maps to the implemented T4 contract",
 		initialState:
 			"Session is in operator work mode with write/bash tools visible. Compaction or mode switch to orchestrator is requested.",
 		event:
 			"After switch, model issues the previous write/bash tool names or repeats unknown-tool calls.",
 		observedBaseline:
-			"work-mode.test.ts and work-mode-integration.test.ts assert prompt/tool gating in source contracts. There is no runtime tool-state delta event, no compaction restore of catalog version in the no-progress identity, and no T1-shared unknown-tool retry counter. This fixture records that gap; it does not implement T4.",
+			"T4 now emits runtime-owned catalog deltas from active tools, latches the originating-turn catalog, restores persisted catalog/counter state, and binds real unknown-tool dispatch failures to trusted catalog identity for shared T1 recovery. The N=3 counter survives compaction and catalog changes; only explicit new-task reset clears it.",
 		expectedPostFix:
 			"T4: emit tool-state delta (removed, available, allowed substitute). Restore task/tool state after compaction. Unknown tool gets a concrete valid path without auto-executing or expanding permissions. Identical unknown-tool retries follow T1 policy using existing budgets only. Orchestrator does not gain write/bash as a 'fix'.",
-		requiresUnimplementedSlice: "T4",
-		notes: "Synthetic. Must not require T4 code in T0a. Not counted as the 16 unknown-tool historical calls.",
+		requiresUnimplementedSlice: null,
+		notes: "Synthetic baseline retained after T4 implementation. Not counted as the 16 unknown-tool historical calls.",
 	},
 	"bg-en-verification": {
 		id: "bg-en-verification",

@@ -5,6 +5,7 @@
     "coms_list",
     "coms_send",
     "dispatch_agent",
+    "filesystem",
     "get_assertions",
     "herdr_close_pane",
     "herdr_notify",

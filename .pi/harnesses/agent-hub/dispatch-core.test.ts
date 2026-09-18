@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDispatchComs, createDispatchNative, createDispatchObservability, type ComsDispatchState, type DelegationObservableState, type NativeDispatchState } from "./dispatch-core.ts";
+import { PROFILE_ENV } from "./policy/profile-runtime.ts";
 
 function comsDeps(overrides: Record<string, unknown> = {}) {
 	let pending: any;
@@ -130,6 +131,126 @@ function nativeDeps(state: NativeDispatchState, overrides: Record<string, unknow
 		...overrides,
 	} as any;
 }
+
+test("native dispatch refuses a same-persona race before history while distinct personas run in parallel", async () => {
+	const builder = nativeState();
+	const verifier = nativeState(); verifier.def = { ...verifier.def, name: "verifier" };
+	const states = new Map([["builder", builder], ["verifier", verifier]]);
+	let historyStarts = 0; let releaseBuilder!: () => void; let releaseVerifier!: () => void;
+	const builderGate = new Promise<void>(resolve => { releaseBuilder = resolve; });
+	const verifierGate = new Promise<void>(resolve => { releaseVerifier = resolve; });
+	const deps = nativeDeps(builder, {
+		getAgentState: (key: string) => states.get(key), listAgentStates: () => [...states.values()],
+		executionHistory: { start: (_kind: string, name: string) => { historyStarts++; return { kind: "agent", name, startedAt: 1, endedAt: null, status: "running", parent: null }; }, end() {} },
+		spawnPiAgentWithModelFallback: async (opts: any) => { await (opts.prompt === "builder task" ? builderGate : verifierGate); return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0 }; },
+	});
+	const native = createDispatchNative(deps);
+	const parent = { aborts: 0, ctx: { ...extensionContext, abort() { parent.aborts++; } } as any };
+	const first = native.dispatchAgent("builder", "builder task", parent.ctx);
+	await new Promise(resolve => setImmediate(resolve));
+	const busy = await native.dispatchAgent("builder", "new builder task", parent.ctx);
+	assert.equal(busy.exitCode, 1); assert.match(busy.output, /busy|already running/i);
+	assert.equal(historyStarts, 1, "never-started busy work must not create history"); assert.equal(builder.runCount, 1);
+	const other = native.dispatchAgent("verifier", "verifier task", parent.ctx);
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(historyStarts, 2, "distinct persona remains authorized in parallel"); assert.equal(verifier.status, "running");
+	assert.equal(parent.aborts, 0, "busy refusal must not abort the parent or other agent");
+	releaseBuilder(); releaseVerifier(); await Promise.all([first, other]);
+});
+
+test("native resume transport drops a four-file session for a one-file/new-task contract", async t => {
+	const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+	const dir = mkdtempSync(join(tmpdir(), "native-resume-contract-")); t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const state = nativeState(); const launches: any[] = [];
+	const native = createDispatchNative(nativeDeps(state, { getSessionDir: () => dir,
+		spawnPiAgentWithModelFallback: async (opts: any) => { launches.push({ resume: opts.resume, prompt: opts.prompt, systemPrompt: opts.systemPrompt }); writeFileSync(opts.sessionFile, `session-${launches.length}`); return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0 }; },
+	}));
+	const wide = { taskId: "task-wide", instructions: "edit four files", scope: ["a.ts", "b.ts", "c.ts", "d.ts"], deliverables: ["out/wide.md"], artifacts: [], model: "provider/model", permissions: ["read"] };
+	await (native.dispatchAgent as any)("builder", "edit four files", extensionContext, [], wide.scope, undefined, "native", false, wide);
+	await (native.dispatchAgent as any)("builder", "continue after research", extensionContext, [], wide.scope, undefined, "native", true, wide);
+	const narrow = { taskId: "task-narrow", instructions: "edit a.ts only", scope: ["a.ts"], deliverables: ["out/narrow.md"], artifacts: [], model: "provider/model", permissions: ["read"] };
+	await (native.dispatchAgent as any)("builder", "edit a.ts only", extensionContext, [], narrow.scope, undefined, "native", false, narrow);
+	assert.deepEqual(launches.map(run => run.resume), [false, true, false]);
+	assert.match(launches[2].prompt, /edit a\.ts only/); assert.doesNotMatch(launches[2].systemPrompt, /edit four files/);
+	assert.deepEqual((state as any).resumeContract.scope, ["a.ts"]);
+});
+
+test("T5 parent consumes bounded-output independently across all four profile flag combinations", async t => {
+	const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "native-bounded-profile-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+	const oldProfile = process.env[PROFILE_ENV];
+	t.after(() => { if (oldProfile === undefined) delete process.env[PROFILE_ENV]; else process.env[PROFILE_ENV] = oldProfile; });
+	for (const [deterministicTools, boundedOutput, expected] of [
+		[false, false, false],
+		[true, false, false],
+		[false, true, true],
+		[true, true, true],
+	] as const) {
+		process.env[PROFILE_ENV] = JSON.stringify({ name: "bounded", profile: { version: 2, defaults: { model: "provider/model" }, assist: { "deterministic-tools": deterministicTools, "bounded-output": boundedOutput } } });
+		const state = nativeState(); const launches: any[] = [];
+		const native = createDispatchNative(nativeDeps(state, {
+			getSessionDir: () => join(root, `${deterministicTools}-${boundedOutput}`),
+			spawnPiAgentWithModelFallback: async (opts: any) => { launches.push(opts); writeFileSync(opts.sessionFile, "session"); return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0 }; },
+		}));
+		const result = await native.dispatchAgent("builder", "read", { ...extensionContext, cwd: root } as any);
+		assert.equal(result.exitCode, 0); assert.equal(launches.length, 1);
+		assert.equal(Boolean(launches[0].boundedOutputDir), expected);
+		assert.equal(launches[0].extensions.some((path: string) => path.endsWith("/bounded-output.ts")), expected);
+	}
+});
+
+test("T5 explicit native persona tool caps are not widened by deterministic-tools", async t => {
+	const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "native-filesystem-cap-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+	const oldProfile = process.env[PROFILE_ENV]; process.env[PROFILE_ENV] = JSON.stringify({ name: "deterministic", profile: { version: 2, defaults: { model: "provider/model" }, assist: { "deterministic-tools": true } } });
+	t.after(() => { if (oldProfile === undefined) delete process.env[PROFILE_ENV]; else process.env[PROFILE_ENV] = oldProfile; });
+	for (const [tools, expected] of [["read,grep", false], ["read,filesystem", true]] as const) {
+		const state = nativeState(); state.def = { ...state.def, tools, toolsExplicit: true }; const launches:any[]=[];
+		const native = createDispatchNative(nativeDeps(state,{getSessionDir:()=>join(root,String(expected)),spawnPiAgentWithModelFallback:async(opts:any)=>{launches.push(opts);writeFileSync(opts.sessionFile,"session");return{output:"done",exitCode:0,stderr:"",toolCallsStarted:0};}}));
+		await native.dispatchAgent("builder","inspect",{...extensionContext,cwd:root} as any);
+		assert.equal(launches[0].tools.split(",").includes("filesystem"),expected);
+		assert.equal(launches[0].extensions.some((path:string)=>path.endsWith("/filesystem-tool.ts")),expected);
+	}
+});
+
+test("T6c effective profile reaches real native preparation/spawn, composes with T5/T6b, and refuses coms", async t => {
+	const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "native-isolation-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+	const oldProfile = process.env[PROFILE_ENV];
+	process.env[PROFILE_ENV] = JSON.stringify({ name: "isolated", profile: { version: 2, defaults: { model: "provider/model" }, routing: "configured", fallback: "none", assist: { "deterministic-tools": true, "bounded-output": true, "write-isolation": true } } });
+	t.after(() => { if (oldProfile === undefined) delete process.env[PROFILE_ENV]; else process.env[PROFILE_ENV] = oldProfile; });
+	writeFileSync(join(root, "wide.ts"), "wide"); writeFileSync(join(root, "narrow.ts"), "narrow");
+	const sessionDir = join(root, ".session"); const state = nativeState(); state.def.tools = "read,write,bash";
+	const launches: any[] = []; let comsCalls = 0;
+	const native = createDispatchNative(nativeDeps(state, {
+		getSessionDir: () => sessionDir,
+		getDispatchPolicy: () => ({ default: "coms", grace_s: 0, substitutions: { builder: { prefer: "coms", fallback: "native" } } }),
+		isComsReady: () => true, getIdentity: () => ({}), peersInScope: () => [{ name: "builder", model: "provider/model" }],
+		dispatchViaComs: async () => { comsCalls++; return { output: "remote", exitCode: 0, elapsed: 0 }; },
+		spawnPiAgentWithModelFallback: async (opts: any) => { launches.push(opts); delete process.env[PROFILE_ENV]; writeFileSync(opts.sessionFile, "session"); return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: "provider/model", writeIsolation: { applied: true, failClosed: true, mechanism: "bubblewrap", permissionExpansion: false, rollsBackUserEdits: false, protectsConcurrentUserWrites: false } }; },
+	}));
+	const ctx = { ...extensionContext, cwd: root } as any;
+	const globContract = { taskId: "glob", instructions: "glob", scope: ["**/*.ts"], deliverables: [], artifacts: [], model: "provider/model", permissions: ["read", "write", "bash"] };
+	const globRefusal = await (native.dispatchAgent as any)("builder", "glob", ctx, [], globContract.scope, undefined, "native", false, globContract);
+	assert.equal(globRefusal.exitCode, 1); assert.match(globRefusal.output, /glob scope is unsupported/i); assert.equal(launches.length, 0);
+	const wide = { taskId: "wide", instructions: "wide", scope: ["wide.ts"], deliverables: [], artifacts: [], model: "provider/model", permissions: ["read", "write", "bash"] };
+	const first = await (native.dispatchAgent as any)("builder", "wide", ctx, [], wide.scope, undefined, "auto", false, wide);
+	assert.equal(first.exitCode, 0); assert.equal(comsCalls, 0, "auto must force native when isolation is requested");
+	assert.equal(launches[0].writeIsolation.enabled, true); assert.deepEqual(launches[0].writeIsolation.allowlist, ["wide.ts"]);
+	assert.ok(launches[0].boundedOutputDir); assert.equal(launches[0].activeProfileSnapshot.name, "isolated");
+	assert.equal(launches[0].writeIsolation.enabled, true, "switching the profile off during spawn must not tear down the active run snapshot");
+	process.env[PROFILE_ENV] = JSON.stringify({ name: "isolated", profile: { version: 2, defaults: { model: "provider/model" }, routing: "configured", fallback: "none", assist: { "deterministic-tools": true, "bounded-output": true, "write-isolation": true } } });
+	const narrow = { ...wide, taskId: "narrow", instructions: "narrow", scope: ["narrow.ts"] };
+	await (native.dispatchAgent as any)("builder", "narrow", ctx, [], narrow.scope, undefined, "native", false, narrow);
+	assert.equal(launches[1].resume, false); assert.deepEqual(launches[1].writeIsolation.allowlist, ["narrow.ts"]);
+	process.env[PROFILE_ENV] = JSON.stringify({ name: "isolated", profile: { version: 2, defaults: { model: "provider/model" }, routing: "configured", fallback: "none", assist: { "write-isolation": true } } });
+	const refused = await (native.dispatchAgent as any)("builder", "remote", ctx, [], ["narrow.ts"], undefined, "coms", false, narrow);
+	assert.equal(refused.exitCode, 1); assert.match(refused.output, /native-only|coms dispatch refused/i); assert.equal(comsCalls, 0);
+});
 
 test("native dispatch factory preserves coms routing and native completion", async () => {
 	const comsState = nativeState();

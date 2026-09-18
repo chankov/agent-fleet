@@ -1,4 +1,6 @@
 import type { NativeDispatchResult, NativeExecutionDiagnostics, NativeSpawnOutcome, PreparedNativeRun } from "./dispatch-native-types.ts";
+import { boundOutput } from "./deterministic-fs.ts";
+import { safePathWithin } from "./helpers.ts";
 
 export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeSpawnOutcome): Promise<NativeDispatchResult> {
 	const { deps, state, ctx, histEntry, monitorStart, startTime, key, agentKey } = run;
@@ -18,10 +20,14 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 		termination: res.termination ?? null, modelFallback: res.modelFallback ?? null,
 	};
 	const diagnosticText = diagnostics.reason ? formatDiagnostics(diagnostics) : "";
-	const finish = (result: NativeDispatchResult): NativeDispatchResult => ({
-		...result, runtimeTests: res.runtimeTests, toolEvents: res.toolEvents, dispatchId: run.dispatchId, transcriptPath: run.transcriptPath, diagnostics, sessionReset,
-		output: result.output + diagnosticText,
-	});
+	const finish = (result: NativeDispatchResult): NativeDispatchResult => {
+		const combined = result.output + diagnosticText;
+		const parent = res.boundedOutput ? boundOutput({ content: combined, retentionDir: safePathWithin(run.evidenceDir, "bounded-output", "parent"), label: "parent-summary" }) : null;
+		return {
+			...result, runtimeTests: res.runtimeTests, toolEvents: res.toolEvents, writeIsolation: res.writeIsolation, dispatchId: run.dispatchId, transcriptPath: run.transcriptPath, diagnostics, sessionReset,
+			output: parent?.reply ?? combined,
+		};
+	};
 	if (diagnosticText) deps.appendTimelineText(state, "text", diagnosticText);
 	deps.flushTimelineStore(state);
 
@@ -112,6 +118,7 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 	state.status = code === 0 ? "done" : "error";
 	if (code === 0) {
 		state.sessionFile = run.agentSessionFile;
+		state.resumeContract = run.resumeContract;
 		state.runsSinceFresh++;
 	}
 	state.lastWork = (full || res.assistantError || res.stderr).split("\n").filter(line => line.trim()).pop() || "";

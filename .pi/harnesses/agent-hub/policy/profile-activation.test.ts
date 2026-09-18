@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createProfileActivation } from './profile-activation.ts';
 import { readActiveProfile } from './profile-runtime.ts';
-const p: any = { version: 2, defaults: { model: 'omlx/laguna', thinking: 'off' }, 'allowed-models': ['omlx/laguna'] };
+const p: any = { version: 2, defaults: { model: 'omlx/laguna', thinking: 'off' }, 'allowed-models': ['omlx/laguna'], assist: { 'deterministic-tools': true, 'bounded-output': true, 'write-isolation': true } };
 function fixture() {
     let dispatcher = { model: 'cloud/root', thinking: 'high' }, applied: any, busy = false, available = ['cloud/root', 'cloud/sol', 'omlx/laguna'];
     const env: NodeJS.ProcessEnv = {};
@@ -16,6 +16,7 @@ test('activation preflights every model before changing state and restores dispa
     assert.equal(f.dispatcher.model, 'omlx/laguna');
     assert.equal(f.dispatcher.thinking, 'off');
     assert.equal(readActiveProfile(f.env)?.name, 'local');
+    assert.deepEqual(readActiveProfile(f.env)?.profile.assist, p.assist);
     f.setAvailable(['cloud/root']);
     await assert.rejects(f.activation.activate('other', { ...p, defaults: { model: 'omlx/missing' } }), /allowed-models|unavailable/);
     assert.equal(f.dispatcher.model, 'omlx/laguna');
@@ -23,6 +24,13 @@ test('activation preflights every model before changing state and restores dispa
     f.setAvailable(['cloud/root', 'cloud/sol']);
     await f.activation.activate('sol', { builder: 'cloud/sol' });
     assert.deepEqual(f.dispatcher, { model: 'cloud/root', thinking: 'high' });
+    assert.equal(readActiveProfile(f.env), undefined);
+});
+test('reset clears the transported complete profile including requested assist flags', async () => {
+    const f = fixture();
+    await f.activation.activate('local', p);
+    assert.deepEqual(readActiveProfile(f.env)?.profile.assist, p.assist);
+    f.activation.reset();
     assert.equal(readActiveProfile(f.env), undefined);
 });
 test('busy fleet and unavailable local model refuse before applying anything', async () => {

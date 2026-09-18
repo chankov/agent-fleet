@@ -8,9 +8,10 @@ process.env.AGENT_HUB_ASK_TIMEOUT_MS = "300";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as net from "node:net";
 
 registerHooks({
@@ -97,6 +98,7 @@ async function boot(ext, cwd, ctxOpts) {
 }
 
 const readEnv = { type: "tool_call", toolName: "read", input: { path: ".env" } };
+const filesystemEnv = { type: "tool_call", toolName: "filesystem", input: { operation: "snapshot", origin: "file", path: ".env" } };
 const deleteReadme = { type: "tool_call", toolName: "bash", input: { command: "rm -- README.md" } };
 
 test.beforeEach(() => {
@@ -105,11 +107,35 @@ test.beforeEach(() => {
 	delete process.env.AGENT_HUB_AGENT_ID;
 });
 
+test("continue: loads with shared-lib companions and no agent-hub", async () => {
+	const fixture = mkdtempSync(join(process.cwd(), ".damage-control-load-"));
+	try {
+		const harnesses = join(fixture, ".pi", "harnesses");
+		const here = dirname(fileURLToPath(import.meta.url));
+		cpSync(here, join(harnesses, "damage-control-continue"), { recursive: true });
+		cpSync(join(here, "..", "lib"), join(harnesses, "lib"), { recursive: true });
+		assert.equal(existsSync(join(harnesses, "agent-hub")), false);
+		const loaded = await import(pathToFileURL(join(harnesses, "damage-control-continue", "index.ts")).href);
+		assert.equal(typeof loaded.default, "function");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
 test("continue: blocks a zero-access read by default (headless, no hub)", async () => {
 	const h = await boot(continueExt, fixtureCwd());
 	const res = await h.toolCall(readEnv);
 	assert.equal(res.block, true);
 	assert.match(res.reason, /zero-access/);
+});
+
+test("continue: filesystem reuses zero-access and exemption policy", async () => {
+	const h = await boot(continueExt, fixtureCwd());
+	assert.equal((await h.toolCall(filesystemEnv)).block, true);
+	await h.commands["af-allow"].handler(".env turn", h.ctx);
+	assert.equal((await h.toolCall(filesystemEnv)).block, false);
+	await h.agentEnd();
+	assert.equal((await h.toolCall(filesystemEnv)).block, true);
 });
 
 test("continue: /af-allow <pattern> turn exempts until agent_end", async () => {

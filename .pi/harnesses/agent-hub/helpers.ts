@@ -197,6 +197,8 @@ export function intersectToolLists(base: string, cap: string): string {
  * fallback) and a wrong "yes" duplicates side effects.
  */
 export function isReadOnlyToolList(tools: string): boolean {
+	// `filesystem.snapshot` performs an idempotent managed-artifact write. It grants
+	// no repository write authority, but is still excluded from replay-safe fallback.
 	const allowed = new Set(READ_ONLY_TOOLS.split(",").map(s => s.trim()));
 	const named = String(tools ?? "").split(",").map(s => s.trim()).filter(Boolean);
 	return named.length > 0 && named.every(t => allowed.has(t));
@@ -216,7 +218,9 @@ export function resolveDelegateTools(input: {
 	concurrent?: boolean;
 }): DelegateToolResolution {
 	const writeDowngraded = input.allowWrite === true && input.concurrent === true;
-	const baseTools = input.allowWrite === true && input.concurrent !== true ? input.parentTools : READ_ONLY_TOOLS;
+	const parentNames = input.parentTools.split(",").map(tool => tool.trim());
+	const inspectionTools = parentNames.includes("filesystem") ? `${READ_ONLY_TOOLS},filesystem` : READ_ONLY_TOOLS;
+	const baseTools = input.allowWrite === true && input.concurrent !== true ? input.parentTools : inspectionTools;
 	const effectiveTools = input.roleTools ? intersectToolLists(baseTools, input.roleTools) : baseTools;
 	return {
 		baseTools,

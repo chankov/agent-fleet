@@ -27,6 +27,7 @@ export interface ResearchAgentDef {
 	name: string;
 	description: string;
 	tools: string;
+	toolsExplicit?: boolean;
 	model?: string;
 	fallbackModel?: string;
 	thinking?: string;

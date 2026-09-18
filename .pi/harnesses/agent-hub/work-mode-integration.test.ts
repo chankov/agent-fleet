@@ -31,6 +31,7 @@ const teamAdjustToolSource = readFileSync(new URL("./tools/team-adjust.ts", impo
 const verificationContractToolSource = readFileSync(new URL("./tools/verification-contract.ts", import.meta.url), "utf8");
 const comsToolsSource = readFileSync(new URL("./tools/coms-tools.ts", import.meta.url), "utf8");
 const fleetToolsSource = readFileSync(new URL("./tools/fleet-tools.ts", import.meta.url), "utf8");
+const filesystemToolSource = readFileSync(new URL("./filesystem-tool.ts", import.meta.url), "utf8");
 const toolContextSource = readFileSync(new URL("./tools/context.ts", import.meta.url), "utf8");
 const executionOrchestrationSource = readFileSync(new URL("./tools/execution-orchestration.ts", import.meta.url), "utf8");
 const dispatchExecutionSource = readFileSync(new URL("./tools/dispatch-execution.ts", import.meta.url), "utf8");
@@ -140,17 +141,19 @@ test("wiring contract: extracted Hub tools use typed modules and one flat regist
 		[verificationContractToolSource, "registerVerificationContract", 3],
 		[comsToolsSource, "registerComsTools", 4],
 		[fleetToolsSource, "registerFleetTools", 5],
+		[filesystemToolSource, "registerFilesystemTool", 1],
 	] as const;
-	assert.equal(toolModules.length, 7);
+	assert.equal(toolModules.length, 8);
 	for (const [source, registrar, count] of toolModules) {
-		assert.match(source, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, toolCtx: ToolContext\\)`));
+		const secondParameter = registrar === "registerFilesystemTool" ? "ports: FilesystemToolPorts" : "toolCtx: ToolContext";
+		assert.match(source, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, ${secondParameter}\\)`));
 		assert.equal((source.match(/registerTool\(\{/g) ?? []).length, count, registrar);
 	}
-	const extractedNames = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust", "set_assertions", "update_assertion", "get_assertions", "coms_list", "coms_send", "coms_get", "coms_await", "herdr_spawn_peer", "herdr_spawn_pane", "herdr_read_pane", "herdr_close_pane", "herdr_notify"];
-	assert.equal(extractedNames.length, 16);
+	const extractedNames = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust", "set_assertions", "update_assertion", "get_assertions", "coms_list", "coms_send", "coms_get", "coms_await", "herdr_spawn_peer", "herdr_spawn_pane", "herdr_read_pane", "herdr_close_pane", "herdr_notify", "filesystem"];
+	assert.equal(extractedNames.length, 17);
 	for (const name of extractedNames) assert.doesNotMatch(indexSource, new RegExp(`name: "${name}"`));
 	assert.equal((indexSource.match(/registerTool\(\{/g) ?? []).length, 0);
-	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerTeamAdjust\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);/);
+	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerTeamAdjust\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);\s*registerFilesystemTool\(pi, \{/);
 	assert.equal(existsSync(new URL("./tools/ask-user.ts", import.meta.url)), false);
 	assert.match(toolContextSource, /export interface ToolContext/);
 	for (const callback of ["executeDispatchAgent", "executeSpawnResearch", "executeSetTaskTier", "executeTeamAdjust", "executeSetAssertions", "executeUpdateAssertion", "executeGetAssertions", "executeComsList", "executeComsSend", "executeComsGet", "executeComsAwait", "executeHerdrSpawnPeer", "executeHerdrSpawnPane", "executeHerdrReadPane", "executeHerdrClosePane", "executeHerdrNotify"]) {
@@ -221,7 +224,19 @@ test("same-turn pressure aborts after a large tool result and compacts only afte
 	assert.match(pressureLifecycleSource, /context\(ctx\)[\s\S]*?automaticPending[\s\S]*?ctx\.abort\(\)/);
 	assert.match(indexSource, /pi\.on\("agent_settled"[\s\S]*?pressureLifecycle\.agentSettled/);
 	assert.match(pressureLifecycleSource, /const runCompaction[\s\S]*?ctx\.compact\(/);
-	assert.match(indexSource, /pi\.on\("session_compact", async/);
+	assert.match(indexSource, /pi\.on\("session_compact", async[\s\S]*?toolCatalogRuntime\.compact\(\{[\s\S]*?retainCounter: \(\) => unknownToolCounter\.noteCompaction\(\)[\s\S]*?settle: \(\) => pressureLifecycle\.sessionCompact\(\)/);
+});
+
+test("T4 real lifecycle paths record mode deltas, unknown calls, compaction restore, and explicit new-task reset", () => {
+	assert.match(workModePolicySource, /ports\.setActiveTools\(requested\)[\s\S]*?ports\.recordToolCatalog/);
+	assert.match(indexSource, /recordToolCatalog: recordToolCatalogChange/);
+	assert.match(indexSource, /pi\.on\("before_agent_start"[\s\S]*?toolCatalogRuntime\.beginTurn\(\)/);
+	assert.match(indexSource, /pi\.on\("message_end"[\s\S]*?observeUnknownToolCalls\(\{ message: event\.message, catalog: toolCatalogRuntime\.catalogForMessage\(\)/);
+	assert.match(indexSource, /getToolCatalogVersion: \(\) => toolCatalogRuntime\.catalogForMessage\(\)\.catalogVersion/);
+	assert.match(indexSource, /pi\.on\("agent_end"[\s\S]*?toolCatalogRuntime\.endTurn\(\)/);
+	assert.match(indexSource, /UNKNOWN_TOOL_COUNTER_ENTRY_TYPE[\s\S]*?unknownToolCounter\.snapshot\(\)/);
+	assert.match(indexSource, /resetNoProgress: \(\) => noProgress\.reset\(\), resetUnknownToolCounter: resetUnknownToolCounterForCurrentTask/);
+	assert.doesNotMatch(indexSource, /sendUserMessage\([^)]*unknown.tool|execute\([^)]*unknown.tool/i);
 });
 
 test("pressure diagnostics stay metadata-only and feed status plus /af-context", () => {

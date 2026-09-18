@@ -1,4 +1,5 @@
-import { profileForcesNativePeers, profilePeerGate } from './policy/profile-runtime.ts';
+import { profileForcesNativePeers, profilePeerGate, readActiveProfile, type ActiveModelProfile } from './policy/profile-runtime.ts';
+import { resolveAssist, type ResolvedAssistFlags } from "./assist-profile.ts";
 import { randomUUID } from "node:crypto";
 import { beginExecutionEvidence, finishExecutionEvidence } from "./execution-evidence.ts";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -9,6 +10,7 @@ import { normalizeAgentInput, safeAgentKey, safePathWithin } from "./helpers.ts"
 import { prepareNativeRun } from "./dispatch-native-prepare.ts";
 import { runPreparedNative } from "./dispatch-native-spawn.ts";
 import { completeNativeRun } from "./dispatch-native-complete.ts";
+import type { TaskResumeInput } from "./task-resume-contract.ts";
 import type {
 	DispatchInputArtifactPreview,
 	NativeBackend,
@@ -26,7 +28,10 @@ interface NativeDispatchArgs {
 	scopeGlobs: string[];
 	watchdogParam?: boolean;
 	requestedBackend: NativeBackend;
-	preserveManifest: boolean;
+	resumeRequested: boolean;
+	resumeContract?: Omit<TaskResumeInput, "previous">;
+	assistSnapshot: ResolvedAssistFlags;
+	activeProfileSnapshot?: ActiveModelProfile;
 }
 
 function missingOrRunning(deps: NativeDispatchDeps, agentName: string): NativeDispatchResult | NativeDispatchState {
@@ -40,7 +45,7 @@ function missingOrRunning(deps: NativeDispatchDeps, agentName: string): NativeDi
 	}
 	if (state.status === "running") {
 		return {
-			output: `Agent "${deps.displayName(state.def.name)}" is already running. Wait for it to finish.`,
+			output: `Busy refusal: agent "${deps.displayName(state.def.name)}" is already running. Nothing was started, queued, retried, or charged; re-invoke explicitly after it is idle.`,
 			exitCode: 1,
 			elapsed: 0,
 		};
@@ -116,14 +121,19 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, watchdogParam,
 		key: normalizeAgentInput(args.agentName),
 		personaKey: state.def.name.toLowerCase(),
-		agentKey, runNumber, histEntry, monitorKey, monitorStart, startTime, finishRun,
+		agentKey, runNumber, histEntry, monitorKey, monitorStart, startTime,
+		assistSnapshot: args.assistSnapshot,
+		activeProfileSnapshot: args.activeProfileSnapshot,
+		finishRun,
 	};
 }
 
 async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend): Promise<NativeDispatchResult | null> {
 	const { deps, state, task, ctx, inputArtifacts, scopeGlobs, personaKey, monitorKey, startTime, histEntry } = run;
 	const livePeerNames = () => deps.isComsReady() && deps.getIdentity() ? deps.peersInScope().map(entry => entry.name) : [];
-	const forceNative = profileForcesNativePeers();
+	const isolationRequired = run.assistSnapshot['write-isolation'];
+	const forceNative = isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
+	if (isolationRequired && requestedBackend === "coms") return run.finishRun("Write isolation is native-only; coms dispatch refused because remote isolation cannot be claimed.", 1);
 	if (forceNative && requestedBackend === 'coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.', 1);
 	const dispatchPolicy = forceNative ? { default: 'native', grace_s: 0, substitutions: {} } : deps.getDispatchPolicy();
 	let route: any = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames(), requestedBackend });
@@ -146,7 +156,7 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 	}
 	if (route.backend === "coms") {
 		const peer = deps.peersInScope().find(entry => entry.name.toLowerCase() === String(route.peerName).toLowerCase());
-		const profileRefusal = profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer });
+		const profileRefusal = run.activeProfileSnapshot ? profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, run.activeProfileSnapshot) : null;
 		if (profileRefusal) {
 			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
 			if (!allowNativeFallback) return run.finishRun(profileRefusal.content[0].text, 1);
@@ -178,14 +188,16 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 	return null;
 }
 
-async function dispatchNative(deps: NativeDispatchDeps, args: NativeDispatchArgs): Promise<NativeDispatchResult> {
+async function dispatchNative(deps: NativeDispatchDeps, args: Omit<NativeDispatchArgs, "assistSnapshot" | "activeProfileSnapshot">): Promise<NativeDispatchResult> {
+	const activeProfileSnapshot = readActiveProfile();
+	const effectiveArgs: NativeDispatchArgs = { ...args, activeProfileSnapshot, assistSnapshot: resolveAssist(activeProfileSnapshot?.profile.assist) };
 	const found = missingOrRunning(deps, args.agentName);
 	if (!("def" in found)) return found;
-	const run = beginNativeRun(deps, found, args);
+	const run = beginNativeRun(deps, found, effectiveArgs);
 	const execute = async () => {
 		const routed = await routeDispatch(run, args.requestedBackend);
 		if (routed) return routed;
-		const prepared = await prepareNativeRun(run, args.preserveManifest);
+		const prepared = await prepareNativeRun(run, args.resumeRequested, args.resumeContract);
 		if ("output" in prepared) return prepared;
 		const outcome = await runPreparedNative(prepared);
 		return { ...await completeNativeRun(prepared, outcome), sessionPath: prepared.agentSessionFile };
@@ -207,7 +219,8 @@ export function createDispatchNative(deps: NativeDispatchDeps) {
 			scopeGlobs: string[] = [],
 			watchdogParam?: boolean,
 			requestedBackend: NativeBackend = "auto",
-			preserveManifest = false,
-		) => dispatchNative(deps, { agentName, task, ctx, inputArtifacts, scopeGlobs, watchdogParam, requestedBackend, preserveManifest }),
+			resumeRequested = false,
+			resumeContract?: Omit<TaskResumeInput, "previous">,
+		) => dispatchNative(deps, { agentName, task, ctx, inputArtifacts, scopeGlobs, watchdogParam, requestedBackend, resumeRequested, resumeContract }),
 	};
 }

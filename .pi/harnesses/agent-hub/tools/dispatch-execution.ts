@@ -20,6 +20,7 @@ import type { AssertionsArtifactsContext, InputArtifactPreview } from "../contex
 import type { DispatchAgentParams, SpawnResearchParams, ToolExecutionResult, ToolExecutor, ToolUpdate } from "./context.ts";
 import type { AgentState } from "../types.ts";
 import { diagnoseToolProtocol, type ToolProtocolDiagnostic } from "../tool-protocol.ts";
+import type { TaskResumeInput } from "../task-resume-contract.ts";
 
 type Gate = { reason: string; message: string } | null;
 type DispatchResult = import("../dispatch-native-types.ts").NativeDispatchResult;
@@ -55,17 +56,18 @@ export interface DispatchExecutorDeps {
 	artifacts: AssertionsArtifactsContext;
 	research: ResearchRuntime<any>;
 	provisionalCapabilityRefusal(pack: "fleet"): ToolExecutionResult | null;
-	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean): Promise<DispatchResult>;
+	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean, resumeContract?: Omit<TaskResumeInput, "previous">): Promise<DispatchResult>;
 	runReturnExtraction(path: string, ids: string[], ctx: ExtensionContext): Promise<any>;
 	extractNeedsResearch(output: string): string[];
 	extractAskUserQuestions(output: string): string[];
 	contextPressure(percent: number): boolean;
 	displayName(name: string): string;
+	getToolCatalogVersion?(): string;
 	resolvedAgentModel?(def: AgentState["def"], ctx: ExtensionContext): string | undefined;
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
+interface PreparedDispatch { taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; autoResearchTaskCapped: boolean; }
 interface Tracking { writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
 interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; concurrentWritableOverlap: boolean; }
@@ -138,10 +140,10 @@ function appendRuntimeAcceptanceContract(task: string, requirements: AcceptanceR
 
 export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): PreparedDispatch | ToolExecutionResult {
 	const s = d.state; const { task, artifacts, scope, review_reason } = params; const agent = normalizeAgentInput(params.agent);
-	d.budget.ensureTaskTier();
 	const rosterRefusal = validateDispatchAgent(d, agent, task);
 	if (rosterRefusal) return rosterRefusal;
- if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
+	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
+	d.budget.ensureTaskTier();
 	const preflight = preflightGate(d, agent) ?? checkReviewRoundCap(s.getTaskTier(), agent, s.getTaskReviewRounds()) ?? checkDocsLane(agent, scope || [], review_reason);
 	if (preflight) return refusal(d, agent, task, preflight.reason, preflight.message, preflight.reason);
 	const taskRefusal = checkTaskBudget("dispatch", d.budget.taskCounters(), d.budget.currentTaskBudget(), d.budget.taskActiveElapsedMs(), s.getTaskTier());
@@ -163,7 +165,14 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	const requirements = dispatchRequirements(d, agent, task);
 	const acceptedTask = appendRuntimeAcceptanceContract(task, requirements);
 	const declaredTask = contract.files.length ? `${acceptedTask}\n\n## Expected deliverables (explicit contract)\nProduce these exact files and report their paths. The hub will read them back; a prose claim is not delivery.\n${contract.files.map(file => `- ${file.path}`).join("\n")}` : acceptedTask;
-	return { taskToken: d.noProgress.taskToken(), taskId: d.noProgress.taskId(), beforeRevision: worktreeRevision(ctx.cwd || process.cwd(), []), requirements, contract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
+	const agentState = s.getAgentStates().get(agent.toLowerCase());
+	const resumeContract = {
+		taskId: d.noProgress.taskId(), instructions: declaredTask, scope: scopeGlobs,
+		deliverables: contract.files.map(file => file.path), artifacts: inputArtifacts.map(artifact => artifact.path),
+		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
+		permissions: agentState?.def.tools ?? "",
+	};
+	return { taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: worktreeRevision(ctx.cwd || process.cwd(), []), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
@@ -180,7 +189,7 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
 
 async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<RunData> {
 	const findingClause = reviewBudgetClause(d.state.getTaskTier(), p.agent); const dispatchedTask = findingClause ? `${p.task}\n\n${findingClause}` : p.task;
-	let result = await d.dispatchAgent(p.agent, dispatchedTask, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto");
+	let result = await d.dispatchAgent(p.agent, dispatchedTask, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", false, p.resumeContract);
 	let billed = result.billed ?? 0; let out = result.out ?? 0; const researchRounds: RunData["researchRounds"] = []; let autoResearchTaskCapped = false;
 	while (result.exitCode === 0 && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS && p.taskToken === d.noProgress.taskToken() && p.sessionDir === d.state.getSessionDir()) {
 		const left = remainingTaskResearch(d.budget.currentTaskBudget(), d.budget.taskCounters()); if (left === 0) { autoResearchTaskCapped = true; break; }
@@ -196,7 +205,7 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 		researchRounds.push({ questions, files: answered.map(a => a.file) });
 		const resume = "Research findings for your NEEDS_RESEARCH questions are ready. Read each file with your read tool, then continue from where you paused:\n" + answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
 		if (p.taskToken !== d.noProgress.taskToken() || p.sessionDir !== d.state.getSessionDir()) break;
-		result = await d.dispatchAgent(p.agent, resume, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", true); billed += result.billed ?? 0; out += result.out ?? 0;
+		result = await d.dispatchAgent(p.agent, resume, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", true, p.resumeContract); billed += result.billed ?? 0; out += result.out ?? 0;
 	}
 	return { result, billed, out, researchRounds, autoResearchTaskCapped };
 }
@@ -400,9 +409,10 @@ export function structuredResearchPrompt(params: SpawnResearchParams): string {
 export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<DispatchAgentParams> {
 	return withNoProgress(d, "dispatch", async (_id, params, signal, onUpdate, ctx) => {
 		const capability = d.provisionalCapabilityRefusal("fleet"); if (capability) return capability;
-		d.budget.ensureTaskTier();
 		const agent = normalizeAgentInput(params.agent);
 		const invalid = validateDispatchAgent(d, agent, params.task); if (invalid) return invalid;
+		if (d.state.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
+		d.budget.ensureTaskTier();
 		const preflight = preflightGate(d, agent) ?? checkReviewRoundCap(d.state.getTaskTier(), agent, d.state.getTaskReviewRounds()) ?? checkDocsLane(agent, params.scope || [], params.review_reason);
 		if (preflight) return refusal(d, agent, params.task, preflight.reason, preflight.message);
 		try { preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: d.state.getSessionDir() }); }

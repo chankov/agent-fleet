@@ -34,6 +34,7 @@ export interface HubPromptContext {
 	getArtifactRoot?(): string | null;
 	getCapabilityResolution(): CapabilityResolution;
 	getActiveTools(): readonly string[];
+	getToolCatalogNotice?(): string;
 	getAgents(): readonly HubPromptAgent[];
 	getResearchPersonas(): readonly HubPromptResearchPersona[];
 	getPromptState(): HubPromptState;

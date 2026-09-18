@@ -12,7 +12,7 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext): v
 			agent: Type.String({ description: "Agent name (case-insensitive)" }),
 			task: Type.String({ description: "Task description for the agent to execute" }),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path; the specialist reads it." }))),
-			scope: Type.Optional(Type.Array(Type.String({ description: "Advisory writable-file globs; violations are reported, never reverted." }))),
+			scope: Type.Optional(Type.Array(Type.String({ description: "Advisory globs; isolation accepts exact existing relative files or recursive directories only." }))),
 			deliverables: Type.Optional(Type.Array(Type.String({ description: "Expected output file path, read back after execution. Presence is not semantic acceptance." }))),
 			scope_mode: Type.Optional(Type.Union([Type.Literal("existing"), Type.Literal("create")], { description: "Default existing: refuse missing scope roots; create explicitly permits new roots." })),
 			watchdog: Type.Optional(Type.Boolean({ description: "Override this dispatch's drift watchdog." })),

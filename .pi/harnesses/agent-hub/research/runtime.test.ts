@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createResearchRuntime, parseResearchHandle, RESEARCH_TOOLS, type ResearchState } from "./runtime.ts";
+import { PROFILE_ENV } from "../policy/profile-runtime.ts";
 
 const def = { name: "researcher", description: "Research", tools: "bash", systemPrompt: "prompt", file: "/agents/researcher.md", model: "provider/persona" };
 
@@ -104,6 +105,17 @@ test("spawn streams timeline and evicts the live helper without deleting session
 	assert.equal(existsSync(f.runtime.sessionPath(state.id)), true);
 	const next = f.runtime.createState(def, true, "provider/model");
 	assert.equal(next.id, 2);
+});
+
+test("T5 explicit research persona caps are not widened by deterministic-tools", async t => {
+	const prior=process.env[PROFILE_ENV];process.env[PROFILE_ENV]=JSON.stringify({name:"deterministic",profile:{version:2,defaults:{model:"provider/model"},assist:{"deterministic-tools":true}}});
+	t.after(()=>{if(prior===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=prior;});
+	for(const [tools,expected] of [["read,grep",false],["read,filesystem",true]] as const){
+		let options:any;const f=fixture({spawnPiAgentWithModelFallback:async(input:any)=>{options=input;writeFileSync(input.sessionFile,"session");return{output:"done",stderr:"",exitCode:0};}});
+		const state=f.runtime.createState({...def,tools,toolsExplicit:true},true,"provider/model");await f.runtime.spawn(state,"inspect",ctx);
+		assert.equal(options.tools.split(",").includes("filesystem"),expected);
+		assert.equal(options.extensions.some((path:string)=>path.endsWith("/filesystem-tool.ts")),expected);
+	}
 });
 
 test("spawn appends artifact previews and thrown failures still evict exactly once", async () => {

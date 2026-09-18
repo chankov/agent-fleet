@@ -54,7 +54,7 @@ export function recoveryDecision(category: RecoveryCategory, conditions: Recover
 		case "tool_protocol_error":
 			return { ...base, allowed: explicit && changed && conditions.effectsEstablished === true, nextStep: "correct_and_reinvoke", reason: "requires the T3 trusted event/readback effects artifact plus corrected conditions; /af-retry cannot authorize this failure and already-observed effects must not be replayed blindly" };
 		case "unknown_tool":
-			return { ...base, allowed: explicit && changed && conditions.toolStateChanged === true, nextStep: "correct_and_reinvoke", reason: "the effective tool catalog must be evidenced as changed; this guard has no trusted catalog-change producer yet, so /af-retry cannot authorize this failure" };
+			return { ...base, allowed: explicit && changed && conditions.toolStateChanged === true, nextStep: "correct_and_reinvoke", reason: "the effective tool catalog must have trusted runtime change evidence; /af-retry and prose cannot authorize this failure" };
 		case "indeterminate":
 			return { ...base, allowed: false, nextStep: "refuse", reason: "an unknown or unproven cause cannot authorize retry" };
 	}
