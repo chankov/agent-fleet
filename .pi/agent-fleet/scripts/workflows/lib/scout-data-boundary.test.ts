@@ -13,6 +13,8 @@ test("T13 scout filesystem DATA reads are limited to snapshot paths and deny tra
 		assert.match(validateScoutDataPath(snapshot, snapshot, join(original, ".env"))!, /limited/);
 		assert.match(validateScoutDataPath(snapshot, snapshot, "../original/.env")!, /traversal/);
 		assert.match(validateScoutDataPath(snapshot, snapshot, "escape")!, /symlink/);
+		const alias = join(holder, "alias"); symlinkSync(snapshot, alias);
+		assert.equal(validateScoutDataPath(alias, alias, "ok.txt"), null, "tmpdir aliases must not look like snapshot escapes");
 	} finally { rmSync(holder, { recursive: true, force: true }); }
 });
 

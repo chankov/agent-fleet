@@ -145,14 +145,15 @@ export function confineNativeChild(input: WriteIsolationRequest): WriteIsolation
 	const selected = input.backend && input.backend !== "auto" ? input.backend : expected;
 	if (!expected || selected === "missing") return { ...base, applied: false, failClosed: true, reason: `native write-isolation backend unavailable for ${platform}`, cwd };
 	if (selected !== expected) return { ...base, applied: false, failClosed: true, reason: `${selected} is not the native write-isolation backend for ${platform}`, cwd };
-	const backendPath = input.backendPath ?? findExecutable(selected === "bubblewrap" ? "bwrap" : "sandbox-exec");
-	if (!backendPath) return { ...base, applied: false, failClosed: true, reason: `${selected} backend unavailable; refusing unsandboxed execution`, cwd };
 
 	let approved: { files: string[]; directories: string[] };
 	try { approved = resolveApprovedPaths(input); }
 	catch (error) { return { ...base, applied: false, failClosed: true, reason: error instanceof Error ? error.message : String(error), cwd }; }
 	if (approved.files.length === 0 && approved.directories.length === 0)
 		return { ...base, applied: false, failClosed: true, reason: "no approved writable paths; refusing sandbox launch with an empty grant set", cwd };
+
+	const backendPath = input.backendPath ?? findExecutable(selected === "bubblewrap" ? "bwrap" : "sandbox-exec");
+	if (!backendPath) return { ...base, applied: false, failClosed: true, reason: `${selected} backend unavailable; refusing unsandboxed execution`, cwd };
 	if (selected === "bubblewrap") {
 		const deviceArgs = ["/dev/null", "/dev/tty"].filter(path => { try { accessSync(path); return true; } catch { return false; } }).flatMap(path => ["--dev-bind", path, path]);
 		const binds = [

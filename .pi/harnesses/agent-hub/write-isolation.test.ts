@@ -7,6 +7,8 @@ import test from "node:test";
 import { confineNativeChild, policyFor } from "./write-isolation.ts";
 import { assertSafeSandboxStdio, killPiTree, spawnPiAgent } from "./spawn.ts";
 
+const hasLinuxSandbox = process.platform === "linux" && (existsSync("/usr/bin/bwrap") || existsSync("/bin/bwrap"));
+
 function fixture() {
 	const root = mkdtempSync(join(tmpdir(), "fleet-t6c-"));
 	mkdirSync(join(root, "allowed-dir"));
@@ -183,7 +185,7 @@ test("T6c Darwin cancellation stops sandbox descendants writing the allowlisted 
 	assert.equal(readFileSync(join(root, "allowed-dir", "pulse"), "utf8"), stoppedAt);
 });
 
-test("T6c Linux kernel boundary blocks shell, python/indirect descendants and symlink escape while allowing exact files/new directory files/support roots", { skip: process.platform !== "linux" }, () => {
+test("T6c Linux kernel boundary blocks shell, python/indirect descendants and symlink escape while allowing exact files/new directory files/support roots", { skip: !hasLinuxSandbox }, () => {
 	const root = fixture();
 	const outside = mkdtempSync(join(tmpdir(), "fleet-t6c-outside-"));
 	writeFileSync(join(outside, "secret"), "outside-before");
@@ -214,7 +216,7 @@ test("T6c Linux kernel boundary blocks shell, python/indirect descendants and sy
 	assert.equal(readFileSync(join(root, "artifacts", "report"), "utf8"), "artifact");
 });
 
-test("T6c actual spawnPiAgent transport wraps the fake Pi process and reports applied isolation", { skip: process.platform !== "linux" }, async () => {
+test("T6c actual spawnPiAgent transport wraps the fake Pi process and reports applied isolation", { skip: !hasLinuxSandbox }, async () => {
 	const root = fixture();
 	const fakePi = `#!/usr/bin/env node\nconst fs=require('node:fs'); const cp=require('node:child_process');\nfs.writeFileSync('allowed-dir/from-pi','ok');\ntry { fs.writeFileSync('blocked-dir/from-pi','bad'); } catch {}\ncp.spawnSync('/bin/sh',['-c','printf bad > blocked-dir/from-shell'],{stdio:'ignore'});\nprocess.stdout.write(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'isolated'}})+'\\n');`;
 	writeFileSync(join(root, "pi"), fakePi, { mode: 0o755 });
@@ -230,7 +232,7 @@ test("T6c actual spawnPiAgent transport wraps the fake Pi process and reports ap
 	assert.equal(existsSync(join(root, "blocked-dir", "from-shell")), false);
 });
 
-test("T6c concurrent user edits outside the allowlist are preserved", { skip: process.platform !== "linux" }, async () => {
+test("T6c concurrent user edits outside the allowlist are preserved", { skip: !hasLinuxSandbox }, async () => {
 	const root = fixture();
 	const launch = shellLaunch(root, "sleep 0.15; (printf sandbox > blocked.txt) 2>/dev/null || true; sleep 0.15");
 	assert.equal(launch.applied, true, launch.reason);
@@ -242,7 +244,7 @@ test("T6c concurrent user edits outside the allowlist are preserved", { skip: pr
 	assert.equal(readFileSync(join(root, "blocked.txt"), "utf8"), "user-concurrent");
 });
 
-test("T6c cancellation kills the sandbox process group and its writing descendant", { skip: process.platform !== "linux" }, async () => {
+test("T6c cancellation kills the sandbox process group and its writing descendant", { skip: !hasLinuxSandbox }, async () => {
 	const root = fixture();
 	const launch = shellLaunch(root, "sh -c 'while :; do date +%s%N > allowed-dir/pulse; sleep 0.03; done' & wait");
 	assert.equal(launch.applied, true, launch.reason);

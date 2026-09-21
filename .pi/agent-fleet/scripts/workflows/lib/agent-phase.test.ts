@@ -79,7 +79,7 @@ test("T13 Hub scout phase uses real native OS confinement and session-owned supp
 	}
 });
 
-test("scout starts real Pi under confinement and removes private runtime state", { skip: process.platform !== "linux" }, async () => {
+test("scout starts real Pi under confinement and removes private runtime state", { skip: process.platform !== "linux" || (!existsSync("/usr/bin/bwrap") && !existsSync("/bin/bwrap")) }, async () => {
 	const { cwd, run } = fixture();
 	const source = mkdtempSync(join(tmpdir(), "flow-pi-source-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;

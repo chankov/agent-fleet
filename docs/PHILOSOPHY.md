@@ -125,7 +125,7 @@ here, with their rationale, so future plans share one source of intent.
 - [Agent Hub](../.pi/harnesses/agent-hub/README.md) describes interactive orchestration.
 - [Personas](agents.md) and [orchestration patterns](../references/orchestration-patterns.md)
   describe roles and composition.
-- [Local-model reliability plan](plans/local-model-harness-reliability-plan.md)
+- The local-model reliability plan (working-tree `docs/plans/`, not published)
   applies this direction to specific observed failures. Its pending decisions,
   opt-in boundaries, and exclusions remain in force; this philosophy does not
   authorize its implementation or add memory management to its scope.

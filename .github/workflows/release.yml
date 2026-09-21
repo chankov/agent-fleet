@@ -34,6 +34,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm install --no-audit --no-fund
+      - name: Install Linux sandbox backend
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - name: Full suite (includes packed installer and narrow PTY)
         timeout-minutes: 10
         run: npm test

@@ -18,7 +18,10 @@ export function validateScoutDataPath(rootValue: string, cwdValue: string, input
 	if (typeof inputValue !== "string" || inputValue.includes("\0")) return "Scout filesystem path must be a plain string.";
 	if (hasTraversal(inputValue)) return "Scout filesystem traversal is denied.";
 	const root = realpathSync(resolve(rootValue));
-	const candidate = resolve(cwdValue, inputValue || ".");
+	// Canonicalize cwd too: Darwin tmpdir aliases (/var vs /private/var) would
+	// otherwise make every in-snapshot read look like an escape.
+	const cwd = realpathSync(resolve(cwdValue));
+	const candidate = resolve(cwd, inputValue || ".");
 	if (!inside(root, candidate)) return "Scout filesystem reads are limited to the isolated snapshot.";
 	let current = root;
 	const fromRoot = relative(root, candidate);
