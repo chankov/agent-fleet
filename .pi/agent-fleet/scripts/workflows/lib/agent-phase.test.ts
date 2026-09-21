@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { confineNativeChild } from "../../../../../.pi/harnesses/agent-hub/write-isolation.ts";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -75,6 +76,71 @@ test("T13 Hub scout phase uses real native OS confinement and session-owned supp
 		if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
 		if (oldVictim === undefined) delete process.env.T13_ORIGINAL_VICTIM; else process.env.T13_ORIGINAL_VICTIM = oldVictim;
 		rmSync(cwd, { recursive: true, force: true }); rmSync(tools, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true });
+	}
+});
+
+test("scout starts real Pi under confinement and removes private runtime state", { skip: process.platform !== "linux" }, async () => {
+	const { cwd, run } = fixture();
+	const source = mkdtempSync(join(tmpdir(), "flow-pi-source-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	let runtime: string | undefined;
+	try {
+		process.env.PI_CODING_AGENT_DIR = source;
+		writeFileSync(join(source, "auth.json"), "{}");
+		writeFileSync(join(source, "trust.json"), "{}");
+		writeFileSync(join(source, "settings.json"), JSON.stringify({ packages: ["npm:scout-must-not-install-this-package"], extensions: ["./missing-extension.ts"], skills: ["./missing-skills"], prompts: ["./missing-prompts"], themes: ["./missing-themes"], transport: "sse", defaultProjectTrust: "never" }));
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "settings.json"), "{}");
+		const spawn: SpawnAgent = async options => {
+			assert.ok(options.extensions?.every(path => path.startsWith("/")), "scout extensions resolve from the installed runtime, not the dependency-free snapshot");
+			const launch = confineNativeChild({ ...options.writeIsolation!, command: "pi", args: ["--mode", "rpc", "--no-extensions", "--no-skills", "--no-context-files", ...(options.extensions ?? []).flatMap(path => ["-e", path]), "--session", options.sessionFile], env: options.env });
+			assert.equal(launch.applied, true);
+			const child = spawnSync(launch.command!, launch.args!, { cwd, env: { ...process.env, ...options.env }, input: '{"id":"probe","type":"get_state"}\n', encoding: "utf8", timeout: 20000 });
+			assert.equal(child.status, 0, child.stderr || String(child.error));
+			assert.match(child.stdout, /"command":"get_state","success":true/);
+			runtime = options.env?.PI_CODING_AGENT_DIR;
+			assert.ok(runtime && runtime !== source);
+			const settings = JSON.parse(readFileSync(join(runtime, "settings.json"), "utf8"));
+			assert.equal(settings.transport, "sse");
+			assert.equal(settings.defaultProjectTrust, "never");
+			for (const key of ["packages", "extensions", "skills", "prompts", "themes"]) assert.deepEqual(settings[key], []);
+			assert.equal(statSync(runtime).mode & 0o777, 0o700);
+			assert.equal(statSync(join(runtime, "auth.json")).mode & 0o777, 0o600);
+			return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0 };
+		};
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, dataReadRoot: cwd, spawn });
+		assert.equal(existsSync(runtime!), false);
+		assert.equal(readFileSync(join(source, "auth.json"), "utf8"), "{}");
+		assert.equal(readFileSync(join(source, "trust.json"), "utf8"), "{}");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		rmSync(source, { recursive: true, force: true }); rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("scout removes copied credentials when spawning throws", async () => {
+	const { cwd, run } = fixture();
+	const source = mkdtempSync(join(tmpdir(), "flow-pi-source-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	let runtime: string | undefined;
+	try {
+		process.env.PI_CODING_AGENT_DIR = source;
+		writeFileSync(join(source, "auth.json"), '{"test":"synthetic"}');
+		writeFileSync(join(source, "models.json"), '{}');
+		const spawn: SpawnAgent = async options => {
+			runtime = options.env?.PI_CODING_AGENT_DIR;
+			assert.ok(runtime);
+			assert.equal(readFileSync(join(runtime, "auth.json"), "utf8"), '{"test":"synthetic"}');
+			assert.equal(readFileSync(join(runtime, "models.json"), "utf8"), '{}');
+			assert.equal(existsSync(join(runtime, "trust.json")), false);
+			throw new Error("spawn failed");
+		};
+		await assert.rejects(runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, dataReadRoot: cwd, spawn }), /spawn failed/);
+		assert.equal(existsSync(runtime!), false);
+		assert.equal(readFileSync(join(source, "auth.json"), "utf8"), '{"test":"synthetic"}');
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		rmSync(source, { recursive: true, force: true }); rmSync(cwd, { recursive: true, force: true });
 	}
 });
 

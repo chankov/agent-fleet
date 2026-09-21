@@ -1,6 +1,7 @@
 import { profileFallback } from './model-profile.ts';
 import type { ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCOUT_DATA_ROOT_ENV } from "./scout-data-boundary.ts";
@@ -102,21 +103,53 @@ export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>):
 		}
 		let measuredTokens = meta.contextTokens;
 		const scoutBoundary = options.dataReadRoot ? fileURLToPath(new URL("./scout-data-boundary.ts", import.meta.url)) : null;
-		const result = await spawnAgent({
-			model, tools: options.persona.tools, thinking,
-			systemPrompt: replacement, noSkills: true, noContextFiles: true, sessionFile, resume, prompt, cwd,
-			extensions: [".pi/harnesses/damage-control-continue/index.ts", ...(scoutBoundary ? [scoutBoundary] : [])], detached: true, signal: options.run.signal,
-			...(options.dataReadRoot ? {
-				env: { [SCOUT_DATA_ROOT_ENV]: resolve(options.dataReadRoot) },
-				writeIsolation: { enabled: true as const, cwd, runtimePaths: [directory] },
-			} : {}),
-			toolWatchdog: { timeoutMs: options.toolWatchdogMs ?? 120_000 }, turnDeadlineMs: options.turnDeadlineMs ?? 1_200_000,
-		}, profileFallback(options.persona.fallbackModel), {
-			onProcess: process => options.run.registerProcess(process, options.persona.name),
-			onUsage: usage => {
-				measuredTokens = Math.max(measuredTokens, Number(usage.input ?? 0) + Number(usage.output ?? 0) + Number((usage as any).cacheRead ?? 0) + Number((usage as any).cacheWrite ?? 0));
-			},
-		}, { midRun: !/(^|,)(write|edit)(,|$)/.test(options.persona.tools) });
+		// Pi needs writable trust/auth locks even during read-only reconnaissance.
+		// Copy only runtime configuration, never the user's extensions or sessions.
+		const runtime = options.dataReadRoot ? mkdtempSync(resolve(directory, "pi-runtime-")) : null;
+		let result: SpawnPiAgentResult;
+		try {
+			if (runtime) {
+				// Match Pi's documented override without requiring its SDK in packaged CLI installs.
+				const configured = process.env.PI_CODING_AGENT_DIR || resolve(homedir(), ".pi", "agent");
+				const source = configured === "~" ? homedir() : configured.startsWith("~/") ? resolve(homedir(), configured.slice(2)) : resolve(configured);
+				for (const name of ["auth.json", "models.json", "settings.json", "trust.json"]) {
+					try {
+						let contents = readFileSync(resolve(source, name), "utf8");
+						if (name === "settings.json") {
+							// --no-extensions does not stop Pi resolving/installing packages.
+							// Managed scout loads only the explicitly supplied Fleet extensions.
+							const settings = JSON.parse(contents);
+							for (const key of ["packages", "extensions", "skills", "prompts", "themes"]) settings[key] = [];
+							contents = JSON.stringify(settings);
+						}
+						writeFileSync(resolve(runtime, name), contents, { mode: 0o600, flag: "wx" });
+					} catch (error) {
+						if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+					}
+				}
+				mkdirSync(resolve(runtime, "tmp"), { mode: 0o700 });
+			}
+			result = await spawnAgent({
+				model, tools: options.persona.tools, thinking,
+				systemPrompt: replacement, noSkills: true, noContextFiles: true, sessionFile, resume, prompt, cwd,
+				extensions: scoutBoundary
+					? [fileURLToPath(new URL("../../../../../.pi/harnesses/damage-control-continue/index.ts", import.meta.url)), scoutBoundary]
+					: [".pi/harnesses/damage-control-continue/index.ts"], detached: true, signal: options.run.signal,
+				...(options.dataReadRoot ? {
+					env: { [SCOUT_DATA_ROOT_ENV]: resolve(options.dataReadRoot), PI_CODING_AGENT_DIR: runtime!, TMPDIR: resolve(runtime!, "tmp") },
+					writeIsolation: { enabled: true as const, cwd, runtimePaths: [directory] },
+				} : {}),
+				toolWatchdog: { timeoutMs: options.toolWatchdogMs ?? 120_000 }, turnDeadlineMs: options.turnDeadlineMs ?? 1_200_000,
+			}, profileFallback(options.persona.fallbackModel), {
+				onProcess: process => options.run.registerProcess(process, options.persona.name),
+				onUsage: usage => {
+					measuredTokens = Math.max(measuredTokens, Number(usage.input ?? 0) + Number(usage.output ?? 0) + Number((usage as any).cacheRead ?? 0) + Number((usage as any).cacheWrite ?? 0));
+				},
+			}, { midRun: !/(^|,)(write|edit)(,|$)/.test(options.persona.tools) });
+		} finally {
+			// Includes provider failure, cancellation, and setup/spawn exceptions.
+			if (runtime) rmSync(runtime, { recursive: true, force: true });
+		}
 		meta = { contextTokens: measuredTokens };
 		writeFileSync(metaFile, JSON.stringify(meta), "utf8");
 		const after = snapshot(cwd);
