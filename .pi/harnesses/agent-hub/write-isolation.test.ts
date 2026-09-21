@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { confineNativeChild, policyFor } from "./write-isolation.ts";
+import { confineNativeChild, linuxUserNamespaceSandboxAvailable, policyFor } from "./write-isolation.ts";
 import { assertSafeSandboxStdio, killPiTree, spawnPiAgent } from "./spawn.ts";
 
-const hasLinuxSandbox = process.platform === "linux" && (existsSync("/usr/bin/bwrap") || existsSync("/bin/bwrap"));
+const hasLinuxSandbox = linuxUserNamespaceSandboxAvailable();
 
 function fixture() {
 	const root = mkdtempSync(join(tmpdir(), "fleet-t6c-"));

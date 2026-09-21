@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
 import test from "node:test";
+import { linuxUserNamespaceSandboxAvailable } from "./write-isolation.ts";
 import { createDispatchComs, createDispatchNative, createDispatchObservability, type ComsDispatchState, type DelegationObservableState, type NativeDispatchState } from "./dispatch-core.ts";
 import { PROFILE_ENV } from "./policy/profile-runtime.ts";
 
@@ -217,7 +217,7 @@ test("T5 explicit native persona tool caps are not widened by deterministic-tool
 	}
 });
 
-test("T6c effective profile reaches real native preparation/spawn, composes with T5/T6b, and refuses coms", { skip: process.platform === "linux" && !existsSync("/usr/bin/bwrap") && !existsSync("/bin/bwrap") }, async t => {
+test("T6c effective profile reaches real native preparation/spawn, composes with T5/T6b, and refuses coms", { skip: process.platform === "linux" && !linuxUserNamespaceSandboxAvailable() }, async t => {
 	const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
 	const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
 	const root = mkdtempSync(join(tmpdir(), "native-isolation-")); t.after(() => rmSync(root, { recursive: true, force: true }));

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { accessSync, lstatSync, realpathSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, relative, resolve } from "node:path";
 import { constants } from "node:fs";
@@ -63,6 +64,15 @@ function findExecutable(name: string): string | undefined {
 		try { accessSync(candidate, constants.X_OK); return candidate; } catch {}
 	}
 	return undefined;
+}
+
+/** True only when bwrap can actually create a user namespace, not merely when the binary exists. */
+export function linuxUserNamespaceSandboxAvailable(): boolean {
+	if (process.platform !== "linux") return false;
+	const backendPath = findExecutable("bwrap");
+	if (!backendPath) return false;
+	const probe = spawnSync(backendPath, ["--die-with-parent", "--ro-bind", "/", "/", "--", "true"], { encoding: "utf8", timeout: 5_000 });
+	return probe.status === 0;
 }
 
 function quoteSeatbelt(value: string): string {

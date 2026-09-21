@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { confineNativeChild } from "../../../../../.pi/harnesses/agent-hub/write-isolation.ts";
+import { confineNativeChild, linuxUserNamespaceSandboxAvailable } from "../../../../../.pi/harnesses/agent-hub/write-isolation.ts";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -62,7 +62,7 @@ test("agent phase uses replacement context, fallback, detached safety, and same-
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
-test("T13 Hub scout phase uses real native OS confinement and session-owned support writes", { skip: process.platform !== "linux" || (!existsSync("/usr/bin/bwrap") && !existsSync("/bin/bwrap")) }, async () => {
+test("T13 Hub scout phase uses real native OS confinement and session-owned support writes", { skip: !linuxUserNamespaceSandboxAvailable() }, async () => {
 	const { cwd, run } = fixture(); const tools = mkdtempSync(join(tmpdir(), "flow-fake-pi-")); const outside = mkdtempSync(join(tmpdir(), "flow-original-"));
 	const victim = join(outside, ".env"), fakePi = join(tools, "pi"); const oldPath = process.env.PATH; const oldVictim = process.env.T13_ORIGINAL_VICTIM;
 	try {
@@ -79,7 +79,7 @@ test("T13 Hub scout phase uses real native OS confinement and session-owned supp
 	}
 });
 
-test("scout starts real Pi under confinement and removes private runtime state", { skip: process.platform !== "linux" || (!existsSync("/usr/bin/bwrap") && !existsSync("/bin/bwrap")) }, async () => {
+test("scout starts real Pi under confinement and removes private runtime state", { skip: !linuxUserNamespaceSandboxAvailable() }, async () => {
 	const { cwd, run } = fixture();
 	const source = mkdtempSync(join(tmpdir(), "flow-pi-source-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
