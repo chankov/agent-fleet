@@ -21,6 +21,7 @@ import type { DispatchAgentParams, SpawnResearchParams, ToolExecutionResult, Too
 import type { AgentState } from "../types.ts";
 import { diagnoseToolProtocol, type ToolProtocolDiagnostic } from "../tool-protocol.ts";
 import type { TaskResumeInput } from "../task-resume-contract.ts";
+import { evaluateProcessObligations, noteProcessStage, processAllowsPersona, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "../process-obligations.ts";
 
 type Gate = { reason: string; message: string } | null;
 type DispatchResult = import("../dispatch-native-types.ts").NativeDispatchResult;
@@ -46,6 +47,9 @@ export interface DispatchExecutionState {
 	getResearchPersonas(): ResearchAgentDef[];
 	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
 	getWritableOverlapCounter(): number; setWritableOverlapCounter(value: number): void;
+	getProcessState?(): ProcessObligationState;
+	setProcessState?(value: ProcessObligationState): void;
+	persistProcessVerdict?(state: ProcessObligationState, verdict: ProcessVerdict): void;
 }
 
 export interface DispatchExecutorDeps {
@@ -76,7 +80,8 @@ export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
 	const s = d.state;
 	const blocked = checkExternalBlockerGate({ blockers: s.getExternalBlockers(), acknowledged: s.getExternalBlockerAcknowledged(), askUserAvailable: s.isAskUserAvailable(), refusedOnce: s.getExternalBlockerRefusedOnce() });
 	if (blocked) { s.setExternalBlockerRefusedOnce(true); return blocked; }
-	return checkTierPersonaGate(s.getTaskTier(), persona);
+	const process = s.getProcessState?.();
+	return process && processAllowsPersona(process, persona) ? null : checkTierPersonaGate(s.getTaskTier(), persona);
 }
 
 function refusal(d: DispatchExecutorDeps, agent: string, task: string, status: string, message: string, reason?: string): ToolExecutionResult {
@@ -144,7 +149,8 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	if (rosterRefusal) return rosterRefusal;
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 	d.budget.ensureTaskTier();
-	const preflight = preflightGate(d, agent) ?? checkReviewRoundCap(s.getTaskTier(), agent, s.getTaskReviewRounds()) ?? checkDocsLane(agent, scope || [], review_reason);
+	const processGate = s.getProcessState ? processPreEffectGate(s.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." };
+	const preflight = preflightGate(d, agent) ?? processGate ?? checkReviewRoundCap(s.getTaskTier(), agent, s.getTaskReviewRounds()) ?? checkDocsLane(agent, scope || [], review_reason);
 	if (preflight) return refusal(d, agent, task, preflight.reason, preflight.message, preflight.reason);
 	const taskRefusal = checkTaskBudget("dispatch", d.budget.taskCounters(), d.budget.currentTaskBudget(), d.budget.taskActiveElapsedMs(), s.getTaskTier());
 	if (taskRefusal) return refusal(d, agent, task, "task_budget_refused", taskRefusal.message, taskRefusal.reason);
@@ -330,12 +336,34 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
             coverage: covered.map(requirement => ({ id: requirement.id, source: requirement.source, text: requirement.text, reference: requirement.reference, criticalConditions: requirement.criticalConditions ?? [] })),
         });
     }
-	const runtimeResult = buildRuntimeResult({
+	const runtimeResult: any = buildRuntimeResult({
 		task: { id: p.taskId, current: sameTask && p.taskId === d.noProgress.taskId(), beforeRevision: p.beforeRevision, afterRevision },
 		execution: { status: executionStatus, exitCode: result.exitCode, dispatchId: result.dispatchId ?? null },
 		changes, requirements: p.requirements, deliverables: readback, checks,
 		evidenceRefs: [returnPath ?? undefined, failurePath ?? undefined, compilerEvidencePath ?? undefined, protocolEvidencePath ?? undefined].filter((value): value is string => !!value),
 	});
+	let processVerdict: ProcessVerdict | null = null;
+	if (s.getProcessState) {
+		let processState = s.getProcessState();
+		if (runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
+			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, changedFiles: observation.paths });
+		}
+		const stage = p.agent === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
+		const affirmativeReview = /(?:^|\n)\s*(?:verdict\s*:\s*)?APPROVE\b/im.test(result.output) && !/(?:^|\n)\s*(?:verdict\s*:\s*)?REJECT\b/im.test(result.output);
+		const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
+		const reviewAuthorized = stage !== "review" || (affirmativeReview && processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0);
+		if (stage && reviewAuthorized && disposition.delivered && result.exitCode === 0 && sameTask && runPath) {
+			processState = noteProcessStage(processState, stage, { evidenceRef: runPath, revision: afterRevision });
+		}
+		s.setProcessState?.(processState);
+		processVerdict = evaluateProcessObligations(processState, { writable: tracking.writable || stage !== null, budgetTier: s.getTaskTier() ?? "small", t2Accepted: runtimeResult.acceptance.accepted, currentRevision: afterRevision });
+		runtimeResult.process = processVerdict;
+		if (!processVerdict.accepted) {
+			runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...new Set([...runtimeResult.acceptance.reasons, ...Object.entries(processVerdict.obligations).filter(([, value]) => value.status === "open").map(([name]) => `process_${name}_open`)])] };
+			if (runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed") runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };
+		}
+		s.persistProcessVerdict?.(processState, processVerdict);
+	}
 	const accepted = runtimeResult.acceptance.accepted;
 	const acceptanceStatus = runtimeResult.compatibility.hubAcceptanceStatus;
 	const status = protocolDiagnostic ? "tool_protocol_error" : accepted ? "accepted" : executionStatus === "completed" && (runtimeResult.verification.status === "failed" || acceptanceStatus === "deliverable_failed") ? "verification_failed" : executionStatus === "completed" ? "completed_unverified" : disposition.status;
@@ -375,7 +403,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const docs = docsLaneNotice(p.agent, p.scopeGlobs); if (docs) notices.push(docs);
 	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
 	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
-	return { content: [{ type: "text", text: `[${p.agent}] ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : { protocolDiagnostic: null, protocolEvidencePath: null }), executionStatus, acceptanceStatus, accepted, runtimeResult, taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+	return { content: [{ type: "text", text: `[${p.agent}] ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : { protocolDiagnostic: null, protocolEvidencePath: null }), executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
 }
 
 function dispatchExecutionConditions(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): Record<string, unknown> {
@@ -413,7 +441,8 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		const invalid = validateDispatchAgent(d, agent, params.task); if (invalid) return invalid;
 		if (d.state.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 		d.budget.ensureTaskTier();
-		const preflight = preflightGate(d, agent) ?? checkReviewRoundCap(d.state.getTaskTier(), agent, d.state.getTaskReviewRounds()) ?? checkDocsLane(agent, params.scope || [], params.review_reason);
+		const processGate = d.state.getProcessState ? processPreEffectGate(d.state.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." };
+		const preflight = preflightGate(d, agent) ?? processGate ?? checkReviewRoundCap(d.state.getTaskTier(), agent, d.state.getTaskReviewRounds()) ?? checkDocsLane(agent, params.scope || [], params.review_reason);
 		if (preflight) return refusal(d, agent, params.task, preflight.reason, preflight.message);
 		try { preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: d.state.getSessionDir() }); }
 		catch (error) { return refusal(d, agent, params.task, "scope_preflight_failed", String(error)); }

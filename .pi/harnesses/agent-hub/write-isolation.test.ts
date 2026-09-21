@@ -119,6 +119,70 @@ test("T6c sandbox spawn stdio invariant rejects inherited descriptors", () => {
 	assert.throws(() => assertSafeSandboxStdio(["inherit", "pipe", "pipe"] as any), /safe stdio/i);
 });
 
+test("T6c Darwin confineNativeChild uses production pipe stdio and denies extra writable inherited FD configuration", { skip: process.platform !== "darwin" }, () => {
+	const root = fixture();
+	const launch = shellLaunch(root, "printf exact > allowed.txt");
+	assert.equal(launch.applied, true, launch.reason);
+	assert.equal(launch.command, "/usr/bin/sandbox-exec");
+	const productionStdio = ["pipe", "pipe", "pipe"] as const;
+	assertSafeSandboxStdio(productionStdio);
+	assert.throws(
+		() => assertSafeSandboxStdio(["pipe", "pipe", "pipe", 3] as any),
+		/inherited file descriptors/i,
+	);
+	const result = spawnSync(launch.command!, launch.args!, {
+		cwd: launch.cwd,
+		env: { ...process.env, ...launch.env },
+		stdio: [...productionStdio],
+		encoding: "utf8",
+		timeout: 10_000,
+	});
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(readFileSync(join(root, "allowed.txt"), "utf8"), "exact");
+	assert.equal(readFileSync(join(root, "blocked.txt"), "utf8"), "user-before");
+});
+
+test("T6c Darwin kernel boundary uses Hub confineNativeChild/sandbox-exec and blocks shell, node descendants and symlink escape", { skip: process.platform !== "darwin" }, () => {
+	const root = fixture();
+	const outside = mkdtempSync(join(tmpdir(), "fleet-t6c-outside-"));
+	writeFileSync(join(outside, "secret"), "outside-before");
+	symlinkSync(join(outside, "secret"), join(root, "allowed-dir", "escape"));
+	const script = [
+		"printf exact > allowed.txt",
+		"printf created > allowed-dir/new.txt",
+		"printf runtime > runtime/state",
+		"(printf blocked > blocked.txt) 2>/dev/null && exit 41 || true",
+		"(sh -c 'printf child > blocked-dir/child') 2>/dev/null && exit 42 || true",
+		"(node -e \"require('fs').writeFileSync('blocked-dir/node','x')\") 2>/dev/null && exit 43 || true",
+		"(printf escaped > allowed-dir/escape) 2>/dev/null && exit 44 || true",
+	].join("; ");
+	const launch = shellLaunch(root, script);
+	assert.equal(launch.applied, true, launch.reason);
+	assert.equal(launch.command, "/usr/bin/sandbox-exec");
+	assert.match(launch.seatbeltProfile ?? "", /deny file-write\*/);
+	const result = runLaunch(launch);
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(readFileSync(join(root, "allowed.txt"), "utf8"), "exact");
+	assert.equal(readFileSync(join(root, "blocked.txt"), "utf8"), "user-before");
+	assert.equal(existsSync(join(root, "blocked-dir", "child")), false);
+	assert.equal(existsSync(join(root, "blocked-dir", "node")), false);
+	assert.equal(readFileSync(join(outside, "secret"), "utf8"), "outside-before");
+});
+
+test("T6c Darwin cancellation stops sandbox descendants writing the allowlisted pulse file", { skip: process.platform !== "darwin" }, async () => {
+	const root = fixture();
+	const launch = shellLaunch(root, "sh -c 'while :; do date +%s > allowed-dir/pulse; sleep 0.03; done' & wait");
+	assert.equal(launch.applied, true, launch.reason);
+	const child = spawn(launch.command!, launch.args!, { cwd: launch.cwd, env: { ...process.env, ...launch.env }, detached: true, stdio: "ignore" });
+	for (let i = 0; i < 40 && !existsSync(join(root, "allowed-dir", "pulse")); i++) await new Promise(resolve => setTimeout(resolve, 25));
+	assert.equal(existsSync(join(root, "allowed-dir", "pulse")), true);
+	killPiTree(child, "SIGTERM");
+	await new Promise(resolve => child.once("close", resolve));
+	const stoppedAt = readFileSync(join(root, "allowed-dir", "pulse"), "utf8");
+	await new Promise(resolve => setTimeout(resolve, 120));
+	assert.equal(readFileSync(join(root, "allowed-dir", "pulse"), "utf8"), stoppedAt);
+});
+
 test("T6c Linux kernel boundary blocks shell, python/indirect descendants and symlink escape while allowing exact files/new directory files/support roots", { skip: process.platform !== "linux" }, () => {
 	const root = fixture();
 	const outside = mkdtempSync(join(tmpdir(), "fleet-t6c-outside-"));

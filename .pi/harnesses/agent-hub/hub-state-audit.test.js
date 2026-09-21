@@ -79,8 +79,8 @@ test("audit serializers are fail-soft for missing or malformed values", () => {
 	assert.equal(buildBudgetContinuationAudit({ prior: { activeMs: Number.NaN } }).prior.active_ms, 0);
 });
 
-test("budget continuation audit preserves task/tranche/request correlation only", () => {
-	const result = buildBudgetContinuationAudit({ correlation: { taskId: "task", tranche: 2, requestId: "request", secret: "never" } });
-	assert.deepEqual(result.correlation, { task_id: "task", tranche: 2, request_id: "request" });
+test("budget continuation audit preserves task/tranche/request/operation correlation only", () => {
+	const result = buildBudgetContinuationAudit({ correlation: { taskId: "task", tranche: 2, requestId: "request", operation: "dispatch", secret: "never" } });
+	assert.deepEqual(result.correlation, { task_id: "task", tranche: 2, request_id: "request", operation: "dispatch" });
 	assert.doesNotMatch(JSON.stringify(result), /never/);
 });

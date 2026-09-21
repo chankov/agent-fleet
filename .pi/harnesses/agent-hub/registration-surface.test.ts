@@ -41,11 +41,21 @@ test("agent-hub registration surface matches the checked-in fixture", async () =
 			flags: sortedKeys(extension.flags),
 		};
 		assert.deepEqual(actual, fixture);
+		assert.equal(extension.commands.has("af-probe"), false);
+		assert.equal(extension.tools.has("af_probe_value"), false);
+		for (const name of ["af-audit", "af-retry", "af-work-mode"]) assert.ok(extension.commands.has(name), name);
 		// Exercise the real renderer through Pi's alias-aware production loader.
 		const dispatch = extension.tools.get("dispatch_agent")!.definition;
 		const rendered = dispatch.renderResult!({ content: [], details: { agent: "builder", status: "completed_unverified", executionStatus: "completed", accepted: false, elapsed: 0 } }, { expanded: false } as any, { fg: (_color: string, text: string) => text, bold: (text: string) => text } as any).render(120).join("\n");
 		assert.match(rendered, /acceptance unproven/);
 		assert.doesNotMatch(rendered, /✓/, "exit-zero alone must not display acceptance");
+		assert.ok(extension.tools.has("set_task_tier"), "real loader registered set_task_tier");
+		const ctx = { cwd: repoRoot, ui: { notify() {}, setStatus() {} } } as any;
+		const setTier = extension.tools.get("set_task_tier")!.definition;
+		const classified = await setTier.execute!("t11", { tier: "small", risk: "high", scope: "wide", reason: "production callback gate" }, new AbortController().signal, () => {}, ctx);
+		assert.equal((classified.details as any).status, "ok");
+		const decisions = await Promise.all((extension.handlers.get("tool_call") ?? []).map(handler => handler({ type: "tool_call", toolName: "write", input: { path: "blocked" } }, ctx)));
+		assert.ok(decisions.some(decision => decision?.block === true && /plan obligation/i.test(decision.reason)), "production tool_call callback blocks operator effects while the plan obligation is open");
 	} finally {
 		// The hub installs shutdown hooks when its factory runs. Avoid leaking them
 		// into other tests when this file shares a Node test process.

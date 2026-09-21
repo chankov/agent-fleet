@@ -157,12 +157,17 @@ function removeClosure(source, workspace, owned) {
 test("manifest contains the executable harness runtime closure without product docs", () => {
   const paths = validateManifest(root);
   assert.deepEqual(paths.directories, [".pi/agent-fleet/hermes/skills"]);
+  assert.equal(paths.files.some((path) => path.startsWith(".pi/agent-fleet/scripts/workflows/") && path.includes(".test.")), false);
   assert.equal([...paths.directories, ...paths.files].some((path) => path.startsWith(".pi/agent-fleet/hermes/desktop-plugins/") || path.startsWith(".pi/agent-fleet/hermes/plugins/")), false);
   assert.equal([...paths.directories, ...paths.files].some((path) => path === "codex" || path.startsWith("docs/")), false);
   for (const required of [
     "justfile",
     ".pi/agent-fleet/scripts/coms-cli.ts",
     ".pi/agent-fleet/scripts/coms-hermes-bridge.ts",
+    ".pi/agent-fleet/scripts/flow.ts",
+    ".pi/agent-fleet/scripts/workflows/lib/agent-phase.ts",
+    ".pi/agent-fleet/scripts/workflows/lib/scout-data-boundary.ts",
+    ".pi/agent-fleet/scripts/workflows/wf-scout.ts",
     ".pi/agent-fleet/scripts/team-up.ts",
     ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
     ".pi/agent-fleet/scripts/lib/herdr-layout.ts",
@@ -235,6 +240,8 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
 test("package dry-run includes each versioned harness entrypoint, module, and adjacent manifest", () => {
   const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER }));
   const paths = new Set(packed[0].files.map(({ path }) => path));
+  for (const file of ["commands/probe.ts", "diagnostic-probe.ts"]) assert.equal(paths.has(`.pi/harnesses/agent-hub/${file}`), false, file);
+  for (const file of ["diagnostic-series-budget.ts", "diagnostic-probe-extension.ts"]) assert.ok(paths.has(`.pi/harnesses/agent-hub/${file}`), file);
   assert.ok(paths.has("bin/catalog/harness-runtime-closure.json"), "relocated harness closure must ship in package");
   assert.equal([...paths].some((path) => /guided-workspace-setup|af-(?:setup|doctor)-agent-fleet/.test(path)), false, "tarball must not ship retired setup surfaces");
   const prompts = [...paths].filter((path) => path.startsWith(".pi/prompts/af-")).sort();
@@ -539,3 +546,66 @@ test("removing the last harness strips the justfile region and keeps user recipe
   assert.equal(extractRegion(after), null, "the managed region survived the removal");
   assert.match(after, /^mine:$/m, "the user's recipe was deleted with ours");
 });
+
+// Exercise the real installer ownership ledger, not a hand-written copy helper.
+for (const [method, modified] of [["copy", false], ["symlink", false], ["copy", true]]) {
+  test(`${method}${modified ? " user-modified" : ""} Hub refresh retires managed probe files and retains shared guards`, async () => {
+    const temp = mkdtempSync(join(tmpdir(), "af-retired-probe-"));
+    const source = join(temp, "source"), workspace = join(temp, "workspace");
+    const hub = ".pi/harnesses/agent-hub";
+    const retired = ["commands/probe.ts", "diagnostic-probe.ts"];
+    const current = JSON.parse(readFileSync(join(root, "install-manifest.json"), "utf8"));
+    // Limit this fixture to the unchanged Hub binding; the full closure is tested above.
+    const item = structuredClone(current.items.find(item => item.id === "pi-harness:agent-hub"));
+    item.companions = []; item.requires = [];
+    const fixtureManifest = { ...current, items: [item] };
+    try {
+      cpSync(join(root, hub), join(source, hub), { recursive: true });
+      for (const file of retired) {
+        assert.equal(existsSync(join(source, hub, file)), false);
+        writeFileSync(join(source, hub, file), "export default function retiredProbeFixture() {}\n");
+      }
+      const install = () => applyPlan({ plan: buildPlan({
+        workspace, sourceRoot: source, packageVersion: current.packageVersion,
+        manifest: fixtureManifest, verb: "install", agent: "pi",
+        items: [item.id], platform: "linux", method,
+      }), manifest: fixtureManifest });
+      install();
+      for (const file of retired) assert.ok(existsSync(join(workspace, hub, file)));
+      const userContent = "// user-owned obsolete file: must not be erased\n";
+      if (modified) writeFileSync(join(workspace, hub, retired[0]), userContent);
+      for (const file of retired) rmSync(join(source, hub, file));
+      const refreshed = install();
+      for (const file of retired) assert.equal(existsSync(join(workspace, hub, file)), modified && file === retired[0], file);
+      if (modified) {
+        assert.equal(readFileSync(join(workspace, hub, retired[0]), "utf8"), userContent);
+        assert.match(JSON.stringify(refreshed), /kept 1 user-modified obsolete path/);
+      }
+      for (const file of ["index.ts", "diagnostic-series-budget.ts", "diagnostic-probe-extension.ts"]) {
+        assert.equal(readFileSync(join(workspace, hub, file), "utf8"), readFileSync(join(root, hub, file), "utf8"));
+      }
+      assert.doesNotMatch(readFileSync(join(workspace, hub, "index.ts"), "utf8"), /registerProbe|handleProbe|runDiagnosticProbes/);
+      // Only local runtime dependencies; no installation or provider requests.
+      for (const rel of ["node_modules", ".pi/harnesses/lib", ".pi/harnesses/ask-user-remote", ".pi/harnesses/damage-control-continue", ".pi/agent-fleet", ".pi/agents"]) {
+        const target = join(workspace, rel);
+        mkdirSync(dirname(target), { recursive: true });
+        symlinkSync(join(root, rel), target, "dir");
+      }
+      const before = new Map(["SIGINT", "SIGTERM"].map(signal => [signal, new Set(process.listeners(signal))]));
+      try {
+        const { loadExtensions } = await import(pathToFileURL(join(root, "node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js")).href);
+        const loaded = await loadExtensions([join(workspace, hub, "index.ts")], workspace);
+        assert.deepEqual(loaded.errors, []);
+        assert.equal(loaded.extensions.length, 1);
+        const extension = loaded.extensions[0];
+        assert.equal(extension.commands.has("af-probe"), false);
+        assert.equal(extension.tools.has("af_probe_value"), false);
+        for (const command of ["af-audit", "af-retry", "af-work-mode"]) assert.ok(extension.commands.has(command), command);
+      } finally {
+        for (const [signal, listeners] of before) for (const listener of process.listeners(signal)) {
+          if (!listeners.has(listener)) process.removeListener(signal, listener);
+        }
+      }
+    } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+}

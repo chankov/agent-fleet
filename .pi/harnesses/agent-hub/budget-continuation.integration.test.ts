@@ -57,3 +57,11 @@ test("prompt turn reset cannot clear runtime task confirmation state", () => {
 	const body = indexSource.slice(start, end);
 	assert.doesNotMatch(body, /budgetRecovery\.reset|resetTaskWindow|taskDispatchCount\s*=|taskResearchCount\s*=|taskReviewRounds\s*=/);
 });
+
+test("compaction cannot reset or manufacture a recovery decision", () => {
+	const start = indexSource.indexOf('pi.on("session_compact"');
+	const end = indexSource.indexOf('\n\tpi.on("input"', start);
+	assert.ok(start >= 0 && end > start);
+	const body = indexSource.slice(start, end);
+	assert.doesNotMatch(body, /budgetRecovery\.|confirmOneUseRetry|authorize\(/);
+});

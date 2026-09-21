@@ -86,7 +86,8 @@ export function stateCapsuleFragment(state: HubPromptState, resolution: Capabili
 	const capabilityState = [...resolution.active].map(pack => `${pack}:${resolution.reasons[pack]}`).join(", ");
 	const provisionalState = resolution.provisional.map(pack => `${pack}:${resolution.reasons[pack]}`).join(", ");
 	return `## Current task state
-- tier: ${state.taskTier}${state.taskTierAssumed ? "?" : ""}; turn dispatches: ${state.turnDispatchCount}; research: ${state.turnResearchCount}
+- tier: ${state.taskTier}${state.taskTierAssumed ? "?" : ""} (spend only); turn dispatches: ${state.turnDispatchCount}; research: ${state.turnResearchCount}
+- process: risk ${state.processRisk ?? "unknown"}; scope ${state.processScope ?? "unknown"}; open obligations: ${state.processOpen?.join(", ") || "none"}. These correctness obligations are independent of tier.
 - task dispatches: ${state.taskDispatchCount}; research: ${state.taskResearchCount}; review rounds: ${state.taskReviewRounds}
 - packs active: ${capabilityState}; provisional: ${provisionalState || "none"}
 - provisional confirmation: ${state.provisionalConfirmations.map(item => `${item.pack} (${item.reason}) → call ask_user exactly once with ${JSON.stringify(item.question)}`).join("; ") || "none"}

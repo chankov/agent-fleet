@@ -12,10 +12,10 @@ export class FlowTrace {
 	readonly file: string;
 	private ended = false;
 
-	constructor(options: { cwd?: string; runId?: string; command?: string[]; pid?: number } = {}) {
+	constructor(options: { cwd?: string; runId?: string; command?: string[]; pid?: number; directory?: string } = {}) {
 		this.runId = options.runId ?? makeRunId();
 		this.cwd = resolve(options.cwd ?? process.cwd());
-		this.directory = resolve(this.cwd, ".pi", "flow-sessions", this.runId);
+		this.directory = options.directory ? resolve(options.directory) : resolve(this.cwd, ".pi", "flow-sessions", this.runId);
 		this.file = resolve(this.directory, "trace.jsonl");
 		mkdirSync(this.directory, { recursive: true });
 		this.write("run_start", { pid: options.pid ?? process.pid, command: options.command ?? process.argv });

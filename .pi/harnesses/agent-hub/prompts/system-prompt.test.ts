@@ -25,7 +25,7 @@ function resolution(active: CapabilityPack[]): CapabilityResolution {
 
 function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; language?: string; catalogNotice?: string } = {}): HubPromptContext {
 	let promptState: HubPromptState = {
-		taskTier: "feature", taskTierAssumed: false,
+		taskTier: "feature", taskTierAssumed: false, processRisk: "high", processScope: "small", processOpen: ["review"],
 		turnDispatchCount: 1, turnResearchCount: 2,
 		taskDispatchCount: 3, taskResearchCount: 4, taskReviewRounds: 1,
 		turnBudget: { maxDispatches: 8, maxResearch: 4 }, taskBudget: { wallMs: 1_800_000 },
@@ -55,7 +55,9 @@ function digest(text: string): string {
 
 test("full extracted Hub prompt preserves exact text, ordering, and ledger", () => {
 	const built = buildHubSystemPrompt(fixture());
-	assert.equal(digest(built.systemPrompt), "87a66d1b618d47219d726c58694749c984dff620185b3c408f97d70decf0d85e");
+	assert.equal(digest(built.systemPrompt), "c6c2abd451accc6752aa51686e171cd085231352ef77087ddae75e93f5a1963c");
+	assert.match(built.systemPrompt, /risk high; scope small; open obligations: review/);
+	assert.match(built.systemPrompt, /correctness obligations are independent of tier/);
 	assert.deepEqual(built.ledger.map(entry => entry.id), [
 		"hub/policy/work-mode", "hub/policy/language", "hub/roster-header", "hub/roster/builder",
 		"hub/policy/dispatch", "hub/policy/triage", "hub/policy/verification", "hub/state",
@@ -87,7 +89,7 @@ test("trusted tool catalog producer and refusal state survive the production pro
 
 test("language and unavailable ask_user branch preserve exact prompt text", () => {
 	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "638fc7f5c075173aba00b2da24169e6bd2a30dab02a4d8364d4d4dc18ab30b42");
+	assert.equal(digest(built.systemPrompt), "f74cc63bcfe34a1b6cd4271e50cbf051082b1f427340d893f59ebcfda809a15a");
 	assert.match(built.systemPrompt, /ask_user is NOT available/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);

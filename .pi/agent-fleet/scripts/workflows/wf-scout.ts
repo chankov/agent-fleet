@@ -8,6 +8,8 @@ export const SCOUT_PERMISSION_POLICY: PermissionPolicy = { writes: [] };
 export interface ScoutWorkflowDeps {
 	agent?: (options: Parameters<typeof runAgentPhase<ScoutReport>>[0]) => Promise<ScoutReport>;
 	persona?: PersonaDefinition;
+	/** Present only for the Hub adapter's owned isolated snapshot. */
+	dataReadRoot?: string;
 }
 
 export function scoutWorkflowPreflight(cwd: string): void {
@@ -31,7 +33,7 @@ export async function scoutWorkflow(run: Run, input: { args: string[]; dryRun: b
 			if (!parsed.ok) throw new Error(parsed.errors.join("; "));
 			return parsed.value!;
 		}
-		return agent({ run, persona, task: request, envelope: "scout", cwd: input.cwd, permissionPolicy: SCOUT_PERMISSION_POLICY });
+		return agent({ run, persona, task: request, envelope: "scout", cwd: input.cwd, permissionPolicy: SCOUT_PERMISSION_POLICY, ...(deps.dataReadRoot ? { dataReadRoot: deps.dataReadRoot } : {}) });
 	});
 	run.trace.write("log", { phase: "scout", message: report.summary, findings: report.findings });
 	return run.finish({ accepted: true });

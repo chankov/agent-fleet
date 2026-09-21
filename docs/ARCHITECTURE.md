@@ -46,7 +46,9 @@ not a session execution mode.
 
 All Hub-owned slash commands remain registered in both work modes. Capability packs are resolved automatically from explicit task intent, work mode, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain.
 
-`/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. Managed specialists and research children use explicit replacement prompts/context manifests with selected persona, policy, and skill paths instead of inherited global skills/context files. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an active roster, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
+`/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. `/af-audit` is a separate read-only session audit over existing runtime-owned records: it reports allowlisted T1 recovery categories, T2 result states, T3 protocol failures, and T8 permission correlations while keeping root, child, compaction snapshot, and repeated-record identities distinct. It never copies prompts, model text, tool payloads, environment values, or transcript content, and unavailable evidence stays explicit rather than becoming a zero count. Managed specialists and research children use explicit replacement prompts/context manifests with selected persona, policy, and skill paths instead of inherited global skills/context files. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an active roster, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
+
+T12 diagnostics have been withdrawn by user decision; there is no command, runner, or replacement entry point. Historical results and accounting remain unchanged. `diagnostic-series-budget.ts` retains the shared v2 ledger, stage/per-unit ceilings, conservative input preflight, migration refusal for ambiguous history, ownership locks, and cancellation fences used by benchmark consumers. `diagnostic-probe-extension.ts` is now a side-effect-free compatibility library exposing only provider/API output-cap mapping, its types, and the transport refusal exit constant. It preserves the reviewed 2048 cap and rejects unsupported payload semantics; it does not register an extension or tool. Existing sessions must be reloaded after updating. The installer retires unchanged managed command/runner files; user-modified obsolete files are preserved and reported for manual review, never deleted automatically. Such retained files are not imported by the current Hub.
 
 ### Context pressure and recovery
 
@@ -249,7 +251,7 @@ remain unchanged and orthogonal. For a real task, the retained diagnostic artifa
 input accepted by the task-generation-bound `establishEffects` recovery port; it records what
 already happened so unchanged retries cannot replay partial effects. It does not authorize a
 retry by itself and does not turn a task failure into a probe result or a universal model
-judgment. A future T12 probe runner may reuse the schema but is not part of this path.
+judgment. The withdrawn T12 runner is not part of this path; historical evidence remains archived.
 
 T5's opt-in `filesystem` tool performs deterministic inventory, byte excerpts, artifact readback, and
 local-file-only source snapshots without another model run. It is registered in the Hub and native
@@ -362,6 +364,25 @@ considered. The review **finding** budget is the one thing deliberately left adv
 hub counts blocking findings (`review-findings.js`) and reports an over-budget return, but
 never reclassifies one, because no rule it can evaluate separates an invented manifest from
 a leaked credential; the round cap is what carries the enforcement.
+**Process obligations (T11)** are task-scoped and independent of that budget tier. The
+`set_task_tier` tool accepts explicit `risk` (`unknown | low | high`) and process `scope`
+(`read-only | small | wide`); neither is inferred from task prose. Legacy/omitted risk is
+`unknown`, risk changes require a reason, and scope expansion requires a reason plus an
+explicit risk reassessment. Unknown permits read-only research but cannot accept changed
+work. Confirmed low-risk small work uses the existing T2 minimal acceptance path; high risk
+adds a separate review stage, while wide work adds plan and review stages. These obligations
+ratchet within a task, so lowering spend cannot erase them. Completed stage records name an
+artifact and revision but only prove that the stage occurred—not that model-authored review
+is semantically adequate.
+
+The same code-owned state is consumed by dispatch acceptance in operator and orchestrator
+modes, appended as `agent-hub-process-state`, restored from the session log, and retained
+through compaction and mode changes. Only `set_task_tier(new_task: true)` creates fresh
+unknown-risk process state. `/af-audit` exports allowlisted satisfied/open/unsupported
+obligation statuses and explains that the budget tier limits spend rather than correctness;
+reasons and task prose are not copied. This extends the existing task/acceptance/audit paths
+and is not a second workflow engine.
+
 **Docs lane** (`docs-lane.js`): a dispatch whose whole declared `scope` is documentation
 refuses review personas (overridable with `review_reason`) and tells the dispatcher not to
 open a review gate; an absent scope is never the lighter lane. **External-blocker stop**
@@ -415,6 +436,8 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 | **LLM providers** | Models per persona (`model:` / `models:` in agent frontmatter) — e.g. OpenAI Codex, GitHub Copilot, Ollama, … | Yes (at least one provider your agents can call) |
 | **Chrome DevTools MCP** / **Playwright Agent CLI** | Browser verify (`browser-testing-with-devtools`) and headless automation (`bowser`) | Optional, feature-specific |
 | **Node.js + npm** | CLI (`npx @chankov/agent-fleet`), package install, `just` recipes | Yes for install & tooling |
+
+The existing `agent-fleet doctor` command also performs a read-only manifest preflight. It reports exact selected installation files and manifest-declared tool probes as environment readiness, distinguishes missing installation from unknown or unavailable platforms, and names the existing explicit remediation path. Bare doctor never repairs or installs; `doctor --fix` remains the only repair activation, and package/tool installation remains behind its existing explicit consent path.
 
 ## Repository module map
 
@@ -487,7 +510,7 @@ packages/hermes-bridge/       # future Hermes integration package
 
 ## Design rules
 
-- **Workflows are isolated from the Hub.** `just flow` owns deterministic phase order, retries, executable gates, post-hoc writes enforcement, and one acceptance decision. It uses the clean spawn/context seams but never routes through hub dispatch; flow traces live under `.pi/flow-sessions/`. Flow branches retain source/result metadata, while the reserved `cleanup` and `merge` maintenance subcommands delegate safe removal and squash integration to Worktrunk. A future `run_flow` hub tool is design-only and would call the dispatcher module directly, never shell through `just`.
+- **Workflow engine remains single-sourced.** `just flow` owns deterministic phase order, retries, executable gates, post-hoc writes enforcement, and one flow acceptance decision. It uses the clean spawn/context seams and keeps its existing clean-tree/branch defaults; normal traces live under `.pi/flow-sessions/`. Flow branches retain source/result metadata, while reserved `cleanup` and `merge` delegate safe removal and squash integration to Worktrunk. The initial Hub `run_flow` adapter calls the same exported dispatcher directly and permits only read-only `scout`: it runs in a stable detached snapshot with no flow branch, stores trace/manifest in the current Hub session, and has one Hub budget/cancellation owner. Snapshot overlay operations validate plain parents before mutation and never follow a HEAD symlink leaf. The native process and descendants use `confineNativeChild`, with only the session-owned phase directory writable; the actual `read`/`grep`/`find`/`ls` data paths are separately limited to the snapshot while damage-control remains loaded. Runtime/model libraries and provider configuration remain readable for Pi startup, so this is intentionally not a global no-read claim. Duplicate identity is idempotent; stale/busy calls are uncharged. All setup/result exceptions settle as structured failures, release active ownership, and preserve honest charged/started state. Flow acceptance never promotes parent assertions or closes T11 obligations. Writable/committing flows remain outside this adapter pending a separate review.
 - **Thin dispatcher context.** Nothing lands persistently in the dispatcher's
   context if it can live on disk or in a one-line status. Research findings,
   the Verification Contract ledger, and team snapshots are all disk-first.

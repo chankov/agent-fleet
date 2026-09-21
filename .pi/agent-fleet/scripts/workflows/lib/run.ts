@@ -37,8 +37,8 @@ export class Run {
 	private readonly cancellation = new AbortController();
 	readonly signal = this.cancellation.signal;
 
-	constructor(options: { cwd?: string; runId?: string; command?: string[]; trace?: FlowTrace; repositoryBaseline?: PermissionSnapshot } = {}) {
-		this.trace = options.trace ?? new FlowTrace(options);
+	constructor(options: { cwd?: string; runId?: string; command?: string[]; trace?: FlowTrace; traceDirectory?: string; repositoryBaseline?: PermissionSnapshot } = {}) {
+		this.trace = options.trace ?? new FlowTrace({ ...options, directory: options.traceDirectory });
 		this.command = options.command ?? [];
 		this.repositoryBaseline = options.repositoryBaseline;
 	}

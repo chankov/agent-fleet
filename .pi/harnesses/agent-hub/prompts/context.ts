@@ -19,6 +19,9 @@ export interface HubPromptResearchPersona {
 export interface HubPromptState {
 	taskTier: string;
 	taskTierAssumed: boolean;
+	processRisk?: string;
+	processScope?: string;
+	processOpen?: readonly string[];
 	turnDispatchCount: number;
 	turnResearchCount: number;
 	taskDispatchCount: number;

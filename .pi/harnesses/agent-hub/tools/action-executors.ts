@@ -1,8 +1,10 @@
 import { profilePeerGate } from '../policy/profile-runtime.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { consumeReservedTaskId, reserveActualTaskId } from "../budget-recovery.ts";
 import { DEFAULT_TASK_TIER, applyTierChange } from "../run-budget.js";
 import { validateAssertionBatch } from "../assertion-ledger.js";
 import { validateEvidence } from "../evidence-rules.js";
+import { applyProcessClassification, createProcessState, processOpenObligations, processPreEffectGate, type ProcessObligationState } from "../process-obligations.ts";
 import { safePathWithin } from "../helpers.ts";
 import { TIMEOUT_MS } from "../../lib/coms-core.ts";
 import type { Assertion, AssertionStatus, AssertionsArtifactsContext } from "../context/assertions-artifacts.ts";
@@ -25,6 +27,9 @@ export interface ActionExecutorDeps {
 	setTaskTier(value: string): void;
 	getTaskTierAssumed(): boolean;
 	setTaskTierAssumed(value: boolean): void;
+	getProcessState?(): ProcessObligationState | null;
+	setProcessState?(value: ProcessObligationState): void;
+	persistProcessState?(value: ProcessObligationState): void;
 	getTaskDispatchCount(): number;
 	getTaskResearchCount(): number;
 	getTurnReport(): TurnReport;
@@ -32,6 +37,8 @@ export interface ActionExecutorDeps {
 	setAssertions(value: Assertion[]): void;
 	currentTaskId(): string;
 	currentRevision(ctx: ExtensionContext): string;
+	confirmTaskSupersession?(input: { oldTaskId: string; newTaskId: string; reason: string }, ctx: ExtensionContext, signal?: AbortSignal): Promise<boolean>;
+	adoptReservedTaskId?(id: string, resetTaskWindow: () => void): void;
 	getAgentStates(): Map<string, { def: { name: string } }>;
 	rosterAdd(agent: string): { ok: boolean; message: string };
 	rosterDrop(agent: string): { ok: boolean; message: string };
@@ -55,25 +62,46 @@ export interface ActionExecutors {
 }
 
 export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
-	const executeSetTaskTier: ToolExecutor<SetTaskTierParams> = async (_callId, params, _signal, _onUpdate, ctx) => {
-		const { tier, reason, new_task } = params;
+	let fallbackProcessState = createProcessState();
+	const getProcessState = () => d.getProcessState?.() ?? fallbackProcessState;
+	const setProcessState = (value: ProcessObligationState) => { fallbackProcessState = value; d.setProcessState?.(value); d.persistProcessState?.(value); };
+	const executeSetTaskTier: ToolExecutor<SetTaskTierParams> = async (_callId, params, signal, _onUpdate, ctx) => {
+		const { tier, risk, scope, reason, new_task } = params;
+		if (new_task && !(typeof reason === "string" && reason.trim())) return { content: [{ type: "text", text: "A genuine new task requires a non-empty reason." }], details: { status: "error", reason: "new_task_reason_required" } };
 		if (!new_task) { const refusal = d.provisionalCapabilityRefusal("fleet"); if (refusal) return refusal; }
 		const currentTier = new_task ? null : (d.getTaskTierAssumed() ? null : d.getTaskTier());
 		const change = applyTierChange(currentTier, tier, reason);
 		if (!change.ok) return { content: [{ type: "text", text: change.message }], details: { status: "error", reason: change.reason, tier: change.tier } };
+		const processChange = applyProcessClassification(getProcessState(), { risk, scope, reason, newTask: !!new_task });
+		if (!processChange.ok) return { content: [{ type: "text", text: processChange.message }], details: { status: "error", reason: "process_classification", tier: change.tier, risk: processChange.state.risk, scope: processChange.state.scope } };
+		let reservedNewTaskId: string | undefined;
+		if (new_task && processOpenObligations(getProcessState()).length) {
+			reservedNewTaskId = reserveActualTaskId();
+			let consumed = false;
+			try {
+				const confirmed = !!d.confirmTaskSupersession && await d.confirmTaskSupersession({ oldTaskId: d.currentTaskId(), newTaskId: reservedNewTaskId, reason: String(reason).trim() }, ctx, signal);
+				consumed = confirmed && consumeReservedTaskId(reservedNewTaskId);
+				if (!consumed) return { content: [{ type: "text", text: "Open obligations were not superseded: operator confirmation was absent, denied, stale, duplicate, or for another task." }], details: { status: "refused", reason: "task_supersession_not_authorized" } };
+			} finally {
+				if (!consumed) consumeReservedTaskId(reservedNewTaskId);
+			}
+		}
 		if (new_task) {
 			const resetAt = Date.now();
 			const prior = d.budget.taskResetSnapshot(resetAt);
-			d.budget.resetTaskWindow(null, resetAt);
+			const resetTaskWindow = () => d.budget.resetTaskWindow(null, resetAt);
+			if (reservedNewTaskId && d.adoptReservedTaskId) d.adoptReservedTaskId(reservedNewTaskId, resetTaskWindow);
+			else resetTaskWindow();
 			d.setAssertions([]);
 			d.artifacts.persistAssertions();
 			d.budget.appendTaskResetEntry("tool:set_task_tier", null, prior, ctx);
 		}
+		setProcessState(processChange.state);
 		d.setTaskTier(change.tier); d.setTaskTierAssumed(false); d.getTurnReport().tier = change.tier; d.budget.updateModeStatus();
 		const b = d.budget.currentBudget(); const tb = d.budget.currentTaskBudget();
 		const cap = (n: number | null) => n == null ? "unlimited" : String(n);
 		const spent = `${d.getTaskDispatchCount()}/${cap(tb.maxDispatches)} dispatches, ${d.getTaskResearchCount()}/${cap(tb.maxResearch)} research`;
-		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\nPer turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Whole task: ${spent} spent. Size the apparatus accordingly — do not spend a cap just because it exists.` }], details: { status: "ok", tier: change.tier, escalated: change.escalated, newTask: !!new_task } };
+		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} Budget tier differs intentionally: it limits spend and cannot erase correctness obligations.\nPer turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Whole task: ${spent} spent. Size the apparatus accordingly — do not spend a cap just because it exists.` }], details: { status: "ok", tier: change.tier, risk: processChange.state.risk, scope: processChange.state.scope, process: processChange.state, escalated: change.escalated, newTask: !!new_task, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
 	};
 
 	const executeTeamAdjust: ToolExecutor<TeamAdjustParams> = async (_id, params, _signal, _update, ctx) => {
@@ -107,6 +135,8 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		const a = assertions.find(x => x.id.toLowerCase() === String(params.id).trim().toLowerCase());
 		if (!a) return { content: [{ type: "text", text: `No assertion "${params.id}" in the ledger. Call set_assertions first, or check the id. Current: ${assertions.map(x => x.id).join(", ") || "(empty)"}.` }], details: { status: "error" } };
 		if (wanted === "proven") {
+			const gate = processPreEffectGate(getProcessState(), "prove", "", d.currentRevision(ctx));
+			if (gate) return { content: [{ type: "text", text: gate.message }], details: { status: "refused", reason: gate.reason } };
 			const validation = validateEvidence(a.tag, params.evidence || "", { fileExists: d.artifacts.evidencePathExists, evidenceRoot: safePathWithin(d.artifacts.artifactsRoot(), "evidence") });
 			if (!validation.ok) return { content: [{ type: "text", text: `${a.id} stays ${a.status}: ${validation.reason}` }], details: { status: "rejected", reason: validation.reason } };
 		}

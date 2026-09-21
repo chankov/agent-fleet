@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -59,6 +59,23 @@ test("agent phase uses replacement context, fallback, detached safety, and same-
 		assert.deepEqual(invalidAttempts[0].attempt, 1);
 		assert.ok((invalidAttempts[0].errors as string[]).some(error => error.includes("findings")));
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("T13 Hub scout phase uses real native OS confinement and session-owned support writes", { skip: process.platform !== "linux" || (!existsSync("/usr/bin/bwrap") && !existsSync("/bin/bwrap")) }, async () => {
+	const { cwd, run } = fixture(); const tools = mkdtempSync(join(tmpdir(), "flow-fake-pi-")); const outside = mkdtempSync(join(tmpdir(), "flow-original-"));
+	const victim = join(outside, ".env"), fakePi = join(tools, "pi"); const oldPath = process.env.PATH; const oldVictim = process.env.T13_ORIGINAL_VICTIM;
+	try {
+		writeFileSync(victim, "original-secret\n");
+		writeFileSync(fakePi, `#!/usr/bin/env node\nconst fs=require('node:fs'); const args=process.argv.slice(2); const session=args[args.indexOf('--session')+1]; fs.writeFileSync(session,'owned-session'); try { fs.writeFileSync(process.env.T13_ORIGINAL_VICTIM,'pwned'); } catch {} const report=${JSON.stringify(JSON.stringify(ENVELOPE_EXAMPLES.scout))}; process.stdout.write(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:report}})+'\\n');`, { mode: 0o755 });
+		process.env.PATH = `${tools}:${oldPath}`; process.env.T13_ORIGINAL_VICTIM = victim;
+		const result = await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, dataReadRoot: cwd });
+		assert.deepEqual(result, ENVELOPE_EXAMPLES.scout); assert.equal(readFileSync(victim, "utf8"), "original-secret\n");
+		assert.equal(readFileSync(join(run.trace.directory, "researcher", "session.json"), "utf8"), "owned-session");
+	} finally {
+		if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+		if (oldVictim === undefined) delete process.env.T13_ORIGINAL_VICTIM; else process.env.T13_ORIGINAL_VICTIM = oldVictim;
+		rmSync(cwd, { recursive: true, force: true }); rmSync(tools, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true });
+	}
 });
 
 test("agent-declared fail rejects the containing run without correction", async () => {

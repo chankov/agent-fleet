@@ -23,13 +23,16 @@
 //   7. Runtime dependencies — each installed npm root is checked with `npm ls`.
 //      Missing/broken dependencies are actionable but never auto-installed by
 //      doctor; use the explicit dependency or setup execution consent path.
+//   8. Manifest preflight — selected exact files and declared package probes are
+//      reported as environment readiness, with platform unknown/unavailable kept
+//      distinct from missing installation. Inspection never installs or repairs.
 //
 // For each broken link we look up a canonical replacement in the source
 // `agents/` or `skills/` tree (many breakages are stale names from the
 // pre-merge layout, e.g. `reviewer` → `code-reviewer`).
 
 import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve, dirname, basename, relative, isAbsolute, sep } from "node:path";
+import { join, resolve, dirname, basename, relative, isAbsolute, sep, delimiter } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { validateOverrides } from "./validate-overrides.js";
@@ -306,6 +309,85 @@ function findReplacement({ brokenName, kind, sourceRoot }) {
   }
 
   return null;
+}
+
+// ── manifest-backed installation preflight ──────────────────────────────────
+
+function selectedManifestIds(manifest, state) {
+  const selected = new Set(state ? Object.keys(state.items ?? {}) : manifest.presets?.default?.items ?? []);
+  const byId = new Map((manifest.items ?? []).map((item) => [item.id, item]));
+  const queue = [...selected];
+  while (queue.length) {
+    const item = byId.get(queue.shift());
+    for (const id of [...(item?.companions ?? []), ...(item?.requires ?? [])]) if (!selected.has(id)) { selected.add(id); queue.push(id); }
+  }
+  return { selected: [...selected].sort(), byId };
+}
+
+function sourceFiles(sourceRoot, source, target) {
+  const abs = join(sourceRoot, source);
+  if (!existsSync(abs)) return [];
+  let stat;
+  try { stat = lstatSync(abs); } catch { return []; }
+  if (!stat.isDirectory()) return [target];
+  const files = [];
+  const walk = (dir, rel = "") => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const child = join(dir, entry.name), childRel = rel ? join(rel, entry.name) : entry.name;
+      if (entry.isDirectory()) walk(child, childRel);
+      else files.push(join(target, childRel));
+    }
+  };
+  walk(abs);
+  return files;
+}
+
+function executableOnPath(name, pathValue) {
+  if (!name || name.includes("/") || name.includes("\\")) return false;
+  const suffixes = process.platform === "win32" ? ["", ".cmd", ".exe", ".bat"] : [""];
+  return String(pathValue ?? "").split(delimiter).filter(Boolean).some((dir) => suffixes.some((suffix) => {
+    const path = join(dir, `${name}${suffix}`);
+    try { return lstatSync(path).isFile(); } catch { return false; }
+  }));
+}
+
+/** Read-only exact-file/tool readiness derived from the existing install manifest and state. */
+export function manifestPreflight({ workspace, sourceRoot, manifest, state = readState(workspace), platform = process.platform, pathValue = process.env.PATH } = {}) {
+  const currentPlatform = platform === "linux" || platform === "darwin" ? platform : "unknown";
+  const { selected, byId } = selectedManifestIds(manifest, state);
+  const unavailablePlatform = [], unknownManifestItems = [], requiredFiles = new Set(), tools = [];
+  for (const id of selected) {
+    const item = byId.get(id);
+    if (!item) { unknownManifestItems.push(id); continue; }
+    if (item.platform !== "any" && item.platform !== currentPlatform) {
+      unavailablePlatform.push({ itemId: id, status: currentPlatform === "unknown" ? "unknown_platform" : "unavailable_platform", requiredPlatform: item.platform });
+      continue;
+    }
+    const binding = item.agents?.[state?.agent ?? "pi"] ?? item.agents?.pi;
+    if (state?.items?.[id]?.files) {
+      for (const file of state.items[id].files) if (typeof file?.path === "string") requiredFiles.add(file.path);
+    } else if (binding?.target && ["copy-file", "copy-tree"].includes(binding.strategy)) {
+      const source = binding.source?.find((candidate) => existsSync(join(sourceRoot, candidate)));
+      if (source) for (const file of sourceFiles(sourceRoot, source, binding.target)) requiredFiles.add(file);
+    } else if (binding?.target && ["managed-region", "json-merge"].includes(binding.strategy)) requiredFiles.add(binding.target);
+    if (item.package?.probe) {
+      const available = item.package.manager === "npm" ? executableOnPath(item.package.probe, pathValue) : null;
+      tools.push({ itemId: id, probe: item.package.probe, status: available === true ? "available" : available === false ? "missing" : "unknown", remediation: "agent-fleet setup --allow-exec --yes" });
+    }
+  }
+  const missingFiles = [...requiredFiles].sort().filter((path) => !existsSync(join(workspace, path)));
+  const noRecord = !state;
+  const missingTools = tools.filter((tool) => tool.status === "missing");
+  const status = noRecord ? "unavailable" : missingFiles.length || missingTools.length ? "missing_install" : unknownManifestItems.length || unavailablePlatform.some((item) => item.status === "unknown_platform") || tools.some((tool) => tool.status === "unknown") ? "unknown" : "ready";
+  return {
+    schema: "agent-fleet.installation-preflight/v1", classification: "environment", readOnly: true, status,
+    manifestVersion: manifest.packageVersion ?? null, selectedItems: selected.length,
+    requiredFiles: [...requiredFiles].sort(), missingFiles, tools, unavailablePlatform, unknownManifestItems,
+    remediation: noRecord ? ["agent-fleet setup --preset default --yes"] : [
+      ...(missingFiles.length ? ["agent-fleet doctor --fix"] : []),
+      ...(missingTools.length ? ["agent-fleet setup --allow-exec --yes"] : []),
+    ],
+  };
 }
 
 // ── mixed copied / package-native ownership ─────────────────────────────────

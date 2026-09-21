@@ -2,14 +2,16 @@ import { createNoProgressGuard } from "../no-progress.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { createDispatchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt } from "./dispatch-execution.ts";
+import { applyProcessClassification, createProcessState } from "../process-obligations.ts";
 
 function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?: number; tools?: string } = {}) {
 	let turn = overrides.turn ?? 0;
 	let task = 0, activeWriters = 0, overlapCounter = 0;
+	let processState = applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "test fixture" }).state;
 	const agents = new Map((overrides.agents ?? ["builder"]).map(name => [name.toLowerCase(), { def: { name, tools: overrides.tools ?? "read" }, runCount: 0, contextPct: 0, lastBackend: null as string | null }]));
 	const turnReport = { refusals: 0, dispatches: [] as unknown[], research: 0, tier: "small" };
 	const sessionTotals = { refusals: 0, dispatches: 0, research: 0, billed: 0, out: 0 };
@@ -27,6 +29,9 @@ function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?:
 			getTaskReviewRounds: () => 0,
 			setTaskReviewRounds() {},
 			getTaskTier: () => "small",
+			getProcessState: () => processState,
+			setProcessState: (value: any) => { processState = value; },
+			persistProcessVerdict() {},
 			getTurnReport: () => turnReport,
 			getSessionTotals: () => sessionTotals,
 			getTurnDispatchFingerprints: () => new Set<string>(),
@@ -523,6 +528,24 @@ test("runtime accepts a changed task only with a current recorded command and pa
  assert.equal(details.verificationResult.checks[0].exitCode, 0); assert.equal(details.verificationResult.checks[0].inspectedRevision, details.taskIdentity.revision.after);
 });
 
+test("T11 real dispatch consumer refuses unknown/high-risk acceptance independently of tier", async t => {
+ for (const tier of ["trivial", "project"] as const) {
+  const { cwd, d } = await gitDiagnosticsFixture(t); let process = createProcessState();
+  d.state.getTaskTier = () => tier; d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; }; d.state.persistProcessVerdict = () => {};
+  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), `export const value = ${tier === "trivial" ? 2 : 3};\n`); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: `unknown-${tier}` }; };
+  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
+  const unknown = await createDispatchExecutor(d as any)("unknown", { agent: "builder", task: "change" }, undefined, undefined, { cwd } as any);
+  assert.equal((unknown.details as any).accepted, false); assert.equal((unknown.details as any).processVerdict.obligations.risk.status, "open");
+ }
+ const { cwd, d } = await gitDiagnosticsFixture(t); let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive boundary" }).state;
+ d.state.getTaskTier = () => "small"; d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; }; d.state.persistProcessVerdict = () => {};
+ d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "export const value = 4;\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "high-small" }; };
+ d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
+ const high = await createDispatchExecutor(d as any)("high", { agent: "builder", task: "high risk change" }, undefined, undefined, { cwd } as any);
+ assert.equal((high.details as any).accepted, false); assert.equal((high.details as any).processVerdict.obligations.review.status, "open");
+ assert.ok(process.acceptance.evidenceRef, "the valid T2 acceptance stage persists while independent review stays open");
+});
+
 test("compiler correction runs after return extraction", async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t); let extracted = 0;
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "broken\n"); return { output: "prose-only result", exitCode: 0, elapsed: 1, dispatchId: "compiler-extracted" }; };
@@ -632,10 +655,14 @@ test("dispatch execution contains exactly one shared diffAgainst call", () => {
 });
 
 test("real native executor finishDispatch times workflows compiler and demotes on changed-file errors", async t => {
- const repo = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
- const target = join(repo, ".pi/agent-fleet/scripts/workflows/wf-quality.ts");
- const original = readFileSync(target);
- t.after(() => writeFileSync(target, original));
+ const sourceRepo = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+ const repo = mkdtempSync(join(tmpdir(), "finish-hook-repo-")); t.after(() => rmSync(repo, { recursive: true, force: true }));
+ const workflowDir = join(repo, ".pi/agent-fleet/scripts/workflows"); mkdirSync(join(repo, ".pi/agent-fleet/scripts"), { recursive: true });
+ cpSync(join(sourceRepo, ".pi/agent-fleet/scripts/workflows"), workflowDir, { recursive: true });
+ cpSync(join(sourceRepo, "package.json"), join(repo, "package.json"));
+ symlinkSync(join(sourceRepo, "node_modules"), join(repo, "node_modules"), "dir");
+ execFileSync("git", ["init", "-q"], { cwd: repo }); execFileSync("git", ["add", "."], { cwd: repo }); execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], { cwd: repo });
+ const target = join(workflowDir, "wf-quality.ts"); const original = readFileSync(target);
  const sessionDir = mkdtempSync(join(tmpdir(), "finish-hook-")); t.after(() => rmSync(sessionDir, { recursive: true, force: true }));
  const d = prepareDeps({ agents: ["checkpoint-timer"], tools: "read,write" });
  d.budget.currentBudget = () => ({ maxDispatches: 8, maxResearch: 2 });
@@ -660,7 +687,7 @@ test("real native executor finishDispatch times workflows compiler and demotes o
  assert.equal(cold.details.compilerDiagnostics?.status, "completed", JSON.stringify(cold.details.compilerDiagnostics, null, 2));
  assert.equal(cold.project?.status, "passed", JSON.stringify(cold.details.compilerDiagnostics, null, 2));
  assert.equal(cold.project.exitCode, 0);
- const compilerVersion = JSON.parse(readFileSync(join(repo, "node_modules/typescript/package.json"), "utf8")).version;
+ const compilerVersion = JSON.parse(readFileSync(join(sourceRepo, "node_modules/typescript/package.json"), "utf8")).version;
  assert.equal(cold.project.compilerVersion, compilerVersion);
  assert.ok(cold.project.argv.includes("--noEmit") && cold.project.argv.includes("--incremental"));
  const cacheParts = relative(join(tmpdir(), "agent-fleet-diagnostics"), cold.project.argv.at(-1)).split(sep);
@@ -723,4 +750,65 @@ test("already-running agent rejected before prepare consumes budget or poisons t
  d.state.getAgentStates().get("builder").status = "idle";
  const next = await createDispatchExecutor(d as any)("next", { agent: "builder", task: "new task after idle" }, undefined, undefined, {} as any);
  assert.equal((next.details as any).exitCode, 0); assert.equal(budgetChecks, 1); assert.equal(runs, 1);
+});
+
+async function highRiskChangedFixture(t: any) {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive boundary" }).state;
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; }; d.state.persistProcessVerdict = () => {};
+ d._agents.set("code-reviewer", { def: { name: "code-reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
+ d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
+ d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "export const value = 9;\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "high-build" }; };
+ await createDispatchExecutor(d as any)("build", { agent: "builder", task: "high risk change" }, undefined, undefined, { cwd } as any);
+ assert.equal(process.review.required, true); assert.ok(process.changedFiles.includes("src/api.ts"));
+ return { cwd, d, process: () => process };
+}
+
+test("T11 reviewer REJECT cannot satisfy the open review obligation", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ d.dispatchAgent = async () => ({ output: "verdict: REJECT\nfindings remain", exitCode: 0, elapsed: 1, dispatchId: "rev-reject" });
+ await createDispatchExecutor(d as any)("rev", { agent: "code-reviewer", task: "review", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
+ assert.equal(process().review.evidenceRef, null);
+ assert.equal(process().review.required, true);
+});
+
+test("T11 reviewer APPROVE with partial changed-file overlap cannot satisfy review", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "rev-partial" });
+ await createDispatchExecutor(d as any)("rev", { agent: "code-reviewer", task: "review", scope: ["README.md"] }, undefined, undefined, { cwd } as any);
+ assert.equal(process().review.evidenceRef, null);
+});
+
+test("T11 reviewer APPROVE covering current changed files records review at current revision", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "rev-ok" });
+ await createDispatchExecutor(d as any)("rev", { agent: "code-reviewer", task: "review", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
+ assert.ok(process().review.evidenceRef);
+ assert.equal(process().review.revision, process().acceptance.revision);
+});
+
+test("T11 docs-lane blocks process-required reviewer without explicit review_reason", async t => {
+ const { cwd, d } = await highRiskChangedFixture(t);
+ const blocked = await createDispatchExecutor(d as any)("docs", { agent: "code-reviewer", task: "review docs", scope: ["README.md"] }, undefined, undefined, { cwd } as any);
+ assert.match(String((blocked.details as any).status || (blocked.content[0] as any).text), /docs|review_reason/i);
+ const allowed = await createDispatchExecutor(d as any)("docs-ok", { agent: "code-reviewer", task: "review docs", scope: ["README.md"], review_reason: "docs-only closeout" }, undefined, undefined, { cwd } as any);
+ assert.notEqual((allowed.details as any).status, (blocked.details as any).status);
+});
+
+test("T11 unknown risk still allows research and still refuses changed-task acceptance", async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ let process = createProcessState();
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+ (d.research as any).anonymousDef = () => ({ name: "researcher" });
+ (d.research as any).resolveModel = () => "test/model";
+ (d.research as any).createState = () => ({ id: 7 });
+ let spawned = 0;
+ (d.research as any).spawn = async () => { spawned++; return { output: "notes", exitCode: 0, elapsed: 1 }; };
+ const research = await createResearchExecutor(d as any)("r", { task: "trace callers" }, undefined, undefined, { cwd } as any);
+ assert.equal(spawned, 1); assert.equal((research.details as any).exitCode, 0);
+ d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "export const value = 8;\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "unk" }; };
+ d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
+ const changed = await createDispatchExecutor(d as any)("b", { agent: "builder", task: "change" }, undefined, undefined, { cwd } as any);
+ assert.equal((changed.details as any).accepted, false);
+ assert.equal((changed.details as any).processVerdict.obligations.risk.status, "open");
 });

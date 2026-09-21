@@ -434,6 +434,14 @@ export default function (pi) {
 		}
 		assert.equal((await rpc.request({ type: "prompt", message: "run the pressure probe" })).success, true);
 		await rpc.waitForNotification("Context reached 90%; pausing the tool loop for automatic compaction.", 10_000);
+		const abortReadyDeadline = Date.now() + 10_000;
+		while (!(existsSync(eventPath) && readFileSync(eventPath, "utf8").includes('"type":"provider_aborted"'))) {
+			if (Date.now() >= abortReadyDeadline) break;
+			await new Promise(resolve => setTimeout(resolve, 20));
+		}
+		if (!(existsSync(eventPath) && readFileSync(eventPath, "utf8").includes('"type":"provider_aborted"'))) {
+			await rpc.waitForNotification("Automatic context compaction started.", 10_000);
+		}
 		assert.equal((await rpc.request({ type: "prompt", message: "deferred-after-pressure" })).success, true,
 			"input arriving during recovery is handled rather than rejected as streaming");
 		try {
@@ -621,10 +629,10 @@ export default function (pi) {
 		const initialCommands = await rpc.request({ type: "get_commands" });
 		assert.equal(initialCommands.success, true, JSON.stringify(initialCommands));
 		const initialNames = initialCommands.data.commands.map((command: { name: string }) => command.name);
-		for (const name of ["af-work-mode", "af-handoff", "af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart", "probe-active-tools"]) {
+		for (const name of ["af-audit", "af-retry", "af-work-mode", "af-handoff", "af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart", "probe-active-tools"]) {
 			assert.ok(initialNames.includes(name), `${name} should remain registered`);
 		}
-		for (const removed of ["af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
+		for (const removed of ["af-probe", "af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
 			assert.ok(!initialNames.includes(removed), `${removed} should be removed`);
 		}
 
@@ -651,10 +659,10 @@ export default function (pi) {
 
 		const switchedCommands = await rpc.request({ type: "get_commands" });
 		const switchedNames = switchedCommands.data.commands.map((command: { name: string }) => command.name);
-		for (const name of ["af-work-mode", "af-handoff", "af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart"]) {
+		for (const name of ["af-audit", "af-retry", "af-work-mode", "af-handoff", "af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart"]) {
 			assert.ok(switchedNames.includes(name), `${name} should survive work-mode switching`);
 		}
-		for (const removed of ["af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
+		for (const removed of ["af-probe", "af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
 			assert.ok(!switchedNames.includes(removed), `${removed} should stay removed after switching`);
 		}
 
@@ -795,10 +803,10 @@ test("Pi loads a symlinked hub after a package-only update", () => {
 		symlinkSync(join(repoRoot, "node_modules"), join(workspace, "node_modules"), "dir");
 
 		const manifest = JSON.parse(readFileSync(join(repoRoot, "bin", "catalog", "harness-runtime-closure.json"), "utf8"));
-		for (const relativePath of manifest.files.filter((value: string) => value.startsWith(".pi/agent-fleet/scripts/"))) {
+		for (const relativePath of [...manifest.files, ...manifest.directories].filter((value: string) => value.startsWith(".pi/agent-fleet/scripts/"))) {
 			const target = join(workspace, relativePath);
 			mkdirSync(dirname(target), { recursive: true });
-			cpSync(join(repoRoot, relativePath), target);
+			cpSync(join(repoRoot, relativePath), target, { recursive: true });
 		}
 
 		assertExtensionStackLoaded(runExtensionStack(workspace, ["--solo"]));

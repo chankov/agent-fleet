@@ -93,7 +93,8 @@ export function createNoProgressGuard() {
 			}
 			return false;
 		},
-		reset() { generation = {}; taskId = randomUUID(); pending.clear(); pendingExecutors.clear(); failures.clear(); },
+		adopt(id: string) { generation = {}; taskId = id; pending.clear(); pendingExecutors.clear(); failures.clear(); },
+		reset() { this.adopt(randomUUID()); },
 	};
 }
 export type NoProgressGuard = ReturnType<typeof createNoProgressGuard>;

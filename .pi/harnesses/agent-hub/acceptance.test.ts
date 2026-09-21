@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildRuntimeResult, mapCompatibilityStatus, minimalChangeRequirement, preflightDeliverables, readBackDeliverables } from "./acceptance.ts";
+import { applyProcessClassification, createProcessState, evaluateProcessObligations, latestProcessState, noteProcessStage, processAuditRecord, processPreEffectGate } from "./process-obligations.ts";
 
 function fixture(t: any) {
  const cwd = mkdtempSync(join(tmpdir(), "fleet-acceptance-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
@@ -143,6 +144,64 @@ test("current bound runtime check supersedes old ledger stamps; code-grep is che
   assert.equal(result.verification.status, tag === "code-grep" ? "missing" : "unsupported");
   assert.equal(result.acceptance.accepted, false);
  }
+});
+
+test("T11 risk obligations are independent of budget tier and ratchet until a genuine new task", () => {
+ let state = createProcessState();
+ for (const mode of ["operator", "orchestrator"] as const) for (const tier of ["trivial", "small", "feature", "project"]) {
+  const unknown = evaluateProcessObligations(state, { writable: true, budgetTier: tier, workMode: mode });
+  assert.equal(unknown.accepted, false); assert.equal(unknown.obligations.risk.status, "open");
+ }
+ const high = applyProcessClassification(state, { risk: "high", scope: "small", reason: "touches authorization" });
+ assert.equal(high.ok, true); state = high.state;
+ for (const tier of ["trivial", "project"]) {
+  const verdict = evaluateProcessObligations(state, { writable: true, budgetTier: tier, t2Accepted: true });
+  assert.equal(verdict.accepted, false); assert.equal(verdict.obligations.review.status, "open");
+ }
+ const lowered = applyProcessClassification(state, { risk: "low", reason: "risk reassessed after containment" });
+ assert.equal(lowered.ok, true); state = lowered.state;
+ assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "trivial", t2Accepted: true }).obligations.review.status, "open", "low does not erase an open high-risk review");
+ state = noteProcessStage(state, "review", { evidenceRef: "review:run-1", revision: "rev-1" });
+ assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "trivial", t2Accepted: true }).accepted, true);
+ const reset = applyProcessClassification(state, { newTask: true, risk: "low", scope: "small", reason: "genuine new task" });
+ assert.equal(reset.ok, true); assert.equal(reset.state.review.required, false); assert.equal(reset.state.review.evidenceRef, null);
+});
+
+test("T11 scope expansion requires an explicit reason and risk reassessment; wide work keeps plan and review", () => {
+ let state = applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "contained reversible change" }).state;
+ const missing = applyProcessClassification(state, { scope: "wide", reason: "dependencies expanded" });
+ assert.equal(missing.ok, false); assert.match(missing.message, /risk reassessment/i);
+ const expanded = applyProcessClassification(state, { scope: "wide", risk: "high", reason: "new cross-package dependency" });
+ assert.equal(expanded.ok, true); state = expanded.state;
+ const verdict = evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: true });
+ assert.equal(verdict.obligations.plan.status, "open"); assert.equal(verdict.obligations.review.status, "open");
+ assert.match(verdict.explanation, /budget tier small/i); assert.match(verdict.explanation, /risk high/i);
+ state = noteProcessStage(noteProcessStage(state, "plan", { evidenceRef: "plan:run-1", revision: "rev-1" }), "review", { evidenceRef: "review:run-2", revision: "rev-1" });
+ assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: true }).accepted, true);
+});
+
+test("T11 process state round-trips through session entries for resume and compaction", () => {
+ let state = applyProcessClassification(createProcessState(), { risk: "high", scope: "wide", reason: "cross-boundary change" }).state;
+ state = noteProcessStage(state, "plan", { evidenceRef: "plan:1", revision: "rev-1" });
+ const verdict = evaluateProcessObligations(state, { writable: true, budgetTier: "trivial", currentRevision: "rev-1" });
+ const entry = { type: "custom", customType: "agent-hub-process-state", data: processAuditRecord(state, verdict) };
+ assert.deepEqual(latestProcessState([{ type: "compaction", id: "snap-1" }, entry]), state);
+ assert.deepEqual(latestProcessState([{ type: "compaction", id: "snap-2" }, entry]), state, "compaction identity does not reset same-task obligations");
+});
+
+test("T11 read-only work stays lightweight while unknown writable work cannot be accepted", () => {
+ const state = createProcessState();
+ const readOnly = evaluateProcessObligations(state, { writable: false, budgetTier: "small" });
+ assert.equal(readOnly.accepted, false); assert.equal(readOnly.path, "read-only"); assert.equal(readOnly.obligations.acceptance.status, "unsupported");
+ const writable = evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: true });
+ assert.equal(writable.accepted, false); assert.equal(writable.obligations.risk.status, "open");
+});
+
+test("T11 open plan refuses operator writes and dependent children before effect", () => {
+ const wide = applyProcessClassification(createProcessState(), { risk: "high", scope: "wide", reason: "cross-package change" }).state;
+ assert.equal(processPreEffectGate(wide, "write")?.reason, "process_plan_open");
+ assert.equal(processPreEffectGate(wide, "child", "builder")?.reason, "process_plan_open");
+ assert.equal(processPreEffectGate(wide, "child", "planner"), null);
 });
 
 test("dispatcher prompt makes declared checks and unsupported requirement limits discoverable", async () => {

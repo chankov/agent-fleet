@@ -12,11 +12,11 @@ import { Run, type FinishResult } from "./workflows/lib/run.ts";
 import { buildTestWorkflow, buildTestWorkflowPreflight } from "./workflows/wf-build-test.ts";
 import { documentWorkflow, documentWorkflowPreflight } from "./workflows/wf-document.ts";
 import { qualityWorkflow, qualityWorkflowPreflight } from "./workflows/wf-quality.ts";
-import { scoutWorkflow, scoutWorkflowPreflight } from "./workflows/wf-scout.ts";
+import { scoutWorkflow, scoutWorkflowPreflight, type ScoutWorkflowDeps } from "./workflows/wf-scout.ts";
 import { pollWorkflow, pollWorkflowPreflight, pollWorkflowValidate } from "./workflows/wf-poll.ts";
 import { debateWorkflow, debateWorkflowPreflight, debateWorkflowValidate } from "./workflows/wf-debate.ts";
 
-export type Workflow = (run: Run, input: { args: string[]; dryRun: boolean; cwd: string; panel?: string; rounds?: number; apply?: boolean }) => Promise<FinishResult>;
+export type Workflow = (run: Run, input: { args: string[]; dryRun: boolean; cwd: string; panel?: string; rounds?: number; apply?: boolean }, deps?: any) => Promise<FinishResult>;
 export interface WorkflowDefinition {
 	run: Workflow;
 	validate?: (command: FlowCommand, cwd: string) => void;
@@ -64,20 +64,31 @@ export async function resolveWorkflow(name: string, workflowsDir = resolve(dirna
 	return { run: run as Workflow, ...(typeof preflight === "function" ? { preflight: preflight as (cwd: string) => void } : {}) };
 }
 
-export async function executeFlow(command: FlowCommand, options: { cwd?: string; command?: string[]; workflowsDir?: string } = {}): Promise<FinishResult> {
+export interface HubScoutExecution {
+	/** Hub-only no-branch mode. CLI callers omit this and retain legacy branch semantics. */
+	noBranch: true;
+	traceDirectory: string;
+	signal?: AbortSignal;
+	scoutAgent?: ScoutWorkflowDeps["agent"];
+}
+
+export async function executeFlow(command: FlowCommand, options: { cwd?: string; command?: string[]; workflowsDir?: string; hubScout?: HubScoutExecution } = {}): Promise<FinishResult> {
 	const cwd = options.cwd ?? process.cwd();
+	if (options.hubScout && command.name !== "scout") throw Object.assign(new Error("Hub no-branch execution currently permits only the read-only scout flow"), { exitCode: 2 });
 	const workflow = await resolveWorkflow(command.name, options.workflowsDir);
 	if (!workflow) throw Object.assign(new Error(`Unknown flow: ${command.name}`), { exitCode: 2 });
 	workflow.validate?.(command, cwd);
 	loadEnv(cwd);
-	// All refusal checks precede branch creation and the FlowTrace constructor.
-	requireCleanTree(cwd, command.allowDirty);
+	// CLI keeps its clean-tree + branch defaults. Hub scout runs only in a detached
+	// isolated snapshot and never creates or annotates a branch.
+	if (!options.hubScout) requireCleanTree(cwd, command.allowDirty);
 	workflow.preflight?.(cwd, command);
 	const runId = command.runId ?? makeRunId();
 	const repositoryBaseline = snapshot(cwd);
-	const branch = createFlowBranch(command.name, runId, cwd);
-	const run = new Run({ cwd, runId, command: options.command ?? process.argv, repositoryBaseline });
+	const branch = options.hubScout ? undefined : createFlowBranch(command.name, runId, cwd);
+	const run = new Run({ cwd, runId, command: options.command ?? process.argv, repositoryBaseline, traceDirectory: options.hubScout?.traceDirectory });
 	const persistResult = (result: FinishResult) => {
+		if (!branch) return;
 		try { recordFlowResult(branch, result.status, cwd); }
 		catch (error) { console.error(`Warning: flow result metadata was not recorded: ${error instanceof Error ? error.message : String(error)}`); }
 	};
@@ -86,10 +97,16 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 		if (interruption) return;
 		interruption = run.interrupt(signal);
 	};
+	const onAbort = () => { if (!interruption) interruption = run.abort("cancelled by Hub owner", 130); };
 	process.once("SIGINT", onSignal);
 	process.once("SIGTERM", onSignal);
+	options.hubScout?.signal?.addEventListener("abort", onAbort, { once: true });
 	try {
-		const result = await workflow.run(run, { args: command.args, dryRun: command.dryRun, cwd, panel: command.panel, rounds: command.rounds, apply: command.apply });
+		if (options.hubScout?.signal?.aborted) onAbort();
+		const input = { args: command.args, dryRun: command.dryRun, cwd, panel: command.panel, rounds: command.rounds, apply: command.apply };
+		const result = options.hubScout
+			? await workflow.run(run, input, { ...(options.hubScout.scoutAgent ? { agent: options.hubScout.scoutAgent } : {}), dataReadRoot: cwd })
+			: await workflow.run(run, input);
 		const finalResult = interruption ?? result;
 		persistResult(finalResult);
 		console.error(finalResult.banner);
@@ -108,6 +125,7 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 	} finally {
 		process.removeListener("SIGINT", onSignal);
 		process.removeListener("SIGTERM", onSignal);
+		options.hubScout?.signal?.removeEventListener("abort", onAbort);
 	}
 }
 

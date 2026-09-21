@@ -29,6 +29,10 @@ export interface SpawnResearchParams {
 
 export interface SetTaskTierParams {
 	tier: string;
+	/** Explicit correctness risk; omitted legacy calls remain unknown, never low. */
+	risk?: "unknown" | "low" | "high";
+	/** Explicit process scope, separate from dispatch path globs. */
+	scope?: "read-only" | "small" | "wide";
 	reason?: string;
 	new_task?: boolean;
 }

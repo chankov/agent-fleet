@@ -2,11 +2,15 @@ import { profileFallback } from './model-profile.ts';
 import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { SCOUT_DATA_ROOT_ENV } from "./scout-data-boundary.ts";
 
 interface SpawnPiAgentOptions {
 	model: string; tools: string; thinking: string; systemPrompt?: string; noSkills?: boolean; noContextFiles?: boolean;
 	sessionFile: string; resume?: boolean; prompt: string; cwd?: string; extensions?: string[]; detached?: boolean;
 	signal?: AbortSignal; toolWatchdog?: { timeoutMs: number | null }; turnDeadlineMs?: number | null;
+	env?: Record<string, string>;
+	writeIsolation?: { enabled: true; cwd: string; runtimePaths: string[] };
 }
 interface SpawnPiAgentResult { output: string; exitCode: number | null; assistantError?: string; spawnError?: string; stderr?: string }
 interface SpawnCallbacks { onProcess?(process: ChildProcess): void; onUsage?(usage: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }): void }
@@ -37,6 +41,8 @@ export interface AgentPhaseOptions<T = unknown> {
 	toolWatchdogMs?: number; turnDeadlineMs?: number; rulesPaths?: string[]; docsPaths?: string[];
 	gates?: Gate<T>[]; gateRetries?: number; protectedGlobs?: string[]; permissionPolicy?: PermissionPolicy;
 	model?: string; thinking?: string; sessionTag?: string;
+	/** Hub scout only: confine OS writes and declared filesystem-tool data reads to this snapshot. */
+	dataReadRoot?: string;
 }
 
 export function modelTag(model: string): string {
@@ -95,10 +101,15 @@ export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>):
 			options.run.trace.write("log", { phase: options.persona.name, message: `session recycled before spawn — ${overflow.message}` });
 		}
 		let measuredTokens = meta.contextTokens;
+		const scoutBoundary = options.dataReadRoot ? fileURLToPath(new URL("./scout-data-boundary.ts", import.meta.url)) : null;
 		const result = await spawnAgent({
 			model, tools: options.persona.tools, thinking,
 			systemPrompt: replacement, noSkills: true, noContextFiles: true, sessionFile, resume, prompt, cwd,
-			extensions: [".pi/harnesses/damage-control-continue/index.ts"], detached: true, signal: options.run.signal,
+			extensions: [".pi/harnesses/damage-control-continue/index.ts", ...(scoutBoundary ? [scoutBoundary] : [])], detached: true, signal: options.run.signal,
+			...(options.dataReadRoot ? {
+				env: { [SCOUT_DATA_ROOT_ENV]: resolve(options.dataReadRoot) },
+				writeIsolation: { enabled: true as const, cwd, runtimePaths: [directory] },
+			} : {}),
 			toolWatchdog: { timeoutMs: options.toolWatchdogMs ?? 120_000 }, turnDeadlineMs: options.turnDeadlineMs ?? 1_200_000,
 		}, profileFallback(options.persona.fallbackModel), {
 			onProcess: process => options.run.registerProcess(process, options.persona.name),

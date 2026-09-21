@@ -12,7 +12,7 @@ import { parseArgs } from "node:util";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout, exit } from "node:process";
 
-import { runDoctor } from "./lib/doctor.js";
+import { manifestPreflight, runDoctor } from "./lib/doctor.js";
 import { loadManifest } from "./lib/manifest.js";
 import { runVerify, hasDrift } from "./lib/verify.js";
 import { buildPlan, hasConflicts, isNoop } from "./lib/plan.js";
@@ -384,11 +384,13 @@ async function cmdDoctor() {
   const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape"]);
   // These findings affect launch readiness and the doctor exit code, but npm
   // execution remains behind its dedicated explicit-consent commands.
-  const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies"]);
+  const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies", "manifest-tool"]);
   const pendingTransaction = existsSync(journalPath(workspace));
   const unrecoverableJournal = recovery.pending && !recovery.recoverable;
+  const manifest = loadManifest(pkgRoot);
   const plan = buildRepairPlan();
   const repairs = plan?.actions ?? [];
+  const preflight = manifestPreflight({ workspace, sourceRoot: pkgRoot, manifest });
 
   // The two scans overlap on a broken link that the state file also records.
   // The engine's repair wins — it rebuilds the item in the exact form the
@@ -399,6 +401,10 @@ async function cmdDoctor() {
   );
   const findings = (await runDoctor({ workspace, sourceRoot: pkgRoot }))
     .filter((f) => !(f.type === "broken-symlink" && enginePaths.has(f.path)));
+  for (const tool of preflight.tools.filter((item) => item.status === "missing")) findings.push({
+    type: "manifest-tool", path: tool.itemId, issue: `required manifest tool ${tool.probe} is missing`,
+    fix: tool.remediation, classification: "environment",
+  });
   if (unrecoverableJournal) findings.unshift({
     type: "unrecoverable-transaction", path: relative(workspace, journalPath(workspace)),
     issue: "transaction backup is missing or unreadable", fix: "discard installer-owned journal with doctor --fix",
@@ -429,6 +435,8 @@ async function cmdDoctor() {
     printBanner(`agent-fleet v${pkg.version} — doctor`);
     console.log(`Workspace: ${workspace}`);
     if (!plan) console.log(`Recorded:  ${repairPlanNote}`);
+    console.log(`Preflight: ${preflight.status} — ${preflight.missingFiles.length}/${preflight.requiredFiles.length} required manifest file(s) missing; ${preflight.tools.filter((tool) => tool.status === "missing").length} tool(s) missing.`);
+    if (preflight.remediation.length) console.log(`Remediation (not run): ${preflight.remediation.join("; ")}`);
 
     if (pendingTransaction) console.log("Pending transaction journal — re-run with --fix to restore the pre-transaction workspace.");
     if (repairs.length > 0) {
@@ -470,8 +478,10 @@ async function cmdDoctor() {
     // A recorded npm repair may exit zero without actually producing a healthy
     // tree. Re-run the shared probe and keep any such root outstanding.
     const remainingRepairRoots = new Set(runtimeRepair.remaining.map(repairRoot).filter(Boolean));
-    remainingManual = runtimeDependencyFindings({ workspace })
-      .filter((finding) => !remainingRepairRoots.has(finding.root));
+    remainingManual = [
+      ...runtimeDependencyFindings({ workspace }).filter((finding) => !remainingRepairRoots.has(finding.root)),
+      ...manual.filter((finding) => finding.type === "manifest-tool"),
+    ];
   }
   const remainingAfterFix = willFix
     ? remainingManual.length + (scanRepair?.skipped ?? 0) + (applied?.summary.failed ?? 0) + runtimeRepair.remaining.length
@@ -483,6 +493,7 @@ async function cmdDoctor() {
     workspace,
     agent: plan?.agent ?? null,
     packageVersion: pkg.version,
+    preflight,
     repairs,
     findings,
     planNote: plan ? null : repairPlanNote,

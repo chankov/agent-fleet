@@ -64,6 +64,9 @@ import { registerAgentsSave } from "./commands/agents-save.ts";
 import { registerAgentsKill } from "./commands/agents-kill.ts";
 import { registerAgentsRestart } from "./commands/agents-restart.ts";
 import { registerContextCommand } from "./commands/context-command.ts";
+import { registerAudit } from "./commands/audit.ts";
+import { showSessionAudit } from "./session-audit.ts";
+import { createProcessState, evaluateProcessObligations, latestProcessState, processAuditRecord, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
 import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
@@ -82,6 +85,9 @@ import { formatAfPollStarted, formatAfPollVoiceProgress, handleAfPoll } from "./
 import { formatAfDebateStarted, formatAfDebateVoiceProgress, handleAfDebate } from "./debate-command.ts";
 import { registerDispatchAgent } from "./tools/dispatch-agent.ts";
 import { registerSpawnResearch } from "./tools/spawn-research.ts";
+import { registerRunFlow } from "./tools/run-flow.ts";
+import { resolvePersona as resolveFlowPersona } from "../../agent-fleet/scripts/workflows/lib/personas.ts";
+import { assertProfileModel as assertFlowProfileModel } from "../../agent-fleet/scripts/workflows/lib/model-profile.ts";
 import { registerSetTaskTier } from "./tools/set-task-tier.ts";
 import { registerTeamAdjust } from "./tools/team-adjust.ts";
 import { registerVerificationContract } from "./tools/verification-contract.ts";
@@ -92,7 +98,7 @@ import { createToolExecutionOrchestration } from "./tools/execution-orchestratio
 import { latestPersistedCapabilityState, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
-import { createBudgetRecovery } from "./budget-recovery.ts";
+import { confirmOneUseRetry, confirmTaskSupersession, createBudgetRecovery, createReservedTaskIdentityReset } from "./budget-recovery.ts";
 import { requestRuntimeAsk } from "../ask-user-remote/runtime-ask.ts";
 import { registerBudgetContinue } from "./commands/budget-continue.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
@@ -406,6 +412,12 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// distinction matters to the ratchet: an assumed tier must not turn the
 	// dispatcher's own first triage call into an "escalation" that needs a reason.
 	let taskTierAssumed = false;
+	// Correctness obligations are independent of the spend tier. They persist for
+	// the current task and reset only through the explicit new-task tool path.
+	let processState = createProcessState();
+	const persistProcessVerdict = (state: ProcessObligationState, verdict: ProcessVerdict) => {
+		try { pi.appendEntry("agent-hub-process-state", processAuditRecord(state, verdict)); } catch {}
+	};
 	// Duplicate-dispatch guard: fingerprints of (agent, task) already dispatched
 	// THIS turn. Auto-research resumes and /af-agents-restart call dispatchAgent
 	// directly, so only real dispatcher tool calls are guarded.
@@ -437,6 +449,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	let delegatedTokens = 0;
 
 	const noProgress = createNoProgressGuard();
+	let taskIdentityReset: ReturnType<typeof createReservedTaskIdentityReset>;
 	let unknownToolCounter = createUnknownToolCounter({ limit: 3 });
 	const toolCatalogRuntime = createToolCatalogRuntime(catalogSnapshot("operator", []));
 	let latestToolCatalogDelta: ToolCatalogDelta | null = null;
@@ -501,6 +514,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			appendBudgetContinuationEntry(refusal.kind, refusal.reason, prior, ctx, correlation);
 		},
 	});
+	taskIdentityReset = createReservedTaskIdentityReset(budgetRecovery, noProgress);
 
 	// ── Verification Contract: assertion ledger (advisory) ──
 	// Mutable ownership remains here; the extracted runtime receives explicit ports.
@@ -872,6 +886,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				getTaskResearchCount: () => taskResearchCount, setTaskResearchCount: value => { taskResearchCount = value; },
 				getTaskReviewRounds: () => taskReviewRounds, setTaskReviewRounds: value => { taskReviewRounds = value; },
 				getTaskTier: () => taskTier, getTurnReport: () => turnReport, getSessionTotals: () => sessionTotals,
+				getProcessState: () => processState, setProcessState: value => { processState = value; }, persistProcessVerdict,
 				getTurnDispatchFingerprints: () => turnDispatchFingerprints,
 				getExternalBlockers: () => externalBlockers,
 				getExternalBlockerAcknowledged: () => externalBlockerAcknowledged, setExternalBlockerAcknowledged: value => { externalBlockerAcknowledged = value; },
@@ -892,9 +907,13 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			provisionalCapabilityRefusal,
 			getTaskTier: () => taskTier, setTaskTier: value => { taskTier = value; },
 			getTaskTierAssumed: () => taskTierAssumed, setTaskTierAssumed: value => { taskTierAssumed = value; },
+			getProcessState: () => processState, setProcessState: value => { processState = value; },
+			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER })),
 			getTaskDispatchCount: () => taskDispatchCount, getTaskResearchCount: () => taskResearchCount,
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
 			currentTaskId: () => noProgress.taskId(), currentRevision: ctx => worktreeRevision(ctx.cwd || process.cwd(), []),
+			adoptReservedTaskId: (id, resetTaskWindow) => taskIdentityReset.run(id, resetTaskWindow),
+			confirmTaskSupersession: (input, ctx, signal) => confirmTaskSupersession(input, ctx, { language: () => userLanguage, currentTaskId: () => noProgress.taskId(), ask: (id, params, askCtx, askSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, askSignal), startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } } }, signal),
 			getAgentStates: () => agentStates, rosterAdd, rosterDrop,
 			getIdentity: () => identity, getComs: () => coms, resolveTarget,
 			appendMachineHandoffSections, markPeerAddressed,
@@ -912,6 +931,29 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// Keep the extracted tool surface flat and greppable in this composition root.
 	registerDispatchAgent(pi, toolCtx);
 	registerSpawnResearch(pi, toolCtx);
+	registerRunFlow(pi, {
+		sessionDir: () => sessionDir,
+		taskId: () => noProgress.taskId(),
+		processObligations: () => evaluateProcessObligations(processState, { writable: false, budgetTier: taskTier ?? DEFAULT_TASK_TIER }),
+		effectiveScoutConfig: cwd => {
+			const persona = resolveFlowPersona("researcher", cwd);
+			const model = persona.model!;
+			assertFlowProfileModel(model);
+			return { model, profile: readActiveProfile()?.name ?? null, tools: persona.tools.split(",").map(value => value.trim()).filter(Boolean), fallback: persona.fallbackModel ?? null, allowlisted: true };
+		},
+		reserveBudget: async (params, ctx, signal) => {
+			ensureTaskTier();
+			const blocked = await budgetRecovery.ensure("research", `flow scout: ${params.request}`, ctx, signal);
+			if (blocked) return { charged: false, operation: "research", owner: "hub", refusal: blocked.message };
+			if (signal?.aborted) return { charged: false, operation: "research", owner: "hub", refusal: "Flow cancelled before budget charge." };
+			const taskBlock = checkTaskBudget("research", budgetCtx.taskCounters(), budgetCtx.currentTaskBudget(), budgetCtx.taskActiveElapsedMs(), taskTier);
+			if (taskBlock) return { charged: false, operation: "research", owner: "hub", refusal: taskBlock.message };
+			const turnBlock = checkTurnBudget("research", { dispatches: turnDispatchCount, research: turnResearchCount }, budgetCtx.currentBudget(), budgetCtx.turnBudgetActiveElapsedMs(), taskTier);
+			if (turnBlock) return { charged: false, operation: "research", owner: "hub", refusal: turnBlock.message };
+			turnResearchCount++; taskResearchCount++; turnReport.research++; sessionTotals.research++; budgetCtx.updateModeStatus();
+			return { charged: true, operation: "research", owner: "hub" };
+		},
+	});
 	registerSetTaskTier(pi, toolCtx);
 	registerTeamAdjust(pi, toolCtx);
 	registerVerificationContract(pi, toolCtx);
@@ -966,10 +1008,24 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getWorkModeStatusText: workModeStatusText,
 		openWorkModePicker,
 		handleBudgetContinue: async ctx => { await budgetRecovery.resume(ctx); },
+		handleAudit: async ctx => showSessionAudit(ctx, sessionDir),
 		handleRetry: async (args, ctx) => {
 			const dispatchId = args?.trim();
-			if (!dispatchId || !noProgress.authorize(dispatchId)) { ctx.ui.notify("/af-retry authorizes only a current, not-yet-authorized operator cancellation. Other failures require evidenced corrections; indeterminate causes cannot be retried. Unknown or stale IDs grant no authorization.", "error"); return; }
-			pi.appendEntry("agent-hub-retry-authorized", { dispatchId, identity: hubAuditIdentity(ctx) });
+			if (!dispatchId) { ctx.ui.notify("Usage: /af-retry <cancelled-dispatchId>. Only an operator cancellation can receive one-use permission.", "error"); return; }
+			const result = await confirmOneUseRetry(dispatchId, ctx, {
+				taskId: () => noProgress.taskId(), language: () => userLanguage,
+				ask: (id, params, askCtx, signal) => requestRuntimeAsk(pi.events, id, params, askCtx, signal),
+				startWait: id => executionHistory.startAskUser(id),
+				endWait: (id, sameTask) => {
+					const wait = executionHistory.endAskUser(id, Date.now());
+					if (!sameTask) return;
+					if (wait > 0) taskClock = addTaskClockWait(taskClock, wait);
+					turnBudgetAskUserWaitMs += wait;
+				},
+				authorize: id => noProgress.authorize(id),
+			});
+			if (!result.authorized) { ctx.ui.notify("Retry not authorized. Cancelled, unanswered, stale, duplicate, unknown, or non-cancellation decisions grant nothing.", "error"); return; }
+			pi.appendEntry("agent-hub-retry-authorized", { dispatchId, correlation: result.correlation, identity: hubAuditIdentity(ctx) });
 			ctx.ui.notify(`One retry authorized for ${dispatchId}. Budget and safety gates still apply; no operation was dispatched.`, "info");
 		},
 		handleAgentsTeam: async (_args, ctx) => {
@@ -1672,6 +1728,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	registerAgentsList(pi, commandCtx);
 	registerAgentsHistory(pi, commandCtx);
 	registerContextCommand(pi, commandCtx);
+	registerAudit(pi, commandCtx);
 	registerWorkMode(pi, commandCtx);
 	registerWatchdog(pi, commandCtx);
 	registerAgentsAdd(pi, commandCtx);
@@ -1829,6 +1886,12 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// pi-ask-user blocks the dispatcher turn while the human answers. Bracket each
 	// ask_user call with its tool_execution start/end so /af-agents-history can subtract
 	// that "away from keyboard" time from the dispatcher's real work.
+	// T11 production pre-effect gate: operator direct side effects use the same task-scoped process state as child dispatch.
+	pi.on("tool_call", async (event: any) => {
+		if (!["bash", "edit", "write"].includes(String(event.toolName || "").toLowerCase())) return;
+		const gate = processPreEffectGate(processState, "write");
+		if (gate) return { block: true, reason: gate.message };
+	});
 	pi.on("tool_execution_start", async event => turnHandlers.toolStart(event));
 	observeAskUserResults(({ params, result, phase }) => {
 		const pack = capabilityConfirmationPack(params.context);
@@ -1869,6 +1932,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getPromptState: () => ({
 			taskTier: taskTier ?? DEFAULT_TASK_TIER,
 			taskTierAssumed,
+			processRisk: processState.risk,
+			processScope: processState.scope,
+			processOpen: Object.entries(evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }).obligations).filter(([, value]) => value.status === "open").map(([name]) => name),
 			turnDispatchCount,
 			turnResearchCount,
 			taskDispatchCount,
@@ -1947,6 +2013,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	pi.on("context", async (_event, ctx) => pressureLifecycle.context(ctx));
 	pi.on("agent_settled", async (_event, ctx) => pressureLifecycle.agentSettled(ctx));
 	pi.on("session_compact", async () => {
+		persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }));
 		const result = toolCatalogRuntime.compact({
 			mode: getWorkMode(), getEffectiveTools: () => pi.getActiveTools(),
 			persist: (type, data) => pi.appendEntry(type, data), counterSnapshot: () => unknownToolCounter.snapshot(),
@@ -2059,6 +2126,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			comsMissNotified.clear();
 			recomputeGrid();
 			const sessionEntries = _ctx.sessionManager.getEntries();
+			processState = latestProcessState(sessionEntries);
 			const persistedCatalog = latestPersistedToolCatalog(sessionEntries);
 			if (persistedCatalog) toolCatalogRuntime.restore(persistedCatalog);
 			const persistedUnknownTools = latestPersistedUnknownToolCounter(sessionEntries);

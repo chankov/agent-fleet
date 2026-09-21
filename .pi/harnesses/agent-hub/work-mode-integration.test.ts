@@ -46,6 +46,7 @@ const commandModules = [
 	["agents-list", "registerAgentsList"],
 	["agents-history", "registerAgentsHistory"],
 	["context-command", "registerContextCommand"],
+	["audit", "registerAudit"],
 	["work-mode", "registerWorkMode"],
 	["watchdog", "registerWatchdog"],
 	["agents-add", "registerAgentsAdd"],
@@ -71,8 +72,8 @@ const commandModules = [
 const comsCoreSource = readFileSync(new URL("../lib/coms-core.ts", import.meta.url), "utf8");
 const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
-test("wiring contract: all 25 Hub commands use typed modules and one flat registrar list", () => {
-	assert.equal(commandModules.length, 25);
+test("wiring contract: all 26 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 26);
 	for (const [file, registrar] of commandModules) {
 		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
 		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));
@@ -153,7 +154,7 @@ test("wiring contract: extracted Hub tools use typed modules and one flat regist
 	assert.equal(extractedNames.length, 17);
 	for (const name of extractedNames) assert.doesNotMatch(indexSource, new RegExp(`name: "${name}"`));
 	assert.equal((indexSource.match(/registerTool\(\{/g) ?? []).length, 0);
-	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerTeamAdjust\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);\s*registerFilesystemTool\(pi, \{/);
+	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerRunFlow\(pi, \{[\s\S]*?\}\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerTeamAdjust\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);\s*registerFilesystemTool\(pi, \{/);
 	assert.equal(existsSync(new URL("./tools/ask-user.ts", import.meta.url)), false);
 	assert.match(toolContextSource, /export interface ToolContext/);
 	for (const callback of ["executeDispatchAgent", "executeSpawnResearch", "executeSetTaskTier", "executeTeamAdjust", "executeSetAssertions", "executeUpdateAssertion", "executeGetAssertions", "executeComsList", "executeComsSend", "executeComsGet", "executeComsAwait", "executeHerdrSpawnPeer", "executeHerdrSpawnPane", "executeHerdrReadPane", "executeHerdrClosePane", "executeHerdrNotify"]) {
@@ -211,6 +212,13 @@ test("wiring contract: policy maps and mutations have one typed owner", () => {
 	assert.match(indexSource, /createRosterPolicy<AgentDef, AgentState>\(\{/);
 	assert.match(indexSource, /createWorkModePolicy\(\{/);
 });
+test("T11 production wiring gates operator bash edit write before execution", () => {
+ assert.match(indexSource, /pi\.on\("tool_call"/);
+ assert.match(indexSource, /\["bash", "edit", "write"\]/);
+ assert.match(indexSource, /processPreEffectGate\(processState, "write"\)/);
+ assert.match(indexSource, /block: true/);
+});
+
 test("wiring contract: orchestrator persona defers authority to active work mode", () => {
 	assert.match(personaSource, /active Hub work mode/i);
 	assert.match(personaSource, /operator work mode/i);

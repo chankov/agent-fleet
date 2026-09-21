@@ -8,10 +8,12 @@ export function registerSetTaskTier(pi: ExtensionAPI, toolCtx: ToolContext): voi
 		name: "set_task_tier",
 		label: "Set Task Tier",
 		description:
-			"Classify the CURRENT TASK before your first dispatch: trivial (one obvious, low-risk change — 1 dispatch), small (a contained change, no planning pipeline — 2 dispatches), feature (a normal multi-step feature — 8 dispatches), project (a large effort — 12 dispatches). Nested delegation is off at trivial/small. The tier persists across user messages and moves by ratchet: LOWERING it is always free, RAISING it requires `reason` naming what the ask turned out to contain. Pass `new_task: true` only when the human has moved on to a genuinely different piece of work — it also resets the task budget.",
+			"Classify the CURRENT TASK on independent axes. `tier` controls spend only. `risk` (unknown|low|high) and `scope` (read-only|small|wide) control correctness obligations; risk is explicit and is never inferred from prose. Initial/legacy risk is unknown. Any risk change and any scope expansion requires `reason`; scope expansion also requires explicit risk reassessment. Lowering tier cannot erase open acceptance, plan, or review obligations. Pass `new_task: true` only for genuinely different work; same-task follow-ups, mode switches, resume, and compaction preserve obligations.",
 		parameters: Type.Object({
-			tier: Type.String({ description: "One of: trivial | small | feature | project" }),
-			reason: Type.Optional(Type.String({ description: "One line on why this tier fits the ask. REQUIRED when raising the tier above the current one." })),
+			tier: Type.String({ description: "Spend tier only: trivial | small | feature | project" }),
+			risk: Type.Optional(Type.String({ description: "Explicit correctness risk: unknown | low | high. Omitted legacy calls remain unknown." })),
+			scope: Type.Optional(Type.String({ description: "Explicit process scope: read-only | small | wide." })),
+			reason: Type.Optional(Type.String({ description: "Required when raising budget tier, changing risk, or expanding scope; explain the observed change/reassessment." })),
 			new_task: Type.Optional(Type.Boolean({ description: "The human moved on to a different piece of work: clears the task budget, the tier, and the duplicate guard. Not for a correction or a follow-up on the same work." })),
 		}),
 		execute(toolCallId, params, signal, onUpdate, ctx) {
