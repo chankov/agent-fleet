@@ -5,11 +5,20 @@ import { normalizeFeatureSet, resolveDesiredFeatures, resolveFeatures } from "..
 
 const manifest = loadManifest(process.cwd());
 
-test("Full resolves stable catalogue roots but excludes experimental ChatGPT client", () => {
+test("Full resolves stable catalogue roots but excludes experimental features", () => {
   const full = resolveDesiredFeatures(manifest, { preset: "full", platform: process.platform });
   assert.ok(full.selected.includes("skill:peer-coms"), "Full includes stable Claude bridge root");
   assert.equal(full.features.includes("chatgpt-client"), false);
+  assert.equal(full.features.includes("system1"), false);
   assert.ok(full.features.includes("voice"), "Full enables stable feature defaults");
+});
+
+test("System 1 is explicit and reuses shared-library ownership with an operator config companion", () => {
+  const selected = resolveDesiredFeatures(manifest, { preset: "default", features: ["system1"] });
+  assert.deepEqual(selected.features, ["system1"]);
+  assert.ok(selected.selected.includes("companion:pi-harness-lib"));
+  assert.ok(selected.selected.includes("companion:system1-config"));
+  assert.equal(selected.selected.filter((id) => id === "companion:pi-harness-lib").length, 1);
 });
 
 test("retired Codex remote feature refuses before mutation", () => {

@@ -75,6 +75,43 @@ test("A7 fresh non-interactive setup, ephemeral desired flags, dry-run, migratio
   assert.equal(result.status, 0, result.stderr); // legacy install aliases retain raw-item compatibility.
 });
 
+test("System 1 setup is explicit, prints operator instructions, and preserves human config", (context) => {
+  const defaultWs = workspace();
+  const fullWs = workspace();
+  const system1Ws = workspace();
+  context.after(() => {
+    for (const ws of [defaultWs, fullWs, system1Ws]) rmSync(ws, { recursive: true, force: true });
+  });
+
+  for (const [ws, preset] of [[defaultWs, "default"], [fullWs, "full"]]) {
+    const result = setup(ws, "--preset", preset, "--features", "none", "--dry-run", "--json");
+    assert.equal(result.status, 0, result.stderr);
+    const plan = JSON.parse(result.stdout);
+    assert.equal(plan.selection.desired.requestedFeatures.includes("system1"), false);
+    assert.equal(plan.actions.some((action) => action.id === "companion:system1-config"), false);
+    assert.equal(existsSync(join(ws, ".ai")), false);
+  }
+
+  mkdirSync(join(system1Ws, ".ai"), { recursive: true });
+  const configPath = join(system1Ws, ".ai", "system1.json");
+  const original = '{\n  "version": 1,\n  "mode": "off",\n  "provider": "typesafe",\n  "model": "jev-1.13.0",\n  "apiKeyEnv": "TYPESAFE_API_KEY"\n}\n';
+  writeFileSync(configPath, original);
+
+  let result = setup(system1Ws, "--preset", "default", "--features", "system1", "--dry-run", "--json");
+  assert.equal(result.status, 0, result.stderr);
+  let plan = JSON.parse(result.stdout);
+  assert.deepEqual(plan.selection.desired.requestedFeatures, ["system1"]);
+  const operator = plan.actions.find((action) => action.id === "companion:system1-config");
+  assert.equal(operator.kind, "operator");
+  assert.ok(operator.operatorSteps.some((step) => step.includes(".ai/system1.json")));
+  assert.equal(readFileSync(configPath, "utf8"), original);
+
+  result = setup(system1Ws, "--preset", "default", "--features", "system1", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /companion:system1-config/);
+  assert.equal(readFileSync(configPath, "utf8"), original);
+});
+
 test("setup preserves an existing configured overrides file byte-for-byte", (context) => {
   const ws = workspace();
   context.after(() => rmSync(ws, { recursive: true, force: true }));

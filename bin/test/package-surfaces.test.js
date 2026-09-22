@@ -271,6 +271,16 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
   assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/damage-control/")), false);
   assert.equal([...paths].some((path) => path.startsWith(".pi/agent-fleet/hermes/desktop-plugins/")), true, "desktop monitor runtime is packaged");
   assert.equal([...paths].some((path) => path.startsWith(".pi/agent-fleet/hermes/plugins/")), true, "backend monitor runtime is packaged");
+  for (const file of [
+    ".pi/harnesses/lib/system1/config.js",
+    ".pi/harnesses/lib/system1/contracts.ts",
+    ".pi/harnesses/lib/system1/demo.ts",
+    ".pi/harnesses/lib/system1/jev.ts",
+    ".pi/harnesses/lib/system1/service.ts",
+  ]) {
+    assert.ok(paths.has(file), `system1 runtime must ship: ${file}`);
+  }
+  assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/lib/system1/") && /\.test\.(js|ts)$/.test(path)), false, "system1 tests must not be published");
 });
 
 // The full watchdog release surface — runtime modules, lifecycle commands,
@@ -278,8 +288,8 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
 test("isolated tarball supports Default and Full deterministic setup", () => {
   const fixture = mkdtempSync(join(tmpdir(), "af-tarball-"));
   try {
-    const packed = JSON.parse(execFileSync("npm", ["pack", "--json"], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER }));
-    const tarball = join(root, packed[0].filename);
+    const packed = JSON.parse(execFileSync("npm", ["pack", "--json", "--pack-destination", fixture], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER }));
+    const tarball = join(fixture, packed[0].filename);
     const extracted = join(fixture, "node_modules", "@chankov", "agent-fleet");
     mkdirSync(extracted, { recursive: true });
     execFileSync("tar", ["-xzf", tarball, "--strip-components=1", "-C", extracted]);
@@ -366,7 +376,6 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
     const refused = spawnSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", nonTtyWorkspace, "--preset", "default", "--features", "none"], { encoding: "utf8" });
     assert.equal(refused.status, 1); assert.match(refused.stderr, /requires --yes/);
   } finally {
-    for (const file of readdirSync(root)) if (/^chankov-agent-fleet-.*\.tgz$/.test(file)) rmSync(join(root, file), { force: true });
     rmSync(fixture, { recursive: true, force: true });
   }
 });

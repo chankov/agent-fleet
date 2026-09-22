@@ -21,6 +21,7 @@ this page describes the current architecture.
 | **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `.pi/agent-fleet/scripts/lib/`) — see [Hermes artifacts](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `.pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `.pi/agent-fleet/scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
 | **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-client.ts`, `.pi/agent-fleet/scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
+| **System 1 foundation** | Experimental, opt-in provider-neutral structured judgments; currently TypeSafe Jev only, with no action consumer | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
 
@@ -438,6 +439,66 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 | **Node.js + npm** | CLI (`npx @chankov/agent-fleet`), package install, `just` recipes | Yes for install & tooling |
 
 The existing `agent-fleet doctor` command also performs a read-only manifest preflight. It reports exact selected installation files and manifest-declared tool probes as environment readiness, distinguishes missing installation from unknown or unavailable platforms, and names the existing explicit remediation path. Bare doctor never repairs or installs; `doctor --fix` remains the only repair activation, and package/tool installation remains behind its existing explicit consent path.
+
+### Experimental System 1 foundation
+
+System 1 is a shared Fleet library for bounded structured judgments, not a Pi
+model and not a workflow stage. Its provider-neutral contract exposes
+`choice`, `predicate`, and `ordinal` questions with explicit `ok`, `skipped`,
+`unavailable`, `unsupported`, and `cancelled` outcomes. A valid judgment never
+grants action authority. The contract retains distributions, predicate
+probabilities, and provider confidence when supplied and required, but never
+invents missing uncertainty or treats provider confidence as universal
+calibration.
+
+The experimental `system1` feature must be named explicitly in the human-owned
+`.ai/agent-fleet.json`; automatic Full excludes it. Provider configuration is a
+separate human-owned `.ai/system1.json` with exactly this version-1 contract:
+
+```json
+{
+  "version": 1,
+  "mode": "auto",
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "apiKeyEnv": "TYPESAFE_API_KEY"
+}
+```
+
+Selection, valid `mode: "auto"` configuration, and a nonempty key in the
+caller's environment are all required. `mode: "off"` wins, and key presence by
+itself never activates the service. The runtime and imports do not load `.env`
+or mutate global environment. Managed `just` launches may load the workspace
+root `.env`; direct Node launches must export or inject the key themselves.
+
+The only phase-0 production adapter uses the fixed official TypeSafe endpoint
+and pinned `jev-1.13.0` model. It has a 2,000 ms total deadline, including body
+collection and at most one budget-fitting retry for 429/529, rejects redirects,
+and bounds request and response bodies at 1 MiB without truncation. Cancellation
+prevents retry and late-result use; a 401 latches that service instance. Normal
+failures return structured, sanitized outcomes rather than raw response bodies.
+There is no arbitrary endpoint, SDK dependency, Pi/local-model fallback, daemon,
+or local-model installation.
+
+Doctor reuses the shared configuration validator and is advisory, read-only,
+and offline—even with `--fix`. It distinguishes an `.env` declaration from a
+nonempty key in its own process but cannot prove API validity. The standalone
+demo is also offline by default; only explicit `--live` sends its embedded
+synthetic Bulgarian/English examples. Public setup and commands are documented
+in [Install and lifecycle](npm-install.md#experimental-system-1-foundation).
+
+This foundation has no Watchdog integration or other action consumer. It also
+makes no child-environment isolation promise: existing Fleet children may
+inherit caller environment. A future consumer must own field allowlisting,
+credential filtering, policy, thresholds, and calibration for its provider,
+model, question version, domain, and language. Synthetic success is not
+Watchdog accuracy.
+
+Evidence remains split by boundary. Offline contract and extracted-package
+checks passed on Node 25.2.1. A real-provider smoke was not executed because
+`TYPESAFE_API_KEY` was absent, packaged doctor execution on Node 18 remains
+unverified because no Node 18 runtime was available, and final maintainer review
+is pending. None of those open items is implied by fixtures or readiness output.
 
 ## Repository module map
 

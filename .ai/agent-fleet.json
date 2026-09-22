@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "preset": "default",
+  "features": {
+    "browser": false,
+    "chatgpt-client": false,
+    "claude-bridge": false,
+    "hermes": false,
+    "system1": true,
+    "telegram": false,
+    "voice": false
+  }
+}

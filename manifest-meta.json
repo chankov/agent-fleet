@@ -735,6 +735,23 @@
         "the extension binds Alt+S only once a provider resolves \u2014 until then it is a no-op"
       ]
     },
+    "companion:system1-config": {
+      "title": ".ai/system1.json",
+      "summary": "Human-owned, non-secret System 1 provider configuration",
+      "agents": {
+        "pi": {
+          "source": [],
+          "target": null,
+          "strategy": "operator"
+        }
+      },
+      "consent": "operator",
+      "operatorSteps": [
+        "write .ai/system1.json with version 1, mode auto|off, provider typesafe, model jev-1.13.0, and apiKeyEnv TYPESAFE_API_KEY",
+        "provide TYPESAFE_API_KEY directly in the process environment when live inference is explicitly requested; setup never creates or reads the secret",
+        "run agent-fleet doctor to inspect local readiness without loading .env or contacting the provider"
+      ]
+    },
     "companion:workflow-guide": {
       "title": "Workflow runtime guide",
       "summary": "Managed workflow map read by the drafting skill",
@@ -964,6 +981,14 @@
       "items": [
         "companion:fleet-client-runtime",
         "companion:fleet-client-skill"
+      ]
+    },
+    "system1": {
+      "title": "System 1 provider foundation",
+      "stability": "experimental",
+      "items": [
+        "companion:pi-harness-lib",
+        "companion:system1-config"
       ]
     }
   }

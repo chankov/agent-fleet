@@ -11,6 +11,12 @@ different readers and different lifetimes, so they are kept separate.
 | `.ai/agent-fleet-setup.md` | humans — rendered from the state file, never parsed back | Rewritten on every setup apply |
 | `.ai/agent-fleet-transaction.json` | the deterministic lifecycle (`setup`, `doctor --fix`) — crash-recovery journal for in-flight file transactions | Written during apply; recovered or discarded by setup/doctor; removed when the transaction commits or is cleaned up |
 | `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
+| `.ai/system1.json` *(optional)* | System 1 shared runtime and doctor | When the experimental `system1` feature is explicitly selected |
+
+The `.ai/system1.json` file is human-owned, non-secret provider configuration.
+Setup prints its required shape but does not create or overwrite it. Its
+`apiKeyEnv` field names a caller-environment variable; it never contains the
+credential itself. See [System 1 configuration](#system-1-configuration).
 
 The `.ai/stt.json` file is present only when the optional `pi-voice-stt` voice-dictation
 extension has been configured (by deterministic setup or by hand). Like the overrides file it holds
@@ -121,6 +127,68 @@ team with `/af-agents-team`, restart publicly with `just fleet --agents <name>`,
 operator work mode with `/af-work-mode operator` / `just fleet --work-mode operator`. Direct Pi launches
 use `--agent-team <name>` or `--work-mode operator`. Explicit startup flags win over persisted state;
 fix missing or renamed team/persona declarations before selecting them.
+
+## System 1 configuration
+
+System 1 is an experimental named feature and is excluded from automatic
+Default/Full selection. Select it explicitly and persist that desired state when
+needed:
+
+```bash
+npx @chankov/agent-fleet@latest setup \
+  --preset default --features system1 --save-desired --yes
+```
+
+Then create the human-owned `.ai/system1.json` with exactly these version-1
+fields and values:
+
+```json
+{
+  "version": 1,
+  "mode": "auto",
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "apiKeyEnv": "TYPESAFE_API_KEY"
+}
+```
+
+`mode: "off"` disables the service even when a key exists. Selection plus
+`mode: "auto"` still requires the valid configuration and a nonempty
+`TYPESAFE_API_KEY` in the caller environment. Key presence alone never enables
+System 1. The runtime does not execute `.env`: the managed `just` launcher can
+load the root `.env`, while a direct Node invocation must receive an exported or
+otherwise injected variable.
+
+`agent-fleet doctor` reads the desired state and configuration as data. Its
+System 1 result is advisory and read-only, including with `--fix`; it performs
+no provider request and does not validate the key. A declaration in `.env` is
+reported separately from a value present in doctor's current environment.
+
+The installed demo is offline unless `--live` is supplied. Both forms require a
+Node runtime supporting `--experimental-strip-types`:
+
+```bash
+# Readiness only; no provider call.
+node --experimental-strip-types --preserve-symlinks --preserve-symlinks-main \
+  .pi/harnesses/lib/system1/demo.ts
+
+# Explicit live request using only embedded synthetic Bulgarian/English data.
+node --experimental-strip-types --preserve-symlinks --preserve-symlinks-main \
+  .pi/harnesses/lib/system1/demo.ts --live
+```
+
+The only phase-0 production provider/model is TypeSafe Jev `jev-1.13.0` at its
+fixed official endpoint. No local model is installed and no fallback model is
+selected. Outputs preserve available uncertainty but do not establish truth,
+action authority, or calibration for a particular domain/language. System 1 is
+not integrated with Watchdog. Existing child processes may inherit the caller's
+environment; a future consumer integration must implement and verify credential
+filtering and own its decision policy and calibration.
+
+Offline and extracted-package checks have passed on Node 25.2.1. A real-provider
+smoke has not run because the key was absent, and package execution on Node 18
+remains unverified because that runtime was unavailable. These open checks must
+not be inferred from doctor readiness or fixture results.
 
 ## The overrides file — `.ai/agent-fleet-overrides.md`
 

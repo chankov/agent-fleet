@@ -381,7 +381,7 @@ async function cmdDoctor() {
     catch (err) { fail(`cannot recover pending transaction: ${err.message}`); }
   }
 
-  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape"]);
+  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1"]);
   // These findings affect launch readiness and the doctor exit code, but npm
   // execution remains behind its dedicated explicit-consent commands.
   const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies", "manifest-tool"]);
@@ -399,7 +399,7 @@ async function cmdDoctor() {
   const enginePaths = new Set(
     repairs.flatMap((a) => [a.target, ...(a.files ?? []).map((f) => f.path)]).filter(Boolean),
   );
-  const findings = (await runDoctor({ workspace, sourceRoot: pkgRoot }))
+  const findings = (await runDoctor({ workspace, sourceRoot: pkgRoot, env: process.env }))
     .filter((f) => !(f.type === "broken-symlink" && enginePaths.has(f.path)));
   for (const tool of preflight.tools.filter((item) => item.status === "missing")) findings.push({
     type: "manifest-tool", path: tool.itemId, issue: `required manifest tool ${tool.probe} is missing`,
@@ -465,7 +465,7 @@ async function cmdDoctor() {
   let scanRepair = null;
   if (willFix) {
     if (repairs.length > 0) applied = applyPlan({ plan, manifest: loadManifest(pkgRoot) });
-    if (fixable.length > 0) scanRepair = await runDoctor({ workspace, sourceRoot: pkgRoot, apply: true });
+    if (fixable.length > 0) scanRepair = await runDoctor({ workspace, sourceRoot: pkgRoot, apply: true, env: process.env });
   }
 
   const runtimeRepairOutput = (line) => (opts.json ? console.error : console.log)(`exec: ${line}`);

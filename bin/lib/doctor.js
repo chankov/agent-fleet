@@ -26,6 +26,9 @@
 //   8. Manifest preflight — selected exact files and declared package probes are
 //      reported as environment readiness, with platform unknown/unavailable kept
 //      distinct from missing installation. Inspection never installs or repairs.
+//   9. System 1 readiness — explicit feature selection, human configuration,
+//      .env declaration and current environment presence. Advisory and read-only;
+//      API validity is never inferred or probed.
 //
 // For each broken link we look up a canonical replacement in the source
 // `agents/` or `skills/` tree (many breakages are stale names from the
@@ -38,6 +41,7 @@ import { parse as parseYaml } from "yaml";
 import { validateOverrides } from "./validate-overrides.js";
 import { readState, STATE_REL_PATH } from "./state.js";
 import { runtimeDependencyFindings } from "../../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
+import { resolveSystem1Readiness } from "../../.pi/harnesses/lib/system1/config.js";
 
 export const AGENT_FLEET_PACKAGE_NAME = "@chankov/agent-fleet";
 const AGENT_FLEET_PACKAGE_PATTERN = /(^|[/:])@chankov\/agent-fleet(@[^/]*)?$/;
@@ -85,7 +89,7 @@ const YAML_REFS = [
  * @param {boolean} [opts.apply]   If true, apply suggested fixes; otherwise just report
  * @returns {Array|object}         Findings array (apply=false) or {repaired,deleted,skipped} (apply=true)
  */
-export async function runDoctor({ workspace, sourceRoot, apply = false, checkVisibility, checkDependencies } = {}) {
+export async function runDoctor({ workspace, sourceRoot, apply = false, checkVisibility, checkDependencies, env = process.env } = {}) {
   const findings = [];
 
   // 1. Broken symlinks in install-target directories.
@@ -173,6 +177,10 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
   // Node module resolution cannot borrow a sibling root's node_modules.
   findings.push(...runtimeDependencyFindings({ workspace, run: checkDependencies }));
 
+  // 9. Optional System 1 readiness. This reads local declarations only; it does
+  // not load .env, create a provider, or contact the API.
+  findings.push(...scanSystem1Readiness({ workspace, env }));
+
   if (!apply) return findings;
 
   // ── Apply ──────────────────────────────────────────────────────────────
@@ -206,6 +214,60 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
   }
 
   return { repaired, deleted, skipped, findings };
+}
+
+export function scanSystem1Readiness({ workspace, env = process.env }) {
+  const desiredPath = join(workspace, ".ai", "agent-fleet.json");
+  let selected = false;
+  if (existsSync(desiredPath)) {
+    try {
+      const desired = JSON.parse(readFileSync(desiredPath, "utf8"));
+      selected = desired?.features?.system1 === true;
+    } catch {
+      // A malformed desired-state file is handled by the installer lifecycle;
+      // without a trustworthy explicit selection System 1 remains inactive.
+    }
+  }
+  if (!selected) return [];
+
+  const configPath = join(workspace, ".ai", "system1.json");
+  let config;
+  if (existsSync(configPath)) {
+    try { config = JSON.parse(readFileSync(configPath, "utf8")); }
+    catch { config = null; }
+  }
+  const readiness = resolveSystem1Readiness({ selected, config, env });
+  const envPath = join(workspace, ".env");
+  let envDeclared = false;
+  if (existsSync(envPath)) {
+    try {
+      envDeclared = /^(?:\s*export\s+)?\s*TYPESAFE_API_KEY\s*=/m.test(readFileSync(envPath, "utf8"));
+    } catch { /* Unreadable declarations remain absent. */ }
+  }
+  const environmentPresent = typeof env.TYPESAFE_API_KEY === "string" && env.TYPESAFE_API_KEY.trim().length > 0;
+  const readinessName = readiness.status === "ready" ? "ready" : readiness.reason;
+  const detail = {
+    disabled: "configuration mode is off; other fields were not validated",
+    missing_config: ".ai/system1.json is absent",
+    missing_key: envDeclared
+      ? "TYPESAFE_API_KEY is declared in .env but is not present in the current process environment; .env was not loaded"
+      : "TYPESAFE_API_KEY is not present in the current process environment",
+    invalid_config: ".ai/system1.json is invalid",
+    ready: "configuration and current environment are locally ready",
+  }[readinessName];
+  return [{
+    type: "system1",
+    path: ".ai/system1.json",
+    issue: `System 1: ${detail}; API validity is unverified`,
+    fix: readinessName === "ready" || readinessName === "disabled"
+      ? "no automatic action"
+      : "review the operator-owned System 1 configuration and process environment",
+    classification: "advisory",
+    readiness: readinessName,
+    envDeclared,
+    environmentPresent,
+    apiValidity: "unverified",
+  }];
 }
 
 function escapeRe(s) {

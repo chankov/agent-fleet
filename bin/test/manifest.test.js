@@ -303,6 +303,17 @@ test("operator-consent items declare no workspace target", () => {
   }
 });
 
+test("System 1 configuration remains operator-owned while runtime uses the existing shared tree", () => {
+  const config = manifest.items.find((item) => item.id === "companion:system1-config");
+  assert.equal(config.consent, "operator");
+  assert.equal(config.agents.pi.target, null);
+  assert.ok(config.operatorSteps.some((step) => step.includes(".ai/system1.json") && step.includes("version 1")));
+
+  const feature = manifest.features.system1;
+  assert.equal(feature.stability, "experimental");
+  assert.deepEqual(feature.items, ["companion:pi-harness-lib", "companion:system1-config"]);
+});
+
 test("exec items declare their command and nothing else runs commands", () => {
   for (const item of manifest.items) {
     if (item.exec) {

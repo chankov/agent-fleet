@@ -225,6 +225,14 @@
         "companion:fleet-client-runtime",
         "companion:fleet-client-skill"
       ]
+    },
+    "system1": {
+      "title": "System 1 provider foundation",
+      "stability": "experimental",
+      "items": [
+        "companion:pi-harness-lib",
+        "companion:system1-config"
+      ]
     }
   },
   "profiles": {
@@ -961,6 +969,31 @@
       ],
       "parents": [
         "pi-extension:pi-voice-stt"
+      ]
+    },
+    {
+      "id": "companion:system1-config",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".ai/system1.json",
+      "summary": "Human-owned, non-secret System 1 provider configuration",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator"
+        }
+      },
+      "operatorSteps": [
+        "write .ai/system1.json with version 1, mode auto|off, provider typesafe, model jev-1.13.0, and apiKeyEnv TYPESAFE_API_KEY",
+        "provide TYPESAFE_API_KEY directly in the process environment when live inference is explicitly requested; setup never creates or reads the secret",
+        "run agent-fleet doctor to inspect local readiness without loading .env or contacting the provider"
       ]
     },
     {

@@ -35,8 +35,93 @@ npx @chankov/agent-fleet@1.0.0 setup --preset default --features none --yes
 ```
 
 **Default** is the stable Fleet Core selection and creates neither `.claude/` nor voice configuration. **Full** selects every stable, platform-applicable catalogue root; it may install the recorded Claude Code coms bridge. **Full + all features** is not a permanent preset: it stores `preset: "full"` and an explicit snapshot of every currently platform-compatible feature, including experimental ones, so future features are not silently enabled. Features are named capabilities (`browser`, `voice`, `hermes`, `telegram`,
-`claude-bridge`, and the experimental `chatgpt-client`), not an arbitrary
-package-entry mode — `setup --help` lists them.
+`claude-bridge`, and the experimental `chatgpt-client` and `system1`), not an
+arbitrary package-entry mode — `setup --help` lists them. Experimental features
+are selected only when named explicitly; automatic **Full** does not include
+`system1`.
+
+### Experimental System 1 foundation
+
+System 1 is an optional foundation for fast, structured judgments. Select it
+explicitly; a credential in the environment does not enable it:
+
+```bash
+npx @chankov/agent-fleet@latest setup \
+  --preset default --features system1 --yes
+```
+
+Setup installs the shared runtime and prints configuration instructions. It does
+not create the human-owned `.ai/system1.json`, acquire a credential, contact the
+provider, or install a local model. Create this exact version-1 configuration:
+
+```json
+{
+  "version": 1,
+  "mode": "auto",
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "apiKeyEnv": "TYPESAFE_API_KEY"
+}
+```
+
+Keep the key out of JSON and version control. The managed `just` launcher loads
+the workspace root `.env`, so a gitignored file may declare it for commands run
+through `just`:
+
+```sh
+TYPESAFE_API_KEY=<your-key>
+```
+
+A direct Node launch does **not** load `.env`; export or inject the variable into
+that process yourself. Neither setup nor System 1 imports execute `.env` or
+mutate the caller's environment.
+
+Doctor is advisory and offline for this feature:
+
+```bash
+just fleet doctor
+# or directly:
+npx @chankov/agent-fleet@latest doctor
+```
+
+It distinguishes a name declared in `.env` from a nonempty value in its current
+process environment, but never prints the value, contacts TypeSafe, or claims
+the credential is valid. System 1 findings do not make an otherwise healthy
+Fleet installation unlaunchable, and `doctor --fix` does not modify System 1
+configuration.
+
+The copied demo is TypeScript and needs a Node runtime that supports type
+stripping (the managed `just` runtime supplies the required flags). Run it from
+the workspace root. The default command is offline and only reports readiness:
+
+```bash
+node --experimental-strip-types --preserve-symlinks --preserve-symlinks-main \
+  .pi/harnesses/lib/system1/demo.ts
+```
+
+Only an explicit `--live` sends the demo's embedded synthetic Bulgarian/English
+examples to the fixed TypeSafe endpoint:
+
+```bash
+node --experimental-strip-types --preserve-symlinks --preserve-symlinks-main \
+  .pi/harnesses/lib/system1/demo.ts --live
+```
+
+Live evaluation still requires explicit feature selection, the exact valid
+configuration above, and a nonempty caller-environment key. The provider/model
+are pinned to TypeSafe `jev-1.13.0`; arbitrary endpoints and automatic model
+fallback are unsupported. Results are judgments, not permission to act.
+Distributions, probabilities, and provider confidence are retained when the
+provider supplies them, but are not invented or universally calibrated.
+
+Current verification is deliberately split: offline contract and installed
+package checks passed on Node 25.2.1; the real provider smoke was not run because
+`TYPESAFE_API_KEY` was absent, and packaged doctor execution on Node 18 remains
+unverified because that runtime was unavailable. This foundation has no
+Watchdog consumer, local-model installation, or guarantee that existing child
+processes cannot inherit the caller environment. A later integration must own
+credential filtering, consumer policy, and calibration for its domain and
+language.
 
 ### Then install the runtime dependencies
 

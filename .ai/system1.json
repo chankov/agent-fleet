@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "mode": "auto",
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "apiKeyEnv": "TYPESAFE_API_KEY"
+}
