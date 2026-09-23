@@ -16,8 +16,8 @@ const persona: PersonaDefinition = {
 	systemPrompt: "Research only", file: "agents/researcher.md", writes: [],
 };
 const voices: Voice[] = [
-	{ name: "sol", model: "openai-codex/gpt-5.6-sol", thinking: "medium" },
-	{ name: "grok", model: "xai/grok-4.6", thinking: "medium" },
+	{ name: "sol", model: "openai-codex/gpt-6-sol", thinking: "medium" },
+	{ name: "grok", model: "xai/grok-4.7", thinking: "medium" },
 	{ name: "opus", model: "github-copilot/claude-opus-5", thinking: "medium", integrator: true },
 ];
 

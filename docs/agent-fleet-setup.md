@@ -601,41 +601,34 @@ profile declares the whole execution model set independently of
 `.ai/agent-fleet-overrides.md`:
 
 ```yaml
-local-duo:
+local-full:
   version: 2
   defaults:
     model: &qwen36 omlx/Qwen3.6-35B-A3B-4bit
     thinking: off
   allowed-models:
     - *qwen36
-    - &qwen omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX
   fallback: none
   routing: native
   dispatcher: *qwen36
   agents:
-    documenter: *qwen
-    # all other shipped personas inherit *qwen36 (see .pi/agents/model-profiles.yaml)
+    # Every shipped persona uses *qwen36 (see .pi/agents/model-profiles.yaml).
   subagents:
-    code-reviewer:
-      docs: *qwen
-    plan-reviewer:
-      deps: *qwen
-    planner:
-      voice-2: *qwen
-    test-engineer:
-      conventions: *qwen
-    # recon, preflight, feasibility, scout, rules, sweeps, coverage stay on *qwen36
+    # Every declared child role uses *qwen36.
   services:
     watchdog: *qwen36
-    return-extractor: *qwen
+    return-extractor: *qwen36
   panel:
-    - { name: qwen36, model: *qwen36, integrator: true }
-    - { name: qwen, model: *qwen }
+    - { name: qwen-a, model: *qwen36 }
+    - { name: qwen-b, model: *qwen36 }
+    - { name: qwen-integrator, model: *qwen36, integrator: true }
 ```
 
 - `defaults` supplies **every persona and every declared child**, including future
   personas, research helpers and team changes. `agents` and `subagents` contain
-  exceptions. Each selection accepts a model string or `{model, thinking}`.
+  exceptions. To preserve a persona's existing selection, omit it from `agents`;
+  for example, `local-workers` leaves `orchestrator` out. Each selection accepts a
+  model string or `{model, thinking}`.
   Unspecified thinking inherits defaults, then `off`. Tool caps and delegation
   depth remain unchanged. Unknown persona/child names are rejected.
 - `dispatcher` changes the current Pi session's model and thinking. It defaults
@@ -672,11 +665,10 @@ next profile. A fresh Pi session clears the active profile; select it again ther
 The profile is passed through the owned process tree. Workflow commands started
 from that session inherit its persona models, thinking, panel and fallback policy.
 Separately started fleet sessions/standing peers retain their own configuration.
-The bundled `local-duo` profile explicitly covers all shipped child roles and needs
-no project model overrides. The 35B Qwen is the default (dispatcher, specialists,
-recon/sweeps, watchdog). The 9B Qwen is reserved for narrow helpers: `documenter`,
-`code-reviewer.docs`, `plan-reviewer.deps`, `test-engineer.conventions`,
-`planner.voice-2`, and `return-extractor`. Both exact model IDs must be registered
-in Pi and served locally by oMLX. Selecting a profile does not download or register
-models. The `omlx` provider has a default concurrency limit of two per Pi process;
-`AGENT_HUB_PROVIDER_LIMITS` can override it if both weights should run in parallel.
+The bundled `local-full` profile explicitly covers all shipped child roles and needs
+no project model overrides. Every role, service and panel entry uses the single
+`omlx/Qwen3.6-35B-A3B-4bit` model. The `local-workers` profile uses that same local
+model for agents, subagents, services and panel voices, while leaving `orchestrator`
+to inherit its current selection; its peer allowlist refuses non-local coms models.
+The model must be registered in Pi and served locally by oMLX. Selecting a profile
+does not download or register models.

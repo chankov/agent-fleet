@@ -75,7 +75,7 @@ test("profileSpawnPeerRefusal: allowed pi model passes; foreign model and claude
 	withProfile(allowProfile, "local-duo", () => {
 		assert.equal(profileSpawnPeerRefusal({ runner: "pi", name: "test", model: "omlx/qwen" }), null);
 		assert.equal(profileSpawnPeerRefusal({ runner: "pi", name: "documenter" }), null);
-		const foreign = profileSpawnPeerRefusal({ runner: "pi", name: "test", model: "openai-codex/gpt-5.6-sol" });
+		const foreign = profileSpawnPeerRefusal({ runner: "pi", name: "test", model: "openai-codex/gpt-6-sol" });
 		assert.equal(foreign?.details.error, "model-profile-allowlist");
 		const claude = profileSpawnPeerRefusal({ runner: "claude-code", name: "code-reviewer", model: "opus" });
 		assert.equal(claude?.details.error, "model-profile-allowlist");

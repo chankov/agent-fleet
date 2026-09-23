@@ -7,9 +7,8 @@ writes:
 model: openai-codex/gpt-6-astra
 models:
   - github-copilot/claude-fable-5
-  - openai-codex/gpt-5.6-sol
-  - openai-codex/gpt-5.6-terra
-  - openai-codex/gpt-5.6-luna
+  - openai-codex/gpt-6-sol
+  - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
   - omlx/Qwen3.6-35B-A3B-4bit
@@ -20,14 +19,14 @@ subagents:
     model: openai-codex/gpt-5.3-codex-spark
     tools: read,grep,find,ls
   rules:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   voice-1:
-    model: openai-codex/gpt-5.6-sol
+    model: openai-codex/gpt-6-sol
     thinking: medium
     tools: read,grep,find,ls
   voice-2:
-    model: xai/grok-4.6
+    model: xai/grok-4.7
     thinking: medium
     tools: read,grep,find,ls
   voice-3:

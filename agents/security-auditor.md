@@ -2,11 +2,10 @@
 name: security-auditor
 description: Security engineer focused on vulnerability detection, threat modeling, and secure coding practices. Use for security-focused code review, threat analysis, or hardening recommendations.
 tools: read,bash,grep,find,ls
-model: openai-codex/gpt-5.6-sol
+model: openai-codex/gpt-6-sol
 models:
-  - xai/grok-4.6
-  - openai-codex/gpt-5.6-terra
-  - openai-codex/gpt-5.6-luna
+  - xai/grok-4.7
+  - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
   - omlx/Qwen3.6-35B-A3B-4bit
@@ -14,13 +13,13 @@ thinking: high
 delegate_depth: 1
 subagents:
   recon:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   input-sweep:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   secrets-sweep:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
 ---
 

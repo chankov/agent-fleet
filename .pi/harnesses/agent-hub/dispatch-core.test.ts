@@ -368,15 +368,15 @@ test('complete profile allowlist permits explicit coms when the live peer model 
  }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
 });
 
-test('local-duo serializes every declared child locally without project overrides or cloud fallback',async()=>{
+test('local-full serializes every declared child locally without project overrides or cloud fallback',async()=>{
  const {readFileSync}=await import('node:fs');
  const {scanAgentDirs,parseModelProfilesYaml}=await import('./config/agents.ts');
  const {createModelPolicy}=await import('./policy/models.ts');
  const {setActiveProfile,PROFILE_ENV}=await import('./policy/profile-runtime.ts');
- const defs=scanAgentDirs(process.cwd());const profile=parseModelProfilesYaml(readFileSync('.pi/agents/model-profiles.yaml','utf8'))['local-duo'] as any;
+ const defs=scanAgentDirs(process.cwd());const profile=parseModelProfilesYaml(readFileSync('.pi/agents/model-profiles.yaml','utf8'))['local-full'] as any;
  const policy=createModelPolicy({getAllDefs:()=>defs,getActiveDef:n=>defs.find(d=>d.name===n),getResearchDefs:()=>[],refreshUi(){}});
  policy.applyProfile(profile);
- const previous=process.env[PROFILE_ENV];setActiveProfile({name:'local-duo',profile});
+ const previous=process.env[PROFILE_ENV];setActiveProfile({name:'local-full',profile});
  let roles=0;
  try{
   for(const def of defs.filter(d=>d.subagents)){

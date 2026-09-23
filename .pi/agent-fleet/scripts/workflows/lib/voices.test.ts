@@ -20,8 +20,8 @@ test("panel default from the plan parses successfully", () => {
 	const panel = file.panels.default;
 	assert.equal(panel.length, 3);
 	assert.deepEqual(panel.map(voice => voice.name), ["sol", "grok", "opus"]);
-	assert.equal(panel[0].model, "openai-codex/gpt-5.6-sol");
-	assert.equal(panel[1].model, "xai/grok-4.6");
+	assert.equal(panel[0].model, "openai-codex/gpt-6-sol");
+	assert.equal(panel[1].model, "xai/grok-4.7");
 	assert.equal(panel[2].model, "github-copilot/claude-opus-5");
 	assert.equal(panel[2].integrator, true);
 	assert.equal(panel.filter(voice => voice.integrator).length, 1);
@@ -88,7 +88,7 @@ test("duplicate voice names and duplicate integrators are rejected", () => {
 });
 
 test("a model without a slash is rejected with the expected format", () => {
-	const cwd = workspace("bad:\n  - name: sol\n    model: gpt-5\n  - name: grok\n    model: xai/grok-4.6\n");
+	const cwd = workspace("bad:\n  - name: sol\n    model: gpt-5\n  - name: grok\n    model: xai/grok-4.7\n");
 	try {
 		assert.throws(() => loadVoices(cwd), error => error instanceof VoicesError && error.errors.some(item => item.includes("provider/id") && item.includes("gpt-5")));
 	} finally { rmSync(cwd, { recursive: true, force: true }); }

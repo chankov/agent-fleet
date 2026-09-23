@@ -3,12 +3,11 @@ name: researcher
 description: Read-only reconnaissance — searches code, reads files and docs, and reports findings with file:line citations. Never edits or runs commands.
 tools: read,grep,find,ls
 kind: research
-model: openai-codex/gpt-5.6-luna
+model: openai-codex/gpt-6-luna
 models:
-  - openai-codex/gpt-5.6-luna
-  - xai/grok-4.6
-  - openai-codex/gpt-5.6-sol
-  - openai-codex/gpt-5.6-terra
+  - openai-codex/gpt-6-luna
+  - xai/grok-4.7
+  - openai-codex/gpt-6-sol
   - ollama/nemotron-3-ultra:cloud
   - ollama/minimax-m3:cloud
   - omlx/Qwen3.6-35B-A3B-4bit

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createProfileActivation } from './profile-activation.ts';
 import { readActiveProfile } from './profile-runtime.ts';
-const p: any = { version: 2, defaults: { model: 'omlx/laguna', thinking: 'off' }, 'allowed-models': ['omlx/laguna'], assist: { 'deterministic-tools': true, 'bounded-output': true, 'write-isolation': true } };
+const p: any = { version: 2, defaults: { model: 'omlx/laguna', thinking: 'off' }, dispatcher: { model: 'omlx/laguna', thinking: 'off' }, 'allowed-models': ['omlx/laguna'], assist: { 'deterministic-tools': true, 'bounded-output': true, 'write-isolation': true } };
 function fixture() {
     let dispatcher = { model: 'cloud/root', thinking: 'high' }, applied: any, busy = false, available = ['cloud/root', 'cloud/sol', 'omlx/laguna'];
     const env: NodeJS.ProcessEnv = {};
@@ -25,6 +25,14 @@ test('activation preflights every model before changing state and restores dispa
     await f.activation.activate('sol', { builder: 'cloud/sol' });
     assert.deepEqual(f.dispatcher, { model: 'cloud/root', thinking: 'high' });
     assert.equal(readActiveProfile(f.env), undefined);
+});
+test('complete profile without dispatcher preserves current model while applying worker policy', async () => {
+    const f = fixture();
+    const workers = { ...p, dispatcher: undefined, agents: { builder: { model: 'omlx/laguna' } } };
+    await f.activation.activate('local-workers', workers);
+    assert.deepEqual(f.dispatcher, { model: 'cloud/root', thinking: 'high' });
+    assert.equal(f.selections, 0);
+    assert.equal(readActiveProfile(f.env)?.name, 'local-workers');
 });
 test('reset clears the transported complete profile including requested assist flags', async () => {
     const f = fixture();

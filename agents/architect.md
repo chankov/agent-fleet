@@ -1,11 +1,10 @@
 ---
 name: architect
 description: System architect — owns design decisions and migration strategy; answers design questions with concrete, justified recommendations.
-model: openai-codex/gpt-5.6-sol
+model: openai-codex/gpt-6-sol
 models:
   - github-copilot/claude-opus-5
-  - openai-codex/gpt-5.6-terra
-  - openai-codex/gpt-5.6-luna
+  - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
   - omlx/Qwen3.6-35B-A3B-4bit

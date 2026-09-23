@@ -312,7 +312,7 @@ what you already have:
 ```bash
 just fleet peer code-reviewer --project af                      # peers.yaml decides the runner
 just fleet peer scratch-reviewer --runner claude-code --model opus --project af
-just fleet peer researcher --model openai-codex/gpt-5.6-luna --project af
+just fleet peer researcher --model openai-codex/gpt-6-luna --project af
 just fleet peer web-debugger --browser --project af             # persona peer + devtools MCP
 just fleet peer nick --here --project af                        # this terminal, not a pane
 just fleet peer anything --runner claude-code --dry-run         # print the plan, touch nothing

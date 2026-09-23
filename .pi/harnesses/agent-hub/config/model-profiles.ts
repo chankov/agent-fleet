@@ -206,6 +206,7 @@ export function serviceSelection(p: CompleteModelProfile, service: 'watchdog' | 
     return { thinking: 'off', ...p.defaults, ...p.services?.[service] };
 }
 export function dispatcherSelection(p: CompleteModelProfile): ModelSelection { return { thinking: 'off', ...p.defaults, ...p.dispatcher }; }
+export function hasExplicitDispatcher(p: CompleteModelProfile): boolean { return p.dispatcher !== undefined; }
 export function profileModels(p: ModelProfile): string[] {
     if (!isCompleteProfile(p))
         return [...new Set(Object.values(p))];

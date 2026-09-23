@@ -16,12 +16,12 @@ review:
     runner: claude-code
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
 
 web:
   - name: web-debugger
     persona: web-debugger
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
     extensions: chrome-devtools-mcp
     env_file: .env
 `;
@@ -51,7 +51,7 @@ test("core peers keep model/capability flags and pass pi arguments through", () 
 	const plan = buildPeerLaunchPlan(
 		{
 			name: "debugger",
-			model: "openai-codex/gpt-5.6-luna",
+			model: "openai-codex/gpt-6-luna",
 			browser: true,
 			allExtensions: true,
 			piArgs: ["--session", "/tmp/s.json"],
@@ -61,7 +61,7 @@ test("core peers keep model/capability flags and pass pi arguments through", () 
 	assert.equal(plan.kind, "core-peer");
 	assert.deepEqual(plan.command, [
 		"just", "_fleet-peer", "debugger", "true", "true",
-		"--model", "openai-codex/gpt-5.6-luna", "--session", "/tmp/s.json",
+		"--model", "openai-codex/gpt-6-luna", "--session", "/tmp/s.json",
 	]);
 });
 
@@ -95,7 +95,7 @@ test("a declared pi peer inherits its persona, model, extensions and env_file", 
 	assert.equal(plan.envFile, ".env");
 	assert.deepEqual(plan.command, [
 		"just", "_peer-plus", "chrome-devtools-mcp", "web-debugger", "web-debugger",
-		"openai-codex/gpt-5.6-terra", "", "af",
+		"openai-codex/gpt-6-luna", "", "af",
 	]);
 });
 

@@ -7,20 +7,20 @@ import {
 test("parseListModelsOutput skips the header and builds provider/id names", () => {
 	const output = [
 		"provider         model           context  max-out  thinking  images",
-		"openai-codex     gpt-5.6-sol     200K     16K      yes       no",
-		"xai              grok-4.6        256K     16K      yes       no",
+		"openai-codex     gpt-6-sol     200K     16K      yes       no",
+		"xai              grok-4.7        256K     16K      yes       no",
 		"",
 	].join("\n");
-	assert.deepEqual(parseListModelsOutput(output), ["openai-codex/gpt-5.6-sol", "xai/grok-4.6"]);
+	assert.deepEqual(parseListModelsOutput(output), ["openai-codex/gpt-6-sol", "xai/grok-4.7"]);
 });
 
 test("child-visible failures name that exact check", () => {
 	resetModelVisibilityCache();
-	const report = checkChildVisibility(["openai-codex/gpt-5.6-sol", "missing/model"], () => ({
-		models: ["openai-codex/gpt-5.6-sol"],
+	const report = checkChildVisibility(["openai-codex/gpt-6-sol", "missing/model"], () => ({
+		models: ["openai-codex/gpt-6-sol"],
 	}));
 	assert.equal(report.diagnostic, undefined);
-	assert.deepEqual(report.models[0], { model: "openai-codex/gpt-5.6-sol", ok: true, failed: [], reasons: [] });
+	assert.deepEqual(report.models[0], { model: "openai-codex/gpt-6-sol", ok: true, failed: [], reasons: [] });
 	assert.equal(report.models[1].ok, false);
 	assert.deepEqual(report.models[1].failed, ["child-visible"]);
 	assert.match(report.models[1].reasons[0], /child-visible check failed/);

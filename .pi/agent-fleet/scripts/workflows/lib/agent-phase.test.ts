@@ -198,12 +198,12 @@ test("agent phase refuses a missing writes policy before spawning", async () => 
 });
 
 test("model tag is path-safe", () => {
-	assert.equal(modelTag("openai-codex/gpt-5.6-sol"), "openai-codex-gpt-5.6-sol");
+	assert.equal(modelTag("openai-codex/gpt-6-sol"), "openai-codex-gpt-6-sol");
 	assert.equal(modelTag("github-copilot/claude-opus-5"), "github-copilot-claude-opus-5");
 	assert.equal(modelTag("a b/c*"), "a-b-c-");
 	assert.equal(phaseSessionKey("researcher"), "researcher");
-	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-5.6-sol"), "researcher-openai-codex-gpt-5.6-sol");
-	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-5.6-sol", "merge"), "researcher-openai-codex-gpt-5.6-sol-merge");
+	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-6-sol"), "researcher-openai-codex-gpt-6-sol");
+	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-6-sol", "merge"), "researcher-openai-codex-gpt-6-sol-merge");
 });
 
 test("two phases of one persona with different models get different session directories", async () => {
@@ -214,8 +214,8 @@ test("two phases of one persona with different models get different session dire
 			sessions.push(options.sessionFile);
 			return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
 		};
-		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "openai-codex/gpt-5.6-sol" });
-		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "xai/grok-4.6" });
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "openai-codex/gpt-6-sol" });
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "xai/grok-4.7" });
 		assert.equal(sessions.length, 2);
 		assert.notEqual(dirname(sessions[0]), dirname(sessions[1]));
 		assert.match(sessions[0], /researcher-openai-codex-gpt-5\.6-sol/);
@@ -247,8 +247,8 @@ test("a model override still uses the persona fallback model", async () => {
 			seen = { model: options.model, thinking: options.thinking, fallback };
 			return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
 		};
-		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "xai/grok-4.6", thinking: "medium" });
-		assert.equal(seen.model, "xai/grok-4.6");
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "xai/grok-4.7", thinking: "medium" });
+		assert.equal(seen.model, "xai/grok-4.7");
 		assert.equal(seen.thinking, "medium");
 		assert.equal(seen.fallback, "fallback/model");
 	} finally { rmSync(cwd, { recursive: true, force: true }); }

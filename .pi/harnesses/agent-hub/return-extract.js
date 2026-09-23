@@ -13,7 +13,7 @@
 // visibly weaker than evidence the specialist declared itself.
 
 /** The dedicated cheap model required by the recovery contract. */
-export const EXTRACTION_MODEL = "openai-codex/gpt-5.6-luna";
+export const EXTRACTION_MODEL = "openai-codex/gpt-6-luna";
 
 /** Two minutes: the pass must read a file, but it may never become a real run. */
 export const EXTRACTION_DEADLINE_MS = 120_000;

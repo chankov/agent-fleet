@@ -48,7 +48,7 @@ test("a sub-role with thinking: medium keeps medium", () => {
 name: planner
 subagents:
   voice-1:
-    model: openai-codex/gpt-5.6-sol
+    model: openai-codex/gpt-6-sol
     thinking: medium
     tools: read,grep,find,ls
 ---
@@ -82,13 +82,13 @@ test("subagents.<persona>.<role> override accepts thinking= next to model= and t
 	try {
 		mkdirSync(join(dir, ".ai"), { recursive: true });
 		writeFileSync(join(dir, ".ai", "agent-fleet-overrides.md"), `## agent-hub
-subagents.planner.voice-1: openai-codex/gpt-5.6-sol, tools=read,grep, thinking=high
+subagents.planner.voice-1: openai-codex/gpt-6-sol, tools=read,grep, thinking=high
 subagents.planner.voice-2: p/grok, thinking=nope
 subagents.planner.scout: p/fast,tools=read,grep
 `);
 		const overrides = parseAgentTeamOverrides(dir);
 		assert.deepEqual(overrides.personaSubagents.planner["voice-1"], {
-			model: "openai-codex/gpt-5.6-sol",
+			model: "openai-codex/gpt-6-sol",
 			tools: "read,grep",
 			thinking: "high",
 		});

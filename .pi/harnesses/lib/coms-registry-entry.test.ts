@@ -19,7 +19,7 @@ const identity: ComsIdentity = {
 	cwd: "/home/nchankov/repos/agent-fleet",
 	endpoint: "/home/nchankov/.pi/coms/sockets/01KYFW92KPDGDYT3MAAM6JA6JN.sock",
 	explicit: true,
-	model: "gpt-5.6-luna",
+	model: "gpt-6-luna",
 	started_at: "2026-07-26T18:00:00.000Z",
 };
 
@@ -34,11 +34,11 @@ test("the heartbeat carries started_at forward and only moves heartbeat_at", () 
 });
 
 test("the live model wins over the registered one, and absence falls back", () => {
-	const switched = buildLiveRegistryEntry(identity, { now: "t", pid: 1, model: "gpt-5.6-sol" });
+	const switched = buildLiveRegistryEntry(identity, { now: "t", pid: 1, model: "gpt-6-sol" });
 	const unknown = buildLiveRegistryEntry(identity, { now: "t", pid: 1, model: null });
 
-	assert.equal(switched.model, "gpt-5.6-sol");
-	assert.equal(unknown.model, "gpt-5.6-luna");
+	assert.equal(switched.model, "gpt-6-sol");
+	assert.equal(unknown.model, "gpt-6-luna");
 });
 
 test("context and queue are non-negative integers whatever arrives", () => {

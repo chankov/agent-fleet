@@ -1,4 +1,4 @@
-import { isCompleteProfile, parseCompleteProfile, profileModels, dispatcherSelection, validateProfile, type ModelProfile, type ModelSelection, type ProfileAgentDef } from '../config/model-profiles.ts';
+import { hasExplicitDispatcher, isCompleteProfile, parseCompleteProfile, profileModels, dispatcherSelection, validateProfile, type ModelProfile, type ModelSelection, type ProfileAgentDef } from '../config/model-profiles.ts';
 import { setActiveProfile } from './profile-runtime.ts';
 export interface ProfileActivationPorts {
     busy(): boolean;
@@ -25,7 +25,7 @@ export function createProfileActivation(ports: ProfileActivationPorts) {
                 const errors = validateProfile(profile, ports.defs());
                 if (errors.length)
                     throw new Error(errors.join('\n'));
-                const target = isCompleteProfile(profile) ? dispatcherSelection(profile) : completeActive ? baseline : undefined;
+                const target = isCompleteProfile(profile) ? (hasExplicitDispatcher(profile) ? dispatcherSelection(profile) : undefined) : completeActive ? baseline : undefined;
                 const available = new Set(await ports.available());
                 const required = [...profileModels(profile), ...(target ? [target.model] : [])];
                 const missing = [...new Set(required.filter(model => !available.has(model)))];

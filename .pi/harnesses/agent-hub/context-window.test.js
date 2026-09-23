@@ -13,7 +13,7 @@ import {
 
 const registry = {
 	"custom/Qwen3.8-27B-Uncensored-MLX-4bit": { contextWindow: 49152 },
-	"openai-codex/gpt-5.6-luna": { contextWindow: 400_000 },
+	"openai-codex/gpt-6-luna": { contextWindow: 400_000 },
 	"openrouter/google/gemini-3-flash-preview": { contextWindow: 1_000_000 },
 };
 const lookup = (provider, modelId) => registry[`${provider}/${modelId}`];

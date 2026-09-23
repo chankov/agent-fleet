@@ -818,10 +818,10 @@ test("Pi loads a symlinked hub after a package-only update", () => {
 test("complete local profile switches the live dispatcher and rejects a manual model outside its allowlist", async () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-profile-rpc-"));
 	const probePath = join(workspace, "profile-provider.ts");
-	const localDuo = parseYaml(readFileSync(join(repoRoot, ".pi/agents/model-profiles.yaml"), "utf8"))["local-duo"];
-	const dispatcher = String(localDuo.dispatcher ?? localDuo.defaults?.model ?? "");
-	const allowed = [...new Set((localDuo["allowed-models"] ?? []).map(String))].filter((id) => id.includes("/"));
-	assert.ok(dispatcher.includes("/"), "local-duo must declare a dispatcher model");
+	const localFull = parseYaml(readFileSync(join(repoRoot, ".pi/agents/model-profiles.yaml"), "utf8"))["local-full"];
+	const dispatcher = String(localFull.dispatcher ?? localFull.defaults?.model ?? "");
+	const allowed = [...new Set((localFull["allowed-models"] ?? []).map(String))].filter((id) => id.includes("/"));
+	assert.ok(dispatcher.includes("/"), "local-full must declare a dispatcher model");
 	const permittedAlt = allowed.find((id) => id !== dispatcher) ?? dispatcher;
 	const registeredIds = [...new Set([...allowed, dispatcher, "omlx/outside-profile"])].map((id) => id.replace(/^[^/]+\//, ""));
 	writeFileSync(probePath, `
@@ -845,11 +845,11 @@ export default function (pi) {
 `);
 	const rpc = startRpcProbe(probePath, ["--model", "omlx/outside-profile", "--thinking", "high"]);
 	try {
-		await rpc.notificationAfter("/af-models local-duo", 'Profile "local-duo":');
+		await rpc.notificationAfter("/af-models local-full", 'Profile "local-full":');
 		const state = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));
 		assert.equal(state.model, dispatcher);
 		assert.equal(state.thinking, "off");
-		assert.equal(state.active.name, "local-duo");
+		assert.equal(state.active.name, "local-full");
 		assert.equal(state.active.profile.fallback, "none");
 		await rpc.request({ type: "set_model", provider: "omlx", modelId: "outside-profile" });
 		const guarded = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));

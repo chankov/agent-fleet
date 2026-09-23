@@ -3,7 +3,7 @@ import { registerRecover, runRecoverCommand } from "./commands/recover.ts";
 import { createNoProgressGuard } from "./no-progress.ts";
 import { renderNextInvocation, renderRecoverCommands } from './recover-policy.ts';
 import { closeEvidenceSession, pruneEvidenceSessions } from "./execution-evidence.ts";
-import { isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
+import { hasExplicitDispatcher, isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
 import { createProfileActivation } from './policy/profile-activation.ts';
 import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerGate } from './policy/profile-runtime.ts';
 import { resolveAssist } from './assist-profile.ts';
@@ -578,9 +578,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		try { assertProfileModel(`${event.model.provider}/${event.model.id}`,active); }
 		catch(error) {
 			ctx.abort();ctx.ui.notify(String(error),'error');
-			const target=dispatcherSelection(active.profile).model, slash=target.indexOf('/');
-			const model=ctx.modelRegistry.find(target.slice(0,slash),target.slice(slash+1));
-			if(model) await pi.setModel(model);
+			if(hasExplicitDispatcher(active.profile)) {
+				const target=dispatcherSelection(active.profile).model, slash=target.indexOf('/');
+				const model=ctx.modelRegistry.find(target.slice(0,slash),target.slice(slash+1));
+				if(model) await pi.setModel(model);
+			}
 		}
 	});
 	pi.on('before_provider_request', async (_event,ctx) => {

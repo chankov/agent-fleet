@@ -207,11 +207,11 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 
 | Where the tokens come from | Looks like | Who uses it in a fleet |
 |---|---|---|
-| **ChatGPT / Codex subscription** | `openai-codex/gpt-5.6-terra`, `…-sol`, `…-luna`, `…-codex-spark` | Default for most shipped personas |
+| **ChatGPT / Codex subscription** | `openai-codex/gpt-6-luna`, `…-sol`, `…-codex-spark` | Default for most shipped personas |
 | **GitHub Copilot subscription** | `github-copilot/claude-sonnet-4.6`, `github-copilot/claude-haiku-4.5` | Common override for `builder` / reviewers |
 | **Claude subscription** | a real **Claude Code pane**, bridged in as a first-class coms peer | `plan-reviewer` and `code-reviewer` — cross-model review |
 | **Ollama — cloud *or* local** | `ollama/glm-5.2:cloud`, `ollama/minimax-m3:cloud`, or a model on your own box | Overflow capacity and cost control |
-| **Anything else pi can address** | local MLX / llama.cpp / LM Studio weights; bundled `local-duo` uses `omlx/Qwen3.6-35B-A3B-4bit` plus `omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX` | 35B for dispatcher/recon/verdicts; 9B for docs, deps, conventions, extractors |
+| **Anything else pi can address** | local MLX / llama.cpp / LM Studio weights; bundled `local-full` and `local-workers` use `omlx/Qwen3.6-35B-A3B-4bit` |
 
 Two consequences worth spelling out:
 
@@ -222,7 +222,7 @@ Two consequences worth spelling out:
 /af-models fast                                   # move the whole team down a tier
 /af-agent-model builder github-copilot/claude-sonnet-4.6
 /af-agent-models-substitute                         # visually pick a session-wide source → target mapping
-/af-agent-models-substitute openai-codex/gpt-5.6-sol ollama/glm-5.2:cloud   # same operation, direct form
+/af-agent-models-substitute openai-codex/gpt-6-sol ollama/glm-5.2:cloud   # same operation, direct form
 ```
 
 Per-project defaults live in `.ai/agent-fleet-overrides.md` — see [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md).

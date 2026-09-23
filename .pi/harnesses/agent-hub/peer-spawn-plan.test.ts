@@ -14,7 +14,7 @@ review:
 web:
   - name: web-debugger
     persona: web-debugger
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
     extensions: chrome-devtools-mcp
     env_file: .env.peer
 `;
@@ -41,27 +41,27 @@ test("name-only Hub spawn has CLI parity for declared Claude and Pi peers", () =
 	assert.equal(pi.extensions, "chrome-devtools-mcp");
 	assert.deepEqual(pi.command, [
 		"just", "_peer-plus", "chrome-devtools-mcp", "web-debugger", "web-debugger",
-		"openai-codex/gpt-5.6-terra", "", "af",
+		"openai-codex/gpt-6-luna", "", "af",
 	]);
 });
 
 test("Hub spawn supports explicit persona, core, and Claude shapes while forcing its project", () => {
 	const persona = buildHubPeerSpawnPlan(
-		{ name: "build-1", runner: "pi", persona: "builder", model: "openai-codex/gpt-5.6-terra", extensions: "btw" },
+		{ name: "build-1", runner: "pi", persona: "builder", model: "openai-codex/gpt-6-luna", extensions: "btw" },
 		context(),
 	);
 	assert.equal(persona.kind, "persona-peer");
 	assert.deepEqual(persona.command, [
-		"just", "_peer-plus", "btw", "builder", "build-1", "openai-codex/gpt-5.6-terra", "", "af",
+		"just", "_peer-plus", "btw", "builder", "build-1", "openai-codex/gpt-6-luna", "", "af",
 	]);
 
 	const core = buildHubPeerSpawnPlan(
-		{ name: "scratch", runner: "pi", no_persona: true, model: "openai-codex/gpt-5.6-luna", browser: true, all_extensions: true },
+		{ name: "scratch", runner: "pi", no_persona: true, model: "openai-codex/gpt-6-luna", browser: true, all_extensions: true },
 		context(),
 	);
 	assert.equal(core.kind, "core-peer");
 	assert.deepEqual(core.command, [
-		"just", "_fleet-peer", "scratch", "true", "true", "--model", "openai-codex/gpt-5.6-luna", "--project", "af",
+		"just", "_fleet-peer", "scratch", "true", "true", "--model", "openai-codex/gpt-6-luna", "--project", "af",
 	]);
 
 	const claude = buildHubPeerSpawnPlan(

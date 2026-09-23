@@ -55,7 +55,7 @@ requires_user_decision: []`;
 });
 
 test("the extraction pass uses the dedicated cheap model and a per-return session", () => {
-	assert.equal(EXTRACTION_MODEL, "openai-codex/gpt-5.6-luna");
+	assert.equal(EXTRACTION_MODEL, "openai-codex/gpt-6-luna");
 	assert.equal(extractionSessionName("/s/artifacts/returns/planner-run1.md"), "return-extract-planner-run1.json");
 	assert.equal(extractionSessionName("/s/artifacts/returns/test-engineer-run2.md"), "return-extract-test-engineer-run2.json");
 	assert.notEqual(

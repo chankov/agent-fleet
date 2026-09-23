@@ -2,12 +2,11 @@
 name: plan-reviewer
 description: Plan critic — reviews, challenges, and validates implementation plans
 tools: read,grep,find,ls
-model: xai/grok-4.6
+model: xai/grok-4.7
 models:
-  - openai-codex/gpt-5.6-terra
+  - openai-codex/gpt-6-luna
   - github-copilot/claude-opus-5
-  - openai-codex/gpt-5.6-sol
-  - openai-codex/gpt-5.6-luna
+  - openai-codex/gpt-6-sol
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
   - omlx/Qwen3.6-35B-A3B-4bit
@@ -15,10 +14,10 @@ thinking: medium
 delegate_depth: 1
 subagents:
   feasibility:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   deps:
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
 ---
 You are a plan reviewer agent. Your job is to critically evaluate implementation plans.

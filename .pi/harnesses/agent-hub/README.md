@@ -155,8 +155,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   below. Managed research children use a replacement read-only prompt with `--no-skills` and
   `--no-context-files`; managed specialists receive a selected context manifest (persona, applicable
   policy paths, and named skill paths) rather than inherited global skill/context loading. Two
-  `kind: research` personas ship by default: `researcher` (`gpt-5.6-luna`, low thinking) for simple
-  reads and `deep-researcher` (`grok-4.6`, medium thinking) for hard, cross-cutting investigation.
+  `kind: research` personas ship by default: `researcher` (`gpt-6-luna`, low thinking) for simple
+  reads and `deep-researcher` (`grok-4.7`, medium thinking) for hard, cross-cutting investigation.
   The dispatcher routes by persona; each persona's model + thinking level is shown in its catalog.
   Live helpers appear in the Fleet Dashboard (`Alt+A`) and bounded fleet widget while they are
   running. On every terminal outcome (success, error, timeout, spawn/preflight failure, or operator

@@ -2,11 +2,11 @@
 name: web-performance-auditor
 description: Web performance engineer focused on Core Web Vitals, loading, rendering, and network optimization. Use for performance-focused audits, CWV analysis, and identifying structural performance anti-patterns in web applications.
 tools: read,bash,grep,find,ls
-model: openai-codex/gpt-5.6-terra
+model: openai-codex/gpt-6-luna
 models:
   - github-copilot/claude-opus-5
-  - openai-codex/gpt-5.6-sol
-  - openai-codex/gpt-5.6-luna
+  - openai-codex/gpt-6-sol
+  - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
   - omlx/Qwen3.6-35B-A3B-4bit

@@ -45,87 +45,87 @@ default:
     runner: claude-code
   - name: web-debugger
     persona: web-debugger
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
     extensions: chrome-devtools-mcp
 
 
 full:
   - name: web-debugger
     persona: web-debugger
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
     extensions: chrome-devtools-mcp
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: researcher
     persona: researcher
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
 
 web:
   - name: web-debugger
     persona: web-debugger
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
     extensions: chrome-devtools-mcp
 
 docs:
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: researcher
     persona: researcher
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
 
 
 debug:
   - name: test-engineer
     persona: test-engineer
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: code-reviewer
     runner: claude-code
 
 frontend:
   - name: planner
     persona: planner
-    model: openai-codex/gpt-5.6-sol
+    model: openai-codex/gpt-6-sol
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: bowser
     persona: bowser
-    model: openai-codex/gpt-5.6-luna
+    model: openai-codex/gpt-6-luna
   - name: code-reviewer
     runner: claude-code
 
 security:
   - name: security-auditor
     persona: security-auditor
-    model: openai-codex/gpt-5.6-sol
+    model: openai-codex/gpt-6-sol
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: test-engineer
     persona: test-engineer
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: code-reviewer
     runner: claude-code
 
 hotfix:
   - name: builder
     persona: builder
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: code-reviewer
     runner: claude-code
 
 release:
   - name: releaser
     persona: releaser
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.6-terra
+    model: openai-codex/gpt-6-luna
 
 info:
   - name: documenter

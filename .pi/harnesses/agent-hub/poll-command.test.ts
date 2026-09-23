@@ -41,8 +41,8 @@ test("formatAfPollDigest is a vertical block per voice with name, model, positio
 		panel: "default",
 		directory: ".pi/agent-sessions/artifacts/polls/abcd/",
 		voices: [
-			{ name: "sol", model: "openai-codex/gpt-5.6-sol", ok: true, position: "Extract it.", confidence: "high" },
-			{ name: "grok", model: "xai/grok-4.6", ok: true, position: "Leave it.", confidence: "medium" },
+			{ name: "sol", model: "openai-codex/gpt-6-sol", ok: true, position: "Extract it.", confidence: "high" },
+			{ name: "grok", model: "xai/grok-4.7", ok: true, position: "Leave it.", confidence: "medium" },
 			{ name: "opus", model: "github-copilot/claude-opus-5", ok: false, reason: "timeout" },
 		],
 		integrator: "opus",
