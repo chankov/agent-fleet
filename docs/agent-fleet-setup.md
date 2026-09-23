@@ -631,8 +631,10 @@ local-full:
   model string or `{model, thinking}`.
   Unspecified thinking inherits defaults, then `off`. Tool caps and delegation
   depth remain unchanged. Unknown persona/child names are rejected.
-- `dispatcher` changes the current Pi session's model and thinking. It defaults
-  to `defaults`; an `orchestrator` persona entry alone is not the live dispatcher.
+- `dispatcher` changes the current Pi session's model and thinking. When omitted,
+  the live dispatcher keeps its current selection and may use any Pi model, even
+  outside `allowed-models`; that list still applies to workers and peers. An
+  `orchestrator` persona entry alone is not the live dispatcher.
 - `services` sets the watchdog and structured-return extractor independently;
   unspecified services use defaults. `panel` supplies 2–5 poll/debate voices and
   an optional single integrator. `/af-poll` and `/af-debate` select the active
@@ -651,7 +653,8 @@ local-full:
 - `fallback: none` (default) disables automatic original-model fallback, including
   nested children and workflows. `declared` retains it. Optional `allowed-models`
   is an exact provider/model allowlist checked before actual child spawns and
-  fallback attempts. Manual model pickers and session substitutions respect it.
+  fallback attempts. Worker model pickers and session substitutions respect it;
+  the live dispatcher is checked only when `dispatcher` is explicit.
   This governs Fleet model execution; it is not an OS/network sandbox for arbitrary
   shell commands or unrelated applications.
 

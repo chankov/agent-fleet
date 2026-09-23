@@ -815,6 +815,46 @@ test("Pi loads a symlinked hub after a package-only update", () => {
 	}
 });
 
+test("local-workers preserves and permits any live dispatcher while keeping worker models local", async () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-workers-rpc-"));
+	const probePath = join(workspace, "profile-provider.ts");
+	const workers = parseYaml(readFileSync(join(repoRoot, ".pi/agents/model-profiles.yaml"), "utf8"))["local-workers"];
+	const local = String(workers.defaults.model);
+	const localId = local.slice(local.indexOf("/") + 1);
+	writeFileSync(probePath, `
+export default function (pi) {
+  for (const provider of ["omlx", "cloud"]) pi.registerProvider(provider, {
+    name: provider, baseUrl: "http://127.0.0.1", apiKey: "test", api: "profile-fixture-api",
+    models: (provider === "omlx" ? [${JSON.stringify(localId)}] : ["root", "other"]).map(id => ({
+      id, name: id, reasoning: true, input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024,
+    })),
+    streamSimple() { throw new Error("INFERENCE_REACHED"); },
+  });
+  pi.registerCommand("probe-model-profile", { handler: async (_args, ctx) => {
+    ctx.ui.notify("PROFILE_STATE:" + JSON.stringify({ model: ctx.model.provider + "/" + ctx.model.id,
+      active: JSON.parse(process.env.AGENT_FLEET_ACTIVE_MODEL_PROFILE || "null") }), "info");
+  }});
+}
+`);
+	const rpc = startRpcProbe(probePath, ["--model", "cloud/root"]);
+	try {
+		await rpc.notificationAfter("/af-models local-workers", 'Profile "local-workers":');
+		const initial = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));
+		assert.equal(initial.model, "cloud/root");
+		assert.equal(initial.active.name, "local-workers");
+		assert.deepEqual(initial.active.profile["allowed-models"], [local]);
+		assert.equal(initial.active.profile.agents.builder.model, local);
+		await rpc.request({ type: "set_model", provider: "cloud", modelId: "other" });
+		assert.equal(JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:")).model, "cloud/other");
+		const response = await rpc.request({ type: "prompt", message: "hello" });
+		assert.equal(response.success, true, JSON.stringify(response));
+	} finally {
+		await rpc.close();
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
 test("complete local profile switches the live dispatcher and rejects a manual model outside its allowlist", async () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-profile-rpc-"));
 	const probePath = join(workspace, "profile-provider.ts");

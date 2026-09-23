@@ -574,7 +574,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	pi.on('model_select', async (event,ctx) => {
 		contextWindow=event.model.contextWindow||0;
 		if(profileActivation.switching()) return;
-		const active=readActiveProfile();if(!active) return;
+		const active=readActiveProfile();if(!active || !hasExplicitDispatcher(active.profile)) return;
 		try { assertProfileModel(`${event.model.provider}/${event.model.id}`,active); }
 		catch(error) {
 			ctx.abort();ctx.ui.notify(String(error),'error');
@@ -586,8 +586,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		}
 	});
 	pi.on('before_provider_request', async (_event,ctx) => {
-		if(!ctx.model) return;
-		try { assertProfileModel(`${ctx.model.provider}/${ctx.model.id}`); }
+		const active=readActiveProfile();
+		if(!ctx.model || !active || !hasExplicitDispatcher(active.profile)) return;
+		try { assertProfileModel(`${ctx.model.provider}/${ctx.model.id}`,active); }
 		catch(error) {ctx.abort();ctx.ui.notify(String(error),'error');}
 	});
 
