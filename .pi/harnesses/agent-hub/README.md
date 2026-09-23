@@ -817,11 +817,15 @@ watchdog + turn deadline and cannot write.
 The separate experimental `system1` feature, valid `.ai/system1.json`, a
 caller-injected key and an armed native watchdog are also needed. `shadow`
 runs System 1 independently of the immediately started LLM judge; it cannot
-stop a specialist. `active` is blocked as `calibration_required` (effective
-shadow): production approved profiles are empty, and configuration alone never
-approves one. Every unknown, contradictory or uncalibrated result goes to the
-LLM; only an approved per-rule on-track result could avoid it. No automatic
-hook is added for research, coms or normal Hub requests.
+stop a specialist. `active` is an **uncalibrated experiment in every installed
+workspace**, requiring explicit `watchdog-system1: active` opt-in; default remains
+off. Only advisory `scope` may bypass LLM on provider `on_track` with confidence
+and on-track distribution ≥0.95 and all three predicate probabilities ≤0.05.
+Terminal `loop`, `failures`, and `toolcap` always go to LLM. `/af-watchdog`
+shows `experimental: scope only; G2 not validated`; an unavailable/mismatched
+provider falls back to LLM. Production approved profiles are still empty.
+This is not G2 approval or a safety guarantee: the experiment can miss a scope
+advisory. No automatic hook is added for research, coms or normal Hub requests.
 
 The limited **System 1** state includes reviewed task text, normalized
 relative paths, structured tool kinds/outcomes and counters, not tool

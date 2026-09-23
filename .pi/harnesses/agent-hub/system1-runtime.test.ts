@@ -9,13 +9,14 @@ import type { JevTransport } from "../lib/system1/jev.ts";
 import {
 	ACTIVE_BLOCKED_LABEL,
 	APPROVED_WATCHDOG_PROFILES,
+	EXPERIMENTAL_SCOPE_PROFILE,
 	createWatchdogSystem1Session,
 	disposeWatchdogSystem1Session,
 	readWatchdogSystem1Snapshot,
 } from "./system1-runtime.ts";
 import { createDriftMonitor } from "./drift-watchdog.js";
 import { WATCHDOG_QUESTIONS, WATCHDOG_STATE_MAX_BYTES, buildWatchdogState } from "./drift-system1.ts";
-import { WATCHDOG_POLICY_VERSION, type AcceptedWatchdogProfile } from "./drift-system1-policy.ts";
+import { decideSystem1, WATCHDOG_POLICY_VERSION, type AcceptedWatchdogProfile } from "./drift-system1-policy.ts";
 
 const validConfig = {
 	version: 1,
@@ -95,7 +96,7 @@ test("off, missing feature, missing config, invalid config, disabled mode, missi
 	assert.equal(fake.calls(), 0);
 });
 
-test("active is visibly blocked to shadow and cannot be self-approved", async () => {
+test("explicit active opt-in uses the experimental scope profile without G2 approval", async () => {
 	const fake = countingTransport();
 	const session = createWatchdogSystem1Session({
 		configuredMode: "active",
@@ -106,14 +107,51 @@ test("active is visibly blocked to shadow and cannot be self-approved", async ()
 		transport: fake.transport,
 	});
 	assert.equal(session.configuredMode, "active");
-	assert.equal(session.effectiveMode, "shadow");
-	assert.equal(session.blockLabel, ACTIVE_BLOCKED_LABEL);
-	assert.equal(session.blockLabel, "active blocked: calibration_required");
-	assert.equal(session.approvedProfiles, APPROVED_WATCHDOG_PROFILES);
-	assert.equal(session.approvedProfiles.length, 0);
+	assert.equal(session.effectiveMode, "active");
+	assert.equal(session.blockLabel, "experimental: scope only; G2 not validated");
+	assert.deepEqual(session.approvedProfiles, [EXPERIMENTAL_SCOPE_PROFILE]);
+	assert.deepEqual(session.approvedProfiles[0].rules, ["scope"]);
+	assert.equal(APPROVED_WATCHDOG_PROFILES.length, 0);
 	await session.evaluate({ armed: true, state: smallState });
 	assert.equal(fake.calls(), 1);
 	session.dispose();
+});
+
+test("experimental scope profile works for other workspaces only with explicit active opt-in", () => {
+	const dir = workspace();
+	try {
+		writeFileSync(join(dir, ".ai", "agent-fleet.json"), JSON.stringify({ features: { system1: true } }));
+		writeFileSync(join(dir, ".ai", "system1.json"), JSON.stringify(validConfig));
+		const open = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({
+			cwd: dir, configuredMode: "active", watchdogSetting: "on", env: {},
+		}));
+		assert.equal(open.effectiveMode, "active");
+		assert.equal(open.blockLabel, "experimental: scope only; G2 not validated");
+		assert.deepEqual(open.approvedProfiles, [EXPERIMENTAL_SCOPE_PROFILE]);
+		assert.deepEqual(open.approvedProfiles[0].rules, ["scope"]);
+		assert.equal(open.approvedProfiles[0].minConfidence, 0.95);
+		assert.equal(open.approvedProfiles[0].maxContradiction, 0.05);
+		open.dispose();
+		const closed = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({
+			cwd: dir, configuredMode: "shadow", watchdogSetting: "on", env: {},
+		}));
+		assert.equal(closed.effectiveMode, "shadow");
+		assert.equal(closed.blockLabel, null);
+		assert.equal(closed.approvedProfiles.length, 0);
+		closed.dispose();
+		assert.equal(APPROVED_WATCHDOG_PROFILES.length, 0);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("experimental profile never shortcuts a terminal rule even with a high-confidence answer", () => {
+	const candidate = buildWatchdogState({ task: "synthetic", signal: { rule: "loop", terminal: true }, observation: {
+		events: [], counters: { tool_calls: 1, failures: 0, consecutive_failures: 0, elapsed_ms: 1 },
+		coverage: { events_seen: 0, dropped_by_window: 0, dropped_incomplete: 0, unparsed_events: 0, missing_tool_end: 0 },
+	} });
+	const answer = { status: "ok", evaluation: { metadata: { provider: "typesafe", requestedModel: "jev-1.13.0", returnedModel: "jev-1.13.0", questionSetVersion: "watchdog-questions/v1" },
+		answers: [{ questionId: "status", type: "choice", value: "on_track", uncertainty: { provenance: "provider", confidence: 1, distribution: { on_track: 1, drifting: 0, stuck: 0, insufficient_evidence: 0 } } },
+			...["repeating", "outside_task", "trail_carries_instructions"].map(questionId => ({ questionId, type: "predicate", probabilityTrue: 0, uncertainty: { provenance: "provider" } }))] } };
+	assert.equal(decideSystem1(answer, { live: true, rule: "loop", state: candidate, requestedModel: "jev-1.13.0" }, EXPERIMENTAL_SCOPE_PROFILE).action, "llm");
 });
 
 test("G2 needs a matching provider/model/version and an actual Layer 1 rule, not just any injected profile", () => {

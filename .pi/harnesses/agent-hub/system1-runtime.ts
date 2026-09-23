@@ -23,6 +23,17 @@ export type WatchdogSystem1Mode = (typeof WATCHDOG_SYSTEM1_MODES)[number];
 export const DEFAULT_WATCHDOG_SYSTEM1_MODE: WatchdogSystem1Mode = "off";
 /** Production approved profiles stay empty until a separate reviewed G2 change. */
 export const APPROVED_WATCHDOG_PROFILES: readonly AcceptedWatchdogProfile[] = Object.freeze([]);
+/** Explicit opt-in experiment, NOT G2-approved: advisory scope only, never terminal rules. */
+export const EXPERIMENTAL_SCOPE_PROFILE: AcceptedWatchdogProfile = Object.freeze({
+	policyVersion: WATCHDOG_POLICY_VERSION,
+	stateVersion: WATCHDOG_STATE_VERSION,
+	questionsVersion: WATCHDOG_QUESTIONS_VERSION,
+	provider: "typesafe",
+	model: "jev-1.13.0",
+	rules: Object.freeze(["scope"]),
+	minConfidence: 0.95,
+	maxContradiction: 0.05,
+});
 export const ACTIVE_BLOCKED_LABEL = "active blocked: calibration_required";
 
 export type WatchdogConsumerSkipReason =
@@ -146,7 +157,10 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 	const configuredMode = options.configuredMode;
 	// Only a profile matching this session's immutable provider/model and policy can open active.
 	// An unrelated shipped profile must not turn configured active into effective active.
-	const candidates = options.approvedProfilesForTest ?? APPROVED_WATCHDOG_PROFILES;
+	// The experimental profile is only eligible after explicit consumer opt-in;
+	// provider/model/version/rule checks still apply. It is not a G2-approved profile.
+	const candidates = options.approvedProfilesForTest ?? (configuredMode === "active"
+		? [EXPERIMENTAL_SCOPE_PROFILE] : APPROVED_WATCHDOG_PROFILES);
 	const profiles = candidates.length ? eligibleProfiles(candidates, options.config) : candidates;
 	const controller = new AbortController();
 	let disposed = false;
@@ -154,7 +168,9 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 		configuredMode,
 		effectiveMode: effectiveMode(configuredMode, profiles),
 		requestedModel: typeof (options.config as { model?: unknown } | null)?.model === "string" ? (options.config as { model: string }).model : "unknown",
-		blockLabel: configuredMode === "active" && profiles.length === 0 ? ACTIVE_BLOCKED_LABEL : null,
+		blockLabel: configuredMode === "active"
+			? profiles.length === 0 ? ACTIVE_BLOCKED_LABEL : options.approvedProfilesForTest === undefined ? "experimental: scope only; G2 not validated" : null
+			: null,
 		readiness: runtime.readiness,
 		approvedProfiles: profiles,
 		hubArmed: options.watchdogArmed,

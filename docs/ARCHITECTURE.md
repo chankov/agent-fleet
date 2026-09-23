@@ -468,12 +468,15 @@ The below-chat Fleet strip and `/af-agents` owner detail share a projection;
 watchdog checks, S1 evaluations and LLM attempts, and `/af-audit` lists safe
 read-only lifecycle outcomes. UI/trace failure does not change judgment.
 
-`watchdog-system1: active` is currently **effective shadow** because the
-production approved-profile list is empty. An offline policy implementation
-can skip LLM only for accepted on-track per-rule/version/model profiles, and
-cannot stop a child. Human snapshot labels, session-separated held-out
-measurement and independent maintainer G2 approval are required before any
-production profile can ship. Offline tests and installed-package checks do not
+`watchdog-system1: active` explicitly opts into an **uncalibrated experimental**
+shortcut available in installed workspaces: only advisory `scope` may skip LLM
+when Jev `jev-1.13.0` reports provider on-track with confidence and on-track
+distribution ≥0.95 and all three contradiction probabilities ≤0.05. Terminal
+rules always use the LLM; System 1 cannot stop a child. The watchdog status
+labels the mode `experimental: scope only; G2 not validated`; default remains
+off and production approved profiles remain empty. Human snapshot labels,
+session-separated held-out measurement and independent maintainer G2 approval
+are still required before calling this calibrated or expanding its authority. Offline tests and installed-package checks do not
 constitute a live pilot (G1) or active approval (G2). Roll back with
 `watchdog-system1: off` and restart Hub; cancel the current run if needed.
 
