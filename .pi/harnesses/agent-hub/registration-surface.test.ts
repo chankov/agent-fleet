@@ -43,7 +43,19 @@ test("agent-hub registration surface matches the checked-in fixture", async () =
 		assert.deepEqual(actual, fixture);
 		assert.equal(extension.commands.has("af-probe"), false);
 		assert.equal(extension.tools.has("af_probe_value"), false);
-		for (const name of ["af-audit", "af-retry", "af-work-mode"]) assert.ok(extension.commands.has(name), name);
+		for (const name of ["af-audit", "af-retry", "af-work-mode", "af-watchdog"]) assert.ok(extension.commands.has(name), name);
+		const notices: string[] = [];
+		const watchdog = extension.commands.get("af-watchdog")!;
+		const watchdogCtx = { cwd: repoRoot, ui: { notify: (message: string) => notices.push(message) } } as any;
+		await watchdog.handler("", watchdogCtx);
+		const initialMode = (notices.at(-1) ?? "").match(/System 1 · watchdog · configured [^\n]+/i)?.[0];
+		assert.ok(initialMode, "read-only command reports the consumer mode");
+		await watchdog.handler("on", watchdogCtx);
+		await watchdog.handler("", watchdogCtx);
+		assert.match(notices.at(-1) ?? "", /Drift watchdog: on \(hub-wide\)/);
+		assert.ok((notices.at(-1) ?? "").includes(initialMode), "arming Layer 1 must not activate System 1");
+		await watchdog.handler("auto", watchdogCtx); // restore the in-memory hub setting for this loader run
+
 		// Exercise the real renderer through Pi's alias-aware production loader.
 		const dispatch = extension.tools.get("dispatch_agent")!.definition;
 		const rendered = dispatch.renderResult!({ content: [], details: { agent: "builder", status: "completed_unverified", executionStatus: "completed", accepted: false, elapsed: 0 } }, { expanded: false } as any, { fg: (_color: string, text: string) => text, bold: (text: string) => text } as any).render(120).join("\n");

@@ -21,7 +21,7 @@ this page describes the current architecture.
 | **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `.pi/agent-fleet/scripts/lib/`) — see [Hermes artifacts](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `.pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `.pi/agent-fleet/scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
 | **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-client.ts`, `.pi/agent-fleet/scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
-| **System 1 foundation** | Experimental, opt-in provider-neutral structured judgments; currently TypeSafe Jev only, with no action consumer | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
+| **System 1 foundation** | Experimental, opt-in provider-neutral structured judgments; currently TypeSafe Jev only, with a separate off-by-default native watchdog shadow consumer and closed active gate | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
 
@@ -439,6 +439,43 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 | **Node.js + npm** | CLI (`npx @chankov/agent-fleet`), package install, `just` recipes | Yes for install & tooling |
 
 The existing `agent-fleet doctor` command also performs a read-only manifest preflight. It reports exact selected installation files and manifest-declared tool probes as environment readiness, distinguishes missing installation from unknown or unavailable platforms, and names the existing explicit remediation path. Bare doctor never repairs or installs; `doctor --fix` remains the only repair activation, and package/tool installation remains behind its existing explicit consent path.
+
+### System 1 watchdog consumer (off by default)
+
+The native specialist Layer 1 drift watchdog can use the shared System 1 runtime
+only after explicit `watchdog-system1: shadow` in `## agent-hub`, feature selection,
+valid provider configuration, an available key and an armed watchdog. It takes a
+session snapshot; setup and doctor do not infer. Shadow starts the LLM judge at
+once and separately observes the same bounded state with Jev. Only the LLM
+verdict may terminate a child; an unavailable LLM judge is recorded as
+`judge_unavailable` and gets one revalidated retry at 5 s, not a successful
+90 s cooldown. Successful decisions keep 90 s. Every physical attempt has
+separate identities; D1 retries create a new snapshot and do not reuse or
+repeat the previous System 1 evaluation.
+
+The state carries a redacted task, relative scope/paths, up to 40 structured
+kinds/outcomes/repeat counts, rule facts and coverage, not raw arguments,
+commands, edit bodies or outputs. This limit applies to System 1 only: the
+existing parallel LLM judge prompt contains the original task, scope and a
+recent trail with up to 120 characters of raw tool arguments per call. Use
+only reviewed nonsecret pilot inputs; manual review does not rule out
+unexpected agent actions. The native spawn boundary removes
+`TYPESAFE_API_KEY` after env overrides. This cannot prevent file reads or
+requests from other launchers. The append-only session watchdog trace stores
+only safe metadata, with explicit unknown usage and interrupted readback.
+The below-chat Fleet strip and `/af-agents` owner detail share a projection;
+`/af-watchdog` shows readiness/active blocking, `/af-hub-report` separates
+watchdog checks, S1 evaluations and LLM attempts, and `/af-audit` lists safe
+read-only lifecycle outcomes. UI/trace failure does not change judgment.
+
+`watchdog-system1: active` is currently **effective shadow** because the
+production approved-profile list is empty. An offline policy implementation
+can skip LLM only for accepted on-track per-rule/version/model profiles, and
+cannot stop a child. Human snapshot labels, session-separated held-out
+measurement and independent maintainer G2 approval are required before any
+production profile can ship. Offline tests and installed-package checks do not
+constitute a live pilot (G1) or active approval (G2). Roll back with
+`watchdog-system1: off` and restart Hub; cancel the current run if needed.
 
 ### Experimental System 1 foundation
 

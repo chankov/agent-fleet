@@ -119,7 +119,7 @@ export async function confirmTaskSupersession(input: { oldTaskId: string; newTas
 
 /** Task-scoped, single-flight human authorization. Tool prose is never an input. */
 export function createBudgetRecovery(ports: BudgetRecoveryPorts): BudgetRecovery {
-	let taskId = randomUUID(), tranche = 0;
+	let taskId: string = randomUUID(), tranche = 0;
 	let stopped: { refusal: BudgetRefusal; operation: BudgetOperation; next: string; block: BudgetBlock } | null = null;
 	let pending: { controller: AbortController; operation: BudgetOperation; result: Promise<BudgetBlock | null> } | null = null;
 	const block = (ctx: ExtensionContext, reason = "budget_stopped", detail = ""): BudgetBlock => {

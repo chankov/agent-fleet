@@ -346,7 +346,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	if (s.getProcessState) {
 		let processState = s.getProcessState();
 		if (runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
-			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, changedFiles: observation.paths });
+			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, changedFiles: observation?.paths ?? [] });
 		}
 		const stage = p.agent === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
 		const affirmativeReview = /(?:^|\n)\s*(?:verdict\s*:\s*)?APPROVE\b/im.test(result.output) && !/(?:^|\n)\s*(?:verdict\s*:\s*)?REJECT\b/im.test(result.output);

@@ -3,12 +3,14 @@ import { basename, join } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { redactSecrets } from "../lib/fleet-transcript-store.ts";
 import { RECOVERY_CATEGORIES, type RecoveryCategory } from "./recovery-contract.ts";
+import { readWatchdogEvents } from "./system1-report.ts";
+import { projectWatchdogReadback } from "./system1-activity.ts";
 
 const RESULT_SCHEMA = "agent-fleet.runtime-result/v1";
 const PROTOCOL_SCHEMA = "agent-fleet.tool-protocol-diagnostic/v1";
 const AUDIT_STATUSES = new Set(["accepted", "not_accepted", "authorized", "authorized_once", "budget_authorized", "retry_authorized_once", "passed", "failed", "missing", "stale", "unsupported", "busy", "invalid_input", "resource_exhausted", "operator_cancelled", "verification_failed", "tool_protocol_error", "unknown_tool", "indeterminate", "completed_unverified", "unavailable"]);
 type Availability = "available" | "unavailable";
-type AuditKind = "refusal" | "verification" | "tool_protocol" | "budget_permission" | "retry_permission" | "human_intervention" | "process_obligation";
+type AuditKind = "refusal" | "verification" | "tool_protocol" | "budget_permission" | "retry_permission" | "human_intervention" | "process_obligation" | "watchdog";
 
 export interface SessionAuditEvent {
 	kind: AuditKind;
@@ -32,6 +34,7 @@ export interface SessionAuditEvent {
 	admissibleNextAction?: string;
 	auditScope?: string[];
 	explanation?: string;
+	watchdog?: { evaluation: string; llm: string; llmStatus: string; providerStatus: string; reason: string; source: string; applied: string; outcome: string };
 }
 
 export interface SessionAuditSummary {
@@ -140,9 +143,31 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 		if (category) add({ kind: category === "tool_protocol_error" ? "tool_protocol" : "refusal", rootSessionId, childDispatchId: dispatchId, childSessionId, snapshotId: null, category, status: status(details?.status ?? acceptance?.status), taskId: runtimeId(task?.id), evidence: "available" });
 	}
 
+	// Trace-only, read-only projection: unknown/interrupted is not guessed into a verdict.
+	const watchdogTrace = readWatchdogEvents(input.sessionDir);
+	if (watchdogTrace.integrity.partialTail || watchdogTrace.integrity.invalidRecords || watchdogTrace.integrity.readError) unavailable.add("watchdog_trace_integrity");
+	for (const check of projectWatchdogReadback(watchdogTrace.events)) {
+		const dispatchId = runtimeId(check.dispatchId), attemptId = runtimeId(check.attemptId), checkId = runtimeId(check.checkId);
+		if (!dispatchId || !attemptId || !checkId) continue;
+		const allowed = new Set(["continue", "advisory", "drift_stop", "judge_unavailable", "discard"]);
+		add({ kind: "watchdog", rootSessionId, childDispatchId: dispatchId, childSessionId: children.get(dispatchId) ?? null,
+			snapshotId: runtimeId(check.snapshotId), requestId: checkId, taskId: attemptId,
+			status: allowed.has(check.outcome) ? check.outcome : check.evaluation === "interrupted" || check.llm === "interrupted" ? "indeterminate" : "unavailable",
+			watchdog: {
+				evaluation: ["finished", "interrupted", "unknown"].includes(check.evaluation) ? check.evaluation : "unknown",
+				llm: ["finished", "interrupted", "none"].includes(check.llm) ? check.llm : "unknown",
+				llmStatus: ["verdict", "unavailable", "cancelled"].includes(check.llmStatus ?? "") ? check.llmStatus! : "unknown",
+				providerStatus: ["ok", "skipped", "unavailable", "unsupported", "cancelled"].includes(check.status) ? check.status : "unknown",
+				reason: ["timeout", "network", "auth", "rate_limit", "overloaded", "invalid_config", "invalid_request", "missing_key", "consumer_off", "state_too_large", "disposed", "interrupted", "unknown"].includes(check.reason) ? check.reason : "unknown",
+				source: ["llm", "none", "system1"].includes(check.source) ? check.source : "unknown",
+				applied: check.applied === "yes" || check.applied === "no" ? check.applied : "unknown",
+				outcome: allowed.has(check.outcome) ? check.outcome : "unknown",
+			},
+			evidence: check.evaluation === "interrupted" || check.llm === "interrupted" ? "unavailable" : "available" });
+	}
 	const deduped = new Map<string, SessionAuditEvent>();
 	for (const event of rawEvents) {
-		const key = JSON.stringify([event.kind, event.rootSessionId, event.childDispatchId, event.childSessionId, event.snapshotId, event.category ?? null, event.status, event.taskId ?? null, event.requestId ?? null, event.operation ?? null, event.risk ?? null, event.scope ?? null, event.budgetTier ?? null, event.obligations ?? null, event.appliedRuleIds ?? null, event.currentStage ?? null, event.admissibleNextAction ?? null, event.auditScope ?? null]);
+		const key = JSON.stringify([event.kind, event.rootSessionId, event.childDispatchId, event.childSessionId, event.snapshotId, event.category ?? null, event.status, event.taskId ?? null, event.requestId ?? null, event.operation ?? null, event.risk ?? null, event.scope ?? null, event.budgetTier ?? null, event.obligations ?? null, event.appliedRuleIds ?? null, event.currentStage ?? null, event.admissibleNextAction ?? null, event.auditScope ?? null, event.watchdog ?? null]);
 		const prior = deduped.get(key);
 		if (prior) prior.repeatCount++;
 		else deduped.set(key, { ...event, repeatCount: 1 });

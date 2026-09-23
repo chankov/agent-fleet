@@ -8,9 +8,18 @@ export function eventCount(toolCount: number, messageCount: number): number {
 	return Math.max(0, toolCount) + Math.max(0, messageCount);
 }
 
+function previousWorkerKind(timeline: Array<{ kind: string; title?: string }>): string | undefined {
+	for (let index = timeline.length - 1; index >= 0; index--) {
+		const entry = timeline[index];
+		if (entry.kind === "text" && entry.title === "System 1") continue;
+		return entry.kind;
+	}
+	return undefined;
+}
+
 /** Call before appending a text timeline delta so each assistant message counts once. */
-export function bumpMessageCount(target: { timeline: Array<{ kind: string }>; messageCount: number }, kind: "text" | "thinking"): void {
+export function bumpMessageCount(target: { timeline: Array<{ kind: string; title?: string }>; messageCount: number }, kind: "text" | "thinking"): void {
 	if (kind !== "text") return;
-	const last = target.timeline[target.timeline.length - 1];
-	if (!last || last.kind !== "text") target.messageCount++;
+	const last = previousWorkerKind(target.timeline);
+	if (!last || last !== "text") target.messageCount++;
 }

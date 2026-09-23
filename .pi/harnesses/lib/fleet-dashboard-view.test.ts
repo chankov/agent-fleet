@@ -38,6 +38,20 @@ test("dashboard degrades at narrow widths and has a fixed-height empty state", (
 	assert.match(renderFleetDashboard(vm([]), 80, 5, theme, metrics).join("\n"), /no agents dispatched yet/);
 });
 
+test("A14 dashboard badge matches the strip owner and does not add a specialist row", () => {
+	const system1 = { dispatchId: "d", attemptId: "a", checkId: "check-fast", snapshotId: "s", runToken: "root:1", phase: "result" as const, compact: "S1 on_track", label: "S1 on_track · 402ms · shadow", detail: "check check-fast", effectiveMode: "shadow" as const, llmRelation: "parallel" as const, rule: "failures", elapsedMs: 402, retainUntil: 20_000, status: "ok", reason: "unknown", statusChoice: "on_track", confidence: 0.88, returnedModel: "jev", stateVersion: "v", questionsVersion: "v", policyVersion: "none" as const, usage: "unknown" as const, source: "llm" as const, applied: "no" as const, outcome: "continue", llm: "finished", llmVerdict: "stuck", degraded: false };
+	const rows = [row("root"), { ...row("child", 1), system1: { ...system1, runToken: "child:1" } }, { ...row("root"), key: "root", system1 }];
+	const visible = [rows[2], rows[1]];
+	for (const width of [40, 79, 80, 120]) {
+		const lines = renderFleetDashboard(vm(visible), width, 4, theme, metrics);
+		assert.equal(lines.filter(line => /root|child/.test(line)).length, 2);
+		assert.ok(lines.every(line => visibleWidth(line) <= width));
+		if (width >= 40) assert.match(lines.join("\n"), /S1 on_track/);
+	}
+	const state: DashboardControllerState = { selection: { index: 0 }, scrollOffset: 0, filtering: false, filterQuery: "", showFinished: true, confirm: null };
+	assert.equal(dashboardTransition("\r", state, visible, 4)?.open, "root");
+});
+
 test("dashboard truncates ANSI styling by visible width and retains its reset", () => {
 	const ansiTheme = { fg: (_: string, s: string) => `\x1b[2m${s}\x1b[0m`, bold: (s: string) => `\x1b[1m${s}\x1b[0m` };
 	const lines = renderFleetDashboard(vm([row("agent")]), 40, 2, ansiTheme, metrics);

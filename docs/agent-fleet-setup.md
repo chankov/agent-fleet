@@ -180,15 +180,38 @@ node --experimental-strip-types --preserve-symlinks --preserve-symlinks-main \
 The only phase-0 production provider/model is TypeSafe Jev `jev-1.13.0` at its
 fixed official endpoint. No local model is installed and no fallback model is
 selected. Outputs preserve available uncertainty but do not establish truth,
-action authority, or calibration for a particular domain/language. System 1 is
-not integrated with Watchdog. Existing child processes may inherit the caller's
-environment; a future consumer integration must implement and verify credential
-filtering and own its decision policy and calibration.
+action authority, or calibration for a particular domain/language. The native specialist drift watchdog has a separate **consumer opt-in**:
+`watchdog-system1: off|shadow|active` in `## agent-hub` (default `off`).
+It also requires an armed watchdog, explicit feature selection, valid shared
+configuration and a key. `off` makes no System 1 evaluation. `shadow` runs the
+LLM judge immediately and System 1 in parallel; only the LLM can stop a child.
+`active` remains **blocked: calibration_required** and behaves as shadow while
+no independently approved per-rule policy profile has passed G2. Merely changing
+the override or provider config cannot open the gate. Restart Hub to apply a
+consumer mode/config snapshot; `/af-watchdog on|off|auto` changes Layer 1 arming,
+not the System 1 consumer mode. For rollback set `watchdog-system1: off` for the
+next session (cancel the current run if needed).
 
-Offline and extracted-package checks have passed on Node 25.2.1. A real-provider
-smoke has not run because the key was absent, and package execution on Node 18
-remains unverified because that runtime was unavailable. These open checks must
-not be inferred from doctor readiness or fixture results.
+**System 1 outbound state** is limited to a redacted task, normalized relative
+scope/paths, 40 structured tool events without commands, bodies, arguments or
+outputs, rule facts, coverage and counters (32 KiB maximum). This does **not**
+limit the existing parallel LLM judge prompt: it includes the original task,
+scope and a recent trail with up to 120 characters of raw tool arguments per
+call. Both paths can reveal data. For a future pilot, review the tasks, files
+and likely tool arguments; never use client/production data or secrets. Manual
+review cannot guarantee that an agent will not produce unexpected arguments.
+The final native spawn env removes `TYPESAFE_API_KEY`; this does not protect
+against file reads or other launchers. Trace (`<sessionDir>/artifacts/watchdog/events.jsonl`)
+records only allowlisted metadata. `/af-watchdog` shows readiness/checks, the
+strip under chat and `/af-agents` show owner badges and detail history;
+`/af-hub-report` counts evaluations/LLM attempts separately; `/af-audit`
+shows read-only decision status including `judge_unavailable`. Missing usage
+is unknown, not zero. A failed judge gets one live, revalidated retry after 5 s
+rather than the 90 s success cooldown. Offline report code and mock tests are
+not a real shadow pilot. G1 requires manual/outbound review; G2 additionally
+requires independent human labels identifying the snapshot **and LLM attempt**,
+held-out session evaluation and an explicit maintainer-approved profile. Older
+labels without an LLM attempt ID cannot qualify. No gate is inferred from doctor readiness.
 
 ## The overrides file — `.ai/agent-fleet-overrides.md`
 
@@ -288,6 +311,7 @@ targets an end-of-session compound pass writes lessons to.
 | `agent-turn-timeout-s` | tier default (600/600/1800/1800) | Whole-run deadline, in seconds, for each spawned specialist, research helper, and nested delegate child (unlike `recon-search-timeout-s`, this bounds the entire run). On expiry the run terminates as `turn_timeout` (exit 124) with partial output preserved. Positive integer or `off` (stays at the tier). |
 | `session-recycle-runs` | tier default (3/3/5/5) | Recycle a specialist's accumulated session (fresh spawn instead of `-c` resume) after this many resumed runs. Context is also always recycled at ≥60% measured context (input + cacheRead + cacheWrite). Positive integer or `off` (stays at the tier recycle count; context threshold still applies). |
 | `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Orchestrator work mode auto-arms when the setting is `auto`/`on` and ignores a dispatch `watchdog: false`. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
+| `watchdog-system1` | `off` | Native specialist consumer only: `off`, `shadow`, or blocked `active` until a separately approved G2 profile ships. Requires the separate selected feature and shared config; no automatic outbound request from setup/doctor. |
 | `watchdog-judge-model` | researcher persona's model | pi model spec for the one-shot drift judge (e.g. `openai-codex/gpt-5.3-codex-spark`). Falls back to the researcher persona's resolved model, then the dispatcher's. |
 | `poll-panel` | none | Default panel name for `/af-poll` when `--panel` is omitted. Must match a panel in `.pi/agents/voices.yaml` when that file exists. Missing `--panel` and missing this key is a refusal. |
 | `append-prompt` | none | Comma-separated repo-relative files appended to the system prompt of every dispatched persona. Listed files must exist. Enable the communication contract with `append-prompt: references/communication-contract.md`. |

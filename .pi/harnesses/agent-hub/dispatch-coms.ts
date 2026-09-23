@@ -4,6 +4,7 @@ import { buildDeliverableProtocol } from "../lib/context-budget-child-prompt.ts"
 import { unlinkSync } from "node:fs";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { ComsIdentity, ComsSendParams, ComsSendResult, PendingReply, RegistryEntry } from "../lib/coms-core.ts";
+import { judgeSessionFileName, type DriftJudgeOutcome } from "./drift-runtime.ts";
 import { buildJudgePrompt, parseJudgeVerdict } from "./drift-watchdog.js";
 import { externalBlockedProtocol } from "./external-blocker.js";
 import { EXTRACTION_DEADLINE_MS, EXTRACTION_MODEL, buildExtractionPrompt, extractionSessionName } from "./return-extract.js";
@@ -37,12 +38,19 @@ export interface DriftJudgeInput {
 	hubOwnedGlobs: string[];
 	trail: string[];
 	violation: { rule: string; terminal?: boolean; detail: string };
+	/** Aborts the judge child. Cancellation is not an unavailable verdict. */
+	signal?: AbortSignal;
+	/** Unique per check/LLM attempt so a previous finally cannot unlink the new session. */
+	sessionKey?: string;
 }
+
+export type { DriftJudgeOutcome };
 
 interface SpawnResult {
 	output: string;
 	exitCode: number | null;
 	spawnError?: string;
+	termination?: { reason?: string };
 }
 
 export interface DispatchComsDeps {
@@ -168,12 +176,13 @@ ${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSess
 	return { output: typeof response === "string" ? response : JSON.stringify(response, null, 2), exitCode: 0, elapsed: 0 };
 }
 
-async function runDriftJudge(deps: DispatchComsDeps, input: DriftJudgeInput, ctx: ExtensionContext): Promise<{ verdict: string; reason: string } | null> {
+async function runDriftJudge(deps: DispatchComsDeps, input: DriftJudgeInput, ctx: ExtensionContext): Promise<DriftJudgeOutcome> {
+	if (input.signal?.aborted) return { status: "cancelled" };
 	const selection=profileService('watchdog');
 	const model = selection?.model ?? deps.getWatchdogJudgeModel()
 		?? deps.getResearcherModel()
 		?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
-	const judgeSession = deps.safePathWithin(deps.getSessionDir(), `drift-judge-${input.agentKey}.json`);
+	const judgeSession = deps.safePathWithin(deps.getSessionDir(), judgeSessionFileName(input.sessionKey || randomUUID()));
 	try { unlinkSync(judgeSession); } catch {}
 	try {
 		const res = await deps.spawnPiAgent({
@@ -182,6 +191,7 @@ async function runDriftJudge(deps: DispatchComsDeps, input: DriftJudgeInput, ctx
 			thinking: selection?.thinking ?? "off",
 			appendSystemPrompt: "You are a strict, terse runtime watchdog. Answer with exactly one VERDICT line.",
 			sessionFile: judgeSession,
+			signal: input.signal,
 			prompt: buildJudgePrompt({
 				agent: input.agentLabel,
 				task: input.task,
@@ -193,9 +203,14 @@ async function runDriftJudge(deps: DispatchComsDeps, input: DriftJudgeInput, ctx
 			detached: true,
 			turnDeadlineMs: 60_000,
 		});
-		if (res.spawnError || res.exitCode !== 0) return null;
-		return parseJudgeVerdict(res.output);
-	} catch { return null; }
+		if (input.signal?.aborted || res.termination?.reason === "cancelled") return { status: "cancelled" };
+		if (res.spawnError || res.exitCode !== 0) return { status: "unavailable" };
+		const parsed = parseJudgeVerdict(res.output);
+		if (!parsed) return { status: "unavailable" };
+		return { status: "verdict", verdict: parsed.verdict, reason: parsed.reason };
+	} catch {
+		return input.signal?.aborted ? { status: "cancelled" } : { status: "unavailable" };
+	}
 	finally { try { unlinkSync(judgeSession); } catch {} }
 }
 

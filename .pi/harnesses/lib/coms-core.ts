@@ -494,7 +494,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		const result = await Promise.race([entry.promise, timeout]);
 		if (result.error === "timeout") return { status: "pending" };
 		if (result.error) return { status: "error", error: result.error };
-		return { status: "complete", response: result.response };
+		return { status: "complete", response: "response" in result ? result.response : undefined };
 	}
 
 	async function respond(ctx: ExtensionContext): Promise<void> {

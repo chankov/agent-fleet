@@ -1,4 +1,4 @@
-import { buildFleetRows, fleetTiming, type DelegateInput, type FleetFilter, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput } from "../../lib/fleet-read-model.ts";
+import { buildFleetRows, fleetTiming, projectSystem1Owner, type DelegateInput, type FleetFilter, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput, type System1CheckInput, type System1OwnerView } from "../../lib/fleet-read-model.ts";
 
 export interface FleetSourceAgent {
 	def: { name: string; description?: string };
@@ -54,6 +54,8 @@ export interface FleetSourceDeps<TAgent extends FleetSourceAgent = FleetSourceAg
 	modelForAgent(state: TAgent): string;
 	modelForResearch(state: TResearch): string;
 	modelForPeer(model: string): string;
+	/** In-memory projection only. Render must not call the provider or read JSONL. */
+	getSystem1?(): { active: readonly System1CheckInput[]; completed: readonly System1CheckInput[]; degraded?: boolean } | null | undefined;
 }
 
 function delegateForest(children: readonly FleetSourceDelegate[], now: number, model: (value: string) => string): DelegateInput[] {
@@ -91,6 +93,16 @@ function delegateForest(children: readonly FleetSourceDelegate[], now: number, m
 
 /** One production adapter for dashboard and below-editor widget data. */
 export function createFleetSource<TAgent extends FleetSourceAgent, TResearch extends FleetSourceResearch>(deps: FleetSourceDeps<TAgent, TResearch>) {
+	function ownerSystem1(key: string, state: TAgent, now: number): System1OwnerView | undefined {
+		const live = deps.getSystem1?.();
+		if (!live || !state.dispatchId) return undefined;
+		const runToken = `${key}:${state.dispatchId}`;
+		const checks = [...live.active, ...live.completed].filter(check => check.dispatchId === state.dispatchId);
+		const ranked = checks.map(check => ({ check, view: projectSystem1Owner({ ...check, degraded: live.degraded === true || check.degraded === true }, runToken, now) })).filter((item): item is { check: System1CheckInput; view: System1OwnerView } => !!item.view);
+		ranked.sort((a, b) => Number(b.view.phase === "evaluating") - Number(a.view.phase === "evaluating") || (b.check.finishedAt ?? 0) - (a.check.finishedAt ?? 0));
+		const chosen = ranked.find(item => item.view.phase === "evaluating" || now < item.view.retainUntil);
+		return chosen && chosen.view.runToken === runToken ? chosen.view : undefined;
+	}
 	function snapshot(now: number): FleetSource {
 		const specialists: SpecialistInput[] = Array.from(deps.getAgents().entries()).map(([key, state]) => ({
 			key,
@@ -105,6 +117,7 @@ export function createFleetSource<TAgent extends FleetSourceAgent, TResearch ext
 			toolCount: state.toolCount,
 			lastWork: state.lastWork || state.task || state.def.description || "",
 			hasTimeline: true,
+			system1: ownerSystem1(key, state, now),
 			delegates: delegateForest(Array.from(state.delegations?.values() ?? []), now, deps.modelForPeer),
 		}));
 		const research: ResearchInput[] = Array.from(deps.getResearch().values()).map(state => ({

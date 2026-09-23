@@ -78,7 +78,14 @@ function padLeft(value: string, width: number, metrics: TextMetrics): string { r
 function fit(value: string, width: number, metrics: TextMetrics): string { return metrics.truncateToWidth(value, Math.max(0, width)); }
 
 export function summaryFields(summary: StripSummary): string[] {
-	const fields = [`${summary.running} running`, `${summary.peerActive} peer active`];
+	const fields = [`${summary.running} running`];
+	if (summary.system1Evaluating) fields.push(`S1 ${summary.system1Evaluating} evaluating`);
+	if (summary.system1Mixed) fields.push("S1 mixed");
+	const mode = summary.system1Mode && summary.system1Mode !== "unknown" ? summary.system1Mode : null;
+	const lastHasMode = !!mode && !!summary.system1Last?.split(" · ").includes(mode);
+	if (mode && !summary.system1Mixed && !lastHasMode) fields.push(mode);
+	if (!summary.system1Mixed && summary.system1Last && !summary.system1Evaluating) fields.push(summary.system1Last);
+	fields.push(`${summary.peerActive} peer active`);
 	const wallPartial = summary.wallKnown < summary.wallTotal ? ` (${summary.wallKnown}/${summary.wallTotal} known)` : "";
 	fields.push(`wall ${summary.wallKnown ? Math.floor(summary.wallMs / 1000) + "s" : "—"}${wallPartial}`);
 	const contextPartial = summary.contextKnown < summary.contextTotal ? ` (${summary.contextKnown}/${summary.contextTotal} known)` : "";
@@ -100,7 +107,8 @@ function collapsedSummary(summary: StripSummary, width: number, hint: string, me
 export function renderFleetStrip(vm: StripViewModel, width: number, theme: ThemeLike, metrics: TextMetrics): string[] {
 	const budget = Math.max(0, Math.floor(vm.maxRows));
 	const w = Math.max(0, Math.floor(width));
-	if (!budget || !w || (!vm.window.rows.length && vm.summary.running + vm.summary.peerActive === 0)) return [];
+	const system1Shown = (vm.summary.system1Evaluating ?? 0) > 0 || !!vm.summary.system1Last || vm.summary.system1Mixed === true;
+	if (!budget || !w || (!vm.window.rows.length && vm.summary.running + vm.summary.peerActive === 0 && !system1Shown)) return [];
 	const hint = vm.interactiveAvailable ? " · Alt+I inspect" : "";
 	const collapsed = fit(theme.fg("dim", collapsedSummary(vm.summary, w, hint, metrics)), w, metrics);
 	if (!vm.active || budget < 4) return [collapsed].slice(0, budget);
@@ -114,12 +122,16 @@ export function renderFleetStrip(vm: StripViewModel, width: number, theme: Theme
 	for (const row of windowRows) {
 		const marker = row.key === vm.selectedKey ? "❯" : " ";
 		const backend = row.backend === "coms" ? "⇄ " : "";
-		const identity = `${treePrefix(row.lastAtDepth, row.depth)}${glyph(row)} ${safeTerminalText(row.name)}`;
+		const badgeText = row.system1 && row.system1.runToken === row.runToken ? safeTerminalText(row.system1.compact) : "";
+		const badge = badgeText ? ` ${theme.fg("warning", badgeText)}` : "";
+		const identity = `${treePrefix(row.lastAtDepth, row.depth)}${glyph(row)} ${safeTerminalText(row.name)}${badge}`;
+
 		const elapsed = padLeft(duration(row), 6, metrics);
+		const system1 = badge ? `  ${safeTerminalText(row.system1?.label ?? "")}` : "";
 		let line: string;
 		if (w < 80) line = `${marker} ${identity}  ${elapsed}`;
-		else if (w < 105) line = `${marker} ${identity}  ${backend}${safeTerminalText(row.model)}  ${ctx(row)}  ${elapsed}`;
-		else line = `${marker} ${identity}  ${backend}${safeTerminalText(row.model)}  ${elapsed}  ${row.toolCount == null ? "—" : row.toolCount} tools  ${ctx(row)}  ${safeTerminalText(row.lastWork)}`;
+		else if (w < 105) line = `${marker} ${identity}  ${backend}${safeTerminalText(row.model)}  ${ctx(row)}  ${elapsed}${system1}`;
+		else line = `${marker} ${identity}  ${backend}${safeTerminalText(row.model)}  ${elapsed}  ${row.toolCount == null ? "—" : row.toolCount} tools  ${ctx(row)}${system1}  ${safeTerminalText(row.lastWork)}`;
 		line = fit(line, w, metrics);
 		if (row.key === vm.selectedKey && theme.bg) {
 			const cells = metrics.visibleWidth(line);

@@ -9,11 +9,11 @@ import { registerFilesystemTool } from './filesystem-tool.ts';
 /** Agent Hub composition root: constructs mutable state, contexts, registrars, and ordered lifecycle ports. */
 
 import type { AgentDef, AgentState, ResearchState } from "./types.ts";
-import { DEFAULT_OVERRIDES, THINKING_LEVELS, parseAgentTeamOverrides } from "./config/overrides.ts";
+import { DEFAULT_OVERRIDES, THINKING_LEVELS, parseAgentTeamOverrides, type AgentTeamOverrides } from "./config/overrides.ts";
 import { loadAgentConfiguration } from "./config/agents.ts";
 import { abbrevThinking, displayName, extractAskUserQuestions, extractNeedsResearch, resolveDelegateExtension, resolveThinkingLevel } from "./presentation.ts";
 import { MAX_LIVE_ENTRY_CHARS, appendTimelineEvent, appendTimelineText, flushTimelineStore } from "./timeline.ts";
-import type { ExtensionAPI, ExtensionContext, ImageContent, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme, copyToClipboard } from "@mariozechner/pi-coding-agent";
 import {
 	Text, Box, Container, Spacer, Markdown, matchesKey, Key,
@@ -21,6 +21,7 @@ import {
 } from "@mariozechner/pi-tui";
 import { spawn, type ChildProcess } from "child_process";
 import { spawnPiAgent, spawnPiAgentWithModelFallback, killPiTree, type Termination } from "./spawn.ts";
+import { fenceOperatorCancel } from "./drift-runtime.ts";
 import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "./research-watchdog.ts";
 import { composeFleetFooterHint, renderHubFooterLeft } from "./footer.ts";
 import { HARNESS_VERSION, registerVersionStatus } from "./version.ts";
@@ -47,6 +48,8 @@ import {
 } from "../lib/spawned-peers.js";
 import { contextPct, estimatePromptTokens, resolveContextWindow } from "./context-window.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, normalizeWatchdogSetting, resolveWatchdogActive } from "./drift-watchdog.js";
+import { createWatchdogActivity, type WatchdogActivity } from "./system1-activity.ts";
+import { createWatchdogSystem1Session, disposeWatchdogSystem1Session, readWatchdogSystem1Snapshot, type WatchdogSystem1Session } from "./system1-runtime.ts";
 import { shouldExtractReturn } from "./return-extract.js";
 import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "./return-contract.js";
 import { checkScope, diffAgainst, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
@@ -66,6 +69,7 @@ import { registerAgentsRestart } from "./commands/agents-restart.ts";
 import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { showSessionAudit } from "./session-audit.ts";
+import { buildWatchdogReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
 import { createProcessState, evaluateProcessObligations, latestProcessState, processAuditRecord, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
@@ -149,7 +153,7 @@ import { buildSessionStartNotice, createSessionFooter } from "./prompts/session-
 import { registerSessionStart } from "./session-start.ts";
 import { createHubStateContext } from "./context/hub-state.ts";
 import { createAgentStateFactory } from "./context/agent-state.ts";
-import { createBudgetContext, createSessionTotals, freshTurnReport, type PendingBudgetContinuation, type TurnReport } from "./context/budgets.ts";
+import { createBudgetContext, createSessionTotals, freshTurnReport, type TurnReport } from "./context/budgets.ts";
 import { createAssertionsArtifactsContext, type Assertion, type InputArtifactPreview } from "./context/assertions-artifacts.ts";
 import { createModelPolicy } from "./policy/models.ts";
 import { createRosterPolicy } from "./policy/roster.ts";
@@ -439,6 +443,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// `watchdog: false` cannot disarm it.
 	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
 	let watchdogJudgeModel: string | null = null;
+	let watchdogSystem1: WatchdogSystem1Session | null = null;
+	let watchdogActivity: WatchdogActivity | null = null;
 	const watchdogAgentOverrides = new Map<string, "on" | "off">();
 	// ── Per-turn cost report (/af-hub-report) ──
 	let turnReport: TurnReport = freshTurnReport();
@@ -648,6 +654,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		modelForAgent: state => state.lastBackend === "coms" ? shortModel(state.comsPeerModel) : modelWithThinking(state.def),
 		modelForResearch: state => shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
 		modelForPeer: abbreviateModel,
+		getSystem1: () => watchdogActivity?.live() ?? null,
 	});
 	let fleetActions: ReturnType<typeof createFleetActions<AgentState, ResearchState>> | null = null;
 	let fleetUiGeneration = 0;
@@ -737,6 +744,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getUserLanguage: () => userLanguage,
 		getWatchdogSetting: () => watchdogSetting,
 		getWatchdogAgentOverride: key => watchdogAgentOverrides.get(key),
+		getWatchdogSystem1: () => watchdogSystem1,
+		getWatchdogActivity: () => watchdogActivity,
 		getWorkMode: () => getWorkMode(),
 		providerSemaphore,
 		executionHistory,
@@ -969,12 +978,13 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		refresh: () => {},
 		getAgents: () => agentStates, displayName, modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		cancelWait: (state, kind) => cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), event: { kind } }),
-		cancelOwned: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }),
+		cancelOwned: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
 		restartSpecialist: async (state: AgentState, ctx) => {
 			if (state.status === "running" && (state.proc || state.comsAbort)) {
 				let resolveTermination!: () => void;
 				const terminated = new Promise<void>(resolve => { resolveTermination = resolve; });
 				state.onTerminate = resolveTermination;
+				fenceOperatorCancel(state);
 				if (state.proc) { state.killedByOperator = true; state.restarting = true; killPiTree(state.proc); }
 				else await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), event: { kind: "restart" } });
 				await terminated;
@@ -1085,8 +1095,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				return;
 			}
 			const results = names.map(n => rosterAdd(n));
-			const level = results.some(r => r.ok) ? "success" : "error";
-			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
+			const level = results.some(r => r.ok) ? "info" : "error";
+			ctx.ui.notify(results.map(r => r.message).join("\n"), level);
 			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
 		},
 		handleAgentsDrop: async (args, ctx) => {
@@ -1097,8 +1107,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				return;
 			}
 			const results = names.map(n => rosterDrop(n));
-			const level = results.some(r => r.ok) ? "success" : "error";
-			ctx.ui.notify(results.map(r => r.message).join("\n"), level as any);
+			const level = results.some(r => r.ok) ? "info" : "error";
+			ctx.ui.notify(results.map(r => r.message).join("\n"), level);
 			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
 		},
 		handleAgentsSave: async (args, ctx) => {
@@ -1127,7 +1137,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			activeTeamName = name;
 			persistActiveRoster();
 			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
-			ctx.ui.notify(`Team "${name}" saved to .pi/agents/teams.yaml — ${members.join(", ")}`, "success");
+			ctx.ui.notify(`Team "${name}" saved to .pi/agents/teams.yaml — ${members.join(", ")}`, "info");
 		},
 		handleAgentsKill: async (args, ctx) => { widgetCtx = ctx; await researchControls.handleKill(args, ctx); },
 		handleAgentsRestart: async (args, ctx) => { widgetCtx = ctx; await researchControls.handleRestart(args, ctx); },
@@ -1160,6 +1170,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			);
 			const sweep = unaddressedPeerSweep(Array.from(hubSpawnedPeers.values()));
 			if (sweep) lines.push(sweep.message);
+			const trace = readWatchdogEvents(sessionDir);
+			lines.push(`Watchdog System 1 — ${JSON.stringify(buildWatchdogReport(trace.events, watchdogActivity?.live(), trace.integrity))}`);
 			ctx.ui.notify(lines.join("\n\n"), "info");
 		},
 		handleZoom: async (args, ctx) => {
@@ -1254,7 +1266,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				updateWidget();
 				ctx.ui.notify(
 					`${label} → ${effectivePicked} (applies on next dispatch of ${parent.def.name})`,
-					"success",
+					"info",
 				);
 				return;
 			}
@@ -1309,7 +1321,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			const applyHint = (def.kind || "").toLowerCase() === "research"
 				? "applies on next spawn_research"
 				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
-			ctx.ui.notify(`${displayName(def.name)} → ${effectivePicked} (${applyHint})`, "success");
+			ctx.ui.notify(`${displayName(def.name)} → ${effectivePicked} (${applyHint})`, "info");
 			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
 				ctx.ui.notify(
 					`Note: ${displayName(def.name)} prefers a coms peer (dispatch-policy.yaml) — this model override only applies to native(-fallback) runs; the peer keeps its own model.`,
@@ -1355,7 +1367,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			const applyHint = (def.kind || "").toLowerCase() === "research"
 				? "applies on next spawn_research"
 				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
-			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "success");
+			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "info");
 		},
 		handleModels: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -1385,7 +1397,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				const applied=await profileActivation.activate(profileName,profile);
 				applyWorkModeTools();
 				ctx.ui.setStatus('hub-model-profile',isCompleteProfile(profile)?`Models: ${profileName}`:undefined);
-				ctx.ui.notify(`Profile "${profileName}": ${applied.length} personas${isCompleteProfile(profile)?', all children, dispatcher and auxiliary models':''} switched.`, 'success');
+				ctx.ui.notify(`Profile "${profileName}": ${applied.length} personas${isCompleteProfile(profile)?', all children, dispatcher and auxiliary models':''} switched.`, 'info');
 			} catch(error) {ctx.ui.notify(String(error),'error');}
 		},
 		handleAgentModelsSubstitute: async (args, ctx) => {
@@ -1415,6 +1427,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				ctx.ui.notify(
 					`Drift watchdog: ${watchdogSetting} (hub-wide)\nPer-agent overrides: ${perAgent}\n` +
 					`Judge model: ${watchdogJudgeModel || "(researcher persona's, else dispatcher's)"}\n` +
+					`${formatWatchdogStatus(watchdogSystem1, watchdogActivity)}\n` +
 					`Usage: /af-watchdog on|off|auto — or /af-watchdog <agent> on|off|clear`,
 					"info",
 				);
@@ -1427,7 +1440,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 					return;
 				}
 				watchdogSetting = setting;
-				ctx.ui.notify(`Drift watchdog → ${setting} (applies from the next dispatch)`, "success");
+				ctx.ui.notify(`Drift watchdog → ${setting} (applies from the next dispatch)`, "info");
 				return;
 			}
 			const agentKey = normalizeAgentInput(parts[0]);
@@ -1438,7 +1451,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			}
 			if (value === "clear") {
 				watchdogAgentOverrides.delete(agentKey);
-				ctx.ui.notify(`Drift watchdog override cleared for ${agentKey} (hub-wide setting "${watchdogSetting}" applies)`, "success");
+				ctx.ui.notify(`Drift watchdog override cleared for ${agentKey} (hub-wide setting "${watchdogSetting}" applies)`, "info");
 				return;
 			}
 			if (value !== "on" && value !== "off") {
@@ -1446,7 +1459,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				return;
 			}
 			watchdogAgentOverrides.set(agentKey, value);
-			ctx.ui.notify(`Drift watchdog for ${agentKey} → ${value} (overrides the hub-wide "${watchdogSetting}")`, "success");
+			ctx.ui.notify(`Drift watchdog for ${agentKey} → ${value} (overrides the hub-wide "${watchdogSetting}")`, "info");
 		},
 		handleComs: async (args, ctx) => {
 			if (!comsReady) { ctx.ui.notify("coms is not active in this session.", "warning"); return; }
@@ -1760,8 +1773,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		displayName,
 		shortModel,
 		refreshUi: updateWidget,
-		getDispatchPreference: name => dispatchPolicy.substitutions[name.toLowerCase()]?.prefer ?? dispatchPolicy.default,
+		getDispatchPreference: name => (dispatchPolicy.substitutions[name.toLowerCase()]?.prefer ?? dispatchPolicy.default) === "coms" ? "coms" : "native",
 		maxLiveEntryChars: MAX_LIVE_ENTRY_CHARS,
+		currentFleetRow: key => fleetSource.rows(Date.now(), { showFinished: true }).find(row => row.key === key),
 	});
 	const { openFleetDetail, loadAvailableModelChoices } = detailPanel;
 	const applySessionModelSubstitution = (source: string, target: string, ctx: any) => modelPolicy.applySessionSubstitution(source, target, {
@@ -1778,7 +1792,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		restartSpecialist: researchControls.restartSpecialist,
 		removeResearch: researchControls.remove,
-		killSpecialistProcess: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }),
+		killSpecialistProcess: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
 		abortComs: state => { state.comsAbort?.(); },
 		openDetail: openFleetDetail,
 		generation: () => fleetUiGeneration,
@@ -1808,7 +1822,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		restartSpecialist: researchControls.restartSpecialist,
 		removeResearch: researchControls.remove,
-		killSpecialistProcess: state => cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }),
+		killSpecialistProcess: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
 		abortComs: state => { state.comsAbort?.(); },
 		getComsLines: (width, theme) => poolPresentation.render(width, theme),
 	});
@@ -2105,6 +2119,17 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		},
 		applyOverrides: (_ctx) => {
 			if (!sessionOverrides) throw new Error("session_start applyOverrides ran before loadAgents");
+			watchdogSystem1 = disposeWatchdogSystem1Session(watchdogSystem1);
+			try { watchdogActivity?.dispose(); } catch { /* trace disposal must not block the session */ }
+			// Stable for a real session across snapshot replacement; G2 must not split one session into artificial samples.
+			watchdogActivity = sessionDir ? createWatchdogActivity({ directory: `${sessionDir}/artifacts/watchdog`, sessionId: path.basename(sessionDir) }) : null;
+			watchdogSystem1 = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({
+				cwd: _ctx.cwd,
+				configuredMode: sessionOverrides.watchdogSystem1Mode,
+				watchdogSetting: sessionOverrides.watchdogSetting,
+				env: process.env,
+				warnings: sessionOverrides.warnings,
+			}));
 			applySessionOverrides(_ctx, sessionOverrides, {
 				setLanguage: value => { userLanguage = value; },
 				setReconTimeout: value => { reconSearchTimeoutMs = value; }, setBudgetOverrides: value => { budgetOverrides = value; },
@@ -2225,9 +2250,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		installFooter: (_ctx) => {
 			_ctx.ui.setFooter(createSessionFooter({
 				ctx: _ctx,
-				version: HARNESS_VERSION,
+				version: HARNESS_VERSION ?? "unknown",
 				getModel: () => _ctx.model?.id || "no-model",
-				getThinkingLevel: () => pi.getThinkingLevel?.(),
+				getThinkingLevel: () => pi.getThinkingLevel?.() ?? undefined,
 				thinkingSuffix,
 				getHint: () => composeFleetFooterHint(compactWorkMode(getWorkMode())),
 				renderLeft: renderHubFooterLeft,
@@ -2244,7 +2269,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			hubStateCtx.setExemptionsFile(null);
 		},
 		terminateChildren: () => {
+			watchdogSystem1 = disposeWatchdogSystem1Session(watchdogSystem1);
+			try { watchdogActivity?.dispose(); } catch { /* trace disposal must not block shutdown */ }
+			watchdogActivity = null;
 			for (const st of [...agentStates.values(), ...researchStates.values()]) {
+				fenceOperatorCancel(st);
 				if (st.proc && st.status === "running") try { st.killedByOperator = true; st.proc.kill("SIGTERM"); } catch {}
 			}
 		},

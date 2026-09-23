@@ -29,7 +29,7 @@ export interface HubPromptState {
 	taskReviewRounds: number;
 	turnBudget: { maxDispatches: number | null; maxResearch: number | null };
 	taskBudget: { wallMs: number | null };
-	provisionalConfirmations: readonly { pack: CapabilityPack; reason: string; question: string }[];
+	provisionalConfirmations: readonly { pack: CapabilityPack; reason: string; question: string | { question: string; context?: string; options?: string[] } }[];
 }
 
 /** Read-only prompt dependencies. Mutable Hub state remains owned by index.ts. */

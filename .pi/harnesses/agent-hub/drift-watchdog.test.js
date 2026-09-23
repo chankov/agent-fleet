@@ -94,6 +94,14 @@ test("writes to hub-owned artifact paths never fire the scope rule", () => {
 	assert.equal(v.detail.includes("agent-sessions"), false);
 });
 
+test("a scope return does not consume the loop threshold", () => {
+	const m = createDriftMonitor({ scopeGlobs: ["src/**"], maxRepeats: 2 });
+	assert.equal(m.onToolStart("write", JSON.stringify({ path: "scripts/a.sh" })).rule, "scope");
+	assert.equal(m.onToolStart("write", JSON.stringify({ path: "scripts/a.sh" })).rule, "scope");
+	assert.equal(m.onToolStart("write", JSON.stringify({ path: "src/a.sh" })), null);
+	assert.equal(m.onToolStart("write", JSON.stringify({ path: "src/a.sh" })).rule, "loop");
+});
+
 test("scope rule stays inert without declared scope globs", () => {
 	const m = createDriftMonitor({});
 	assert.equal(m.onToolStart("write", JSON.stringify({ path: "/etc/passwd" })), null);
@@ -196,4 +204,140 @@ test("DRIFT_DEFAULTS are conservative", () => {
 	assert.ok(DRIFT_DEFAULTS.maxRepeats >= 3);
 	assert.ok(DRIFT_DEFAULTS.maxConsecutiveFailures >= 5);
 	assert.ok(DRIFT_DEFAULTS.maxToolCalls >= 100);
+});
+
+test("structured observation omits raw arguments while legacy trail still keeps its 120-character slice", () => {
+	const command = "rm -rf SECRET_COMMAND_DO_NOT_SEND";
+	const body = "SECRET_WRITE_BODY_DO_NOT_SEND";
+	const m = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000, scopeGlobs: ["src/**"] });
+	m.onToolStart("bash", JSON.stringify({ command }));
+	m.onToolEnd("bash", false);
+	m.onToolStart("write", JSON.stringify({ path: "src/app.ts", content: body }));
+	m.onToolEnd("write", true);
+	m.onToolStart("delegate", JSON.stringify({ task: body }));
+	const trail = m.trail().join("\n");
+	assert.match(trail, /SECRET_COMMAND_DO_NOT_SEND/);
+	assert.match(trail, /SECRET_WRITE_BODY_DO_NOT_SEND/);
+	assert.match(trail, /\u21b3 FAILED/);
+	const observation = m.structuredObservation();
+	const serialized = JSON.stringify(observation);
+	assert.equal(serialized.includes("SECRET_COMMAND_DO_NOT_SEND"), false);
+	assert.equal(serialized.includes("SECRET_WRITE_BODY_DO_NOT_SEND"), false);
+	assert.equal(serialized.includes("command"), false);
+	assert.equal(serialized.includes("content"), false);
+	assert.equal(observation.events[0].tool, "bash");
+	assert.equal(observation.events[0].outcome, "success");
+	assert.equal(observation.events[0].path, undefined);
+	assert.equal(observation.events[1].tool, "write");
+	assert.equal(observation.events[1].path, "src/app.ts");
+	assert.equal(observation.events[1].outcome, "error");
+	assert.equal(observation.events[2].tool, "other");
+	assert.equal(observation.events[2].outcome, "unknown");
+	assert.equal(observation.events[0].repeat_group, observation.events[0].repeat_group);
+	assert.notEqual(observation.events[0].repeat_group, observation.events[1].repeat_group);
+	assert.equal(observation.coverage.missing_tool_end, 1);
+	assert.equal(observation.counters.failures, 1);
+	assert.equal(observation.counters.tool_calls, 3);
+	// Triggers and one-shot crossings are unchanged by the observation.
+	const loop = createDriftMonitor({ maxRepeats: 2 });
+	assert.equal(loop.onToolStart("grep", "{}"), null);
+	assert.equal(loop.onToolStart("grep", "{}").rule, "loop");
+	assert.equal(loop.onToolStart("grep", "{}"), null);
+	assert.equal(loop.structuredObservation().events[2].repeat_count, 3);
+});
+
+test("structured window drop of complete events is not incomplete loss", () => {
+	const m = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000 });
+	for (let i = 0; i < 41; i++) {
+		m.onToolStart("read", JSON.stringify({ path: `src/f${i}.ts` }));
+		m.onToolEnd("read", false);
+	}
+	const observation = m.structuredObservation();
+	assert.equal(observation.events.length, 40);
+	assert.equal(observation.coverage.events_seen, 41);
+	assert.equal(observation.coverage.dropped_by_window, 1);
+	assert.equal(observation.coverage.dropped_incomplete, 0);
+	assert.equal(observation.coverage.unparsed_events, 0);
+	assert.equal(observation.coverage.missing_tool_end, 0);
+	assert.equal(observation.events[0].path, "src/f1.ts");
+	assert.equal(m.trail(100).length <= 60, true);
+});
+
+test("structured outcomes follow callId, including out-of-order ends and the other bucket", () => {
+	const m = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000 });
+	m.onToolStart("read", JSON.stringify({ path: "a.ts" }), "call-a");
+	m.onToolStart("read", JSON.stringify({ path: "b.ts" }), "call-b");
+	assert.equal(m.onToolEnd("read", true, "call-b"), null);
+	assert.equal(m.onToolEnd("read", false, "call-a"), null);
+	const overlapped = m.structuredObservation();
+	assert.equal(overlapped.events[0].path, "a.ts");
+	assert.equal(overlapped.events[0].outcome, "success");
+	assert.equal(overlapped.events[1].path, "b.ts");
+	assert.equal(overlapped.events[1].outcome, "error");
+	assert.equal(overlapped.coverage.missing_tool_end, 0);
+	assert.equal(overlapped.coverage.unparsed_events, 0);
+	assert.equal(JSON.stringify(overlapped).includes("call-a"), false);
+
+	const other = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000 });
+	other.onToolStart("delegate", JSON.stringify({ task: "plan" }), "del-1");
+	other.onToolStart("chrome", JSON.stringify({ url: "https://example.test" }), "chr-1");
+	other.onToolEnd("chrome", true, "chr-1");
+	const collided = other.structuredObservation();
+	assert.equal(collided.events[0].tool, "other");
+	assert.equal(collided.events[0].outcome, "unknown");
+	assert.equal(collided.events[1].tool, "other");
+	assert.equal(collided.events[1].outcome, "error");
+	assert.equal(collided.coverage.missing_tool_end, 1);
+
+	const early = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000 });
+	early.onToolEnd("read", true, "late");
+	early.onToolStart("read", JSON.stringify({ path: "late.ts" }), "late");
+	early.onToolEnd("read", false, "late");
+	const reordered = early.structuredObservation();
+	assert.equal(reordered.events[0].outcome, "success");
+	assert.equal(reordered.coverage.unparsed_events, 1);
+	assert.equal(reordered.coverage.missing_tool_end, 0);
+});
+
+test("ambiguous or missing tool outcomes stay incomplete instead of being guessed", () => {
+	const ambiguous = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000 });
+	ambiguous.onToolStart("read", JSON.stringify({ path: "a.ts" }));
+	ambiguous.onToolStart("read", JSON.stringify({ path: "b.ts" }));
+	ambiguous.onToolEnd("read", true);
+	const guessed = ambiguous.structuredObservation();
+	assert.equal(guessed.events[0].outcome, "unknown");
+	assert.equal(guessed.events[1].outcome, "unknown");
+	assert.equal(guessed.coverage.missing_tool_end, 2);
+	assert.equal(guessed.coverage.unparsed_events, 1);
+
+	const duplicate = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000 });
+	duplicate.onToolStart("read", JSON.stringify({ path: "a.ts" }), "same");
+	duplicate.onToolStart("read", JSON.stringify({ path: "b.ts" }), "same");
+	duplicate.onToolEnd("read", true, "same");
+	assert.equal(duplicate.structuredObservation().events.every((event) => event.outcome === "unknown"), true);
+	assert.equal(duplicate.structuredObservation().coverage.unparsed_events, 1);
+
+	const missingFlag = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000 });
+	missingFlag.onToolStart("read", JSON.stringify({ path: "a.ts" }));
+	assert.equal(missingFlag.onToolEnd("read", undefined), null);
+	missingFlag.onToolStart("read", JSON.stringify({ path: "b.ts" }));
+	missingFlag.onToolEnd("read", false);
+	const incomplete = missingFlag.structuredObservation();
+	assert.equal(incomplete.events[0].outcome, "unknown");
+	assert.equal(incomplete.events[1].outcome, "success");
+	assert.equal(incomplete.coverage.missing_tool_end, 0);
+	// Layer 1 still ignores a missing error flag.
+	const inert = createDriftMonitor({ maxConsecutiveFailures: 1 });
+	assert.equal(inert.onToolEnd("bash", undefined), null);
+	assert.equal(inert.onToolStart("bash", "{}"), null);
+});
+
+test("unparsed tool starts do not copy the raw value into the observation", () => {
+	const m = createDriftMonitor({ maxRepeats: 100, maxToolCalls: 1000 });
+	m.onToolStart({ secret: "SENTINEL_UNPARSED" }, { command: "SENTINEL_UNPARSED" });
+	const observation = m.structuredObservation();
+	assert.equal(observation.events.length, 0);
+	assert.equal(observation.coverage.unparsed_events, 1);
+	assert.equal(JSON.stringify(observation).includes("SENTINEL_UNPARSED"), false);
+	assert.equal(m.trail().join("\n"), "[object Object] [object Object]");
 });

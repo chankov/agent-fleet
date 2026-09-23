@@ -1,4 +1,5 @@
 import { Key, matchesKey } from "@mariozechner/pi-tui";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { ModelPolicy } from "../policy/models.ts";
 import type { ContextPressureState } from "../context-pressure.ts";
 import { contextPressureDiagnostic } from "../context-pressure.ts";
@@ -19,7 +20,7 @@ import { createPanelResources } from "../../lib/fleet-panel.ts";
 export interface ContextBudgetUiContext {
 	cwd?: string;
 	getSystemPromptOptions?(): unknown;
-	ui: { custom(factory: (tui: any, theme: any, kb: any, done: () => void) => any, options: unknown): Promise<unknown> };
+	ui: { custom: ExtensionContext["ui"]["custom"] };
 }
 
 export interface ContextBudgetDeps<TDef extends DetailAgentDef, TAgent extends DashboardAgentState<TDef>, TResearch extends ResearchState<TDef>> {
@@ -35,7 +36,7 @@ export interface ContextBudgetDeps<TDef extends DetailAgentDef, TAgent extends D
 	getDelegateExtensionPath(): string | null;
 	safeAgentKey(name: string): string;
 	projectPolicyPaths(cwd: string): string[];
-	modelWindowLookup(ctx: ContextBudgetUiContext): (model: string) => number | undefined;
+	modelWindowLookup(ctx: ContextBudgetUiContext): (provider: string, modelId: string) => { contextWindow?: number } | undefined;
 	getResearchTools(): string;
 	getPromptLedger(): readonly unknown[];
 	getPressureState(): ContextPressureState;
@@ -79,7 +80,7 @@ export function createContextBudgetUi<TDef extends DetailAgentDef, TAgent extend
 		const state: ContextBudgetViewState = { selection: { index: 0 }, expanded: new Set(), scrollOffset: 0 };
 		const collect = () => { deps.buildHubSystemPrompt(); return collectContextBudgetSnapshot(ctx, { ledger: deps.getPromptLedger() as any, pressure: contextPressureDiagnostic(deps.getPressureState()), planes: contextPlanes(ctx), tools: [...deps.getAllTools()], activeToolNames: [...deps.getActiveTools()], commands: [...deps.getCommands()] }); };
 		let snapshot = collect(); const refresh = () => { snapshot = collect(); };
-		try { await ctx.ui.custom((tui: any, _theme: any, _kb: any, done: () => void) => { resources.every(1000, () => { refresh(); tui.requestRender(); }); return { render: (w: number) => renderContextBudget(snapshot, state, w, bodyRows(tui.terminal?.rows, CONTEXT_BUDGET_CHROME_ROWS)), handleInput: (data: string) => { const intent = contextBudgetTransition(toInput(data), state, snapshot, bodyRows(tui.terminal?.rows, CONTEXT_BUDGET_CHROME_ROWS)); if (intent === "close") done(); if (intent === "refresh") refresh(); tui.requestRender(); }, invalidate() {}, dispose: () => resources.dispose() }; }, FULLSCREEN_OVERLAY); } finally { resources.dispose(); }
+		try { await ctx.ui.custom((tui: any, _theme: any, _kb: any, done: (result?: unknown) => void) => { resources.every(1000, () => { refresh(); tui.requestRender(); }); return { render: (w: number) => renderContextBudget(snapshot, state, w, bodyRows(tui.terminal?.rows, CONTEXT_BUDGET_CHROME_ROWS)), handleInput: (data: string) => { const intent = contextBudgetTransition(toInput(data), state, snapshot, bodyRows(tui.terminal?.rows, CONTEXT_BUDGET_CHROME_ROWS)); if (intent === "close") done(); if (intent === "refresh") refresh(); tui.requestRender(); }, invalidate() {}, dispose: () => resources.dispose() }; }, FULLSCREEN_OVERLAY); } finally { resources.dispose(); }
 	}
 
 	return { contextPlanes, openContextBudget };

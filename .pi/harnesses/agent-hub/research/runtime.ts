@@ -97,7 +97,7 @@ export interface ResearchRuntimeDeps<TDef extends ResearchAgentDef> extends Rese
 	resolveThinkingLevel(value: string | undefined): string;
 	fallbackModelFor(def: TDef, model: string): string | undefined;
 	substitutedModel(model: string | undefined): string | undefined;
-	modelWindowLookup(ctx: ExtensionContext): (provider: string, modelId: string) => unknown;
+	modelWindowLookup(ctx: ExtensionContext): (provider: string, modelId: string) => { contextWindow?: number } | undefined;
 	guardrailEnv(agentId: string): Record<string, string>;
 	notifyProviderQueue(model: string, label: string, ctx: ExtensionContext): void;
 	spawnPiAgentWithModelFallback: typeof spawnPiAgentWithModelFallback;

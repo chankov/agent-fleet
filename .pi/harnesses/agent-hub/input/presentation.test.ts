@@ -25,6 +25,18 @@ test("completion presentation preserves agents, delegates, research, models, sub
 	assert.equal(completion.comsPeers("peer")?.[0].label, "peer — review");
 });
 
+test("complete model-profile completion shows its default without formatting objects as model strings", () => {
+ const completion = createCompletionPresentation({
+  getAgents: () => [], getResearch: () => [], getResearchPersonas: () => [],
+  getModelProfiles: () => ({ full: { version: 2, defaults: { model: "p/default" } } }),
+  getPeers: () => [], displayName: name => name,
+  shortModel: model => { if (typeof model !== "string") throw new Error("model must be a string"); return model; },
+  resolvedModel: () => undefined, resolvedThinking: () => undefined, resolveThinkingLevel: () => "off",
+  resolvedSubagentModel: () => "", getSubagentOverride: () => undefined, getSubstitutionSources: () => [],
+ });
+ assert.equal(completion.modelProfiles("full")?.[0].label, "full — complete profile (default p/default)");
+});
+
 test("shortcut registrar preserves fleet and work-mode routing", async () => {
 	const handlers = new Map<string, (ctx: any) => any>();
 	const calls: string[] = [];

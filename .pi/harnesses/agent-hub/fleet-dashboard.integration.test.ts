@@ -86,7 +86,9 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.match(fleetActions, /resolveFleetRestart\(/);
 	assert.match(dashboardSource, /attachFleetDashboardTicker\(/);
 	assert.match(detailSource, /liveTimeline\(target\)/);
-	assert.match(detailSource, /snapshotFleetDetailRow\(detailRow, target\)/);
+	assert.match(detailSource, /snapshotFleetDetailRow\(applyLiveFleetDetailRow\(detailRow, deps\.currentFleetRow\?\.\(detailRow\.key\), !!deps\.currentFleetRow\), target\)/);
+	assert.match(detailSource, /detailBodyLines\(liveRow/);
+	assert.match(source, /currentFleetRow: key => fleetSource\.rows\(Date\.now\(\), \{ showFinished: true \}\)/);
 	assert.match(source, /gridCols = gridColumnsForSize\(agentStates\.size\);/);
 	assert.doesNotMatch(gridSource, /agent-research/);
 	assert.doesNotMatch(gridSource, /getResearchStates/);
@@ -97,6 +99,9 @@ test("agent hub wires Fleet Dashboard, detail, stable selection, confirmation, a
 	assert.doesNotMatch(source, /declare const (?:shortModel|thinkingSuffix|modelWithThinking)/, "runtime formatters cannot be ambient-only declarations");
 	assert.match(source, /function shortModel\(model: string \| undefined\)[\s\S]*?function thinkingSuffix\(rawThinking: string \| undefined\)[\s\S]*?function modelWithThinking\(def: AgentDef\)/, "composition root owns the shared model presentation helpers");
 	assert.match(source, /createGridUI\(\{[\s\S]*?getWidgetContext[\s\S]*?getRows:/, "grid consumes the shared source");
+	assert.match(source, /getSystem1: \(\) => watchdogActivity\?\.live\(\) \?\? null/, "strip and dashboard share the in-memory System 1 projection");
+	assert.match(gridSource, /system1Visible/);
+	assert.doesNotMatch(gridSource, /sendMessage|readFileSync|events\.jsonl/);
 	assert.doesNotMatch(gridSource, /function (?:shortModel|thinkingSuffix|modelWithThinking)\(/, "grid does not duplicate shared presentation semantics");
 	assert.match(source, /import \{[\s\S]*?abbreviateModel,[\s\S]*?\} from "\.\.\/lib\/coms-core\.ts"/, "coms model abbreviation remains separate");
 	// confirmation window is owned by the pure controller

@@ -167,3 +167,33 @@ test("deferred intent completion cannot mutate a successor context", async () =>
 	release(); await pending; await Promise.resolve();
 	assert.match(next.widget.render(80)[0]!, /press x again/, "old finally must not clear successor confirmation");
 });
+
+test("A15 fast System 1 refresh, idle retention and headless strip do not send chat", () => {
+	const system1 = { dispatchId: "d", attemptId: "a", checkId: "check-fast", snapshotId: "s", runToken: "builder:1", phase: "evaluating" as const, compact: "S1 evaluating", label: "S1 evaluating · failures · 0.4s · LLM parallel", detail: "check check-fast", effectiveMode: "shadow" as const, llmRelation: "parallel" as const, rule: "failures", elapsedMs: 400, retainUntil: Number.POSITIVE_INFINITY, status: "unknown", reason: "unknown", statusChoice: "unknown", confidence: null, returnedModel: "unknown", stateVersion: "unknown", questionsVersion: "unknown", policyVersion: "none" as const, usage: "unknown" as const, source: "none" as const, applied: "unknown" as const, outcome: "unknown", llm: "running", llmVerdict: "unknown", degraded: false };
+	let phase: "evaluating" | "result" = "evaluating";
+	const h = harness("tui", () => [phase === "evaluating" ? { ...row(), system1 } : { ...row(), elapsed: 1000, system1: { ...system1, phase: "result", compact: "S1 on_track", label: "S1 on_track · 402ms · shadow · LLM parallel", elapsedMs: 402, retainUntil: 12_000 } }]);
+	h.editor.focused = true;
+	h.grid.toggle();
+	assert.match(h.widget.render(90).join("\n"), /S1 evaluating/);
+	const renders = h.renders();
+	phase = "result";
+	h.setNow(2000);
+	h.grid.updateWidget();
+	assert.ok(h.renders() > renders, "same-second System 1 finish must change the display key");
+	assert.match(h.widget.render(90).join("\n"), /S1 on_track/);
+	assert.match(h.widget.render(120).join("\n"), /1 tools/);
+	assert.match(h.widget.render(120).join("\n"), /edit/);
+	const idle = { ...row("done"), status: "idle" as const, endedAt: undefined, toolCount: 1, lastWork: "edit", system1: { ...system1, phase: "cancelled" as const, compact: "S1 cancelled", label: "S1 cancelled", retainUntil: 12_000 } };
+	const retained = harness("tui", () => [idle]);
+	retained.setNow(11_999);
+	retained.grid.updateWidget();
+	assert.match(retained.widget.render(80).join("\n"), /S1 cancelled/);
+	retained.setNow(12_000);
+	const callback = [...retained.timers.values()][0];
+	retained.timers.clear();
+	callback();
+	assert.deepEqual(retained.widget.render(80), []);
+	const headless = harness("rpc", () => [{ ...row(), system1 }]);
+	assert.match(headless.widget.render(100).join("\n"), /S1 1 evaluating/);
+	assert.equal(headless.editor, undefined);
+});

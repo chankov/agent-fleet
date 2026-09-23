@@ -78,7 +78,7 @@ export function buildContextBudgetSnapshot(input: SnapshotInput): ContextBudgetS
 }
 
 /** Pull only Pi's documented read APIs; no send/compact/session write is used here. */
-export function collectContextBudgetSnapshot(ctx: any, input: Omit<SnapshotInput, "usage" | "systemPrompt" | "systemPromptOptions" | "tools" | "activeToolNames" | "commands" | "conversation" | "window" | "model"> = {}): ContextBudgetSnapshot {
+export function collectContextBudgetSnapshot(ctx: any, input: SnapshotInput = {}): ContextBudgetSnapshot {
 	const read = <T>(fn: (() => T) | undefined, fallback: T): T => { try { return fn ? fn() : fallback; } catch { return fallback; } };
 	const contextUsage = read(ctx?.getContextUsage?.bind(ctx), undefined as { tokens?: number | null; contextWindow?: number; percent?: number | null } | undefined);
 	// Pi compaction keeps raw session history for persistence, while buildContextEntries

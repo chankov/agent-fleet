@@ -47,6 +47,12 @@ export const DRIFT_DEFAULTS = {
 	trailLimit: 60,
 };
 
+/** Specialist tool kinds that may appear in structured observations. Anything else is `other`. */
+export const WATCHDOG_TOOL_KINDS = ["read", "write", "edit", "bash", "grep", "find", "ls"];
+const WATCHDOG_TOOL_KIND_SET = new Set(WATCHDOG_TOOL_KINDS);
+/** Calibrated structured window. Legacy `trailLimit` is a separate judge-text bound. */
+export const WATCHDOG_STRUCTURED_EVENT_LIMIT = 40;
+
 /** Session subtrees the hub itself tells specialists to write into. */
 export const HUB_OWNED_SUBDIRS = ["artifacts", "findings", "delegations"];
 
@@ -109,27 +115,113 @@ export function createDriftMonitor(cfg = {}) {
 
 	const callCounts = new Map();
 	const trailLines = [];
+	const groupIds = new Map();
+	const groupCounts = new Map();
+	const structuredEvents = [];
+	let nextGroup = 1;
 	let totalCalls = 0;
 	let consecutiveFailures = 0;
+	let failureCount = 0;
+	let eventsSeen = 0;
+	let droppedByWindow = 0;
+	let droppedIncomplete = 0;
+	let unparsedEvents = 0;
 
 	const pushTrail = (line) => {
 		trailLines.push(line);
 		if (trailLines.length > trailLimit) trailLines.shift();
 	};
 
+	const pushStructured = (event) => {
+		structuredEvents.push(event);
+		while (structuredEvents.length > WATCHDOG_STRUCTURED_EVENT_LIMIT) {
+			const dropped = structuredEvents.shift();
+			if (dropped?.open) droppedIncomplete++;
+			else droppedByWindow++;
+		}
+	};
+
+	const noteStructuredStart = (toolName, argStr, callId) => {
+		if (typeof toolName !== "string" || (argStr != null && typeof argStr !== "string")) {
+			eventsSeen++;
+			unparsedEvents++;
+			return;
+		}
+		const fingerprint = `${toolName}::${argStr || ""}`;
+		let group = groupIds.get(fingerprint);
+		if (!group) {
+			group = nextGroup++;
+			groupIds.set(fingerprint, group);
+		}
+		const repeat = (groupCounts.get(fingerprint) || 0) + 1;
+		groupCounts.set(fingerprint, repeat);
+		eventsSeen++;
+		const event = {
+			tool: WATCHDOG_TOOL_KIND_SET.has(toolName) ? toolName : "other",
+			outcome: "unknown",
+			repeat_group: group,
+			repeat_count: repeat,
+			open: true,
+		};
+		if (callId != null && callId !== "") event.callId = String(callId);
+		const path = pathFromArgs(argStr);
+		if (path) event.path = path;
+		pushStructured(event);
+	};
+
+	const closeStructured = (toolName, outcome, callId) => {
+		if (typeof toolName !== "string") {
+			unparsedEvents++;
+			return;
+		}
+		const kind = WATCHDOG_TOOL_KIND_SET.has(toolName) ? toolName : "other";
+		const close = (event) => {
+			event.outcome = outcome;
+			event.open = false;
+		};
+		if (callId != null && callId !== "") {
+			const id = String(callId);
+			const matches = structuredEvents.filter((event) => event.open && event.callId === id);
+			// Duplicate or mismatched ids are ambiguous — do not attach this end to another call.
+			if (matches.length !== 1 || matches[0].tool !== kind) {
+				unparsedEvents++;
+				return;
+			}
+			close(matches[0]);
+			return;
+		}
+		// No id: only an unambiguous unkeyed open of this kind. Never steal a callId-tracked event.
+		const unkeyed = structuredEvents.filter((event) => event.open && event.tool === kind && (event.callId == null || event.callId === ""));
+		if (unkeyed.length !== 1) {
+			unparsedEvents++;
+			return;
+		}
+		close(unkeyed[0]);
+	};
+
+	let lastScopeViolation = null;
+	let lastLoopViolation = null;
 	return {
-		onToolStart(toolName, argStr) {
+		isSignalCurrent(violation) {
+			switch (violation?.rule) {
+				case "scope": return lastScopeViolation === violation.detail;
+				case "loop": return lastLoopViolation === violation.detail;
+				case "toolcap": return totalCalls >= maxToolCalls;
+				case "failures": return consecutiveFailures >= maxConsecutiveFailures;
+				default: return false;
+			}
+		},
+		onToolStart(toolName, argStr, callId) {
 			totalCalls++;
 			pushTrail(`${toolName} ${String(argStr || "").slice(0, 120)}`.trim());
+			noteStructuredStart(toolName, argStr, callId);
 
+			lastScopeViolation = null;
 			if (scopeGlobs.length > 0 && writeTools.has(toolName)) {
 				const path = pathFromArgs(argStr);
 				if (path && checkScope([path], effectiveScope).outOfScope.length > 0) {
-					return {
-						rule: "scope",
-						terminal: false,
-						detail: `${toolName} touched ${path} — outside the declared scope (${scopeGlobs.join(", ")})`,
-					};
+					lastScopeViolation = `${toolName} touched ${path} — outside the declared scope (${scopeGlobs.join(", ")})`;
+					return { rule: "scope", terminal: false, detail: lastScopeViolation };
 				}
 			}
 
@@ -137,7 +229,8 @@ export function createDriftMonitor(cfg = {}) {
 			const count = (callCounts.get(fingerprint) || 0) + 1;
 			callCounts.set(fingerprint, count);
 			if (count === maxRepeats) {
-				return { rule: "loop", terminal: true, detail: `${toolName} called ${count}× with identical arguments — likely stuck in a loop` };
+				lastLoopViolation = `${toolName} called ${count}× with identical arguments — likely stuck in a loop`;
+				return { rule: "loop", terminal: true, detail: lastLoopViolation };
 			}
 
 			if (totalCalls === maxToolCalls) {
@@ -146,22 +239,59 @@ export function createDriftMonitor(cfg = {}) {
 			return null;
 		},
 
-		onToolEnd(_toolName, isError) {
+		onToolEnd(toolName, isError, callId) {
 			if (isError === true) {
 				consecutiveFailures++;
+				failureCount++;
 				pushTrail("  ↳ FAILED");
+				closeStructured(toolName, "error", callId);
 				if (consecutiveFailures % maxConsecutiveFailures === 0) {
 					return { rule: "failures", terminal: true, detail: `${consecutiveFailures} consecutive failed tool calls — no forward progress` };
 				}
 			} else if (isError === false) {
 				consecutiveFailures = 0;
+				closeStructured(toolName, "success", callId);
+			} else {
+				// Missing error flag is incomplete, not success, and must not stay open for a later end.
+				closeStructured(toolName, "unknown", callId);
 			}
-			// isError undefined: the stream carries no error flag — rule stays inert.
 			return null;
 		},
 
 		trail(n = 40) {
 			return trailLines.slice(-n);
+		},
+
+		/**
+		 * Structured observation for watchdog-state/v1. Not the legacy trail and not
+		 * the outbound payload: no raw arguments, command text, write bodies, or detail.
+		 * Repeat groups are local integers; the fingerprint map stays in this closure.
+		 */
+		structuredObservation() {
+			return {
+				events: structuredEvents.map((event) => {
+					const publicEvent = {
+						tool: event.tool,
+						outcome: event.open ? "unknown" : event.outcome,
+						repeat_group: event.repeat_group,
+						repeat_count: event.repeat_count,
+					};
+					if (event.path) publicEvent.path = event.path;
+					return publicEvent;
+				}),
+				counters: {
+					tool_calls: totalCalls,
+					failures: failureCount,
+					consecutive_failures: consecutiveFailures,
+				},
+				coverage: {
+					events_seen: eventsSeen,
+					dropped_by_window: droppedByWindow,
+					dropped_incomplete: droppedIncomplete,
+					unparsed_events: unparsedEvents,
+					missing_tool_end: structuredEvents.filter((event) => event.open).length,
+				},
+			};
 		},
 	};
 }
@@ -169,6 +299,7 @@ export function createDriftMonitor(cfg = {}) {
 /**
  * The one-shot judge prompt: original task + declared scope + recent trail +
  * the rule that fired. The judge answers with a single machine-parseable line.
+ * @param {{agent: string, task: string, scopeGlobs?: string[], hubOwnedGlobs?: string[], trail?: string[], violation?: {rule: string, detail: string, terminal?: boolean}}} input
  */
 export function buildJudgePrompt({ agent, task, scopeGlobs = [], hubOwnedGlobs = [], trail = [], violation }) {
 	const scopeBlock = scopeGlobs.length > 0

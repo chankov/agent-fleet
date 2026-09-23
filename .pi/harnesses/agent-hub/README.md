@@ -792,9 +792,12 @@ drives the cards — not post-hoc:
   outside the dispatch's declared `scope` globs, the identical tool call repeated 4×,
   5 consecutive failed tool calls, or 200 total tool calls in one run.
 - **Layer 2 — LLM judge, escalation only**: when a rule fires (single-flight, 90 s
-  cooldown), a one-shot cheap run (default model: the researcher persona's; override with
+  success cooldown), a one-shot cheap run (default model: the researcher persona's; override with
   `watchdog-judge-model`) reads the original task + declared scope + recent tool trail and
-  answers `VERDICT: ON_TRACK|DRIFTING|STUCK`. Judge failures fail open.
+  answers `VERDICT: ON_TRACK|DRIFTING|STUCK`. An unavailable judge has no verdict:
+  it is recorded as `judge_unavailable` and, if the attempt and signal remain live,
+  is retried once after 5 seconds with new snapshot/LLM-attempt IDs. A second failure
+  is exhausted, not a successful 90-second cooldown.
 - **Intervention**: DRIFTING/STUCK terminates the run as **`drift_stop`** (exit 125,
   partial output preserved) and the dispatch result instructs: re-dispatch ONCE with a
   corrected, narrowed task — never the same task unchanged.
@@ -807,6 +810,43 @@ default via the `watchdog:` overrides key): `on`/`auto` arm and `off` disarms. I
 disarm it. Opt out with hub `/af-watchdog off` (or override `watchdog: off`), or a per-agent
 `off`. Read-only research helpers are not monitored — they already run under the per-tool
 watchdog + turn deadline and cannot write.
+
+### Opt-in System 1 drift observations
+
+`watchdog-system1: off|shadow|active` in `## agent-hub` defaults to `off`.
+The separate experimental `system1` feature, valid `.ai/system1.json`, a
+caller-injected key and an armed native watchdog are also needed. `shadow`
+runs System 1 independently of the immediately started LLM judge; it cannot
+stop a specialist. `active` is blocked as `calibration_required` (effective
+shadow): production approved profiles are empty, and configuration alone never
+approves one. Every unknown, contradictory or uncalibrated result goes to the
+LLM; only an approved per-rule on-track result could avoid it. No automatic
+hook is added for research, coms or normal Hub requests.
+
+The limited **System 1** state includes reviewed task text, normalized
+relative paths, structured tool kinds/outcomes and counters, not tool
+args/commands/bodies or outputs. The existing parallel **LLM judge** still
+receives the original task, scope and a recent trail containing up to 120
+characters of raw tool arguments per call. Review pilot inputs and expected
+tool arguments; unexpected agent actions remain a residual risk. Even task/path
+names can leak information: the intended future pilot is agent-fleet-only,
+without client data or secrets. The native spawn filters the shared
+key from merged child env, not from files or unrelated launchers. The below-chat
+Fleet strip holds the recent S1 result for 10 s; `/af-agents` Enter shows the
+owner check and safe history. `/af-watchdog` shows current readiness and
+blocking reason; `/af-hub-report` separates checks, evaluations and LLM
+attempts from worker token usage; `/af-audit` exposes safe lifecycle/decision
+metadata. Trace lives at `<sessionDir>/artifacts/watchdog/events.jsonl`; a
+crash or unknown usage is not reported as success or zero. The offline G2
+report requires human labels keyed by session/dispatch/attempt/check,
+`snapshotId` **and** `llmAttemptId`; older five-ID labels cannot qualify.
+No routine chat messages or extra model turns are sent for progress.
+
+To roll back, set the consumer to `off` for the **next** Hub session; cancel a
+current run normally if needed. G1 requires outbound state and real UI review
+before any shadow pilot. G2 separately requires human-labelled held-out
+session evidence and explicit maintainer approval for a production policy
+profile. Offline tests and demo/doctor readiness do not grant either gate.
 
 ### Dynamic teams
 
@@ -825,7 +865,8 @@ Rosters start from `.pi/agents/teams.yaml` but are not frozen there:
 Per-turn cost accounting: dispatches (agent, status, elapsed, billed/output tokens),
 research runs, session recycles, drift stops, and budget/duplicate refusals — for the
 current turn, the last completed turn, and session totals. Billed tokens count
-input + cacheRead + cacheWrite, the same measure the recycler uses.
+input + cacheRead + cacheWrite, the same measure the recycler uses. System 1
+usage is reported separately; unavailable metadata remains unknown.
 
 Paths that don't exist produce a session-start warning, never an error. The full key list for
 `## agent-hub` (models, sub-roles, depth budgets, persona gate, research retention, watchdog,

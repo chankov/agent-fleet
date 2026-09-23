@@ -81,6 +81,8 @@ export function countReviewFindings(text) {
  * blocking findings than the tier's cap. Instructional, never corrective: the
  * dispatcher is told to rank and close, and told what NOT to do with the rest.
  * Returns null when the review is within budget or there is nothing to judge.
+ * @param {number|null} [roundsSpent]
+ * @param {number|null} [roundCap]
  */
 export function findingBudgetNotice(agent, tierCap, counts, roundsSpent = null, roundCap = null) {
 	if (tierCap == null || !counts) return null;

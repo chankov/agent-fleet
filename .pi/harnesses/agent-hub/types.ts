@@ -52,6 +52,7 @@ export interface AgentState {
 	proc?: ChildProcess;
 	killedByOperator?: boolean;
 	restarting?: boolean;
+	driftFence?: { dispose(): void };
 	onTerminate?: () => void;
 	timeline: TimelineEntry[];
 	transcriptStore?: FleetTranscriptStore;

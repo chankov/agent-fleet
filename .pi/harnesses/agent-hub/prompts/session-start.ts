@@ -61,14 +61,14 @@ export interface SessionFooterDependencies {
 }
 
 export function createSessionFooter(deps: SessionFooterDependencies) {
-	return (_tui: unknown, theme: Theme, footerData: { getExtensionStatuses?(): Map<string, string> } | undefined) => ({
+	return (_tui: unknown, theme: Theme, footerData: { getExtensionStatuses?(): ReadonlyMap<string, string> } | undefined) => ({
 		dispose: () => {},
 		invalidate() {},
 		render(width: number): string[] {
 			const model = deps.getModel();
 			const think = deps.thinkingSuffix(deps.getThinkingLevel());
 			const usage = deps.ctx.getContextUsage();
-			const pct = usage ? usage.percent : 0;
+			const pct = usage?.percent ?? 0;
 			const filled = Math.round(pct / 10);
 			const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 			const left = deps.renderLeft(theme, deps.version, model, think);

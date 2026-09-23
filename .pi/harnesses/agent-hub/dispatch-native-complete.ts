@@ -2,6 +2,11 @@ import type { NativeDispatchResult, NativeExecutionDiagnostics, NativeSpawnOutco
 import { boundOutput } from "./deterministic-fs.ts";
 import { safePathWithin } from "./helpers.ts";
 
+/** Operator cancel wins a race only against an absent or caller-cancel stamp. A classified stop stays classified. */
+function operatorOwnsCancel(state: { killedByOperator?: boolean }, termination: { reason: string } | null | undefined): boolean {
+	return !!state.killedByOperator && (!termination || termination.reason === "cancelled");
+}
+
 export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeSpawnOutcome): Promise<NativeDispatchResult> {
 	const { deps, state, ctx, histEntry, monitorStart, startTime, key, agentKey } = run;
 	const { res, runBilled, runOut, sessionRecycled, sessionReset, driftStop, driftAdvisories } = outcome;
@@ -10,8 +15,9 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 	state.proc = undefined;
 	state.delegationsWatcher?.close();
 	state.delegationsWatcher = undefined;
+	const operatorCancel = operatorOwnsCancel(state, res.termination);
 	const diagnostics: NativeExecutionDiagnostics = {
-		reason: res.spawnError ? "spawn_error" : res.termination?.reason ?? (state.killedByOperator ? "operator_cancelled" : res.assistantError ? "assistant_error" : res.exitCode !== 0 ? "exit_code" : null),
+		reason: res.spawnError ? "spawn_error" : operatorCancel ? "operator_cancelled" : res.termination?.reason ?? (res.assistantError ? "assistant_error" : res.exitCode !== 0 ? "exit_code" : null),
 		processExitCode: res.exitCode,
 		assistantError: res.assistantError ?? null, stderr: res.stderr, spawnError: res.spawnError ?? null,
 		modelUsed: res.modelUsed ?? null,
@@ -48,7 +54,7 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 
 	const full = res.output;
 	const code = res.exitCode;
-	if (res.termination) {
+	if (res.termination && !operatorCancel) {
 		const reason = res.termination.reason;
 		const tool = res.termination.tool;
 		state.status = "error";
@@ -127,7 +133,7 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 	deps.executionHistory.end(histEntry, state.status);
 	ctx.ui.notify(
 		`${deps.displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
-		state.status === "done" ? "success" : "error",
+		state.status === "done" ? "info" : "error",
 	);
 	const onTerminate = state.onTerminate;
 	state.onTerminate = undefined;

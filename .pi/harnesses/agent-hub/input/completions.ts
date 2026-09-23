@@ -1,4 +1,5 @@
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
+import { isCompleteProfile, type ModelProfiles } from "../config/model-profiles.ts";
 
 interface CompletionDef { name: string; subagents?: Record<string, { model?: string }> }
 interface CompletionState<TDef extends CompletionDef> { def: TDef; status: string; delegations?: Map<string, { id: string; status: string }> }
@@ -9,7 +10,7 @@ export interface CompletionDeps<TDef extends CompletionDef> {
 	getAgents(): Iterable<CompletionState<TDef>>;
 	getResearch(): Iterable<CompletionResearch<TDef>>;
 	getResearchPersonas(): TDef[];
-	getModelProfiles(): Record<string, Record<string, string>>;
+	getModelProfiles(): ModelProfiles;
 	getPeers(): CompletionPeer[];
 	displayName(name: string): string;
 	shortModel(model: string | undefined): string;
@@ -66,7 +67,12 @@ export function createCompletionPresentation<TDef extends CompletionDef>(deps: C
 			...agents().map(state => ({ value: state.def.name, label: `${deps.displayName(state.def.name)} — ${deps.resolveThinkingLevel(deps.resolvedThinking(state.def))}` })),
 			...deps.getResearchPersonas().map(def => ({ value: def.name, label: `${deps.displayName(def.name)} (research) — ${deps.resolveThinkingLevel(deps.resolvedThinking(def))}` })),
 		], prefix),
-		modelProfiles: prefix => filter(Object.entries(deps.getModelProfiles()).map(([name, entries]) => ({ value: name, label: `${name} — ${Object.entries(entries).map(([persona, model]) => `${persona}: ${deps.shortModel(model)}`).join(", ")}` })), prefix),
+		modelProfiles: prefix => filter(Object.entries(deps.getModelProfiles()).map(([name, entries]) => ({
+			value: name,
+			label: isCompleteProfile(entries)
+				? `${name} — complete profile (default ${deps.shortModel(entries.defaults.model)})`
+				: `${name} — ${Object.entries(entries).map(([persona, model]) => `${persona}: ${deps.shortModel(model)}`).join(", ")}`,
+		})), prefix),
 		substitutions: prefix => filter(deps.getSubstitutionSources().map(choice => ({ value: choice.spec, label: choice.label })), prefix),
 		researchHandles,
 		subagentTargets,

@@ -110,7 +110,7 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 		deps.updateWidget();
 		state.zoomRender?.(true);
 		deps.executionHistory.end(histEntry, state.status);
-		if (options?.notice) ctx.ui.notify(options.notice, state.status === "done" ? "success" : state.status === "idle" ? "info" : "error");
+		if (options?.notice) ctx.ui.notify(options.notice, state.status === "done" || state.status === "idle" ? "info" : "error");
 		const onTerminate = state.onTerminate;
 		state.onTerminate = undefined;
 		onTerminate?.();

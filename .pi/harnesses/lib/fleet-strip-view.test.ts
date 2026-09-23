@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { renderFleetStrip, safeTerminalText, treePrefix, visibleWindow } from "./fleet-strip-view.ts";
-import type { FleetRow } from "./fleet-read-model.ts";
+import { renderFleetStrip, safeTerminalText, summaryText, treePrefix, visibleWindow } from "./fleet-strip-view.ts";
+import { projectSystem1Owner, summariseWidget, type FleetRow, type System1CheckInput } from "./fleet-read-model.ts";
 
 const metrics = { visibleWidth, truncateToWidth };
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text, bg: (_: string, text: string) => text };
@@ -67,4 +67,46 @@ test("narrow collapsed summary drops whole secondary fields instead of clipping 
 
 test("safeTerminalText strips ANSI, OSC, controls and newlines", () => {
 	assert.equal(safeTerminalText("a\n\x1b[31mb\x1b[0m\x1b]0;title\x07c"), "a bc");
+});
+
+test("A15 strip keeps text System 1 labels at narrow widths without replacing worker fields", () => {
+	const owner = row("builder", {
+		name: "Builder", toolCount: 2, lastWork: "edit", model: "sonnet",
+		system1: { dispatchId: "d", attemptId: "a", checkId: "check-fast", snapshotId: "s", runToken: "builder:1", phase: "result", compact: "S1 on_track", label: "S1 on_track · 402ms · shadow · LLM parallel", detail: "check check-fast", effectiveMode: "shadow", llmRelation: "parallel", rule: "failures", elapsedMs: 402, retainUntil: 20_000, status: "ok", reason: "unknown", statusChoice: "on_track", confidence: null, returnedModel: "unknown", stateVersion: "unknown", questionsVersion: "unknown", policyVersion: "none", usage: "unknown", source: "none", applied: "no", outcome: "unknown", llm: "finished", llmVerdict: "unknown", degraded: false },
+	});
+	const other = row("reviewer", { name: "Reviewer", system1: { ...owner.system1!, runToken: "reviewer:1", compact: "S1 unavailable → LLM judging", label: "S1 unavailable → LLM judging", llmRelation: "fallback", phase: "unavailable" } });
+	const summary = { running: 2, peerActive: 0, done: 0, failed: 0, contextMax: 20, contextKnown: 2, contextTotal: 2, wallMs: 1000, wallKnown: 2, wallTotal: 2, system1Evaluating: 1, system1Mode: null, system1Last: null, system1Mixed: true };
+	for (const width of [20, 40, 79, 80, 104, 105, 120]) {
+		const lines = renderFleetStrip({ active: true, interactiveAvailable: true, selectedKey: "builder", summary, window: visibleWindow([owner, other], 0, 0, 2), maxRows: 6 }, width, theme, metrics);
+		assert.ok(lines.every(line => visibleWidth(line) <= width), String(width));
+		const text = lines.join("\n");
+		if (width >= 40) assert.match(text, /S1/);
+		assert.match(text, /Builder/);
+		assert.doesNotMatch(text, /sendMessage/);
+	}
+	const narrow = renderFleetStrip({ active: true, interactiveAvailable: false, summary, window: visibleWindow([owner], 0, 0, 1), maxRows: 6 }, 40, theme, metrics).join("\n");
+	assert.match(narrow, /S1 on_track/);
+	assert.match(narrow, /2 tools|edit|sonnet|Builder/);
+	const collapsed = renderFleetStrip({ active: false, interactiveAvailable: false, summary, window: visibleWindow([owner, other], 0, 0, 2), maxRows: 5 }, 80, theme, metrics)[0]!;
+	assert.match(collapsed, /S1 mixed/);
+	assert.doesNotMatch(collapsed, /on_track|unavailable → LLM/);
+	const retained = renderFleetStrip({ active: false, interactiveAvailable: false, summary: { ...summary, system1Evaluating: 0, system1Mode: "shadow", system1Last: "S1 cancelled", system1Mixed: false }, window: visibleWindow([owner], 0, 0, 1), maxRows: 5 }, 100, theme, metrics)[0]!;
+	assert.match(retained, /S1 cancelled/);
+	assert.match(retained, /shadow/);
+});
+
+test("F-20 collapsed summary does not repeat the mode or emit a bare unknown", () => {
+	const input: System1CheckInput = {
+		dispatchId: "d", attemptId: "a", checkId: "c", snapshotId: "s", evaluation: "finished", llm: "finished",
+		status: "ok", reason: "unknown", elapsedMs: 402, finishedAt: 1_000, rule: "failures", effectiveMode: "shadow",
+		configuredMode: "shadow", statusChoice: "on_track", source: "none", applied: "no", outcome: "continue", llmVerdict: "unknown",
+	};
+	const view = projectSystem1Owner(input, "builder:1", 2_000)!;
+	const owner = row("builder", { runToken: "builder:1", system1: view });
+	const text = summaryText(summariseWidget([owner]));
+	assert.equal(text.split("shadow").length - 1, 1);
+	assert.match(text, /S1 on_track/);
+	const unknown = projectSystem1Owner({ ...input, effectiveMode: undefined, configuredMode: "active" }, "builder:1", 2_000)!;
+	const bare = summaryText(summariseWidget([row("builder", { runToken: "builder:1", system1: unknown })]));
+	assert.doesNotMatch(bare, /(^| · )unknown( · |$)/);
 });

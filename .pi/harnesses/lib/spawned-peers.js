@@ -137,6 +137,7 @@ export function peerReadyDelayMs(attempt) {
  * The verdict a spawn reports back. `ready` means the peer is in the pool and
  * `coms_send` will reach it; otherwise it is still booting and the caller is
  * told how long we waited rather than being left to guess.
+ * @param {{name: string, paneId: string, found: boolean, waitedMs: number, timeoutMs?: number, paneTail?: string}} input
  */
 export function peerReadyVerdict({ name, paneId, found, waitedMs, timeoutMs = PEER_READY_TIMEOUT_MS, paneTail }) {
 	if (found) {

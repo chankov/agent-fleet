@@ -5,7 +5,7 @@ import { buildFleetRows, type PeerInput } from "../../lib/fleet-read-model.ts";
 
 export interface PoolPresentationDeps {
 	getIdentity(): { session_id: string; name: string; color: string; project: string } | null;
-	getDisplayProject(): string | undefined;
+	getDisplayProject(): string | null | undefined;
 	includeExplicitPeers(): boolean;
 	getPeerCards(): ReadonlyMap<string, { name: string; model: string; purpose: string; color: string; staleCount?: number }>;
 	readProjectEntries(project: string): ComsRegistryEntry[];

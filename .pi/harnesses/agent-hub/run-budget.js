@@ -119,6 +119,7 @@ function refusalTail(tier) {
  * Gate one dispatcher tool call against the turn budget.
  * kind: "dispatch" | "research"; counters: { dispatches, research } — calls
  * already made this turn. Returns null when allowed, else { reason, message }.
+ * @param {string|null} [tier]
  */
 export function checkTurnBudget(kind, counters, budget, elapsedWallMs, tier = DEFAULT_TASK_TIER) {
 	const label = normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER;
@@ -178,7 +179,10 @@ export function contextOverflowDiagnostic(runsSinceFresh, contextPct, { agent = 
 	);
 }
 
-/** One-line status chip: "Tier: small · 1/2 disp · 0/2 res · task 4/6". */
+/** One-line status chip: "Tier: small · 1/2 disp · 0/2 res · task 4/6".
+ * @param {string|null} [tier]
+ * @param {{counters: {dispatches: number}, budget: {maxDispatches: number|null}}|null} [task]
+ */
 export function budgetStatusLine(counters, budget, tier = null, task = null) {
 	const cap = (n) => (n == null ? "∞" : String(n));
 	const tierLabel = tier || DEFAULT_TASK_TIER;
@@ -369,6 +373,7 @@ export function resetTaskClock(clock, now) {
  * `activeTaskMs` is ACTIVE time (see turnActiveMs), never raw wall clock.
  * kind: "dispatch" | "research". Returns null when allowed, else { reason, message }.
  */
+/** @param {string|null} [tier] */
 export function checkTaskBudget(kind, counters, taskBudget, activeTaskMs, tier = null) {
 	const label = tier ? `tier ${tier}` : "current tier";
 	if (taskBudget.wallMs != null && activeTaskMs >= taskBudget.wallMs) {

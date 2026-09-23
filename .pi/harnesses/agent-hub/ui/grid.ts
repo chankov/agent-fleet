@@ -1,7 +1,7 @@
 import { CustomEditor } from "@mariozechner/pi-coding-agent";
 import { isKeyRelease, Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { fleetStripTransition, initialFleetStripState, reconcileStripState, type FleetStripIntent, type FleetStripState } from "../../lib/fleet-strip-controller.ts";
-import { selectWidgetRows, summariseWidget, type FleetRow } from "../../lib/fleet-read-model.ts";
+import { selectWidgetRows, summariseWidget, system1Visible, type FleetRow } from "../../lib/fleet-read-model.ts";
 import { renderFleetStrip, visibleWindow } from "../../lib/fleet-strip-view.ts";
 import { installFleetEditor, type FleetEditorFactory, type FleetEditorWrapper } from "./fleet-editor.ts";
 export interface GridWidgetContext {
@@ -34,7 +34,7 @@ export function createGridUI(deps: GridUIContext) {
 	function editorGate() {
 		const editor = currentEditor();
 		const compatible = !!editor && typeof editor.isShowingAutocomplete === "function" && typeof editor.focused === "boolean";
-		return { compatible, open: compatible && suspended === 0 && editor.focused === true && editor.getText() === "" && !editor.isShowingAutocomplete() };
+		return { compatible, open: compatible && suspended === 0 && editor?.focused === true && editor.getText() === "" && editor.isShowingAutocomplete?.() === false };
 	}
 	function snapshot(now: number) {
 		snapshotNow = now;
@@ -49,7 +49,7 @@ export function createGridUI(deps: GridUIContext) {
 		return lastRows;
 	}
 	function needsTimer(rows: readonly FleetRow[], now: number): boolean {
-		return state.active || !!state.confirmation || rows.some(row => row.status === "running" || ((row.status === "done" || row.status === "error") && row.endedAt != null && now < row.endedAt + 10_000));
+		return state.active || !!state.confirmation || rows.some(row => row.status === "running" || ((row.status === "done" || row.status === "error") && row.endedAt != null && now < row.endedAt + 10_000) || system1Visible(row, now));
 	}
 	function arm() {
 		if (timer || disposed) return;
@@ -58,7 +58,7 @@ export function createGridUI(deps: GridUIContext) {
 		timer = schedule(() => { timer = undefined; const before = lastDisplayKey; refresh(false); if (before !== lastDisplayKey) tui?.requestRender?.(); arm(); }, 500);
 	}
 	function displayKey(rows: readonly FleetRow[], now: number): string {
-		return JSON.stringify([Math.floor(now / 1000), rows.map(row => [row.key, row.runToken, row.status, Math.floor(row.elapsed / 1000), row.lastWork]), state, maxRows(), tui?.terminal?.columns ?? null, suspended, editorGate().open]);
+		return JSON.stringify([Math.floor(now / 1000), rows.map(row => [row.key, row.runToken, row.status, Math.floor(row.elapsed / 1000), row.lastWork, row.system1 && row.system1.runToken === row.runToken ? [row.system1.checkId, row.system1.phase, row.system1.label, row.system1.elapsedMs, row.system1.retainUntil, row.system1.llmRelation] : null]), state, maxRows(), tui?.terminal?.columns ?? null, suspended, editorGate().open]);
 	}
 	function refresh(request = true) {
 		if (disposed) return;
@@ -81,7 +81,7 @@ export function createGridUI(deps: GridUIContext) {
 			interactiveAvailable: gate.compatible && suspended === 0,
 			focused: gate.compatible && editor?.focused === true,
 			editorEmpty: editor?.getText?.() === "",
-			autocomplete: gate.compatible ? editor!.isShowingAutocomplete() : true,
+			autocomplete: editor?.isShowingAutocomplete?.() ?? true,
 			modal: suspended > 0,
 			bodyRows: bodyRows(),
 		}, now);
@@ -129,7 +129,7 @@ export function createGridUI(deps: GridUIContext) {
 			interactiveAvailable: gate.compatible && suspended === 0,
 			focused: gate.compatible && editor?.focused === true,
 			editorEmpty: editor?.getText?.() === "",
-			autocomplete: gate.compatible ? editor!.isShowingAutocomplete() : true,
+			autocomplete: editor?.isShowingAutocomplete?.() ?? true,
 			modal: suspended > 0,
 			bodyRows: bodyRows(),
 		}, now);

@@ -219,7 +219,7 @@ export default function (pi: ExtensionAPI) {
 				callCount,
 			});
 			if (budgetRefusal) {
-				return { content: [{ type: "text" as const, text: budgetRefusal }] };
+				return { content: [{ type: "text" as const, text: budgetRefusal }], details: { status: "refused", reason: "budget" } };
 			}
 			const roleKey = roleNames.find(r => r.toLowerCase() === role.toLowerCase());
 			if (!roleKey) {
@@ -227,6 +227,7 @@ export default function (pi: ExtensionAPI) {
 					content: [{ type: "text" as const, text:
 						`Delegation refused: "${role}" is not a declared sub-role. Declared roles: ` +
 						`${roleNames.join(", ")}.` }],
+					details: { status: "refused", reason: "unknown_role" },
 				};
 			}
 			const roleDef = config.roles[roleKey];
@@ -244,6 +245,7 @@ export default function (pi: ExtensionAPI) {
 					content: [{ type: "text" as const, text:
 						`Delegation refused: role "${roleKey}" declares tools "${roleDef.tools}" but none are ` +
 						`available under the current parent/concurrency tool policy.` }],
+					details: { status: "refused", reason: "tools_unavailable" },
 				};
 			}
 			const effectiveTools = tools.effectiveTools;

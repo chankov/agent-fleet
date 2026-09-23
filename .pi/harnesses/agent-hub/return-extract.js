@@ -38,7 +38,9 @@ export function shouldExtractReturn(parsed, dispatchedIds) {
 	return !parsed && Array.isArray(dispatchedIds) && dispatchedIds.length > 0;
 }
 
-/** The extraction prompt: restate, never evaluate. */
+/** The extraction prompt: restate, never evaluate.
+ * @param {{returnPath: string, assertionIds?: string[]}} input
+ */
 export function buildExtractionPrompt({ returnPath, assertionIds = [] }) {
 	return `A specialist agent has already finished its work and written its report to a file.
 Your ONLY job is to restate what that report says in a fixed format.

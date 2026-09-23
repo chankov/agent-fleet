@@ -1,5 +1,8 @@
 import { relative } from "node:path";
 import { contextPct, overWindowDiagnostic } from "./context-window.js";
+import { createShadowCoordinator } from "./drift-judge.ts";
+import { createDriftRuntime, type DriftRuntime } from "./drift-runtime.ts";
+import { appendSystem1TimelineCard } from "./timeline.ts";
 import { createDriftMonitor, hubOwnedScopeGlobs, resolveWatchdogActive } from "./drift-watchdog.js";
 import { forceQuarantineSession, isCorruptSessionExit } from "./session-health.js";
 import type { NativeSpawnOutcome, PiRunControl, PreparedNativeRun, SpawnPiAgentCallbacks, SpawnPiAgentOptions } from "./dispatch-native-types.ts";
@@ -7,17 +10,9 @@ import { bumpMessageCount } from "./ui/activity-dots.ts";
 
 const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
 
-interface DriftRuntime {
-	monitor: any;
-	stop: { rule: string; detail: string; verdict: string; reason: string } | null;
-	advisories: Array<{ rule: string; detail: string; verdict: string; reason: string }>;
-	control?: PiRunControl;
-	escalate(violation: { rule: string; terminal?: boolean; detail: string }): void;
-}
-
-function createDriftRuntime(run: PreparedNativeRun): DriftRuntime {
+function startDriftRuntime(run: PreparedNativeRun): DriftRuntime {
 	const { deps, state, ctx, watchdogParam, key, scopeGlobs, task, agentKey } = run;
-	const watchdogArmed = resolveWatchdogActive(
+	const armed = resolveWatchdogActive(
 		watchdogParam,
 		deps.getWatchdogAgentOverride(key),
 		deps.getWatchdogSetting(),
@@ -25,39 +20,41 @@ function createDriftRuntime(run: PreparedNativeRun): DriftRuntime {
 	);
 	const sessionDir = deps.getSessionDir();
 	const hubOwnedGlobs = hubOwnedScopeGlobs(sessionDir, relative(ctx.cwd || process.cwd(), sessionDir));
-	const runtime: DriftRuntime = {
-		monitor: watchdogArmed ? createDriftMonitor({ scopeGlobs, allowGlobs: hubOwnedGlobs }) : null,
-		stop: null,
-		advisories: [],
-		escalate: () => {},
-	};
-	let judgeBusy = false;
-	let judgeCooldownUntil = 0;
-	runtime.escalate = violation => {
-		if (!runtime.monitor || judgeBusy || runtime.stop || Date.now() < judgeCooldownUntil) return;
-		judgeBusy = true;
-		void deps.runDriftJudge(
-			{ agentLabel: deps.displayName(state.def.name), agentKey, task, scopeGlobs, hubOwnedGlobs, trail: runtime.monitor.trail(), violation },
-			ctx,
-		).then(verdict => {
-			judgeBusy = false;
-			judgeCooldownUntil = Date.now() + 90_000;
-			if (!verdict || (verdict.verdict !== "drifting" && verdict.verdict !== "stuck")) return;
-			if (violation.terminal === false) {
-				runtime.advisories.push({ rule: violation.rule, detail: violation.detail, verdict: verdict.verdict, reason: verdict.reason });
-				return;
-			}
-			runtime.stop = { rule: violation.rule, detail: violation.detail, verdict: verdict.verdict, reason: verdict.reason };
-			runtime.control?.terminate("drift_stop");
-		}).catch(() => { judgeBusy = false; });
-	};
-	return runtime;
+	const monitorConfig = { scopeGlobs, allowGlobs: hubOwnedGlobs };
+	const coordinator = createShadowCoordinator({
+		session: () => deps.getWatchdogSystem1?.() ?? null,
+		trace: () => deps.getWatchdogActivity?.() ?? null,
+		task,
+		scopeGlobs,
+		hubOwnedGlobs,
+		root: ctx.cwd || process.cwd(),
+		armed,
+		onCard: (text) => {
+			try { appendSystem1TimelineCard(state, text); deps.updateWidget(); } catch { /* card delivery is not judgment */ }
+		},
+	});
+	return createDriftRuntime({
+		dispatchId: run.dispatchId,
+		agentKey,
+		agentLabel: deps.displayName(state.def.name),
+		task,
+		scopeGlobs,
+		hubOwnedGlobs,
+		armed,
+		ctx,
+		runDriftJudge: (input) => deps.runDriftJudge(input, ctx),
+		monitor: armed ? (deps.createDriftMonitor?.(monitorConfig) ?? createDriftMonitor(monitorConfig)) : null,
+		launchShadow: (input) => coordinator.launch(input),
+		onOutcome: (outcome) => coordinator.noteOutcome(outcome),
+		onDispose: () => coordinator.dispose(),
+	});
 }
 
 function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usageTotals: { billed: number; out: number }): SpawnPiAgentCallbacks {
 	const { deps, state, ctx, monitorStart, agentWindow, model, wantThinking } = run;
 	let fullText = "";
 	let overWindowWarned = false;
+	const live = (fn: () => void) => { if (drift.acceptsCallbacks()) fn(); };
 	return {
 		onProcess: proc => {
 			state.proc = proc;
@@ -68,8 +65,8 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 			ctx.ui.notify(`${deps.displayName(state.def.name)}: overridden model ${from} failed before work began; retrying with persona model ${to} (${reason})`, "warning");
 			deps.updateWidget();
 		},
-		...(drift.monitor ? { onControl: (control: PiRunControl) => { drift.control = control; } } : {}),
-		onTextDelta: delta => {
+		...(drift.monitor ? { onControl: (control: PiRunControl) => { drift.bindControl(control); } } : {}),
+		onTextDelta: delta => live(() => {
 			void monitorStart?.then(task => deps.appendMonitorOutput(task, delta));
 			fullText += delta;
 			state.lastWork = fullText.split("\n").filter(line => line.trim()).pop() || "";
@@ -77,13 +74,13 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 			deps.appendTimelineText(state, "text", delta);
 			deps.updateWidget();
 			state.zoomRender?.();
-		},
-		onThinkingDelta: delta => {
+		}),
+		onThinkingDelta: delta => live(() => {
 			if (!wantThinking) return;
 			deps.appendTimelineText(state, "thinking", delta);
 			state.zoomRender?.();
-		},
-		onToolStart: (toolName, argStr, callId) => {
+		}),
+		onToolStart: (toolName, argStr, callId) => live(() => {
 			state.toolCount++;
 			deps.appendTimelineEvent(state, {
 				kind: "tool-start",
@@ -94,10 +91,10 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 			});
 			deps.updateWidget();
 			state.zoomRender?.();
-			const violation = drift.monitor?.onToolStart(toolName, argStr);
+			const violation = drift.monitor?.onToolStart(toolName, argStr, callId);
 			if (violation) drift.escalate(violation);
-		},
-		onToolEnd: (toolName, callId, isError, resultText, durationMs) => {
+		}),
+		onToolEnd: (toolName, callId, isError, resultText, durationMs) => live(() => {
 			deps.appendTimelineEvent(state, {
 				kind: "tool-result",
 				title: `Result: ${toolName}`,
@@ -108,9 +105,9 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 				...(durationMs == null ? {} : { durationMs }),
 			});
 			state.zoomRender?.();
-			const violation = drift.monitor?.onToolEnd(toolName, isError);
+			const violation = drift.monitor?.onToolEnd(toolName, isError, callId);
 			if (violation) drift.escalate(violation);
-		},
+		}),
 		onUsage: (usage, source) => {
 			if (source === "message_end" || (usageTotals.billed === 0 && usageTotals.out === 0)) {
 				usageTotals.billed += (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
@@ -137,6 +134,8 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 
 export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeSpawnOutcome> {
 	const { deps, state, ctx, model, effectiveTools, thinkingLevel, replacementSystemPrompt, agentSessionFile, runPrompt, extensions, delegateEnv, turnBudget, personaKey, originalModelFallback } = run;
+	const drift = startDriftRuntime(run);
+	state.driftFence = drift.fence;
 	const spawnOptions: SpawnPiAgentOptions = {
         runtimeTestObserver: extensions.some(path => path.endsWith("/runtime-test-check.ts")),
 		model,
@@ -153,16 +152,17 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		cwd: ctx.cwd || process.cwd(),
 		extensions,
 		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}) },
+		attemptLifecycle: drift.attemptLifecycle,
 		...(delegateEnv?.AGENT_FLEET_BOUNDED_OUTPUT_DIR ? { boundedOutputDir: delegateEnv.AGENT_FLEET_BOUNDED_OUTPUT_DIR } : {}),
 		detached: true,
 		...(RESEARCHER_PERSONAS.has(personaKey) ? { toolWatchdog: { timeoutMs: deps.getReconSearchTimeoutMs() } } : {}),
 		turnDeadlineMs: turnBudget.agentTurnMs,
 	};
-	const drift = createDriftRuntime(run);
 	const usageTotals = { billed: 0, out: 0 };
 	const callbacks = createSpawnCallbacks(run, drift, usageTotals);
 	deps.notifyProviderQueue(model, deps.displayName(state.def.name), ctx);
 	let sessionReset = run.sessionReset;
+	try {
 	const res = await deps.providerSemaphore.run(model, async () => {
 		let result = await deps.spawnPiAgentWithModelFallback(spawnOptions, originalModelFallback, callbacks);
 		if (!result.spawnError && isCorruptSessionExit({ code: result.exitCode, output: result.output, stderr: result.stderr })) {
@@ -185,13 +185,18 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		}
 		return result;
 	});
+	const reconciled = drift.outcomeFor(res);
 	return {
 		res,
 		runBilled: usageTotals.billed,
 		runOut: usageTotals.out,
 		sessionRecycled: run.sessionRecycled,
 		sessionReset,
-		driftStop: drift.stop,
-		driftAdvisories: drift.advisories,
+		driftStop: reconciled.driftStop,
+		driftAdvisories: reconciled.driftAdvisories,
 	};
+	} finally {
+		drift.dispose();
+		if (state.driftFence === drift.fence) state.driftFence = undefined;
+	}
 }

@@ -21,7 +21,7 @@ interface RecordedFailure { fingerprint: string; failure: Failure; authorized: b
 
 export function createNoProgressGuard() {
 	let generation = {};
-	let taskId = randomUUID();
+	let taskId: string = randomUUID();
 	const pending = new Map<string, object>();
 	const pendingExecutors = new Map<string, object>();
 	const failures = new Map<string, RecordedFailure>();

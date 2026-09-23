@@ -37,6 +37,8 @@ export function isRunId(name) {
  * Which run directories to delete so at most `keep` survive.
  * Run ids sort lexicographically by time, so newest = last. `keep: null`
  * ("off") prunes nothing; non-run-id entries are never touched.
+ * @param {string[]} names
+ * @param {number|null} [keep]
  */
 export function pruneRunDirs(names, keep = DEFAULT_RUN_HISTORY_KEEP) {
 	if (keep == null) return [];
@@ -50,6 +52,7 @@ export function pruneRunDirs(names, keep = DEFAULT_RUN_HISTORY_KEEP) {
  * The metadata written once into `runs/<runId>/meta.json`. Carries the
  * identifiers a post-mortem needs and could not previously recover: which
  * workspace/project/repo the run belonged to, and when it started and ended.
+ * @param {{runId: string, startedAt?: string|number|null, archivedAt?: string|number, cwd?: string|null, project?: string|null, workspace?: string|null, artifactCounts?: Record<string,number>|null}} input
  */
 export function buildRunMeta({ runId, startedAt = null, archivedAt = Date.now(), cwd = null, project = null, workspace = null, artifactCounts = null }) {
 	return {
@@ -67,6 +70,9 @@ export function buildRunMeta({ runId, startedAt = null, archivedAt = Date.now(),
 /**
  * Fold a run entry into `runs/index.json`, newest last, capped at `keep`.
  * Re-indexing the same runId replaces its entry rather than duplicating it.
+ * @param {any} existing JSON read from disk; its shape is checked before use.
+ * @param {{runId: string, [key: string]: unknown}} entry
+ * @param {number|null} [keep]
  */
 export function appendRunIndex(existing, entry, keep = DEFAULT_RUN_HISTORY_KEEP) {
 	const runs = Array.isArray(existing?.runs) ? existing.runs.filter((r) => r && r.runId !== entry.runId) : [];

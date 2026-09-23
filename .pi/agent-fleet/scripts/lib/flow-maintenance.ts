@@ -111,7 +111,7 @@ export function listFlowBranches(cwd = process.cwd()): FlowBranchInfo[] {
 		const [branch, head, rawTimestamp] = line.split("\t");
 		const metadata = readFlowBranchMetadata(branch, cwd);
 		const runId = metadata.runId ?? inferRunId(branch, cwd);
-		const result = metadata.result ?? traceResult(cwd, runId) ?? "unknown";
+		const result: FlowBranchInfo["result"] = metadata.result ?? traceResult(cwd, runId) ?? "unknown";
 		const target = metadata.baseBranch;
 		const worktreePath = paths.get(branch);
 		let ahead: number | undefined, behind: number | undefined, diffSummary: string | undefined;

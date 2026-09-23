@@ -34,6 +34,8 @@ export function splitModelSpec(spec) {
  * `fallbackWindow` is the dispatcher's own window, used only when the registry
  * has nothing. Returns { window, source } — source names the origin so a
  * suspicious percentage can be traced to the number that produced it.
+ * @param {string} spec
+ * @param {{lookup?: (provider: string, modelId: string) => {contextWindow?: number}|null|undefined, fallbackWindow?: number}} [options]
  */
 export function resolveContextWindow(spec, { lookup, fallbackWindow = 0 } = {}) {
 	const { provider, modelId } = splitModelSpec(spec);

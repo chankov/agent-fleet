@@ -12,7 +12,7 @@ test("wiring contract: Hub uses the shared same-project peer plan", () => {
 	assert.match(herdrExecutorsSource, /import \{ buildHubPeerSpawnPlan, launchHubPeerInPane \} from "\.\.\/peer-spawn-plan\.ts"/);
 	assert.match(herdrExecutorsSource, /buildHubPeerSpawnPlan\([\s\S]*?project: identity\.project[\s\S]*?peersYaml:[\s\S]*?personaExists:/);
 	assert.match(herdrExecutorsSource, /launchHubPeerInPane\(plan, \{/);
-	assert.match(herdrExecutorsSource, /waitForRegistration: \(name, timeoutMs\) => waitForPeerRegistration\(/);
+	assert.match(herdrExecutorsSource, /waitForRegistration: name => waitForPeerRegistration\(/);
 	assert.match(fleetToolsSource, /export async function waitForPeerRegistration\(/);
 	assert.match(fleetToolsSource, /export function peerManifest\(/);
 	assert.match(fleetToolsSource, /export function peerPersonaExists\(/);

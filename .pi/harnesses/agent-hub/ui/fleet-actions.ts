@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { fenceOperatorCancel } from "../drift-runtime.ts";
 import { resolveFleetKill, resolveFleetRestart, type FleetAction } from "../../lib/fleet-dashboard-ops.ts";
 import type { FleetRow } from "../../lib/fleet-read-model.ts";
 import type { DetailUiContext } from "./detail-panel.ts";
@@ -9,6 +10,7 @@ export interface FleetActionAgent {
 	proc?: ChildProcess;
 	comsAbort?: () => void;
 	killedByOperator?: boolean;
+	driftFence?: { dispose(): void };
 }
 export interface FleetActionsDeps<TAgent extends FleetActionAgent, TResearch> {
 	getRows(): readonly FleetRow[];
@@ -62,7 +64,7 @@ export function createFleetActions<TAgent extends FleetActionAgent, TResearch>(d
 			else ctx.ui.notify(`Research ${selected.name} is no longer available.`, "warning");
 		} else if (decision.action === "kill-proc") {
 			const state = deps.getAgents().get(selected.key);
-			if (state) { state.killedByOperator = true; deps.killSpecialistProcess(state); ctx.ui.notify(decision.message, "info"); }
+			if (state) { fenceOperatorCancel(state); state.killedByOperator = true; deps.killSpecialistProcess(state); ctx.ui.notify(decision.message, "info"); }
 		} else if (decision.action === "coms-abort") {
 			const state = deps.getAgents().get(selected.key); if (state) deps.abortComs(state); ctx.ui.notify(decision.message, "info");
 		} else ctx.ui.notify(decision.message, decision.level);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { DETAIL_CHROME_ROWS, detailContent, detailEntryOffsets, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker } from "./fleet-detail-view.ts";
+import { DETAIL_CHROME_ROWS, applyLiveFleetDetailRow, detailBodyLines, detailBodyOffsets, detailContent, detailEntryOffsets, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker } from "./fleet-detail-view.ts";
 
 const theme = { fg: (_: string, s: string) => s, bold: (s: string) => s };
 const row = { key: "a", name: "Architect", kind: "specialist" as const, depth: 0, status: "running" as const, model: "opus", backend: "native" as const, contextPct: 42, contextTokens: 42_000, elapsed: 1_000, toolCount: 3, lastWork: "work", hasTimeline: true };
@@ -13,6 +13,64 @@ test("detail has headers, timelines, expansion, tail content, and fixed height",
 	const collapsed = renderFleetDetail(row, timeline, 0, 100, 5, theme).join("\n");
 	const expanded = renderFleetDetail(row, timeline, 0, 100, 5, theme, 2).join("\n");
 	assert.match(collapsed, /Architect.*opus/); assert.match(collapsed, /m model/); assert.notEqual(collapsed, expanded); assert.match(expanded, /first/);
+});
+
+test("A17 System 1 detail uses its own glyph and keeps the tool timeline", () => {
+	const system1 = { dispatchId: "d", attemptId: "attempt-22", checkId: "check-fast", snapshotId: "snap", runToken: "a:1", phase: "result" as const, compact: "S1 on_track", label: "S1 on_track", detail: "check check-fast / attempt attempt\nJev: on_track · confidence unknown\nsource none", effectiveMode: "shadow" as const, llmRelation: "parallel" as const, rule: "failures", elapsedMs: 402, retainUntil: 20_000, status: "ok", reason: "unknown", statusChoice: "on_track", confidence: null, returnedModel: "unknown", stateVersion: "unknown", questionsVersion: "unknown", policyVersion: "none" as const, usage: "unknown" as const, source: "none" as const, applied: "no" as const, outcome: "unknown", llm: "none", llmVerdict: "unknown", degraded: false };
+	const entries = [
+		{ kind: "tool" as const, title: "Tool: read", content: "src/a.ts", timestamp: 1 },
+		{ kind: "text" as const, title: "System 1", content: "System 1 · watchdog · failures · shadow\ncheck check-fa / attempt attempt · ok · 402ms\nsource none", timestamp: 2 },
+		{ kind: "text" as const, title: "Assistant", content: "worker text", timestamp: 3 },
+	];
+	const live = renderFleetDetail({ ...row, runToken: "a:1", system1, toolCount: 3 }, entries, 0, 80, 12, theme).join("\n");
+	assert.match(live, /S1 on_track/);
+	assert.match(live, /check check-fast/);
+	assert.match(live, /S1 System 1/);
+	assert.match(live, /source none/);
+	assert.match(live, /Tool: read/);
+	assert.doesNotMatch(live, /🤖/);
+	const reopened = renderFleetDetail(row, entries, 0, 36, 10, theme).join("\n");
+	assert.match(reopened, /S1 System 1/);
+	assert.match(reopened, /source none/);
+	assert.match(reopened, /Tool: read/);
+	assert.ok(reopened.split("\n").filter(line => line.includes("S1")).every(line => line.length <= 36));
+	const state = { scrollOffset: 0, selectedIndex: 0, expandedIndex: null, followTail: false };
+	assert.equal(detailTransition("\r", state, entries, 8), null);
+	assert.equal(state.expandedIndex, 0);
+});
+
+test("F-14 System 1 preface is inside follow-tail and keyboard scroll bounds", () => {
+	const preface = Array.from({ length: 7 }, (_, i) => `meta-${i}`).join("\n");
+	const system1 = { dispatchId: "d", attemptId: "a", checkId: "c", snapshotId: "s", runToken: "a:1", phase: "evaluating" as const, compact: "S1 evaluating", label: "S1 evaluating", detail: preface, effectiveMode: "shadow" as const, llmRelation: "parallel" as const, rule: "failures", elapsedMs: 400, retainUntil: Number.POSITIVE_INFINITY, status: "unknown", reason: "unknown", statusChoice: "unknown", confidence: null, returnedModel: "unknown", stateVersion: "unknown", questionsVersion: "unknown", policyVersion: "none" as const, usage: "unknown" as const, source: "none" as const, applied: "unknown" as const, outcome: "unknown", llm: "running", llmVerdict: "unknown", degraded: false };
+	const live = { ...row, runToken: "a:1", system1 };
+	const entries = Array.from({ length: 30 }, (_, i) => ({ kind: "text" as const, title: "Assistant", content: `line-${i}`, timestamp: i }));
+	const body = 12;
+	const content = detailBodyLines(live, entries, 80, null, false, 29);
+	assert.equal(content.length, 7 + 30);
+	const tail = Math.max(0, content.length - body);
+	const tailed = renderFleetDetail(live, entries, tail, 80, body, theme).join("\n");
+	assert.equal(tail, 25);
+	assert.match(tailed, /line-29/);
+	assert.doesNotMatch(tailed, /line-17\b/);
+	const offsets = detailBodyOffsets(live, entries, 80, null, false);
+	const state = { scrollOffset: 0, selectedIndex: 0, expandedIndex: null as number | null, followTail: false };
+	for (let i = 0; i < 20; i++) detailTransition("\u001b[B", state, entries, body, content.length, offsets);
+	assert.equal(state.selectedIndex, 20);
+	const selected = offsets[20]!;
+	assert.ok(selected.start >= state.scrollOffset && selected.start < state.scrollOffset + body);
+	detailTransition("\u001b[F", state, entries, body, content.length, offsets);
+	assert.match(renderFleetDetail(live, entries, state.scrollOffset, 80, body, theme, null, false, state.selectedIndex).join("\n"), /line-29/);
+});
+
+test("F-15 an open detail row takes the current System 1 view without dropping a model edit", () => {
+	const open = { ...row, runToken: "a:1", model: "opus → haiku next", system1: { dispatchId: "d", attemptId: "a", checkId: "c", snapshotId: "s", runToken: "a:1", phase: "evaluating" as const, compact: "S1 evaluating", label: "S1 evaluating", detail: "old", effectiveMode: "shadow" as const, llmRelation: "parallel" as const, rule: "failures", elapsedMs: 400, retainUntil: Number.POSITIVE_INFINITY, status: "unknown", reason: "unknown", statusChoice: "unknown", confidence: null, returnedModel: "unknown", stateVersion: "unknown", questionsVersion: "unknown", policyVersion: "none" as const, usage: "unknown" as const, source: "none" as const, applied: "unknown" as const, outcome: "unknown", llm: "running", llmVerdict: "unknown", degraded: false } };
+	const fresh = { ...open, model: "opus", system1: { ...open.system1, phase: "result" as const, compact: "S1 on_track", detail: "check check-fast\nsource none" } };
+	const merged = applyLiveFleetDetailRow(open, fresh, true);
+	assert.equal(merged.model, "opus → haiku next");
+	assert.match(renderFleetDetail(merged, [], 0, 80, 8, theme).join("\n"), /S1 on_track/);
+	assert.doesNotMatch(renderFleetDetail(merged, [], 0, 80, 8, theme).join("\n"), /S1 evaluating/);
+	assert.equal(applyLiveFleetDetailRow(open, undefined, true).system1, undefined);
+	assert.equal(applyLiveFleetDetailRow(open, undefined, false).system1?.compact, "S1 evaluating");
 });
 
 test("expanded tool content determines the scroll bound", () => {

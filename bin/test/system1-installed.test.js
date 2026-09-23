@@ -101,6 +101,20 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     mkdirSync(extracted, { recursive: true });
     execFileSync("tar", ["-xzf", tarball, "--strip-components=1", "-C", extracted]);
 
+    const hubRoot = join(extracted, ".pi", "harnesses", "agent-hub");
+    for (const file of ["drift-runtime.ts", "drift-system1.ts", "drift-judge.ts", "drift-system1-policy.ts", "system1-activity.ts", "system1-runtime.ts", "system1-report.ts", "watchdog-evaluation.ts"]) {
+      assert.ok(existsSync(join(hubRoot, file)), `packed watchdog runtime missing ${file}`);
+      assert.equal(existsSync(join(hubRoot, file.replace(/\.ts$/, ".test.ts"))), false);
+    }
+    // Node's built-in type stripper refuses TS inside node_modules. Exercise the
+    // extracted package's copies at the same non-node_modules path setup installs.
+    const installedHarnesses = join(fixture, "installed-workspace", ".pi", "harnesses");
+    cpSync(join(extracted, ".pi", "harnesses"), installedHarnesses, { recursive: true });
+    const installedHub = join(installedHarnesses, "agent-hub");
+    const closure = spawnSync(process.execPath, ["--experimental-strip-types", "--import", join(root, "bin/test/helpers/system1-no-network.js"), "--input-type=module", "-e",
+      `await import(${JSON.stringify(new URL(`file://${join(installedHub, "drift-judge.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-runtime.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-activity.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-report.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "watchdog-evaluation.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHarnesses, "lib", "fleet-read-model.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHarnesses, "lib", "fleet-strip-view.ts")}`).href)});`
+    ], { cwd: join(fixture, "installed-workspace"), encoding: "utf8" });
+    assert.equal(closure.status, 0, closure.stderr);
     const system1Root = join(extracted, ".pi", "harnesses", "lib", "system1");
     for (const file of SYSTEM1_RUNTIME) {
       assert.ok(existsSync(join(system1Root, file)), `packed runtime missing ${file}`);
@@ -110,6 +124,9 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     assert.equal(existsSync(join(system1Root, "jev.test.ts")), false);
     assert.equal(existsSync(join(system1Root, "service.test.ts")), false);
     assert.equal(existsSync(join(system1Root, "fake-provider.test.ts")), false);
+    assert.equal(existsSync(join(extracted, ".pi", "harnesses", "agent-hub", "system1-c4-pi-ui.ts")), false);
+    assert.equal(existsSync(join(extracted, ".pi", "harnesses", "agent-hub", "system1-c4-pi-ui-state.ts")), false);
+    assert.equal(existsSync(join(extracted, "bin", "test", "helpers", "system1-c4-pi-ui.ts")), false);
 
     const configSource = readFileSync(join(system1Root, "config.js"), "utf8");
     assert.match(configSource, /export function resolveSystem1Readiness/);

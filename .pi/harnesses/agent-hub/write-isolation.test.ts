@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { confineNativeChild, linuxUserNamespaceSandboxAvailable, policyFor } from "./write-isolation.ts";
-import { assertSafeSandboxStdio, killPiTree, spawnPiAgent } from "./spawn.ts";
+import { assertSafeSandboxStdio, killPiTree, nativeChildEnv, spawnPiAgent } from "./spawn.ts";
 
 const hasLinuxSandbox = linuxUserNamespaceSandboxAvailable();
 
@@ -214,6 +214,39 @@ test("T6c Linux kernel boundary blocks shell, python/indirect descendants and sy
 	assert.equal(readFileSync(join(outside, "secret"), "utf8"), "outside-before");
 	assert.equal(readFileSync(join(root, "runtime", "state"), "utf8"), "runtime");
 	assert.equal(readFileSync(join(root, "artifacts", "report"), "utf8"), "artifact");
+});
+
+test("T2 sandboxed spawn receives the post-merge env with TYPESAFE_API_KEY removed", { skip: !hasLinuxSandbox }, async () => {
+	const root = fixture();
+	const previous = process.env.TYPESAFE_API_KEY;
+	process.env.TYPESAFE_API_KEY = "sandbox-sentinel";
+	process.env.AF_OTHER_CREDENTIAL = "keep-other";
+	const report = join(root, "allowed-dir", "env-report.json");
+	try {
+		writeFileSync(join(root, "pi"), [
+			"#!/usr/bin/env node",
+			"const fs=require('node:fs');",
+			"const report={typesafeAbsent:process.env.TYPESAFE_API_KEY==null,otherPresent:process.env.AF_OTHER_CREDENTIAL!=null};",
+			"fs.writeFileSync(process.env.ENV_REPORT, JSON.stringify(report));",
+			"process.stdout.write(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'isolated'}})+'\\n');",
+		].join("\n"), { mode: 0o755 });
+		const filtered = nativeChildEnv(process.env, { TYPESAFE_API_KEY: "reinjected", AF_OTHER_CREDENTIAL: "keep-other" });
+		assert.equal(Object.prototype.hasOwnProperty.call(filtered, "TYPESAFE_API_KEY"), false);
+		const result = await spawnPiAgent({
+			model: "local/m", tools: "read", thinking: "off", sessionFile: join(root, "runtime", "session"), prompt: "probe",
+			cwd: root, detached: true, activeProfileSnapshot: undefined,
+			env: { PATH: `${root}:${process.env.PATH}`, TMPDIR: join(root, "temp"), ENV_REPORT: report, TYPESAFE_API_KEY: "reinjected", AF_OTHER_CREDENTIAL: "keep-other" },
+			writeIsolation: { enabled: true, cwd: root, allowlist: ["allowed-dir/"], runtimePaths: [join(root, "runtime")], artifactPaths: [join(root, "artifacts")], tempPaths: [join(root, "temp")] },
+		});
+		assert.equal(result.exitCode === 0, true);
+		assert.equal(JSON.parse(readFileSync(report, "utf8")).typesafeAbsent, true);
+		assert.equal(JSON.parse(readFileSync(report, "utf8")).otherPresent, true);
+		assert.equal(process.env.TYPESAFE_API_KEY === "sandbox-sentinel", true);
+	} finally {
+		if (previous === undefined) delete process.env.TYPESAFE_API_KEY;
+		else process.env.TYPESAFE_API_KEY = previous;
+		delete process.env.AF_OTHER_CREDENTIAL;
+	}
 });
 
 test("T6c actual spawnPiAgent transport wraps the fake Pi process and reports applied isolation", { skip: !hasLinuxSandbox }, async () => {

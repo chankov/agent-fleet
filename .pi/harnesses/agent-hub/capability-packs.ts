@@ -82,9 +82,10 @@ export function latestPersistedCapabilityState(entries: readonly unknown[]): Per
 		if (!data || !Array.isArray(data.taskPacks) || !Array.isArray(data.active) || !Array.isArray(data.provisional) || !Array.isArray(data.confirmationRequired) || !data.reasons) continue;
 		const valid = (packs: unknown[]): packs is CapabilityPack[] => packs.every(pack => typeof pack === "string" && CAPABILITY_PACKS.includes(pack as CapabilityPack));
 		if (!valid(data.taskPacks) || !valid(data.active) || !valid(data.provisional) || !valid(data.confirmationRequired)) continue;
+		const defaults: Record<CapabilityPack, CapabilityReason> = { core: "core", fleet: "inactive", verification: "inactive", peer: "inactive", workspace: "inactive", compaction: "inactive" };
 		return {
 			taskPacks: ordered(data.taskPacks), active: ordered(data.active), provisional: ordered(data.provisional),
-			reasons: { core: "core", fleet: "inactive", verification: "inactive", peer: "inactive", workspace: "inactive", compaction: "inactive", ...data.reasons },
+			reasons: { ...defaults, ...data.reasons },
 			confirmationRequired: ordered(data.confirmationRequired),
 			confirmation: data.confirmation && typeof data.confirmation === "object" ? data.confirmation as CapabilityConfirmationState : {},
 		};

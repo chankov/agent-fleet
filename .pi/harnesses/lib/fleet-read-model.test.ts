@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildFleetRows, fleetTiming, selectWidgetRows, summarise, summariseWidget, unionMs, type FleetRow, type FleetSource } from "./fleet-read-model.ts";
+import { buildFleetRows, fleetTiming, projectSystem1Owner, selectWidgetRows, summarise, summariseWidget, system1Visible, unionMs, type FleetRow, type FleetSource, type System1CheckInput } from "./fleet-read-model.ts";
 
 const base = (key: string, status: FleetRow["status"] = "running"): any => ({ key, name: key, status, model: "model-x", backend: "native", contextPct: 25, contextTokens: 250, elapsed: 1_000, startedAt: 10, toolCount: 2, lastWork: "read file", hasTimeline: true });
 
@@ -74,4 +74,51 @@ test("widget summary separates peers, uses context max and overlap-aware task wa
 		{ ...base("struct"), kind: "specialist", depth: 0, structuralOnly: true, contextPct: 99 },
 	];
 	assert.deepEqual(summariseWidget(rows), { running: 2, peerActive: 1, done: 0, failed: 0, contextMax: 38, contextKnown: 1, contextTotal: 2, wallMs: 150, wallKnown: 2, wallTotal: 2 });
+});
+
+const check = (overrides: Partial<System1CheckInput> = {}): System1CheckInput => ({
+	dispatchId: "dispatch-1", attemptId: "attempt-1", checkId: "check-1", snapshotId: "snap-1",
+	evaluation: "finished", llm: "finished", status: "ok", reason: "unknown", elapsedMs: 402, finishedAt: 1_000,
+	rule: "failures", effectiveMode: "shadow", configuredMode: "shadow", statusChoice: "on_track",
+	numerical: { status_confidence: 0.88 }, returnedModel: "jev-1.13.0", usage: { inputTokens: 3, outputTokens: 1 },
+	source: "llm", applied: "no", outcome: "continue", llmVerdict: "stuck", ...overrides,
+});
+
+test("A14 System 1 keeps the owner row through idle retention without changing worker counters", () => {
+	const view = projectSystem1Owner(check(), "builder:dispatch-1", 2_000)!;
+	assert.match(view.label, /S1 on_track/);
+	assert.match(view.label, /LLM parallel/);
+	assert.match(view.detail, /confidence 0\.88/);
+	assert.match(view.detail, /usage 3\/1/);
+	const idle: FleetRow = { ...base("builder", "idle"), kind: "specialist", depth: 0, runToken: "builder:dispatch-1", toolCount: 4, lastWork: "edit", model: "native-model", system1: view };
+	assert.equal(system1Visible(idle, 10_999), true);
+	assert.equal(system1Visible(idle, 11_000), false);
+	assert.equal(system1Visible({ ...idle, runToken: "builder:dispatch-2" }, 2_000), false);
+	const selected = selectWidgetRows([idle], 2_000);
+	assert.deepEqual(selected.map(row => row.key), ["builder"]);
+	assert.equal(selected[0].status, "idle");
+	assert.equal(selected[0].toolCount, 4);
+	assert.equal(selected[0].lastWork, "edit");
+	assert.equal(selected[0].model, "native-model");
+	assert.equal(summariseWidget(selected).running, 0);
+	assert.equal(selectWidgetRows([idle], 11_000).length, 0);
+	const fallback = projectSystem1Owner(check({ llmRelation: "fallback", status: "unavailable", statusChoice: undefined, evaluation: "finished" }), "builder:dispatch-1", 2_000)!;
+	assert.match(fallback.compact, /S1 unavailable → LLM judging/);
+	assert.equal(projectSystem1Owner(check({ numerical: undefined }), "builder:dispatch-1", 2_000)!.detail.includes("confidence unknown"), true);
+	assert.equal(projectSystem1Owner(check({ configuredMode: "off", effectiveMode: "off", evaluation: "unknown" }), "builder:dispatch-1", 5_001), undefined);
+	assert.equal(projectSystem1Owner(check({ evaluation: "unknown", effectiveMode: undefined, configuredMode: undefined, finishedAt: undefined }), "builder:dispatch-1", 5_001), undefined);
+	assert.equal(projectSystem1Owner(check({ finishedAt: undefined }), "builder:dispatch-1", 5_001)!.retainUntil, 0);
+});
+
+test("F-19 agreeing results are not mixed because elapsed differs", () => {
+	const slow = projectSystem1Owner(check({ elapsedMs: 700, finishedAt: 1_200 }), "reviewer:dispatch-1", 2_000)!;
+	const fast = projectSystem1Owner(check({ elapsedMs: 402 }), "builder:dispatch-1", 2_000)!;
+	const rows = [
+		{ ...base("builder"), kind: "specialist" as const, depth: 0, runToken: "builder:dispatch-1", system1: fast },
+		{ ...base("reviewer"), kind: "specialist" as const, depth: 0, runToken: "reviewer:dispatch-1", system1: slow },
+	];
+	const summary = summariseWidget(rows);
+	assert.equal(summary.system1Mixed, false);
+	assert.match(summary.system1Last ?? "", /S1 on_track/);
+	assert.equal(summary.system1Mode, "shadow");
 });

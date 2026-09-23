@@ -6,7 +6,7 @@ import { selectedPickerValue, workModeChangeBlockedByRoster, workModePickerOptio
 
 export interface WorkModeUiPort {
 	hasUI?: boolean;
-	ui: { notify(message: string, level: "error" | "warning" | "info" | "success"): void; setStatus(key: string, value: string): void; select(title: string, options: string[]): Promise<string | undefined> };
+	ui: { notify(message: string, level: "error" | "warning" | "info"): void; setStatus(key: string, value: string | undefined): void; select(title: string, options: string[]): Promise<string | undefined> };
 }
 export interface PersistedCapabilityRestore { taskPacks: CapabilityPack[]; provisional: CapabilityPack[]; confirmation: CapabilityConfirmationState }
 export interface WorkModePolicyPorts {
@@ -102,7 +102,7 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 	async function applySelection(next: WorkMode, ctx: WorkModeUiPort): Promise<void> {
 		const result = await commit(next, ctx);
 		if (result === "roster") { ctx.ui.notify(refusalMessage(), "warning"); return; }
-		ctx.ui.notify(`${statusText()}\nPrompt and tools update on the next model call.${watchdogNote(next)}`, result === "ok" ? "success" : "info");
+		ctx.ui.notify(`${statusText()}\nPrompt and tools update on the next model call.${watchdogNote(next)}`, "info");
 	}
 	async function openPicker(ctx: WorkModeUiPort): Promise<void> {
 		const picker = workModePickerOptions(workMode);

@@ -156,7 +156,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		const completed = completeOutput(state, res);
 		const parent = res.boundedOutput ? boundOutput({ content: completed, retentionDir: safePathWithin(state.evidenceDir, "bounded-output", "parent"), label: "parent-summary" }) : null;
 		const settled = settle(status, status, lastWork, { output: parent?.reply ?? completed, exitCode: res.exitCode ?? 1, elapsed: state.elapsed });
-		ctx.ui.notify(`Research r${state.id} ${status} in ${Math.round(state.elapsed / 1000)}s`, status === "done" ? "success" : "error");
+		ctx.ui.notify(`Research r${state.id} ${status} in ${Math.round(state.elapsed / 1000)}s`, status === "done" ? "info" : "error");
 		return settled;
 	} catch (err: unknown) {
 		const message = err instanceof Error ? err.message : String(err);

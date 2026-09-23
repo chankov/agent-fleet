@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -76,6 +76,22 @@ test("T11 audit explains process obligations and budget-tier independence withou
  assert.equal(process.currentStage, "review"); assert.deepEqual(process.appliedRuleIds, ["risk-high-independent-review"]); assert.deepEqual(process.auditScope, ["src/auth.ts"]);
  assert.deepEqual(process.obligations, { risk: "satisfied", acceptance: "satisfied", review: "open", plan: "unsupported" });
  assert.match(process.explanation, /budget tier trivial/); assert.doesNotMatch(formatSessionAudit(audit), /secret customer context/);
+});
+
+test("T10 /af-audit shows unavailable judge and interrupted trace without payload", (t) => {
+ const sessionDir = fixture(t);
+ const dir = join(sessionDir, "artifacts", "watchdog"); mkdirSync(dir, { recursive: true });
+ writeFileSync(join(dir, "events.jsonl"), [
+  { schema: "watchdog-trace/v1", type: "llm_started", sessionId: "s", dispatchId: "child-1", attemptId: "a", checkId: "c", snapshotId: "snap", sequence: 1, at: 1, consumer: "watchdog", policyVersion: "none", prompt: "secret payload" },
+  { schema: "watchdog-trace/v1", type: "llm_finished", sessionId: "s", dispatchId: "child-1", attemptId: "a", checkId: "c", snapshotId: "snap", sequence: 2, at: 2, consumer: "watchdog", policyVersion: "none", status: "unavailable" },
+  { schema: "watchdog-trace/v1", type: "decision", sessionId: "s", dispatchId: "child-1", attemptId: "a", checkId: "c", snapshotId: "snap", sequence: 3, at: 3, consumer: "watchdog", policyVersion: "none", source: "llm", outcome: "judge_unavailable", applied: "no" },
+ ].map(x => JSON.stringify(x)).join("\n") + "\n");
+ const audit = formatSessionAudit(buildSessionAudit({ sessionDir, entries: [] }));
+ assert.match(audit, /judge_unavailable/); assert.doesNotMatch(audit, /secret payload/);
+ appendFileSync(join(dir, "events.jsonl"), "{unfinished secret sentinel");
+ const truncated = formatSessionAudit(buildSessionAudit({ sessionDir, entries: [] }));
+ assert.match(truncated, /watchdog_trace_integrity/);
+ assert.doesNotMatch(truncated, /secret sentinel/);
 });
 
 test("actual /af-audit registration executes against runtime producer records without tool/model execution", async (t) => {

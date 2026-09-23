@@ -1,4 +1,6 @@
-import type { ExtensionContext, ImageContent } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+// Pi exposes image content through sendUserMessage even when it does not re-export its type.
+type ImageContent = Extract<Exclude<Parameters<ExtensionAPI["sendUserMessage"]>[0], string>[number], { type: "image" }>;
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "../context-pressure.ts";
 import { estimatePromptTokens } from "../context-window.js";
 
@@ -89,7 +91,7 @@ export function createContextPressureLifecycle(ports: ContextPressurePorts): Con
 		if (!state().automaticPending || state().automaticRunning) return;
 		state().automaticPending = false; state().automaticRunning = true; record(source, "compact-now", "automatic-threshold");
 		if (ctx.hasUI) ctx.ui.notify("Automatic context compaction started.", "warning");
-		ctx.compact({ customInstructions: INSTRUCTIONS, onComplete: () => { state().automaticRunning = false; markSucceeded(); if (ctx.hasUI) ctx.ui.notify("Automatic context compaction completed.", "success"); replayDeferred(); }, onError: error => {
+		ctx.compact({ customInstructions: INSTRUCTIONS, onComplete: () => { state().automaticRunning = false; markSucceeded(); if (ctx.hasUI) ctx.ui.notify("Automatic context compaction completed.", "info"); replayDeferred(); }, onError: error => {
 			state().automaticRunning = false;
 			const failed = transitionContextPressure(state().pressure, { type: "compaction-failed", error: "automatic compaction failed" });
 			ports.setPressure(failed.state); status(ctx); syncPolicy(); record("compaction_callback", failed.action, failed.reason);

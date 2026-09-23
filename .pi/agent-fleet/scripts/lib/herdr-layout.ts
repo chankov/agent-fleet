@@ -130,12 +130,12 @@ export function peerCommand(p: Peer, team: string, resumeRef?: string, project =
 	if (p.runner === "claude-code" && p.extensions) {
 		throw new Error(`Peer "${p.name}": extensions: are pi-only and cannot combine with runner: claude-code.`);
 	}
-	const parts =
+	const parts: string[] =
 		p.runner === "claude-code"
 			? ["just", "_claude-peer", p.name]
 			: p.extensions
-				? ["just", "_peer-plus", p.extensions, p.persona, p.name]
-				: ["just", "_peer", p.persona, p.name];
+				? ["just", "_peer-plus", p.extensions, p.persona!, p.name]
+				: ["just", "_peer", p.persona!, p.name];
 	if (p.model) parts.push(p.model);
 	if (resumeRef !== undefined) {
 		if (!p.model) parts.push(""); // keep the model positional aligned

@@ -18,6 +18,14 @@ test("shared actions recheck row/run and preserve owned-process versus coms-abor
 	await actions.execute("kill", "builder", "builder:1", ctx); assert.equal(killed, 1);
 });
 
+test("kill fences the native attempt before the process kill", async () => {
+	let order: string[] = [];
+	const agent: any = { def: { name: "builder" }, task: "work", proc: { pid: 1 }, driftFence: { dispose() { order.push("fence"); } } };
+	const actions = createFleetActions({ getRows: () => [row()], getAgents: () => new Map([["builder", agent]]), getResearch: () => new Map(), parseResearchHandle: () => null, displayName: value => value, modelWorkBlocked: () => false, restartSpecialist: async () => {}, removeResearch: () => {}, killSpecialistProcess: () => { order.push("kill"); }, abortComs: () => {}, openDetail: async () => false, generation: () => 1 });
+	await actions.execute("kill", "builder", "builder:1", ctx);
+	assert.deepEqual(order, ["fence", "kill"]);
+});
+
 test("restart pending guard prevents duplicate async execution and clears after failure", async () => {
 	let calls = 0, release!: () => void;
 	const wait = new Promise<void>(resolve => { release = resolve; });

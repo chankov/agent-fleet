@@ -75,3 +75,51 @@ test("synthetic pending identity reconciles to one real peer alias and never gra
 	assert.deepEqual(real.aliasKeys, [synthetic.key]);
 	assert.equal(real.runToken, undefined);
 });
+
+test("A14 shared source binds System 1 to the current dispatch and leaves worker fields unchanged", () => {
+	const live = {
+		active: [{ dispatchId: "dispatch-1", attemptId: "attempt-1", checkId: "check-fast", snapshotId: "snap-1", evaluation: "evaluating" as const, llm: "running", status: "unknown", reason: "unknown", elapsedMs: 400, rule: "failures", effectiveMode: "shadow" as const, configuredMode: "shadow" as const }],
+		completed: [{ dispatchId: "dispatch-old", attemptId: "attempt-old", checkId: "check-old", snapshotId: "snap-old", evaluation: "finished" as const, llm: "finished", status: "ok", reason: "unknown", elapsedMs: 10, finishedAt: 19_000, rule: "loop", effectiveMode: "shadow" as const, statusChoice: "on_track" }],
+		degraded: false,
+	};
+	const built = source({ agent: { dispatchId: "dispatch-1", toolCount: 7, lastWork: "edit", status: "running" } });
+	const withLive = createFleetSource({
+		getAgents: () => new Map([["builder", agent({ dispatchId: "dispatch-1", toolCount: 7, lastWork: "edit" })], ["reviewer", agent({ def: { name: "reviewer" }, dispatchId: "dispatch-2", status: "idle", toolCount: 1, lastWork: "wait" })]]),
+		getResearch: () => new Map([[1, { id: 1, persona: false, def: { name: "research" }, status: "running", model: "m", toolCount: 3, elapsed: 1, lastWork: "search", contextPct: 1 }]]),
+		getPeerInputs: () => [],
+		getPeerCards: () => new Map(),
+		getPendingReplies: () => [],
+		displayName: (name: string) => name.toUpperCase(),
+		modelForAgent: () => "native-model",
+		modelForResearch: () => "research-model",
+		modelForPeer: (model: string) => model,
+		getSystem1: () => live,
+	});
+	const rows = withLive.rows(now, { showFinished: true });
+	const builder = rows.find(row => row.key === "builder")!;
+	const reviewer = rows.find(row => row.key === "reviewer")!;
+	const research = rows.find(row => row.kind === "research")!;
+	assert.equal(builder.system1?.checkId, "check-fast");
+	assert.equal(builder.system1?.runToken, "builder:dispatch-1");
+	assert.equal(builder.toolCount, 7);
+	assert.equal(builder.lastWork, "edit");
+	assert.equal(builder.model, "native-model");
+	assert.equal(builder.status, "running");
+	assert.equal(reviewer.system1, undefined);
+	assert.equal(research.system1, undefined);
+	assert.equal(built.rows(now, { showFinished: true })[0].system1, undefined);
+	const rebound = createFleetSource({
+		getAgents: () => new Map([["builder", agent({ dispatchId: "dispatch-2", runCount: 2, toolCount: 7, lastWork: "edit" })]]),
+		getResearch: () => new Map(),
+		getPeerInputs: () => [],
+		getPeerCards: () => new Map(),
+		getPendingReplies: () => [],
+		displayName: (name: string) => name,
+		modelForAgent: () => "native-model",
+		modelForResearch: () => "research-model",
+		modelForPeer: (model: string) => model,
+		getSystem1: () => live,
+	});
+	assert.equal(rebound.rows(now, { showFinished: true })[0].system1, undefined);
+	assert.equal(rebound.rows(now, { showFinished: true })[0].runToken, "builder:dispatch-2");
+});

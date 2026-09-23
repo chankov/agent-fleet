@@ -1,6 +1,7 @@
 import { runtimeTestFromResult, type RuntimeTestRecord } from "./runtime-test-check.ts";
 import { createToolEventRecorder, type ToolExecutionEvent } from "./tool-protocol.ts";
 import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV, type ActiveModelProfile } from './policy/profile-runtime.ts';
+import { SYSTEM1_API_KEY_ENV } from "../lib/system1/config.js";
 import { confineNativeChild, type WriteIsolationRequest, type WriteIsolationResult } from "./write-isolation.ts";
 /**
  * spawnPiAgent — the ONE place agent-hub code spawns a headless `pi` child and
@@ -78,6 +79,13 @@ export interface SpawnPiAgentOptions {
 	cwd?: string;
 	/** Parent tool cancellation; classified separately from a tool timeout. */
 	signal?: AbortSignal;
+	/** Distinguishes physical launches that share one callback object. Identity is owned by the lifecycle. */
+	physicalAttempt?: { generation: number };
+	/** Optional per-physical-spawn fence. Omission preserves every existing launcher. */
+	attemptLifecycle?: {
+		beforePhysicalSpawn(info: { generation: number }): { signal?: AbortSignal } | void;
+		afterPhysicalSpawn(info: { generation: number }): void;
+	};
 	toolWatchdog?: ToolWatchdogOptions;
 	/**
 	 * Whole-run deadline: one timer from spawn start; on expiry the child group is
@@ -137,6 +145,41 @@ export function assertSafeSandboxStdio(stdio: readonly unknown[]): void {
 	if (stdio.some(value => value !== "pipe")) throw new Error("write isolation requires safe stdio pipes");
 }
 
+/** Credential names removed from the final native child environment. Parent env is never mutated. */
+export const NATIVE_CHILD_STRIPPED_ENV_KEYS = [SYSTEM1_API_KEY_ENV] as const;
+
+/** The sandbox helper may echo env. Never publish that echo on the spawn result. */
+function isolationWithoutEnv<T extends { env?: Record<string, string> }>(isolation: T): Omit<T, "env"> {
+	const published = { ...isolation };
+	delete published.env;
+	return published;
+}
+
+/** Drop undefined entries so the sandbox helper receives a string env. */
+function envRecord(env: NodeJS.ProcessEnv): Record<string, string> {
+	const record: Record<string, string> = {};
+	for (const [key, value] of Object.entries(env)) {
+		if (typeof value === "string") record[key] = value;
+	}
+	return record;
+}
+
+/** Merge parent + overrides, then drop only the System 1 credential. Overrides cannot put it back. */
+export function nativeChildEnv(
+	base: NodeJS.ProcessEnv = process.env,
+	overrides?: Record<string, string | undefined> | NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+	const merged: NodeJS.ProcessEnv = { ...base };
+	if (overrides) {
+		for (const [key, value] of Object.entries(overrides)) {
+			if (value === undefined) delete merged[key];
+			else merged[key] = value;
+		}
+	}
+	for (const key of NATIVE_CHILD_STRIPPED_ENV_KEYS) delete merged[key];
+	return merged;
+}
+
 /** Signal an explicitly owned process group, falling back only for legacy callers. */
 export function killPiTree(proc: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
 	const pid = proc.pid;
@@ -180,12 +223,30 @@ function spawnPiAgentUnchecked(
 	];
 	if (opts.resume) args.push("-c");
 
-	const isolation = opts.writeIsolation ? confineNativeChild({ ...opts.writeIsolation, command: "pi", args, env: opts.env }) : undefined;
+	const generation = opts.physicalAttempt?.generation ?? 1;
+	const attemptSignal = opts.attemptLifecycle?.beforePhysicalSpawn({ generation })?.signal;
+	let attemptEnded = false;
+	const endAttempt = () => {
+		if (attemptEnded) return;
+		attemptEnded = true;
+		opts.attemptLifecycle?.afterPhysicalSpawn({ generation });
+	};
+	if (attemptSignal?.aborted) {
+		endAttempt();
+		return Promise.resolve({
+			output: "", stderr: "", exitCode: null, modelUsed: opts.model, toolCallsStarted: 0,
+			termination: { reason: "cancelled", confirmed: false, escalated: false },
+		});
+	}
+	const childEnv = nativeChildEnv(process.env, opts.env);
+	const isolation = opts.writeIsolation ? confineNativeChild({ ...opts.writeIsolation, command: "pi", args, env: envRecord(childEnv) }) : undefined;
+	const publishedIsolation = isolation ? isolationWithoutEnv(isolation) : undefined;
 	if (isolation && !isolation.applied) {
+		endAttempt();
 		return Promise.resolve({
 			output: "", stderr: isolation.reason ?? "write isolation unavailable", exitCode: 1,
 			spawnError: isolation.reason ?? "write isolation unavailable; unsandboxed execution refused",
-			modelUsed: opts.model, toolCallsStarted: 0, writeIsolation: isolation,
+			modelUsed: opts.model, toolCallsStarted: 0, writeIsolation: publishedIsolation,
 		});
 	}
 	const launchCommand = isolation?.command ?? "pi";
@@ -194,7 +255,7 @@ function spawnPiAgentUnchecked(
 	const turnDeadlineMs = opts.turnDeadlineMs ?? null;
 	// A watchdog or deadline must own its group: group signalling remains valid even
 	// after the pi leader exits while an inherited-stdio descendant is still alive.
-	const ownsGroup = opts.detached === true || watchdog !== undefined || opts.signal !== undefined || turnDeadlineMs != null || cbs.onControl !== undefined;
+	const ownsGroup = opts.detached === true || watchdog !== undefined || opts.signal !== undefined || attemptSignal !== undefined || turnDeadlineMs != null || cbs.onControl !== undefined;
 	const watchedTools = new Set(watchdog?.tools ?? WATCHED_TOOLS);
 	const timeoutMs = watchdog?.timeoutMs ?? null;
 	const termGraceMs = watchdog?.termGraceMs ?? DEFAULT_TERM_GRACE_MS;
@@ -203,11 +264,11 @@ function spawnPiAgentUnchecked(
 	const textChunks: string[] = [];
 	const stderrChunks: string[] = [];
 	return new Promise((resolve) => {
-		const stdio = ["pipe", "pipe", "pipe"];
+		const stdio: ["pipe", "pipe", "pipe"] = ["pipe", "pipe", "pipe"];
 		if (isolation) assertSafeSandboxStdio(stdio);
 		const proc = spawn(launchCommand, launchArgs, {
 			stdio,
-			env: { ...process.env, ...(opts.env || {}) },
+			env: childEnv,
 			...(opts.cwd ? { cwd: opts.cwd } : {}),
 			...(ownsGroup ? { detached: true } : {}),
 		});
@@ -234,6 +295,8 @@ function spawnPiAgentUnchecked(
 			if (settleTimer) clearTimeout(settleTimer);
 			if (deadlineTimer) clearTimeout(deadlineTimer);
 			opts.signal?.removeEventListener("abort", onAbort);
+			attemptSignal?.removeEventListener("abort", onAbort);
+			endAttempt();
 		};
 		let assistantError: string | undefined;
 		let toolCallsStarted = 0;
@@ -264,7 +327,7 @@ function spawnPiAgentUnchecked(
 				...(spawnError ? { spawnError } : {}),
 				...(assistantError ? { assistantError } : {}),
 				...(termination ? { termination } : {}),
-				...(isolation ? { writeIsolation: isolation } : {}),
+				...(publishedIsolation ? { writeIsolation: publishedIsolation } : {}),
 				...(bounded ? { boundedOutput: { truncated: bounded.truncated, totalBytes: bounded.totalBytes, handle: bounded.handle, contentPath: bounded.contentPath, sha256: bounded.hash } } : {}),
 			});
 		};
@@ -282,8 +345,13 @@ function spawnPiAgentUnchecked(
 			settleTimer = setTimeout(() => settle(null), termGraceMs + settleGraceMs);
 		};
 		const onAbort = () => terminate("cancelled");
-		if (opts.signal?.aborted) onAbort();
-		else opts.signal?.addEventListener("abort", onAbort, { once: true });
+		const watchAbort = (signal?: AbortSignal) => {
+			if (!signal) return;
+			if (signal.aborted) onAbort();
+			else signal.addEventListener("abort", onAbort, { once: true });
+		};
+		watchAbort(opts.signal);
+		watchAbort(attemptSignal);
 		// External classified stop (drift watchdog): same first-classification-wins
 		// cascade as every other termination path; harmless after settle.
 		cbs.onControl?.({ terminate: (reason = "drift_stop") => { if (!settled) terminate(reason); } });

@@ -45,12 +45,12 @@ export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./conte
 			const delay = plan.runner === "pi" ? spawnDelaySeconds(d.getLastPiSpawnAt()) : 0; if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
 			const launched = await launchHubPeerInPane(plan, {
 				client: d.herdr, targetPaneId: ownPane, cwd, env,
-				waitForRegistration: (name, timeoutMs) => waitForPeerRegistration(name, () => d.isComsReady() && d.getIdentity() !== null, d.getComsPeerNames, timeoutMs),
+				waitForRegistration: name => waitForPeerRegistration(name, () => d.isComsReady() && d.getIdentity() !== null, d.getComsPeerNames),
 				paneTail,
 				onLaunched: paneId => { d.recordSpawnedPeer(plan.name, paneId); if (plan.runner === "pi") d.setLastPiSpawnAt(Date.now()); },
 			});
 			const promptNote = launched.promptSeen ? "" : `\n⚠ pane ${launched.paneId} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
-			return { content: [{ type: "text", text: `spawned ${plan.kind} in pane ${launched.paneId} (${plan.name}): ${plan.command.join(" ")}${promptNote}\n\n${launched.verdict.message}` }], details: { pane_id: launched.paneId, name: plan.name, kind: plan.kind, runner: plan.runner, project: plan.project, prompt_seen: launched.promptSeen, env_file: plan.envFile ?? null, ...launched.verdict } };
+			return { content: [{ type: "text", text: `spawned ${plan.kind} in pane ${launched.paneId} (${plan.name}): ${plan.command.join(" ")}${promptNote}\n\n${launched.verdict.message}` }], details: { name: plan.name, kind: plan.kind, runner: plan.runner, project: plan.project, prompt_seen: launched.promptSeen, env_file: plan.envFile ?? null, ...launched.verdict } };
 		} catch (err) { const m = err instanceof Error ? err.message : String(err); return { content: [{ type: "text", text: `herdr_spawn_peer failed before readiness: ${m}` }], details: { error: m } }; }
 	};
 	const executeHerdrSpawnPane: ToolExecutor<HerdrSpawnPaneParams> = async (_id, params) => {

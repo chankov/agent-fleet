@@ -18,6 +18,7 @@ export interface Zoomable {
 	def: { name: string };
 	status: string;
 	timeline: TimelineEntry[];
+	transcriptStore?: { path: string };
 	zoomRender?: (force?: boolean) => void;
 }
 
@@ -37,7 +38,7 @@ export class ZoomUI {
 	constructor(
 		private state: Zoomable,
 		private onDone: () => void,
-		private notify: (message: string, type?: "info" | "success" | "warning" | "error") => void,
+		private notify: (message: string, type?: "info" | "warning" | "error") => void,
 	) {}
 
 	handleInput(data: string, tui: any): void {
@@ -65,7 +66,7 @@ export class ZoomUI {
 		if (!item) return;
 		try {
 			await copyToClipboard(item.content);
-			this.notify("Copied selected zoom row", "success");
+			this.notify("Copied selected zoom row", "info");
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			this.notify(`Failed to copy selected zoom row: ${message}`, "error");
@@ -82,7 +83,8 @@ export class ZoomUI {
 		const cardBox = new Box(1, 0, (s: string) => isSelected ? theme.bg("selectedBg", s) : s);
 
 		let icon = "○", color = "dim";
-		if (item.kind === "text") { icon = "🤖"; color = "accent"; }
+		if (item.title === "System 1") { icon = "S1"; color = "warning"; }
+		else if (item.kind === "text") { icon = "🤖"; color = "accent"; }
 		else if (item.kind === "tool") { icon = "🛠️"; color = "warning"; }
 		else if (item.kind === "thinking") { icon = "💭"; color = "dim"; }
 

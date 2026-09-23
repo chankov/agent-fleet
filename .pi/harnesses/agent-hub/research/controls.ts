@@ -43,7 +43,7 @@ export function createResearchControls<TDef extends ResearchAgentDef>(ports: Res
 				ports.runtime.finalize(state, { status: "idle", historyStatus: "idle", lastWork: "(killed by operator)" });
 			}
 			ports.refresh();
-			ctx.ui.notify(total === 0 ? "No research helpers to clear." : `Cleared ${total} research helper${total !== 1 ? "s" : ""}${killed > 0 ? ` (${killed} killed)` : ""}.`, total === 0 ? "info" : "success");
+			ctx.ui.notify(total === 0 ? "No research helpers to clear." : `Cleared ${total} research helper${total !== 1 ? "s" : ""}${killed > 0 ? ` (${killed} killed)` : ""}.`, "info");
 		},
 		restartSpecialist: ports.restartSpecialist,
 		async handleKill(args, ctx) {

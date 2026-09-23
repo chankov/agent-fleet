@@ -163,13 +163,14 @@ function durationLabel(ms: number | undefined): string {
 
 function detailEntryLines(entry: TimelineEntry, index: number, width: number, expandedIndex: number | null, verbose: boolean, selectedIndex?: number): string[] {
 	const w = Math.max(1, width);
-	const icon = isToolEntry(entry) ? (entry.kind === "tool-result" ? "◂" : "▸") : entry.kind === "thinking" ? "·" : "•";
+	const system1 = entry.title === "System 1";
+	const icon = system1 ? "S1" : isToolEntry(entry) ? (entry.kind === "tool-result" ? "◂" : "▸") : entry.kind === "thinking" ? "·" : "•";
 	const selected = index === selectedIndex ? "›" : " ";
 	const meta = entry.kind === "tool-result"
 		? ` [${[entry.status, durationLabel(entry.durationMs)].filter(Boolean).join(" · ")}]`
 		: "";
 	if (!verbose) {
-		if (index === expandedIndex && isToolEntry(entry)) return [trim(`${selected}${icon} ${entry.title}${meta}`, w), ...entry.content.split(/\r?\n/).map(line => `   ${trim(line, Math.max(0, w - 3))}`)];
+		if (system1 || (index === expandedIndex && isToolEntry(entry))) return [trim(`${selected}${icon} ${entry.title}${meta}`, w), ...entry.content.split(/\r?\n/).map(line => `   ${trim(line, Math.max(0, w - 3))}`)];
 		return [trim(`${selected}${icon} ${entry.title}${meta}  ${entry.content.replace(/\s+/g, " ")}`, w)];
 	}
 	const heading = trim(`${selected}${icon} ${entry.title}`, w);
@@ -196,15 +197,45 @@ export function detailContent(timeline: readonly TimelineEntry[], width: number,
 	return timeline.flatMap((entry, index) => detailEntryLines(entry, index, width, expandedIndex, verbose, selectedIndex));
 }
 
+/** Owner-fenced System 1 preface. Empty unless the live row still owns this run. */
+export function system1DetailPreface(row: FleetRow, width: number): string[] {
+	const w = Math.max(1, width);
+	if (!row.system1 || row.system1.runToken !== row.runToken) return [];
+	return row.system1.detail.split(/\r?\n/).map(line => trim(` S1 ${line}`, w));
+}
+
+/** Transcript body including the preface. Scroll math must use this, not detailContent alone. */
+export function detailBodyLines(row: FleetRow, timeline: readonly TimelineEntry[], width: number, expandedIndex: number | null, verbose = false, selectedIndex?: number): string[] {
+	return [...system1DetailPreface(row, width), ...detailContent(timeline, width, expandedIndex, verbose, selectedIndex)];
+}
+
+/** Entry offsets shifted by the preface so selection stays inside the visible body. */
+export function detailBodyOffsets(row: FleetRow, timeline: readonly TimelineEntry[], width: number, expandedIndex: number | null, verbose = false): DetailEntryOffset[] {
+	const shift = system1DetailPreface(row, width).length;
+	return detailEntryOffsets(timeline, width, expandedIndex, verbose).map(item => ({ index: item.index, start: item.start + shift, end: item.end + shift }));
+}
+
+/** Replace the open panel's System 1 view from the current fleet row. Model edits on the open row stay. */
+export function applyLiveFleetDetailRow<T extends { key: string; name: string; model: string; system1?: FleetRow["system1"]; runToken?: string; toolCount: number | null }>(
+	openRow: T,
+	fresh: T | undefined,
+	enabled: boolean,
+): T {
+	if (!enabled) return openRow;
+	if (!fresh || fresh.key !== openRow.key) return { ...openRow, system1: undefined };
+	return { ...openRow, system1: fresh.system1, runToken: fresh.runToken, toolCount: fresh.toolCount, name: fresh.name };
+}
+
 /** Render a constant-height transcript detail screen, including the no-local-peer notice. */
 export function renderFleetDetail(row: FleetRow, timeline: readonly TimelineEntry[], scrollOffset: number, width: number, bodyHeight: number, theme: ThemeLike, expandedIndex: number | null = null, verbose = false, selectedIndex?: number): string[] {
 	const w = Math.max(1, width), body = Math.max(0, bodyHeight);
 	const mode = verbose ? "Verbose" : "Compact";
-	const header = trim(` ${row.name} · ${mode} · ${row.status} · ${row.kind} · ${row.model} · ${row.backend} · ${row.contextPct == null ? "context automatic" : `${Math.round(row.contextPct)}%`} · ${Math.round(row.elapsed / 1000)}s · ${row.toolCount ?? "—"} tools`, w);
+	const badge = row.system1 && row.system1.runToken === row.runToken ? ` · ${row.system1.compact}` : "";
+	const header = trim(` ${row.name}${badge} · ${mode} · ${row.status} · ${row.kind} · ${row.model} · ${row.backend} · ${row.contextPct == null ? "context automatic" : `${Math.round(row.contextPct)}%`} · ${Math.round(row.elapsed / 1000)}s · ${row.toolCount ?? "—"} tools`, w);
 	const lines = [theme.bold(header), theme.fg("dim", "╭" + "─".repeat(Math.max(0, w - 2)) + "╮")];
 	if (!row.hasTimeline) lines.push(...Array.from({ length: body }, (_, i) => i === 0 ? theme.fg("dim", " no local transcript for this coms peer") : ""));
 	else {
-		const content = detailContent(timeline, w, expandedIndex, verbose, selectedIndex);
+		const content = detailBodyLines(row, timeline, w, expandedIndex, verbose, selectedIndex);
 		const offset = Math.max(0, Math.min(scrollOffset, Math.max(0, content.length - body)));
 		lines.push(...content.slice(offset, offset + body), ...Array(Math.max(0, body - content.slice(offset, offset + body).length)).fill(""));
 	}

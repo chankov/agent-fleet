@@ -26,6 +26,8 @@ export interface NativeAgentDefinition {
 	name: string;
 	description: string;
 	tools: string;
+	/** True when the persona declared a tools field instead of inheriting it. */
+	toolsExplicit?: boolean;
 	model?: string;
 	fallbackModel?: string;
 	models?: string[];
@@ -65,6 +67,7 @@ export interface NativeDispatchState extends NativeTimelineTarget, DelegationObs
 	proc?: ChildProcess;
 	killedByOperator?: boolean;
 	restarting?: boolean;
+	driftFence?: { dispose(): void };
 	onTerminate?: () => void;
 	lastBackend?: "native" | "coms";
 	comsPeerModel?: string;
@@ -141,11 +144,13 @@ export interface NativeDispatchDeps {
 	getSessionHealthIo(): any;
 	getSafetyHarnessPath(): string | null;
 	getDelegateExtensionPath(): string | null;
-	getReconSearchTimeoutMs(): number;
+	getReconSearchTimeoutMs(): number | null;
 	getProjectDocsPaths(): string[];
 	getUserLanguage(): string;
 	getWatchdogSetting(): any;
 	getWatchdogAgentOverride(key: string): any;
+	getWatchdogSystem1?(): import("./system1-runtime.ts").WatchdogSystem1Session | null;
+	getWatchdogActivity?(): import("./system1-activity.ts").WatchdogActivity | null;
 	getWorkMode(): any;
 	providerSemaphore: NativeProviderSemaphore;
 	executionHistory: Pick<ExecutionHistoryStore, "start" | "end">;
@@ -177,7 +182,8 @@ export interface NativeDispatchDeps {
 		inputArtifacts: DispatchInputArtifactPreview[],
 		scopeGlobs: string[],
 	): Promise<ComsDispatchResult | null>;
-	runDriftJudge(input: any, ctx: ExtensionContext): Promise<{ verdict: string; reason: string } | null>;
+	runDriftJudge(input: any, ctx: ExtensionContext): Promise<import("./drift-runtime.ts").DriftJudgeOutcome | { verdict: string; reason: string } | null>;
+	createDriftMonitor?(config: { scopeGlobs: string[]; allowGlobs: string[] }): import("./drift-runtime.ts").DriftMonitorLike;
 	notifyProviderQueue(model: string, label: string, ctx: ExtensionContext): void;
 	spawnPiAgentWithModelFallback(
 		options: SpawnPiAgentOptions,

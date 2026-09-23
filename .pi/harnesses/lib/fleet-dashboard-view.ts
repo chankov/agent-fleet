@@ -40,7 +40,9 @@ export function renderFleetDashboard(vm: FleetViewModel, width: number, bodyHeig
 			if (!row) { lines.push(""); continue; }
 			const selected = offset + i === vm.selection.index;
 			const indent = treePrefix(row.lastAtDepth, row.depth);
-			const name = `${selected ? "❯" : " "} ${indent}${glyph(row)} ${safeTerminalText(row.name)}`;
+			const badge = row.system1 && row.system1.runToken === row.runToken ? ` ${safeTerminalText(row.system1.compact)}` : "";
+			const name = `${selected ? "❯" : " "} ${indent}${glyph(row)} ${safeTerminalText(row.name)}${badge}`;
+
 			const parts = [name, row.kind, `${row.backend === "coms" ? "⇄ " : ""}${safeTerminalText(row.model)}`, context(row.contextPct), tokens(row.contextTokens), duration(row.elapsed), row.toolCount == null ? "—" : String(row.toolCount), safeTerminalText(row.lastWork)];
 			const count = w < 80 ? 4 : w < 105 ? 6 : 8;
 			const line = fit(parts.slice(0, count).join("  "), w, metrics);

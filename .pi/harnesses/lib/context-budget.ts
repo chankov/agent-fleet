@@ -98,7 +98,7 @@ export function reconcilePlane(components: readonly ContextBudgetComponent[], pl
 	const residualTokens = hasMeasured ? Math.max(0, measured - attributedTokens) : undefined;
 	const validWindow = Number(window);
 	const occupancyPercent = hasMeasured && Number.isFinite(validWindow) && validWindow > 0 ? (measured / validWindow) * 100 : undefined;
-	const residual = residualTokens === undefined ? undefined : {
+	const residual: ContextBudgetComponent | undefined = residualTokens === undefined ? undefined : {
 		id: `${plane}/provider-unattributed`, plane, category: "unattributed", label: "Provider / serialization / unattributed",
 		persistence: "turn", visibility: "model-visible", chars: 0, estimatedTokens: 0, adjustedTokens: residualTokens,
 		confidence: "provider-total" as const,
