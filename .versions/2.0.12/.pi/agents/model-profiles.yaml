@@ -1,0 +1,83 @@
+# Flat profiles switch named personas; version: 2 profiles switch the complete fleet.
+# See docs/agent-fleet-setup.md for defaults, child roles, services and policies.
+mix-max:
+  code-reviewer: github-copilot/claude-opus-5
+  builder: openai-codex/gpt-5.6-sol
+  planner: github-copilot/claude-fable-5
+  plan-reviewer: openai-codex/gpt-5.6-sol
+  security-auditor: xai/grok-4.6
+  test-engineer: xai/grok-4.6
+sol:
+  code-reviewer: openai-codex/gpt-5.6-sol
+  builder: openai-codex/gpt-5.6-sol
+  planner: openai-codex/gpt-5.6-sol
+  plan-reviewer: openai-codex/gpt-5.6-sol
+  security-auditor: openai-codex/gpt-5.6-sol
+  test-engineer: openai-codex/gpt-5.6-sol
+
+# Local oMLX pair. 35B (qwen36) is the default brain: dispatcher, specialists,
+# recon/preflight/feasibility/scout/sweeps, watchdog. 9B (qwen) is only the
+# cheap, narrow helpers: documenter, docs, deps, conventions, planner voice-2,
+# return-extractor. thinking stays off. Laguna is retired — do not reintroduce it.
+local-duo:
+  version: 2
+  defaults:
+    model: &qwen36 omlx/Qwen3.6-35B-A3B-4bit
+    thinking: off
+  allowed-models:
+    - *qwen36
+    - omlx/Qwen3.6-35B-A3B-UD-MLX-3bit
+    - &qwen omlx/Qwen3.8-9B-heretic-uncensored-5bit-MLX
+  fallback: none
+  routing: native
+  dispatcher: *qwen36
+  agents:
+    architect: *qwen36
+    bowser: *qwen36
+    builder: *qwen36
+    code-reviewer: *qwen36
+    deep-researcher: *qwen36
+    documenter: *qwen
+    orchestrator: *qwen36
+    plan-reviewer: *qwen36
+    planner: *qwen36
+    releaser: *qwen36
+    researcher: *qwen36
+    security-auditor: *qwen36
+    test-engineer: *qwen36
+    web-debugger: *qwen36
+    web-performance-auditor: *qwen36
+  subagents:
+    builder:
+      recon: *qwen36
+      verifier: *qwen36
+    code-reviewer:
+      preflight: *qwen36
+      quality: *qwen36
+      perf: *qwen36
+      docs: *qwen
+    plan-reviewer:
+      feasibility: *qwen36
+      deps: *qwen
+    planner:
+      scout: *qwen36
+      rules: *qwen36
+      voice-1: *qwen36
+      voice-2: *qwen
+      voice-3: *qwen36
+    security-auditor:
+      recon: *qwen36
+      input-sweep: *qwen36
+      secrets-sweep: *qwen36
+    test-engineer:
+      coverage-scout: *qwen36
+      conventions: *qwen
+  services:
+    watchdog: *qwen36
+    return-extractor: *qwen
+  panel:
+    - name: qwen36
+      model: *qwen36
+      integrator: true
+    - name: qwen
+      model: *qwen

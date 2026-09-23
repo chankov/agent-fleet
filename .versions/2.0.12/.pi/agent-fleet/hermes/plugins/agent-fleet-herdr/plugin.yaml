@@ -1,0 +1,8 @@
+# Manifest-only plugin: it ships no agent tools and no hooks, and exists so
+# `hermes plugins enable agent-fleet-herdr` has a name to accept. That enable
+# record in config.yaml is what opens the `/api/plugins/agent-fleet-herdr/*`
+# gate in hermes_cli/web_server.py:576 — without it every request 404s with
+# {"detail": "Plugin not found"} before routing is even reached.
+name: agent-fleet-herdr
+version: "0.1.0"
+description: Read-only view of live Agent Fleet sessions in Hermes Desktop

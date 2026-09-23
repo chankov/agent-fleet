@@ -1,5 +1,15 @@
 # Agent Fleet changelog
 
+## 2.0.12
+
+### Patch Changes
+
+- be06772: Add the opt-in experimental System 1 foundation with a provider-neutral judgment contract, a pinned TypeSafe Jev adapter, advisory offline diagnostics, and an explicit synthetic live demo.
+
+  The `system1` feature remains outside automatic Full selection and uses human-owned version-1 `.ai/system1.json` configuration. It does not integrate with Watchdog, install local models, or promise child-environment credential isolation.
+
+- d7a15e2: Add opt-in System 1 observations for native drift watchdog checks, safe trace/UI reporting, bounded recovery after an unavailable LLM judge, and an explicitly opted-in experimental active shortcut for advisory scope only (Jev 0.95/0.05). Active is not G2-validated; the default remains off and terminal rules retain the LLM judge.
+
 ## 2.0.11
 
 ### Patch Changes
