@@ -42,6 +42,7 @@
     "af-hub-report",
     "af-models",
     "af-poll",
+    "af-recover",
     "af-retry",
     "af-watchdog",
     "af-work-mode",

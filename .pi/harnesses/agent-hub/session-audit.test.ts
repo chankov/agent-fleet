@@ -7,6 +7,7 @@ import { buildRuntimeResult } from "./acceptance.ts";
 import { buildBudgetContinuationAudit } from "./hub-state-audit.js";
 import { buildSessionAudit, formatSessionAudit, showSessionAudit } from "./session-audit.ts";
 import { registerAudit } from "./commands/audit.ts";
+import { createNoProgressGuard } from './no-progress.ts';
 
 function fixture(t: any) {
 	const dir = mkdtempSync(join(tmpdir(), "af-audit-")); t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -94,6 +95,26 @@ test("T10 /af-audit shows unavailable judge and interrupted trace without payloa
  assert.doesNotMatch(truncated, /secret sentinel/);
 });
 
+test('recover ledger audit survives compaction, retains immutable failure and redacts original contract, nonce, revision and paths', t => {
+ const sessionDir=fixture(t), entries:any[]=[];
+ const guard=createNoProgressGuard((type,data)=>entries.push({customType:type,data}));
+ const ticket=guard.begin('private contract','before','builder');
+ guard.recordInvocation(ticket.operationId!,'private contract',{tool:'dispatch_agent',params:{agent:'builder',task:'password=hunter2 secret task'}});
+ guard.finish(ticket,'before',{dispatchId:'original-fail',reason:'secret failure',category:'indeterminate'});
+ guard.settle(ticket.operationId!,ticket.attemptId!,'runtime-exit:original-fail:1');
+ guard.authorizeIndeterminate(ticket.operationId!,ticket.attemptId!,'secret-nonce');
+ guard.assess(ticket.operationId!,ticket.attemptId!,'private-revision','cleared','/private/evidence');
+ guard.compact(entries);
+ const restored=createNoProgressGuard(); restored.restore([entries.at(-1)]);
+ assert.equal(restored.inspect(ticket.operationId!)?.attempts[0].category,'indeterminate');
+ const audit=buildSessionAudit({entries:[entries.at(-1)],sessionDir});
+ const events=audit.events.filter(event=>event.kind==='recovery');
+ assert.deepEqual(events.map(event=>event.status),['open','failed','settled','authorized_once','cleared']);
+ assert.equal(events.at(-1)?.technicalBlock,'cleared');
+ const rendered=formatSessionAudit(audit);
+ for(const secret of ['hunter2','secret-nonce','private-revision','/private/evidence','private contract','secret failure']) assert.doesNotMatch(rendered,new RegExp(secret));
+});
+
 test("actual /af-audit registration executes against runtime producer records without tool/model execution", async (t) => {
 	const sessionDir = fixture(t), details = runtimeDetails(), notices: string[] = [];
 	let registration: any;
@@ -107,4 +128,24 @@ test("actual /af-audit registration executes against runtime producer records wi
 	assert.equal(audit.events[0].kind, "verification");
 	assert.equal(audit.events[0].childDispatchId, "child-1");
 	assert.equal(audit.readOnly, true);
+});
+
+test('audit refuses malformed or conflicting recovery snapshots without erasing failures into a clean history', t => {
+ const sessionDir = fixture(t), entries: any[] = [];
+ const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+ const first = guard.begin('contract', 'same', 'builder');
+ guard.finish(first, 'same', { dispatchId: 'ind-1', reason: 'failed', category: 'indeterminate' });
+ guard.settle(first.operationId!, first.attemptId!, 'runtime-exit');
+ guard.authorizeIndeterminate(first.operationId!, first.attemptId!, 'nonce-1');
+ const malformed = { customType: 'agent-hub-recover-event', data: { kind: 'snapshot' } };
+ const conflicting = { customType: 'agent-hub-recover-event', data: { kind: 'snapshot', rows: entries.slice(0, -1).map(row => row.data) } };
+ for (const snapshot of [malformed, conflicting]) {
+  const audit = buildSessionAudit({ entries: [...entries, snapshot], sessionDir });
+  assert.ok(audit.unavailable.includes('recovery_history_integrity'));
+  assert.equal(audit.events.filter(event => event.kind === 'recovery').length, 0);
+ }
+ guard.compact(entries);
+ const intact = buildSessionAudit({ entries: [entries.at(-1)], sessionDir });
+ assert.equal(intact.unavailable.includes('recovery_history_integrity'), false);
+ assert.ok(intact.events.some(event => event.kind === 'recovery' && event.category === 'indeterminate' && event.status === 'failed'));
 });

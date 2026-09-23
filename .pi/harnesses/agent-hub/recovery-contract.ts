@@ -19,6 +19,8 @@ export interface RecoveryConditions {
 	freshOneUseAuthorization?: boolean;
 	toolStateChanged?: boolean;
 	effectsEstablished?: boolean;
+	processSettled?: boolean;
+	indeterminateGrantUsed?: boolean;
 }
 
 export interface RecoveryDecision {
@@ -56,7 +58,7 @@ export function recoveryDecision(category: RecoveryCategory, conditions: Recover
 		case "unknown_tool":
 			return { ...base, allowed: explicit && changed && conditions.toolStateChanged === true, nextStep: "correct_and_reinvoke", reason: "the effective tool catalog must have trusted runtime change evidence; /af-retry and prose cannot authorize this failure" };
 		case "indeterminate":
-			return { ...base, allowed: false, nextStep: "refuse", reason: "an unknown or unproven cause cannot authorize retry" };
+			return { ...base, allowed: explicit && conditions.executorIdle === true && conditions.processSettled === true && conditions.freshOneUseAuthorization === true && conditions.indeterminateGrantUsed === true, nextStep: "authorize_once_and_reinvoke", reason: "one human-authorized retry only after the old process is settled and the executor idle; partial side effects may exist and retry may duplicate them" };
 	}
 }
 

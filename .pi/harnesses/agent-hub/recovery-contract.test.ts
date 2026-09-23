@@ -25,6 +25,7 @@ test("recovery permits only explicit evidenced conditions and keeps special safe
 	assert.equal(recoveryDecision("unknown_tool", { explicitInvocation: true, relevantConditionsChanged: true }).allowed, false);
 	assert.equal(recoveryDecision("unknown_tool", { explicitInvocation: true, relevantConditionsChanged: true, toolStateChanged: true }).allowed, true);
 	assert.equal(recoveryDecision("indeterminate", { explicitInvocation: true, relevantConditionsChanged: true, freshOneUseAuthorization: true }).allowed, false);
+	assert.equal(recoveryDecision("indeterminate", { explicitInvocation: true, executorIdle: true, processSettled: true, freshOneUseAuthorization: true, indeterminateGrantUsed: true }).allowed, true);
 });
 
 test("execution details classify parent cancellation separately from child and verification failures", () => {

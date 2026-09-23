@@ -5,12 +5,13 @@ import { redactSecrets } from "../lib/fleet-transcript-store.ts";
 import { RECOVERY_CATEGORIES, type RecoveryCategory } from "./recovery-contract.ts";
 import { readWatchdogEvents } from "./system1-report.ts";
 import { projectWatchdogReadback } from "./system1-activity.ts";
+import { createNoProgressGuard, projectRecoveryRows } from './no-progress.ts';
 
 const RESULT_SCHEMA = "agent-fleet.runtime-result/v1";
 const PROTOCOL_SCHEMA = "agent-fleet.tool-protocol-diagnostic/v1";
-const AUDIT_STATUSES = new Set(["accepted", "not_accepted", "authorized", "authorized_once", "budget_authorized", "retry_authorized_once", "passed", "failed", "missing", "stale", "unsupported", "busy", "invalid_input", "resource_exhausted", "operator_cancelled", "verification_failed", "tool_protocol_error", "unknown_tool", "indeterminate", "completed_unverified", "unavailable"]);
+const AUDIT_STATUSES = new Set(["accepted", "not_accepted", "authorized", "authorized_once", "budget_authorized", "retry_authorized_once", "passed", "failed", "missing", "stale", "unsupported", "busy", "invalid_input", "resource_exhausted", "operator_cancelled", "verification_failed", "tool_protocol_error", "unknown_tool", "indeterminate", "completed_unverified", "unavailable", "cleared", "open", "abandoned", "settled"]);
 type Availability = "available" | "unavailable";
-type AuditKind = "refusal" | "verification" | "tool_protocol" | "budget_permission" | "retry_permission" | "human_intervention" | "process_obligation" | "watchdog";
+type AuditKind = "refusal" | "verification" | "tool_protocol" | "budget_permission" | "retry_permission" | "human_intervention" | "process_obligation" | "watchdog" | "recovery";
 
 export interface SessionAuditEvent {
 	kind: AuditKind;
@@ -20,6 +21,10 @@ export interface SessionAuditEvent {
 	snapshotId: string | null;
 	repeatCount: number;
 	category?: RecoveryCategory;
+    operationId?: string | null;
+    attemptId?: string | null;
+    technicalBlock?: 'open' | 'cleared';
+    openRequirements?: string[];
 	status: string;
 	taskId?: string | null;
 	requestId?: string | null;
@@ -93,6 +98,38 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 		}
 	} else unavailable.add("child_execution_records");
 
+    // Compaction snapshots contain prior append-only rows; project once from the last snapshot.
+    let projected: any[] = [];
+    try {
+        // The audit must not infer an empty or clean history from an invalid checkpoint.
+        createNoProgressGuard().restore(input.entries);
+        projected = projectRecoveryRows(input.entries);
+    } catch {
+        unavailable.add('recovery_history_integrity');
+    }
+    const attemptDispatch = new Map<string, string>();
+    const recoveryDispatch = new Map<string, { operationId: string; attemptId: string }>();
+    const attemptCategory = new Map<string, RecoveryCategory>();
+    const attemptRequirements = new Map<string, string[]>();
+    for (const row of projected) {
+        const event = object(row?.event), type = text(event?.type), opId = runtimeId(event?.operationId), attemptId = runtimeId(event?.attemptId);
+        if (row?.kind === 'guard' && type === 'evidence') {
+            const evidence = object(event?.evidence), id = runtimeId(evidence?.dispatchId);
+            if (id && Array.isArray(evidence?.openRequirements)) attemptRequirements.set(id, evidence.openRequirements.map(runtimeId).filter((x: string | null): x is string => !!x).slice(0, 64));
+        }
+        if (row?.kind !== 'ledger' || !opId || !attemptId) continue;
+        const dispatchId = type === 'start' || type === 'dispatch' ? runtimeId(event?.dispatchId) : attemptDispatch.get(attemptId) ?? null;
+        if (dispatchId) { attemptDispatch.set(attemptId, dispatchId); recoveryDispatch.set(dispatchId, { operationId: opId, attemptId }); }
+        if (type === 'failure') { const category = recovery(event?.category); if (category) attemptCategory.set(attemptId, category); }
+        if (!['start','failure','settled','grant','technical','abandon','complete'].includes(type ?? '')) continue;
+        const category = attemptCategory.get(attemptId), technicalBlock = type === 'technical' && ['open','cleared'].includes(event?.status) ? event?.status as 'open' | 'cleared' : undefined;
+        add({ kind: 'recovery', rootSessionId, childDispatchId: dispatchId, childSessionId: dispatchId ? children.get(dispatchId) ?? null : null, snapshotId: null,
+            taskId: runtimeId(event?.taskId), operationId: opId, attemptId, category,
+            status: type === 'technical' ? technicalBlock ?? 'unavailable' : type === 'grant' ? 'authorized_once' : type === 'abandon' ? 'abandoned' : type === 'settled' ? 'settled' : type === 'failure' ? 'failed' : 'open',
+            technicalBlock, openRequirements: type === 'technical' && dispatchId ? attemptRequirements.get(dispatchId) ?? [] : undefined,
+            evidence: type === 'technical' || type === 'settled' ? 'available' : 'available',
+            explanation: type === 'grant' ? 'Human-authorized one-use indeterminate retry; partial side effects and duplicate effects were warned; no automatic execution.' : type === 'technical' ? 'Technical assessment only; failed execution and parent acceptance remain independent.' : undefined });
+    }
 	for (const entry of input.entries) {
 		const record = entryData(entry), snapshotId = record.type === "compaction" || record.type === "session_compact" ? record.id : null;
 		if (snapshotId) { snapshots.add(snapshotId); continue; }
@@ -141,6 +178,9 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 		if (verification?.status !== "passed") add({ kind: "verification", rootSessionId, childDispatchId: dispatchId, childSessionId, snapshotId: null, status: status(verification?.status), taskId: runtimeId(task?.id), evidence: verification?.status ? "available" : "unavailable" });
 		const category = recovery(details?.recoveryCategory);
 		if (category) add({ kind: category === "tool_protocol_error" ? "tool_protocol" : "refusal", rootSessionId, childDispatchId: dispatchId, childSessionId, snapshotId: null, category, status: status(details?.status ?? acceptance?.status), taskId: runtimeId(task?.id), evidence: "available" });
+        const linked = dispatchId ? recoveryDispatch.get(dispatchId) : undefined;
+        if (linked && acceptance?.status === 'accepted' && result.execution?.status === 'completed' && verification?.status === 'passed')
+            add({ kind:'recovery', rootSessionId, childDispatchId:dispatchId, childSessionId, snapshotId:null, taskId:runtimeId(task?.id), operationId:linked.operationId, attemptId:linked.attemptId, status:'accepted', evidence:'available' });
 	}
 
 	// Trace-only, read-only projection: unknown/interrupted is not guessed into a verdict.
@@ -167,7 +207,7 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 	}
 	const deduped = new Map<string, SessionAuditEvent>();
 	for (const event of rawEvents) {
-		const key = JSON.stringify([event.kind, event.rootSessionId, event.childDispatchId, event.childSessionId, event.snapshotId, event.category ?? null, event.status, event.taskId ?? null, event.requestId ?? null, event.operation ?? null, event.risk ?? null, event.scope ?? null, event.budgetTier ?? null, event.obligations ?? null, event.appliedRuleIds ?? null, event.currentStage ?? null, event.admissibleNextAction ?? null, event.auditScope ?? null, event.watchdog ?? null]);
+		const key = JSON.stringify([event.kind, event.rootSessionId, event.childDispatchId, event.childSessionId, event.snapshotId, event.category ?? null, event.status, event.taskId ?? null, event.requestId ?? null, event.operation ?? null, event.risk ?? null, event.scope ?? null, event.budgetTier ?? null, event.obligations ?? null, event.appliedRuleIds ?? null, event.currentStage ?? null, event.admissibleNextAction ?? null, event.auditScope ?? null, event.watchdog ?? null, event.operationId ?? null, event.attemptId ?? null, event.technicalBlock ?? null, event.openRequirements ?? null]);
 		const prior = deduped.get(key);
 		if (prior) prior.repeatCount++;
 		else deduped.set(key, { ...event, repeatCount: 1 });

@@ -67,13 +67,14 @@ const commandModules = [
 	["poll", "registerPoll"],
 	["budget-continue", "registerBudgetContinue"],
 	["retry", "registerRetry"],
+	["recover", "registerRecover"],
 	["debate", "registerDebate"],
 ] as const;
 const comsCoreSource = readFileSync(new URL("../lib/coms-core.ts", import.meta.url), "utf8");
 const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
-test("wiring contract: all 26 Hub commands use typed modules and one flat registrar list", () => {
-	assert.equal(commandModules.length, 26);
+test("wiring contract: all 27 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 27);
 	for (const [file, registrar] of commandModules) {
 		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
 		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));

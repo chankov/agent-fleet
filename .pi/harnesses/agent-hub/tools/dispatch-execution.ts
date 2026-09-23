@@ -364,6 +364,19 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		}
 		s.persistProcessVerdict?.(processState, processVerdict);
 	}
+    if (sameTask && result.dispatchId && !disposition.pending) {
+        d.noProgress.recordDispatchEvidence({
+            dispatchId: result.dispatchId, taskId: p.taskId, executor: p.agent, revision: afterRevision,
+            changedScope: changes.attribution === 'certain' ? changes.paths : [], readback,
+            concurrentWriters: observation?.concurrentWritableOverlap ?? true,
+            effectsRef: protocolEvidencePath ?? undefined,
+            completed: disposition.delivered && result.exitCode === 0,
+            blockingFindings: isReviewPersona(p.agent) && countReviewFindings(result.output).nonBlocking > 0 ? countReviewFindings(result.output).blocking : -1,
+            coveredScope: isReviewPersona(p.agent) && result.exitCode === 0 ? d.noProgress.reviewCoverage(p.taskId).filter(path => checkScope([path], p.scopeGlobs).outOfScope.length === 0) : [],
+            edited: p.beforeRevision !== afterRevision || !!observation && (observation.skipped || observation.paths.length > 0),
+            evidenceRef: runPath ?? '', openRequirements: runtimeResult.verification.requirements.filter((r: any) => r.status !== 'passed').map((r: any) => r.id),
+        });
+    }
 	const accepted = runtimeResult.acceptance.accepted;
 	const acceptanceStatus = runtimeResult.compatibility.hubAcceptanceStatus;
 	const status = protocolDiagnostic ? "tool_protocol_error" : accepted ? "accepted" : executionStatus === "completed" && (runtimeResult.verification.status === "failed" || acceptanceStatus === "deliverable_failed") ? "verification_failed" : executionStatus === "completed" ? "completed_unverified" : disposition.status;

@@ -1232,9 +1232,21 @@ state, not task wording or scope_mode. Research scope is advisory, not isolation
 
 Operator cancellation fences the **agent identity**, including disjoint scopes,
 model/prose changes and dispatch/research inputs. Other agents' already-running work
-is not cancelled. A human `/af-retry <cancelled-dispatchId>` supplies one-use
-explicit authorization; it never dispatches or renews budget. Stale IDs cannot grant
-permission. Other failure categories cannot be authorized with this command.
+is not cancelled. `/af-recover inspect <operationId>` reports safe attempt state and
+missing prerequisites; `retry|reconcile|abandon <operationId> <attemptId>` validate IDs.
+Legacy `/af-retry <dispatchId>` resolves the same retry handler for cancellation and
+settled indeterminate failures. Both retry spellings ask the human once, warning that an
+indeterminate attempt may already have partial effects and retry can duplicate them;
+there is at most one indeterminate grant per operation. Neither command executes or
+renews budget: after authorization, explicitly invoke the code-rendered original
+`dispatch_agent(...)` or `spawn_research(...)` contract. Pending/unknown process,
+duplicate grant, stale response, or unavailable original contract is not permission
+to replay. T3 protocol errors still need trusted effects evidence and corrected conditions;
+unknown-tool needs a catalog change. `reconcile` requires attributable unchanged-current-
+revision readback and independent nonblocking review; it clears a technical block only,
+retaining failed delivery and every open AF-MIN-CHANGE/test/review/plan obligation. `abandon`
+does not satisfy dependent work. Audit exports IDs/statuses only, never prompts, nonces,
+raw contracts or evidence paths.
 
 Non-busy recovery refusals spend existing turn/task operation allowances. Exhaustion
 returns budget_refused; no new limit, parent abort, retry, wait or queue is added.

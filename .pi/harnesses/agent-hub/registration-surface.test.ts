@@ -43,7 +43,12 @@ test("agent-hub registration surface matches the checked-in fixture", async () =
 		assert.deepEqual(actual, fixture);
 		assert.equal(extension.commands.has("af-probe"), false);
 		assert.equal(extension.tools.has("af_probe_value"), false);
-		for (const name of ["af-audit", "af-retry", "af-work-mode", "af-watchdog"]) assert.ok(extension.commands.has(name), name);
+		for (const name of ["af-audit", "af-recover", "af-retry", "af-work-mode", "af-watchdog"]) assert.ok(extension.commands.has(name), name);
+        const recoverNotices: string[] = [];
+        await extension.commands.get('af-recover')!.handler('retry bad;command attempt', { cwd: repoRoot, ui: { notify: (message: string) => recoverNotices.push(message) } } as any);
+        assert.match(recoverNotices.at(-1) ?? '', /Usage: \/af-recover/);
+        await extension.commands.get('af-retry')!.handler('bad;command', { cwd: repoRoot, ui: { notify: (message: string) => recoverNotices.push(message) } } as any);
+        assert.match(recoverNotices.at(-1) ?? '', /Usage: \/af-retry/);
 		const notices: string[] = [];
 		const watchdog = extension.commands.get("af-watchdog")!;
 		const watchdogCtx = { cwd: repoRoot, ui: { notify: (message: string) => notices.push(message) } } as any;

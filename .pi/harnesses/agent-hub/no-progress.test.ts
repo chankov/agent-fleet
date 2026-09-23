@@ -37,6 +37,22 @@ test("evidenced changes permit supported recovery, while indeterminate cause nev
 	assert.equal(guard.begin("unknown", "rev-b").allowed, false, "unknown cause stays fail-closed despite changed conditions");
 });
 
+test('one settled indeterminate grant enables only one explicit next attempt, including after task reset', () => {
+ const g = createNoProgressGuard(); const first = g.begin('contract', 'same', 'builder');
+ g.finish(first, 'same', failed('ind-1', 'indeterminate'));
+ assert.equal(g.begin('contract', 'changed', 'builder').allowed, false);
+ assert.equal(g.authorizeIndeterminate(first.operationId!, first.attemptId!, 'nonce'), false, 'unsettled process refuses');
+ assert.equal(g.settle(first.operationId!, first.attemptId!, 'trusted-process-exit'), true);
+ g.reset();
+ assert.equal(g.authorizeIndeterminate(first.operationId!, first.attemptId!, 'human-nonce'), true);
+ assert.equal(g.authorizeIndeterminate(first.operationId!, first.attemptId!, 'second'), false);
+ const second = g.begin('contract', 'same', 'builder'); assert.equal(second.allowed, true);
+ g.finish(second, 'same', failed('ind-2', 'indeterminate'));
+ assert.equal(g.begin('contract', 'changed', 'builder').allowed, false);
+ assert.equal(g.settle(second.operationId!, second.attemptId!, 'exit-2'), true);
+ assert.equal(g.authorizeIndeterminate(second.operationId!, second.attemptId!, 'second-human'), false);
+});
+
 test("busy is an immediate refusal and does not poison completion or unrelated work", () => {
 	const guard = createNoProgressGuard();
 	const active = guard.begin("same", "rev");
@@ -54,7 +70,7 @@ test("stale completion after task reset cannot consume or grant authorization", 
 	guard.reset(); assert.notEqual(guard.taskId(), oldTaskId, "new-task reset rotates runtime task identity");
 	guard.finish(stale, "old", failed("stale-cancel", "operator_cancelled"));
 	assert.equal(guard.authorize("stale-cancel"), false);
-	assert.equal(guard.begin("operation", "old").allowed, true);
+	assert.equal(guard.begin("operation", "old").allowed, false, "reset cannot manufacture settled-process proof or replay a live attempt");
 });
 
 test("structured research contract normalizes paths and prose without changing legacy calls", () => {
@@ -79,6 +95,22 @@ test("research progress ignores paraphrase but recognizes a normalized read-scop
 	model = "local/b";
 	await run("4", base, undefined, undefined, { cwd } as any);
 	assert.equal(calls, 3, "effective model is part of execution conditions");
+});
+
+test('production tool refusal offers validated recover commands and stored original-contract invocation without replay', async t => {
+ const cwd=mkdtempSync(join(tmpdir(),'recover-refusal-')); t.after(()=>rmSync(cwd,{recursive:true,force:true}));
+ execFileSync('git',['init','-q',cwd]); writeFileSync(join(cwd,'src.ts'),'one');
+ const guard=createNoProgressGuard(), d:any={noProgress:guard,artifacts:{loadInputArtifacts:()=>[]}};
+ let calls=0;
+ const run=withNoProgress(d,'dispatch',async()=>{calls++;return {content:[],details:{status:'indeterminate',dispatchId:'physical-1',exitCode:1,reason:'lost'}}},()=>({model:'m'}));
+ const params:any={agent:'builder',task:'continue exactly this work',scope:['src.ts'],deliverables:['src.ts']};
+ await run('one',params,undefined,undefined,{cwd} as any);
+ const refused=await run('two',params,undefined,undefined,{cwd} as any);
+ assert.equal((refused.details as any).status,'no_progress_refused');
+ const op=guard.byDispatch('physical-1')!, attempt=op.attempts[0];
+ assert.match((refused.content[0] as any).text,new RegExp(`/af-recover retry ${op.operationId} ${attempt.attemptId}`));
+ assert.match((refused.content[0] as any).text, /dispatch_agent\(\{"agent":"builder","task":"continue exactly this work"/);
+ assert.equal(calls,1);
 });
 
 test("scope_mode, prose and disjoint scope do not bypass same-agent cancellation", async t => {
@@ -189,4 +221,34 @@ test("task reset does not silently authorize a recorded operator cancellation", 
  g.reset(); assert.equal(g.begin("new-task", "new", "builder").allowed, false);
  assert.equal(g.authorize("cancel-persistent"), true);
  assert.equal(g.begin("new-task", "new", "builder").allowed, true);
+});
+
+test('production restore refuses a conflicting checkpoint without reopening a consumed indeterminate grant', () => {
+ const entries: any[] = [];
+ const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+ const first = guard.begin('contract', 'same', 'builder');
+ guard.finish(first, 'same', failed('indeterminate-1', 'indeterminate'));
+ assert.equal(guard.settle(first.operationId!, first.attemptId!, 'runtime-exit'), true);
+ assert.equal(guard.authorizeIndeterminate(first.operationId!, first.attemptId!, 'nonce-1'), true);
+ const preGrant = entries.filter(row => row.data.kind !== 'ledger' || row.data.event.type !== 'grant').map(row => row.data);
+ const conflicting = [...entries, { customType: 'agent-hub-recover-event', data: { kind: 'snapshot', rows: preGrant } }];
+ guard.prepareSessionRestore();
+ assert.throws(() => guard.restore(conflicting), /invalid recovery snapshot/i);
+ assert.equal(guard.inspect(first.operationId!)?.indeterminateGrantUsed, true);
+ assert.equal(guard.authorizeIndeterminate(first.operationId!, first.attemptId!, 'nonce-2'), false);
+ const resumed = createNoProgressGuard();
+ assert.throws(() => resumed.restore(conflicting), /invalid recovery snapshot/i);
+ guard.compact(entries);
+ resumed.restore([entries.at(-1)]);
+ assert.equal(resumed.authorizeIndeterminate(first.operationId!, first.attemptId!, 'nonce-2'), false);
+});
+
+test('failed guard replay does not replace the current cancellation fence', () => {
+ const entries: any[] = [], guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+ const first = guard.begin('work', 'same', 'builder');
+ guard.finish(first, 'same', failed('cancel-1', 'operator_cancelled'));
+ guard.prepareSessionRestore();
+ assert.throws(() => guard.restore([...entries, { customType: 'agent-hub-recover-event', data: { kind: 'guard', event: { type: 'authorize', key: 'wrong', dispatchId: 'cancel-1' } } }]), /invalid recovery guard history/i);
+ assert.equal(guard.begin('other', 'different', 'builder').allowed, false);
+ assert.equal(guard.authorize('cancel-1'), true);
 });

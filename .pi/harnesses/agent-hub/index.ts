@@ -1,5 +1,7 @@
 import { registerRetry } from "./commands/retry.ts";
+import { registerRecover, runRecoverCommand } from "./commands/recover.ts";
 import { createNoProgressGuard } from "./no-progress.ts";
+import { renderNextInvocation, renderRecoverCommands } from './recover-policy.ts';
 import { closeEvidenceSession, pruneEvidenceSessions } from "./execution-evidence.ts";
 import { isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
 import { createProfileActivation } from './policy/profile-activation.ts';
@@ -102,7 +104,7 @@ import { createToolExecutionOrchestration } from "./tools/execution-orchestratio
 import { latestPersistedCapabilityState, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
-import { confirmOneUseRetry, confirmTaskSupersession, createBudgetRecovery, createReservedTaskIdentityReset } from "./budget-recovery.ts";
+import { confirmRecoverAction, confirmTaskSupersession, createBudgetRecovery, createReservedTaskIdentityReset } from "./budget-recovery.ts";
 import { requestRuntimeAsk } from "../ask-user-remote/runtime-ask.ts";
 import { registerBudgetContinue } from "./commands/budget-continue.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
@@ -454,7 +456,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	// surfaced in the status line. Resets on session_start.
 	let delegatedTokens = 0;
 
-	const noProgress = createNoProgressGuard();
+	const noProgress = createNoProgressGuard((type, data) => pi.appendEntry(type, data));
 	let taskIdentityReset: ReturnType<typeof createReservedTaskIdentityReset>;
 	let unknownToolCounter = createUnknownToolCounter({ limit: 3 });
 	const toolCatalogRuntime = createToolCatalogRuntime(catalogSnapshot("operator", []));
@@ -1020,24 +1022,28 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		handleBudgetContinue: async ctx => { await budgetRecovery.resume(ctx); },
 		handleAudit: async ctx => showSessionAudit(ctx, sessionDir),
 		handleRetry: async (args, ctx) => {
-			const dispatchId = args?.trim();
-			if (!dispatchId) { ctx.ui.notify("Usage: /af-retry <cancelled-dispatchId>. Only an operator cancellation can receive one-use permission.", "error"); return; }
-			const result = await confirmOneUseRetry(dispatchId, ctx, {
-				taskId: () => noProgress.taskId(), language: () => userLanguage,
-				ask: (id, params, askCtx, signal) => requestRuntimeAsk(pi.events, id, params, askCtx, signal),
-				startWait: id => executionHistory.startAskUser(id),
-				endWait: (id, sameTask) => {
-					const wait = executionHistory.endAskUser(id, Date.now());
-					if (!sameTask) return;
-					if (wait > 0) taskClock = addTaskClockWait(taskClock, wait);
-					turnBudgetAskUserWaitMs += wait;
-				},
-				authorize: id => noProgress.authorize(id),
-			});
-			if (!result.authorized) { ctx.ui.notify("Retry not authorized. Cancelled, unanswered, stale, duplicate, unknown, or non-cancellation decisions grant nothing.", "error"); return; }
-			pi.appendEntry("agent-hub-retry-authorized", { dispatchId, correlation: result.correlation, identity: hubAuditIdentity(ctx) });
-			ctx.ui.notify(`One retry authorized for ${dispatchId}. Budget and safety gates still apply; no operation was dispatched.`, "info");
-		},
+            const dispatchId = args?.trim();
+            if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(dispatchId)) { ctx.ui.notify("Usage: /af-retry <dispatchId>", "error"); return; }
+            const op = noProgress.byDispatch(dispatchId), attempt = op?.attempts.find(a => a.dispatchId === dispatchId);
+            if (!op || !attempt) { ctx.ui.notify("Unknown dispatch ID; no retry authorized.", "error"); return; }
+            await commandCtx.handleRecover(`retry ${op.operationId} ${attempt.attemptId}`, ctx);
+        },
+        handleRecover: async (args, ctx) => {
+            await runRecoverCommand(args, ctx, {
+                noProgress,
+                currentRevision: cwd => worktreeRevision(cwd, []),
+                confirm: confirmRecoverAction,
+                askPorts: (op, attempt, action) => ({
+                    taskId: () => noProgress.taskId(), language: () => userLanguage,
+                    ask: (id: string, params: any, askCtx: any, signal: AbortSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, signal),
+                    startWait: (id: string) => executionHistory.startAskUser(id),
+                    endWait: (id: string, sameTask: boolean) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } },
+                    valid: () => { const current = noProgress.inspect(op.operationId); return current?.attempts.at(-1)?.attemptId === attempt.attemptId && (action === "abandon" ? !current.abandoned && noProgress.isIdle(op.executor) : noProgress.canAuthorize(op.operationId, attempt.attemptId)); },
+                    consume: (nonce: string) => action === "abandon" ? noProgress.abandon(op.operationId, attempt.attemptId, nonce) : attempt.category === "indeterminate" ? noProgress.authorizeIndeterminate(op.operationId, attempt.attemptId, nonce) : noProgress.authorize(attempt.dispatchId),
+                }),
+            });
+        },
+
 		handleAgentsTeam: async (_args, ctx) => {
 			widgetCtx = ctx;
 			const teamNames = Object.keys(teams);
@@ -1762,6 +1768,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	registerPoll(pi, commandCtx);
 	registerBudgetContinue(pi, commandCtx);
 	registerRetry(pi, commandCtx);
+	registerRecover(pi, commandCtx);
 	registerDebate(pi, commandCtx);
 
 	const detailPanel = createDetailPanel<AgentDef, AgentState, ResearchState>({
@@ -2026,7 +2033,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	pi.on("turn_end", async (_event, ctx) => pressureLifecycle.turnEnd(ctx));
 	pi.on("context", async (_event, ctx) => pressureLifecycle.context(ctx));
 	pi.on("agent_settled", async (_event, ctx) => pressureLifecycle.agentSettled(ctx));
-	pi.on("session_compact", async () => {
+	pi.on("session_compact", async (_event, ctx) => {
+        noProgress.compact(ctx.sessionManager.getEntries());
 		persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }));
 		const result = toolCatalogRuntime.compact({
 			mode: getWorkMode(), getEffectiveTools: () => pi.getActiveTools(),
@@ -2059,7 +2067,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			resetAccessApproval: accessApprovalRouter.reset,
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
-			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.reset(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
+			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
 			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },
@@ -2152,6 +2160,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			recomputeGrid();
 			const sessionEntries = _ctx.sessionManager.getEntries();
 			processState = latestProcessState(sessionEntries);
+            noProgress.restore(sessionEntries);
 			const persistedCatalog = latestPersistedToolCatalog(sessionEntries);
 			if (persistedCatalog) toolCatalogRuntime.restore(persistedCatalog);
 			const persistedUnknownTools = latestPersistedUnknownToolCounter(sessionEntries);

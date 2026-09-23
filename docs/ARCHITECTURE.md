@@ -288,8 +288,17 @@ T5 does not consume `assist.write-isolation`; the separate T6c native launch bou
 
 Recovery remains the single T1 contract: no automatic retry, queue, model fallback, or new
 numeric allowance. Busy work is refused before execution accounting or history mutation and is
-not recorded as no-progress failure; indeterminate failures do not authorize retry. Operator
-cancellation fences the same agent identity until a fresh, one-use authorization is consumed.
+not recorded as no-progress failure. A settled indeterminate failure permits at most one
+explicit, warned, human-authorized retry per logical operation after the prior process is
+confirmed finished and the executor is idle; partial side effects may be duplicated. Neither
+`/af-recover retry <operationId> <attemptId>` nor legacy `/af-retry <dispatchId>` executes work:
+both use the same authorization lane and offer a stored original-contract invocation for a
+separate explicit tool call under unchanged budgets and safety gates. Pending/unknown process,
+second grant, stale IDs, and missing original contract fail closed. `/af-recover inspect` is
+read-only; `reconcile` clears only a technical block when independent current-revision
+readback and nonblocking reviewer evidence cover the failed attempt, leaving the immutable
+failure and open T2/T11 requirements intact; `abandon` never satisfies dependent work.
+Operator cancellation fences the same agent identity until a fresh, one-use authorization is consumed.
 Other agent identities—including the anonymous, read-only research actor—remain independent,
 and a task reset does not erase the cancellation fence. Native session reuse is bound to an exact,
 normalized current-task contract (task identity, instructions, scope, deliverables, input artifacts,
@@ -552,7 +561,7 @@ agent-hub/
 ├── types.ts                  # shared Hub agent/state contracts
 ├── config/                   # agent/frontmatter, teams, profiles, dispatch policy, overrides
 ├── context/                  # state, budgets, assertions/artifacts, session-health factories
-├── commands/                 # 21 typed /af-* command registrars
+├── commands/                 # 27 typed /af-* command registrars
 ├── tools/                    # 16 tools plus dispatch/research execution orchestration
 ├── dispatch-core.ts          # facade over native, coms, and observability dispatch
 ├── dispatch-*.ts             # native preparation/spawn/completion and backend adapters

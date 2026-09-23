@@ -96,6 +96,29 @@ export async function confirmOneUseRetry(dispatchId: string, ctx: ExtensionConte
 		: { authorized: false, reason: "retry_unknown_stale_or_duplicate", correlation };
 }
 
+export interface RecoverAuthorizationPorts extends Omit<RetryAuthorizationPorts, 'authorize'> {
+ valid(): boolean;
+ consume(nonce: string): boolean;
+}
+const pendingRecovery = new Set<string>();
+/** A direct slash command cannot grant itself: only a correlated human selection consumes the nonce. */
+export async function confirmRecoverAction(input: { taskId: string; operationId: string; attemptId: string; action: 'retry' | 'abandon'; category: string }, ctx: ExtensionContext, ports: RecoverAuthorizationPorts): Promise<boolean> {
+ const key = input.operationId;
+ if (pendingRecovery.has(key) || !ports.valid() || ports.taskId() !== input.taskId) return false;
+ pendingRecovery.add(key);
+ const nonce = randomUUID(), controller = new AbortController();
+ const warning = input.category === 'indeterminate' ? 'WARNING: partial side effects may already exist; retry may duplicate them. The previous process must be settled.' : 'No side effects are undone by this authorization.';
+ ctx.ui.notify(warning, 'warning');
+ const question: RuntimeQuestion = { question: `Authorize exactly one ${input.action} for ${input.category}?`, context: `${warning}\nTask: ${input.taskId}\nOperation: ${input.operationId}\nFailed attempt: ${input.attemptId}\nAction: ${input.action}\nNonce: ${nonce}`, options: ['Yes — authorize once', 'No — deny'], allowMultiple: false, allowFreeform: false, allowComment: false };
+ const correlation: BudgetCorrelation = { taskId: input.taskId, tranche: 0, requestId: nonce, operation: 'retry' };
+ ports.startWait(nonce);
+ try {
+  const answer = await ports.ask(nonce, question, ctx, controller.signal);
+  return ports.taskId() === input.taskId && ports.valid() && isAffirmative(answer, question, correlation) && ports.consume(nonce);
+ } catch { return false; }
+ finally { ports.endWait(nonce, ports.taskId() === input.taskId); pendingRecovery.delete(key); }
+}
+
 export interface TaskSupersessionPorts {
  language(): string;
  ask(id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal: AbortSignal): Promise<unknown>;
