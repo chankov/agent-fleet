@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { DETAIL_CHROME_ROWS, applyLiveFleetDetailRow, detailBodyLines, detailBodyOffsets, detailContent, detailEntryOffsets, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker } from "./fleet-detail-view.ts";
+import { DETAIL_CHROME_ROWS, applyLiveFleetDetailRow, detailBodyLines, detailBodyOffsets, detailContent, detailEntryOffsets, detailTransition, fleetModelChoices, modelPickerTransition, normalizeFleetDetailInput, openProactiveEvidence, proactiveEvidenceContent, evidenceScroll, proactiveHistoryLines, renderFleetDetail, renderFleetModelPicker, renderFleetSubstitutionPicker } from "./fleet-detail-view.ts";
 
 const theme = { fg: (_: string, s: string) => s, bold: (s: string) => s };
 const row = { key: "a", name: "Architect", kind: "specialist" as const, depth: 0, status: "running" as const, model: "opus", backend: "native" as const, contextPct: 42, contextTokens: 42_000, elapsed: 1_000, toolCount: 3, lastWork: "work", hasTimeline: true };
@@ -199,6 +199,69 @@ test("inline model picker pages and keeps the selected option visible", () => {
 	assert.equal(state.index, 19);
 	assert.equal(state.scrollOffset, 16);
 	assert.match(renderFleetModelPicker("Builder", choices, state, 80, 4, theme).join("\n"), /› p\/m19/);
+});
+
+test("P11b detail and history keep reviews separate from assistant messages and from strip expiry", () => {
+	const hex = "a".repeat(64);
+	const base = { id: hex, owner: "a", attempt: "1", runToken: "a:1", source: "system1" as const, claim: "suspicion" as const, state: "new" as const, ruleId: "rules.md#heading", ruleHash: hex, subject: "docs/x.md", snapshotHandle: hex, snapshotHash: hex, snapshotId: "snapshot-1", unitId: "unit-1", excerptHash: hex, occurrences: 1 };
+	const states = ["new", "repeated", "stale", "resolved"] as const;
+	const owner = { owner: "a", attempt: "1", runToken: "a:1", lastStatus: "reviewed", coverage: "partial" as const, turns: 4, reviewed: 1, partial: 3, evaluating: 0, currentViolations: 1, currentSuspicions: 1, stale: 1, resolved: 1, findings: [base], history: states.map((state, index) => ({ turnId: `turn-${index}`, status: "reviewed", coverage: { status: "partial", gaps: ["coverage_gap"], checked: ["rules.md#heading:unit-1"] }, findings: [{ ...base, state, source: index === 1 ? "deterministic" as const : "system1" as const }] })) };
+	const live = { ...row, runToken: "a:1", proactive: owner };
+	const entries = [{ kind: "text" as const, title: "Assistant", content: "assistant-only", timestamp: 0 }];
+	const content = detailBodyLines(live, entries, 140, null);
+	assert.match(content.join("\n"), /rule rules.md#heading.*source docs\/x.md.*snapshot snapshot-1.*unit unit-1/);
+	assert.match(content.join("\n"), /System 1 suspicion/);
+	assert.match(proactiveHistoryLines(owner, 140).join("\n"), /new[\s\S]*repeated.*deterministic violation[\s\S]*stale[\s\S]*resolved/);
+	assert.equal(detailBodyOffsets(live, entries, 140, null)[0].start, content.length - 1);
+	assert.equal(entries.length, 1);
+	assert.doesNotMatch(JSON.stringify(owner), /assistant-only/);
+	assert.doesNotMatch(detailBodyLines({ ...live, runToken: "a:2" }, entries, 140, null).join("\n"), /snapshot-1/);
+	assert.equal(applyLiveFleetDetailRow(live, undefined, true).proactive, undefined);
+});
+
+test("P11b explicit evidence request validates refs and delegates exclusively to private readback", () => {
+	const hex = "b".repeat(64);
+	const ref = { snapshotHandle: hex, snapshotHash: hex, snapshotId: "captured", unitId: "unit", excerptHash: hex } as Parameters<typeof openProactiveEvidence>[0];
+	let calls = 0;
+	const retained = (handle: string, digest: string, snapshot: string, unit: string, excerpt: string) => { calls++; assert.deepEqual([handle, digest, snapshot, unit, excerpt], [hex, hex, "captured", "unit", hex]); return "captured bytes"; };
+	assert.equal(openProactiveEvidence(ref, retained), "captured bytes");
+	assert.equal(openProactiveEvidence({ ...ref, snapshotHash: "bad" }, retained), null);
+	assert.equal(calls, 1);
+	assert.equal(openProactiveEvidence(ref, () => null), null, "deleted or corrupt retained snapshot is unavailable, not live source");
+});
+
+test("D1 narrow and tall evidence scroll exposes every exact label identity without truncating or showing an unavailable template", () => {
+ const hex="a".repeat(64), id=`rules/README.md#${"Long heading ".repeat(12)}@1:${hex}`;
+ const finding={snapshotId:hex,ruleId:id,ruleHash:hex,subject:"docs/long-source.md"} as Parameters<typeof proactiveEvidenceContent>[1];
+ const lines=proactiveEvidenceContent("captured\n"+"evidence ".repeat(50),finding,17);
+ assert.ok(lines.every(line=>Array.from(line).length<=17));
+ const template=JSON.stringify({snapshotId:hex,ruleId:id,ruleHash:hex,subject:finding.subject,expected:"unknown"});
+ // The heading itself can exceed the viewport; keys remain reconstructable from wrapped rows.
+ const first=lines.findIndex(line=>line.startsWith(" {\"snapshotId\""));
+ assert.ok(first>=0);assert.equal(lines.slice(first,first+Math.ceil(Array.from(template).length/16)).map(line=>line.slice(1)).join(""),template);
+ for(const height of [2,80]) { let offset=0; const seen=new Set<string>();
+  for(let i=0;i<lines.length+2;i++){ for(const line of lines.slice(offset,offset+height))seen.add(line);offset=evidenceScroll("\u001b[B",offset,lines.length,height); }
+  assert.equal(offset,Math.max(0,lines.length-height));assert.ok(lines.every(line=>seen.has(line)));
+  assert.equal(evidenceScroll("\u001b[H",offset,lines.length,height),0);
+  assert.equal(evidenceScroll("\u001b[F",0,lines.length,height),offset);
+  assert.equal(evidenceScroll("\u001b[5~",offset,lines.length,height),Math.max(0,offset-height));
+ }
+ assert.deepEqual(proactiveEvidenceContent(null,finding,17),[" Evidence unavail", " able (retained", " snapshot missing", " or invalid)."]);
+ assert.ok(proactiveEvidenceContent(null,finding,17).every(line => line.length <= 17));
+});
+
+test("D1 preface scroll reaches long wrapped identities even when no timeline entry moves", () => {
+ const hex="a".repeat(64), finding={id:hex,owner:"a",attempt:"1",runToken:"a:1",source:"system1" as const,claim:"suspicion" as const,state:"new" as const,ruleId:`rules/README.md#Long heading@1:${hex}`,ruleHash:hex,subject:"docs/x.md",snapshotHandle:hex,snapshotHash:hex,snapshotId:hex,unitId:"u",excerptHash:hex,occurrences:1};
+ const review={turnId:"turn",status:"reviewed",coverage:{status:"checked",gaps:[],checked:[]},findings:[finding]};
+ const live={...row,runToken:"a:1",proactive:{owner:"a",attempt:"1",runToken:"a:1",lastStatus:"reviewed",coverage:"checked" as const,turns:1,reviewed:1,partial:0,evaluating:0,currentViolations:0,currentSuspicions:1,stale:0,resolved:0,findings:[finding],history:[review]}};
+ const entries=[{kind:"text" as const,title:"assistant",content:"end",timestamp:0}],width=21,body=3;
+ const content=detailBodyLines(live,entries,width,null),offsets=detailBodyOffsets(live,entries,width,null);
+ assert.ok(content.some(line=>line.includes("rules/README")));
+ assert.ok(content.every(line=>Array.from(line).length<=width));
+ const state={scrollOffset:content.length-body,selectedIndex:0,expandedIndex:null,followTail:true};
+ for(let i=0;i<content.length;i++)detailTransition("\u001b[A",state,entries,body,content.length,offsets);
+ assert.equal(state.scrollOffset,0);
+ assert.match(renderFleetDetail(live,entries,state.scrollOffset,width,body,theme).join("\n"),/Review/);
 });
 
 test("coms peers show a notice rather than an empty transcript", () => {

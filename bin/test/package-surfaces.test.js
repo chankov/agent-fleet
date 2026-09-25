@@ -243,6 +243,10 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
   for (const file of ["commands/probe.ts", "diagnostic-probe.ts"]) assert.equal(paths.has(`.pi/harnesses/agent-hub/${file}`), false, file);
   for (const file of ["diagnostic-series-budget.ts", "diagnostic-probe-extension.ts"]) assert.ok(paths.has(`.pi/harnesses/agent-hub/${file}`), file);
   assert.ok(paths.has("bin/catalog/harness-runtime-closure.json"), "relocated harness closure must ship in package");
+  for (const file of readdirSync(join(root, ".pi/harnesses/agent-hub")).filter(name => name.startsWith("proactive-") && !name.includes(".test.") && /\.(ts|mjs)$/.test(name))) {
+    assert.ok(paths.has(`.pi/harnesses/agent-hub/${file}`), `proactive runtime missing ${file}`);
+  }
+  assert.equal([...paths].some(path => path.startsWith(".pi/agent-sessions/") || path.startsWith(".tmp-")), false, "private proactive fixtures must not ship");
   assert.equal([...paths].some((path) => /guided-workspace-setup|af-(?:setup|doctor)-agent-fleet/.test(path)), false, "tarball must not ship retired setup surfaces");
   const prompts = [...paths].filter((path) => path.startsWith(".pi/prompts/af-")).sort();
   assert.deepEqual(prompts, [
@@ -320,6 +324,23 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
       ], { encoding: "utf8" });
       assert.match(result, /Files installed; (?:runtime dependencies are missing or unverified|existing readiness checks passed)/);
       assert.equal(existsSync(join(workspace, "docs", "plans", "agent-hub", "local-duo-profile.md")), false, "local profile notes must not be installed");
+      // P13b/B9: the real installer path carries the full proactive runtime
+      // closure (all 12 files incl the .mjs worker) and never auto-creates
+      // human-owned proactive review config.
+      for (const name of ["proactive-config.ts", "proactive-evaluate.ts", "proactive-feedback.ts", "proactive-findings.ts", "proactive-local.ts", "proactive-observer.ts", "proactive-rules.ts", "proactive-runtime.ts", "proactive-selection.ts", "proactive-snapshot-worker.mjs", "proactive-snapshot.ts", "proactive-types.ts"]) {
+        assert.ok(existsSync(join(workspace, ".pi", "harnesses", "agent-hub", name)), `${preset}: installed ${name}`);
+      }
+      assert.equal(existsSync(join(workspace, ".ai", "proactive-review.json")), false, `${preset}: setup must not auto-create proactive review config`);
+      // A pre-existing HUMAN fixture survives a re-setup byte-identical.
+      const humanPath = join(workspace, ".ai", "proactive-review.json");
+      const humanBytes = Buffer.from(`${JSON.stringify({ version: 1, owner: "human" })}\n`);
+      writeFileSync(humanPath, humanBytes);
+      execFileSync(process.execPath, [
+        join(extracted, "bin", "cli.js"), "setup", "--workspace", workspace,
+        "--preset", preset, "--features", "none", "--yes",
+      ], { encoding: "utf8" });
+      assert.deepEqual(readFileSync(humanPath), humanBytes, `${preset}: re-setup preserves human fixture`);
+      rmSync(humanPath);
       const desired = JSON.parse(readFileSync(join(workspace, ".ai", "agent-fleet.json"), "utf8"));
       assert.equal(desired.preset, preset);
       // Nothing installs under .claude/ any more — the bridge Stop hook moved in with

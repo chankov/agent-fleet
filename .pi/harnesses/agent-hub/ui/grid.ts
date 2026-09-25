@@ -1,7 +1,7 @@
 import { CustomEditor } from "@mariozechner/pi-coding-agent";
 import { isKeyRelease, Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { fleetStripTransition, initialFleetStripState, reconcileStripState, type FleetStripIntent, type FleetStripState } from "../../lib/fleet-strip-controller.ts";
-import { selectWidgetRows, summariseWidget, system1Visible, type FleetRow } from "../../lib/fleet-read-model.ts";
+import { selectWidgetRows, summariseWidget, system1Visible, type FleetRow, type ProactiveSessionView } from "../../lib/fleet-read-model.ts";
 import { renderFleetStrip, visibleWindow } from "../../lib/fleet-strip-view.ts";
 import { installFleetEditor, type FleetEditorFactory, type FleetEditorWrapper } from "./fleet-editor.ts";
 export interface GridWidgetContext {
@@ -16,6 +16,8 @@ export interface GridWidgetContext {
 export interface GridUIContext {
 	getWidgetContext(): GridWidgetContext | null | undefined;
 	getRows(now: number): FleetRow[];
+	/** Optional atomic common projection; existing getRows-only consumers remain supported. */
+	getSnapshot?(now: number): { rows: FleetRow[]; proactive?: ProactiveSessionView };
 	handleIntent?(intent: FleetStripIntent): void | Promise<void>;
 	now?(): number;
 	setTimeout?(callback: () => void, ms: number): ReturnType<typeof setTimeout>;
@@ -27,7 +29,7 @@ export function createGridUI(deps: GridUIContext) {
 	const schedule = deps.setTimeout ?? setTimeout;
 	const cancel = deps.clearTimeout ?? clearTimeout;
 	let owner: GridWidgetContext | null = null, widgetInstalled = false, editorInstallation: ReturnType<typeof installFleetEditor> | undefined;
-	let tui: any, state: FleetStripState = initialFleetStripState(), suspended = 0, timer: ReturnType<typeof setTimeout> | undefined, disposed = false, lastDisplayKey = "", lastRows: FleetRow[] = [], snapshotNow = 0, epoch = 0;
+	let tui: any, state: FleetStripState = initialFleetStripState(), suspended = 0, timer: ReturnType<typeof setTimeout> | undefined, disposed = false, lastDisplayKey = "", lastRows: FleetRow[] = [], lastProactive: ProactiveSessionView | undefined, snapshotNow = 0, epoch = 0;
 
 	const maxRows = () => Number.isFinite(tui?.terminal?.rows) ? Math.max(0, Math.floor(tui.terminal.rows / 3)) : 0;
 	const bodyRows = () => Math.max(0, maxRows() - 3);
@@ -41,7 +43,10 @@ export function createGridUI(deps: GridUIContext) {
 		if (state.confirmation && state.confirmation.until <= now) state = { ...state, confirmation: null };
 		const gate = editorGate();
 		if (!gate.open && (state.active || state.confirmation)) state = { ...state, active: false, confirmation: null };
-		const all = deps.getRows(now);
+		const source = deps.getSnapshot ? deps.getSnapshot(now) : { rows: deps.getRows(now), proactive: undefined };
+		const all = source.rows;
+		const review = source.proactive;
+		lastProactive = review && (review.evaluating > 0 || now < review.retainUntil) ? review : undefined;
 		const selected = all.find(row => row.key === state.selectedKey);
 		const pin = state.active && selected ? { key: selected.key, runToken: selected.runToken } : undefined;
 		lastRows = selectWidgetRows(all, now, pin);
@@ -49,7 +54,7 @@ export function createGridUI(deps: GridUIContext) {
 		return lastRows;
 	}
 	function needsTimer(rows: readonly FleetRow[], now: number): boolean {
-		return state.active || !!state.confirmation || rows.some(row => row.status === "running" || ((row.status === "done" || row.status === "error") && row.endedAt != null && now < row.endedAt + 10_000) || system1Visible(row, now));
+		return state.active || !!state.confirmation || !!lastProactive || rows.some(row => row.status === "running" || ((row.status === "done" || row.status === "error") && row.endedAt != null && now < row.endedAt + 10_000) || system1Visible(row, now));
 	}
 	function arm() {
 		if (timer || disposed) return;
@@ -58,7 +63,7 @@ export function createGridUI(deps: GridUIContext) {
 		timer = schedule(() => { timer = undefined; const before = lastDisplayKey; refresh(false); if (before !== lastDisplayKey) tui?.requestRender?.(); arm(); }, 500);
 	}
 	function displayKey(rows: readonly FleetRow[], now: number): string {
-		return JSON.stringify([Math.floor(now / 1000), rows.map(row => [row.key, row.runToken, row.status, Math.floor(row.elapsed / 1000), row.lastWork, row.system1 && row.system1.runToken === row.runToken ? [row.system1.checkId, row.system1.phase, row.system1.label, row.system1.elapsedMs, row.system1.retainUntil, row.system1.llmRelation] : null]), state, maxRows(), tui?.terminal?.columns ?? null, suspended, editorGate().open]);
+		return JSON.stringify([Math.floor(now / 1000), rows.map(row => [row.key, row.runToken, row.status, Math.floor(row.elapsed / 1000), row.lastWork, row.system1 && row.system1.runToken === row.runToken ? [row.system1.checkId, row.system1.phase, row.system1.label, row.system1.elapsedMs, row.system1.retainUntil, row.system1.llmRelation] : null, lastProactive && row.proactive && row.proactive.runToken === row.runToken ? [row.proactive.turns, row.proactive.reviewed, row.proactive.partial, row.proactive.currentViolations, row.proactive.currentSuspicions, row.proactive.stale, row.proactive.resolved] : null]), lastProactive && [lastProactive.turns, lastProactive.reviewed, lastProactive.partial, lastProactive.evaluating, lastProactive.currentViolations, lastProactive.currentSuspicions, lastProactive.stale, lastProactive.resolved, lastProactive.retainUntil], state, maxRows(), tui?.terminal?.columns ?? null, suspended, editorGate().open]);
 	}
 	function refresh(request = true) {
 		if (disposed) return;
@@ -117,7 +122,7 @@ export function createGridUI(deps: GridUIContext) {
 				const confirmation = state.confirmation && state.confirmation.until > snapshotNow
 					? selected?.backend === "coms" && action === "kill" ? "press x again to abort request (peer pane keeps running)" : `press ${action === "kill" ? "x" : "r"} again to ${action}`
 					: undefined;
-				return renderFleetStrip({ active: state.active && gate.open, interactiveAvailable: gate.compatible && suspended === 0, selectedKey: state.selectedKey, summary: summariseWidget(lastRows), window, maxRows: maxRows(), confirmation: gate.open ? confirmation : undefined }, width, theme, { visibleWidth, truncateToWidth });
+				return renderFleetStrip({ active: state.active && gate.open, interactiveAvailable: gate.compatible && suspended === 0, selectedKey: state.selectedKey, summary: summariseWidget(lastRows), proactive: lastProactive, window, maxRows: maxRows(), confirmation: gate.open ? confirmation : undefined }, width, theme, { visibleWidth, truncateToWidth });
 			} };
 		}, { placement: "belowEditor" });
 	}
@@ -142,7 +147,7 @@ export function createGridUI(deps: GridUIContext) {
 		if (timer) { cancel(timer); timer = undefined; }
 		try { owner.ui.setWidget("agent-running", undefined); } catch {}
 		editorInstallation?.dispose(); editorInstallation = undefined; widgetInstalled = false; tui = undefined;
-		state = initialFleetStripState(); lastRows = []; lastDisplayKey = "";
+		state = initialFleetStripState(); lastRows = []; lastProactive = undefined; lastDisplayKey = "";
 	}
 	function reset() { disposeOwned(); owner = null; disposed = false; install(); }
 	function dispose() { disposed = true; disposeOwned(); owner = null; }

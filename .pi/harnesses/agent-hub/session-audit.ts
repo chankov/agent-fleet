@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { redactSecrets } from "../lib/fleet-transcript-store.ts";
 import { RECOVERY_CATEGORIES, type RecoveryCategory } from "./recovery-contract.ts";
-import { readWatchdogEvents } from "./system1-report.ts";
+import { readWatchdogEvents, buildProactiveReport, readProactiveReport, type ProactiveReportInput } from "./system1-report.ts";
 import { projectWatchdogReadback } from "./system1-activity.ts";
 import { createNoProgressGuard, projectRecoveryRows } from './no-progress.ts';
 
@@ -51,6 +51,7 @@ export interface SessionAuditSummary {
 		snapshots: Array<{ snapshotId: string }>;
 	};
 	events: SessionAuditEvent[];
+	proactive: ReturnType<typeof buildProactiveReport> | ReturnType<typeof readProactiveReport>;
 	unavailable: string[];
 }
 
@@ -76,7 +77,7 @@ function runtimeResult(details: Record<string, any> | null): Record<string, any>
 }
 
 /** Build an allowlisted audit from runtime-owned records. Prompt, output, payload, paths and environment values are never copied. */
-export function buildSessionAudit(input: { entries: readonly unknown[]; sessionDir: string }): SessionAuditSummary {
+export function buildSessionAudit(input: { entries: readonly unknown[]; sessionDir: string; proactive?: ProactiveReportInput }): SessionAuditSummary {
 	const unavailable = new Set<string>(), meta = readJson(join(input.sessionDir, "session.json"));
 	const rootSessionId = runtimeId(meta?.sessionId) ?? runtimeId(basename(input.sessionDir));
 	if (!meta) unavailable.add("root_session_metadata");
@@ -215,12 +216,12 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 	return {
 		schema: "agent-fleet.session-audit/v1", readOnly: true,
 		identity: { rootSessionId, children: [...children].map(([dispatchId, sessionId]) => ({ dispatchId, sessionId })), snapshots: [...snapshots].map(snapshotId => ({ snapshotId })) },
-		events: [...deduped.values()], unavailable: [...unavailable].sort(),
+		events: [...deduped.values()], proactive: input.proactive ? buildProactiveReport(input.proactive) : readProactiveReport(input.sessionDir), unavailable: [...unavailable].sort(),
 	};
 }
 
 export function formatSessionAudit(summary: SessionAuditSummary): string { return JSON.stringify(summary, null, 2); }
 
-export async function showSessionAudit(ctx: ExtensionContext, sessionDir: string): Promise<void> {
-	ctx.ui.notify(formatSessionAudit(buildSessionAudit({ entries: ctx.sessionManager.getEntries(), sessionDir })), "info");
+export async function showSessionAudit(ctx: ExtensionContext, sessionDir: string, proactive?: ProactiveReportInput): Promise<void> {
+	ctx.ui.notify(formatSessionAudit(buildSessionAudit({ entries: ctx.sessionManager.getEntries(), sessionDir, proactive })), "info");
 }

@@ -1,4 +1,6 @@
 import { relative } from "node:path";
+import { mkdirSync, watch } from "node:fs";
+import { ingestObserverManifests } from "./proactive-runtime.ts";
 import { contextPct, overWindowDiagnostic } from "./context-window.js";
 import { createShadowCoordinator } from "./drift-judge.ts";
 import { createDriftRuntime, type DriftRuntime } from "./drift-runtime.ts";
@@ -135,6 +137,23 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeSpawnOutcome> {
 	const { deps, state, ctx, model, effectiveTools, thinkingLevel, replacementSystemPrompt, agentSessionFile, runPrompt, extensions, delegateEnv, turnBudget, personaKey, originalModelFallback } = run;
 	const drift = startDriftRuntime(run);
+	const proactive = deps.getProactiveRuntime?.();
+	const assignment = run.proactiveAssignment;
+	let observerWatch: ReturnType<typeof watch> | undefined;
+	let acceptedManifest = false;
+	let observerUnavailable = false;
+	if (proactive && assignment) {
+		proactive.abort(assignment.owner); // a replacement attempt fences its predecessor, not other owners
+		try {
+			mkdirSync(assignment.directory, { recursive: true, mode: 0o700 });
+			const ingest = () => {
+				if (state.killedByOperator || state.restarting) { proactive.abort(assignment.owner, assignment.attempt); observerWatch?.close(); observerWatch = undefined; return; }
+				try { if (ingestObserverManifests(assignment, proactive.submit) > 0) acceptedManifest = true; }
+				catch { observerUnavailable = true; }
+			};
+			observerWatch = watch(assignment.directory, ingest);
+		} catch { observerUnavailable = true; }
+	}
 	state.driftFence = drift.fence;
 	const spawnOptions: SpawnPiAgentOptions = {
         runtimeTestObserver: extensions.some(path => path.endsWith("/runtime-test-check.ts")),
@@ -185,6 +204,14 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		}
 		return result;
 	});
+	if (proactive && assignment) {
+		if (state.killedByOperator || state.restarting) proactive.abort(assignment.owner, assignment.attempt);
+		else {
+			try { if (ingestObserverManifests(assignment, proactive.submit) > 0) acceptedManifest = true; }
+			catch { observerUnavailable = true; }
+			if (!acceptedManifest || observerUnavailable) proactive.recordGap(assignment.owner, assignment.attempt, `${assignment.session}:${assignment.owner}:${assignment.attempt}:observer`, "not_instrumented");
+		}
+	}
 	const reconciled = drift.outcomeFor(res);
 	return {
 		res,
@@ -196,6 +223,8 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		driftAdvisories: reconciled.driftAdvisories,
 	};
 	} finally {
+		observerWatch?.close();
+		if (proactive && assignment && (state.killedByOperator || state.restarting)) proactive.abort(assignment.owner, assignment.attempt);
 		drift.dispose();
 		if (state.driftFence === drift.fence) state.driftFence = undefined;
 	}

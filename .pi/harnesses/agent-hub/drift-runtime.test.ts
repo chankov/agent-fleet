@@ -17,6 +17,10 @@ import {
 	type DriftMonitorLike,
 } from "./drift-runtime.ts";
 import { killPiTree, spawnPiAgent, type PiRunControl } from "./spawn.ts";
+import { createProactiveRuntime } from "./proactive-runtime.ts";
+import type { ObserverAssignment } from "./proactive-observer.ts";
+import type { ProactiveConfig } from "./proactive-types.ts";
+import { createHash } from "node:crypto";
 
 const violation = { rule: "loop", terminal: true, detail: "same call" };
 const monitor: DriftMonitorLike = {
@@ -382,6 +386,65 @@ test("A1/A3 prepared native run fences replacement callbacks and does not report
 	assert.equal(requested >= 1, true);
 });
 
+test("assembled native spawn preserves watchdog authority and fences killed observation; missing manifest is explicit", async () => {
+ const root = mkdtempSync(join(tmpdir(), "native-observation-"));
+ const config: ProactiveConfig = { version: 1, mode: "shadow", remoteContext: "disabled", include: ["src/**"], maxEvaluationsPerSession: 4 };
+ const runtime = createProactiveRuntime({ config });
+ const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+ const context = { task: { path: "task", revision: "1", hash: digest("task") }, rules: [], exceptions: [] };
+ let watchdogCalls = 0;
+ const runCase = async (attempt: string, killed: boolean, manifest: boolean) => {
+  const directory = join(root, attempt);
+  const assignment: ObserverAssignment = { root, directory, session: "session", owner: "builder", attempt, config, context };
+  const state: any = { def: { name: "builder" }, toolCount: 0, timeline: [], killedByOperator: false, restarting: false };
+  const run: any = {
+   dispatchId: attempt, state, proactiveAssignment: assignment, ctx: { cwd: root, ui: { notify() {} } },
+   watchdogParam: true, key: "builder", scopeGlobs: ["src/**"], task: "task", agentKey: "builder",
+   model: "fake/model", effectiveTools: "read", thinkingLevel: "off", replacementSystemPrompt: "",
+   agentSessionFile: join(root, "session.json"), runPrompt: "prompt", extensions: [], turnBudget: {}, personaKey: "builder",
+   resumeAllowed: false, sessionRecycled: false, sessionReset: null,
+   deps: {
+    displayName: (name: string) => name, getProactiveRuntime: () => runtime, guardrailEnv: () => ({}), notifyProviderQueue() {},
+    getSessionDir: () => root, getWatchdogAgentOverride: () => undefined, getWatchdogSetting: () => "on", getWorkMode: () => "operator",
+    providerSemaphore: { run: async (_model: string, fn: () => Promise<unknown>) => fn() },
+    runDriftJudge: async () => { watchdogCalls++; return { status: "verdict", verdict: "on_track" }; },
+    createDriftMonitor: () => ({ ...monitor, onToolStart: () => violation }),
+    updateWidget() {}, appendTimelineText() {}, appendTimelineEvent() {}, shortModel: (model: string) => model,
+    getReconSearchTimeoutMs: () => 1,
+    spawnPiAgentWithModelFallback: async (opts: any, _fallback: string, cbs: any) => {
+     opts.attemptLifecycle.beforePhysicalSpawn({ generation: 1 });
+     cbs.onControl?.({ terminate() { throw new Error("review cannot terminate"); } });
+     cbs.onToolStart?.("bash", "{}", "1");
+     await flush();
+     if (manifest) {
+      const turnId = `session:builder:${attempt}:0`;
+      const snapshot = { snapshotId: digest(turnId), turnId, head: "", context, planStatus: "task_only", status: "complete", gaps: [], units: [{ id: "1", path: "src/a.ts", kind: "modified", attribution: "observed_only" }], observedPaths: 1, coverage: { retainedUnits: 1, retainedBytes: 0, omittedPaths: 0 } };
+      const data = JSON.stringify(snapshot);
+      writeFileSync(join(directory, "snapshot-0.json"), data);
+      writeFileSync(join(directory, "turn-0.json"), JSON.stringify({ producer: "agent-fleet.proactive-observer/v1", session: "session", owner: "builder", attempt, turnIndex: 0, turnId, status: "captured", snapshot: { path: "snapshot-0.json", hash: digest(data), snapshotId: snapshot.snapshotId, bytes: Buffer.byteLength(data) } }));
+     }
+     if (killed) state.killedByOperator = true;
+     opts.attemptLifecycle.afterPhysicalSpawn({ generation: 1 });
+     return { output: "done", exitCode: killed ? 130 : 0, stderr: "", termination: killed ? { reason: "cancelled", confirmed: true, escalated: false } : undefined };
+    },
+   },
+  };
+  const outcome = await runPreparedNative(run);
+  assert.equal(outcome.driftStop, null);
+  return runtime.records.filter(record => record.attempt === attempt);
+ };
+ try {
+  const killed = await runCase("killed", true, true);
+  assert.equal(killed.some(record => record.status === "not_checked" || record.status === "reviewed" || record.status === "not_instrumented"), false);
+  const missing = await runCase("missing", false, false);
+  assert.deepEqual(missing.map(record => record.status), ["not_instrumented"]);
+  const captured = await runCase("normal", false, true);
+  assert.deepEqual(captured.map(record => record.status), ["not_checked"]);
+  assert.equal(watchdogCalls, 3);
+  assert.equal(runtime.used, 0);
+ } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("operator fence disposes the session-owned attempt synchronously", () => {
 	const drift = runtime(async () => ({ status: "unavailable" }));
 	drift.attemptLifecycle.beforePhysicalSpawn({ generation: 1 });
@@ -615,6 +678,61 @@ test("caller cancellation without an operator flag stays cancelled by caller", a
 	assert.equal(result.exitCode, 130);
 	assert.equal(result.diagnostics.reason, "cancelled");
 	assert.match(result.output, /cancelled by its caller/);
+});
+
+test("P13a B5 proactive aligned leaves a real watchdog stop intact; review records unaffected", async () => {
+ const root = mkdtempSync(join(tmpdir(), "proactive-watchdog-"));
+ try {
+  const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+  const context = { task: { path: "task", revision: "1", hash: digest("task") }, rules: [], exceptions: [] };
+  const aligned = Object.assign(async () => ({ status: "reviewed" as const, drift: { task: "aligned" as const, plan: "not_checked" as const }, rules: [], findings: [], gaps: [], evaluations: [] }), { budgeted: true as const });
+  const config: ProactiveConfig = { version: 1, mode: "advisory", remoteContext: "disabled", include: ["src/**"], maxEvaluationsPerSession: 4 };
+  const runtime = createProactiveRuntime({ config, evaluate: aligned });
+  const terminated: string[] = [];
+  const state: any = { def: { name: "builder" }, toolCount: 0, timeline: [], killedByOperator: false, restarting: false };
+  const attempt = "stop-case", directory = join(root, attempt);
+  const assignment: ObserverAssignment = { root, directory, session: "session", owner: "builder", attempt, config, context };
+  const run: any = {
+   dispatchId: attempt, state, proactiveAssignment: assignment, ctx: { cwd: root, ui: { notify() {} } },
+   watchdogParam: true, key: "builder", scopeGlobs: ["src/**"], task: "task", agentKey: "builder",
+   model: "fake/model", effectiveTools: "read", thinkingLevel: "off", replacementSystemPrompt: "",
+   agentSessionFile: join(root, "session.json"), runPrompt: "prompt", extensions: [], turnBudget: {}, personaKey: "builder",
+   resumeAllowed: false, sessionRecycled: false, sessionReset: null,
+   deps: {
+    displayName: (name: string) => name, getProactiveRuntime: () => runtime, guardrailEnv: () => ({}), notifyProviderQueue() {},
+    getSessionDir: () => root, getWatchdogAgentOverride: () => undefined, getWatchdogSetting: () => "on", getWorkMode: () => "operator",
+    providerSemaphore: { run: async (_model: string, fn: () => Promise<unknown>) => fn() },
+    runDriftJudge: async () => ({ status: "verdict", verdict: "stuck", reason: "same call loop" }),
+    createDriftMonitor: () => ({ ...monitor, onToolStart: () => violation }),
+    updateWidget() {}, appendTimelineText() {}, appendTimelineEvent() {}, shortModel: (model: string) => model,
+    getReconSearchTimeoutMs: () => 1,
+    spawnPiAgentWithModelFallback: async (opts: any, _fallback: string, cbs: any) => {
+     opts.attemptLifecycle.beforePhysicalSpawn({ generation: 1 });
+     cbs.onControl?.({ terminate(reason = "drift_stop") { terminated.push(reason); } });
+     cbs.onToolStart?.("bash", "{}", "1");
+     const turnId = `session:builder:${attempt}:0`;
+     const snapshot = { snapshotId: digest(turnId), turnId, head: "", context, planStatus: "task_only", status: "complete", gaps: [], units: [{ id: "1", path: "src/a.ts", kind: "modified", attribution: "observed_only" }], observedPaths: 1, coverage: { retainedUnits: 1, retainedBytes: 0, omittedPaths: 0 } };
+     const data = JSON.stringify(snapshot);
+     writeFileSync(join(directory, "snapshot-0.json"), data);
+     writeFileSync(join(directory, "turn-0.json"), JSON.stringify({ producer: "agent-fleet.proactive-observer/v1", session: "session", owner: "builder", attempt, turnIndex: 0, turnId, status: "captured", snapshot: { path: "snapshot-0.json", hash: digest(data), snapshotId: snapshot.snapshotId, bytes: Buffer.byteLength(data) } }));
+     await new Promise(r => setTimeout(r, 100)); // let the real stuck verdict settle before completion
+     opts.attemptLifecycle.afterPhysicalSpawn({ generation: 1 });
+     // Model Pi honoring the requested stop: a requested drift_stop ends the run as drift_stop.
+     return terminated.length ? { output: "partial", exitCode: 125, stderr: "", termination: { reason: "drift_stop", confirmed: true, escalated: false } } : { output: "done", exitCode: 0, stderr: "", termination: undefined };
+    },
+   },
+  };
+  const outcome = await runPreparedNative(run);
+  assert.ok(outcome.driftStop, "real watchdog stop is applied");
+  assert.equal(outcome.driftStop?.verdict, "stuck");
+  assert.deepEqual(terminated, ["drift_stop"]);
+  for (let i = 0; i < 100 && !runtime.records.some(r => r.attempt === attempt && r.status === "reviewed"); i++) await new Promise(r => setTimeout(r, 10));
+  const records = runtime.records.filter(r => r.attempt === attempt);
+  assert.ok(records.some(r => r.status === "reviewed"), "proactive review still closes as reviewed");
+  assert.equal(records[0].assessment?.drift.task, "aligned");
+  assert.ok(runtime.findings.history.length >= 0);
+  assert.equal(records.some(r => r.status === "cancelled"), false, "watchdog stop does not cancel the review record");
+ } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("index cancel, restart and shutdown ports fence before kill", () => {

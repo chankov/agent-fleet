@@ -17,7 +17,7 @@ export interface CommandContext {
 	handleAgentsKill(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsRestart(args: string, ctx: ExtensionContext): Promise<void>;
 	handleContext(args: string, ctx: ExtensionContext): Promise<void>;
-	handleAudit(ctx: ExtensionContext): Promise<void>;
+	handleAudit(ctx: ExtensionContext, args?: string): Promise<void>;
 	handleHubReport(args: string, ctx: ExtensionContext): Promise<void>;
 	handleZoom(args: string, ctx: ExtensionContext): Promise<void>;
 	handleDispatchPolicy(args: string, ctx: ExtensionContext): Promise<void>;

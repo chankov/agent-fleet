@@ -29,6 +29,17 @@ export interface FleetRow {
 	structuralOnly?: boolean;
 	/** Owner-fenced System 1 view. Absent unless the current runToken matches. */
 	system1?: System1OwnerView;
+	/** Metadata-only review for this exact native run. */
+	proactive?: ProactiveOwnerView;
+}
+
+/** Opaque catalog/subject keys, not paths. Only the explicit labels FILE is path-checked. */
+export function validProactiveLabelKey(value: unknown): boolean {
+	if (!value || typeof value !== "object") return false;
+	const key = value as Record<string, unknown>;
+	const hex = (v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
+	const text = (v: unknown, max: number) => typeof v === "string" && v.length >= 1 && v.length <= max && !/[\x00-\x1f\x7f-\x9f]/.test(v);
+	return hex(key.snapshotId) && hex(key.ruleHash) && text(key.ruleId, 512) && text(key.subject, 256);
 }
 
 export const SYSTEM1_RETENTION_MS = 10_000;
@@ -110,10 +121,130 @@ export interface PeerInput extends Omit<FleetRow, "kind" | "parentKey" | "depth"
 	status?: FleetStatus;
 	elapsed?: number;
 }
+export interface ProactiveFindingInput {
+	readonly id?: string; readonly owner: string; readonly attempt: string;
+	readonly source: "deterministic" | "system1"; readonly claim: "violation" | "suspicion";
+	readonly state: "current" | "stale" | "resolved";
+	readonly ruleId?: string; readonly ruleHash?: string; readonly subject?: string;
+	readonly snapshotHandle?: string; readonly snapshotHash?: string; readonly snapshotId?: string;
+	readonly unitId?: string; readonly excerptHash?: string; readonly occurrences?: number;
+	readonly capturedRange?: { readonly side: "before" | "after"; readonly offset: number; readonly endOffset: number; readonly startLine: number; readonly endLine: number };
+	readonly violationLine?: number;
+}
+/** Metadata only. Evidence is read solely through the private findings readback API on user action. */
+export interface ProactiveFindingView {
+	readonly id: string; readonly owner: string; readonly attempt: string; readonly runToken: string;
+	readonly source: "deterministic" | "system1"; readonly claim: "violation" | "suspicion";
+	readonly state: "new" | "repeated" | "stale" | "resolved";
+	readonly ruleId: string; readonly ruleHash: string; readonly subject: string;
+	readonly snapshotHandle: string; readonly snapshotHash: string; readonly snapshotId: string;
+	readonly unitId: string; readonly excerptHash: string; readonly occurrences: number;
+	readonly capturedRange?: NonNullable<ProactiveFindingInput["capturedRange"]>;
+	readonly violationLine?: number;
+}
+export interface ProactiveReviewView {
+	readonly turnId: string; readonly status: string;
+	readonly planStatus?: "bound" | "task_only";
+	readonly drift?: { readonly task: string; readonly plan: string };
+	readonly coverage: { readonly status: string; readonly gaps: readonly string[]; readonly checked: readonly string[] };
+	readonly findings: readonly ProactiveFindingView[];
+}
+export interface ProactiveLedgerInput {
+	readonly records: readonly { readonly owner: string; readonly attempt: string; readonly turnId: string; readonly status: string }[];
+	readonly history: readonly { readonly owner: string; readonly attempt: string; readonly turnId: string; readonly status?: string; readonly planStatus?: "bound" | "task_only"; readonly drift?: { readonly task: string; readonly plan: string }; readonly coverage: ProactiveReviewView["coverage"]; readonly findings?: readonly ProactiveFindingInput[] }[];
+	readonly current: readonly ProactiveFindingInput[];
+	readonly activity: readonly { readonly type: string; readonly jobId: string; readonly at?: number }[];
+}
+export interface ProactiveTotals {
+	turns: number; reviewed: number; partial: number;
+	evaluating: number; currentViolations: number; currentSuspicions: number;
+	stale: number; resolved: number;
+}
+export interface ProactiveOwnerView extends ProactiveTotals {
+	owner: string; attempt: string; runToken: string;
+	lastStatus: string; coverage: "checked" | "partial" | "not_checked";
+	readonly findings: readonly ProactiveFindingView[];
+	readonly history: readonly ProactiveReviewView[];
+}
+export interface ProactiveSessionView extends ProactiveTotals {
+	readonly consumer: "proactive-review";
+	readonly owners: readonly ProactiveOwnerView[];
+	/** Activity is not owner-bound; these timestamps apply to the session only. */
+	readonly lastFinishedAt: number | null;
+	readonly retainUntil: number;
+}
+/** Pure, session-wide projection; no worker rows are synthesized for Hub turns. */
+export function projectProactive(input: ProactiveLedgerInput): ProactiveSessionView {
+	const empty = (): ProactiveTotals => ({ turns: 0, reviewed: 0, partial: 0, evaluating: 0, currentViolations: 0, currentSuspicions: 0, stale: 0, resolved: 0 });
+	const totals = { ...empty() };
+	const owners = new Map<string, ProactiveOwnerView>();
+	const key = (owner: string, attempt: string) => JSON.stringify([owner, attempt]);
+	const ensure = (owner: string, attempt: string): ProactiveOwnerView => {
+		const id = key(owner, attempt);
+		let view = owners.get(id);
+		if (!view) { view = { ...empty(), owner, attempt, runToken: `${owner}:${attempt}`, lastStatus: "not_checked", coverage: "not_checked", findings: [], history: [] }; owners.set(id, view); }
+		return view;
+	};
+	const coverage = new Map(input.history.map(review => [JSON.stringify([review.owner, review.attempt, review.turnId]), review.coverage]));
+	const statuses = new Set(["reviewed", "not_checked", "superseded", "queue_timeout", "backlog_full", "session_budget", "cancelled", "unavailable", "no_new_evidence", "not_instrumented"]);
+	const safeStatus = (status: string) => statuses.has(status) ? status : "not_checked";
+	const hex = (value: string | undefined) => value && /^[a-f0-9]{64}$/.test(value) ? value : "";
+	const safeRange = (range: ProactiveFindingInput["capturedRange"]) => range && (range.side === "before" || range.side === "after") &&
+		[range.offset, range.endOffset, range.startLine, range.endLine].every(Number.isSafeInteger) &&
+		range.offset >= 0 && range.endOffset >= range.offset && range.startLine >= 1 && range.endLine >= range.startLine
+		? { side: range.side, offset: range.offset, endOffset: range.endOffset, startLine: range.startLine, endLine: range.endLine } : undefined;
+	const findingView = (finding: ProactiveFindingInput, seen: Set<string>): ProactiveFindingView | null => {
+		// An incomplete ref must never be offered as a readback target.
+		const id = hex(finding.id), snapshotHandle = hex(finding.snapshotHandle), snapshotHash = hex(finding.snapshotHash), excerptHash = hex(finding.excerptHash);
+		if (!id || !snapshotHandle || !snapshotHash || !excerptHash || !finding.snapshotId || !finding.unitId) return null;
+		const identity = JSON.stringify([finding.owner, finding.attempt, id]);
+		const state = finding.state === "current" ? seen.has(identity) || (finding.occurrences ?? 0) > 1 ? "repeated" : "new" : finding.state;
+		seen.add(identity);
+		const capturedRange = safeRange(finding.capturedRange);
+		const violationLine = capturedRange && finding.source === "deterministic" && Number.isSafeInteger(finding.violationLine) &&
+			finding.violationLine! >= capturedRange.startLine && finding.violationLine! <= capturedRange.endLine ? finding.violationLine : undefined;
+		return { id, owner: finding.owner, attempt: finding.attempt, runToken: `${finding.owner}:${finding.attempt}`, source: finding.source, claim: finding.claim, state,
+			ruleId: finding.ruleId ?? "", ruleHash: hex(finding.ruleHash), subject: finding.subject ?? "", snapshotHandle, snapshotHash,
+			snapshotId: finding.snapshotId, unitId: finding.unitId, excerptHash, occurrences: finding.occurrences ?? 1,
+			...(capturedRange ? { capturedRange } : {}), ...(violationLine !== undefined ? { violationLine } : {}) };
+	};
+	const seen = new Set<string>();
+	for (const review of input.history) {
+		const view = ensure(review.owner, review.attempt);
+		const findings = (review.findings ?? []).filter(f => f.owner === review.owner && f.attempt === review.attempt).map(f => findingView(f, seen)).filter((f): f is ProactiveFindingView => f !== null);
+		const driftValues = new Set(["aligned", "possible_deviation", "insufficient_evidence", "not_checked"]);
+		const drift = review.drift && driftValues.has(review.drift.task) && driftValues.has(review.drift.plan) ? { task: review.drift.task, plan: review.drift.plan } : undefined;
+		owners.set(key(review.owner, review.attempt), { ...view, history: [...view.history, { turnId: review.turnId, status: safeStatus(review.status ?? "not_checked"), ...(review.planStatus === "bound" || review.planStatus === "task_only" ? { planStatus: review.planStatus } : {}), ...(drift ? { drift } : {}), coverage: { status: review.coverage.status === "checked" ? "checked" : "partial", gaps: review.coverage.gaps.map(() => "coverage_gap"), checked: review.coverage.checked.filter(id => /^[a-z0-9_.:/#-]{1,160}$/i.test(id)) }, findings }] });
+	}
+	for (const record of input.records) {
+		const view = ensure(record.owner, record.attempt);
+		const checked = record.status === "reviewed" && coverage.get(JSON.stringify([record.owner, record.attempt, record.turnId]))?.status === "checked";
+		const partial = !checked && record.status !== "no_new_evidence";
+		for (const target of [totals, view]) { target.turns++; if (checked) target.reviewed++; if (partial) target.partial++; }
+		owners.set(key(record.owner, record.attempt), { ...view, lastStatus: safeStatus(record.status), coverage: checked ? "checked" : partial ? "partial" : "not_checked" });
+	}
+	for (const finding of input.current) {
+		const view = ensure(finding.owner, finding.attempt);
+		// Current is the latest state, not another occurrence after the history timeline.
+		const metadata = findingView(finding, new Set());
+		if (metadata) owners.set(key(finding.owner, finding.attempt), { ...view, findings: [...view.findings, metadata] });
+		const field = finding.state === "stale" ? "stale" : finding.state === "resolved" ? "resolved" : finding.source === "deterministic" && finding.claim === "violation" ? "currentViolations" : "currentSuspicions";
+		for (const target of [totals, ensure(finding.owner, finding.attempt)]) target[field]++;
+	}
+	const active = new Set<string>();
+	for (const event of input.activity) {
+		if (event.type === "job_started") active.add(event.jobId);
+		if (event.type === "job_finished") active.delete(event.jobId);
+	}
+	totals.evaluating = active.size; // Activity IDs carry no owner: do not guess an owner.
+	const lastFinishedAt = input.activity.filter(event => event.type === "job_finished" && Number.isFinite(event.at)).reduce<number | null>((at, event) => Math.max(at ?? -Infinity, event.at!), null);
+	return { consumer: "proactive-review", ...totals, owners: [...owners.values()], lastFinishedAt, retainUntil: lastFinishedAt === null ? 0 : lastFinishedAt + SYSTEM1_RETENTION_MS };
+}
 export interface FleetSource {
 	specialists: readonly SpecialistInput[];
 	research: readonly ResearchInput[];
 	peers: readonly PeerInput[];
+	proactive?: ProactiveSessionView;
 }
 export interface FleetFilter { showFinished: boolean; query?: string; }
 export interface WidgetSelectionPin { key: string; runToken?: string; }

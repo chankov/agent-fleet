@@ -1,4 +1,4 @@
-import { buildFleetRows, fleetTiming, projectSystem1Owner, type DelegateInput, type FleetFilter, type FleetRow, type FleetSource, type PeerInput, type ResearchInput, type SpecialistInput, type System1CheckInput, type System1OwnerView } from "../../lib/fleet-read-model.ts";
+import { buildFleetRows, fleetTiming, projectProactive, projectSystem1Owner, type DelegateInput, type FleetFilter, type FleetRow, type FleetSource, type PeerInput, type ProactiveLedgerInput, type ResearchInput, type SpecialistInput, type System1CheckInput, type System1OwnerView } from "../../lib/fleet-read-model.ts";
 
 export interface FleetSourceAgent {
 	def: { name: string; description?: string };
@@ -56,6 +56,8 @@ export interface FleetSourceDeps<TAgent extends FleetSourceAgent = FleetSourceAg
 	modelForPeer(model: string): string;
 	/** In-memory projection only. Render must not call the provider or read JSONL. */
 	getSystem1?(): { active: readonly System1CheckInput[]; completed: readonly System1CheckInput[]; degraded?: boolean } | null | undefined;
+	/** Session-owned in-memory ledger; never read private evidence or trace files here. */
+	getProactive?(): ProactiveLedgerInput | null | undefined;
 }
 
 function delegateForest(children: readonly FleetSourceDelegate[], now: number, model: (value: string) => string): DelegateInput[] {
@@ -104,6 +106,8 @@ export function createFleetSource<TAgent extends FleetSourceAgent, TResearch ext
 		return chosen && chosen.view.runToken === runToken ? chosen.view : undefined;
 	}
 	function snapshot(now: number): FleetSource {
+		const ledger = deps.getProactive?.();
+		const proactive = ledger ? projectProactive(ledger) : undefined;
 		const specialists: SpecialistInput[] = Array.from(deps.getAgents().entries()).map(([key, state]) => ({
 			key,
 			name: deps.displayName(state.def.name),
@@ -118,6 +122,7 @@ export function createFleetSource<TAgent extends FleetSourceAgent, TResearch ext
 			lastWork: state.lastWork || state.task || state.def.description || "",
 			hasTimeline: true,
 			system1: ownerSystem1(key, state, now),
+			proactive: state.dispatchId && state.lastBackend !== "coms" ? proactive?.owners.find(view => view.owner === key && view.attempt === state.dispatchId && view.runToken === `${key}:${state.dispatchId}`) : undefined,
 			delegates: delegateForest(Array.from(state.delegations?.values() ?? []), now, deps.modelForPeer),
 		}));
 		const research: ResearchInput[] = Array.from(deps.getResearch().values()).map(state => ({
@@ -161,7 +166,7 @@ export function createFleetSource<TAgent extends FleetSourceAgent, TResearch ext
 				peers.push({ key: `peer-pending:${encodeURIComponent(name)}`, name, model: "", lastWork: `${pending.count} pending ${pending.count === 1 ? "reply" : "replies"}`, status: "running", timingKind: pending.oldest == null ? "unknown" : "wait", startedAt: pending.oldest, elapsed: pending.oldest == null ? 0 : Math.max(0, now - pending.oldest) });
 			}
 		}
-		return { specialists, research, peers };
+		return { specialists, research, peers, ...(proactive ? { proactive } : {}) };
 	}
 	return {
 		snapshot,

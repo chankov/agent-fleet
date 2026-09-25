@@ -1,4 +1,5 @@
-import type { FleetRow } from "./fleet-read-model.ts";
+import { validProactiveLabelKey, type FleetRow, type ProactiveFindingView, type ProactiveOwnerView, type ProactiveReviewView } from "./fleet-read-model.ts";
+import { safeTerminalText } from "./fleet-strip-view.ts";
 import type { ThemeLike } from "./fleet-dashboard-view.ts";
 
 export interface TimelineEntry {
@@ -204,26 +205,85 @@ export function system1DetailPreface(row: FleetRow, width: number): string[] {
 	return row.system1.detail.split(/\r?\n/).map(line => trim(` S1 ${line}`, w));
 }
 
+/** Only common-projection metadata belongs in the detail surface, never transcript entries. */
+export function proactiveReviewLines(review: ProactiveReviewView, width: number): string[] {
+	const safe = (value: string) => safeTerminalText(value);
+	return [
+		` Review ${safe(review.turnId)} · ${safe(review.status)} · coverage ${safe(review.coverage.status)}`,
+		...(review.planStatus ? [`   plan ${review.planStatus}`] : []),
+		...(review.drift ? [`   drift task ${review.drift.task} · plan ${review.drift.plan}`] : []),
+		...review.coverage.checked.map(id => `   checked ${safe(id)}`),
+		...review.coverage.gaps.map(gap => `   uncovered ${safe(gap)}`),
+		...review.findings.flatMap(finding => [
+			`   ${finding.state} · ${finding.source === "deterministic" ? "deterministic violation" : "System 1 suspicion"} · rule ${safe(finding.ruleId)} · source ${safe(finding.subject)} · snapshot ${safe(finding.snapshotId)} · unit ${safe(finding.unitId)}`,
+			`     captured ${finding.capturedRange ? `${finding.capturedRange.side} lines ${finding.capturedRange.startLine}–${finding.capturedRange.endLine} · bytes ${finding.capturedRange.offset}–${finding.capturedRange.endOffset}` : "range unavailable"}${finding.violationLine !== undefined ? ` · violation line ${finding.violationLine}` : " · precise violation line unavailable"}`,
+		]),
+	].flatMap(line => wrapPlainText(line, Math.max(1, width)));
+}
+
+/** History is independent of the 10-second strip retention and of transcript messages. */
+export function proactiveHistoryLines(owner: ProactiveOwnerView, width: number): string[] {
+	return owner.history.flatMap(review => proactiveReviewLines(review, width));
+}
+
+function proactiveDetailPreface(row: FleetRow, width: number): string[] {
+	if (!row.proactive || row.proactive.runToken !== row.runToken) return [];
+	const owner = row.proactive;
+	return [trim(` Review ${owner.lastStatus} · coverage ${owner.coverage} · ${owner.currentViolations} deterministic · ${owner.currentSuspicions} suspicions`, width),
+		...owner.history.slice(-1).flatMap(review => proactiveReviewLines(review, width))];
+}
+
+/** Explicit evidence-open action. Only the private retained readback port may supply bytes. */
+/** Local-only label template, shown only beside successfully opened retained evidence. */
+export function proactiveEvidenceContent(value: string | null, finding: ProactiveFindingView | undefined, width: number): string[] {
+	const label = finding && validProactiveLabelKey(finding)
+		? { snapshotId: finding.snapshotId, ruleId: finding.ruleId, ruleHash: finding.ruleHash, subject: finding.subject, expected: "unknown" } : null;
+	const wrapped = (line: string) => wrapPlainText(safeTerminalText(line), Math.max(1, width - 1)).map(part => ` ${part}`);
+	if (value === null) return wrapped("Evidence unavailable (retained snapshot missing or invalid).");
+	// Escape UTF-16 code units before wrapping: ASCII chunks fit terminal columns,
+	// including wide characters and surrogate pairs, and rejoin to exact JSON.
+	const jsonLines = (text: string) => { const chars = Array.from(text), size = Math.max(1, width - 1), rows: string[] = []; for (let i = 0; i < chars.length; i += size) rows.push(` ${chars.slice(i, i + size).join("")}`); return rows; };
+	const asciiJson = (value: object) => JSON.stringify(value).replace(/[^\x00-\x7f]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+	return [...wrapped("Captured evidence (not live source):"), ...(label ? [...wrapped("Local label JSON (copy to explicit human labels file; edit expected):"), ...jsonLines(asciiJson(label))] : wrapped("Label key unavailable; do not infer an expected value.")),
+		...value.split(/\r?\n/).slice(0, 80).flatMap(wrapped), ...wrapped("Esc back · ↑↓/PgUp/PgDn/Home/End scroll · captured excerpt only")];
+}
+
+/** Scroll visual lines independently of the transcript and review selection. */
+export function evidenceScroll(input: string, offset: number, total: number, height: number): number {
+	const max = Math.max(0, total - Math.max(1, height));
+	const delta = input === "\u001b[A" || input === "k" ? -1 : input === "\u001b[B" || input === "j" ? 1 : input === "\u001b[5~" ? -Math.max(1, height) : input === "\u001b[6~" ? Math.max(1, height) : 0;
+	return input === "\u001b[H" ? 0 : input === "\u001b[F" ? max : Math.max(0, Math.min(max, offset + delta));
+}
+
+export function openProactiveEvidence(
+	finding: ProactiveFindingView,
+	readback: (handle: string, digest: string, snapshotId: string, unitId: string, excerptHash: string) => string | null,
+): string | null {
+	const hex = (value: string) => /^[a-f0-9]{64}$/.test(value);
+	if (![finding.snapshotHandle, finding.snapshotHash, finding.excerptHash].every(hex) || !finding.snapshotId || !finding.unitId) return null;
+	return readback(finding.snapshotHandle, finding.snapshotHash, finding.snapshotId, finding.unitId, finding.excerptHash);
+}
+
 /** Transcript body including the preface. Scroll math must use this, not detailContent alone. */
 export function detailBodyLines(row: FleetRow, timeline: readonly TimelineEntry[], width: number, expandedIndex: number | null, verbose = false, selectedIndex?: number): string[] {
-	return [...system1DetailPreface(row, width), ...detailContent(timeline, width, expandedIndex, verbose, selectedIndex)];
+	return [...system1DetailPreface(row, width), ...proactiveDetailPreface(row, width), ...detailContent(timeline, width, expandedIndex, verbose, selectedIndex)];
 }
 
 /** Entry offsets shifted by the preface so selection stays inside the visible body. */
 export function detailBodyOffsets(row: FleetRow, timeline: readonly TimelineEntry[], width: number, expandedIndex: number | null, verbose = false): DetailEntryOffset[] {
-	const shift = system1DetailPreface(row, width).length;
+	const shift = system1DetailPreface(row, width).length + proactiveDetailPreface(row, width).length;
 	return detailEntryOffsets(timeline, width, expandedIndex, verbose).map(item => ({ index: item.index, start: item.start + shift, end: item.end + shift }));
 }
 
 /** Replace the open panel's System 1 view from the current fleet row. Model edits on the open row stay. */
-export function applyLiveFleetDetailRow<T extends { key: string; name: string; model: string; system1?: FleetRow["system1"]; runToken?: string; toolCount: number | null }>(
+export function applyLiveFleetDetailRow<T extends { key: string; name: string; model: string; system1?: FleetRow["system1"]; proactive?: FleetRow["proactive"]; runToken?: string; toolCount: number | null }>(
 	openRow: T,
 	fresh: T | undefined,
 	enabled: boolean,
 ): T {
 	if (!enabled) return openRow;
-	if (!fresh || fresh.key !== openRow.key) return { ...openRow, system1: undefined };
-	return { ...openRow, system1: fresh.system1, runToken: fresh.runToken, toolCount: fresh.toolCount, name: fresh.name };
+	if (!fresh || fresh.key !== openRow.key) return { ...openRow, system1: undefined, proactive: undefined };
+	return { ...openRow, system1: fresh.system1, proactive: fresh.proactive, runToken: fresh.runToken, toolCount: fresh.toolCount, name: fresh.name };
 }
 
 /** Render a constant-height transcript detail screen, including the no-local-peer notice. */
@@ -266,9 +326,10 @@ export function detailTransition(
 	const delta = input === "\u001b[A" || input === "k" ? -1 : input === "\u001b[B" || input === "j" ? 1 : input === "\u001b[5~" ? -bodyHeight : input === "\u001b[6~" ? bodyHeight : 0;
 	if (delta) {
 		state.followTail = false;
+		const previous = state.selectedIndex;
 		state.selectedIndex = Math.max(0, Math.min(Math.max(0, timeline.length - 1), state.selectedIndex + delta));
 		const selected = offsets?.[state.selectedIndex];
-		if (selected) {
+		if (selected && previous !== state.selectedIndex) {
 			if (selected.start < state.scrollOffset) state.scrollOffset = selected.start;
 			else if (selected.start >= state.scrollOffset + viewport) state.scrollOffset = selected.start - viewport + 1;
 		} else state.scrollOffset += delta;

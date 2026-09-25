@@ -489,6 +489,54 @@ are still required before calling this calibrated or expanding its authority. Of
 constitute a live pilot (G1) or active approval (G2). Roll back with
 `watchdog-system1: off` and restart Hub; cancel the current run if needed.
 
+### Proactive turn review (separate opt-in consumer)
+
+The Hub's `proactive-*` modules compose a separate, off-by-default consumer of the
+existing shared System 1 library and its provider/key; they do not create another
+provider owner or change watchdog authority. A human-owned per-repository
+`.ai/proactive-review.json` selects `off`, `shadow`, or `advisory` and exact
+repository-relative include scope. Missing/off means **zero proactive capture,
+inference, and feedback**. Enabled config with `remoteContext: "disabled"` is
+local-only: bounded source/rule capture and reviewed local validators may run,
+but no semantic provider assessment. `selected-excerpts` separately permits
+bounded selected source/assistant excerpts to the shared System 1 service when
+it is ready; shadow records findings without delivery, advisory may deliver
+feedback at the next *already-occurring* context hook for the same owner,
+attempt, task, and bound rule/source revision. It never creates a turn, fixes
+code, terminates work, changes acceptance gates, or suppresses the watchdog.
+No activation, outbound transmission, or remote repository authorization is
+conferred by installing this code or reading this documentation.
+
+At `turn_start`/`turn_end`, Hub and supported native Pi specialists bind the
+explicit task/plan and session rule catalog, collect bounded immutable
+before/after worktree and text evidence, and retain private snapshots separately
+from metadata-only finding/report projections. Source-backed rules come from
+`rules:` folders in `## agent-hub` (legacy `## agent-team`), with index-first
+Markdown discovery, explicit linked sections, and bounded fallback; discovery
+is read-only and never executes rule instructions. Rule identity includes path,
+heading occurrence and hash. Incomplete discovery, unselected sections,
+unsupported Markdown, missing plan (`task_only`), concurrent edits, and
+changed source stays partial, unsupported, uncertain or stale—not
+confirmed passes. Rule references use the session-bound revision: on-disk rule
+edits do not themselves stale a finding, and a restart is required to adopt them. Only explicitly reviewed bindings support deterministic
+local link-form and new-file-placement checks; model findings remain
+suspicions, not validated bugs. Rules are **bound per session**: editing a rule
+in a running session does not reload it; restart to adopt edits. Research
+helpers, nested delegates, coms peers and Hermes are not instrumented by this
+consumer. Native observer hooks/integration were checked with repo-local Pi
+0.84.2; Node 18 compatibility concerns the extracted installer CLI/doctor,
+not running the TypeScript observer under Node 18.
+
+Limits and exclusions, exact config, local report/labels usage, and consent
+sequence are in [Project Files — Proactive turn review](agent-fleet-setup.md#proactive-turn-review-experimental).
+Offline/installed tests and C5 operator visibility establish neither live-pilot
+utility nor universal correctness. The finding-label source fix passed final independent source/docs review;
+this establishes offline/package readiness, not human-labelled semantic acceptance. Only retained finding keys
+are exposed for human labels: checked-clear units lack an operator-accessible
+key, so miss/true-negative labeling and full recall evaluation are not operational.
+C7 human acceptance and any release/deployment remain separate. Current caveats include
+unknown native delivery without a receipt and a rare async-close error risk.
+
 ### Experimental System 1 foundation
 
 System 1 is a shared Fleet library for bounded structured judgments, not a Pi

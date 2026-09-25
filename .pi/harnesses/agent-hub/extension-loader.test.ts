@@ -925,6 +925,10 @@ export default function(pi) {
  } finally {rmSync(workspace,{recursive:true,force:true});}
 });
 
+test("proactive observer loads on repository-local Pi without an assignment or model request", () => {
+ assertExtensionStackLoaded(runExtensionStack(repoRoot, ["-e", ".pi/harnesses/agent-hub/proactive-observer.ts"]));
+});
+
 test("runtime test observer loads on the installed guarded Pi tool surface without models", () => {
  assertExtensionStackLoaded(runExtensionStack(repoRoot, ["-e", ".pi/harnesses/agent-hub/runtime-test-check.ts"]));
 });

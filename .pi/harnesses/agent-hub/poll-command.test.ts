@@ -48,8 +48,8 @@ test("formatAfPollDigest is a vertical block per voice with name, model, positio
 		integrator: "opus",
 		recommendation: "Extract behind a facade.",
 	});
-	assert.match(digest, /^sol · openai-codex\/gpt-5\.6-sol\n  position: Extract it\.\n  confidence: high/);
-	assert.match(digest, /grok · xai\/grok-4\.6\n  position: Leave it\.\n  confidence: medium/);
+	assert.match(digest, /^sol · openai-codex\/gpt-6-sol\n  position: Extract it\.\n  confidence: high/);
+	assert.match(digest, /grok · xai\/grok-4\.7\n  position: Leave it\.\n  confidence: medium/);
 	assert.match(digest, /opus · github-copilot\/claude-opus-5\n  failed: timeout/);
 	assert.match(digest, /merge · opus\n  recommendation: Extract behind a facade\./);
 	assert.match(digest, /Full opinions: \.pi\/agent-sessions\/artifacts\/polls\/abcd\//);

@@ -1,4 +1,8 @@
 import { registerRetry } from "./commands/retry.ts";
+import { createHash } from "node:crypto";
+import { loadProactiveConfig, isCaptureEnabled } from "./proactive-config.ts";
+import { createProactiveRuntime, createHubCapture, composeHubProactive } from "./proactive-runtime.ts";
+import type { ProactiveConfig } from "./proactive-types.ts";
 import { registerRecover, runRecoverCommand } from "./commands/recover.ts";
 import { createNoProgressGuard } from "./no-progress.ts";
 import { renderNextInvocation, renderRecoverCommands } from './recover-policy.ts';
@@ -71,7 +75,7 @@ import { registerAgentsRestart } from "./commands/agents-restart.ts";
 import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { showSessionAudit } from "./session-audit.ts";
-import { buildWatchdogReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
+import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
 import { createProcessState, evaluateProcessObligations, latestProcessState, processAuditRecord, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
@@ -129,6 +133,7 @@ import {
 } from "../lib/coms-core.ts";
 import { createGridUI } from "./ui/grid.ts";
 import { createFleetSource } from "./ui/fleet-source.ts";
+import { buildFleetRows } from "../lib/fleet-read-model.ts";
 import { createFleetActions } from "./ui/fleet-actions.ts";
 import { createDetailPanel } from "./ui/detail-panel.ts";
 import { createFleetDashboard } from "./ui/fleet-dashboard.ts";
@@ -446,6 +451,12 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
 	let watchdogJudgeModel: string | null = null;
 	let watchdogSystem1: WatchdogSystem1Session | null = null;
+	let proactiveRuntime: ReturnType<typeof createProactiveRuntime> | null = null;
+	let proactiveConfig: ProactiveConfig | null = null;
+	let proactiveHubDeliveries = 0;
+	const proactiveReportInput = () => proactiveRuntime ? { records: proactiveRuntime.records, history: proactiveRuntime.findings.history, current: proactiveRuntime.findings.current, activity: proactiveRuntime.activity.live(), feedback: { hubDelivered: proactiveHubDeliveries, nativeDelivered: null } } : undefined;
+	let hubTaskText: string | undefined;
+	const hubCapture = createHubCapture({ root: () => currentCtx?.cwd || process.cwd(), task: () => hubTaskText });
 	let watchdogActivity: WatchdogActivity | null = null;
 	const watchdogAgentOverrides = new Map<string, "on" | "off">();
 	// ── Per-turn cost report (/af-hub-report) ──
@@ -660,12 +671,14 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		modelForResearch: state => shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
 		modelForPeer: abbreviateModel,
 		getSystem1: () => watchdogActivity?.live() ?? null,
+		getProactive: () => proactiveRuntime ? { records: proactiveRuntime.records, history: proactiveRuntime.findings.history, current: proactiveRuntime.findings.current, activity: proactiveRuntime.activity.live() } : null,
 	});
 	let fleetActions: ReturnType<typeof createFleetActions<AgentState, ResearchState>> | null = null;
 	let fleetUiGeneration = 0;
 	const gridUI = createGridUI({
 		getWidgetContext: () => widgetCtx,
 		getRows: now => fleetSource.rows(now, { showFinished: true }),
+		getSnapshot: now => { const source = fleetSource.snapshot(now); return { rows: buildFleetRows(source, { showFinished: true }), proactive: source.proactive }; },
 		handleIntent: async intent => {
 			if (!fleetActions || !widgetCtx) return;
 			if (intent.type === "open") await gridUI.withSuspended(() => fleetActions!.open(intent.key, intent.runToken, widgetCtx!));
@@ -751,6 +764,9 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getWatchdogAgentOverride: key => watchdogAgentOverrides.get(key),
 		getWatchdogSystem1: () => watchdogSystem1,
 		getWatchdogActivity: () => watchdogActivity,
+		getProactiveRuntime: () => proactiveRuntime,
+		getProactiveConfig: () => proactiveConfig,
+		getProactiveCapture: () => proactiveRuntime ? hubCapture : null,
 		getWorkMode: () => getWorkMode(),
 		providerSemaphore,
 		executionHistory,
@@ -990,7 +1006,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				const terminated = new Promise<void>(resolve => { resolveTermination = resolve; });
 				state.onTerminate = resolveTermination;
 				fenceOperatorCancel(state);
-				if (state.proc) { state.killedByOperator = true; state.restarting = true; killPiTree(state.proc); }
+				if (state.proc) { state.killedByOperator = true; state.restarting = true; if (state.dispatchId) proactiveRuntime?.abort(safeAgentKey(state.def.name), state.dispatchId); killPiTree(state.proc); }
 				else await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), event: { kind: "restart" } });
 				await terminated;
 			}
@@ -1023,7 +1039,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getWorkModeStatusText: workModeStatusText,
 		openWorkModePicker,
 		handleBudgetContinue: async ctx => { await budgetRecovery.resume(ctx); },
-		handleAudit: async ctx => showSessionAudit(ctx, sessionDir),
+		handleAudit: async (ctx, args = "") => {
+			const input = proactiveReportInput();
+			await showSessionAudit(ctx, sessionDir, input && { ...input, labels: commandProactiveLabels(sessionDir, args) });
+		},
 		handleRetry: async (args, ctx) => {
             const dispatchId = args?.trim();
             if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(dispatchId)) { ctx.ui.notify("Usage: /af-retry <dispatchId>", "error"); return; }
@@ -1154,7 +1173,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			widgetCtx = ctx;
 			await openContextBudget(ctx);
 		},
-		handleHubReport: async (_args, ctx) => {
+		handleHubReport: async (args, ctx) => {
 			widgetCtx = ctx;
 			const fmtTok = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 			const renderReport = (label: string, r: TurnReport): string => {
@@ -1181,6 +1200,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			if (sweep) lines.push(sweep.message);
 			const trace = readWatchdogEvents(sessionDir);
 			lines.push(`Watchdog System 1 — ${JSON.stringify(buildWatchdogReport(trace.events, watchdogActivity?.live(), trace.integrity))}`);
+			const proactiveInput = proactiveReportInput();
+			lines.push(`Proactive review — ${JSON.stringify(proactiveInput ? buildProactiveReport({ ...proactiveInput, labels: commandProactiveLabels(sessionDir, args) }) : readProactiveReport(sessionDir))}`);
 			ctx.ui.notify(lines.join("\n\n"), "info");
 		},
 		handleZoom: async (args, ctx) => {
@@ -1785,6 +1806,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		refreshUi: updateWidget,
 		getDispatchPreference: name => (dispatchPolicy.substitutions[name.toLowerCase()]?.prefer ?? dispatchPolicy.default) === "coms" ? "coms" : "native",
 		maxLiveEntryChars: MAX_LIVE_ENTRY_CHARS,
+		getProactive: () => fleetSource.snapshot(Date.now()).proactive,
+		readProactiveEvidence: (finding) => proactiveRuntime?.findings.readback(finding.snapshotHandle, finding.snapshotHash, finding.snapshotId, finding.unitId, finding.excerptHash) ?? null,
 		currentFleetRow: key => fleetSource.rows(Date.now(), { showFinished: true }).find(row => row.key === key),
 	});
 	const { openFleetDetail, loadAvailableModelChoices } = detailPanel;
@@ -1811,6 +1834,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 	let fleetFilter = "";
 	const fleetDashboard = createFleetDashboard<AgentDef, AgentState, ResearchState>({
 		getFleetRows: (now, unfiltered) => fleetSource.rows(now, unfiltered ? { showFinished: true } : { showFinished: fleetShowFinished, query: fleetFilter }),
+		getProactive: () => fleetSource.snapshot(Date.now()).proactive,
+		readProactiveEvidence: (finding) => proactiveRuntime?.findings.readback(finding.snapshotHandle, finding.snapshotHash, finding.snapshotId, finding.unitId, finding.excerptHash) ?? null,
 		actions: fleetActions,
 		getAgents: () => agentStates,
 		getResearch: () => researchStates,
@@ -2033,8 +2058,18 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		}
 		pressureLifecycle.messageEnd(event, ctx);
 	});
-	pi.on("turn_end", async (_event, ctx) => pressureLifecycle.turnEnd(ctx));
-	pi.on("context", async (_event, ctx) => pressureLifecycle.context(ctx));
+	pi.on("turn_start", event => hubCapture.start(event.turnIndex));
+	pi.on("turn_end", async (event, ctx) => {
+		pressureLifecycle.turnEnd(ctx);
+		const text = event.message.role === "assistant" ? event.message.content.filter(c => c.type === "text").map(c => c.text).join("") : "";
+		hubCapture.end(event.turnIndex, text);
+	});
+	pi.on("context", async (event, ctx) => {
+		pressureLifecycle.context(ctx);
+		const context = hubCapture.hubContext();
+		const text = context && proactiveRuntime?.feedback?.take("hub", "direct", context);
+		if (text) { proactiveHubDeliveries++; return { messages: [...event.messages, { role: "custom" as const, customType: "agent-fleet.proactive-advisory", content: text, display: false, timestamp: Date.now() }] }; }
+	});
 	pi.on("agent_settled", async (_event, ctx) => pressureLifecycle.agentSettled(ctx));
 	pi.on("session_compact", async (_event, ctx) => {
         noProgress.compact(ctx.sessionManager.getEntries());
@@ -2049,7 +2084,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		});
 		if (result) latestToolCatalogDelta = result.delta;
 	});
-	pi.on("input", async (event, ctx) => pressureLifecycle.input(event, ctx));
+	pi.on("input", async (event, ctx) => {
+		// Only user-owned input is task prose. Extension-generated input is not a task revision.
+		if (event.source !== "extension" && typeof event.text === "string" && event.text.trim()) hubTaskText = event.text;
+		return pressureLifecycle.input(event, ctx);
+	});
 
 	// ── Session Start ────────────────────────────
 
@@ -2070,7 +2109,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			resetAccessApproval: accessApprovalRouter.reset,
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
-			resetBudgets: () => { taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
+			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; proactiveHubDeliveries = 0; taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
 			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },
@@ -2099,6 +2138,10 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			}
 		},
 		initializeExemptions: (_ctx) => {
+			try {
+				const config = loadProactiveConfig(_ctx.cwd || process.cwd());
+				if (isCaptureEnabled(config)) proactiveConfig = config;
+			} catch { /* invalid config fails closed */ }
 			// ── Damage-control shared exemptions file ──
 			// One per hub session (solo mode included). Exporting the path on our own
 			// process.env lets the co-loaded damage-control-continue mirror /af-allow
@@ -2114,6 +2157,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			runHistoryKeep = sessionOverrides.runHistoryKeep;
 
 			loadAgents(_ctx.cwd);
+			// Composition follows applyOverrides: approved roots and the shared service do not exist yet.
 
 			// Surface non-fatal persona frontmatter warnings (skipped subagents roles,
 			// bad delegate_depth) once per session.
@@ -2151,6 +2195,11 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 				deleteModelProfile: name => { delete modelProfiles[name]; }, allowedModels,
 				getDispatchPolicyWarnings: () => dispatchPolicyWarnings, setResearchPersonas: value => { researchPersonas = value; },
 			});
+			if (proactiveConfig && sessionDir) {
+				try { proactiveRuntime = composeHubProactive({ config: proactiveConfig, root: _ctx.cwd, sessionDir,
+					rulesRoots: projectRulesDirs, service: watchdogSystem1?.sharedService, capture: hubCapture, onChange: updateWidget }); }
+				catch { proactiveRuntime = null; proactiveConfig = null; } // unavailable composition never reports reviewed
+			}
 		},
 		restoreRoster: (_ctx) => {
 			// Explicit CLI selection wins; otherwise restore only the canonical team name
@@ -2281,6 +2330,7 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 			hubStateCtx.setExemptionsFile(null);
 		},
 		terminateChildren: () => {
+			hubCapture.reset(); proactiveRuntime = null;
 			watchdogSystem1 = disposeWatchdogSystem1Session(watchdogSystem1);
 			try { watchdogActivity?.dispose(); } catch { /* trace disposal must not block shutdown */ }
 			watchdogActivity = null;

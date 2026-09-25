@@ -70,7 +70,7 @@ test("preflight refuses when a panel model is not visible to a clean-room child"
 	}), error => {
 		assert.equal((error as { exitCode?: number }).exitCode, 3);
 		assert.match((error as Error).message, /not visible to a clean-room child/);
-		assert.match((error as Error).message, /openai-codex\/gpt-5\.6-sol/);
+		assert.match((error as Error).message, /openai-codex\/gpt-6-sol/);
 		return true;
 	});
 });

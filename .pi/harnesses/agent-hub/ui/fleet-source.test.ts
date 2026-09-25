@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createFleetSource } from "./fleet-source.ts";
+import { createProactiveRuntime } from "../proactive-runtime.ts";
 
 const now = 20_000;
 const agent = (overrides: any = {}) => ({ def: { name: "builder", description: "build" }, status: "running", task: "task", toolCount: 2, elapsed: 0, lastWork: "edit", contextPct: 42, contextTokens: 100, histEntry: { startedAt: 10_000, endedAt: null }, runCount: 1, delegations: new Map(), ...overrides });
@@ -16,6 +17,7 @@ function source(options: any = {}) {
 		modelForAgent: () => "native-model",
 		modelForResearch: () => "research-model",
 		modelForPeer: (model: string) => model,
+		getProactive: () => options.ledger ?? null,
 	});
 }
 
@@ -74,6 +76,73 @@ test("synthetic pending identity reconciles to one real peer alias and never gra
 	const real = source({ peers: [{ key: "peer:s1", name: "alice", model: "m", lastWork: "" }], pending: [{ target_name: "alice", created_at: new Date(10_000).toISOString() }] }).rows(now, { showFinished: true }).find(row => row.key === "peer:s1")!;
 	assert.deepEqual(real.aliasKeys, [synthetic.key]);
 	assert.equal(real.runToken, undefined);
+});
+
+test("A12 Hub-only and concurrent consumers preserve run identity, counters, and independent coverage", () => {
+	const ledger = { records: [
+		{ owner: "hub", attempt: "direct", turnId: "hub:direct:0", status: "reviewed" },
+		{ owner: "builder", attempt: "dispatch-1", turnId: "builder:dispatch-1:0", status: "not_checked" },
+	], history: [{ owner: "hub", attempt: "direct", turnId: "hub:direct:0", coverage: { status: "checked", gaps: [], checked: ["r1"] } },
+		{ owner: "builder", attempt: "dispatch-1", turnId: "builder:dispatch-1:0", coverage: { status: "partial", gaps: ["coverage_gap"], checked: [] } }],
+		current: [
+			{ owner: "hub", attempt: "direct", source: "system1" as const, claim: "suspicion" as const, state: "current" as const },
+			{ owner: "builder", attempt: "dispatch-1", source: "deterministic" as const, claim: "violation" as const, state: "current" as const },
+		], activity: [] };
+	const empty = source({ ledger, agent: { dispatchId: "dispatch-1" } });
+	// A headless/Hub-only session can have no roster rows, yet retains its summary.
+	const headless = createFleetSource({ getAgents: () => new Map(), getResearch: () => new Map(), getPeerInputs: () => [], getPeerCards: () => new Map(), getPendingReplies: () => [], displayName: (n: string) => n, modelForAgent: () => "", modelForResearch: () => "", modelForPeer: (n: string) => n, getProactive: () => ledger });
+	assert.deepEqual(headless.rows(now, { showFinished: true }), []);
+	assert.deepEqual(headless.snapshot(now).proactive?.owners.map(v => v.runToken), ["hub:direct", "builder:dispatch-1"]);
+	assert.equal(headless.snapshot(now).proactive?.currentSuspicions, 1);
+	const before = empty.snapshot(now);
+	const row = empty.rows(now, { showFinished: true })[0];
+	assert.equal(row.proactive?.currentViolations, 1);
+	assert.equal(row.proactive?.currentSuspicions, 0);
+	assert.equal(row.proactive?.coverage, "partial");
+	assert.equal(before.proactive?.reviewed, 1);
+	assert.deepEqual([row.status, row.model, row.toolCount, row.contextTokens], ["running", "native-model", 2, 100]);
+	const restarted = source({ ledger, agent: { dispatchId: "dispatch-2", runCount: 2 } });
+	assert.equal(restarted.rows(now, { showFinished: true })[0].proactive, undefined);
+	assert.equal(restarted.snapshot(now).proactive?.owners.find(v => v.attempt === "dispatch-1")?.currentViolations, 1);
+	assert.equal(restarted.rows(now, { showFinished: true })[0].runToken, "builder:dispatch-2");
+	assert.equal(ledger.records.length, 2); // rendering is read-only
+});
+
+test("A12 actual session runtime ledger projects Hub and restarted specialist without private readback", () => {
+	const runtime = createProactiveRuntime({ config: { version: 1, mode: "shadow", remoteContext: "disabled", include: ["src/**"], maxEvaluationsPerSession: 1 } });
+	const ledger = () => ({ records: runtime.records, history: runtime.findings.history, current: runtime.findings.current, activity: runtime.activity.live() });
+	const empty = createFleetSource({ getAgents: () => new Map(), getResearch: () => new Map(), getPeerInputs: () => [], getPeerCards: () => new Map(), getPendingReplies: () => [], displayName: (n: string) => n, modelForAgent: () => "", modelForResearch: () => "", modelForPeer: (n: string) => n, getProactive: ledger });
+	runtime.recordGap("hub", "direct", "session:hub:direct:0", "not_checked");
+	assert.equal(empty.snapshot(now).proactive?.owners[0].runToken, "hub:direct");
+	assert.equal(empty.snapshot(now).proactive?.partial, 1);
+	assert.deepEqual(empty.rows(now, { showFinished: true }), []);
+	const agents = new Map([["builder", agent({ dispatchId: "old" })]]);
+	const native = createFleetSource({ getAgents: () => agents, getResearch: () => new Map(), getPeerInputs: () => [], getPeerCards: () => new Map(), getPendingReplies: () => [], displayName: (n: string) => n, modelForAgent: () => "native", modelForResearch: () => "", modelForPeer: (n: string) => n, getProactive: ledger });
+	runtime.recordGap("builder", "old", "session:builder:old:0", "not_instrumented");
+	assert.equal(native.rows(now, { showFinished: true })[0].proactive?.attempt, "old");
+	agents.set("builder", agent({ dispatchId: "new", runCount: 2 }));
+	assert.equal(native.rows(now, { showFinished: true })[0].proactive, undefined);
+	assert.equal(native.snapshot(now).proactive?.owners.find(view => view.attempt === "old")?.partial, 1);
+	runtime.abort();
+});
+
+test("A12 P11 snapshot carries only opaque metadata; restart fences old details without render readback", () => {
+	const ref = { id: "a".repeat(64), owner: "builder", attempt: "old", source: "deterministic" as const, claim: "violation" as const, state: "current" as const,
+		ruleId: "rule", ruleHash: "b".repeat(64), subject: "src/file.ts", snapshotHandle: "c".repeat(64), snapshotHash: "d".repeat(64), snapshotId: "snap", unitId: "unit", excerptHash: "e".repeat(64), occurrences: 1 };
+	const ledger = { records: [{ owner: "builder", attempt: "old", turnId: "t", status: "reviewed" }], history: [{ owner: "builder", attempt: "old", turnId: "t", coverage: { status: "checked", gaps: [], checked: ["rule:unit"] }, findings: [ref] }], current: [ref], activity: [] };
+	const agents = new Map([ ["builder", agent({ dispatchId: "old", toolCount: 9 })] ]);
+	let calls = 0;
+	const fleet = createFleetSource({ getAgents: () => agents, getResearch: () => new Map(), getPeerInputs: () => [], getPeerCards: () => new Map(), getPendingReplies: () => [],
+		displayName: (n: string) => n, modelForAgent: () => "native", modelForResearch: () => "", modelForPeer: (n: string) => n,
+		getProactive: () => { calls++; return ledger; } });
+	const first = fleet.snapshot(now);
+	assert.deepEqual(first.specialists[0].proactive?.findings[0], { ...ref, runToken: "builder:old", state: "new" });
+	assert.equal(first.specialists[0].toolCount, 9);
+	assert.equal(first.proactive?.owners[0].history[0].coverage.status, "checked");
+	agents.set("builder", agent({ dispatchId: "new", runCount: 2, toolCount: 11 }));
+	assert.equal(fleet.rows(now, { showFinished: true })[0].proactive, undefined);
+	assert.equal(fleet.snapshot(now).proactive?.owners[0].findings[0].attempt, "old");
+	assert.equal(calls, 3); // in-memory ledger reads only; no readback port exists on the render adapter.
 });
 
 test("A14 shared source binds System 1 to the current dispatch and leaves worker fields unchanged", () => {

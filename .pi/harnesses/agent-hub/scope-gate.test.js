@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
@@ -68,12 +68,20 @@ test("diffAgainst does not attribute pre-existing dirty files", () => {
 
 test("non-git worktrees skip without throwing", () => {
 	const dir = mkdtempSync(join(tmpdir(), "scope-gate-nongit-"));
-	const snapshot = snapshotWorktree(dir);
-	const diff = diffAgainst(snapshot, dir);
+	const previous = process.env.GIT_CEILING_DIRECTORIES;
+	// Stop Git walking from a repo-local TMPDIR into this worktree. Ceiling is the fixture only.
+	process.env.GIT_CEILING_DIRECTORIES = previous ? `${dir}${delimiter}${previous}` : dir;
+	try {
+		const snapshot = snapshotWorktree(dir);
+		const diff = diffAgainst(snapshot, dir);
 
-	assert.equal(snapshot.skipped, true);
-	assert.equal(diff.skipped, true);
-	assert.deepEqual(diff.paths, []);
+		assert.equal(snapshot.skipped, true);
+		assert.equal(diff.skipped, true);
+		assert.deepEqual(diff.paths, []);
+	} finally {
+		if (previous === undefined) delete process.env.GIT_CEILING_DIRECTORIES;
+		else process.env.GIT_CEILING_DIRECTORIES = previous;
+	}
 });
 
 test("glob **/ matches zero or multiple directory levels", () => {

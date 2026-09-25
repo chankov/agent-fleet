@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildFleetRows, fleetTiming, projectSystem1Owner, selectWidgetRows, summarise, summariseWidget, system1Visible, unionMs, type FleetRow, type FleetSource, type System1CheckInput } from "./fleet-read-model.ts";
+import { proactiveReviewLines } from "./fleet-detail-view.ts";
+import { buildFleetRows, fleetTiming, projectProactive, projectSystem1Owner, selectWidgetRows, summarise, summariseWidget, system1Visible, unionMs, type FleetRow, type FleetSource, type System1CheckInput } from "./fleet-read-model.ts";
 
 const base = (key: string, status: FleetRow["status"] = "running"): any => ({ key, name: key, status, model: "model-x", backend: "native", contextPct: 25, contextTokens: 250, elapsed: 1_000, startedAt: 10, toolCount: 2, lastWork: "read file", hasTimeline: true });
 
@@ -108,6 +109,62 @@ test("A14 System 1 keeps the owner row through idle retention without changing w
 	assert.equal(projectSystem1Owner(check({ configuredMode: "off", effectiveMode: "off", evaluation: "unknown" }), "builder:dispatch-1", 5_001), undefined);
 	assert.equal(projectSystem1Owner(check({ evaluation: "unknown", effectiveMode: undefined, configuredMode: undefined, finishedAt: undefined }), "builder:dispatch-1", 5_001), undefined);
 	assert.equal(projectSystem1Owner(check({ finishedAt: undefined }), "builder:dispatch-1", 5_001)!.retainUntil, 0);
+});
+
+test("A12 proactive session totals are independent of worker summary, with zero rows and separate claims", () => {
+	const ledger = { records: [
+		{ owner: "hub", attempt: "direct", turnId: "h1", status: "reviewed" },
+		{ owner: "builder", attempt: "old", turnId: "w1", status: "not_checked" },
+	], history: [{ owner: "hub", attempt: "direct", turnId: "h1", coverage: { status: "checked", gaps: [], checked: ["rule"] } }],
+		current: [
+			{ owner: "hub", attempt: "direct", source: "deterministic" as const, claim: "violation" as const, state: "current" as const },
+			{ owner: "builder", attempt: "old", source: "system1" as const, claim: "suspicion" as const, state: "stale" as const },
+			{ owner: "hub", attempt: "direct", source: "system1" as const, claim: "suspicion" as const, state: "resolved" as const },
+		], activity: [{ type: "job_started", jobId: "open" }, { type: "job_started", jobId: "closed" }, { type: "job_finished", jobId: "closed" }] };
+	const session = projectProactive(ledger);
+	assert.equal(session.reviewed, 1);
+	assert.equal(session.partial, 1);
+	assert.equal(session.evaluating, 1);
+	assert.deepEqual([session.currentViolations, session.currentSuspicions, session.stale, session.resolved], [1, 0, 1, 1]);
+	assert.equal(session.owners.find(o => o.owner === "hub")?.runToken, "hub:direct");
+	const source: FleetSource = { specialists: [], research: [], peers: [], proactive: session };
+	assert.deepEqual(buildFleetRows(source, { showFinished: true }), []);
+	assert.equal(source.proactive?.reviewed, 1);
+	assert.equal(summariseWidget([]).running, 0);
+	assert.equal(summarise([]).totalTokens, 0);
+});
+
+test("A12 P11 metadata history keeps owner/attempt, checked coverage, refs and retention without payloads", () => {
+	const ref = { id: "a".repeat(64), owner: "hub", attempt: "direct", source: "system1" as const, claim: "suspicion" as const, state: "current" as const,
+		ruleId: "rule-1", ruleHash: "b".repeat(64), subject: "src/a.ts", snapshotHandle: "c".repeat(64), snapshotHash: "d".repeat(64), snapshotId: "snapshot-1", unitId: "unit-1", excerptHash: "e".repeat(64), occurrences: 1 };
+	const history = [
+		{ owner: "hub", attempt: "direct", turnId: "t1", coverage: { status: "partial", gaps: ["coverage_gap"], checked: [] }, findings: [ref] },
+		{ owner: "hub", attempt: "direct", turnId: "t2", coverage: { status: "checked", gaps: [], checked: ["rule-1:unit-1"] }, findings: [{ ...ref, occurrences: 2 }] },
+		{ owner: "hub", attempt: "direct", turnId: "t3", coverage: { status: "partial", gaps: ["coverage_gap"], checked: [] }, findings: [{ ...ref, state: "stale" as const }] },
+		{ owner: "hub", attempt: "direct", turnId: "t4", coverage: { status: "checked", gaps: [], checked: ["rule-1:unit-1"] }, findings: [{ ...ref, state: "resolved" as const }] },
+	];
+	const session = projectProactive({ records: history.map(r => ({ owner: r.owner, attempt: r.attempt, turnId: r.turnId, status: "reviewed" })), history,
+		current: [{ ...ref, state: "resolved" }], activity: [{ type: "job_finished", jobId: "j", at: 20_000 }] });
+	assert.deepEqual(session.owners[0].history.map(r => r.findings[0].state), ["new", "repeated", "stale", "resolved"]);
+	assert.deepEqual(session.owners[0].findings[0], { ...ref, state: "resolved", runToken: "hub:direct" });
+	assert.deepEqual([session.reviewed, session.partial, session.resolved, session.lastFinishedAt, session.retainUntil], [2, 2, 1, 20_000, 30_000]);
+	assert.equal(JSON.stringify(session).includes("text payload secret"), false);
+	assert.equal(projectProactive({ records: [], history: [], current: [], activity: [] }).retainUntil, 0);
+});
+
+test("captured range and drift are sanitized without inventing missing inputs", () => {
+ const ref = { id: "a".repeat(64), owner: "hub", attempt: "direct", source: "system1" as const, claim: "suspicion" as const, state: "current" as const,
+  snapshotHandle: "b".repeat(64), snapshotHash: "c".repeat(64), excerptHash: "d".repeat(64), snapshotId: "s", unitId: "u", capturedRange: { side: "before" as const, offset: 10, endOffset: 20, startLine: 4, endLine: 5 }, violationLine: 4 };
+ const project = (finding: typeof ref) => projectProactive({ records: [], history: [{ owner: "hub", attempt: "direct", turnId: "t", coverage: { status: "partial", gaps: [], checked: [] }, planStatus: "task_only", drift: { task: "possible_deviation", plan: "not_checked" }, findings: [finding] }], current: [], activity: [] }).owners[0].history[0];
+ assert.deepEqual(project(ref).findings[0].capturedRange, ref.capturedRange);
+ assert.equal(project(ref).findings[0].violationLine, undefined);
+ assert.deepEqual(project(ref).drift, { task: "possible_deviation", plan: "not_checked" });
+ const lines = proactiveReviewLines(project(ref), 240).join("\n");
+ assert.match(lines, /captured before lines 4–5 · bytes 10–20 · precise violation line unavailable/);
+ assert.match(lines, /drift task possible_deviation · plan not_checked/);
+ assert.doesNotMatch(lines, /secret-code-prompt-task-rule/);
+ assert.equal(project({ ...ref, capturedRange: { ...ref.capturedRange, endLine: -1 } }).findings[0].capturedRange, undefined);
+ assert.equal(projectProactive({ records: [], history: [{ owner: "hub", attempt: "direct", turnId: "t", coverage: { status: "partial", gaps: [], checked: [] } }], current: [], activity: [] }).owners[0].history[0].drift, undefined);
 });
 
 test("F-19 agreeing results are not mixed because elapsed differs", () => {

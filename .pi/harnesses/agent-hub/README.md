@@ -17,6 +17,54 @@ peers, and hand the session to a visible coms peer.
 
 **Optional ChatGPT client:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live Pi session that the experimental [ChatGPT Fleet session client](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md) selects. Hermes remains the inbound `ask_user` route.
 
+## Proactive turn review (experimental; off by default)
+
+This is a **separate, per-repository, session-bound** advisory consumer of the
+shared System 1 foundation, not the native watchdog's System 1 shortcut. The
+human-owned `.ai/proactive-review.json` is never created by setup. Missing/off
+means zero proactive capture, inference and feedback. Enabled `shadow` or
+`advisory` requires explicit include scope; `remoteContext: "disabled"` is
+local-only (reviewed deterministic validators, no semantic provider check),
+while `selected-excerpts` additionally permits bounded source/assistant
+excerpts to the already configured System 1 provider when ready. Shadow only
+observes; advisory can deliver ≤3 current findings at the same owner's next
+**natural** context hook (≤1,500 characters, once per finding revision).
+There is no autonomous turn, fix, termination, permission, or acceptance gate;
+the existing watchdog retains independent authority. Never interpret a
+suspicion, uncovered rule, unavailable model, or lack of findings as verified
+correctness.
+
+Hub/direct and supported native Pi specialist turns are instrumented; nested
+delegates, research helpers, coms peers and Hermes are not. Source and explicit
+plan/rules are bound to the session's immutable snapshot; delivery checks
+current source hashes and the session-bound rule revision. Rule discovery is read-only, source-bound and
+bounded; missing/partial/unsupported coverage is visible rather than passed.
+Editing rules during a session does **not** reload them: restart to adopt edits.
+Bounded private snapshots support local validated evidence readback, while
+operator history, `/af-hub-report` and `/af-audit` expose metadata-only
+projections. Feedback never creates a new Pi turn. Native delivery without a
+receipt remains unknown; rare async-close errors remain a nonblocking risk.
+The tested native integration uses repo-local Pi 0.84.2; Node 18 covers only
+extracted-package CLI/doctor compatibility, not the TypeScript observer.
+
+See [config, limits, exact explicit human-label schema, offline installed
+runbook, rollback and separately consented pilot](../../../docs/agent-fleet-setup.md#proactive-turn-review-experimental).
+Use `/af-hub-report` and `/af-audit` without labels for read-only session
+status; `--labels /absolute/path/to/CURRENT_SESSION/artifacts/labels.json`
+requires an explicitly provided file in the current session, never auto-loads
+labels and does not transmit payloads. Only retained findings expose label
+keys in the local evidence view (Fleet Dashboard `p` → `n` → `e`, or specialist
+detail `n` → `e`); unavailable evidence shows no template. Checked-clear
+units have no operator-accessible keys, so human miss/true-negative labeling
+and full recall evaluation are not operational; absent labels remain unknown.
+Only the project's `rules:` roots are catalogued; an inactive session binding
+proposal is not installed configuration or a loaded skill. C5 visibility and
+the earlier C6 offline/package review do not constitute final post-fix review,
+a live pilot or C7 acceptance. No release, deployment, repo config edit or
+remote request is authorized by this README. Roll back with the complete
+`{"version":1,"mode":"off"}` config and restart; cancel current work if
+immediate stopping is necessary, without destructive artifact cleanup.
+
 ## Work Mode, roster, and topology
 
 These are independent runtime axes:

@@ -218,8 +218,8 @@ test("two phases of one persona with different models get different session dire
 		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "xai/grok-4.7" });
 		assert.equal(sessions.length, 2);
 		assert.notEqual(dirname(sessions[0]), dirname(sessions[1]));
-		assert.match(sessions[0], /researcher-openai-codex-gpt-5\.6-sol/);
-		assert.match(sessions[1], /researcher-xai-grok-4\.6/);
+		assert.match(sessions[0], /researcher-openai-codex-gpt-6-sol/);
+		assert.match(sessions[1], /researcher-xai-grok-4\.7/);
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 

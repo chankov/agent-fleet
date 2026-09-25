@@ -1,4 +1,6 @@
 import type { ChildProcess } from "node:child_process";
+import type { ObserverAssignment } from "./proactive-observer.ts";
+import type { ProactiveConfig } from "./proactive-types.ts";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { RegistryEntry } from "../lib/coms-core.ts";
 import type { FleetTranscriptStore } from "../lib/fleet-transcript-store.ts";
@@ -151,6 +153,9 @@ export interface NativeDispatchDeps {
 	getWatchdogAgentOverride(key: string): any;
 	getWatchdogSystem1?(): import("./system1-runtime.ts").WatchdogSystem1Session | null;
 	getWatchdogActivity?(): import("./system1-activity.ts").WatchdogActivity | null;
+	getProactiveRuntime?(): ReturnType<typeof import("./proactive-runtime.ts").createProactiveRuntime> | null;
+	getProactiveConfig?(): ProactiveConfig | null;
+	getProactiveCapture?(): ReturnType<typeof import("./proactive-runtime.ts").createHubCapture> | null;
 	getWorkMode(): any;
 	providerSemaphore: NativeProviderSemaphore;
 	executionHistory: Pick<ExecutionHistoryStore, "start" | "end">;
@@ -230,6 +235,7 @@ export interface PreparedNativeRun extends NativeRunBase {
 	delegateEnv?: Record<string, string>;
 	writeIsolation?: WriteIsolationRequest;
 	writeIsolationPolicy?: WriteIsolationResult;
+	proactiveAssignment?: ObserverAssignment;
 	thinkingLevel: string;
 	wantThinking: boolean;
 	resumeContract: TaskResumeContract;

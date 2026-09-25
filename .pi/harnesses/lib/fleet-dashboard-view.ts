@@ -1,4 +1,5 @@
-import type { FleetRow } from "./fleet-read-model.ts";
+import type { FleetRow, ProactiveSessionView } from "./fleet-read-model.ts";
+import { proactiveHistoryLines } from "./fleet-detail-view.ts";
 import { moveSelection, type Selection } from "./fleet-selection.ts";
 import { confirmFleetAction, type FleetConfirmation } from "./fleet-dashboard-ops.ts";
 import { safeTerminalText, treePrefix, type TextMetrics } from "./fleet-strip-view.ts";
@@ -14,6 +15,13 @@ export interface FleetViewModel {
 	scrollOffset?: number;
 	confirmation?: string;
 	comsLines?: readonly string[];
+	proactive?: ProactiveSessionView;
+}
+
+/** Session history, including Hub turns with no dispatched worker rows. No strip expiry filter. */
+export function renderProactiveHistory(session: ProactiveSessionView, width: number): string[] {
+	const w = Math.max(1, width);
+	return session.owners.flatMap(owner => [fit(` ${safeTerminalText(owner.owner)} · ${safeTerminalText(owner.attempt)}`, w, { truncateToWidth: (s, n) => Array.from(s).slice(0, n).join(""), visibleWidth: s => Array.from(s).length }), ...proactiveHistoryLines(owner, w)]);
 }
 
 const fit = (text: string, width: number, metrics: TextMetrics) => metrics.truncateToWidth(text, Math.max(0, width));
@@ -26,7 +34,9 @@ const context = (pct: number | null) => pct == null ? "[automatic]  —" : `[${"
 /** Render a constant-height, width-bounded fleet list without pi runtime dependencies. */
 export function renderFleetDashboard(vm: FleetViewModel, width: number, bodyHeight: number, theme: ThemeLike, metrics: TextMetrics): string[] {
 	const w = Math.max(1, width), body = Math.max(0, bodyHeight);
-	const summary = `${vm.summary.running} running · ${vm.summary.done} done${vm.summary.failed ? ` · ${vm.summary.failed} failed` : ""} · ${duration(vm.summary.wallMs)} · ${tokens(vm.summary.totalTokens)} tok`;
+	const review = vm.proactive;
+	const reviewBadge = review ? ` · Review ${review.evaluating ? "evaluating" : review.partial ? "partial" : "history"} ${review.currentViolations} deterministic/${review.currentSuspicions} suspicions` : "";
+	const summary = `${vm.summary.running} running · ${vm.summary.done} done${vm.summary.failed ? ` · ${vm.summary.failed} failed` : ""} · ${duration(vm.summary.wallMs)} · ${tokens(vm.summary.totalTokens)} tok${reviewBadge}`;
 	const title = ` Fleet ${vm.filterQuery ? `· filter: ${safeTerminalText(vm.filterQuery)}` : ""}`;
 	const header = fit(title, Math.max(1, w - metrics.visibleWidth(summary) - 1), metrics);
 	const lines: string[] = [fit(theme.bold(header) + " " + theme.fg("dim", summary), w, metrics), theme.fg("dim", "╭" + "─".repeat(Math.max(0, w - 2)) + "╮")];
@@ -41,7 +51,8 @@ export function renderFleetDashboard(vm: FleetViewModel, width: number, bodyHeig
 			const selected = offset + i === vm.selection.index;
 			const indent = treePrefix(row.lastAtDepth, row.depth);
 			const badge = row.system1 && row.system1.runToken === row.runToken ? ` ${safeTerminalText(row.system1.compact)}` : "";
-			const name = `${selected ? "❯" : " "} ${indent}${glyph(row)} ${safeTerminalText(row.name)}${badge}`;
+			const proactiveBadge = row.proactive && row.proactive.runToken === row.runToken ? ` Review ${row.proactive.currentViolations} deterministic/${row.proactive.currentSuspicions} suspicions · ${row.proactive.coverage}` : "";
+			const name = `${selected ? "❯" : " "} ${indent}${glyph(row)} ${safeTerminalText(row.name)}${badge}${proactiveBadge}`;
 
 			const parts = [name, row.kind, `${row.backend === "coms" ? "⇄ " : ""}${safeTerminalText(row.model)}`, context(row.contextPct), tokens(row.contextTokens), duration(row.elapsed), row.toolCount == null ? "—" : String(row.toolCount), safeTerminalText(row.lastWork)];
 			const count = w < 80 ? 4 : w < 105 ? 6 : 8;

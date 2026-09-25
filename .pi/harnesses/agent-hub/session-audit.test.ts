@@ -149,3 +149,12 @@ test('audit refuses malformed or conflicting recovery snapshots without erasing 
  assert.equal(intact.unavailable.includes('recovery_history_integrity'), false);
  assert.ok(intact.events.some(event => event.kind === 'recovery' && event.category === 'indeterminate' && event.status === 'failed'));
 });
+
+test("P12 audit includes separate proactive readonly aggregate, not evidence payload", t => {
+ const sessionDir=fixture(t);
+ const proactive:any={records:[{turnId:"p1",owner:"SECRET_PAYLOAD",attempt:"a",status:"not_checked",paths:["SECRET_PAYLOAD"],uncheckedPaths:[]}],history:[],current:[],activity:[]};
+ const audit=buildSessionAudit({entries:[],sessionDir,proactive});
+ assert.equal(audit.proactive.consumer,"proactive-review");assert.equal(audit.proactive.readOnly,true);assert.equal(audit.proactive.turns.reviewed,0);assert.equal(audit.proactive.turns.partial,1);
+ assert.doesNotMatch(JSON.stringify(audit.proactive),/SECRET_PAYLOAD/);
+ const reopened=buildSessionAudit({entries:[],sessionDir});assert.equal(reopened.proactive.availability,"unavailable");assert.equal(reopened.proactive.turns.reviewed,null);
+});

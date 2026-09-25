@@ -441,3 +441,70 @@ export function projectWatchdogReadback(events: readonly WatchdogTraceRecord[]):
 	}
 	return [...checks.values()];
 }
+
+/** Separate proactive consumer in the existing session activity store; never stores evidence payloads. */
+export const PROACTIVE_TRACE_SCHEMA = "proactive-review-trace/v1";
+export interface ProactiveTraceRecord {
+ readonly schema: typeof PROACTIVE_TRACE_SCHEMA;
+ readonly consumer: "proactive-review";
+ readonly type: "job_started" | "job_finished" | "evaluation_started" | "evaluation_finished";
+ readonly sessionId: string; readonly jobId: string; readonly evaluationId?: string;
+ readonly sequence: number; readonly at: number;
+ readonly status?: "reviewed" | "not_checked" | "superseded" | "queue_timeout" | "backlog_full" | "session_budget" | "cancelled" | "unavailable" | "no_new_evidence" | "not_instrumented" | "ok";
+}
+export function createProactiveActivity(options: { directory?: string; sessionId?: string; now?: () => number; write?: (line: string) => void } = {}) {
+ const path = options.directory ? join(options.directory, "proactive-events.jsonl") : null;
+ const sessionId = randomUUID(); // Never copy a caller-supplied session/task string into metadata.
+ const jobs = new Map<string, boolean>();
+ const evaluations = new Map<string, boolean>();
+ const events: ProactiveTraceRecord[] = [];
+ let sequence = 0, degraded = false;
+ const append = (type: ProactiveTraceRecord["type"], jobId: string, evaluationId?: string, status?: ProactiveTraceRecord["status"]) => {
+  const safe = new Set(["reviewed", "not_checked", "superseded", "queue_timeout", "backlog_full", "session_budget", "cancelled", "unavailable", "no_new_evidence", "not_instrumented", "ok"]);
+  const record: ProactiveTraceRecord = { schema: PROACTIVE_TRACE_SCHEMA, consumer: "proactive-review", type, sessionId, jobId, ...(evaluationId ? { evaluationId } : {}), sequence: ++sequence, at: (options.now ?? Date.now)(), ...(status ? { status: safe.has(status) ? status : "unavailable" } : {}) };
+  events.push(record); if (events.length > COMPLETED_LIMIT * 4) events.shift();
+  try { if (options.write) options.write(`${JSON.stringify(record)}\n`); else if (path) secureAppend(path, `${JSON.stringify(record)}\n`); } catch { degraded = true; }
+ };
+ const valid = (id: string) => /^[a-f0-9]{64}$/.test(id);
+ return {
+  get path() { return path; }, get degraded() { return degraded; },
+  live() { return events.slice(); },
+  jobStarted(id: string) { if (!valid(id) || jobs.has(id)) return; jobs.set(id, false); append("job_started", id); },
+  jobFinished(id: string, status: ProactiveTraceRecord["status"]) { if (!jobs.has(id) || jobs.get(id)) return; jobs.set(id, true); append("job_finished", id, undefined, status); },
+  evaluationStarted(jobId: string, id: string) { if (!jobs.has(jobId) || jobs.get(jobId) || !valid(id) || evaluations.has(id)) return; evaluations.set(id, false); append("evaluation_started", jobId, id); },
+  evaluationFinished(jobId: string, id: string, status: ProactiveTraceRecord["status"]) { if (!evaluations.has(id) || evaluations.get(id)) return; evaluations.set(id, true); append("evaluation_finished", jobId, id, status); },
+  dispose() { for (const [id, done] of evaluations) if (!done) { const job = events.find(e => e.evaluationId === id)?.jobId; if (job) this.evaluationFinished(job, id, "cancelled"); } for (const [id, done] of jobs) if (!done) this.jobFinished(id, "cancelled"); jobs.clear(); evaluations.clear(); },
+ };
+}
+/** Crash readback treats open spans as unavailable, never as a passed review. */
+export function projectProactiveReadback(events: readonly ProactiveTraceRecord[]) {
+ const jobs = new Map<string, { jobId: string; status: string; evaluations: { id: string; status: string }[] }>();
+ for (const event of events) {
+  if (event.schema !== PROACTIVE_TRACE_SCHEMA || event.consumer !== "proactive-review" || !/^[a-f0-9]{64}$/.test(event.jobId)) continue;
+  const job = jobs.get(event.jobId) ?? { jobId: event.jobId, status: "unavailable", evaluations: [] };
+  if (event.type === "job_finished") job.status = event.status ?? "unavailable";
+  if (event.type === "evaluation_started" && event.evaluationId) job.evaluations.push({ id: event.evaluationId, status: "unavailable" });
+  if (event.type === "evaluation_finished" && event.evaluationId) { const slot = job.evaluations.find(e => e.id === event.evaluationId); if (slot) slot.status = event.status ?? "unavailable"; }
+  jobs.set(event.jobId, job);
+ }
+ return [...jobs.values()].slice(-COMPLETED_LIMIT);
+}
+
+/** Durable metadata only; incomplete tail and malformed records cannot manufacture completion. */
+export function readProactiveTrace(path: string, options: { after?: number; limit?: number } = {}) {
+ let text = "";
+ try { text = readFileSync(path, "utf8"); } catch { return { events: [] as ProactiveTraceRecord[], nextOffset: options.after ?? 0, invalidRecords: 0, partialTail: false, readError: true }; }
+ const lines = text.split("\n").slice(0, -1);
+ const after = Math.max(0, options.after ?? 0), page = lines.slice(after, after + Math.min(100, Math.max(1, options.limit ?? 100)));
+ const events: ProactiveTraceRecord[] = []; let invalidRecords = 0;
+ const types = new Set(["job_started", "job_finished", "evaluation_started", "evaluation_finished"]);
+ const statuses = new Set(["reviewed", "not_checked", "superseded", "queue_timeout", "backlog_full", "session_budget", "cancelled", "unavailable", "no_new_evidence", "not_instrumented", "ok"]);
+ for (const line of page) {
+  try {
+   const v: unknown = JSON.parse(line);
+   if (!isRecord(v) || Object.keys(v).some(k => !["schema", "consumer", "type", "sessionId", "jobId", "evaluationId", "sequence", "at", "status"].includes(k)) || v.schema !== PROACTIVE_TRACE_SCHEMA || v.consumer !== "proactive-review" || !types.has(v.type as string) || typeof v.sessionId !== "string" || !/^[a-f0-9-]{36}$/.test(v.sessionId) || typeof v.jobId !== "string" || !/^[a-f0-9]{64}$/.test(v.jobId) || (v.evaluationId !== undefined && (typeof v.evaluationId !== "string" || !/^[a-f0-9]{64}$/.test(v.evaluationId))) || !Number.isSafeInteger(v.sequence) || typeof v.at !== "number" || !Number.isFinite(v.at) || (v.status !== undefined && !statuses.has(v.status as string))) { invalidRecords++; continue; }
+   events.push(v as unknown as ProactiveTraceRecord);
+  } catch { invalidRecords++; }
+ }
+ return { events, nextOffset: after + page.length, invalidRecords, partialTail: text.length > 0 && !text.endsWith("\n"), readError: false };
+}

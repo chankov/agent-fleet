@@ -198,3 +198,37 @@ test("BLK-1 endDispatch closes only that dispatch; session dispose still closes 
 	activity.dispose();
 	assert.equal(activity.live().active.length, 0);
 });
+
+test("A10 proactive jobs and evaluations close once with sanitized metadata and interrupted readback", async () => {
+ const { createHash } = await import("node:crypto");
+ const { createProactiveActivity, projectProactiveReadback } = await import("./system1-activity.ts");
+ const id = (s: string) => createHash("sha256").update(s).digest("hex");
+ const lines: string[] = [];
+ const activity = createProactiveActivity({ sessionId: "session", write: line => lines.push(line), now: () => 7 });
+ const job = id("job"), evaluation = id("eval");
+ activity.jobStarted(job); activity.jobStarted(job);
+ activity.evaluationStarted(job, evaluation); activity.evaluationStarted(job, evaluation);
+ const interrupted = projectProactiveReadback(lines.map(line => JSON.parse(line)));
+ assert.equal(interrupted[0].status, "unavailable"); assert.equal(interrupted[0].evaluations[0].status, "unavailable");
+ activity.evaluationFinished(job, evaluation, SECRET as "ok"); activity.evaluationFinished(job, evaluation, "ok");
+ activity.jobFinished(job, "cancelled"); activity.jobFinished(job, "reviewed"); activity.dispose();
+ assert.deepEqual(lines.map(line => JSON.parse(line).type), ["job_started", "evaluation_started", "evaluation_finished", "job_finished"]);
+ assert.equal(JSON.stringify(lines).includes(SECRET), false);
+ assert.equal(projectProactiveReadback(lines.map(line => JSON.parse(line)))[0].status, "cancelled");
+ const abandoned = createProactiveActivity({ write: line => lines.push(line) });
+ abandoned.jobStarted(id("abandoned")); abandoned.evaluationStarted(id("abandoned"), id("abandoned-eval")); abandoned.dispose(); abandoned.dispose();
+ assert.equal(lines.filter(line => line.includes(id("abandoned")) && line.includes('"job_finished"')).length, 1);
+});
+
+test("A10 proactive crash disk readback ignores partial and payload-bearing records", async t => {
+ const { createHash } = await import("node:crypto");
+ const { createProactiveActivity, readProactiveTrace, projectProactiveReadback } = await import("./system1-activity.ts");
+ const dir = mkdtempSync(join(tmpdir(), "p8-trace-")); t.after(() => rmSync(dir, { recursive: true, force: true }));
+ const a = createProactiveActivity({ directory: dir }); const id = createHash("sha256").update("job").digest("hex");
+ a.jobStarted(id);
+ appendFileSync(a.path!, JSON.stringify({ schema: "proactive-review-trace/v1", consumer: "proactive-review", type: "job_finished", sessionId: "00000000-0000-0000-0000-000000000000", jobId: id, sequence: 2, at: 2, status: "reviewed", payload: SECRET }) + "\n");
+ appendFileSync(a.path!, JSON.stringify({ type: "job_finished", status: "reviewed" }));
+ const page = readProactiveTrace(a.path!);
+ assert.equal(page.events.length, 1); assert.equal(page.invalidRecords, 1); assert.equal(page.partialTail, true);
+ assert.equal(projectProactiveReadback(page.events)[0].status, "unavailable");
+});

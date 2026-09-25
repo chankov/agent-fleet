@@ -189,6 +189,19 @@ test("G2 needs a matching provider/model/version and an actual Layer 1 rule, not
 	accepted.dispose();
 });
 
+test("proactive receives only the existing watchdog-session service with its auth latch", async () => {
+ const fake = countingTransport();
+ const session = createWatchdogSystem1Session({ configuredMode: "off", watchdogArmed: false, selected: true,
+  config: validConfig, env: { TYPESAFE_API_KEY: "test-key" }, transport: fake.transport });
+ const shared = session.sharedService;
+ assert.ok(shared);
+ const request = { state: { probe: "shared" }, questions: [{ id: "known", type: "choice", instructions: "fixture", options: { yes: "yes", no: "no" } }], questionSetVersion: "fixture/v1", timeoutMs: 1000, requiredCapabilities: ["choice"] } as const;
+ assert.equal((await shared.evaluate(request)).status, "unavailable");
+ assert.equal((await shared.evaluate(request)).status, "unavailable");
+ assert.equal(fake.calls(), 1);
+ assert.strictEqual(session.sharedService, shared);
+ session.dispose(); assert.equal(session.sharedService, undefined);
+});
 test("one session keeps the 401 latch; a restarted snapshot does not", async () => {
 	const first = countingTransport();
 	const session = createWatchdogSystem1Session({

@@ -6,14 +6,15 @@ import type { ResearchState } from "../research/runtime.ts";
 import type { DelegationChild } from "../dispatch-core.ts";
 import type { SpecialistContextManifest } from "../../lib/context-budget-child-prompt.ts";
 import type { TimelineEntry, Zoomable } from "./zoom.ts";
-import type { FleetRow } from "../../lib/fleet-read-model.ts";
+import type { FleetRow, ProactiveFindingView, ProactiveSessionView } from "../../lib/fleet-read-model.ts";
+import { safeTerminalText } from "../../lib/fleet-strip-view.ts";
 import {
 	applyLiveFleetDetailRow, detailBodyLines, detailBodyOffsets, detailTransition, fleetModelChoices, modelPickerTransition,
-	normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, DETAIL_CHROME_ROWS,
+	normalizeFleetDetailInput, renderFleetDetail, renderFleetModelPicker, openProactiveEvidence, proactiveEvidenceContent, evidenceScroll, DETAIL_CHROME_ROWS,
 	type FleetDetailKey, type FleetModelChoice, type PiModelSummary,
 } from "../../lib/fleet-detail-view.ts";
 import { liveTimeline, snapshotFleetDetailRow } from "../../lib/fleet-dashboard-ops.ts";
-import { FULLSCREEN_OVERLAY, bodyRows } from "../../lib/fleet-overlay.ts";
+import { FULLSCREEN_OVERLAY, bodyRows, fitToHeight } from "../../lib/fleet-overlay.ts";
 import { createPanelResources } from "../../lib/fleet-panel.ts";
 import {
 	readFleetTranscript, readFleetTranscriptBefore, readFleetTranscriptTail,
@@ -62,6 +63,14 @@ export interface DetailPanelDeps<TDef extends DetailAgentDef, TAgent extends Det
 	maxLiveEntryChars: number;
 	/** Current fleet row for this key. Required so an open detail panel tracks System 1. */
 	currentFleetRow?(key: string): FleetRow | undefined;
+	getProactive?(): ProactiveSessionView | undefined;
+	readProactiveEvidence?(finding: ProactiveFindingView): string | null;
+}
+
+/** Render captured bytes only after an explicit action; never interpret terminal controls or print unbounded payload. */
+export function evidenceLines(value: string | null, width: number, height: number, offset = 0, finding?: ProactiveFindingView): string[] {
+	const lines = proactiveEvidenceContent(value, finding, width);
+	return lines.slice(Math.max(0, Math.min(offset, Math.max(0, lines.length - height))), Math.max(0, Math.min(offset, Math.max(0, lines.length - height))) + height);
 }
 
 type ModelTarget<TAgent, TResearch> =
@@ -137,6 +146,7 @@ export function createDetailPanel<TDef extends DetailAgentDef, TAgent extends De
 		const resources = createPanelResources();
 		let detailRow = row, modelPicker: { choices: FleetModelChoice[]; index: number; scrollOffset: number } | null = null;
 		let scrollOffset = 0, selectedIndex = 0, expandedIndex: number | null = null, followTail = true, verbose = initialVerbose, lastRender = 0;
+		let findingIndex = 0, evidence: string | null | undefined, evidenceFinding: ProactiveFindingView | undefined, evidenceOffset = 0;
 		const transcriptPath = target?.transcriptStore?.path;
 		let transcriptRecords: FleetTranscriptRecord[] | null = transcriptPath ? readFleetTranscriptTail(transcriptPath, { limit: 2000 }).records : null;
 		const compactRecords = (records: readonly FleetTranscriptRecord[]): TimelineEntry[] => {
@@ -158,8 +168,19 @@ export function createDetailPanel<TDef extends DetailAgentDef, TAgent extends De
 			if (target) target.zoomRender = (force?: boolean) => { const now = Date.now(); if (force || now - lastRender > 80) { lastRender = now; tui.requestRender(); } };
 			resources.every(2000, () => tui.requestRender());
 			const paintedRow = () => snapshotFleetDetailRow(applyLiveFleetDetailRow(detailRow, deps.currentFleetRow?.(detailRow.key), !!deps.currentFleetRow), target);
-			return { render: (w: number) => { const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); if (modelPicker) return renderFleetModelPicker(detailRow.name, modelPicker.choices, modelPicker, w, body, theme); syncTail(); const entries = timeline(); const liveRow = paintedRow(); if (followTail) { selectedIndex = Math.max(0, entries.length - 1); scrollOffset = Math.max(0, detailBodyLines(liveRow, entries, w, expandedIndex, verbose, selectedIndex).length - body); } return renderFleetDetail(liveRow, entries, scrollOffset, w, body, theme, expandedIndex, verbose, selectedIndex); },
-				handleInput: async (data: string) => { const input = matchedInput(data), body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); if (modelPicker) { const action = modelPickerTransition(input, modelPicker, modelPicker.choices.length, body); if (action === "cancel") modelPicker = null; else if (action === "select") { const picked = modelPicker.choices[modelPicker.index]?.spec; modelPicker = null; if (picked && applyModel(detailRow, picked, ctx)) { const effective = deps.modelPolicy.substitutedModel(picked) ?? picked; detailRow = { ...detailRow, model: detailRow.status === "running" ? `${detailRow.model} → ${deps.shortModel(effective)} next` : `${deps.shortModel(effective)} (next)` }; } } tui.requestRender(); return; }
+			return { render: (w: number) => { const body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); if (modelPicker) return renderFleetModelPicker(detailRow.name, modelPicker.choices, modelPicker, w, body, theme); if (evidence !== undefined) return fitToHeight(evidenceLines(evidence, w, body, evidenceOffset, evidenceFinding), body + DETAIL_CHROME_ROWS); syncTail(); const entries = timeline(); const liveRow = paintedRow(); if (followTail) { selectedIndex = Math.max(0, entries.length - 1); scrollOffset = Math.max(0, detailBodyLines(liveRow, entries, w, expandedIndex, verbose, selectedIndex).length - body); } const lines = renderFleetDetail(liveRow, entries, scrollOffset, w, body, theme, expandedIndex, verbose, selectedIndex); const findings = deps.getProactive?.()?.owners.find(owner => owner.runToken === detailRow.runToken)?.findings ?? []; if (findings.length) lines[lines.length - 1] = ` Review finding ${Math.min(findingIndex, findings.length - 1) + 1}/${findings.length} · ${safeTerminalText(findings[findingIndex]?.ruleId)} · n next · e evidence · Esc close`.slice(0, w); return lines; },
+				handleInput: async (data: string) => { const input = matchedInput(data), body = bodyRows(tui.terminal?.rows, DETAIL_CHROME_ROWS); if (evidence !== undefined) { if (input === "\u001b" || input === "q") { evidence = undefined; evidenceFinding = undefined; } else evidenceOffset = evidenceScroll(input, evidenceOffset, proactiveEvidenceContent(evidence, evidenceFinding, tui.terminal?.columns ?? 80).length, body); tui.requestRender(); return; }
+					if (input === "n" || input === "e") {
+						const owner = deps.getProactive?.()?.owners.find(view => view.runToken === detailRow.runToken && view.owner === detailRow.key);
+						const findings = owner?.findings ?? [];
+						if (input === "n") findingIndex = findings.length ? (findingIndex + 1) % findings.length : 0;
+						else { const finding = findings[findingIndex]; evidenceOffset = 0; evidence = finding && deps.readProactiveEvidence ? openProactiveEvidence(finding, (handle, digest, snapshot, unit, excerpt) => {
+							if (deps.getProactive?.()?.owners.find(view => view.runToken === finding.runToken)?.findings.some(item => item.id === finding.id && item.snapshotHandle === handle && item.snapshotHash === digest && item.snapshotId === snapshot && item.unitId === unit && item.excerptHash === excerpt)) return deps.readProactiveEvidence!(finding);
+							return null;
+						}) : null; evidenceFinding = evidence !== null ? finding : undefined; }
+						tui.requestRender(); return;
+					}
+					if (modelPicker) { const action = modelPickerTransition(input, modelPicker, modelPicker.choices.length, body); if (action === "cancel") modelPicker = null; else if (action === "select") { const picked = modelPicker.choices[modelPicker.index]?.spec; modelPicker = null; if (picked && applyModel(detailRow, picked, ctx)) { const effective = deps.modelPolicy.substitutedModel(picked) ?? picked; detailRow = { ...detailRow, model: detailRow.status === "running" ? `${detailRow.model} → ${deps.shortModel(effective)} next` : `${deps.shortModel(effective)} (next)` }; } } tui.requestRender(); return; }
 					if ((input === "\u001b[A" || input === "k" || input === "\u001b[5~" || input === "\u001b[H") && scrollOffset === 0) selectedIndex += loadOlder(); if (input === "\u001b[F") reloadTail(); let entries = timeline(); if (!followTail && (input === "\u001b[B" || input === "j" || input === "\u001b[6~") && selectedIndex >= entries.length - 1) { selectedIndex = Math.max(0, selectedIndex - loadNewer()); entries = timeline(); }
 					const width = tui.terminal?.columns ?? 80, liveRow = paintedRow(), state = { scrollOffset, selectedIndex, expandedIndex, followTail, verbose }, content = detailBodyLines(liveRow, entries, width, expandedIndex, verbose, selectedIndex), offsets = detailBodyOffsets(liveRow, entries, width, expandedIndex, verbose); const action = detailTransition(input, state, entries, body, content.length, offsets); ({ scrollOffset, selectedIndex, expandedIndex, followTail, verbose } = state); if (action === "close") done(); else if (action === "copy") { const item = entries[selectedIndex]; if (item) { try { await copyToClipboard(item.content); ctx.ui.notify("Copied selected zoom row", "info"); } catch { ctx.ui.notify("Failed to copy selected zoom row", "error"); } } } else if (action === "model") { const target = resolveModelTarget(detailRow, ctx); if (target) { const choices = await loadAvailableModelChoices(ctx, target.current); if (choices) { const index = choices.findIndex(choice => choice.spec === target.current); modelPicker = { choices, index: Math.max(0, index), scrollOffset: Math.max(0, index) }; } } } tui.requestRender(); },
 				invalidate() {}, dispose: () => resources.dispose() };

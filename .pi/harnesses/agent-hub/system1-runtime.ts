@@ -54,6 +54,8 @@ export interface WatchdogSystem1Session {
 	readonly requestedModel: string;
 	readonly blockLabel: string | null;
 	readonly readiness: System1Availability;
+	/** Shared session service; no second provider or consumer policy. Undefined when unavailable/disposed. */
+	readonly sharedService: System1Service | undefined;
 	readonly approvedProfiles: readonly AcceptedWatchdogProfile[];
 	readonly hubArmed: boolean;
 	readonly warnings: readonly string[];
@@ -172,6 +174,7 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 			? profiles.length === 0 ? ACTIVE_BLOCKED_LABEL : options.approvedProfilesForTest === undefined ? "experimental: scope only; G2 not validated" : null
 			: null,
 		readiness: runtime.readiness,
+		get sharedService() { return !disposed && options.selected && runtime.readiness.status === "ready" ? runtime.service : undefined; },
 		approvedProfiles: profiles,
 		hubArmed: options.watchdogArmed,
 		warnings: Object.freeze([...(options.warnings ?? [])]),

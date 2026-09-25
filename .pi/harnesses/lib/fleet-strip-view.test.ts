@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderFleetStrip, safeTerminalText, summaryText, treePrefix, visibleWindow } from "./fleet-strip-view.ts";
-import { projectSystem1Owner, summariseWidget, type FleetRow, type System1CheckInput } from "./fleet-read-model.ts";
+import { projectSystem1Owner, summariseWidget, type FleetRow, type ProactiveSessionView, type System1CheckInput } from "./fleet-read-model.ts";
 
 const metrics = { visibleWidth, truncateToWidth };
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text, bg: (_: string, text: string) => text };
@@ -93,6 +93,31 @@ test("A15 strip keeps text System 1 labels at narrow widths without replacing wo
 	const retained = renderFleetStrip({ active: false, interactiveAvailable: false, summary: { ...summary, system1Evaluating: 0, system1Mode: "shadow", system1Last: "S1 cancelled", system1Mixed: false }, window: visibleWindow([owner], 0, 0, 1), maxRows: 5 }, 100, theme, metrics)[0]!;
 	assert.match(retained, /S1 cancelled/);
 	assert.match(retained, /shadow/);
+});
+
+test("review summary survives zero workers and narrow/collapsed budget without pretending suspicion is violation", () => {
+	const review: ProactiveSessionView = { consumer: "proactive-review", owners: [], turns: 3, reviewed: 1, partial: 1, evaluating: 1, currentViolations: 1, currentSuspicions: 2, stale: 1, resolved: 0, lastFinishedAt: 1000, retainUntil: 11_000 };
+	const empty = summariseWidget([]);
+	for (const active of [false, true]) for (const width of [20, 40, 80]) {
+		const lines = renderFleetStrip({ active, interactiveAvailable: false, summary: empty, proactive: review, window: visibleWindow([], 0, 0, 3), maxRows: 6 }, width, theme, metrics);
+		assert.ok(lines.length > 0);
+		assert.ok(lines.every(line => visibleWidth(line) <= width));
+		assert.match(lines.join("\n"), /Review 1 violation/);
+	}
+	assert.match(summaryText(empty, review), /2 suspects.*1 stale.*1 partial/);
+	assert.doesNotMatch(summaryText(empty, review), /checked/);
+	assert.match(summaryText(empty, { ...review, turns: 1, reviewed: 1, partial: 0, evaluating: 0, currentViolations: 0, currentSuspicions: 0, stale: 0 }), /Review checked/);
+	assert.match(summaryText(empty, { ...review, turns: 1, reviewed: 0, partial: 0, evaluating: 0, currentViolations: 0, currentSuspicions: 0, stale: 0 }), /Review skipped/);
+});
+
+test("owner review badge is fenced to its run; existing worker counters remain unchanged", () => {
+	const proactive: ProactiveSessionView = { consumer: "proactive-review", owners: [], turns: 1, reviewed: 0, partial: 1, evaluating: 0, currentViolations: 1, currentSuspicions: 0, stale: 0, resolved: 0, lastFinishedAt: 1000, retainUntil: 11_000 };
+	const owner = { ...proactive, owner: "builder", attempt: "1", runToken: "builder:1", lastStatus: "reviewed", coverage: "partial" as const, findings: [], history: [] };
+	const worker = row("builder", { proactive: owner });
+	const view = (item: FleetRow) => renderFleetStrip({ active: true, interactiveAvailable: true, summary: summariseWidget([item]), proactive, window: visibleWindow([item], 0, 0, 1), maxRows: 5 }, 120, theme, metrics).join("\n");
+	assert.match(view(worker), /Builder|builder.*Review 1 violation/);
+	assert.match(view(worker), /1 tools/);
+	assert.doesNotMatch(view({ ...worker, runToken: "builder:2" }).split("\n").slice(2).join("\n"), /Review/);
 });
 
 test("F-20 collapsed summary does not repeat the mode or emit a bare unknown", () => {

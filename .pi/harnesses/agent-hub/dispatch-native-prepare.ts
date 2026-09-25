@@ -1,4 +1,7 @@
 import { fileURLToPath } from "node:url";
+import { isCaptureEnabled } from "./proactive-config.ts";
+import type { ProactiveConfig } from "./proactive-types.ts";
+import { PROACTIVE_OBSERVER_ENV, isProactiveSpecialist, type ObserverAssignment } from "./proactive-observer.ts";
 import { profileFallback, profileChild, PROFILE_ENV } from './policy/profile-runtime.ts';
 import { BOUNDED_OUTPUT_DIR_ENV } from './bounded-output.ts';
 import { FILESYSTEM_SESSION_DIR_ENV } from './filesystem-tool.ts';
@@ -13,6 +16,10 @@ import { extractAssertionIds } from "./return-contract.js";
 import type { NativeDispatchResult, NativeRunBase, PreparedNativeRun } from "./dispatch-native-types.ts";
 import { bindResume, type TaskResumeInput } from "./task-resume-contract.ts";
 import { confineNativeChild, type WriteIsolationRequest } from "./write-isolation.ts";
+
+export function sessionObserverAssignment(config: ProactiveConfig | null | undefined, personaKey: string, assignment: Omit<ObserverAssignment, "config">): ObserverAssignment | undefined {
+	return isProactiveSpecialist(personaKey) && config && isCaptureEnabled(config) ? { ...assignment, config } : undefined;
+}
 
 export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: boolean, requestedContract?: Omit<TaskResumeInput, "previous">): Promise<PreparedNativeRun | NativeDispatchResult> {
 	const { deps, state, ctx, task, inputArtifacts, scopeGlobs, personaKey, agentKey, runNumber } = base;
@@ -90,6 +97,17 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	const safety = requireSafetyHarness(safetyHarnessPath);
 	if (!safety.ok) return base.finishRun(safety.error, 1);
 	const extensions = [...safety.extensions];
+	// Only the Hub's session-start config can authorize child observation. Missing/off stays off
+	// even if the on-disk config changes before a later native attempt.
+	const config = deps.getProactiveConfig?.();
+	let proactiveAssignment: ObserverAssignment | undefined;
+	if (config && isProactiveSpecialist(personaKey) && isCaptureEnabled(config)) {
+		const root = ctx.cwd || process.cwd();
+		const directory = safePathWithin(base.evidenceDir, "proactive-turns");
+		const context = deps.getProactiveCapture?.()?.nativeContext(base.sessionDir, agentKey, base.dispatchId, task);
+		if (context) proactiveAssignment = sessionObserverAssignment(config, personaKey, { root, directory, session: base.sessionDir, owner: agentKey, attempt: base.dispatchId, context });
+		if (proactiveAssignment) extensions.push(fileURLToPath(new URL("./proactive-observer.ts", import.meta.url)));
+	}
  const assist = base.assistSnapshot;
  const boundedOutput = assist['bounded-output'];
  const declaredTools = state.def.tools.split(",").map(tool => tool.trim()).filter(Boolean);
@@ -210,9 +228,11 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 			...delegateEnv,
 			...(boundedOutput ? { [BOUNDED_OUTPUT_DIR_ENV]: safePathWithin(base.evidenceDir, "bounded-output") } : {}),
 			...(deterministicTools ? { [FILESYSTEM_SESSION_DIR_ENV]: base.sessionDir } : {}),
+			...(proactiveAssignment ? { [PROACTIVE_OBSERVER_ENV]: JSON.stringify(proactiveAssignment) } : {}),
 		},
 		writeIsolation,
 		writeIsolationPolicy,
+		proactiveAssignment,
 		thinkingLevel,
 		wantThinking,
 		resumeContract,

@@ -10,6 +10,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 	return nextResolve(specifier, context);
 } });
 const { createGridUI } = await import("./grid.ts");
+type ProactiveSessionView = import("../../lib/fleet-read-model.ts").ProactiveSessionView;
 const { registerInputShortcuts } = await import("../input/shortcuts.ts");
 const { matchesKey } = await import("@mariozechner/pi-tui");
 
@@ -18,7 +19,7 @@ const plain = (text: string) => text;
 const theme: any = { fg: (_: string, text: string) => text, bold: plain, bg: (_: string, text: string) => text, borderColor: plain, selectList: { selectedPrefix: plain, selectedText: plain, description: plain, scrollInfo: plain, noMatch: plain } };
 const keybindings: any = { matches() { return false; } };
 
-function harness(mode = "tui", rowsAt: (now: number) => any[] = () => [row()], handleIntent?: (intent: any) => void | Promise<void>) {
+function harness(mode = "tui", rowsAt: (now: number) => any[] = () => [row()], handleIntent?: (intent: any) => void | Promise<void>, reviewAt?: (now: number) => ProactiveSessionView | undefined) {
 	let editorFactory: any, widgetFactory: any, setCount = 0, renders = 0, now = 2000, rowReads = 0, clockReads = 0;
 	const timers = new Map<number, () => void>(); let timerId = 0;
 	const ui = {
@@ -27,7 +28,7 @@ function harness(mode = "tui", rowsAt: (now: number) => any[] = () => [row()], h
 		setEditorComponent: (value: any) => { editorFactory = value; },
 	};
 	const ctx: any = { mode, ui };
-	const grid = createGridUI({ getWidgetContext: () => ctx, getRows: value => { rowReads++; return rowsAt(value); }, handleIntent, now: () => { clockReads++; return now; }, setTimeout: (fn: () => void) => { const id = ++timerId; timers.set(id, fn); return id as any; }, clearTimeout: (id: any) => { timers.delete(id); } });
+	const grid = createGridUI({ getWidgetContext: () => ctx, getRows: value => { rowReads++; return rowsAt(value); }, ...(reviewAt ? { getSnapshot: (value: number) => { rowReads++; return { rows: rowsAt(value), proactive: reviewAt(value) }; } } : {}), handleIntent, now: () => { clockReads++; return now; }, setTimeout: (fn: () => void) => { const id = ++timerId; timers.set(id, fn); return id as any; }, clearTimeout: (id: any) => { timers.delete(id); } });
 	grid.updateWidget();
 	const tui: any = { terminal: { rows: 18 }, requestRender() { renders++; } };
 	const widget = widgetFactory?.(tui, theme);
@@ -166,6 +167,34 @@ test("deferred intent completion cannot mutate a successor context", async () =>
 	assert.match(next.widget.render(80)[0]!, /press x again/);
 	release(); await pending; await Promise.resolve();
 	assert.match(next.widget.render(80)[0]!, /press x again/, "old finally must not clear successor confirmation");
+});
+
+test("review snapshot refreshes in same second, retains idle Hub with zero rows, then expires exactly at ten seconds", () => {
+	const review: ProactiveSessionView = { consumer: "proactive-review", owners: [], turns: 1, reviewed: 0, partial: 1, evaluating: 1, currentViolations: 0, currentSuspicions: 0, stale: 0, resolved: 0, lastFinishedAt: null, retainUntil: 0 };
+	let value = review;
+	const h = harness("rpc", () => [], undefined, () => value);
+	assert.match(h.widget.render(40).join("\n"), /Review 1 partial 1 evaluating/);
+	const before = h.renders();
+	value = { ...review, evaluating: 0, currentViolations: 1, lastFinishedAt: 2000, retainUntil: 12_000 };
+	h.grid.updateWidget();
+	assert.ok(h.renders() > before, "same-second finish changes the review display key");
+	assert.match(h.widget.render(40).join("\n"), /Review 1 violation/);
+	assert.equal(h.timers.size, 1);
+	h.setNow(11_999); h.grid.updateWidget(); assert.match(h.widget.render(40).join("\n"), /Review/);
+	h.setNow(12_000); const tick = [...h.timers.values()][0]; h.timers.clear(); tick();
+	assert.deepEqual(h.widget.render(40), []);
+	assert.equal(h.timers.size, 0);
+	assert.equal(h.editor, undefined);
+});
+
+test("review projection is sampled only on update, never in render, and cancelling is not checked", () => {
+	let calls = 0;
+	const review: ProactiveSessionView = { consumer: "proactive-review", owners: [], turns: 1, reviewed: 0, partial: 1, evaluating: 0, currentViolations: 0, currentSuspicions: 0, stale: 1, resolved: 0, lastFinishedAt: 1000, retainUntil: 11_000 };
+	const h = harness("tui", () => [], undefined, () => { calls++; return review; });
+	const before = calls;
+	assert.match(h.widget.render(80).join("\n"), /Review 1 stale 1 partial/);
+	assert.equal(calls, before);
+	assert.doesNotMatch(h.widget.render(80).join("\n"), /checked/);
 });
 
 test("A15 fast System 1 refresh, idle retention and headless strip do not send chat", () => {

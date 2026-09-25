@@ -12,6 +12,7 @@ different readers and different lifetimes, so they are kept separate.
 | `.ai/agent-fleet-transaction.json` | the deterministic lifecycle (`setup`, `doctor --fix`) — crash-recovery journal for in-flight file transactions | Written during apply; recovered or discarded by setup/doctor; removed when the transaction commits or is cleaned up |
 | `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
 | `.ai/system1.json` *(optional)* | System 1 shared runtime and doctor | When the experimental `system1` feature is explicitly selected |
+| `.ai/proactive-review.json` *(optional)* | Hub proactive turn review consumer | At Hub session start; missing means off |
 
 The `.ai/system1.json` file is human-owned, non-secret provider configuration.
 Setup prints its required shape but does not create or overwrite it. Its
@@ -216,6 +217,227 @@ not a real shadow pilot. G1 requires manual/outbound review; G2 additionally
 requires independent human labels identifying the snapshot **and LLM attempt**,
 held-out session evaluation and an explicit maintainer-approved profile. Older
 labels without an LLM attempt ID cannot qualify. No gate is inferred from doctor readiness.
+
+## Proactive turn review (experimental)
+
+This is a **separate per-repository opt-in**, not a new provider or an installer
+feature flag. The Hub/native consumer uses the existing shared System 1 service
+(`system1` feature, `.ai/system1.json`, caller-owned key) only when selected
+excerpts are explicitly permitted and the service is ready. Its config is
+human-owned `.ai/proactive-review.json`; setup/doctor do not create or activate
+it. Missing config or valid `{"version":1,"mode":"off"}` causes **zero
+proactive capture, inference, and feedback**. Invalid configuration fails closed.
+Nothing here authorizes a live pilot, client repository, ringithub, provider
+request, release, deployment or active configuration change.
+
+Modes: `shadow` records bounded local evidence/findings without feedback;
+`advisory` additionally offers bounded feedback at the next **natural** turn,
+never starting a turn itself. With `remoteContext: "disabled"` (the default),
+either enabled mode is **local-only**: source-bound deterministic checks may
+run, but no semantic model review; no finding does not mean reviewed. With
+`remoteContext: "selected-excerpts"`, permitted included source/assistant
+excerpts may be transmitted to the already configured System 1 provider for
+semantic assessment. This is not a blanket secrecy guarantee: source is
+selected within approved scope and bounded/excluded, but automatic comprehensive
+redaction of unknown secrets is not established. Review the *exact outbound
+payload* and scope before any real opt-in. No auto-fix, kill, blocking,
+acceptance authority, watchdog override, or autonomous continuation follows a
+finding. Feedback is restricted to the same owner/attempt/task and current
+source hashes and the session-bound rule revision, once per finding revision, at an already-occurring context
+hook; changed evidence is refused.
+
+**Schema illustration only — NOT executed, NOT authorization or a recommended
+repository scope:** after separate human approval of the exact repository,
+paths, outbound categories, budget and payload, a human may choose values in
+this shape; do not copy these example paths into active configuration:
+
+```json
+{
+  "version": 1,
+  "mode": "shadow",
+  "remoteContext": "selected-excerpts",
+  "include": ["src/**", "docs/**"],
+  "maxEvaluationsPerSession": 100
+}
+```
+
+Only `version`, `mode`, `remoteContext`, `include`,
+`maxEvaluationsPerSession`, `localBindings` are accepted. Version is `1`;
+mode is `off|shadow|advisory`; remote context is
+`disabled|selected-excerpts`. Enabled modes require a nonempty explicit
+repository-relative `include` (≤32 distinct entries, ≤256 characters each;
+no absolute/dot/traversal paths, hidden segments, backslashes, special
+bracket/negation patterns or dependency/build/runtime directories). The
+session evaluation budget is an integer 0–100, default 100 in enabled modes.
+The optional `localBindings` (≤16) require reviewed source-bound Markdown
+`rule` path/heading/positive occurrence/lowercase SHA-256 hash,
+`applicability` paths and added/modified kinds, and explicit paths/legacy
+exceptions; `new-file-placement` also needs an added-only prefix, while
+`relative-markdown-links` checks link form/escape, **not target existence**.
+These are not prose-rule compilation or a general Markdown/AST validator.
+Off must not retain active includes, remote permission, bindings or explicit
+nonzero budget: rollback uses the complete minimal off JSON above, then a
+**new Hub session**. Cancel current work if immediate interruption is needed;
+do not delete session evidence or user config as cleanup.
+
+Rules come read-only from `rules:` roots in `## agent-hub` (legacy
+`## agent-team`): index-first, literal Markdown links/references and bounded
+recursive fallback. The catalog binds file/path, heading occurrence and hash
+for the **session**; edits do not reload in-session, and a restart adopts them.
+It cannot execute instructions in rules. Discovery has a 64-file/256 KiB
+budget; selection at most 20 sections/32 KiB, with coverage gaps for missing,
+unsafe, partial, unselected or unsupported sources. Only the explicit task
+and explicitly supplied plan bind the review; absent plan is `task_only`, not
+a search for the newest plan. Incomplete work, exceptions, parallel authorship
+and same-turn rule edits can remain uncertain. No silence or skipped check is
+proof of compliance. Hub and supported native specialists are covered;
+research helpers, nested delegates, coms peers and Hermes are not.
+
+Per turn: at most 20 source units, 256 KiB retained excerpts (64 KiB/file),
+32 KiB evaluation state, 16 questions/batch, two calls/turn, one active
+job/session, one pending/owner with backlog ≤8 and 5 s queue wait. Capture
+phase has a 1 s deadline; evaluation job has a 2 s deadline. Feedback is
+≤3 findings/1,500 characters; finding history/private snapshots are bounded
+at 100, so readback/retention is **not** a complete session record. Captures
+bind pre/post worktree bytes, hashes and offsets; private evidence can be
+locally reopened with validated references, whereas trace/report summaries
+contain metadata only. Exclude `.env`, credentials, `.git`, dependencies,
+build/runtime/session/transcript trees, binaries and realpath escapes; never
+assume redaction catches every secret. Review coverage can be `partial`, `not_checked`, `unsupported`, `stale`,
+`unavailable` or `unknown` rather than a confirmed pass. Operator TUI/history retain a completed row briefly (10 s); metadata
+readback persists within the bounded session record.
+
+### Release readiness and evaluation limits
+
+The opt-in runtime, native observer, local validators, advisory delivery, Fleet
+history/evidence, reports and package installation are implemented and
+independently reviewed. Offline integration uses repo-local Pi **0.84.2**;
+Node 18 compatibility applies separately to the installed CLI/doctor, not the
+Pi harness. Review history and evidence retain the dashboard's fixed-height
+frame, including blank rows, rather than exposing dispatcher chat underneath.
+
+A maintainer-authorized synthetic Jev smoke has verified real provider
+communication and the evaluator path. It is **not** the planned 30-case
+human-labelled semantic evaluation, nor evidence of general accuracy or recall.
+That evaluation and final semantic acceptance remain outstanding; findings-only
+label-key access also limits operational miss/true-negative evaluation.
+
+A release installs the capability, **not its activation**. Setup does not create
+`.ai/proactive-review.json`, and preserves an existing human-owned file. The
+maintainer's active config and repo-specific rule catalog are not release
+artifacts. Each target repository needs its own explicit scope, rules and
+outbound-data consent. Configuration/rules are loaded at session start; start a
+fresh Fleet session after changing them. When testing file placement, verify
+that the file is really inside the configured repository include path, not a
+session `artifacts/` directory with a similar relative suffix.
+
+### Read-only reports and explicit human labels
+
+`/af-hub-report` and `/af-audit` separate proactive and watchdog totals.
+For measured comparison only, add `--labels /absolute/path/to/CURRENT_SESSION/artifacts/labels.json`
+to **either** command. No default, file discovery, provider request or
+automatic label inference occurs. The actual path must be an absolute regular
+`.json` file below the *current* session's `artifacts/`, without symlink escape;
+maximum 64 KiB and 320 labels. Only retained findings currently expose operator-readable label keys. In Fleet
+Dashboard (**Alt+A**), open review history with **`p`**, select a finding with
+**`n`**, then press **`e`** for its local captured evidence; alternatively open
+the specialist detail, select a finding with **`n`**, and press **`e`**. Scroll
+with ↑/↓ (or j/k), PgUp/PgDn, Home/End; Esc returns to the previous review-history or detail view. The evidence
+view displays a JSON record with the exact `snapshotId`, slash-bearing catalog
+`ruleId` (`path#heading@occurrence:hash`), session-bound `ruleHash`, and
+`subject` for that finding. At narrow widths the JSON is wrapped into visual
+chunks: remove one indentation column from each chunk and concatenate the
+chunks to reconstruct the record. Unavailable evidence shows no template;
+do not guess a key. Copy the reconstructed record into an explicit local
+current-session artifacts `.json` array, leaving `expected` as `unknown` until
+a human judges that finding (`violation` or `clean`). Never use raw
+source/prompt payloads as label keys. This illustrative shape is not a
+substitute for the evidence-view values:
+
+```json
+[
+  {
+    "snapshotId": "<actual lowercase 64-hex snapshot ID>",
+    "ruleId": "<actual evidence-view catalog rule ID, including path/slashes>",
+    "ruleHash": "<actual bound lowercase 64-hex rule hash>",
+    "subject": "src/example.ts",
+    "expected": "unknown"
+  }
+]
+```
+
+Each object has **exactly** these five keys; `expected` is
+`violation|clean|unknown`. Match snapshot, rule ID, session-bound rule hash and subject to retained
+finding evidence; a valid unmatched label is `unchecked`, not a false
+pass/miss. Report comparison can join checked-clear verdicts, but the operator
+UI exposes keys only for retained findings, not checked-clear units. Human
+miss/true-negative labels cannot currently be authored from this UI; absent
+human labels remain `unknown`. This is a partial finding-backed workflow, not
+fully operational misses or recall evaluation. Missing/invalid labels yield `unavailable` with null
+measurement counts; empty valid array is not a precision/recall score.
+Counts distinguish reviewed/partial/coverage-unknown/skipped, uncovered rules,
+deterministic findings versus System 1 suspicions, unknown usage and unknown
+native delivery (no receipt). Trace-only readback does not reconstruct missing
+coverage or invent zeroes. Any precision or miss count describes only *labelled checked* evidence, not
+unlabelled clear units or universal correctness.
+
+### Offline installed-package runbook (not executed by this documentation change)
+
+Use a fresh **temporary** directory/workspace, with Node supporting native
+TypeScript for the observer, repo-local Pi 0.84.2, and existing dependencies;
+Node 18 is checked separately for the extracted CLI. These are test-backed
+instructions, **not** commands run by this documentation patch. From this
+repository's root, the safest reproducible run is:
+
+```sh
+node --test .pi/agent-fleet/scripts/docs-links.test.mjs
+# Supply an actual installed Node 18 executable; the test fails if unavailable.
+AF_NODE18=/absolute/path/to/node18 node --test bin/test/proactive-installed.test.js
+node --test --test-name-pattern='isolated tarball supports' bin/test/package-surfaces.test.js
+```
+
+The installed test packs with `npm pack --json --pack-destination <temp>`,
+extracts with `tar -xzf <tarball> --strip-components=1 -C <temp>/package`,
+and runs `node <temp>/package/bin/cli.js setup --workspace <temp>/installed
+--preset default --features none --yes` under a scrubbed offline environment.
+It checks the installed 12-file runtime closure and an offline fake-provider Pi
+observer/capture, no auto `.ai/proactive-review.json` or proactive desired-state
+key, preservation of a **test-only HUMAN fixture** across repeat setup and
+`doctor`/`doctor --fix`, and extracted-CLI version/help/readonly doctor under
+Node 18. Doctor may return 0 or findings exit 2. The smoke reuses existing
+repository dependencies, not a fresh dependency install; its network guard is
+limited and does not prove every step physically network-isolated. Do not
+create the illustrative active config above in a real workspace while testing.
+The operator must run the link test and installed test on the final changed
+state; this document alone is not verification.
+
+### Separate live pilot and acceptance
+
+C5 operator visibility was human accepted, and the final post-fix source/docs
+review accepted the C6 offline/package work. The later review-history overlay
+fix is covered by fixed-frame and real Pi compositor regression tests; its
+human visual retest is separate. Implemented/offline/installed evidence is not
+live semantic accuracy. Explicit advisory activation in the maintainer's
+repository and a synthetic Jev transport/evaluator smoke have occurred; neither
+completes the planned human-labelled pilot or C7 semantic acceptance. For a new
+repository, first review synthetic/offline evidence, then require **explicit
+repo-specific shadow consent**, including exact include/exclusion paths,
+reviewed bindings, session budget, outbound categories and representative
+exact payload review; separate explicit consent is required for advisory.
+There is no implied ringithub/customer repo authorization. A subsequent pilot
+requires ≥30 **human-labelled** code/text assessments including ≥10 known
+violations/deviations, BG/EN, legacy/new code, interim work, exceptions,
+text-only and no-plan cases; manually review selector omissions and uncertain
+cases. Measure finding-backed labelled precision and false alarms alongside coverage,
+capture overhead, model p50/p95 latency, queue drops and known/unknown usage.
+Miss/true-negative human-label keys for checked-clear units are not exposed;
+report miss joins from synthetic/offline tests do not establish operational
+miss/recall measurement. Record that gap explicitly in any pilot assessment
+rather than treating unknown labels as negatives. Synthetic/offline success is not semantic or live
+proof; no automatic mode promotion or invented accuracy threshold. C7 asks
+the maintainer to accept limitations/evidence and explicitly choose each
+repository's off/shadow/advisory state. No release or deployment follows from
+these docs or C6.
 
 ## The overrides file — `.ai/agent-fleet-overrides.md`
 

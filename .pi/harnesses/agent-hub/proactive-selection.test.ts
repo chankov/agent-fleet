@@ -1,0 +1,45 @@
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { discoverRules } from "./proactive-rules.ts";
+import { selectRules } from "./proactive-selection.ts";
+import type { ProactiveConfig } from "./proactive-types.ts";
+const config: ProactiveConfig = { version: 1, mode: "shadow", remoteContext: "disabled", include: ["src/**"], maxEvaluationsPerSession: 100 };
+test("offline, known IDs, conservative uncertainty, full exception and budget gaps", async () => {
+ const repo = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "selection-p3-"));
+ try {
+  mkdirSync(join(repo, "rules"));
+  writeFileSync(join(repo, "rules/README.md"), "# Index\n[default](default.md) [conditional](conditional.md)\n");
+  writeFileSync(join(repo, "rules/default.md"), "# Default\nMust check this.\n");
+  writeFileSync(join(repo, "rules/conditional.md"), "# Conditional\nMust check new files.\n## Exception\nOld files exempt.\n");
+  const catalog = discoverRules(repo, ["rules"]);
+  const base = { catalog, config, taskRevision: "task-1", changedPaths: ["src/a.vue"], contentHints: ["new component"] };
+  let calls = 0;
+  const offline = await selectRules({ ...base, classify: async () => { calls++; throw Error("network"); } });
+  assert.equal(calls, 0);
+  assert.ok(offline.selected.some(s => s.text.includes("Old files exempt")));
+  const small = await selectRules({ ...base, maxSections: 1 });
+  assert.ok(small.coverage.some(c => c.status === "not_selected" && c.reason === "budget"));
+  assert.ok(small.gaps.some(g => g.startsWith("selection_budget:")));
+  const remote = { ...config, remoteContext: "selected-excerpts" as const };
+  const invalid = await selectRules({ ...base, config: remote, classify: async () => ({ "invented/path.md": "applicable" }) });
+  assert.ok(invalid.gaps.includes("invalid_selection_response"));
+  assert.equal(invalid.selected.length, catalog.sections.length);
+  const classified = await selectRules({ ...base, config: remote, classify: async ids => ({ [ids.find(s => s.heading === "Conditional")!.id]: "not_applicable" }) });
+  assert.ok(classified.coverage.some(c => c.reason === "provisional_not_applicable"));
+  assert.ok(classified.coverage.some(c => c.reason === "uncertain"));
+  const cache = new Map();
+  const first = await selectRules({ ...base, cache });
+  assert.equal(first, await selectRules({ ...base, cache }));
+  assert.notEqual(first.cacheKey, (await selectRules({ ...base, taskRevision: "task-2", cache })).cacheKey);
+  assert.notEqual(first.cacheKey, (await selectRules({ ...base, changedPaths: ["docs/a.md"], cache })).cacheKey);
+  assert.notEqual(first.cacheKey, (await selectRules({ ...base, config: remote, cache })).cacheKey);
+  assert.notEqual(first.cacheKey, (await selectRules({ ...base, contentHints: ["legacy"], cache })).cacheKey);
+  writeFileSync(join(repo, "rules/README.md"), "# Updated index\n[default](default.md) [conditional](conditional.md)\n");
+  assert.notEqual(first.cacheKey, (await selectRules({ ...base, catalog: discoverRules(repo, ["rules"]), cache })).cacheKey);
+  writeFileSync(join(repo, "rules/conditional.md"), "# Conditional\nMust check old files too.\n");
+  assert.notEqual(first.cacheKey, (await selectRules({ ...base, catalog: discoverRules(repo, ["rules"]), cache })).cacheKey);
+ } finally { rmSync(repo, { recursive: true, force: true }); }
+});

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { projectProactive } from "./fleet-read-model.ts";
 import test from "node:test";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { dashboardTransition, renderFleetDashboard, FLEET_CHROME_ROWS, type DashboardControllerState } from "./fleet-dashboard-view.ts";
+import { dashboardTransition, renderFleetDashboard, renderProactiveHistory, FLEET_CHROME_ROWS, type DashboardControllerState } from "./fleet-dashboard-view.ts";
 
 const metrics = { truncateToWidth, visibleWidth };
 const theme = { fg: (_: string, s: string) => s, bold: (s: string) => s, bg: (_: string, s: string) => s };
@@ -50,6 +51,18 @@ test("A14 dashboard badge matches the strip owner and does not add a specialist 
 	}
 	const state: DashboardControllerState = { selection: { index: 0 }, scrollOffset: 0, filtering: false, filterQuery: "", showFinished: true, confirm: null };
 	assert.equal(dashboardTransition("\r", state, visible, 4)?.open, "root");
+});
+
+test("P11b projected Hub history remains readable after strip retention with zero rows", () => {
+	const hex = "a".repeat(64);
+	const finding = { id: hex, owner: "hub", attempt: "one", source: "deterministic" as const, claim: "violation" as const, state: "current" as const, ruleId: "rules.md#links", ruleHash: hex, subject: "docs/x.md", snapshotHandle: hex, snapshotHash: hex, snapshotId: "snap", unitId: "unit", excerptHash: hex, occurrences: 1 };
+	const proactive = projectProactive({ records: [{ owner: "hub", attempt: "one", turnId: "turn-1", status: "reviewed" }], history: [{ owner: "hub", attempt: "one", turnId: "turn-1", status: "reviewed", coverage: { status: "partial", gaps: ["missing"], checked: [] }, findings: [finding] }], current: [finding], activity: [{ type: "job_finished", jobId: "one", at: 1 }] });
+	assert.ok(proactive.retainUntil < 20_000);
+	const screen = renderFleetDashboard({ ...vm([]), proactive }, 120, 4, theme, metrics).join("\n");
+	assert.match(screen, /Review.*partial.*1 deterministic/);
+	const history = renderProactiveHistory(proactive, 140).join("\n");
+	assert.match(history, /hub.*one[\s\S]*turn-1.*coverage partial[\s\S]*uncovered coverage_gap[\s\S]*new.*deterministic violation.*rules.md#links/);
+	assert.doesNotMatch(screen + history, /raw-source-secret/);
 });
 
 test("dashboard truncates ANSI styling by visible width and retains its reset", () => {
