@@ -1,10 +1,11 @@
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, unlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, unlinkSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseProactiveConfig } from "./proactive-config.ts";
 import { beginTurn, beginTurnCore, finishTurn, finishTurnCore, readSnapshotUnit } from "./proactive-snapshot.ts";
 
@@ -12,8 +13,14 @@ const config = parseProactiveConfig({ version: 1, mode: "shadow", include: ["src
 const remoteConfig = parseProactiveConfig({ version: 1, mode: "shadow", remoteContext: "selected-excerpts", include: ["src/**", "docs/**"] });
 const context = { task: { path: "task", revision: "1", hash: "taskhash" }, rules: [], exceptions: ["explicit user exception"] };
 function git(root: string, ...args: string[]) { return execFileSync("git", args, { cwd: root, encoding: "utf8" }); }
-function fixture() {
- const root = mkdtempSync(join(tmpdir(), "proactive-snapshot-"));
+function temporaryDirectory(t: Pick<TestContext, "after">, prefix: string) {
+ const root = mkdtempSync(join(tmpdir(), prefix));
+ // Register before Git/setup work: assertion failures and setup errors also clean up.
+ t.after(() => rmSync(root, { recursive: true, force: true }));
+ return root;
+}
+function fixture(t: Pick<TestContext, "after">) {
+ const root = temporaryDirectory(t, "proactive-snapshot-");
  git(root, "init", "-q"); git(root, "config", "user.email", "snapshot@example.test"); git(root, "config", "user.name", "Test");
  mkdirSync(join(root, "src")); mkdirSync(join(root, "docs"));
  writeFileSync(join(root, "src", "clean.ts"), "clean\n"); writeFileSync(join(root, "src", "dirty.ts"), "tracked\n");
@@ -25,8 +32,8 @@ test("missing/off does not inspect source, git or text", async () => {
  assert.equal(await beginTurn({ root: "/nonexistent", config: off, context, turnId: "1" }), null);
  assert.equal(await finishTurn(null, { assistantText: "sentinel" }), null);
 });
-test("actual dirty staged and untracked baseline, revert, deletion, shell edit and immutable readback", async () => {
- const root = fixture();
+test("actual dirty staged and untracked baseline, revert, deletion, shell edit and immutable readback", async t => {
+ const root = fixture(t);
  writeFileSync(join(root, "src/dirty.ts"), "staged\n"); git(root, "add", "src/dirty.ts");
  writeFileSync(join(root, "src/dirty.ts"), "before dirty\n");
  writeFileSync(join(root, "src/untracked.ts"), "before untracked\n");
@@ -49,8 +56,8 @@ test("actual dirty staged and untracked baseline, revert, deletion, shell edit a
  assert.equal(readSnapshotUnit(s, s.snapshotId, unit.id, "bad hash"), null);
  assert.equal(unit.attribution, "uncertain");
 });
-test("default disabled remote context drops assistant text without failing local checks", async () => {
- const root = fixture();
+test("default disabled remote context drops assistant text without failing local checks", async t => {
+ const root = fixture(t);
  assert.equal(config.remoteContext, "disabled");
  const b = await beginTurn({ root, config, context, turnId: "privacy" });
  const sentinel = "PRIVATE_ASSISTANT_SENTINEL";
@@ -60,15 +67,15 @@ test("default disabled remote context drops assistant text without failing local
   assert.ok(!JSON.stringify(snapshot).includes(sentinel));
  }
 });
-test("explicit selected-excerpts permits assistant text", async () => {
- const root = fixture();
+test("explicit selected-excerpts permits assistant text", async t => {
+ const root = fixture(t);
  const b = await beginTurn({ root, config: remoteConfig, context, turnId: "authorized-text" });
  const s = await finishTurn(b, { assistantText: "authorized authored text" });
  assert.equal(s?.status, "complete");
  assert.equal(s?.units.find(u => u.kind === "text")?.after?.text, "authorized authored text");
 });
-test("known ignored deliverable, rename pair, bound plan and overlap are explicit", async () => {
- const root = fixture(); writeFileSync(join(root, "docs/ignored.md"), "before\n");
+test("known ignored deliverable, rename pair, bound plan and overlap are explicit", async t => {
+ const root = fixture(t); writeFileSync(join(root, "docs/ignored.md"), "before\n");
  const b = await beginTurn({ root, config, context: { ...context, plan: { path: "plan", revision: "p1", hash: "old" } }, turnId: "t2", knownTargets: ["docs/ignored.md"] })!;
  git(root, "mv", "src/clean.ts", "src/moved.ts");
  writeFileSync(join(root, "docs/ignored.md"), "after\n");
@@ -79,8 +86,8 @@ test("known ignored deliverable, rename pair, bound plan and overlap are explici
  assert.equal(s.units.find(u => u.path === "src/clean.ts")?.kind, "deleted");
  assert.equal(s.units.find(u => u.path === "src/moved.ts")?.kind, "added");
 });
-test("forbidden names, symlinks, huge files and HEAD replacement remain uncovered", async () => {
- const root = fixture();
+test("forbidden names, symlinks, huge files and HEAD replacement remain uncovered", async t => {
+ const root = fixture(t);
  writeFileSync(join(root, "src/.env"), "secret");
  writeFileSync(join(root, "src/huge.ts"), "x".repeat(70_000));
  symlinkSync(join(root, ".git/config"), join(root, "src/escape.ts"));
@@ -94,16 +101,16 @@ test("forbidden names, symlinks, huge files and HEAD replacement remain uncovere
  assert.ok(!s.units.some(x => x.path.includes(".env") || x.path.includes("escape.ts")));
  assert.ok(!JSON.stringify(s).includes("secret"));
 });
-test("new untracked and pre-existing unchanged dirty content are distinguished", async () => {
- const root = fixture(); writeFileSync(join(root, "src/dirty.ts"), "already dirty\n");
+test("new untracked and pre-existing unchanged dirty content are distinguished", async t => {
+ const root = fixture(t); writeFileSync(join(root, "src/dirty.ts"), "already dirty\n");
  const b = await beginTurn({ root, config, context, turnId: "new-file" })!;
  writeFileSync(join(root, "src/new.ts"), "new file\n");
  const s = await finishTurn(b)!;
  assert.deepEqual(s.units.map(u => u.path), ["src/new.ts"]);
  assert.equal(s.units[0]?.kind, "added");
 });
-test("missing dirty baseline is never replaced with HEAD bytes", async () => {
- const root = fixture(); writeFileSync(join(root, "src/dirty.ts"), "before dirty\n");
+test("missing dirty baseline is never replaced with HEAD bytes", async t => {
+ const root = fixture(t); writeFileSync(join(root, "src/dirty.ts"), "before dirty\n");
  let calls = 0;
  const b = beginTurnCore({ root, config, context, turnId: "dirty-timeout", now: () => ++calls >= 6 ? 2000 : 0 })!;
  assert.ok(b.initialPaths.has("src/dirty.ts"));
@@ -114,8 +121,8 @@ test("missing dirty baseline is never replaced with HEAD bytes", async () => {
  assert.ok(s.gaps.some(g => g.includes("missing_baseline")));
  assert.ok(!s.units.some(u => u.path === "src/dirty.ts"));
 });
-test("failed HEAD blob read cannot turn a tracked edit into complete added evidence", async () => {
- const root = fixture(); const b = await beginTurn({ root, config, context, turnId: "lost-blob" })!;
+test("failed HEAD blob read cannot turn a tracked edit into complete added evidence", async t => {
+ const root = fixture(t); const b = await beginTurn({ root, config, context, turnId: "lost-blob" })!;
  const blob = git(root, "rev-parse", "HEAD:src/clean.ts").trim();
  unlinkSync(join(root, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
  writeFileSync(join(root, "src/clean.ts"), "changed\n");
@@ -132,8 +139,8 @@ test("beginTurn git failure produces incomplete evidence rather than throwing", 
  assert.ok(!s.units.some(u => u.kind === "added" || u.kind === "modified" || u.kind === "text"));
  assert.ok(!JSON.stringify(s).includes("still observed"));
 });
-test("capture budget applies to git and file operations, including finish", async () => {
- const root = fixture(); const b = await beginTurn({ root, config, context, turnId: "deadline" })!;
+test("capture budget applies to git and file operations, including finish", async t => {
+ const root = fixture(t); const b = await beginTurn({ root, config, context, turnId: "deadline" })!;
  writeFileSync(join(root, "src/clean.ts"), "changed\n");
  let calls = 0;
  const s = finishTurnCore(b, { now: () => ++calls >= 4 ? 2000 : 0 })!;
@@ -141,8 +148,8 @@ test("capture budget applies to git and file operations, including finish", asyn
  assert.ok(s.gaps.includes("capture_timeout"));
  assert.ok(!s.units.some(u => u.path === "src/clean.ts"));
 });
-test("nested task, plan, rules and exceptions are immutable and detached", async () => {
- const root = fixture();
+test("nested task, plan, rules and exceptions are immutable and detached", async t => {
+ const root = fixture(t);
  const supplied = { task: { ...context.task }, plan: { path: "plan", revision: "one", hash: "planhash" }, rules: [{ path: "rule", revision: "one", hash: "rulehash" }], exceptions: ["permitted"] };
  const b = await beginTurn({ root, config, context: supplied, turnId: "bound" })!;
  supplied.task.revision = "changed"; supplied.rules[0]!.revision = "changed"; supplied.exceptions.push("forged");
@@ -156,8 +163,8 @@ test("nested task, plan, rules and exceptions are immutable and detached", async
  assert.throws(() => { (s.context.task as { revision: string }).revision = "forged"; }, TypeError);
  assert.throws(() => { (s.context.exceptions as string[]).push("forged"); }, TypeError);
 });
-test("assistant text bounds and redaction do not become green", async () => {
- const root = fixture(); const b = await beginTurn({ root, config: remoteConfig, context, turnId: "t4" })!;
+test("assistant text bounds and redaction do not become green", async t => {
+ const root = fixture(t); const b = await beginTurn({ root, config: remoteConfig, context, turnId: "t4" })!;
  const s = await finishTurn(b, { assistantText: "token SENTINEL", secrets: ["SENTINEL"] })!;
  assert.equal(s.units[0]?.after?.text, "token [REDACTED]");
  const digest = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -168,8 +175,8 @@ test("assistant text bounds and redaction do not become green", async () => {
  assert.equal(readFileSync(join(root, "src/clean.ts"), "utf8"), "clean\n");
 });
 
-test("zero-byte tracked deletion and addition remain distinct", async () => {
- const root = fixture(); writeFileSync(join(root, "src/empty.ts"), ""); git(root, "add", "."); git(root, "commit", "-qm", "empty");
+test("zero-byte tracked deletion and addition remain distinct", async t => {
+ const root = fixture(t); writeFileSync(join(root, "src/empty.ts"), ""); git(root, "add", "."); git(root, "commit", "-qm", "empty");
  const b = await beginTurn({ root, config, context, turnId: "zero" });
  unlinkSync(join(root, "src/empty.ts")); writeFileSync(join(root, "src/new-empty.ts"), "");
  const s = await finishTurn(b);
@@ -177,8 +184,8 @@ test("zero-byte tracked deletion and addition remain distinct", async () => {
  assert.equal(s?.units.find(u => u.path === "src/new-empty.ts")?.kind, "added");
 });
 
-test("denied tracked credential is never passed to path-specific Git commands", async () => {
- const root = fixture(); writeFileSync(join(root, "src/.env"), "SECRET"); git(root, "add", "-f", "src/.env"); git(root, "commit", "-qm", "credential");
+test("denied tracked credential is never passed to path-specific Git commands", async t => {
+ const root = fixture(t); writeFileSync(join(root, "src/.env"), "SECRET"); git(root, "add", "-f", "src/.env"); git(root, "commit", "-qm", "credential");
  const b = await beginTurn({ root, config, context, turnId: "denied" });
  writeFileSync(join(root, "src/.env"), "OTHERSECRET");
  const s = await finishTurn(b);
@@ -191,7 +198,7 @@ test("denied tracked credential is never passed to path-specific Git commands", 
  assert.ok(again?.gaps.includes("forbidden_path"));
  assert.ok(!again?.gaps.includes("read_unavailable"));
  // Log every Git argv in the child; neither ls-tree nor show may name the denied path.
- const fake = mkdtempSync(join(tmpdir(), "proactive-git-spy-"));
+ const fake = temporaryDirectory(t, "proactive-git-spy-");
  const log = join(fake, "argv");
  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
  writeFileSync(join(fake, "git"), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PROACTIVE_GIT_LOG"\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
@@ -203,8 +210,8 @@ test("denied tracked credential is never passed to path-specific Git commands", 
  assert.ok(!readFileSync(log, "utf8").includes("src/.env"));
 });
 
-test("gap codes never contain Git stderr, commands or absolute fixture paths", async () => {
- const root = fixture(); const b = await beginTurn({ root, config, context, turnId: "gap" });
+test("gap codes never contain Git stderr, commands or absolute fixture paths", async t => {
+ const root = fixture(t); const b = await beginTurn({ root, config, context, turnId: "gap" });
  const blob = git(root, "rev-parse", "HEAD:src/clean.ts").trim();
  unlinkSync(join(root, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
  writeFileSync(join(root, "src/clean.ts"), "edited");
@@ -214,8 +221,8 @@ test("gap codes never contain Git stderr, commands or absolute fixture paths", a
  assert.ok(!JSON.stringify(s?.gaps).includes(root));
 });
 
-test("mid-read mutation deterministically reports instability", () => {
- const root = fixture(); const b = beginTurnCore({ root, config, context, turnId: "mutation" });
+test("mid-read mutation deterministically reports instability", t => {
+ const root = fixture(t); const b = beginTurnCore({ root, config, context, turnId: "mutation" });
  writeFileSync(join(root, "src/clean.ts"), "initial\n");
  const s = finishTurnCore(b, { afterFirstRead: () => writeFileSync(join(root, "src/clean.ts"), "changed\n") });
  assert.equal(s?.status, "unstable_snapshot");
@@ -223,8 +230,8 @@ test("mid-read mutation deterministically reports instability", () => {
  assert.ok(!s?.units.some(u => u.path === "src/clean.ts"));
 });
 
-test("21st unit is omitted and baseline accumulation stops at 20", async () => {
- const root = fixture();
+test("21st unit is omitted and baseline accumulation stops at 20", async t => {
+ const root = fixture(t);
  for (let i = 0; i < 21; i++) writeFileSync(join(root, `src/item-${String(i).padStart(2, "0")}.ts`), "before");
  const b = await beginTurn({ root, config, context, turnId: "unit-cap" });
  assert.equal(b?.dirty.size, 20);
@@ -237,8 +244,8 @@ test("21st unit is omitted and baseline accumulation stops at 20", async () => {
  assert.ok(s?.gaps.includes("omitted_paths:1"));
 });
 
-test("baseline byte cap and actual redacted retained bytes enforce 256 KiB plus one", async () => {
- const root = fixture();
+test("baseline byte cap and actual redacted retained bytes enforce 256 KiB plus one", async t => {
+ const root = fixture(t);
  for (let i = 0; i < 5; i++) writeFileSync(join(root, `src/large-${i}.ts`), "a".repeat(65536));
  const b = await beginTurn({ root, config, context, turnId: "byte-cap" });
  assert.equal(b?.dirty.size, 4);
@@ -248,15 +255,15 @@ test("baseline byte cap and actual redacted retained bytes enforce 256 KiB plus 
  assert.ok((s?.coverage.retainedBytes ?? 0) <= 256 * 1024);
  assert.equal(s?.status, "partial");
  const text = "é\nSENTINEL\n";
- const redacted = finishTurnCore(beginTurnCore({ root: fixture(), config: remoteConfig, context, turnId: "coords" }), { assistantText: text, secrets: ["SENTINEL"] });
+ const redacted = finishTurnCore(beginTurnCore({ root: fixture(t), config: remoteConfig, context, turnId: "coords" }), { assistantText: text, secrets: ["SENTINEL"] });
  const excerpt = redacted?.units.find(u => u.kind === "text")?.after;
  assert.equal(excerpt?.endOffset, Buffer.byteLength(text));
  assert.equal(excerpt?.endLine, 2);
  assert.equal(redacted?.coverage.retainedBytes, Buffer.byteLength("é\n[REDACTED]\n"));
 });
 
-test("exact 256 KiB retained then one additional byte is uncovered", () => {
- const root = fixture(); const b = beginTurnCore({ root, config, context, turnId: "exact-byte" });
+test("exact 256 KiB retained then one additional byte is uncovered", t => {
+ const root = fixture(t); const b = beginTurnCore({ root, config, context, turnId: "exact-byte" });
  for (let i = 0; i < 4; i++) writeFileSync(join(root, `src/exact-${i}.ts`), "x".repeat(65536));
  writeFileSync(join(root, "src/exact-4.ts"), "x");
  const s = finishTurnCore(b);
@@ -266,9 +273,9 @@ test("exact 256 KiB retained then one additional byte is uncovered", () => {
  assert.equal(s?.units.length, 4);
 });
 
-test("real slow Git is killed with its descendant at the wall deadline; late result is fenced", async () => {
- const root = fixture();
- const fake = mkdtempSync(join(tmpdir(), "proactive-git-wrapper-"));
+test("real slow Git is killed with its descendant at the wall deadline; late result is fenced", async t => {
+ const root = fixture(t);
+ const fake = temporaryDirectory(t, "proactive-git-wrapper-");
  const pidFile = join(fake, "git-child.pid");
  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
  const script = join(fake, "git");
@@ -291,4 +298,26 @@ test("real slow Git is killed with its descendant at the wall deadline; late res
   process.env.PATH = oldPath;
   delete process.env.PROACTIVE_GIT_CHILD_PID;
  }
+});
+
+
+test("fixture teardown removes temporary repositories on success and setup failure", t => {
+ const sandbox = temporaryDirectory(t, "proactive-cleanup-check-");
+ const scratch = join(sandbox, "scratch"), fakeBin = join(sandbox, "bin");
+ mkdirSync(scratch); mkdirSync(fakeBin);
+ const file = new URL(import.meta.url);
+ const args = ["--test", "--test-name-pattern=^actual dirty staged and untracked baseline", fileURLToPath(file)];
+ const env = { ...process.env, TMPDIR: scratch, TMP: scratch, TEMP: scratch };
+ delete env.NODE_TEST_CONTEXT;
+ const success = spawnSync(process.execPath, args, { env, encoding: "utf8", timeout: 30_000 });
+ assert.equal(success.error, undefined);
+ assert.equal(success.status, 0, success.stdout + success.stderr);
+ assert.deepEqual(readdirSync(scratch), [], "successful test leaves no Git repository");
+ // Force setup to fail after allocation, before git init can complete.
+ writeFileSync(join(fakeBin, "git"), "#!/bin/sh\necho intentional-fixture-setup-failure >&2\nexit 73\n", { mode: 0o755 });
+ const failure = spawnSync(process.execPath, args, { env: { ...env, PATH: `${fakeBin}:${env.PATH}` }, encoding: "utf8", timeout: 30_000 });
+ assert.equal(failure.error, undefined);
+ assert.equal(failure.status, 1, "child test must actually fail, not silently skip");
+ assert.match(failure.stdout + failure.stderr, /intentional-fixture-setup-failure/);
+ assert.deepEqual(readdirSync(scratch), [], "failed setup also leaves no Git repository");
 });
