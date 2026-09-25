@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "mode": "advisory",
+  "remoteContext": "selected-excerpts",
+  "include": [
+    "bin/**",
+    "docs/**",
+    "skills/**"
+  ],
+  "localBindings": [
+    {
+      "version": 1,
+      "validator": "new-file-placement",
+      "rule": {
+        "path": ".ai/rules/proactive/README.md",
+        "heading": "Creating the skill",
+        "occurrence": 1,
+        "hash": "c7125c64086eaa668b4151a5c20d631ee032217c6ecfaf1370bad9bd678a9a8a"
+      },
+      "applicability": {
+        "paths": [
+          "SKILL.md"
+        ],
+        "kinds": [
+          "added"
+        ],
+        "basename": "SKILL.md"
+      },
+      "exceptions": {
+        "paths": [],
+        "legacy": true
+      },
+      "placement": {
+        "prefix": "skills"
+      }
+    }
+  ]
+}
