@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,8 +8,24 @@ import { createFlowBranch, recordFlowResult } from "../workflows/lib/git.ts";
 import { FlowMaintenanceError, listFlowBranches, renderFlowBranches, runFlowMaintenance, selectFlowBranch } from "./flow-maintenance.ts";
 
 type Call = { command: string; args: string[]; cwd: string };
+const fixtureRepos = new Set<string>();
+function cleanupRepo(cwd: string): void {
+	if (existsSync(join(cwd, ".git"))) {
+		const worktrees = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" })
+			.split(/\r?\n/).filter(line => line.startsWith("worktree ")).map(line => line.slice("worktree ".length));
+		for (const path of worktrees.slice(1)) {
+			if (existsSync(path)) execFileSync("git", ["worktree", "remove", "--force", path], { cwd, stdio: "ignore" });
+		}
+		execFileSync("git", ["worktree", "prune"], { cwd, stdio: "ignore" });
+	}
+	rmSync(cwd, { recursive: true, force: true });
+	 assert.equal(existsSync(cwd), false, `temporary Git fixture was not removed: ${cwd}`);
+	 fixtureRepos.delete(cwd);
+}
+test.after(() => { for (const cwd of [...fixtureRepos]) cleanupRepo(cwd); });
 function repo(): string {
 	const cwd = mkdtempSync(join(tmpdir(), "flow-maintenance-"));
+	fixtureRepos.add(cwd);
 	execFileSync("git", ["init", "-q", "-b", "main"], { cwd });
 	execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
 	execFileSync("git", ["config", "user.name", "Test"], { cwd });
@@ -43,7 +59,7 @@ test("flow branch selector reports persisted source, acceptance, relation, and s
 		assert.equal(selectFlowBranch(branches, "1").branch, branch);
 		assert.equal(selectFlowBranch(branches, branch).branch, branch);
 		assert.throws(() => selectFlowBranch(branches, "2"), (error: unknown) => error instanceof FlowMaintenanceError && error.exitCode === 2);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
+	} finally { cleanupRepo(cwd); }
 });
 
 test("non-interactive maintenance without a selector only prints options", async () => {
@@ -54,7 +70,7 @@ test("non-interactive maintenance without a selector only prints options", async
 		assert.equal(await runFlowMaintenance({ action: "cleanup", discard: false, yes: false }, { cwd, interactive: false, taskRunner: fakeWorktrunk(calls), writeOut: text => output.push(text) }), 0);
 		assert.match(output.join(""), /Flow branches:/);
 		assert.equal(calls.length, 0);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
+	} finally { cleanupRepo(cwd); }
 });
 
 test("cleanup uses safe Worktrunk removal and discard adds branch force only", async () => {
@@ -69,7 +85,7 @@ test("cleanup uses safe Worktrunk removal and discard adds branch force only", a
 			assert.equal(remove.command, "wt");
 			assert.deepEqual(remove.args, ["-C", cwd, "-y", "remove", branch, "--foreground", "--format=json", ...(discard ? ["-D"] : [])]);
 			assert.equal(remove.args.includes("--force"), false);
-		} finally { rmSync(cwd, { recursive: true, force: true }); }
+		} finally { cleanupRepo(cwd); }
 	}
 });
 
@@ -82,7 +98,7 @@ test("a Worktrunk cleanup failure keeps the branch and exits as an operation fai
 			cwd, interactive: false, taskRunner: fakeWorktrunk(calls, true), writeOut() {}, writeError() {},
 		}), (error: unknown) => error instanceof FlowMaintenanceError && error.exitCode === 1);
 		assert.match(execFileSync("git", ["branch", "--list", branch], { cwd, encoding: "utf8" }), /flow\/scout-r1/);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
+	} finally { cleanupRepo(cwd); }
 });
 
 test("interactive selector and confirmation can choose cleanup by number", async () => {
@@ -94,7 +110,7 @@ test("interactive selector and confirmation can choose cleanup by number", async
 			cwd, interactive: true, taskRunner: fakeWorktrunk(calls), taskPrompt: async () => answers.shift() ?? "", writeOut() {}, writeError() {},
 		}), 0);
 		assert.ok(calls.some(call => call.args.includes("remove")));
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
+	} finally { cleanupRepo(cwd); }
 });
 
 test("merge requires accepted clean work and invokes Worktrunk default squash pipeline against the recorded target", async () => {
@@ -110,7 +126,7 @@ test("merge requires accepted clean work and invokes Worktrunk default squash pi
 		assert.ok(merge);
 		assert.deepEqual(merge.args, ["-C", merge.cwd, "-y", "merge", "main", "--format=json"]);
 		assert.equal(merge.args.includes("--no-squash"), false);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
+	} finally { cleanupRepo(cwd); }
 });
 
 test("merge materializes a Worktrunk worktree when the selected branch is not checked out", async () => {
@@ -128,7 +144,7 @@ test("merge materializes a Worktrunk worktree when the selected branch is not ch
 		assert.ok(calls.some(call => call.args.includes("switch")));
 		const merge = calls.find(call => call.args.includes("merge"));
 		assert.equal(merge?.cwd.endsWith("/flow-wt"), true);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
+	} finally { cleanupRepo(cwd); }
 });
 
 test("merge and cleanup refusals preserve rejected or dirty work", async () => {
@@ -141,7 +157,7 @@ test("merge and cleanup refusals preserve rejected or dirty work", async () => {
 		writeFileSync(join(cwd, "dirty.txt"), "keep\n");
 		await assert.rejects(runFlowMaintenance({ action: "cleanup", selector: "1", discard: true, yes: true }, { cwd, interactive: false, taskRunner: fakeWorktrunk(calls), writeOut() {}, writeError() {} }), /uncommitted changes/);
 		assert.equal(calls.filter(call => call.args.includes("merge") || call.args.includes("remove")).length, 0);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
+	} finally { cleanupRepo(cwd); }
 });
 
 test("old branches require an explicit target and missing Worktrunk is a startup refusal", async () => {
@@ -157,5 +173,5 @@ test("old branches require an explicit target and missing Worktrunk is a startup
 		await assert.rejects(runFlowMaintenance({ action: "merge", selector: "1", discard: false, yes: true, target: "main" }, {
 			cwd, interactive: false, taskRunner: () => ({ status: 127, stdout: "", stderr: "wt missing" }), writeOut() {}, writeError() {},
 		}), (error: unknown) => error instanceof FlowMaintenanceError && error.exitCode === 3 && /Worktrunk is required/.test(error.message));
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
+	} finally { cleanupRepo(cwd); }
 });

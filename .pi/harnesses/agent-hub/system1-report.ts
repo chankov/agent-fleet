@@ -101,8 +101,16 @@ export function loadProactiveLabels(sessionDir: string, file: string): readonly 
  if (!isAbsolute(file)) throw new Error("Unavailable labels file");
  const root = resolve(sessionDir, "artifacts"), target = resolve(file);
  try {
-  if (!target.startsWith(root + sep) || !target.endsWith(".json") || target.slice(root.length+1).split(sep).some(s => /^(?:\.|\.env|credentials?|secrets?|private)/i.test(s)) ||
-   realpathSync(root) !== root || realpathSync(target) !== target || !lstatSync(target).isFile() || lstatSync(target).size > PROACTIVE_LIMITS.maxFileBytes) throw new Error();
+  if (!target.startsWith(root + sep) || !target.endsWith(".json") || target.slice(root.length+1).split(sep).some(s => /^(?:\.|\.env|credentials?|secrets?|private)/i.test(s))) throw new Error();
+  const rootInfo = lstatSync(root), targetRelative = target.slice(root.length + 1).split(sep);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error();
+  let cursor = root;
+  for (const part of targetRelative) {
+   cursor = join(cursor, part);
+   if (lstatSync(cursor).isSymbolicLink()) throw new Error();
+  }
+  const canonicalRoot = realpathSync(root), canonicalTarget = realpathSync(target);
+  if (!canonicalTarget.startsWith(canonicalRoot + sep) || !lstatSync(target).isFile() || lstatSync(target).size > PROACTIVE_LIMITS.maxFileBytes) throw new Error();
  } catch { throw new Error("Unavailable labels file"); }
  let parsed: unknown;
  try { parsed = JSON.parse(readFileSync(target, "utf8")); } catch { throw new Error("Invalid labels file"); }

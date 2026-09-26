@@ -189,6 +189,15 @@ test("P12 report and audit registrars execute explicit label arguments against l
  assert.deepEqual(JSON.parse(readFileSync(file,"utf8")),[label]);
 });
 
+test("explicit labels accept a safe temporary-root alias", t => {
+ const sandbox = mkdtempSync(join(tmpdir(), "labels-root-alias-")); t.after(() => rmSync(sandbox, { recursive: true, force: true }));
+ const actual = join(sandbox, "actual"), alias = join(sandbox, "alias");
+ mkdirSync(join(actual, "artifacts"), { recursive: true }); symlinkSync(actual, alias);
+ const h = "a".repeat(64), label = { snapshotId: h, ruleHash: h, ruleId: "rule", subject: "src/a.ts", expected: "clean" as const };
+ const file = join(alias, "artifacts", "labels.json"); writeFileSync(file, JSON.stringify([label]));
+ assert.deepEqual(loadProactiveLabels(alias, file), [label]);
+});
+
 test("D1 discovered slash ID passes real evaluator, findings ledger and explicit human label join", async t => {
  const dir=mkdtempSync(join(tmpdir(),"label-real-"));t.after(()=>rmSync(dir,{recursive:true,force:true}));
  mkdirSync(join(dir,"rules"));mkdirSync(join(dir,".ai/rules"),{recursive:true});mkdirSync(join(dir,"artifacts"));

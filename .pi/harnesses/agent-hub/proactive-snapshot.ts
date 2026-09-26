@@ -11,7 +11,7 @@ const hash = (value: Buffer | string) => createHash("sha256").update(value).dige
 const forbidden = /^(?:\.env(?:\..*)?|\.git|\.pi|\.ssh|\.aws|\.npmrc|\.netrc|node_modules|vendor|dist|build|coverage|\.next|\.cache|artifacts|sessions?|transcripts?|credentials?(?:\..*)?|secrets?(?:\..*)?|id_(?:rsa|ed25519)|.*\.(?:pem|key|p12|pfx|sqlite|db|lock))$/i;
 function allowed(root: string, path: string): string {
  if (!path || isAbsolute(path) || path.includes("\\") || path.includes("\0") || path.split("/").some(s => !s || s === "." || s === ".." || forbidden.test(s))) throw new Error("forbidden_path");
- const rootReal = realpathSync(root), full = resolve(root, path);
+ const rootReal = realpathSync(root), full = resolve(rootReal, path);
  const rel = relative(rootReal, full);
  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("escape");
  let cursor = rootReal;

@@ -56,6 +56,18 @@ test("actual dirty staged and untracked baseline, revert, deletion, shell edit a
  assert.equal(readSnapshotUnit(s, s.snapshotId, unit.id, "bad hash"), null);
  assert.equal(unit.attribution, "uncertain");
 });
+test("snapshot reads stay inside the physical root when the root path is a symlink", async t => {
+ const realRoot = fixture(t);
+ const alias = join(tmpdir(), `proactive-snapshot-alias-${process.pid}-${Date.now()}`);
+ symlinkSync(realRoot, alias);
+ t.after(() => unlinkSync(alias));
+ const baseline = await beginTurn({ root: alias, config, context, turnId: "symlink-root" });
+ writeFileSync(join(alias, "src/dirty.ts"), "changed through alias\n");
+ const snapshot = await finishTurn(baseline);
+ assert.equal(snapshot?.status, "complete");
+ assert.equal(snapshot?.units.find(unit => unit.path === "src/dirty.ts")?.after?.text, "changed through alias\n");
+});
+
 test("default disabled remote context drops assistant text without failing local checks", async t => {
  const root = fixture(t);
  assert.equal(config.remoteContext, "disabled");
