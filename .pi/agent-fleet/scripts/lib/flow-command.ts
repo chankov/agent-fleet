@@ -1,4 +1,6 @@
 export interface FlowCommand {
+	/** Explicit opt-in; otherwise execute on the caller's current branch. */
+	branch?: boolean;
 	name: string;
 	args: string[];
 	allowDirty: boolean;
@@ -55,14 +57,17 @@ export function parseFlowMaintenanceCommand(argv: string[]): FlowMaintenanceComm
 }
 
 export function parseFlowCommand(argv: string[]): FlowCommand {
-	if (argv.length === 0) throw new Error("Usage: flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run] [--panel <name>] [--rounds <n>] [--apply]");
+	if (argv.length === 0) throw new Error("Usage: flow <name> [args] [--branch] [--allow-dirty] [--run-id <id>] [--dry-run] [--panel <name>] [--rounds <n>] [--apply]");
 	const name = argv[0];
 	if (!FLOW_NAME.test(name)) throw new Error(`Invalid flow name: ${name}`);
-	let allowDirty = false, dryRun = false, apply = false, runId: string | undefined, panel: string | undefined, rounds: number | undefined;
+	let branch = false, allowDirty = false, dryRun = false, apply = false, runId: string | undefined, panel: string | undefined, rounds: number | undefined;
 	const args: string[] = [];
 	for (let i = 1; i < argv.length; i++) {
 		const arg = argv[i];
-		if (arg === "--allow-dirty") {
+		if (arg === "--branch") {
+			if (branch) throw new Error("--branch may only be provided once");
+			branch = true;
+		} else if (arg === "--allow-dirty") {
 			if (allowDirty) throw new Error("--allow-dirty may only be provided once");
 			allowDirty = true;
 		} else if (arg === "--dry-run") {
@@ -89,5 +94,5 @@ export function parseFlowCommand(argv: string[]): FlowCommand {
 		} else if (arg.startsWith("--")) throw new Error(`Unknown flow option: ${arg}`);
 		else args.push(arg);
 	}
-	return { name, args, allowDirty, dryRun, ...(runId ? { runId } : {}), ...(panel ? { panel } : {}), ...(rounds !== undefined ? { rounds } : {}), ...(apply ? { apply } : {}) };
+	return { name, args, allowDirty, dryRun, ...(branch ? { branch } : {}), ...(runId ? { runId } : {}), ...(panel ? { panel } : {}), ...(rounds !== undefined ? { rounds } : {}), ...(apply ? { apply } : {}) };
 }

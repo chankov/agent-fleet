@@ -28,6 +28,8 @@ test("flow command parsing preserves positional request and validates flags", ()
 	assert.deepEqual(parseFlowCommand(["poll", "--panel", "default", "should we?", "--dry-run"]), { name: "poll", args: ["should we?"], dryRun: true, allowDirty: false, panel: "default" });
 	assert.deepEqual(parseFlowCommand(["debate", "--panel", "default", "--rounds", "3", "should we?", "--dry-run"]), { name: "debate", args: ["should we?"], dryRun: true, allowDirty: false, panel: "default", rounds: 3 });
 	assert.deepEqual(parseFlowCommand(["poll", "--panel", "default", "--apply", "q"]), { name: "poll", args: ["q"], dryRun: false, allowDirty: false, panel: "default", apply: true });
+	assert.deepEqual(parseFlowCommand(["scout", "question", "--branch"]), { name: "scout", args: ["question"], allowDirty: false, dryRun: false, branch: true });
+	assert.throws(() => parseFlowCommand(["quality", "--branch", "--branch"]), /only be provided once/);
 	assert.throws(() => parseFlowCommand([]), /Usage/);
 	assert.throws(() => parseFlowCommand(["bad/name"]), /Invalid flow name/);
 	assert.throws(() => parseFlowCommand(["quality", "--wat"]), /Unknown flow option/);
@@ -111,7 +113,7 @@ test("SIGTERM stops an active quality process and trace exit matches process exi
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
-test("raw node quality dry-run runs headlessly, branches, traces, and exits 0", () => {
+test("raw node quality dry-run runs headlessly, keeps current branch, traces, and exits 0", () => {
 	const cwd = repo();
 	try {
 		writeFileSync(join(cwd, ".gitignore"), ".pi/flow-sessions/\n");
@@ -126,7 +128,8 @@ test("raw node quality dry-run runs headlessly, branches, traces, and exits 0", 
 		const result = invoke(cwd, ["quality", "--dry-run", "--run-id", "raw-node"]);
 		assert.equal(result.status, 0, result.stderr);
 		assert.match(result.stderr, /FLOW ACCEPTED/);
-		assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8" }).trim(), "flow/quality-raw-node");
+		assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8" }).trim(), "main");
+		assert.equal(execFileSync("git", ["branch", "--list", "flow/*"], { cwd, encoding: "utf8" }).trim(), "");
 		const events = readdirSync(join(cwd, ".pi", "flow-sessions", "raw-node"));
 		assert.ok(events.includes("trace.jsonl"));
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
@@ -165,4 +168,29 @@ test("registered build-test and document workflows complete stubbed CLI dry runs
 			const result = invoke(cwd, args); assert.equal(result.status, 0, `${name}: ${result.stderr}`); assert.match(result.stderr, /FLOW ACCEPTED/);
 		} finally { rmSync(cwd, { recursive: true, force: true }); }
 	}
+});
+
+
+test("explicit --branch creates an owned flow branch; default and failures preserve user work", async () => {
+ for (const branch of [false, true]) for (const fail of [false, true]) {
+  const cwd = repo();
+  workflows["preserve-test"] = { run: async run => {
+   writeFileSync(join(cwd, "committed.txt"), "owned result\n");
+   execFileSync("git", ["add", "committed.txt"], { cwd });
+   execFileSync("git", ["commit", "-qm", "result"], { cwd });
+   writeFileSync(join(cwd, "uncommitted.txt"), "keep this too\n");
+   if (fail) throw new Error("intentional failure after changes");
+   return run.finish({ accepted: true });
+  } };
+  try {
+   const args = ["preserve-test", "--run-id", "ownership", ...(branch ? ["--branch"] : [])];
+   const execute = () => executeFlow(parseFlowCommand(args), { cwd });
+   if (fail) await assert.rejects(execute(), /intentional failure/); else assert.equal((await execute()).accepted, true);
+   assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8" }).trim(), branch ? "flow/preserve-test-ownership" : "main");
+   assert.equal(execFileSync("git", ["log", "-1", "--format=%s"], { cwd, encoding: "utf8" }).trim(), "result");
+   assert.equal(readFileSync(join(cwd, "uncommitted.txt"), "utf8"), "keep this too\n");
+   assert.equal(execFileSync("git", ["branch", "--list", "flow/*"], { cwd, encoding: "utf8" }).trim().length > 0, branch);
+   if (branch) assert.equal(execFileSync("git", ["config", "--get", "branch.flow/preserve-test-ownership.agentFleetResult"], { cwd, encoding: "utf8" }).trim(), fail ? "rejected" : "accepted");
+  } finally { delete workflows["preserve-test"]; rmSync(cwd, { recursive: true, force: true }); }
+ }
 });

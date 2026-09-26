@@ -65,7 +65,7 @@ export async function resolveWorkflow(name: string, workflowsDir = resolve(dirna
 }
 
 export interface HubScoutExecution {
-	/** Hub-only no-branch mode. CLI callers omit this and retain legacy branch semantics. */
+	/** Hub-only no-branch mode. CLI callers omit this; branch creation is separately opt-in. */
 	noBranch: true;
 	traceDirectory: string;
 	signal?: AbortSignal;
@@ -74,18 +74,20 @@ export interface HubScoutExecution {
 
 export async function executeFlow(command: FlowCommand, options: { cwd?: string; command?: string[]; workflowsDir?: string; hubScout?: HubScoutExecution } = {}): Promise<FinishResult> {
 	const cwd = options.cwd ?? process.cwd();
+	if (options.hubScout && command.branch) throw Object.assign(new Error("Hub scout cannot create a branch"), { exitCode: 2 });
 	if (options.hubScout && command.name !== "scout") throw Object.assign(new Error("Hub no-branch execution currently permits only the read-only scout flow"), { exitCode: 2 });
 	const workflow = await resolveWorkflow(command.name, options.workflowsDir);
 	if (!workflow) throw Object.assign(new Error(`Unknown flow: ${command.name}`), { exitCode: 2 });
 	workflow.validate?.(command, cwd);
 	loadEnv(cwd);
-	// CLI keeps its clean-tree + branch defaults. Hub scout runs only in a detached
+	// CLI keeps its clean-tree guard, but creates a branch only on explicit request.
+	// Hub scout runs only in a detached
 	// isolated snapshot and never creates or annotates a branch.
 	if (!options.hubScout) requireCleanTree(cwd, command.allowDirty);
 	workflow.preflight?.(cwd, command);
 	const runId = command.runId ?? makeRunId();
 	const repositoryBaseline = snapshot(cwd);
-	const branch = options.hubScout ? undefined : createFlowBranch(command.name, runId, cwd);
+	const branch = !options.hubScout && command.branch ? createFlowBranch(command.name, runId, cwd) : undefined;
 	const run = new Run({ cwd, runId, command: options.command ?? process.argv, repositoryBaseline, traceDirectory: options.hubScout?.traceDirectory });
 	const persistResult = (result: FinishResult) => {
 		if (!branch) return;

@@ -28,6 +28,7 @@ test("T13 run_flow uses exported dispatcher on isolated no-branch snapshot and p
 		const stale = await definition.execute("stale", { procedure: "scout", request: "Different input", invocation_id: "same-run-1" }, signal, () => {}, ctx);
 		assert.equal(stale.details.status, "stale-duplicate"); assert.equal(stale.details.budgetCharged, false);
 		release(); const [a, b] = await Promise.all([first, duplicate]);
+		assert.equal(a.details.snapshotCleanup.status, "removed"); assert.equal(existsSync(childCwd), false);
 		assert.equal(charges, 1); assert.deepEqual(a, b); assert.notEqual(childCwd, root); assert.match(childCwd, /agent-fleet-scout-snapshot-/);
 		assert.equal(readFileSync(join(root, "README.md"), "utf8"), "concurrent user edit\n");
 		assert.equal(a.details.flowAcceptance.accepted, true); assert.equal(a.details.parentAcceptance.accepted, false); assert.deepEqual(a.details.parentAcceptance.assertionsProven, []);
@@ -70,6 +71,29 @@ test("T13 cancellation is owned by the first Hub invocation and a busy distinct 
 		const { definition } = harness({ sessionDir: () => session, taskId: () => "task-2", processObligations: () => ({}), reserveBudget: async () => { charges++; return { charged: true, operation: "research", owner: "hub" }; }, effectiveScoutConfig: () => ({ model: "test/model", profile: null, tools: ["read"], fallback: null, allowlisted: true }), scoutAgent: async (options: any) => { entered(); await new Promise((_resolve, reject) => options.run.signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true })); return report; } });
 		const controller = new AbortController(); const running = definition.execute("one", { procedure: "scout", request: "Wait", invocation_id: "cancel-run-1" }, controller.signal, () => {}, { cwd: root }); await started;
 		const busy = await definition.execute("two", { procedure: "scout", request: "Other", invocation_id: "other-run-2" }, new AbortController().signal, () => {}, { cwd: root }); assert.equal(busy.details.status, "busy"); assert.equal(busy.details.budgetCharged, false);
-		controller.abort(); const result = await running; assert.equal(charges, 1); assert.equal(result.details.flowAcceptance.accepted, false); assert.equal(result.details.parentAcceptance.accepted, false);
+		controller.abort(); const result = await running; assert.equal(result.details.snapshotCleanup.status, "removed"); assert.equal(charges, 1); assert.equal(result.details.flowAcceptance.accepted, false); assert.equal(result.details.parentAcceptance.accepted, false);
 	} finally { rmSync(root, { recursive: true, force: true }); rmSync(session, { recursive: true, force: true }); }
+});
+
+
+test("snapshot cleanup covers failed setup and budget refusal, and reports removal failure", async () => {
+ const root = repo(), session = mkdtempSync(join(tmpdir(), "af-run-flow-session-"));
+ const base = { sessionDir: () => session, taskId: () => "cleanup", processObligations: () => ({}), effectiveScoutConfig: () => ({ model: "test/model", profile: null, tools: ["read"], fallback: null, allowlisted: true }), reserveBudget: async () => ({ charged: false, operation: "research", owner: "hub" }) };
+ try {
+  for (const failSetup of [true, false]) {
+   let workspace = "";
+   const { definition } = harness({ ...base, createSnapshot: (_root: string, target: string) => { workspace = target; mkdirSync(target); if (failSetup) throw new Error("setup failed"); return {}; } });
+   const result = await definition.execute("one", { procedure: "scout", request: "read", invocation_id: `cleanup-${failSetup}` }, new AbortController().signal, () => {}, { cwd: root });
+   assert.equal(result.details.status, failSetup ? "snapshot-refused" : "budget-refused");
+   assert.equal(result.details.snapshotCleanup.status, "removed"); assert.equal(existsSync(workspace), false);
+  }
+  let retained = "";
+  try {
+   const { definition } = harness({ ...base, createSnapshot: () => ({}), removeSnapshot: (path: string) => { retained = path; throw new Error("simulated cleanup denial"); } });
+   const result = await definition.execute("one", { procedure: "scout", request: "read", invocation_id: "cleanup-denied" }, new AbortController().signal, () => {}, { cwd: root });
+   assert.equal(result.details.status, "budget-refused");
+   assert.equal(result.details.snapshotCleanup.status, "failed"); assert.equal(result.details.snapshotCleanup.path, retained);
+   assert.ok(existsSync(retained)); assert.match(result.content.map((c: any) => c.text).join("\n"), /cleanup failed.*retained at/);
+  } finally { if (retained) rmSync(retained, { recursive: true, force: true }); }
+ } finally { rmSync(root, { recursive: true, force: true }); rmSync(session, { recursive: true, force: true }); }
 });

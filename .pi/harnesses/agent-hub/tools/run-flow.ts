@@ -20,6 +20,7 @@ export interface RunFlowDeps {
 	effectiveScoutConfig(cwd: string): { model: string; profile: string | null; tools: string[]; fallback: string | null; allowlisted: boolean };
 	execute?: typeof executeFlow;
 	createSnapshot?: typeof createIsolatedWorkingTreeSnapshot;
+	removeSnapshot?: (root: string) => void;
 	scoutAgent?: ScoutWorkflowDeps["agent"];
 	worktreeRevision?: typeof worktreeRevision;
 	buildRuntimeResult?: typeof buildRuntimeResult;
@@ -58,6 +59,7 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 			const forwardAbort = () => controller.abort(signal?.reason ?? "caller cancelled");
 			if (signal?.aborted) forwardAbort(); else signal?.addEventListener("abort", forwardAbort, { once: true });
 			activeId = params.invocation_id;
+			const snapshotCleanup: { status: "not-created" | "removed" | "failed"; path?: string; error?: string } = { status: "not-created" };
 			const promise = (async () => {
 				let snapshotRoot: string | null = null;
 				let budgetCharged = false;
@@ -110,9 +112,21 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 				} catch (error) {
 					return failure(executionStarted ? "result-failed" : "setup-failed", error, budgetCharged, executionStarted, runId ? { runId } : {});
 				} finally {
-					if (snapshotRoot) { try { rmSync(snapshotRoot, { recursive: true, force: true }); } catch {} }
+					if (snapshotRoot) {
+						try {
+							if (deps.removeSnapshot) deps.removeSnapshot(snapshotRoot);
+							else rmSync(snapshotRoot, { recursive: true, force: true });
+							snapshotCleanup.status = "removed";
+						} catch (error) {
+							snapshotCleanup.status = "failed"; snapshotCleanup.path = snapshotRoot; snapshotCleanup.error = message(error);
+						}
+					}
 				}
-			})();
+			})().then(result => ({
+				...result,
+				content: snapshotCleanup.status === "failed" ? [...result.content, { type: "text", text: `Temporary scout snapshot cleanup failed; retained at ${snapshotCleanup.path}: ${snapshotCleanup.error}` }] : result.content,
+				details: { ...result.details, snapshotCleanup },
+			}));
 			runs.set(params.invocation_id, { promise, controller, request: params.request });
 			const cleanup = () => { if (activeId === params.invocation_id) activeId = null; signal?.removeEventListener("abort", forwardAbort); };
 			void promise.then(cleanup, cleanup);
