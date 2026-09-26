@@ -300,9 +300,12 @@ test("real slow Git is killed with its descendant at the wall deadline; late res
   await assert.rejects(beginTurn({ root, config, context, turnId: "slow-git" }), /capture_timeout/);
   assert.ok(Date.now() - started < 2500, "wall deadline must not wait for Git");
   const pid = Number(readFileSync(pidFile, "utf8"));
-  // A killed but not yet reaped process may briefly be visible as a zombie.
-  const { existsSync } = await import("node:fs");
-  const alive = () => existsSync(`/proc/${pid}/stat`) && !/\) Z /.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+  // ps works on Linux and macOS; a killed but not reaped child may be a zombie.
+  // Avoid a separate existence check followed by a racing /proc read.
+  const alive = () => {
+   const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+   return result.status === 0 && !result.stdout.trim().startsWith("Z");
+  };
   for (let i = 0; i < 30 && alive(); i++) await new Promise(r => setTimeout(r, 20));
   assert.equal(alive(), false, "no live child Git descendant");
   await new Promise(r => setTimeout(r, 40)); // late IPC cannot settle a rejected capture

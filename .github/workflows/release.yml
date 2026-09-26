@@ -42,11 +42,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm install --no-audit --no-fund
+      # Run environment-sensitive fixtures first so macOS path aliases fail
+      # quickly and the portability check is not skipped after a suite failure.
+      - name: Portability regressions (non-default temp root and symlink paths)
+        run: npm run test:portability
       - name: Full suite (includes packed installer and narrow PTY)
         timeout-minutes: 10
         run: npm test
-      - name: Portability regressions (non-default temp root and symlink paths)
-        run: npm run test:portability
       - name: Verify generated manifest
         run: npm run check:manifest
       - name: Verify package contents

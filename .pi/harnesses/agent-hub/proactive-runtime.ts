@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { System1Service } from "../lib/system1/contracts.ts";
 import { createProactiveEvaluator } from "./proactive-evaluate.ts";
 import { discoverRules } from "./proactive-rules.ts";
@@ -273,9 +273,19 @@ export function composeHubProactive(input: {
 /** Parent-owned directory only. This validates correlation and bytes, not hostile-child attestation. */
 export function ingestObserverManifests(assignment: ObserverAssignment, submit: (owner: string, attempt: string, snapshot: TurnSnapshot, index: number) => boolean): number {
  if (assignment.config.mode === "off") return 0;
- const dir = resolve(assignment.directory);
- let real: string;
- try { real = realpathSync(dir); if (real !== dir || !real.startsWith(resolve(assignment.root) + sep)) return 0; } catch { return 0; }
+ const root = resolve(assignment.root), dir = resolve(assignment.directory);
+ // Compare paths within one namespace. macOS /var is an alias for /private/var;
+ // realpath(dir) !== dir does not mean the attempt itself is a symlink.
+ try {
+  const below = relative(root, dir);
+  if (!below || below === ".." || below.startsWith(`..${sep}`) || isAbsolute(below)) return 0;
+  let cursor = root;
+  for (const part of below.split(sep)) {
+   cursor = join(cursor, part);
+   if (!lstatSync(cursor).isDirectory()) return 0;
+  }
+  if (!realpathSync(dir).startsWith(realpathSync(root) + sep)) return 0;
+ } catch { return 0; }
  let accepted = 0;
  let names: string[];
  try { names = readdirSync(dir).filter(name => /^turn-(0|[1-9]\d*)\.json$/.test(name)).slice(0, 256); } catch { return 0; }
@@ -284,13 +294,15 @@ export function ingestObserverManifests(assignment: ObserverAssignment, submit: 
    const index = Number(name.slice(5, -5));
    if (!Number.isSafeInteger(index)) continue;
    const file = join(dir, name);
-   if (!statSync(file, { throwIfNoEntry: true })?.isFile() || realpathSync(file) !== file || statSync(file).size > 2048) continue;
+   const manifestInfo = lstatSync(file);
+   if (!manifestInfo.isFile() || manifestInfo.size > 2048) continue;
    const manifest = JSON.parse(readFileSync(file, "utf8")) as ObserverManifest;
    if (manifest.producer !== "agent-fleet.proactive-observer/v1" || manifest.session !== assignment.session || manifest.owner !== assignment.owner || manifest.attempt !== assignment.attempt || manifest.turnIndex !== index || manifest.turnId !== `${assignment.session}:${assignment.owner}:${assignment.attempt}:${index}` || !["captured", "incomplete", "not_checked"].includes(manifest.status)) continue;
    const ref = manifest.snapshot;
    if (!ref || ref.path !== `snapshot-${index}.json` || basename(ref.path) !== ref.path || !hex(ref.hash) || !hex(ref.snapshotId) || !Number.isSafeInteger(ref.bytes) || ref.bytes < 1 || ref.bytes > PROACTIVE_LIMITS.maxRetainedBytes + 65536) continue;
    const source = join(dir, ref.path);
-   if (realpathSync(source) !== source || !statSync(source).isFile() || statSync(source).size !== ref.bytes) continue;
+   const sourceInfo = lstatSync(source);
+   if (!sourceInfo.isFile() || sourceInfo.size !== ref.bytes) continue;
    const data = readFileSync(source);
    if (sha(data) !== ref.hash) continue;
    const snapshot = JSON.parse(data.toString("utf8")) as TurnSnapshot;

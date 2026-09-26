@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createProactiveFeedback, feedbackFile, feedbackText, readProactiveInbox, type FeedbackInbox } from "./proactive-feedback.ts";
@@ -53,6 +54,20 @@ test("parent projection binds revision and source, stays bounded and silent in s
  writeFileSync(join(dir, "sample.md"), "mutated\n");
  assert.equal(readProactiveInbox(dir, inbox, "builder", "attempt-1", assignment.context, new Set()), "");
  assert.equal(createProactiveFeedback(dir, inbox, "shadow").take("builder", "attempt-1", assignment.context), "");
+});
+
+test("feedback reads through a root alias but rejects symlinked files", t => {
+ const { dir, assignment } = fixture(t);
+ const alias = join(tmpdir(), `proactive-feedback-alias-${process.pid}-${Date.now()}`);
+ symlinkSync(dir, alias); t.after(() => unlinkSync(alias));
+ const inbox = join(alias, "artifacts", "proactive-inbox");
+ const item = { id: hash("id"), revision: hash(JSON.stringify([hash("id"), hash("original\n"), assignment.context.task.hash, hash("[]")])), source: "system1", rule: "reviewed-rules", ruleHash: hash("[]"), path: "sample.md", sourceHash: hash("original\n"), fileHash: hash("original\n"), locator: "unit 1" };
+ const file = feedbackFile(inbox, "builder", "attempt-1");
+ writeFileSync(file, JSON.stringify({ schema: "agent-fleet.proactive-feedback/v1", owner: "builder", attempt: "attempt-1", taskHash: assignment.context.task.hash, rulesHash: hash("[]"), items: [item] }));
+ assert.match(readProactiveInbox(alias, inbox, "builder", "attempt-1", assignment.context, new Set()), /System 1 suspicion/);
+ const outside = join(dir, "other.json"); writeFileSync(outside, readFileSync(file));
+ unlinkSync(file); symlinkSync(outside, file);
+ assert.equal(readProactiveInbox(alias, inbox, "builder", "attempt-1", assignment.context, new Set()), "");
 });
 
 test("offline local Pi counts two naturally occurring calls and no second call; hostile inbox stays data", t => {

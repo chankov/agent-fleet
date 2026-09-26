@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { FindingReview } from "./proactive-findings.ts";
 import type { TaskContext, TurnSnapshot } from "./proactive-types.ts";
 
@@ -13,7 +13,12 @@ const rulesHash = (context: TaskContext) => hash(JSON.stringify(context.rules.ma
 export const feedbackFile = (directory: string, owner: string, attempt: string) => join(directory, `${hash(JSON.stringify([owner, attempt]))}.json`);
 function sourceFile(root: string, path: string): string | null {
  if (!safePath(path)) return null;
- try { const file = resolve(root, path); return file.startsWith(resolve(root) + sep) && realpathSync(file) === file && statSync(file).isFile() && statSync(file).size <= 65536 ? file : null; } catch { return null; }
+ try {
+  // Anchor the entire path in one physical namespace: /var and /private/var
+  // are the same macOS root, but a symlink below that root is not trusted.
+  const physicalRoot = realpathSync(root), file = resolve(physicalRoot, path);
+  return file.startsWith(physicalRoot + sep) && realpathSync(file) === file && statSync(file).isFile() && statSync(file).size <= 65536 ? file : null;
+ } catch { return null; }
 }
 function validItem(item: FeedbackItem, context: TaskContext, root: string): boolean {
  if (!item || !hex(item.id) || !hex(item.revision) || !hex(item.ruleHash) || !hex(item.sourceHash) || !safePath(item.path) || item.path.length > 128 || !["deterministic", "system1"].includes(item.source) || typeof item.rule !== "string" || item.rule.length > 128 || !safePath(item.rule) || typeof item.locator !== "string" || item.locator.length > 350 || !/^unit \d+(?:-\d+)?$/.test(item.locator)) return false;
@@ -76,8 +81,19 @@ export function createProactiveFeedback(root: string, directory: string, mode: "
 /** Child inbox is untrusted protocol data; no free-form message is read from it. */
 export function readProactiveInbox(root: string, directory: string, owner: string, attempt: string, context: TaskContext, seen: Set<string>): string {
  try {
-  const file = feedbackFile(directory, owner, attempt);
-  if (realpathSync(file) !== file || statSync(file).size > 4096) return "";
+  const rootPath = resolve(root), directoryPath = resolve(directory);
+  const below = relative(rootPath, directoryPath);
+  if (!below || below === ".." || below.startsWith(`..${sep}`) || isAbsolute(below)) return "";
+  let cursor = rootPath;
+  for (const part of below.split(sep)) {
+   cursor = join(cursor, part);
+   if (!lstatSync(cursor).isDirectory()) return "";
+  }
+  const physicalDirectory = realpathSync(directoryPath);
+  if (!physicalDirectory.startsWith(realpathSync(rootPath) + sep)) return "";
+  const file = feedbackFile(directoryPath, owner, attempt);
+  const info = lstatSync(file);
+  if (!info.isFile() || info.size > 4096) return "";
   const inbox = JSON.parse(readFileSync(file, "utf8")) as FeedbackInbox;
   if (inbox.schema !== "agent-fleet.proactive-feedback/v1" || inbox.owner !== owner || inbox.attempt !== attempt || inbox.taskHash !== context.task.hash || inbox.rulesHash !== rulesHash(context) || !Array.isArray(inbox.items) || inbox.items.length > 3) return "";
   const items = inbox.items.filter(i => validItem(i, context, root) && !seen.has(i.revision));

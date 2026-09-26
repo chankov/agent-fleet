@@ -14,6 +14,10 @@ try {
     "--test", "--test-timeout=120000",
     ".pi/harnesses/lib/changed-file-diagnostics.test.ts",
     ".pi/harnesses/agent-hub/tools/dispatch-execution.test.ts",
+    ".pi/harnesses/agent-hub/proactive-runtime.test.ts",
+    ".pi/harnesses/agent-hub/proactive-snapshot.test.ts",
+    ".pi/harnesses/agent-hub/proactive-feedback.test.ts",
+    ".pi/harnesses/agent-hub/system1-report.test.ts",
   ], { cwd: root, env: { ...process.env, TMPDIR: temp, TMP: temp, TEMP: temp }, stdio: "inherit" });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;

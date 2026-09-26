@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -181,6 +181,28 @@ test("composed native turns use parent task bytes and the Hub catalog snapshot, 
  capture.reset();
  assert.equal(capture.contentFor(`${sessionDir}:builder:run-2:0`), undefined);
 });
+test("observer manifests accept a physical-root alias but reject symlinked child files and directories", t => {
+ const sandbox = mkdtempSync(join(tmpdir(), "proactive-ingest-alias-"));
+ t.after(() => rmSync(sandbox, { recursive: true, force: true }));
+ const root = join(sandbox, "physical"), alias = join(sandbox, "alias"), attempt = join(root, "attempt");
+ mkdirSync(attempt, { recursive: true }); symlinkSync(root, alias);
+ const snapshot = snap("builder", "one", 0);
+ const data = JSON.stringify(snapshot), file = join(attempt, "snapshot-0.json"), manifestFile = join(attempt, "turn-0.json");
+ writeFileSync(file, data);
+ writeFileSync(manifestFile, JSON.stringify({ producer: "agent-fleet.proactive-observer/v1", session: "session", owner: "builder", attempt: "one", turnIndex: 0, turnId: snapshot.turnId, status: "captured", snapshot: { path: "snapshot-0.json", hash: hash(data), snapshotId: snapshot.snapshotId, bytes: Buffer.byteLength(data) } }));
+ const assignment: ObserverAssignment = { root: alias, directory: join(alias, "attempt"), session: "session", owner: "builder", attempt: "one", config, context: snapshot.context };
+ let calls = 0;
+ const ingest = () => ingestObserverManifests(assignment, () => { calls++; return true; });
+ assert.equal(ingest(), 1);
+ assert.equal(calls, 1);
+ assert.equal(ingestObserverManifests({ ...assignment, directory: join(alias, "linked-attempt") }, () => true), 0);
+ symlinkSync(attempt, join(root, "linked-attempt"));
+ assert.equal(ingestObserverManifests({ ...assignment, directory: join(alias, "linked-attempt") }, () => true), 0);
+ const outside = join(root, "elsewhere.json"); writeFileSync(outside, data);
+ rmSync(file); symlinkSync(outside, file);
+ assert.equal(ingest(), 0);
+});
+
 test("native assignment validates attempt, owner, sequence, paths, hashes and bounded snapshot", () => {
  const root = mkdtempSync(join(tmpdir(), "proactive-runtime-")); const dir = join(root, "attempt"); mkdirSync(dir);
  const assignment: ObserverAssignment = { root, directory: dir, session: "session", owner: "a", attempt: "1", config, context: snap("a", "1", 0).context };
