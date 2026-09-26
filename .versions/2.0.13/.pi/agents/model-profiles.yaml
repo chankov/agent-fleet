@@ -1,0 +1,134 @@
+# Flat profiles switch named personas; version: 2 profiles switch the complete fleet.
+# See docs/agent-fleet-setup.md for defaults, child roles, services and policies.
+mix-max:
+  code-reviewer: xai/grok-4.7
+  builder: openai-codex/gpt-6-sol
+  planner: openai-codex/gpt-6-astra
+  plan-reviewer: xai/grok-4.7
+  security-auditor: openai-codex/gpt-6-sol
+  test-engineer: xai/grok-4.7
+local-workers:
+  version: 2
+  defaults:
+    model: &qwenWorkers omlx/Qwen3.6-35B-A3B-4bit
+    thinking: off
+  allowed-models:
+    - *qwenWorkers
+  fallback: none
+  routing: native
+  agents:
+    architect: *qwenWorkers
+    bowser: *qwenWorkers
+    builder: *qwenWorkers
+    code-reviewer: *qwenWorkers
+    deep-researcher: *qwenWorkers
+    documenter: *qwenWorkers
+    # orchestrator intentionally inherits the current selection.
+    plan-reviewer: *qwenWorkers
+    planner: *qwenWorkers
+    releaser: *qwenWorkers
+    researcher: *qwenWorkers
+    security-auditor: *qwenWorkers
+    test-engineer: *qwenWorkers
+    web-debugger: *qwenWorkers
+    web-performance-auditor: *qwenWorkers
+  subagents:
+    builder:
+      recon: *qwenWorkers
+      verifier: *qwenWorkers
+    code-reviewer:
+      preflight: *qwenWorkers
+      quality: *qwenWorkers
+      perf: *qwenWorkers
+      docs: *qwenWorkers
+    plan-reviewer:
+      feasibility: *qwenWorkers
+      deps: *qwenWorkers
+    planner:
+      scout: *qwenWorkers
+      rules: *qwenWorkers
+      voice-1: *qwenWorkers
+      voice-2: *qwenWorkers
+      voice-3: *qwenWorkers
+    security-auditor:
+      recon: *qwenWorkers
+      input-sweep: *qwenWorkers
+      secrets-sweep: *qwenWorkers
+    test-engineer:
+      coverage-scout: *qwenWorkers
+      conventions: *qwenWorkers
+  services:
+    watchdog: *qwenWorkers
+    return-extractor: *qwenWorkers
+  panel:
+    - name: qwen-a
+      model: *qwenWorkers
+    - name: qwen-b
+      model: *qwenWorkers
+    - name: qwen-integrator
+      model: *qwenWorkers
+      integrator: true
+
+# Single-model local profile. Every role and service uses the Qwen3.6 35B model.
+local-full:
+  version: 2
+  defaults:
+    model: &qwen36 omlx/Qwen3.6-35B-A3B-4bit
+    thinking: off
+  allowed-models:
+    - *qwen36
+  fallback: none
+  routing: native
+  dispatcher: *qwen36
+  agents:
+    architect: *qwen36
+    bowser: *qwen36
+    builder: *qwen36
+    code-reviewer: *qwen36
+    deep-researcher: *qwen36
+    documenter: *qwen36
+    orchestrator: *qwen36
+    plan-reviewer: *qwen36
+    planner: *qwen36
+    releaser: *qwen36
+    researcher: *qwen36
+    security-auditor: *qwen36
+    test-engineer: *qwen36
+    web-debugger: *qwen36
+    web-performance-auditor: *qwen36
+  subagents:
+    builder:
+      recon: *qwen36
+      verifier: *qwen36
+    code-reviewer:
+      preflight: *qwen36
+      quality: *qwen36
+      perf: *qwen36
+      docs: *qwen36
+    plan-reviewer:
+      feasibility: *qwen36
+      deps: *qwen36
+    planner:
+      scout: *qwen36
+      rules: *qwen36
+      voice-1: *qwen36
+      voice-2: *qwen36
+      voice-3: *qwen36
+    security-auditor:
+      recon: *qwen36
+      input-sweep: *qwen36
+      secrets-sweep: *qwen36
+    test-engineer:
+      coverage-scout: *qwen36
+      conventions: *qwen36
+  services:
+    watchdog: *qwen36
+    return-extractor: *qwen36
+  panel:
+    - name: qwen-a
+      model: *qwen36
+    - name: qwen-b
+      model: *qwen36
+    - name: qwen-integrator
+      model: *qwen36
+      integrator: true
