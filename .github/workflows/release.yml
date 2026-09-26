@@ -27,6 +27,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      # The extracted-package compatibility test needs Node 18, while the full
+      # suite and installer run on the current supported Node release below.
+      - name: Setup Node 18 compatibility runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Expose Node 18 compatibility runtime
+        run: echo "AF_NODE18=$(command -v node)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
