@@ -93,6 +93,10 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		: null;
 	const delegateExtPath = deps.getDelegateExtensionPath();
 	const delegationActive = turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
+	const projectPolicy = {
+		rulesPaths: deps.specialistProjectPolicyPaths(ctx.cwd || process.cwd()),
+		docsPaths: deps.getProjectDocsPaths(),
+	};
 	const safetyHarnessPath = deps.getSafetyHarnessPath();
 	const safety = requireSafetyHarness(safetyHarnessPath);
 	if (!safety.ok) return base.finishRun(safety.error, 1);
@@ -143,6 +147,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 				deterministicTools,
 				filesystemSessionDir: base.sessionDir,
 				cwd: ctx.cwd || process.cwd(),
+				projectPolicy,
 			}),
 		};
 		deps.startDelegationWatch(state, delegationDir);
@@ -155,8 +160,8 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 			personaPath: state.def.file,
 			personaPrompt: state.def.systemPrompt,
 			task,
-			rulesPaths: deps.specialistProjectPolicyPaths(ctx.cwd || process.cwd()),
-			docsPaths: deps.getProjectDocsPaths(),
+			rulesPaths: projectPolicy.rulesPaths,
+			docsPaths: projectPolicy.docsPaths,
 			hasAssertions: extractAssertionIds(task).length > 0,
 			hasScope: scopeGlobs.length > 0,
 			hasArtifacts: inputArtifacts.length > 0,

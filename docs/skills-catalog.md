@@ -18,6 +18,7 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 | [interview-me](../skills/interview-me/SKILL.md) | One-question-at-a-time interview that extracts what the user actually wants instead of what they think they should want, until ~95% confidence | The ask is underspecified, or the user invokes "interview me" / "grill me" |
 | [idea-refine](../skills/idea-refine/SKILL.md) | Structured divergent/convergent thinking to turn vague ideas into concrete proposals | You have a rough concept that needs exploration |
 | [spec-driven-development](../skills/spec-driven-development/SKILL.md) | Write a PRD covering objectives, commands, structure, code style, testing, and boundaries before any code | Starting a new project, feature, or significant change |
+| [repository-ai-setup](../skills/repository-ai-setup/SKILL.md) | Discover target evidence, propose semantic adaptations, grill open decisions one at a time, then diff, apply, and verify repository AI rules (via `/af-setup-rules`) | Setting up or extending a repository's `.ai/rules`, `.ai/commands`, or `.ai/agent-prompts` from the Fleet catalogue |
 
 ## Plan - Break it down
 

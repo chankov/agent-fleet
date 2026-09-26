@@ -32,3 +32,4 @@ ONBOARDING.md
 plans/
 docs/prds/
 .tmp-proactive-*
+.pi/tmp-*/

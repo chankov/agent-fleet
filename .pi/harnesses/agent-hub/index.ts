@@ -168,7 +168,7 @@ import { createWorkModePolicy } from "./policy/work-mode.ts";
 import { catalogSnapshot, latestPersistedToolCatalog, toolCatalogNotice, TOOL_CATALOG_ENTRY_TYPE, type ToolCatalogDelta } from "./tool-catalog-state.ts";
 import { createToolCatalogRuntime } from "./tool-catalog-runtime.ts";
 import { createUnknownToolCounter, latestPersistedUnknownToolCounter, observeUnknownToolCalls, restoreUnknownToolCounter, unknownToolNotice, UNKNOWN_TOOL_COUNTER_ENTRY_TYPE } from "./unknown-tool-counter.ts";
-import { nativeResearchSystemPrompt } from "../lib/context-budget-child-prompt.ts";
+import { buildProjectDocsProtocol, buildProjectRulesProtocol, nativeResearchSystemPrompt } from "../lib/context-budget-child-prompt.ts";
 import { parseEnvFile, resolveEnvFilePath } from "../../agent-fleet/scripts/lib/herdr-layout.ts";
 import { worktreeTag } from "../../agent-fleet/scripts/lib/team-project.ts";
 import { join, resolve } from "path";
@@ -337,33 +337,11 @@ export default function (pi: ExtensionAPI) {
 	// the blind recursive find is only the no-index fallback. The validation duty
 	// itself is written into the planner/code-reviewer personas.
 	function buildRulesProtocol(): string {
-		if (projectRulesDirs.length === 0) return "";
-		return `
-
-## Project rules
-This project keeps its own rules in: ${projectRulesDirs.join(", ")} (repo-relative).
-Rules are HOW constraints — read the ones relevant to your task and comply with them.
-Resolve them index-first: when a listed folder has a top-level README.md or index.md,
-read that first and follow its loading manifest (session bundles, "load X when Y"
-lists) to select the rule files that apply to your task; do not bulk-read the tree.
-Only when a folder has no such index, discover rule files recursively
-(\`find <dir> -type f\`) and read the relevant ones. If you plan or review work,
-validate your subject against the rules; when delegating, pass the relevant rule
-file paths and the specific points to check on to the child.`;
+		return buildProjectRulesProtocol(projectRulesDirs);
 	}
 
 	function buildDocsProtocol(): string {
-		if (projectDocsPaths.length === 0) return "";
-		return `
-
-## Project docs
-This project's canonical documentation entry points are: ${projectDocsPaths.join(", ")}
-(repo-relative). Docs carry WHAT/WHY context — architecture, standards, decisions.
-They orient you; they are not compliance rules. Before working in an unfamiliar area,
-read the entry points relevant to your task and follow the links they contain rather
-than bulk-reading doc trees; when an entry point is a folder, start from its README.md
-or index file. If your work changes something the docs describe (architecture, public
-APIs, commands, structure), say so in your final response so the docs can be updated.`;
+		return buildProjectDocsProtocol(projectDocsPaths);
 	}
 
 	/** One canonical repository context file plus explicitly configured rule roots. */
@@ -819,6 +797,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getContextWindow: () => contextWindow,
 		resolvedModel, resolvedThinking, resolveThinkingLevel, fallbackModelFor, substitutedModel,
 		modelWindowLookup, guardrailEnv, notifyProviderQueue, spawnPiAgentWithModelFallback,
+		getProjectPolicyPaths: specialistProjectPolicyPaths,
+		getProjectDocsPaths: () => projectDocsPaths,
 		nativeResearchSystemPrompt, requireSafetyHarness, shortModel, displayName,
 		flushTimelineStore, appendTimelineText, appendTimelineEvent,
 		createTranscriptStore: createFleetTranscriptStore,
@@ -2002,6 +1982,8 @@ APIs, commands, structure), say so in your final response so the docs can be upd
 		getWorkMode,
 		getActiveTeamName: () => activeTeamName,
 		getUserLanguage: () => userLanguage,
+		getRulesProtocol: buildRulesProtocol,
+		getDocsProtocol: buildDocsProtocol,
 		isAskUserAvailable: () => askUserAvailable,
 		isComsReady: () => comsReady,
 		getIdentity: () => identity,

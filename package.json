@@ -55,6 +55,7 @@
   },
   "files": [
     "bin/",
+    "catalog/",
     "skills/",
     "agents/",
     ".pi/prompts/",

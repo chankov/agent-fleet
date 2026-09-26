@@ -40,6 +40,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
 import { spawnPiAgentWithModelFallback, killPiTree } from "./spawn.ts";
 import { redactSecrets } from "../lib/fleet-transcript-store.ts";
+import { buildProjectDocsProtocol, buildProjectRulesProtocol } from "../lib/context-budget-child-prompt.ts";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
 import {
 	delegateBudgetRefusal,
@@ -83,13 +84,14 @@ export interface DelegateConfig {
 	deterministicTools?: boolean;
 	filesystemSessionDir?: string;
 	cwd: string;
+	projectPolicy?: { rulesPaths: string[]; docsPaths: string[] };
 }
 
 // Appended to every child's system prompt so it knows its place in the tree
 // and reports tersely (its full report returns through the tool result, which
 // lands in the parent's context).
-function subagentProtocol(persona: string, role: string, canDelegate: boolean): string {
-	return `
+function subagentProtocol(persona: string, role: string, canDelegate: boolean, projectPolicy?: DelegateConfig["projectPolicy"]): string {
+	return buildProjectRulesProtocol(projectPolicy?.rulesPaths ?? []) + buildProjectDocsProtocol(projectPolicy?.docsPaths ?? []) + `
 
 ## You are the "${role}" sub-agent of a ${persona} specialist
 Your parent delegated ONE specific task to you. Do exactly that task — do not
@@ -346,7 +348,7 @@ export default function (pi: ExtensionAPI) {
 					model: roleDef.model,
 					tools: childTools,
 					thinking: roleDef.thinking ?? "off",
-					appendSystemPrompt: subagentProtocol(config.persona, roleKey, childCanDelegate),
+					appendSystemPrompt: subagentProtocol(config.persona, roleKey, childCanDelegate, config.projectPolicy),
 					sessionFile: childSessionFile,
 					prompt,
 					extensions: childExtensions,

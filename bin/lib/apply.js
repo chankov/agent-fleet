@@ -23,6 +23,7 @@ import {
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 
 import { itemsForAgent } from "./manifest.js";
 import { expandBinding } from "./verify.js";
@@ -37,6 +38,21 @@ import {
 } from "./state.js";
 
 export const APPLY_SCHEMA_VERSION = 1;
+
+/** Configure owns only the requested overrides diff; never updates install state. */
+export function applyConfiguration({ workspace, overrides, expectedHash, failAt = null, lockHeld = false }) {
+  const plan = { workspace, verb: "configure", overrides, actions: [] };
+  const current = () => existsSync(overrides.path) ? readFileSync(overrides.path, "utf8") : "";
+  if (!overrides.write) return { changed: false };
+  const hash = (text) => createHash("sha256").update(text).digest("hex");
+  return runTransaction({ workspace, plan, manifest: { items: [] }, failAt, lockHeld,
+    validate: () => {
+      if (hash(current()) !== expectedHash) throw new Error("workspace changed since preview: overrides; re-run configure --dry-run");
+    },
+    commit: () => { writeFileSyncDeep(overrides.path, overrides.text, workspace); return { changed: true }; },
+  });
+}
+
 export const EXEC_TIMEOUT_MS = 120_000;
 
 function manifestExec(manifest, agent, id) {

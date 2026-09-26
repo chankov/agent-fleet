@@ -229,6 +229,17 @@ test("repair on a workspace with no install record is an error, not a guess", ()
 
 // ── uninstall ───────────────────────────────────────────────────────────────
 
+test("uninstall --all preserves independent project AI provenance", () => {
+  const sourceRoot = makeSource(), workspace = tmp("ai-sidecar"), manifest = makeManifest();
+  try {
+    install(workspace, sourceRoot, manifest);
+    const sidecar = write(workspace, ".ai/agent-fleet-ai-state.json", JSON.stringify({ schemaVersion: 1, entries: {} }) + "\n");
+    const before = readFileSync(sidecar);
+    applyPlan({ plan: plan(workspace, sourceRoot, manifest, { verb: "uninstall", all: true }), manifest });
+    assert.deepEqual(readFileSync(sidecar), before);
+  } finally { rmSync(sourceRoot, { recursive: true, force: true }); rmSync(workspace, { recursive: true, force: true }); }
+});
+
 test("uninstall removes only what it was asked for", () => {
   const sourceRoot = makeSource();
   const workspace = tmp("ws");

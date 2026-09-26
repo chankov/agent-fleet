@@ -44,6 +44,8 @@ export interface HubPromptContext {
 	getWorkMode(): WorkMode;
 	getActiveTeamName(): string;
 	getUserLanguage(): string;
+	getRulesProtocol(): string;
+	getDocsProtocol(): string;
 	isAskUserAvailable(): boolean;
 	isComsReady(): boolean;
 	getIdentity(): { name: string; project: string } | null;

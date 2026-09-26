@@ -78,6 +78,42 @@ export interface SpecialistContextManifest {
 	protocolIds: string[];
 }
 
+export function buildProjectRulesProtocol(paths: readonly string[]): string {
+	if (paths.length === 0) return "";
+	return `
+
+## Project rules
+This project keeps its own rules in: ${paths.join(", ")} (repo-relative).
+Rules are HOW constraints — read the ones relevant to your task and comply with them.
+Read a listed file directly. Resolve them index-first when they are folders: if one has a
+top-level README.md or index.md, read that first and follow its loading manifest
+(session bundles, "load X when Y" lists) to select only the rule files that apply;
+do not bulk-read the tree. Only when a folder has no such index, discover rule files
+recursively (\`find <dir> -type f\`) and read the relevant ones. If you plan or review
+work, validate your subject against the rules; when delegating, pass the relevant
+rule file paths and specific points to check to the child.`;
+}
+
+export function buildProjectDocsProtocol(paths: readonly string[]): string {
+	if (paths.length === 0) return "";
+	return `
+
+## Project docs
+This project's canonical documentation entry points are: ${paths.join(", ")}
+(repo-relative). Docs carry WHAT/WHY context — architecture, standards, decisions.
+They orient you; they are not compliance rules. Read a listed file directly. For a
+listed folder, start from its README.md or index.md and follow only links relevant
+to the task rather than bulk-reading doc trees. If your work changes something the
+docs describe (architecture, public APIs, commands, structure), say so in your final
+response so the docs can be updated.`;
+}
+
+export function buildSelectedProjectPolicyProtocol(manifest: SpecialistContextManifest): string {
+	const selected = new Set(manifest.protocolIds);
+	return (selected.has("rules") ? buildProjectRulesProtocol(manifest.projectPolicy.rulesPaths) : "") +
+		(selected.has("docs") ? buildProjectDocsProtocol(manifest.projectPolicy.docsPaths) : "");
+}
+
 const skillPaths = (text: string) => [...new Set(text.match(/(?:^|[\s`(])((?:\.?\/?skills\/)[\w./-]+\/SKILL\.md)/g) ?? [])]
 	.map(match => match.match(/((?:\.?\/?skills\/)[\w./-]+\/SKILL\.md)/)?.[1] ?? "")
 	.filter(Boolean);
@@ -118,7 +154,7 @@ export function nativeSpecialistSystemPrompt(input: { manifest: SpecialistContex
 		...(manifest.flags.artifacts ? ["Artifact paths are supplied via stdin."] : []),
 	];
 	const references = `# Managed Specialist\nPersona: ${manifest.persona.name}; source: ${manifest.persona.sourcePath}.${paths("Primary skills", manifest.persona.primarySkillPaths)}${paths("Task-selected skills", manifest.taskSkillPaths)}${paths("Applicable project rules", manifest.projectPolicy.rulesPaths)}${paths("Applicable project docs", manifest.projectPolicy.docsPaths)}\n${framing.join(" ")} Read the persona source before work and applicable project rules before edits or commands. Read only the named skill and documentation paths when relevant; do not discover global skills or context files.`;
-	let prompt = references + buildClarificationProtocol(input.userLanguage);
+	let prompt = references + buildSelectedProjectPolicyProtocol(manifest) + buildClarificationProtocol(input.userLanguage);
 	if (manifest.flags.assertions) prompt += "\n\n## Verification\nRead skills/orchestration-verification/SKILL.md for the structured return contract; apply the assertions supplied in the task.";
 	if (manifest.delegateRoles.length) prompt += buildDelegationProtocol(manifest.delegateRoles);
 	prompt += buildDeliverableProtocol(input.agentKey, input.runNumber, input.artifactRoot, input.dispatchId);
@@ -169,12 +205,15 @@ export function nativeResearchSystemPrompt(input: {
 	personaName?: string;
 	personaPath?: string;
 	cwd: string;
+	rulesPaths?: readonly string[];
+	docsPaths?: readonly string[];
 }): string {
 	const persona = input.personaName && input.personaPath
 		? `\nSelected persona: ${input.personaName}. Its source is ${input.personaPath}; read that one file only when its role guidance is needed.`
 		: "\nNo persona is selected; act as a general research helper.";
+	const policy = buildProjectRulesProtocol(input.rulesPaths ?? []) + buildProjectDocsProtocol(input.docsPaths ?? []);
 	return `# Read-only Research Helper
 You investigate the requested repository topic for a parent agent. Your only tools are read, grep, find, and ls. Do not edit, write, run bash, delegate, or claim those tools are available.${persona}
-Working directory: ${input.cwd}
+Working directory: ${input.cwd}${policy}
 Task input may name artifact paths; inspect only paths relevant to that task. Report concise findings with concrete path:line citations. State uncertainty or missing evidence plainly. Return findings only; do not propose or attempt edits.`;
 }

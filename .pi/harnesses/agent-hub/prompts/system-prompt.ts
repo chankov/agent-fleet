@@ -63,6 +63,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const artifactRoot = ctx.getArtifactRoot?.();
 	const verificationSection = (verificationActive ? verificationFragment(MAX_OPEN_ASSERTIONS) : "") +
 		(artifactRoot && (verificationActive || fleetActive) ? `\n\nSession artifact root: ${artifactRoot}. Use this absolute root for read/write tools. Handoff paths artifacts/<kind>/... are relative to this root, not the repository. Legacy shared .pi/agent-sessions/artifacts paths belong to other sessions; do not overwrite them.` : "");
+	const projectPolicySection = ctx.getRulesProtocol() + ctx.getDocsProtocol();
 	const comsSection = comsFragment(peerActive, ctx.isComsReady(), ctx.getIdentity());
 	const workModeText = workModePrompt(ctx.getWorkMode());
 	const herdrSection = workspaceActive && ctx.isHerdrFleetReady() ? HUB_HERDR_SECTION : "";
@@ -78,6 +79,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 		askUserBlock,
 		modeSection: stableModeSection,
 		verificationSection,
+		projectPolicySection,
 		stateCapsule,
 		comsSection,
 		herdrSection,
@@ -95,6 +97,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 		dispatchSection,
 		modeSection: stableModeSection,
 		verificationSection,
+		projectPolicySection,
 		stateCapsule,
 		researchCards,
 		researchCatalog,

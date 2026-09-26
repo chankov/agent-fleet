@@ -15,6 +15,7 @@ export interface HubPromptParts {
 	askUserBlock: string;
 	modeSection: string;
 	verificationSection: string;
+	projectPolicySection?: string;
 	comsSection: string;
 	herdrSection: string;
 	compactionSection?: string;
@@ -70,7 +71,7 @@ ${parts.researchCatalog}
 ${parts.languageLines}${fleet}
 ${parts.askUserBlock}
 
-${parts.modeSection}${state}${verification}
+${parts.modeSection}${state}${verification}${parts.projectPolicySection ?? ""}
 ${parts.comsSection}${parts.herdrSection}${parts.compactionSection ?? ""}
 ## Hard Rules
 ${parts.hardRules}
@@ -83,7 +84,7 @@ export interface NamedHubPart { id: string; text: string; category: ContextCateg
 
 export function namedHubLedgerParts(input: {
 	intro: string; languageLines: string; teamMembers: string; agentCards: readonly { id: string; text: string }[];
-	dispatchSection: string; modeSection: string; verificationSection: string; researchCards: readonly { id: string; text: string }[];
+	dispatchSection: string; modeSection: string; verificationSection: string; projectPolicySection?: string; researchCards: readonly { id: string; text: string }[];
 	researchCatalog: string; comsSection: string; herdrSection: string; compactionSection?: string; stateCapsule?: string;
 }): NamedHubPart[] {
 	return [
@@ -94,6 +95,7 @@ export function namedHubLedgerParts(input: {
 		{ id: "hub/policy/dispatch", text: input.dispatchSection, category: "protocol", persistence: "fixed", source: "hub-policy" },
 		{ id: "hub/policy/triage", text: input.modeSection, category: "protocol", persistence: "fixed", source: "run-budget" },
 		{ id: "hub/policy/verification", text: input.verificationSection, category: "protocol", persistence: "fixed", source: "orchestration-verification" },
+		{ id: "hub/policy/project", text: input.projectPolicySection ?? "", category: "protocol", persistence: "session", source: "project-overrides" },
 		{ id: "hub/state", text: input.stateCapsule ?? "", category: "system", persistence: "turn", source: "hub-state" },
 		...(input.researchCards.length ? input.researchCards.map(card => ({ id: `hub/research/${card.id}`, text: card.text, category: "persona" as const, persistence: "session" as const, source: "research-persona" })) : [{ id: "hub/research-empty", text: input.researchCatalog, category: "persona" as const, persistence: "session" as const, source: "research-persona" }]),
 		{ id: "hub/policy/coms", text: input.comsSection, category: "protocol", persistence: "fixed", source: "coms" },

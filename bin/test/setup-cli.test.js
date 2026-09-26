@@ -128,6 +128,45 @@ test("setup preserves an existing configured overrides file byte-for-byte", (con
   assert.equal(readFileSync(overridesPath, "utf8"), original);
 });
 
+test("configure CLI previews without writes, applies scoped keys, and repeats as a no-op", (t) => {
+  const ws = workspace(); t.after(() => rmSync(ws, { recursive: true, force: true }));
+  mkdirSync(join(ws, ".ai/rules"), { recursive: true });
+  const path = join(ws, ".ai/agent-fleet-overrides.md");
+  const original = "## agent-hub\nmodel.builder: local\ndocs: handbook.md\n## custom\nkeep: yes\n";
+  writeFileSync(path, original);
+  const args = ["configure", "--workspace", ws, "--rules", ".ai/rules", "--dry-run"];
+  let result = run(args);
+  assert.equal(result.status, 0, result.stderr);
+  const preview = JSON.parse(result.stdout);
+  assert.equal(preview.before, original);
+  assert.equal(readFileSync(path, "utf8"), original);
+  assert.equal(existsSync(join(ws, ".ai/agent-fleet-state.json")), false);
+  result = run(["configure", "--workspace", ws, "--rules", ".ai/rules", "--expect-hash", preview.expectedHash, "--yes"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(path, "utf8"), preview.after);
+  assert.match(preview.after, /model.builder: local/);
+  assert.match(preview.after, /docs: handbook.md/);
+  assert.match(preview.after, /## custom\nkeep: yes/);
+  result = run(["configure", "--workspace", ws, "--rules", ".ai/rules", "--dry-run"]);
+  assert.equal(JSON.parse(result.stdout).write, false);
+  result = run(["configure", "--workspace", ws, "--rules", ".ai/rules", "--yes"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /unchanged/);
+  assert.equal(readFileSync(path, "utf8"), preview.after);
+  result = run(["configure", "--workspace", ws, "--docs", "README.md", "--expect-hash", preview.expectedHash, "--yes"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /changed since preview/);
+  assert.equal(readFileSync(path, "utf8"), preview.after);
+});
+
+test("blank settings discover .ai/rules during ordinary setup", (t) => {
+  const ws = workspace(); t.after(() => rmSync(ws, { recursive: true, force: true }));
+  mkdirSync(join(ws, ".ai/rules"), { recursive: true });
+  const result = setup(ws, "--preset", "default", "--features", "none", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(readFileSync(join(ws, ".ai/agent-fleet-overrides.md"), "utf8"), /rules: \.ai\/rules/);
+});
+
 test("setup --json --yes applies, --allow-exec reaches the plan, and dry-run remains write-free", () => {
   const applyWorkspace = workspace();
   let result = setup(applyWorkspace, "--preset", "default", "--features", "none", "--json", "--yes");

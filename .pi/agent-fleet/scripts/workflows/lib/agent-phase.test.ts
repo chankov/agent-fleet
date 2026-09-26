@@ -12,6 +12,7 @@ import { ENVELOPE_EXAMPLES } from "./envelopes.ts";
 import { GateReport } from "./gates.ts";
 import type { PersonaDefinition } from "./personas.ts";
 import { Run } from "./run.ts";
+import { createProjectPolicyFixture, FIXTURE_POLICY_MARKER } from "../../../../../bin/test/helpers/project-policy-fixture.js";
 
 const persona: PersonaDefinition = {
 	name: "researcher", description: "read only", tools: "read,grep,find,ls", model: "primary/model", models: ["fallback/model"], fallbackModel: "fallback/model",
@@ -60,6 +61,49 @@ test("agent phase uses replacement context, fallback, detached safety, and same-
 		assert.deepEqual(invalidAttempts[0].attempt, 1);
 		assert.ok((invalidAttempts[0].errors as string[]).some(error => error.includes("findings")));
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("workflow phase with omitted policy options resolves configured rules before production spawn", async () => {
+	const project = createProjectPolicyFixture("workflow-policy-");
+	execFileSync("git", ["init", "-q", "-b", "main"], { cwd: project.cwd });
+	execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: project.cwd });
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: project.cwd });
+	execFileSync("git", ["add", "."], { cwd: project.cwd }); execFileSync("git", ["commit", "-qm", "fixture"], { cwd: project.cwd });
+	const run = new Run({ cwd: project.cwd, runId: "policy-test" });
+	try {
+		let systemPrompt = "";
+		const spawn: SpawnAgent = async options => {
+			systemPrompt = options.systemPrompt ?? "";
+			return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
+		};
+		assert.equal(project.task.includes(FIXTURE_POLICY_MARKER), false, "fixture policy is absent from the user task");
+		await runAgentPhase({ run, persona, task: project.task, envelope: "scout", cwd: project.cwd, spawn });
+		assert.match(systemPrompt, /Applicable project rules: \.ai\/rules/);
+		assert.match(systemPrompt, /index-first/);
+		assert.doesNotMatch(systemPrompt, /reference-only|UNRELATED_ARCHIVE_SENTINEL/);
+	} finally { project.cleanup(); }
+});
+
+test("scout/build-test/document/poll/debate/merge production phase sends configured policy in system prompt", async () => {
+	const project = createProjectPolicyFixture("workflow-six-prompts-");
+	execFileSync("git", ["init", "-q", "-b", "main"], { cwd: project.cwd });
+	execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: project.cwd });
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: project.cwd });
+	execFileSync("git", ["add", "."], { cwd: project.cwd });
+	execFileSync("git", ["commit", "-qm", "fixture"], { cwd: project.cwd });
+	const run = new Run({ cwd: project.cwd, runId: "six-policy-prompts" });
+	try {
+		for (const envelope of ["scout", "build", "document", "poll", "debate", "merge"] as const) {
+			let sent = "";
+			await runAgentPhase({ run, persona, task: project.task, envelope, cwd: project.cwd, spawn: async options => {
+				sent = options.systemPrompt ?? "";
+				return { output: JSON.stringify(ENVELOPE_EXAMPLES[envelope]), exitCode: 0 };
+			} });
+			assert.match(sent, /Applicable project rules: \.ai\/rules/, envelope);
+			assert.match(sent, /index-first/, envelope);
+			assert.doesNotMatch(sent, /UNRELATED_ARCHIVE_SENTINEL/, envelope);
+		}
+	} finally { project.cleanup(); }
 });
 
 test("T13 Hub scout phase uses real native OS confinement and session-owned support writes", { skip: !linuxUserNamespaceSandboxAvailable() }, async () => {

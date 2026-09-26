@@ -18,7 +18,7 @@ function sourceLeaves(path) {
 }
 
 export function touchedPaths(plan, manifest) {
-  const paths = new Set([STATE_REL_PATH, LEGACY_RECORD_REL_PATH]);
+  const paths = new Set(plan?.verb === "configure" ? [] : [STATE_REL_PATH, LEGACY_RECORD_REL_PATH]);
   const catalogue = new Map((manifest?.items ?? []).map((item) => [item.id, item]));
   for (const action of plan?.actions ?? []) {
     for (const file of action.files ?? []) if (file.path) paths.add(file.path);

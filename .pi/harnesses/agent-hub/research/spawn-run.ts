@@ -88,11 +88,14 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		const deterministicTools = assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
 		const boundedOutputDir = safePathWithin(state.evidenceDir, "bounded-output");
 		const researchTools = deterministicTools && !deps.researchTools.split(",").includes("filesystem") ? `${deps.researchTools},filesystem` : deps.researchTools;
+		const cwd = ctx.cwd || process.cwd();
 		const res = await deps.providerSemaphore.run(state.model, () => deps.spawnPiAgentWithModelFallback({
 			model: state.model, tools: researchTools, thinking: thinkingLevel,
 			systemPrompt: deps.nativeResearchSystemPrompt({
 				...(state.persona ? { personaName: state.def.name, personaPath: state.def.file } : {}),
-				cwd: ctx.cwd || process.cwd(),
+				cwd,
+				rulesPaths: deps.getProjectPolicyPaths(cwd),
+				docsPaths: deps.getProjectDocsPaths(),
 			}),
 			noSkills: true, noContextFiles: true, sessionFile: sessionPath, resume: false,
 			prompt: deps.artifacts.appendInputArtifacts(prompt, inputArtifacts), cwd: ctx.cwd || process.cwd(),

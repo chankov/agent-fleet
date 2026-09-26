@@ -1,0 +1,22 @@
+{
+  "target": "fictional queue-driven CLI project; fixture evidence only, not policy for Fleet",
+  "existingExplicitPolicy": "docs/AGENTS.md permits only CHANGELOG entries for small changes; no PRD type or template exists",
+  "repositoryEvidence": [
+    "src/cli/submit.js calls src/queue/publish.js and receives receipt IDs",
+    "src/workers/consume.js subscribes to job.created and reads payload.version",
+    "tests/queue-contract.test.js asserts the producer's current payload shape",
+    "src/workers/retry.js also subscribes to job.created but has no contract test"
+  ],
+  "adaptationRequired": {
+    "rule": "Distinguish the documented doc restriction from observed CLI/queue boundaries; map producer, worker and retry consumers, without claiming the observed boundary is mandatory.",
+    "command": "Trace CLI input to queue publish to worker/retry subscription; record retry as unmapped or lower confidence where evidence ends. No SPA routes, HTTP controllers or invented verification commands.",
+    "prompt": "Because the explicit docs policy allows only CHANGELOG entries and no PRD template, propose requirements content and ask before creating a new PRD type; do not merely replace META_PRD with a different path."
+  },
+  "repoDerivedCandidate": {
+    "evidence": ["src/queue/publish.js", "src/workers/consume.js", "tests/queue-contract.test.js"],
+    "proposal": "Job payload version changes should preserve compatibility with active workers.",
+    "exceptionToInvestigate": "src/workers/retry.js has no contract test",
+    "beforeAcceptance": "proposal only; no normative .ai/rules/project/job-payload.md or provenance entry",
+    "afterAcceptance": "create .ai/rules/project/job-payload.md with accepted decision and evidence in the one .ai/agent-fleet-ai-state.json sidecar, origin repo-derived with no invented templateId"
+  }
+}

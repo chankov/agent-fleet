@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createProjectPolicyFixture, FIXTURE_POLICY_MARKER } from "../../../bin/test/helpers/project-policy-fixture.js";
 import {
 	buildSpecialistContextManifest,
 	buildDelegationProtocol,
@@ -73,6 +74,24 @@ test("specialist resume reuses manifest while only the run artifact destination 
 	const resumed = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "builder", runNumber: 2 });
 	assert.equal(first.replace(/builder-run1/g, "builder-runN"), resumed.replace(/builder-run2/g, "builder-runN"));
 	assert.match(resumed, /builder-run2/);
+});
+
+test("rendered child consumes rules protocolIds with index-first policy guidance", () => {
+	const project = createProjectPolicyFixture("child-policy-");
+	try {
+		const rule = readFileSync(`${project.cwd}/${project.applicableRule}`, "utf8");
+		assert.equal(project.task.includes(FIXTURE_POLICY_MARKER), false, "fixture policy is absent from the user task");
+		assert.match(rule, /planning\nacceptance criteria, edit verification notes, and review findings/);
+		const manifest = buildSpecialistContextManifest({
+			personaName: "Builder", personaPath: "agents/builder.md", personaPrompt: "", task: project.task,
+			rulesPaths: project.rulesPaths, docsPaths: [], hasAssertions: false, hasScope: false, hasArtifacts: false, delegateRoles: [],
+		});
+		assert.ok(manifest.protocolIds.includes("rules"), "fixture reaches the production manifest");
+		const prompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "builder", runNumber: 1 });
+		assert.match(prompt, /Resolve them index-first/);
+		assert.match(prompt, /README\.md or index\.md/);
+		assert.doesNotMatch(prompt, /reference-only|UNRELATED_ARCHIVE_SENTINEL/);
+	} finally { project.cleanup(); }
 });
 
 test("specialist omission paths do not emit verification, policy, or delegation prose", () => {

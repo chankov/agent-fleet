@@ -91,7 +91,7 @@ rules: docs/rules
 docs: Docs/AGENTS.md
 `;
   const findings = findingsFor(text, {
-    extraFiles: { "docs/rules": true, "Docs/AGENTS.md": "# guide\n" },
+    extraFiles: { "docs/rules": true, "docs/rules/README.md": "# index\n", "Docs/AGENTS.md": "# guide\n" },
   });
   assert.deepEqual(findings, []);
 });

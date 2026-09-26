@@ -2,7 +2,7 @@
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const RULE_DIRS = [".cursor/rules", ".github/rules", "rules", ".agent/rules"];
+const RULE_DIRS = [".ai/rules", ".cursor/rules", ".github/rules", "rules", ".agent/rules"];
 const DOC_PATHS = ["docs", "DOCS.md", "README.md"];
 
 function existingDirectories(workspace, candidates) {

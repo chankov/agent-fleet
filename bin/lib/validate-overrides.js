@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { readProjectProvenance, AI_STATE_REL_PATH } from "./project-provenance.js";
 
 export const OVERRIDES_REL_PATH = ".ai/agent-fleet-overrides.md";
 
@@ -47,7 +48,7 @@ const KNOWN_SECTIONS = {
     keys: {
       "language": null,
       "persona-gate": (value) => `ignored — dispatcher persona selection was removed; use /af-work-mode for operator|orchestrator work mode. Remove this key (was "${value}")`,
-      "rules": checkFolders("rules"),
+      "rules": checkRuleRoots(),
       "docs": checkPaths("docs entry point"),
       "recon-search-timeout-s": oneOfIntegerOrOff(1, 3600),
       "mode": (value) => `ignored — execution modes were removed; budgets follow task tier. Remove this key (was "${value}")`,
@@ -110,6 +111,26 @@ function checkFolders(label) {
     return missing.length
       ? `${label} folder${missing.length > 1 ? "s" : ""} not found in the workspace: ${missing.join(", ")}`
       : null;
+  };
+}
+
+// Rules roots add one structural check: an existing root without an index
+// still loads (recursive discovery is the fallback), but planning cannot
+// select by bundle — worth one advisory line, never auto-created.
+function checkRuleRoots() {
+  const missing = checkFolders("rules");
+  return (value, ctx) => {
+    const problems = [];
+    const absent = missing(value, ctx);
+    if (absent) problems.push(absent);
+    for (const dir of value.split(",").map((s) => s.trim()).filter(Boolean)) {
+      const abs = join(ctx.workspace, dir);
+      if (!existsSync(abs)) continue;
+      if (!existsSync(join(abs, "README.md")) && !existsSync(join(abs, "index.md"))) {
+        problems.push(`rules root "${dir}" has no index (README.md/index.md); discovery falls back to recursive scan`);
+      }
+    }
+    return problems.length ? problems.join("; ") : null;
   };
 }
 
@@ -191,8 +212,8 @@ export function validateOverrides({ workspace, env = process.env }) {
 
   const ctx = { workspace, env, dotEnvNames: readDotEnvNames(workspace) };
   const findings = [];
-  const finding = (issue, fix) =>
-    findings.push({ type: "overrides", path: OVERRIDES_REL_PATH, issue, fix });
+  const finding = (issue, fix, path = OVERRIDES_REL_PATH, type = "overrides") =>
+    findings.push({ type, path, issue, fix });
 
   let section = null;        // canonical section name, or null outside/unknown
   let sectionHeading = null; // heading as written, for messages
@@ -261,6 +282,19 @@ export function validateOverrides({ workspace, env = process.env }) {
     finding(
       `unknown key "${key}" in ## ${sectionHeading} — the reader will silently ignore it`,
       `known keys: ${known.join(", ")}`,
+    );
+  }
+
+  // Project AI provenance is advisory here: a corrupt sidecar blocks every
+  // setup apply, so it gets a file/reason finding — never an auto-fix.
+  // Absence is normal (no setup run yet) and stays silent.
+  const provenance = readProjectProvenance(workspace);
+  if (provenance.status === "corrupt") {
+    finding(
+      `project provenance is corrupt (${provenance.error}); setup cannot classify or apply until it is repaired`,
+      "repair or re-adopt via /af-setup-rules; the sidecar is preserved, never auto-fixed",
+      AI_STATE_REL_PATH,
+      "provenance",
     );
   }
 

@@ -459,6 +459,31 @@
       }
     },
     {
+      "id": "command:setup-rules",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "setup-rules",
+      "summary": "Set up or extend repository AI rules from the Fleet catalogue — discovery, proposal, grilling, diff, apply, verify.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-setup-rules.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-setup-rules.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/setup-rules.md"
+          ]
+        }
+      }
+    },
+    {
       "id": "command:ship",
       "kind": "command",
       "group": "commands",
@@ -892,6 +917,7 @@
         }
       },
       "parents": [
+        "companion:workflow-runtime",
         "pi-extension:btw",
         "pi-harness:agent-hub",
         "pi-harness:ask-user-remote",
@@ -1084,7 +1110,68 @@
             ".pi/agent-fleet/scripts/package-lock.json",
             ".pi/agent-fleet/scripts/lib/flow-command.ts",
             ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
-            ".pi/agent-fleet/scripts/workflows"
+            ".pi/agent-fleet/scripts/workflows",
+            ".pi/harnesses/agent-hub/return-contract.js",
+            ".pi/harnesses/agent-hub/run-namespace.js",
+            ".pi/harnesses/agent-hub/config/agents.ts",
+            ".pi/harnesses/agent-hub/config/overrides.ts",
+            ".pi/harnesses/agent-hub/backend-policy.js",
+            ".pi/harnesses/agent-hub/execution-evidence.ts",
+            ".pi/harnesses/agent-hub/context-window.js",
+            ".pi/harnesses/agent-hub/spawn.ts",
+            ".pi/harnesses/agent-hub/runtime-test-check.ts",
+            ".pi/harnesses/agent-hub/tool-protocol.ts",
+            ".pi/harnesses/agent-hub/policy/profile-runtime.ts",
+            ".pi/harnesses/agent-hub/config/model-profiles.ts",
+            ".pi/harnesses/agent-hub/scope-gate.js",
+            ".pi/harnesses/agent-hub/write-isolation.ts",
+            ".pi/harnesses/agent-hub/deterministic-fs.ts",
+            ".pi/harnesses/agent-hub/helpers.ts",
+            ".pi/harnesses/agent-hub/external-blocker.js",
+            ".pi/harnesses/damage-control-continue",
+            ".pi/harnesses/agent-hub/types.ts",
+            ".pi/harnesses/agent-hub/dispatch-core.ts",
+            ".pi/harnesses/agent-hub/dispatch-coms.ts",
+            ".pi/harnesses/agent-hub/drift-runtime.ts",
+            ".pi/harnesses/agent-hub/acceptance.ts",
+            ".pi/harnesses/agent-hub/artifacts.js",
+            ".pi/harnesses/agent-hub/tools/context.ts",
+            ".pi/harnesses/agent-hub/drift-watchdog.js",
+            ".pi/harnesses/agent-hub/return-extract.js",
+            ".pi/harnesses/agent-hub/dispatch-native.ts",
+            ".pi/harnesses/agent-hub/assist-profile.ts",
+            ".pi/harnesses/agent-hub/monitor-control.ts",
+            ".pi/harnesses/agent-hub/dispatch-native-prepare.ts",
+            ".pi/harnesses/agent-hub/bounded-output.ts",
+            ".pi/harnesses/agent-hub/filesystem-tool.ts",
+            ".pi/harnesses/agent-hub/run-budget.js",
+            ".pi/harnesses/agent-hub/session-health.js",
+            ".pi/harnesses/agent-hub/safety-routing.ts",
+            ".pi/harnesses/agent-hub/dispatch-native-types.ts",
+            ".pi/harnesses/agent-hub/ui/history-store.ts",
+            ".pi/harnesses/agent-hub/ui/zoom.ts",
+            ".pi/harnesses/agent-hub/dispatch-observability.ts",
+            ".pi/harnesses/agent-hub/ui/activity-dots.ts",
+            ".pi/harnesses/agent-hub/task-resume-contract.ts",
+            ".pi/harnesses/agent-hub/system1-runtime.ts",
+            ".pi/harnesses/agent-hub/drift-system1-policy.ts",
+            ".pi/harnesses/agent-hub/drift-system1.ts",
+            ".pi/harnesses/agent-hub/system1-activity.ts",
+            ".pi/harnesses/agent-hub/drift-judge.ts",
+            ".pi/harnesses/agent-hub/dispatch-native-spawn.ts",
+            ".pi/harnesses/agent-hub/timeline.ts",
+            ".pi/harnesses/agent-hub/dispatch-native-complete.ts",
+            ".pi/harnesses/agent-hub/research/runtime.ts",
+            ".pi/harnesses/agent-hub/context/hub-state.ts",
+            ".pi/harnesses/agent-hub/context/budgets.ts",
+            ".pi/harnesses/agent-hub/hub-state-audit.js",
+            ".pi/harnesses/agent-hub/budget-continuation.ts",
+            ".pi/harnesses/agent-hub/budget-recovery.ts",
+            ".pi/harnesses/agent-hub/context/assertions-artifacts.ts",
+            ".pi/harnesses/agent-hub/provider-semaphore.js",
+            ".pi/harnesses/agent-hub/research/spawn-run.ts",
+            ".pi/harnesses/agent-hub/research-watchdog.ts",
+            ".pi/agent-fleet/scripts/lib/persona-dirs.ts"
           ],
           "sourceMode": "all",
           "target": null,
@@ -1093,6 +1180,7 @@
         }
       },
       "companions": [
+        "companion:pi-harness-lib",
         "companion:workflow-deps",
         "companion:workflow-guide"
       ],
@@ -2907,6 +2995,28 @@
         "reference:communication-contract",
         "reference:definition-of-done"
       ]
+    },
+    {
+      "id": "skill:repository-ai-setup",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": null,
+      "title": "repository-ai-setup",
+      "summary": "Sets up repository AI rules from the packaged Fleet catalogue — discover target evidence, propose semantic adaptation…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/repository-ai-setup"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/repository-ai-setup",
+          "strategy": "copy-tree"
+        }
+      }
     },
     {
       "id": "skill:security-and-hardening",

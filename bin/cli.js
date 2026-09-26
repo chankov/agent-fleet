@@ -17,7 +17,8 @@ import { loadManifest } from "./lib/manifest.js";
 import { runVerify, hasDrift } from "./lib/verify.js";
 import { buildPlan, hasConflicts, isNoop } from "./lib/plan.js";
 import { buildReconcilePlan } from "./lib/reconcile.js";
-import { applyPlan, retryRuntimeRepairs } from "./lib/apply.js";
+import { applyPlan, applyConfiguration, retryRuntimeRepairs } from "./lib/apply.js";
+import { planConfigureOverrides } from "./lib/overrides.js";
 import { askChoice, askFinalApproval, chooseSetup, selectionSummary } from "./lib/tui.js";
 import { defaultDesired, readDesired } from "./lib/desired.js";
 import { normalizeFeatureSet } from "./lib/features.js";
@@ -70,6 +71,9 @@ const parsed = (() => {
       allowPositionals: true,
       options: {
         agent:     { type: "string" },
+        rules:     { type: "string" },
+        docs:      { type: "string" },
+        "expect-hash": { type: "string" },
         method:    { type: "string" },
         workspace: { type: "string" },
         yes:       { type: "boolean", short: "y" },
@@ -136,6 +140,7 @@ if (!["update", "check-update", "verify", "install", "upgrade", "uninstall", "do
 
 switch (sub) {
   case "setup":             await cmdSetup();            break;
+  case "configure":         await cmdConfigure();        break;
   case "init":              warnAlias("init"); await cmdSetup(); break;
   case "doctor":            await cmdDoctor();           break;
   case "verify":            await cmdVerify();           break;
@@ -226,6 +231,35 @@ async function cmdSetHermesTelegram() {
 // Everything else the scan reports (overrides problems, malformed peer entries)
 // is advisory: printed, never auto-fixed, because the fix is always a hand edit.
 function warnAlias(name) { console.error(`Warning: ${name} is deprecated; use setup.`); }
+
+async function cmdConfigure() {
+  await mustBeDirectory(workspace, "workspace");
+  if (parsed.positionals.length || (opts.rules === undefined && opts.docs === undefined)) fail("configure requires --rules and/or --docs");
+  if (["preset", "features", "items", "profile", "save-desired", "repair-config", "migrate", "allow-exec"].some((key) => opts[key] !== undefined))
+    fail("configure accepts only settings paths; use setup for installation options");
+  const requested = {};
+  for (const key of ["rules", "docs"]) {
+    if (opts[key] === undefined) continue;
+    const paths = opts[key].split(",").map((path) => path.trim());
+    if (paths.some((path) => !path || path.startsWith("/") || /[\r\n:#]/.test(path) || path.includes("\\") || path.split("/").some((part) => part === ".." || part === "." || !part)))
+      fail(`--${key} requires comma-separated workspace-relative paths`);
+    requested[key] = [...new Set(paths)];
+    for (const path of requested[key]) if (!existsSync(join(workspace, path))) console.error(`Warning: configured ${key} path does not exist: ${path}`);
+  }
+  const dryRun = Boolean(opts["dry-run"]);
+  if (!dryRun && !opts.yes) fail("configure apply requires --yes; preview with --dry-run");
+  if (!dryRun) lockMutation("configure");
+  else if (transactionRecovery(workspace).pending) fail("pending transaction journal exists; run agent-fleet doctor --fix before replanning");
+  let plan;
+  try { plan = planConfigureOverrides(workspace, requested, opts["expect-hash"] ?? null); }
+  catch (error) { fail(error.message); }
+  if (dryRun) { writeJson({ verb: "configure", stage: "preview", path: ".ai/agent-fleet-overrides.md", expectedHash: plan.hash, write: plan.write, before: existsSync(plan.path) ? readFileSync(plan.path, "utf8") : "", after: plan.text }); return; }
+  try {
+    const result = applyConfiguration({ workspace, overrides: plan, expectedHash: plan.hash, lockHeld: true });
+    if (opts.json) writeJson({ verb: "configure", ...result });
+    else console.log(result.changed ? "Configuration applied; start a new session to load it." : "Configuration unchanged.");
+  } catch (error) { fail(error.message); }
+}
 
 async function cmdSetup() {
   await mustBeDirectory(workspace, "workspace");
@@ -1186,6 +1220,17 @@ function fail(msg, code = 1) {
 }
 
 function printHelp(sub) {
+  if (sub === "configure") {
+    console.log(`agent-fleet configure --rules <dirs> --docs <paths> [options]
+
+  Append and deduplicate requested repo-relative paths in Fleet overrides only.
+  Omit either key to leave it unchanged. Conflicting sections/keys require manual resolution.
+  --dry-run previews before/after bytes and expectedHash without writing.
+  --yes applies; --expect-hash <expectedHash> refuses a stale preview.
+  --workspace <path> selects the target (default: cwd); --json emits the apply result.
+  Start a new session to load changed settings.`);
+    return;
+  }
   if (sub === "setup") {
     console.log(`agent-fleet setup [options]
 
@@ -1427,6 +1472,7 @@ Commands:
   install             Install from a profile or explicit item ids
   upgrade             Upgrade what is installed, with a three-way merge
   setup               Reconcile Default/Full desired state (interactive in a TTY)
+  configure           Preview/apply only requested rules/docs override roots
   uninstall           Remove recorded artifacts (--items / --all)
   update              Compatibility alias for setup
   check-update        One-line registry check (used by session hooks; safe to script)

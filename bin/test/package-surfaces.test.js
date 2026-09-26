@@ -253,7 +253,7 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
     ".pi/prompts/af-build.md", ".pi/prompts/af-code-simplify.md", ".pi/prompts/af-constraints.md",
     ".pi/prompts/af-plan.md",
     ".pi/prompts/af-review.md", ".pi/prompts/af-set-hermes-telegram.md", ".pi/prompts/af-set-hermes-watchdog.md",
-    ".pi/prompts/af-ship.md", ".pi/prompts/af-spec.md", ".pi/prompts/af-test.md",
+    ".pi/prompts/af-setup-rules.md", ".pi/prompts/af-ship.md", ".pi/prompts/af-spec.md", ".pi/prompts/af-test.md",
   ]);
   for (const harness of ["agent-hub", "coms", "damage-control-continue"]) {
     for (const file of ["index.ts", "version.ts", "package.json"]) {
@@ -285,6 +285,43 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
     assert.ok(paths.has(file), `system1 runtime must ship: ${file}`);
   }
   assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/lib/system1/") && /\.test\.(js|ts)$/.test(path)), false, "system1 tests must not be published");
+});
+
+test("workflow-only install runs a production policy prompt without the Hub item or source checkout", () => {
+  const workspace = mkdtempSync(join(tmpdir(), "af-workflow-only-"));
+  try {
+    const generated = buildManifest({ sourceRoot: root, packageVersion: JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version });
+    const items = ["companion:workflow-runtime", "companion:pi-harness-lib"];
+    assert.equal(items.includes("harness:agent-hub"), false);
+    for (const id of items) {
+      const item = generated.items.find(entry => entry.id === id);
+      assert.ok(item, id);
+      for (const source of item.agents.pi.source) {
+        const from = join(root, source), to = join(workspace, source);
+        mkdirSync(dirname(to), { recursive: true });
+        cpSync(from, to, { recursive: true });
+      }
+    }
+    for (const dependency of ["@sinclair/typebox", "yaml"]) {
+      const target = join(workspace, ".pi/agent-fleet/scripts/node_modules", dependency);
+      mkdirSync(dirname(target), { recursive: true });
+      cpSync(join(root, "node_modules", dependency), target, { recursive: true });
+    }
+    const project = join(workspace, "project");
+    mkdirSync(join(project, ".ai", "rules"), { recursive: true });
+    writeFileSync(join(project, ".ai", "agent-fleet-overrides.md"), "## agent-hub\nrules: .ai/rules\n");
+    writeFileSync(join(project, ".ai", "rules", "README.md"), "# Installed policy index\n");
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: project });
+    execFileSync("git", ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "--allow-empty", "-qm", "base"], { cwd: project });
+    const agentPhase = pathToFileURL(join(workspace, ".pi/agent-fleet/scripts/workflows/lib/agent-phase.ts")).href;
+    const runModule = pathToFileURL(join(workspace, ".pi/agent-fleet/scripts/workflows/lib/run.ts")).href;
+    const script = `import { runAgentPhase } from ${JSON.stringify(agentPhase)}; import { Run } from ${JSON.stringify(runModule)};
+      const cwd = ${JSON.stringify(project)}; const run = new Run({cwd,runId:'only'}); let sent = '';
+      await runAgentPhase({ run, cwd, persona: {name:'scout',model:'test/model',tools:'read',thinking:'off',systemPrompt:'Read project rules',file:'agents/scout.md',writes:[]}, task:'Inspect policy',envelope:'scout', spawn: async options => { sent = options.systemPrompt; return {exitCode:0,output:JSON.stringify({status:'success',summary:'ok',artifacts:[],notes_for_next_agent:'',findings:['ok']})}; } });
+      if (!sent.includes('Applicable project rules: .ai/rules')) throw Error('policy absent from installed prompt');`;
+    const result = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", script], { cwd: project, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  } finally { rmSync(workspace, { recursive: true, force: true }); }
 });
 
 // The full watchdog release surface — runtime modules, lifecycle commands,

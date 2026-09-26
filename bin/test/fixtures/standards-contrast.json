@@ -1,0 +1,35 @@
+{
+  "purpose": "Contrasting fixtures the four standards profiles must survive without collapsing into source defaults.",
+  "cases": [
+    {
+      "profile": "languages/sql.md",
+      "contrast": "PostgreSQL target with serial PKs and a no-FK-index workload vs SQL Server target with GUID keys",
+      "requires": "engine named in adaptation; no universal key type; FK index justified by predicates or omitted"
+    },
+    {
+      "profile": "languages/sql.md",
+      "contrast": "repeatable seed script vs once-only column migration",
+      "requires": "rerun behavior explicit only for the repeatable script; no blanket idempotency"
+    },
+    {
+      "profile": "frameworks/vue.md",
+      "contrast": "Vue 3 Composition-API SFC app vs Vue 2 Options-API in-DOM pages",
+      "requires": "version/API style selected first; no forced migration; lifecycle APIs valid for the selected version"
+    },
+    {
+      "profile": "frameworks/vue.md",
+      "contrast": "kebab-case components required by in-DOM templates",
+      "requires": "PascalCase stays optional; kebab-case accepted where the template context needs it"
+    },
+    {
+      "profile": "languages/csharp.md",
+      "contrast": "sync-only library with awaitable callers vs fully async service",
+      "requires": "no every-method-async mandate; ValueTask/Task contracts preserved as the target defines them"
+    },
+    {
+      "profile": "languages/javascript.md",
+      "contrast": "Node ESM service with side-effect polyfill import vs bundled SPA",
+      "requires": "side-effect order preserved; no export conversion or bundler imposition for style"
+    }
+  ]
+}

@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { DEFAULT_OVERRIDES, parseAgentTeamOverrides } from "../config/overrides.ts";
+import { applySessionOverrides } from "../lifecycle/session-orchestration.ts";
 import type { CapabilityPack, CapabilityResolution } from "../capability-packs.ts";
+import { buildProjectDocsProtocol, buildProjectRulesProtocol } from "../../lib/context-budget-child-prompt.ts";
+import { createProjectPolicyFixture, FIXTURE_POLICY_MARKER } from "../../../../bin/test/helpers/project-policy-fixture.js";
 import type { HubPromptContext, HubPromptState } from "./context.ts";
 import { buildHubSystemPrompt } from "./system-prompt.ts";
 
@@ -23,7 +27,7 @@ function resolution(active: CapabilityPack[]): CapabilityResolution {
 	};
 }
 
-function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; language?: string; catalogNotice?: string } = {}): HubPromptContext {
+function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; language?: string; catalogNotice?: string; rulesProtocol?: string; docsProtocol?: string } = {}): HubPromptContext {
 	let promptState: HubPromptState = {
 		taskTier: "feature", taskTierAssumed: false, processRisk: "high", processScope: "small", processOpen: ["review"],
 		turnDispatchCount: 1, turnResearchCount: 2,
@@ -46,7 +50,9 @@ function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; lang
 		isComsReady: () => true,
 		getIdentity: () => ({ name: "hub", project: "fleet" }),
 		isHerdrFleetReady: () => true,
-	};
+		getRulesProtocol: () => overrides.rulesProtocol ?? "",
+		getDocsProtocol: () => overrides.docsProtocol ?? "",
+	} as HubPromptContext;
 }
 
 function digest(text: string): string {
@@ -60,7 +66,7 @@ test("full extracted Hub prompt preserves exact text, ordering, and ledger", () 
 	assert.match(built.systemPrompt, /correctness obligations are independent of tier/);
 	assert.deepEqual(built.ledger.map(entry => entry.id), [
 		"hub/policy/work-mode", "hub/policy/language", "hub/roster-header", "hub/roster/builder",
-		"hub/policy/dispatch", "hub/policy/triage", "hub/policy/verification", "hub/state",
+		"hub/policy/dispatch", "hub/policy/triage", "hub/policy/verification", "hub/policy/project", "hub/state",
 		"hub/research/recon", "hub/policy/coms", "hub/policy/workspace", "hub/policy/compaction",
 		"hub/separators-and-rules", ...ALL_PACKS.map(pack => `hub/capability/${pack}`),
 	]);
@@ -93,4 +99,45 @@ test("language and unavailable ask_user branch preserve exact prompt text", () =
 	assert.match(built.systemPrompt, /ask_user is NOT available/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);
+});
+
+test("configured policy renders index-first for root operator and orchestrator prompts", () => {
+	const project = createProjectPolicyFixture("hub-root-policy-");
+	try {
+		const configured = parseAgentTeamOverrides(project.cwd);
+		assert.equal(project.task.includes(FIXTURE_POLICY_MARKER), false, "fixture policy is absent from the user task");
+		const rulesProtocol = buildProjectRulesProtocol(configured.rulesDirs);
+		const docsProtocol = buildProjectDocsProtocol(["docs/README.md"]);
+		for (const active of [["core"], ALL_PACKS] as CapabilityPack[][]) {
+			const built = buildHubSystemPrompt(fixture({ active, rulesProtocol, docsProtocol }));
+			assert.match(built.systemPrompt, /## Project rules/);
+			assert.match(built.systemPrompt, /\.ai\/rules/);
+			assert.match(built.systemPrompt, /Read a listed file directly/);
+			assert.match(built.systemPrompt, /index-first/);
+			assert.match(built.systemPrompt, /README\.md or index\.md/);
+			assert.match(built.systemPrompt, /## Project docs[\s\S]*docs\/README\.md/);
+			assert.equal((built.systemPrompt.match(/## Project rules/g) ?? []).length, 1);
+			assert.equal((built.systemPrompt.match(/## Project docs/g) ?? []).length, 1);
+			assert.equal(built.ledger.find(entry => entry.id === "hub/policy/project")?.chars, rulesProtocol.length + docsProtocol.length);
+			assert.equal(built.ledger.reduce((sum, entry) => sum + entry.chars, 0), built.systemPrompt.length);
+			assert.doesNotMatch(built.systemPrompt, /reference-only|UNRELATED_ARCHIVE_SENTINEL/);
+		}
+	} finally { project.cleanup(); }
+});
+
+test("missing rules and docs paths warn and continue during session override application", () => {
+	const project = createProjectPolicyFixture("hub-missing-policy-");
+	try {
+		const notices: Array<{ message: string; level: string }> = [];
+		let rules: string[] = []; let docs: string[] = [];
+		const overrides = { ...DEFAULT_OVERRIDES, rulesDirs: ["missing-rules"], docsPaths: ["missing-docs"] };
+		assert.doesNotThrow(() => applySessionOverrides({ cwd: project.cwd, ui: { notify: (message: string, level: string) => notices.push({ message, level }) } } as any, overrides, {
+			setLanguage() {}, setReconTimeout() {}, setBudgetOverrides() {}, setWatchdog() {}, resetTurnCounts() {}, resetTaskWindow() {}, updateModeStatus() {},
+			setProjectRules: value => { rules = value; }, setProjectDocs: value => { docs = value; }, resetModelPolicy() {}, getAgentDefs: () => [],
+			getModelProfiles: () => ({}), deleteModelProfile() {}, allowedModels: () => [], getDispatchPolicyWarnings: () => [], setResearchPersonas() {},
+		}));
+		assert.deepEqual(rules, ["missing-rules"]); assert.deepEqual(docs, ["missing-docs"]);
+		assert.ok(notices.some(notice => notice.level === "warning" && notice.message.includes('rules folder "missing-rules" not found')));
+		assert.ok(notices.some(notice => notice.level === "warning" && notice.message.includes('docs entry point "missing-docs" not found')));
+	} finally { project.cleanup(); }
 });

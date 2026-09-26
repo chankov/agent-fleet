@@ -101,7 +101,9 @@ export interface ResearchRuntimeDeps<TDef extends ResearchAgentDef> extends Rese
 	guardrailEnv(agentId: string): Record<string, string>;
 	notifyProviderQueue(model: string, label: string, ctx: ExtensionContext): void;
 	spawnPiAgentWithModelFallback: typeof spawnPiAgentWithModelFallback;
-	nativeResearchSystemPrompt(input: { personaName?: string; personaPath?: string; cwd: string }): string;
+	getProjectPolicyPaths(cwd: string): string[];
+	getProjectDocsPaths(): string[];
+	nativeResearchSystemPrompt(input: { personaName?: string; personaPath?: string; cwd: string; rulesPaths?: readonly string[]; docsPaths?: readonly string[] }): string;
 	requireSafetyHarness(path: string | null): { ok: true; extensions: string[] } | { ok: false; error: string };
 	shortModel(model: string): string;
 	displayName(name: string): string;

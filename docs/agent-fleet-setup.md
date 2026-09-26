@@ -458,6 +458,7 @@ it here, and the reader picks it up.
   `.env`.
 - If the file is absent, or a reader has no section in it, that reader uses its
   built-in default.
+- **Settings writer:** ordinary `agent-fleet setup` leaves non-empty overrides byte-identical. To add rule/doc roots explicitly, preview with `agent-fleet configure --rules .ai/rules --docs docs --dry-run --workspace <project>`; review `before`, `after`, and `expectedHash`, then apply with the same roots, `--expect-hash <expectedHash> --yes`. Omit a key to leave it unchanged. The CLI appends/deduplicates roots, keeps other sections/settings and the legacy `agent-team` section, and refuses duplicate/conflicting sections or keys for manual resolution. A changed setting takes effect in a new session; missing roots remain advisory. The interactive path is `/af-setup-rules` (the `repository-ai-setup` skill: discovery → proposal → grilling → diff → apply → verify); it hands accepted roots to this same CLI and never edits the file directly.
 - **Validation.** Because an unknown section or key silently falls back to the
   default, typos are invisible at runtime. `agent-fleet doctor` (and the
   runtime's Agent Fleet doctor command) validates the file — unknown sections,

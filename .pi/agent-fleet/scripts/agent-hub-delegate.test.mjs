@@ -15,6 +15,7 @@ const event = e => process.stdout.write(JSON.stringify(e) + '\\n');
 const modelIndex = process.argv.indexOf('--model');
 const model = modelIndex >= 0 ? process.argv[modelIndex + 1] : '';
 if (process.env.FAKE_PI_ATTEMPTS) fs.appendFileSync(process.env.FAKE_PI_ATTEMPTS, model + '\\n');
+if (process.env.FAKE_PI_ARGS) fs.writeFileSync(process.env.FAKE_PI_ARGS, JSON.stringify(process.argv));
 if (mode === 'model-fallback' && model === 'fake/override') {
   event({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'override unavailable', usage: { input: 0, output: 0 } } });
 } else if (mode === 'model-fallback') {
@@ -82,6 +83,26 @@ test('nested delegate preserves off/null instead of restoring the watchdog defau
       assert.equal(result.details.status, 'done');
       assert.equal(result.details.termination, undefined);
       assert.match(result.content[0].text, /done/);
+    });
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('nested delegate handoff renders configured policy index-first exactly once', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'agent-hub-delegate-policy-'));
+  try {
+    createFakePi(tmp);
+    const argsPath = join(tmp, 'args.json');
+    await withEnv({ PATH: `${tmp}:${process.env.PATH ?? ''}`, FAKE_PI_MODE: 'finish', FAKE_PI_ARGS: argsPath }, async () => {
+      const tool = delegateTool(tmp, null, { projectPolicy: { rulesPaths: ['.ai/rules'], docsPaths: ['docs/README.md'] } });
+      const result = await tool.execute('call-policy', { role: 'recon', instruction: 'inspect' }, undefined, () => {});
+      assert.equal(result.details.status, 'done');
+      const args = JSON.parse(readFileSync(argsPath, 'utf8'));
+      const prompt = args.join('\n');
+      assert.match(prompt, /## Project rules[\s\S]*\.ai\/rules/);
+      assert.match(prompt, /Resolve them index-first/);
+      assert.match(prompt, /## Project docs[\s\S]*docs\/README\.md/);
+      assert.equal((prompt.match(/## Project rules/g) ?? []).length, 1);
+      assert.equal((prompt.match(/## Project docs/g) ?? []).length, 1);
     });
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });

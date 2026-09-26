@@ -3,6 +3,8 @@ import test from "node:test";
 import { linuxUserNamespaceSandboxAvailable } from "./write-isolation.ts";
 import { createDispatchComs, createDispatchNative, createDispatchObservability, type ComsDispatchState, type DelegationObservableState, type NativeDispatchState } from "./dispatch-core.ts";
 import { PROFILE_ENV } from "./policy/profile-runtime.ts";
+import { buildProjectDocsProtocol, buildProjectRulesProtocol } from "../lib/context-budget-child-prompt.ts";
+import { createProjectPolicyFixture, FIXTURE_POLICY_MARKER } from "../../../bin/test/helpers/project-policy-fixture.js";
 
 function comsDeps(overrides: Record<string, unknown> = {}) {
 	let pending: any;
@@ -54,6 +56,28 @@ test("coms dispatch preserves fallback refusal and successful reply mapping", as
 	assert.equal(state.comsPeerModel, "peer-model");
 	assert.equal(state.contextPct, 12);
 	assert.equal(deleted, true);
+});
+
+test("coms handoff carries the shared index-first project policy", async () => {
+	let prompt = ""; let pending: any;
+	const coms = createDispatchComs(comsDeps({
+		buildRulesProtocol: () => buildProjectRulesProtocol([".ai/rules"]),
+		buildDocsProtocol: () => buildProjectDocsProtocol(["docs/README.md"]),
+		send: async (input: any) => {
+			prompt = input.prompt;
+			pending = { promise: Promise.resolve({ response: "done" }), timer: null, resolve() {}, reject() {}, created_at: "now" };
+			return { msg_id: "policy", target: "builder", target_session: "peer", hops: 0, promise: pending.promise };
+		},
+		getPendingReply: () => pending,
+	}));
+	const state: ComsDispatchState = { def: { name: "builder" }, runCount: 1, contextPct: 0, lastWork: "" };
+	const result = await coms.dispatchViaComs(state, "inspect", "builder", 100, false, extensionContext, [], []);
+	assert.equal(result?.exitCode, 0);
+	assert.match(prompt, /## Project rules[\s\S]*\.ai\/rules/);
+	assert.match(prompt, /Resolve them index-first/);
+	assert.match(prompt, /## Project docs[\s\S]*docs\/README\.md/);
+	assert.equal((prompt.match(/## Project rules/g) ?? []).length, 1);
+	assert.equal((prompt.match(/## Project docs/g) ?? []).length, 1);
 });
 
 function nativeState(): NativeDispatchState {
@@ -175,6 +199,33 @@ test("native resume transport drops a four-file session for a one-file/new-task 
 	assert.deepEqual(launches.map(run => run.resume), [false, true, false]);
 	assert.match(launches[2].prompt, /edit a\.ts only/); assert.doesNotMatch(launches[2].systemPrompt, /edit four files/);
 	assert.deepEqual((state as any).resumeContract.scope, ["a.ts"]);
+});
+
+test("native dispatch hands the production child an index-first project policy prompt", async () => {
+	const project = createProjectPolicyFixture("native-policy-handoff-");
+	try {
+		const state = nativeState();
+		let systemPrompt = "";
+		const native = createDispatchNative(nativeDeps(state, {
+			getSessionDir: () => project.cwd,
+			specialistProjectPolicyPaths: () => project.rulesPaths,
+			getProjectDocsPaths: () => ["docs/README.md"],
+			spawnPiAgentWithModelFallback: async (opts: any) => {
+				systemPrompt = opts.systemPrompt;
+				return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: "provider/model" };
+			},
+		}));
+		assert.equal(project.task.includes(FIXTURE_POLICY_MARKER), false);
+		const result = await native.dispatchAgent("builder", project.task, { ...extensionContext, cwd: project.cwd } as any);
+		assert.equal(result.exitCode, 0);
+		assert.match(systemPrompt, /## Project rules[\s\S]*\.ai\/rules/);
+		assert.match(systemPrompt, /Resolve them index-first/);
+		assert.match(systemPrompt, /Only when a folder has no such index/);
+		assert.match(systemPrompt, /## Project docs[\s\S]*docs\/README\.md/);
+		assert.equal((systemPrompt.match(/## Project rules/g) ?? []).length, 1);
+		assert.equal((systemPrompt.match(/## Project docs/g) ?? []).length, 1);
+		assert.doesNotMatch(systemPrompt, /reference-only|UNRELATED_ARCHIVE_SENTINEL/);
+	} finally { project.cleanup(); }
 });
 
 test("T5 parent consumes bounded-output independently across all four profile flag combinations", async t => {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createResearchRuntime, parseResearchHandle, RESEARCH_TOOLS, type ResearchState } from "./runtime.ts";
 import { PROFILE_ENV } from "../policy/profile-runtime.ts";
+import { nativeResearchSystemPrompt } from "../../lib/context-budget-child-prompt.ts";
 
 const def = { name: "researcher", description: "Research", tools: "bash", systemPrompt: "prompt", file: "/agents/researcher.md", model: "provider/persona" };
 
@@ -28,6 +29,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
 		resolvedModel: (agent: typeof def) => agent.model, resolvedThinking: () => "off", resolveThinkingLevel: () => "off",
 		fallbackModelFor: () => undefined, substitutedModel: (model: string | undefined) => model,
 		modelWindowLookup: () => () => undefined, guardrailEnv: () => ({ SHARED: "yes" }), notifyProviderQueue() {},
+		getProjectPolicyPaths: () => [], getProjectDocsPaths: () => [],
 		nativeResearchSystemPrompt: () => "research policy", requireSafetyHarness: () => ({ ok: true, extensions: ["/safety.ts"] }),
 		shortModel: (model: string) => model.split("/").pop()!, displayName: (name: string) => name.toUpperCase(),
 		flushTimelineStore() {}, appendTimelineText: (state: any, kind: string, content: string) => state.timeline.push({ kind, title: kind, content, timestamp: 1 }),
@@ -105,6 +107,26 @@ test("spawn streams timeline and evicts the live helper without deleting session
 	assert.equal(existsSync(f.runtime.sessionPath(state.id)), true);
 	const next = f.runtime.createState(def, true, "provider/model");
 	assert.equal(next.id, 2);
+});
+
+test("research spawn hands configured policy to the production renderer", async () => {
+	let systemPrompt = "";
+	const f = fixture({
+		getProjectPolicyPaths: () => [".ai/rules"],
+		getProjectDocsPaths: () => ["docs/README.md"],
+		nativeResearchSystemPrompt,
+		spawnPiAgentWithModelFallback: async (input: any) => {
+			systemPrompt = input.systemPrompt;
+			return { output: "done", stderr: "", exitCode: 0 };
+		},
+	});
+	const state = f.runtime.createState(def, true, "provider/model");
+	await f.runtime.spawn(state, "inspect", ctx);
+	assert.match(systemPrompt, /## Project rules[\s\S]*\.ai\/rules/);
+	assert.match(systemPrompt, /Resolve them index-first/);
+	assert.match(systemPrompt, /## Project docs[\s\S]*docs\/README\.md/);
+	assert.equal((systemPrompt.match(/## Project rules/g) ?? []).length, 1);
+	assert.equal((systemPrompt.match(/## Project docs/g) ?? []).length, 1);
 });
 
 test("T5 explicit research persona caps are not widened by deterministic-tools", async t => {

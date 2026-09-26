@@ -33,6 +33,7 @@ import { envelopePrompt, parseWithCorrections, type EnvelopeName } from "./envel
 import { gateCorrectionPrompt, type Gate, type GateReport } from "./gates.ts";
 import { enforce, snapshot, type PermissionPolicy } from "./permissions.ts";
 import { resolvePhaseModel, resolvePhaseThinking, type PersonaDefinition } from "./personas.ts";
+import { resolveProjectPolicy } from "./project-policy.ts";
 import type { Run } from "./run.ts";
 
 export type SpawnAgent = SpawnFallback;
@@ -83,9 +84,10 @@ export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>):
 		alwaysWritable: [...(options.permissionPolicy?.alwaysWritable ?? []), options.run.trace.directory],
 	};
 	const spawnAgent = options.spawn ?? spawnPiAgentWithModelFallback;
+	const policy = resolveProjectPolicy(cwd, options);
 	const manifest = buildSpecialistContextManifest({
 		personaName: options.persona.name, personaPath: options.persona.file, personaPrompt: options.persona.systemPrompt,
-		task: options.task, rulesPaths: options.rulesPaths ?? [], docsPaths: options.docsPaths ?? [],
+		task: options.task, rulesPaths: policy.rulesPaths, docsPaths: policy.docsPaths,
 		hasAssertions: /\bA\d+\b/.test(options.task), hasScope: false, hasArtifacts: false, delegateRoles: [],
 	});
 
