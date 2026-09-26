@@ -48,10 +48,15 @@ so an unconfigured session is a no-op. `/af-stt doctor`
 checks the setup. A simplified port of [`cgarrot/pi-voice-stt`](https://github.com/cgarrot/pi-voice-stt);
 see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).
 
-> **macOS terminal note:** Option-to-Alt behavior belongs to the outer terminal, not macOS or Pi.
-> If an Option shortcut inserts a composed character such as `ß`, configure the terminal to send
-> Option as Meta. In Zed, set `terminal.option_as_meta` to `true`. This enables the existing Alt
-> shortcuts; it is not an OS-wide keybinding change.
+> **macOS terminal note:** Option-to-Alt behavior belongs to the outer terminal, not macOS, Pi, or
+> Herdr. If Option+M inserts `µ` (or another shortcut inserts a character) instead of activating the
+> shortcut, the terminal is sending the keyboard-layout character rather than a Meta/Alt key event.
+> In Terminal.app, open **Settings → Profiles → Keyboard** for the profile used by the window and
+> enable **Use Option as Meta key**. In Zed, set `terminal.option_as_meta` to `true`. Then verify
+> Option+M opens the Fleet work-mode picker; the terminal should send Meta/Alt chords as an Escape
+> prefix (for example, ESC followed by `m`). This enables the existing shortcuts; it is not an
+> OS-wide keybinding change. Command+M is separate: Terminal.app handles it as **Minimize**, so it
+> does not reach Pi or Herdr as a Fleet shortcut.
 
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some set orchestration/UI surfaces and some gate every

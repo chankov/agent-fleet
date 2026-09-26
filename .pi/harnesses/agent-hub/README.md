@@ -445,8 +445,11 @@ The coms pool panel remains at the **bottom of the Fleet Dashboard**.
 Press **`Alt+M`** or run **`/af-work-mode`** to open the work mode picker:
 **operator** (direct tools) or **orchestrator** (delegate-only). Arrow keys move, Enter applies,
 and Esc cancels with no change. Switching to Orchestrator with no agents auto-loads the first valid
-configured team. On macOS, the outer
-terminal must send Option as Meta or Alt+M will not reach the Hub.
+configured team. On macOS, the outer terminal must send Option as Meta or Alt+M will not reach
+the Hub. In Terminal.app, enable **Use Option as Meta key** under **Settings → Profiles → Keyboard**
+for the profile used by the window. If Option+M inserts `µ`, this setting is not enabled. `Command+M`
+is Terminal.app's Minimize shortcut, not a Fleet shortcut. For details, see the
+[macOS terminal note](../../../docs/pi-extensions.md).
 
 ### Fleet Dashboard and detail
 

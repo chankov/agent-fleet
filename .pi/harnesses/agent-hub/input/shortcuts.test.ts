@@ -33,5 +33,9 @@ test("registered Alt+I/M/A dispatch exactly once through the composed editor hos
 	assert.deepEqual([...shortcuts.keys()], ["alt+a", "alt+m", "alt+i"]);
 	for (const input of ["\x1bm", "\x1ba", "\x1bi", "\x1bm", "\x1ba", "\x1bi"]) editor.handleInput(input);
 	assert.deepEqual(opened, { mode: 2, dashboard: 2, toggle: 2, context: 6 });
+	// If macOS Terminal sends Option+M as its layout character (µ) instead of ESC+m,
+	// it is text input, not an Alt shortcut; do not steal legitimate Unicode input.
+	editor.handleInput("µ");
+	assert.deepEqual(opened, { mode: 2, dashboard: 2, toggle: 2, context: 6 });
 	installation.dispose();
 });

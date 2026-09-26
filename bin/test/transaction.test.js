@@ -1,6 +1,6 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,18 @@ import { buildReconcilePlan } from "../lib/reconcile.js";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const manifest = loadManifest(repoRoot);
 
+const allocatedDirectories = [];
+function temporaryDirectory(t, prefix) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  // Cleanup is registered before file writes, setup or assertions can fail.
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  allocatedDirectories.push(dir);
+  return dir;
+}
+after(() => {
+  for (const dir of allocatedDirectories) assert.equal(existsSync(dir), false, `Leaked test directory: ${dir}`);
+});
+
 function write(root, rel, text) {
   const path = join(root, rel);
   mkdirSync(dirname(path), { recursive: true });
@@ -21,16 +33,16 @@ function write(root, rel, text) {
   return path;
 }
 
-test("transaction interruption restores the exact pre-commit tree", () => {
-  const workspace = mkdtempSync(join(tmpdir(), "af-tx-"));
+test("transaction interruption restores the exact pre-commit tree", t => {
+  const workspace = temporaryDirectory(t, "af-tx-");
   writeFileSync(join(workspace, "before.txt"), "before");
   assert.throws(() => runTransaction({ workspace, plan: { workspace, actions: [{ files: [{ path: "before.txt" }] }] }, failAt: "after-commit", commit: () => writeFileSync(join(workspace, "before.txt"), "after") }), /injected/);
   assert.equal(readFileSync(join(workspace, "before.txt"), "utf8"), "before");
   assert.equal(existsSync(join(workspace, JOURNAL_REL_PATH)), false);
 });
 
-test("transaction backup and rollback never touch foreign, .git, or concurrent paths", () => {
-  const workspace = mkdtempSync(join(tmpdir(), "af-tx-owned-"));
+test("transaction backup and rollback never touch foreign, .git, or concurrent paths", t => {
+  const workspace = temporaryDirectory(t, "af-tx-owned-");
   write(workspace, ".pi/skills/owned/SKILL.md", "before");
   write(workspace, ".git/config", "foreign git");
   write(workspace, "foreign.txt", "foreign");
@@ -48,8 +60,8 @@ test("transaction backup and rollback never touch foreign, .git, or concurrent p
   assert.equal(readFileSync(join(workspace, "concurrent.txt"), "utf8"), "created while committing");
 });
 
-test("recovery journal is written with fsync before commit", () => {
-  const workspace = mkdtempSync(join(tmpdir(), "af-tx-fsync-"));
+test("recovery journal is written with fsync before commit", t => {
+  const workspace = temporaryDirectory(t, "af-tx-fsync-");
   write(workspace, "owned.txt", "before");
   let sawJournalBeforeCommit = false;
   runTransaction({
@@ -72,14 +84,14 @@ test("recovery journal is written with fsync before commit", () => {
   assert.equal(readFileSync(join(workspace, "owned.txt"), "utf8"), "after");
 });
 
-test("validation failure creates no journal", () => {
-  const workspace = mkdtempSync(join(tmpdir(), "af-tx-"));
+test("validation failure creates no journal", t => {
+  const workspace = temporaryDirectory(t, "af-tx-");
   assert.throws(() => runTransaction({ workspace, validate: () => { throw new Error("bad snapshot"); }, commit: () => {} }), /bad snapshot/);
   assert.equal(existsSync(join(workspace, JOURNAL_REL_PATH)), false);
 });
 
-test("rejected migration fails before journaling with no workspace write", () => {
-  const workspace = mkdtempSync(join(tmpdir(), "af-tx-mig-"));
+test("rejected migration fails before journaling with no workspace write", t => {
+  const workspace = temporaryDirectory(t, "af-tx-mig-");
   const state = emptyState({
     agent: "pi", method: "copy", packageVersion: "0.0.10", sourceRoot: repoRoot,
   });
@@ -98,9 +110,9 @@ test("rejected migration fails before journaling with no workspace write", () =>
   assert.equal(existsSync(join(workspace, ".ai", "agent-fleet.json")), false);
 });
 
-test("unsupported snapshot metadata fails before journaling with no workspace write", () => {
-  const sourceRoot = mkdtempSync(join(tmpdir(), "af-tx-snap-"));
-  const workspace = mkdtempSync(join(tmpdir(), "af-tx-ws-"));
+test("unsupported snapshot metadata fails before journaling with no workspace write", t => {
+  const sourceRoot = temporaryDirectory(t, "af-tx-snap-");
+  const workspace = temporaryDirectory(t, "af-tx-ws-");
   write(sourceRoot, "skills/alpha/SKILL.md", "alpha v2\n");
   write(sourceRoot, ".versions/1.0.0/skills/alpha/SKILL.md", "alpha v1\n");
   write(sourceRoot, ".versions/1.0.0/install-manifest.json", JSON.stringify({
@@ -139,9 +151,9 @@ test("unsupported snapshot metadata fails before journaling with no workspace wr
   assert.equal(readFileSync(join(workspace, ".pi/skills/alpha/SKILL.md"), "utf8"), before);
 });
 
-test("desired and applied state commit in the same transaction", () => {
-  const sourceRoot = mkdtempSync(join(tmpdir(), "af-tx-des-src-"));
-  const workspace = mkdtempSync(join(tmpdir(), "af-tx-des-ws-"));
+test("desired and applied state commit in the same transaction", t => {
+  const sourceRoot = temporaryDirectory(t, "af-tx-des-src-");
+  const workspace = temporaryDirectory(t, "af-tx-des-ws-");
   write(sourceRoot, "skills/alpha/SKILL.md", "alpha\n");
   const mini = {
     schemaVersion: 2,
