@@ -144,13 +144,18 @@ for (const kind of ["dispatch", "research"] as const) test(`${kind}: cancellatio
  assert.equal(calls, 2);
 });
 
-test("result-enriched execution conditions do not fabricate relevant changes", async () => {
+test("result-enriched execution conditions do not fabricate relevant changes", async t => {
+ // Use a private worktree: other test files can change the checkout while
+ // Node runs them concurrently, which is genuine progress to this guard.
+ const cwd = mkdtempSync(join(tmpdir(), "result-enriched-progress-"));
+ t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ execFileSync("git", ["init", "-q", cwd]);
  let calls = 0;
  const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
  const run = withNoProgress(d, "dispatch", async () => ({ content: [], details: { status: "verification_failed", exitCode: 0, dispatchId: `v-${++calls}` } }), (_p, _c, result) => ({ model: result ? "actual/model" : "configured/model", backend: result ? "native" : "auto" }));
  const params = { agent: "builder", task: "work" };
- await run("1", params, undefined, undefined, {} as any);
- const result = await run("2", params, undefined, undefined, {} as any);
+ await run("1", params, undefined, undefined, { cwd } as any);
+ const result = await run("2", params, undefined, undefined, { cwd } as any);
  assert.equal((result.details as any).status, "no_progress_refused"); assert.equal(calls, 1);
 });
 

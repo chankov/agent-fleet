@@ -18,6 +18,7 @@ try {
     ".pi/harnesses/agent-hub/proactive-snapshot.test.ts",
     ".pi/harnesses/agent-hub/proactive-feedback.test.ts",
     ".pi/harnesses/agent-hub/system1-report.test.ts",
+    ".pi/harnesses/agent-hub/no-progress.test.ts",
   ], { cwd: root, env: { ...process.env, TMPDIR: temp, TMP: temp, TEMP: temp }, stdio: "inherit" });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
