@@ -1,0 +1,226 @@
+import { profileForcesNativePeers, profilePeerGate, readActiveProfile, type ActiveModelProfile } from './policy/profile-runtime.ts';
+import { resolveAssist, type ResolvedAssistFlags } from "./assist-profile.ts";
+import { randomUUID } from "node:crypto";
+import { beginExecutionEvidence, finishExecutionEvidence } from "./execution-evidence.ts";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { TIMEOUT_MS } from "../lib/coms-core.ts";
+import { comsRequiredRefusal, explicitComsRefusal, resolveDispatchBackend } from "./backend-policy.js";
+import { monitorKeyForAgent } from "./monitor-control.ts";
+import { normalizeAgentInput, safeAgentKey, safePathWithin } from "./helpers.ts";
+import { prepareNativeRun } from "./dispatch-native-prepare.ts";
+import { runPreparedNative } from "./dispatch-native-spawn.ts";
+import { completeNativeRun } from "./dispatch-native-complete.ts";
+import type { TaskResumeInput } from "./task-resume-contract.ts";
+import type {
+	DispatchInputArtifactPreview,
+	NativeBackend,
+	NativeDispatchDeps,
+	NativeDispatchResult,
+	NativeDispatchState,
+	NativeRunBase,
+} from "./dispatch-native-types.ts";
+
+interface NativeDispatchArgs {
+	agentName: string;
+	task: string;
+	ctx: ExtensionContext;
+	inputArtifacts: DispatchInputArtifactPreview[];
+	scopeGlobs: string[];
+	watchdogParam?: boolean;
+	requestedBackend: NativeBackend;
+	resumeRequested: boolean;
+	resumeContract?: Omit<TaskResumeInput, "previous">;
+	assistSnapshot: ResolvedAssistFlags;
+	activeProfileSnapshot?: ActiveModelProfile;
+}
+
+function missingOrRunning(deps: NativeDispatchDeps, agentName: string): NativeDispatchResult | NativeDispatchState {
+	const state = deps.getAgentState(normalizeAgentInput(agentName));
+	if (!state) {
+		return {
+			output: `Agent "${agentName}" not found. Available: ${deps.listAgentStates().map(item => deps.displayName(item.def.name)).join(", ")}`,
+			exitCode: 1,
+			elapsed: 0,
+		};
+	}
+	if (state.status === "running") {
+		return {
+			output: `Busy refusal: agent "${deps.displayName(state.def.name)}" is already running. Nothing was started, queued, retried, or charged; re-invoke explicitly after it is idle.`,
+			exitCode: 1,
+			elapsed: 0,
+		};
+	}
+	return state;
+}
+
+function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, args: NativeDispatchArgs): NativeRunBase {
+	const { task, ctx, inputArtifacts, scopeGlobs, watchdogParam } = args;
+	const dispatchId = randomUUID();
+	const sessionDir = deps.getSessionDir();
+	const evidenceDir = beginExecutionEvidence(sessionDir, dispatchId, { agent: state.def.name, task, scope: scopeGlobs, backendRequested: args.requestedBackend }, inputArtifacts);
+	state.status = "running";
+	state.task = task;
+	state.toolCount = 0;
+	state.messageCount = 0;
+	state.elapsed = 0;
+	state.lastWork = "";
+	state.lastBackend = undefined;
+	state.comsPeerModel = undefined;
+	state.runCount++;
+	state.killedByOperator = false;
+	state.restarting = false;
+	deps.flushTimelineStore(state);
+	state.timeline = [];
+	state.dispatchId = dispatchId;
+	const transcriptPath = safePathWithin(sessionDir, "transcripts", `${safeAgentKey(state.def.name)}-${dispatchId}.jsonl`);
+	state.transcriptStore = deps.createTranscriptStore(transcriptPath);
+	state.delegationsWatcher?.close();
+	state.delegationsWatcher = undefined;
+	state.delegations = undefined;
+	deps.updateWidget();
+
+	const histEntry = deps.executionHistory.start("agent", deps.displayName(state.def.name));
+	state.histEntry = histEntry;
+	const agentKey = safeAgentKey(state.def.name);
+	const runNumber = state.runCount;
+	const monitorKey = monitorKeyForAgent(state.def.name, dispatchId);
+	const monitorStart = deps.startMonitorChild({
+		key: monitorKey,
+		id: `run-${dispatchId}`,
+		generation: 1,
+		specialist: agentKey,
+	}, process.env);
+	const startTime = Date.now();
+	state.timer = setInterval(() => {
+		state.elapsed = Date.now() - startTime;
+		deps.updateWidget();
+	}, 1000);
+
+	const finishRun = async (output: string, exitCode: number, options?: { idle?: boolean; pending?: boolean; notice?: string }): Promise<NativeDispatchResult> => {
+		await monitorStart?.then(task => deps.finalizeMonitorChild(
+			task,
+			output,
+			options?.pending ? "blocked" : exitCode === 0 ? "completed" : "failed",
+		));
+		clearInterval(state.timer);
+		state.elapsed = Date.now() - startTime;
+		state.status = options?.idle ? "idle" : exitCode === 0 ? "done" : "error";
+		state.lastWork = output.split("\n").filter(line => line.trim()).pop() || "";
+		if (output.trim()) deps.appendTimelineText(state, "text", output);
+		deps.updateWidget();
+		state.zoomRender?.(true);
+		deps.executionHistory.end(histEntry, state.status);
+		if (options?.notice) ctx.ui.notify(options.notice, state.status === "done" || state.status === "idle" ? "info" : "error");
+		const onTerminate = state.onTerminate;
+		state.onTerminate = undefined;
+		onTerminate?.();
+		return { dispatchId, transcriptPath, output, exitCode, elapsed: state.elapsed, ...(options?.pending ? { pending: true } : {}) };
+	};
+
+	return {
+		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, watchdogParam,
+		key: normalizeAgentInput(args.agentName),
+		personaKey: state.def.name.toLowerCase(),
+		agentKey, runNumber, histEntry, monitorKey, monitorStart, startTime,
+		assistSnapshot: args.assistSnapshot,
+		activeProfileSnapshot: args.activeProfileSnapshot,
+		finishRun,
+	};
+}
+
+async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend): Promise<NativeDispatchResult | null> {
+	const { deps, state, task, ctx, inputArtifacts, scopeGlobs, personaKey, monitorKey, startTime, histEntry } = run;
+	const livePeerNames = () => deps.isComsReady() && deps.getIdentity() ? deps.peersInScope().map(entry => entry.name) : [];
+	const isolationRequired = run.assistSnapshot['write-isolation'];
+	const forceNative = isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
+	if (isolationRequired && requestedBackend === "coms") return run.finishRun("Write isolation is native-only; coms dispatch refused because remote isolation cannot be claimed.", 1);
+	if (forceNative && requestedBackend === 'coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.', 1);
+	const dispatchPolicy = forceNative ? { default: 'native', grace_s: 0, substitutions: {} } : deps.getDispatchPolicy();
+	let route: any = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames(), requestedBackend });
+	if (route.backend === "invalid") return run.finishRun(`Invalid dispatch backend "${route.requestedBackend}". Expected auto|native|coms.`, 1);
+	if (route.backend === "coms-unavailable") return run.finishRun(explicitComsRefusal(deps.displayName(state.def.name)), 1);
+	if (route.backend === "await-coms") {
+		const graceS = route.grace_s;
+		const deadline = Date.now() + graceS * 1000;
+		state.lastWork = `waiting for coms peer (≤${graceS}s)...`;
+		deps.updateWidget();
+		while (Date.now() < deadline && route.backend !== "coms") {
+			await new Promise(resolve => setTimeout(resolve, 1000));
+			route = resolveDispatchBackend({ agentName: state.def.name, policy: dispatchPolicy, livePeerNames: livePeerNames(), requestedBackend });
+		}
+		if (route.backend !== "coms") return run.finishRun(comsRequiredRefusal(deps.displayName(state.def.name), graceS), 1);
+	}
+	if (route.backend === "native" && route.comsMissedNotice && !deps.wasComsMissNotified(personaKey)) {
+		deps.markComsMissNotified(personaKey);
+		ctx.ui.notify(route.comsMissedNotice, "warning");
+	}
+	if (route.backend === "coms") {
+		const peer = deps.peersInScope().find(entry => entry.name.toLowerCase() === String(route.peerName).toLowerCase());
+		const profileRefusal = run.activeProfileSnapshot ? profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, run.activeProfileSnapshot) : null;
+		if (profileRefusal) {
+			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			if (!allowNativeFallback) return run.finishRun(profileRefusal.content[0].text, 1);
+			if (!deps.wasComsMissNotified(personaKey)) {
+				deps.markComsMissNotified(personaKey);
+				ctx.ui.notify(profileRefusal.content[0].text, "warning");
+			}
+		} else {
+			void deps.registerMonitorWaitOnly(monitorKey, state);
+			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
+			const comsResult = await deps.dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
+			if (comsResult) {
+				histEntry.name = `${deps.displayName(state.def.name)} (coms)`;
+				return run.finishRun(comsResult.output, comsResult.exitCode, {
+					idle: comsResult.abandoned || comsResult.pending,
+					pending: comsResult.pending,
+					notice: comsResult.abandoned
+						? `${deps.displayName(state.def.name)} coms dispatch abandoned (the peer pane keeps running)`
+						: comsResult.pending
+							? `${deps.displayName(state.def.name)} coms dispatch is pending (the peer pane keeps running)`
+							: `${deps.displayName(state.def.name)} ${comsResult.exitCode === 0 ? "done" : "error"} in ${Math.round((Date.now() - startTime) / 1000)}s (coms peer)`,
+				});
+			}
+		}
+	}
+	state.lastBackend = "native";
+	state.comsPeerModel = undefined;
+	return null;
+}
+
+async function dispatchNative(deps: NativeDispatchDeps, args: Omit<NativeDispatchArgs, "assistSnapshot" | "activeProfileSnapshot">): Promise<NativeDispatchResult> {
+	const activeProfileSnapshot = readActiveProfile();
+	const effectiveArgs: NativeDispatchArgs = { ...args, activeProfileSnapshot, assistSnapshot: resolveAssist(activeProfileSnapshot?.profile.assist) };
+	const found = missingOrRunning(deps, args.agentName);
+	if (!("def" in found)) return found;
+	const run = beginNativeRun(deps, found, effectiveArgs);
+	const execute = async () => {
+		const routed = await routeDispatch(run, args.requestedBackend);
+		if (routed) return routed;
+		const prepared = await prepareNativeRun(run, args.resumeRequested, args.resumeContract);
+		if ("output" in prepared) return prepared;
+		const outcome = await runPreparedNative(prepared);
+		return { ...await completeNativeRun(prepared, outcome), sessionPath: prepared.agentSessionFile };
+	};
+	let result: NativeDispatchResult;
+	try { result = await execute(); }
+	catch (error) { result = await run.finishRun(`Dispatch exception: ${error instanceof Error ? error.stack : String(error)}`, 1); }
+	deps.flushTimelineStore(run.state);
+	return finishExecutionEvidence(run.evidenceDir, result);
+}
+
+export function createDispatchNative(deps: NativeDispatchDeps) {
+	return {
+		dispatchAgent: (
+			agentName: string,
+			task: string,
+			ctx: ExtensionContext,
+			inputArtifacts: DispatchInputArtifactPreview[] = [],
+			scopeGlobs: string[] = [],
+			watchdogParam?: boolean,
+			requestedBackend: NativeBackend = "auto",
+			resumeRequested = false,
+			resumeContract?: Omit<TaskResumeInput, "previous">,
+		) => dispatchNative(deps, { agentName, task, ctx, inputArtifacts, scopeGlobs, watchdogParam, requestedBackend, resumeRequested, resumeContract }),
+	};
+}

@@ -1,5 +1,11 @@
 # Agent Fleet changelog
 
+## 2.0.14
+
+### Patch Changes
+
+- f4dcbde: Add opt-in System 1 dispatch triage guidance and the Fleet Dashboard thinking-level shortcuts. Update the Hub schema-size regression to account for the new triage trace fields so release validation passes on Linux and macOS.
+
 ## 2.0.13
 
 ### Patch Changes
