@@ -18,7 +18,7 @@ test("dashboard has fixed height with hierarchy, columns, bars, and aggregates",
 test("dashboard footer lists supported bindings without continue", () => {
 	const footer = renderFleetDashboard(vm([row("root")]), 200, 3, theme, metrics).at(-1)!;
 	assert.doesNotMatch(footer, /c continue/);
-	assert.equal(footer, "↑↓ select · Enter open · h history · m substitute · x kill · r restart · f filter · a all · q close");
+	assert.equal(footer, "↑↓ select · ←→ thinking · Enter open · h history · m substitute · x kill · r restart · f filter · a all · q close");
 });
 
 test("dashboard pins coms lines below chrome", () => {

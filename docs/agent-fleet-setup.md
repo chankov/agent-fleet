@@ -906,3 +906,12 @@ explicit opt-in. The orchestrator may call `dispatch_triage` when its separate
 human-owned configuration permits it. Both remain off by default; installation
 does not authorize live requests or calibrate the policy. See the
 [configuration, keys, privacy and evaluation guide](system1-dispatch-triage.md).
+
+### Fleet Dashboard thinking shortcut
+
+In the Fleet Dashboard (**Alt+A**), select a native specialist or research persona
+with **↑/↓**, then use **←/→** to decrease/increase its thinking level
+(`off`, `minimal`, `low`, `medium`, `high`, `xhigh`). The arrows stop at either end.
+Changes are session-only and apply on the next dispatch or `spawn_research`,
+not to an already-running request. External coms peers, delegates and anonymous
+research helpers do not support this shortcut.

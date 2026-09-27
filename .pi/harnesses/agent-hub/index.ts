@@ -1834,6 +1834,7 @@ export default function (pi: ExtensionAPI) {
 	let fleetShowFinished = false;
 	let fleetFilter = "";
 	const fleetDashboard = createFleetDashboard<AgentDef, AgentState, ResearchState>({
+		onThinkingChanged: updateWidget,
   openSystem1: ctx => openSystem1Communication(ctx, communicationStore),
 		getFleetRows: (now, unfiltered) => fleetSource.rows(now, unfiltered ? { showFinished: true } : { showFinished: fleetShowFinished, query: fleetFilter }),
 		getProactive: () => fleetSource.snapshot(Date.now()).proactive,

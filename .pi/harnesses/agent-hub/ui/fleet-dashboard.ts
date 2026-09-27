@@ -15,6 +15,8 @@ import { modelPickerTransition, renderFleetSubstitutionPicker, type FleetModelCh
 import { FULLSCREEN_OVERLAY, bodyRows, clampScroll, fitToHeight } from "../../lib/fleet-overlay.ts";
 import { createPanelResources } from "../../lib/fleet-panel.ts";
 import { reconcileSelection, type Selection } from "../../lib/fleet-selection.ts";
+import { THINKING_LEVELS } from "../config/overrides.ts";
+import { resolveThinkingLevel } from "../presentation.ts";
 import type { HistoryEntry } from "./history-store.ts";
 
 export interface DashboardAgentState<TDef extends DetailAgentDef> extends DetailAgentState {
@@ -37,6 +39,7 @@ export interface DashboardAgentState<TDef extends DetailAgentDef> extends Detail
 
 export interface FleetDashboardDeps<TDef extends DetailAgentDef, TAgent extends DashboardAgentState<TDef>, TResearch extends ResearchState<TDef>> {
 	getAgents(): ReadonlyMap<string, TAgent>;
+	onThinkingChanged(): void;
  openSystem1?(ctx: DetailUiContext): Promise<void>;
 	getResearch(): ReadonlyMap<number, TResearch>;
 	getShowFinished(): boolean;
@@ -80,6 +83,24 @@ export function createFleetDashboard<TDef extends DetailAgentDef, TAgent extends
 		return deps.modelPolicy.allKnownModels().map(spec => { const target = deps.modelPolicy.getSubstitution(spec); return { spec, label: target ? `${spec} → ${target} (active this session)` : spec }; });
 	}
 
+	function changeThinking(row: FleetRow | undefined, direction: -1 | 1, ctx: DetailUiContext): void {
+		if (!row) return;
+		const researchId = row.kind === "research" ? deps.parseResearchHandle(row.key) : null;
+		const research = researchId == null ? undefined : deps.getResearch().get(researchId);
+		const def = row.kind === "specialist" ? deps.getAgents().get(row.key)?.def : research?.persona ? research.def : undefined;
+		if (!def || row.backend === "coms") {
+			ctx.ui.notify("Thinking can only be changed for native specialist or research personas.", "warning");
+			return;
+		}
+		const current = resolveThinkingLevel(deps.resolvedThinking(def));
+		const index = THINKING_LEVELS.findIndex(level => level === current);
+		const picked = THINKING_LEVELS[Math.max(0, Math.min(THINKING_LEVELS.length - 1, index + direction))];
+		if (picked === current) return;
+		deps.modelPolicy.setThinkingOverride(def.name, picked);
+		deps.onThinkingChanged();
+		ctx.ui.notify(`${deps.displayName(def.name)} thinking → ${picked} (session only; applies on next ${row.kind === "research" ? "spawn_research" : "dispatch"})`, "info");
+	}
+
 	async function restartRow(selected: FleetRow, ctx: DetailUiContext): Promise<void> {
 		if (deps.modelWorkBlocked(ctx)) return;
 		await deps.actions.execute("restart", selected.key, selected.runToken, ctx);
@@ -97,7 +118,7 @@ export function createFleetDashboard<TDef extends DetailAgentDef, TAgent extends
 			return { render: (w: number) => { const now = Date.now(), rows = fleetRows(false, now); reconcileSelection(selection, rows); const comsLines = deps.getComsLines(w, theme); const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS + comsLines.length); if (evidence !== undefined) return fitToHeight(evidenceLines(evidence, w, body, evidenceOffset, evidenceFinding), body + FLEET_CHROME_ROWS + comsLines.length);
 				if (picker) return renderFleetSubstitutionPicker(picker.stage, picker.source, picker.choices, picker, w, body, theme);
 				if (reviewHistory) { const entries = history(), selected = entries[Math.min(historyIndex, entries.length - 1)]; const heading = selected ? `${safeTerminalText(selected.owner.owner)} · ${safeTerminalText(selected.owner.attempt)} · review ${historyIndex + 1}/${entries.length}` : "Review history unavailable"; const chosen = selected?.review.findings[findingIndex]; const lines = selected ? proactiveReviewLines({ ...selected.review, findings: chosen ? [chosen] : [] }, w) : []; const visible = [heading, ...lines.slice(historyOffset, historyOffset + Math.max(0, body - 2)), `↑↓ review · PgUp/PgDn/Home/End scroll · n finding ${chosen ? findingIndex + 1 : 0}/${selected?.review.findings.length ?? 0} · e evidence · Esc back`]; return fitToHeight(visible.map(line => truncateToWidth(line, w)), body + FLEET_CHROME_ROWS + comsLines.length); }
-				scrollOffset = clampScroll(scrollOffset, rows.length, body); const summary = summarise(rows); const lines = renderFleetDashboard({ rows, selection, scrollOffset, filterQuery: deps.getFilter(), showFinished: deps.getShowFinished(), confirmation: confirm && confirm.until > now ? `press ${confirm.action === "kill" ? "x" : "r"} again to ${confirm.action} ${rows.find(row => row.key === confirm!.key && row.runToken === confirm!.runToken)?.name ?? "agent"}` : undefined, summary: { ...summary, wallMs: unionMs(summary.intervals) }, proactive: deps.getProactive?.(), comsLines }, w, body, theme, { visibleWidth, truncateToWidth }); if (deps.getProactive?.()?.owners.some(owner => owner.history.length)) lines[body + 3] = truncateToWidth(" 1 System 1 communication · p reviews · h history · Enter detail · Esc close", w); if (deps.openSystem1 && !deps.getProactive?.()?.owners.some(owner => owner.history.length)) lines[body + 3] = truncateToWidth(" 1 System 1 communication · h history · Enter detail · Esc close", w); return lines; },
+				scrollOffset = clampScroll(scrollOffset, rows.length, body); const summary = summarise(rows); const lines = renderFleetDashboard({ rows, selection, scrollOffset, filterQuery: deps.getFilter(), showFinished: deps.getShowFinished(), confirmation: confirm && confirm.until > now ? `press ${confirm.action === "kill" ? "x" : "r"} again to ${confirm.action} ${rows.find(row => row.key === confirm!.key && row.runToken === confirm!.runToken)?.name ?? "agent"}` : undefined, summary: { ...summary, wallMs: unionMs(summary.intervals) }, proactive: deps.getProactive?.(), comsLines }, w, body, theme, { visibleWidth, truncateToWidth }); if (deps.getProactive?.()?.owners.some(owner => owner.history.length)) lines[body + 3] = truncateToWidth(" ←→ thinking · 1 System 1 communication · p reviews · h history · Enter detail · Esc close", w); if (deps.openSystem1 && !deps.getProactive?.()?.owners.some(owner => owner.history.length)) lines[body + 3] = truncateToWidth(" ←→ thinking · 1 System 1 communication · h history · Enter detail · Esc close", w); return lines; },
 				handleInput: async (data: string) => { const now = Date.now(), rows = fleetRows(false, now); reconcileSelection(selection, rows); const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS + deps.getComsLines(tui.terminal?.columns ?? 80, theme).length), input = toInput(data);
 					if (evidence !== undefined) { if (input === "\u001b" || input === "q") { evidence = undefined; evidenceFinding = undefined; } else evidenceOffset = evidenceScroll(input, evidenceOffset, proactiveEvidenceContent(evidence, evidenceFinding, tui.terminal?.columns ?? 80).length, body); tui.requestRender(); return; }
 					if (reviewHistory) {
@@ -116,6 +137,11 @@ export function createFleetDashboard<TDef extends DetailAgentDef, TAgent extends
 					if (input === "1" && !filtering && !picker && deps.openSystem1) { confirm = null; await deps.openSystem1(ctx); tui.requestRender(); return; }
 					if (input === "p" && !filtering && !picker) { reviewHistory = true; historyIndex = Math.max(0, history().length - 1); findingIndex = 0; tui.requestRender(); return; }
 					if (picker) { const action = modelPickerTransition(input, picker, picker.choices.length, body); if (action === "cancel") { if (picker.stage === "target") { const source = picker.source, choices = substitutionSourceChoices(), index = Math.max(0, choices.findIndex(choice => choice.spec === source)); picker = { stage: "source", choices, index, scrollOffset: index }; } else picker = null; } else if (action === "select") { const picked = picker.choices[picker.index]?.spec; if (picked && picker.stage === "source") { const targets = await deps.loadAvailableModels(ctx, deps.modelPolicy.getSubstitution(picked)); if (targets) { const current = deps.modelPolicy.getSubstitution(picked), index = Math.max(0, targets.findIndex(choice => choice.spec === current)); picker = { stage: "target", source: picked, choices: targets, index, scrollOffset: index }; } } else if (picked && picker.source) { await deps.modelPolicy.applySessionSubstitution(picker.source, picked, { loadAvailable: current => deps.loadAvailableModels(ctx, current), notify: (message, level) => ctx.ui.notify(message, level === "success" ? "info" : level) }); picker = null; } } tui.requestRender(); return; }
+					if (!filtering && (matchesKey(data, Key.left) || matchesKey(data, Key.right))) {
+						confirm = null;
+						changeThinking(rows[selection.index], matchesKey(data, Key.left) ? -1 : 1, ctx);
+						tui.requestRender(); return;
+					}
 					const state = { selection, scrollOffset, filtering, filterQuery: deps.getFilter(), showFinished: deps.getShowFinished(), confirm }, intent = dashboardTransition(input, state, rows, body, now); ({ scrollOffset, filtering, confirm } = state); deps.setFilter(state.filterQuery); deps.setShowFinished(state.showFinished);
 					if (intent === "close") done(); else if (intent === "history") { confirm = null; await deps.openHistory(ctx); } else if (intent === "substitute") { confirm = null; const choices = substitutionSourceChoices(); if (!choices.length) ctx.ui.notify("No configured persona or sub-role models are available as substitution sources.", "warning"); else picker = { stage: "source", choices, index: 0, scrollOffset: 0 }; } else if (intent && typeof intent === "object" && "open" in intent) { const selected = rows.find(row => row.key === intent.open); confirm = null; if (selected) detailVerbose = await deps.actions.open(selected.key, selected.runToken, ctx, detailVerbose); } else if (intent && typeof intent === "object" && "kill" in intent) { const selected = rows.find(row => row.key === intent.kill); if (selected) await deps.actions.execute("kill", selected.key, selected.runToken, ctx); else ctx.ui.notify("Selected fleet row no longer exists.", "warning"); } else if (intent && typeof intent === "object" && "restart" in intent) { const selected = rows.find(row => row.key === intent.restart); if (selected) await restartRow(selected, ctx); } tui.requestRender(); },
 				invalidate() {}, dispose: () => resources.dispose() };
