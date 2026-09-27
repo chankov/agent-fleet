@@ -422,7 +422,7 @@ test("a non-conforming state makes zero transport calls and a built state is wha
 
 test("index wires a session singleton and does not evaluate or touch the fence", () => {
 	const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-	assert.match(source, /createWatchdogSystem1Session\(readWatchdogSystem1Snapshot\(/);
+	assert.match(source, /createWatchdogSystem1Session\(\{ \.\.\.readWatchdogSystem1Snapshot\(/);
 	assert.match(source, /watchdogSystem1 = disposeWatchdogSystem1Session\(watchdogSystem1\)/);
 	assert.equal(source.includes("watchdogSystem1.evaluate"), false);
 	assert.match(source, /fenceOperatorCancel\(st\)/);

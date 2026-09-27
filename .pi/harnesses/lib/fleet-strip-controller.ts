@@ -18,7 +18,7 @@ export interface FleetStripGate {
 	bodyRows: number;
 }
 export interface FleetStripInput { data: string; keyRelease?: boolean; paste?: boolean; }
-export type FleetStripIntent = { type: "open" | "kill" | "restart"; key: string; runToken?: string };
+export type FleetStripIntent = { type: "system1" } | { type: "open" | "kill" | "restart"; key: string; runToken?: string };
 export interface FleetStripTransition { state: FleetStripState; consume: boolean; intent?: FleetStripIntent; }
 
 export function initialFleetStripState(): FleetStripState {
@@ -55,6 +55,7 @@ export function fleetStripTransition(input: FleetStripInput, state: FleetStripSt
 	if (data === "toggle") return { state: { ...next, active: !next.active, confirmation: null }, consume: true };
 	if (!next.active) return { state: next, consume: false };
 	if (data === "\u001b") return { state: { ...next, active: false, confirmation: null }, consume: true };
+	if (data === "1") return { state: { ...next, active: false, confirmation: null }, consume: true, intent: { type: "system1" } };
 	const direction = data === "k" ? -1 : data === "j" ? 1 : 0;
 	if (direction) {
 		const index = Math.max(0, Math.min(rows.length - 1, next.index + direction));

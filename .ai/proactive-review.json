@@ -3,10 +3,11 @@
   "mode": "advisory",
   "remoteContext": "selected-excerpts",
   "include": [
-    "bin/**",
-    "docs/**",
-    "skills/**"
+    "agents", "bin", "catalog", "codex", "docs", "hermes", "references", "skills",
+    "AGENTS.md", "CHANGELOG.md", "CLAUDE.md", "CONTRIBUTING.md", "LICENSE",
+    "README.md", "install-manifest.json", "justfile", "manifest-meta.json", "package.json"
   ],
+  "maxEvaluationsPerSession": 100,
   "localBindings": [
     {
       "version": 1,

@@ -97,6 +97,7 @@ export interface ReadWatchdogSystem1SnapshotInput {
 	env?: Record<string, string | undefined>;
 	transport?: JevTransport;
 	warnings?: readonly string[];
+ wrapService?: (service: System1Service) => System1Service;
 }
 
 /** Caller-owned reads. Matches doctor selection: only an explicit features.system1 true counts. Does not load dotenv. */
@@ -145,6 +146,7 @@ export interface CreateWatchdogSystem1SessionOptions {
 	approvedProfilesForTest?: readonly AcceptedWatchdogProfile[];
 	readiness?: System1Availability;
 	warnings?: readonly string[];
+ wrapService?: (service: System1Service) => System1Service;
 }
 
 export function createWatchdogSystem1Session(options: CreateWatchdogSystem1SessionOptions): WatchdogSystem1Session {
@@ -156,6 +158,7 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 			env: options.env ?? {},
 			transport: options.transport,
 		});
+	const service = options.wrapService ? options.wrapService(runtime.service) : runtime.service;
 	const configuredMode = options.configuredMode;
 	// Only a profile matching this session's immutable provider/model and policy can open active.
 	// An unrelated shipped profile must not turn configured active into effective active.
@@ -174,7 +177,7 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 			? profiles.length === 0 ? ACTIVE_BLOCKED_LABEL : options.approvedProfilesForTest === undefined ? "experimental: scope only; G2 not validated" : null
 			: null,
 		readiness: runtime.readiness,
-		get sharedService() { return !disposed && options.selected && runtime.readiness.status === "ready" ? runtime.service : undefined; },
+		get sharedService() { return !disposed && options.selected && runtime.readiness.status === "ready" ? service : undefined; },
 		approvedProfiles: profiles,
 		hubArmed: options.watchdogArmed,
 		warnings: Object.freeze([...(options.warnings ?? [])]),
@@ -193,7 +196,7 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 			controller.signal.addEventListener("abort", abortCall, { once: true });
 			input.signal?.addEventListener("abort", abortCall, { once: true });
 			try {
-				return await runtime.service.evaluate({
+				return await service.evaluate({
 					state: outbound.state,
 					questions: WATCHDOG_QUESTIONS,
 					questionSetVersion: WATCHDOG_QUESTIONS_VERSION,

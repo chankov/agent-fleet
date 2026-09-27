@@ -3,12 +3,14 @@ import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import type { DispatchAgentParams, ToolContext } from "./context.ts";
 
-export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext): void {
+export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, triage?: { disposition(id: string, persona: string, reason: string): boolean; submitted(id: string, persona: string, status: string): void }): void {
 	pi.registerTool({
 		name: "dispatch_agent",
 		label: "Dispatch Agent",
 		description: "Dispatch one focused task to a listed specialist; it returns evidence.",
 		parameters: Type.Object({
+   triage_id: Type.Optional(Type.String({ description: "Optional prior dispatch_triage evaluation ID for decision trace; never authorization" })),
+   triage_reason: Type.Optional(Type.Union([Type.Literal("used"), Type.Literal("better_fit"), Type.Literal("changed_scope"), Type.Literal("independent_judgment")])),
 			agent: Type.String({ description: "Agent name (case-insensitive)" }),
 			task: Type.String({ description: "Task description for the agent to execute" }),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path; the specialist reads it." }))),
@@ -24,8 +26,12 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext): v
 			], { description: "auto policy; native local; coms requires its live peer (no fallback)." })),
 		}),
 
-		execute(toolCallId, params, signal, onUpdate, ctx) {
-			return toolCtx.executeDispatchAgent(toolCallId, params as DispatchAgentParams, signal, onUpdate, ctx);
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
+   let correlated = false;
+   try { if (params.triage_id && params.triage_reason) correlated = triage?.disposition(params.triage_id, params.agent, params.triage_reason) === true; } catch { /* trace cannot affect dispatch */ }
+   const result = await toolCtx.executeDispatchAgent(toolCallId, params as DispatchAgentParams, signal, onUpdate, ctx);
+   try { if (correlated) triage?.submitted(params.triage_id!, params.agent, "submitted; outcome remains in dispatch evidence"); } catch { /* observational */ }
+   return result;
 		},
 
 		renderCall(args, theme) {

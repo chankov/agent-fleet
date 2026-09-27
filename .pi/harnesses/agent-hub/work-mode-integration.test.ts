@@ -147,7 +147,7 @@ test("wiring contract: extracted Hub tools use typed modules and one flat regist
 	] as const;
 	assert.equal(toolModules.length, 8);
 	for (const [source, registrar, count] of toolModules) {
-		const secondParameter = registrar === "registerFilesystemTool" ? "ports: FilesystemToolPorts" : "toolCtx: ToolContext";
+		const secondParameter = registrar === "registerFilesystemTool" ? "ports: FilesystemToolPorts" : registrar === "registerDispatchAgent" ? "toolCtx: ToolContext, triage[\\s\\S]*?" : "toolCtx: ToolContext";
 		assert.match(source, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, ${secondParameter}\\)`));
 		assert.equal((source.match(/registerTool\(\{/g) ?? []).length, count, registrar);
 	}
@@ -155,7 +155,7 @@ test("wiring contract: extracted Hub tools use typed modules and one flat regist
 	assert.equal(extractedNames.length, 17);
 	for (const name of extractedNames) assert.doesNotMatch(indexSource, new RegExp(`name: "${name}"`));
 	assert.equal((indexSource.match(/registerTool\(\{/g) ?? []).length, 0);
-	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerRunFlow\(pi, \{[\s\S]*?\}\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerTeamAdjust\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);\s*registerFilesystemTool\(pi, \{/);
+	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx, \{[^\n]+\}\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerRunFlow\(pi, \{[\s\S]*?\}\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerTeamAdjust\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);\s*registerFilesystemTool\(pi, \{/);
 	assert.equal(existsSync(new URL("./tools/ask-user.ts", import.meta.url)), false);
 	assert.match(toolContextSource, /export interface ToolContext/);
 	for (const callback of ["executeDispatchAgent", "executeSpawnResearch", "executeSetTaskTier", "executeTeamAdjust", "executeSetAssertions", "executeUpdateAssertion", "executeGetAssertions", "executeComsList", "executeComsSend", "executeComsGet", "executeComsAwait", "executeHerdrSpawnPeer", "executeHerdrSpawnPane", "executeHerdrReadPane", "executeHerdrClosePane", "executeHerdrNotify"]) {

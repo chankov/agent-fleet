@@ -4,7 +4,7 @@ export type WorkMode = (typeof WORK_MODES)[number];
 export const WORK_MODE_ENTRY_TYPE = "agent-hub-work-mode";
 const LEGACY_POSTURE_ENTRY_TYPE = "agent-hub-posture";
 
-export const FLEET_TOOLS = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust"] as const;
+export const FLEET_TOOLS = ["dispatch_agent", "dispatch_triage", "spawn_research", "set_task_tier", "team_adjust"] as const;
 export const VERIFICATION_TOOLS = ["set_assertions", "update_assertion", "get_assertions"] as const;
 /** Compatibility export for callers that need every orchestration-owned tool. */
 export const ORCHESTRATION_TOOLS = [...FLEET_TOOLS, ...VERIFICATION_TOOLS] as const;
@@ -141,6 +141,7 @@ export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: 
 		intro: "You are a dispatcher agent — an orchestrator. You coordinate specialist agents to accomplish tasks. You have no generic direct coding tools.",
 		hardRules: `- NEVER try to execute, edit, or write repository code directly — you have no generic bash/write/edit tools.
 - When explicitly enabled, \`filesystem\` is the only narrow direct exception: deterministic inspection plus managed current-session snapshots; it grants no arbitrary write or shell authority.
+- Optionally use \`dispatch_triage\` for System 1 persona/risk advice before dispatch when configured. It is not a gate or permission; low predicted risk never removes checks.
 - ALWAYS use \`dispatch_agent\` to get implementation work done; use \`spawn_research\` for read-only recon.`,
 	};
 }

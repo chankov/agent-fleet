@@ -226,3 +226,9 @@ test("A15 fast System 1 refresh, idle retention and headless strip do not send c
 	assert.match(headless.widget.render(100).join("\n"), /S1 1 evaluating/);
 	assert.equal(headless.editor, undefined);
 });
+
+test("1 opens System 1 only from active Fleet; j remains navigation", async () => {
+ const intents: any[] = []; const h = harness("tui", () => [row()], intent => { intents.push(intent); }); h.editor.focused = true;
+ h.editor.handleInput("1"); assert.equal(intents.length, 0); h.editor.setText("");
+ h.grid.toggle(); h.editor.handleInput("1"); await Promise.resolve(); assert.equal(intents[0].type,"system1"); h.grid.dispose();
+});

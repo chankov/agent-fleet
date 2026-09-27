@@ -146,7 +146,7 @@ export function renderFleetStrip(vm: StripViewModel, width: number, theme: Theme
 	if (!vm.active || budget < 4) return [collapsed].slice(0, budget);
 	const body = Math.max(0, budget - 3);
 	const windowRows = vm.window.rows.slice(0, body);
-	const help = vm.confirmation ?? "j/k select · Alt+I collapse · enter open · x/r confirm · esc back";
+	const help = vm.confirmation ?? "j/k select · 1 System 1 · Alt+I collapse · enter open · x/r confirm · esc back";
 	const breadcrumb = vm.window.ancestorPath.length ? ` · ${safeTerminalText(vm.window.ancestorPath.join(" / "))}` : "";
 	const above = vm.window.above ? `↑ ${vm.window.above} more · ${vm.window.activeAbove} active${breadcrumb}` : "";
 	const below = vm.window.below ? `↓ ${vm.window.below} more · ${vm.window.activeBelow} active` : "";

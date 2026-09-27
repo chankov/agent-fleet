@@ -102,7 +102,7 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     execFileSync("tar", ["-xzf", tarball, "--strip-components=1", "-C", extracted]);
 
     const hubRoot = join(extracted, ".pi", "harnesses", "agent-hub");
-    for (const file of ["drift-runtime.ts", "drift-system1.ts", "drift-judge.ts", "drift-system1-policy.ts", "system1-activity.ts", "system1-runtime.ts", "system1-report.ts", "watchdog-evaluation.ts"]) {
+    for (const file of ["drift-runtime.ts", "drift-system1.ts", "drift-judge.ts", "drift-system1-policy.ts", "system1-activity.ts", "system1-runtime.ts", "system1-report.ts", "watchdog-evaluation.ts", "dispatch-triage-contract.ts", "dispatch-triage-state.ts", "dispatch-triage-policy.ts", "dispatch-triage-runtime.ts", "dispatch-triage-eval.ts", "system1-communication-store.ts", "ui/system1-communication.ts", "tools/dispatch-triage.ts"]) {
       assert.ok(existsSync(join(hubRoot, file)), `packed watchdog runtime missing ${file}`);
       assert.equal(existsSync(join(hubRoot, file.replace(/\.ts$/, ".test.ts"))), false);
     }
@@ -112,7 +112,7 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     cpSync(join(extracted, ".pi", "harnesses"), installedHarnesses, { recursive: true });
     const installedHub = join(installedHarnesses, "agent-hub");
     const closure = spawnSync(process.execPath, ["--experimental-strip-types", "--import", join(root, "bin/test/helpers/system1-no-network.js"), "--input-type=module", "-e",
-      `await import(${JSON.stringify(new URL(`file://${join(installedHub, "drift-judge.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-runtime.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-activity.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-report.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "watchdog-evaluation.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHarnesses, "lib", "fleet-read-model.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHarnesses, "lib", "fleet-strip-view.ts")}`).href)});`
+      `await import(${JSON.stringify(new URL(`file://${join(installedHub, "dispatch-triage-eval.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-communication-store.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "drift-judge.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-runtime.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-activity.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "system1-report.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHub, "watchdog-evaluation.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHarnesses, "lib", "fleet-read-model.ts")}`).href)}); await import(${JSON.stringify(new URL(`file://${join(installedHarnesses, "lib", "fleet-strip-view.ts")}`).href)});`
     ], { cwd: join(fixture, "installed-workspace"), encoding: "utf8" });
     assert.equal(closure.status, 0, closure.stderr);
     const system1Root = join(extracted, ".pi", "harnesses", "lib", "system1");

@@ -1,3 +1,8 @@
+import { registerDispatchTriage } from "./tools/dispatch-triage.ts";
+import { createTriageRuntime } from "./dispatch-triage-runtime.ts";
+import { parseTriageConfig, type TriageInput } from "./dispatch-triage-contract.ts";
+import { createCommunicationStore } from "./system1-communication-store.ts";
+import { openSystem1Communication } from "./ui/system1-communication.ts";
 import { registerRetry } from "./commands/retry.ts";
 import { createHash } from "node:crypto";
 import { loadProactiveConfig, isCaptureEnabled } from "./proactive-config.ts";
@@ -76,7 +81,7 @@ import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { showSessionAudit } from "./session-audit.ts";
 import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
-import { createProcessState, evaluateProcessObligations, latestProcessState, processAuditRecord, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
+import { createProcessState, processAllowsPersona, evaluateProcessObligations, latestProcessState, processAuditRecord, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
 import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
@@ -429,6 +434,8 @@ export default function (pi: ExtensionAPI) {
 	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
 	let watchdogJudgeModel: string | null = null;
 	let watchdogSystem1: WatchdogSystem1Session | null = null;
+ const communicationStore = createCommunicationStore();
+ let triageRuntime: ReturnType<typeof createTriageRuntime> | null = null;
 	let proactiveRuntime: ReturnType<typeof createProactiveRuntime> | null = null;
 	let proactiveConfig: ProactiveConfig | null = null;
 	let proactiveHubDeliveries = 0;
@@ -659,6 +666,7 @@ export default function (pi: ExtensionAPI) {
 		getSnapshot: now => { const source = fleetSource.snapshot(now); return { rows: buildFleetRows(source, { showFinished: true }), proactive: source.proactive }; },
 		handleIntent: async intent => {
 			if (!fleetActions || !widgetCtx) return;
+   if (intent.type === "system1") { await gridUI.withSuspended(() => openSystem1Communication(widgetCtx!, communicationStore)); return; }
 			if (intent.type === "open") await gridUI.withSuspended(() => fleetActions!.open(intent.key, intent.runToken, widgetCtx!));
 			else await fleetActions.execute(intent.type, intent.key, intent.runToken, widgetCtx);
 		},
@@ -938,8 +946,21 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// Keep the extracted tool surface flat and greppable in this composition root.
-	registerDispatchAgent(pi, toolCtx);
+	function triageInput(task: string, scope: string[], language: string, domain: string): TriageInput {
+  const taskGate = checkTaskBudget("dispatch", budgetCtx.taskCounters(), budgetCtx.currentTaskBudget(), budgetCtx.taskActiveElapsedMs(), taskTier);
+  const turnGate = checkTurnBudget("dispatch", { dispatches: turnDispatchCount, research: turnResearchCount }, budgetCtx.currentBudget(), budgetCtx.turnBudgetActiveElapsedMs(), taskTier);
+  const candidates = [...agentStates.values()].map(s => {
+   const name = s.def.name.toLowerCase();
+   const research = ["researcher", "deep-researcher", ...researchPersonas.map(p => p.name.toLowerCase())].includes(name);
+   const gate = processPreEffectGate(processState, "child", name) ?? (processAllowsPersona(processState,name) ? null : checkTierPersonaGate(taskTier,name)) ?? checkReviewRoundCap(taskTier,name,taskReviewRounds) ?? checkDocsLane(name, scope, undefined) ?? taskGate ?? turnGate;
+   return { name, description: s.def.description, ...(research ? { excluded: "research_persona" } : s.status === "running" ? { excluded: "busy" } : gate ? { excluded: gate.reason } : {}) };
+  });
+  return { taskId: noProgress.taskId(), task, scope, language, domain, candidates, constraints: JSON.stringify({ tier: taskTier, process: { risk: processState.risk, scope: processState.scope }, externalBlocked: externalBlockers.length > 0 && !externalBlockerAcknowledged }), complete: !(externalBlockers.length > 0 && !externalBlockerAcknowledged) };
+ }
+ registerDispatchTriage(pi, { runtime: () => triageRuntime, input: triageInput, blocked: () => provisionalCapabilityRefusal("fleet") });
+
+ // Keep the extracted tool surface flat and greppable in this composition root.
+	registerDispatchAgent(pi, toolCtx, { disposition: (id, persona, reason) => triageRuntime?.disposition(id, persona, reason) ?? false, submitted: (id, persona, status) => triageRuntime?.submitted(id, persona, status) });
 	registerSpawnResearch(pi, toolCtx);
 	registerRunFlow(pi, {
 		sessionDir: () => sessionDir,
@@ -1813,6 +1834,7 @@ export default function (pi: ExtensionAPI) {
 	let fleetShowFinished = false;
 	let fleetFilter = "";
 	const fleetDashboard = createFleetDashboard<AgentDef, AgentState, ResearchState>({
+  openSystem1: ctx => openSystem1Communication(ctx, communicationStore),
 		getFleetRows: (now, unfiltered) => fleetSource.rows(now, unfiltered ? { showFinished: true } : { showFinished: fleetShowFinished, query: fleetFilter }),
 		getProactive: () => fleetSource.snapshot(Date.now()).proactive,
 		readProactiveEvidence: (finding) => proactiveRuntime?.findings.readback(finding.snapshotHandle, finding.snapshotHash, finding.snapshotId, finding.unitId, finding.excerptHash) ?? null,
@@ -1941,6 +1963,7 @@ export default function (pi: ExtensionAPI) {
 
 
 	const hubPromptCtx: HubPromptContext = {
+		getTriageBeforeDispatch: () => triageRuntime?.orchestratorBeforeDispatch === true,
 		getArtifactRoot: () => sessionDir ? artifactsRoot() : null,
 		getCapabilityResolution,
 		getActiveTools: () => pi.getActiveTools(),
@@ -2157,17 +2180,25 @@ export default function (pi: ExtensionAPI) {
 		applyOverrides: (_ctx) => {
 			if (!sessionOverrides) throw new Error("session_start applyOverrides ran before loadAgents");
 			watchdogSystem1 = disposeWatchdogSystem1Session(watchdogSystem1);
+   communicationStore.dispose();
+   triageRuntime?.dispose(); triageRuntime = null;
 			try { watchdogActivity?.dispose(); } catch { /* trace disposal must not block the session */ }
 			// Stable for a real session across snapshot replacement; G2 must not split one session into artificial samples.
 			watchdogActivity = sessionDir ? createWatchdogActivity({ directory: `${sessionDir}/artifacts/watchdog`, sessionId: path.basename(sessionDir) }) : null;
-			watchdogSystem1 = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({
+			watchdogSystem1 = createWatchdogSystem1Session({ ...readWatchdogSystem1Snapshot({
 				cwd: _ctx.cwd,
 				configuredMode: sessionOverrides.watchdogSystem1Mode,
 				watchdogSetting: sessionOverrides.watchdogSetting,
 				env: process.env,
 				warnings: sessionOverrides.warnings,
-			}));
-			applySessionOverrides(_ctx, sessionOverrides, {
+			}), wrapService: service => communicationStore.wrap(service, { provider: "typesafe", model: "jev-1.13.0" }) });
+			let triageConfig = null;
+   try { triageConfig = parseTriageConfig(JSON.parse(fs.readFileSync(path.join(_ctx.cwd, ".ai/dispatch-triage.json"), "utf8"))); } catch { /* absent/invalid is off */ }
+   triageRuntime = createTriageRuntime({ config: triageConfig, service: watchdogSystem1?.sharedService,
+    current: input => triageInput(input.task,input.scope,input.language,input.domain),
+    trace: event => pi.appendEntry("agent-hub-triage", event),
+   });
+   applySessionOverrides(_ctx, sessionOverrides, {
 				setLanguage: value => { userLanguage = value; },
 				setReconTimeout: value => { reconSearchTimeoutMs = value; }, setBudgetOverrides: value => { budgetOverrides = value; },
 				setWatchdog: (setting, judge) => { watchdogSetting = setting; watchdogJudgeModel = judge; },
@@ -2314,6 +2345,8 @@ export default function (pi: ExtensionAPI) {
 		terminateChildren: () => {
 			hubCapture.reset(); proactiveRuntime = null;
 			watchdogSystem1 = disposeWatchdogSystem1Session(watchdogSystem1);
+   communicationStore.dispose();
+   triageRuntime?.dispose(); triageRuntime = null;
 			try { watchdogActivity?.dispose(); } catch { /* trace disposal must not block shutdown */ }
 			watchdogActivity = null;
 			for (const st of [...agentStates.values(), ...researchStates.values()]) {

@@ -5,6 +5,8 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 
 export interface DispatchAgentParams {
+ triage_id?: string;
+ triage_reason?: "used" | "better_fit" | "changed_scope" | "independent_judgment";
 	agent: string;
 	task: string;
 	artifacts?: string[];
