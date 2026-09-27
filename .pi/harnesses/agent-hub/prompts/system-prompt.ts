@@ -55,7 +55,14 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const askUserAvailable = ctx.isAskUserAvailable();
 	const userLanguage = ctx.getUserLanguage();
 	const askUserBlock = askUserFragment(askUserAvailable, userLanguage);
-	const dispatchSection = dispatchFragment(fleetActive, askUserAvailable, userLanguage);
+	const triageBeforeDispatch = fleetActive && ctx.getWorkMode() === "orchestrator" && ctx.getActiveTools().includes("dispatch_triage") && ctx.getTriageBeforeDispatch?.() === true;
+	const dispatchSection = dispatchFragment(fleetActive, askUserAvailable, userLanguage) + (triageBeforeDispatch ? `
+
+## Enabled System 1 pre-dispatch advice
+After resolving requirements, task classification and the active roster, call \`dispatch_triage\` once for each focused task you intend to delegate, before choosing its \`dispatch_agent\` persona. Send only minimal non-secret context, relative scope, and the actual language/domain. Do not read files or credentials merely to populate triage.
+Then independently decide whether and whom to dispatch. An \`uncalibrated\` result contains experimental observations, NOT an approved recommendation; never invent a calibration profile. Do not ask the human solely because calibration is absent. All existing ambiguity, risk, permission, budget and acceptance rules still apply. Low predicted risk never means safe.
+If triage abstains, fails, is unavailable, stale, or reaches its budget, use ordinary independent judgment without automatic retries or forcing a specialist. Do not delegate operator/research-only work just to exercise triage. When dispatching after an applicable result, include its \`triage_id\` and a truthful \`triage_reason\` (\`independent_judgment\` for uncalibrated observations). A triage result is never authorization to execute.
+` : "");
 	const ambiguityRule = ambiguityFragment(askUserAvailable, userLanguage);
 	const languageLines = languageFragment(askUserAvailable, userLanguage);
 	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution);

@@ -61,7 +61,8 @@ function digest(text: string): string {
 
 test("full extracted Hub prompt preserves exact text, ordering, and ledger", () => {
 	const built = buildHubSystemPrompt(fixture());
-	assert.equal(digest(built.systemPrompt), "c6c2abd451accc6752aa51686e171cd085231352ef77087ddae75e93f5a1963c");
+	assert.equal(digest(built.systemPrompt), "8131c54a45e5b46578203dfd1842f27a51e155136990f017b1e8be626d5908dd");
+	assert.match(built.systemPrompt, /Optionally use `dispatch_triage`/);
 	assert.match(built.systemPrompt, /risk high; scope small; open obligations: review/);
 	assert.match(built.systemPrompt, /correctness obligations are independent of tier/);
 	assert.deepEqual(built.ledger.map(entry => entry.id), [
@@ -95,7 +96,7 @@ test("trusted tool catalog producer and refusal state survive the production pro
 
 test("language and unavailable ask_user branch preserve exact prompt text", () => {
 	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "f74cc63bcfe34a1b6cd4271e50cbf051082b1f427340d893f59ebcfda809a15a");
+	assert.equal(digest(built.systemPrompt), "2bf73e013c05922f968e30dddb79a0beb6518efc3bb5fd92f51e63f1195d011b");
 	assert.match(built.systemPrompt, /ask_user is NOT available/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);
@@ -140,4 +141,17 @@ test("missing rules and docs paths warn and continue during session override app
 		assert.ok(notices.some(notice => notice.level === "warning" && notice.message.includes('rules folder "missing-rules" not found')));
 		assert.ok(notices.some(notice => notice.level === "warning" && notice.message.includes('docs entry point "missing-docs" not found')));
 	} finally { project.cleanup(); }
+});
+
+test("enabled orchestrator advice precedes dispatch without granting execution authority",()=>{
+ const ctx=fixture();ctx.getTriageBeforeDispatch=()=>true;ctx.getActiveTools=()=>["dispatch_agent","dispatch_triage","ask_user"];
+ const built=buildHubSystemPrompt(ctx);
+ assert.match(built.systemPrompt,/Enabled System 1 pre-dispatch advice/);
+ assert.match(built.systemPrompt,/independently decide whether and whom to dispatch/);
+ assert.match(built.systemPrompt,/NOT an approved recommendation/);
+ assert.match(built.systemPrompt,/without automatic retries/);
+ assert.equal(built.ledger.reduce((sum,e)=>sum+e.chars,0),built.systemPrompt.length);
+ ctx.getTriageBeforeDispatch=()=>false;assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/);
+ ctx.getTriageBeforeDispatch=()=>true;ctx.getWorkMode=()=>"operator";assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/);
+ ctx.getWorkMode=()=>"orchestrator";ctx.getActiveTools=()=>["dispatch_agent"];assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/);
 });

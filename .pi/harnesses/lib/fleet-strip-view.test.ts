@@ -55,7 +55,7 @@ test("interactive hints advertise Alt+I toggle and j/k without arrow controls", 
 	const collapsed = renderFleetStrip({ active: false, interactiveAvailable: true, summary, window, maxRows: 5 }, 120, theme, metrics)[0]!;
 	assert.match(collapsed, /Alt\+I inspect/); assert.doesNotMatch(collapsed, /←|↑|↓/);
 	const expanded = renderFleetStrip({ active: true, interactiveAvailable: true, selectedKey: "one", summary, window, maxRows: 5 }, 120, theme, metrics)[0]!;
-	assert.match(expanded, /j\/k select · Alt\+I collapse/); assert.doesNotMatch(expanded, /←|↑|↓/);
+	assert.match(expanded, /j\/k select · 1 System 1 · Alt\+I collapse/); assert.doesNotMatch(expanded, /←|↑|↓/);
 });
 
 test("narrow collapsed summary drops whole secondary fields instead of clipping labels", () => {

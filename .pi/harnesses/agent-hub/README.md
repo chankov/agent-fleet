@@ -1358,3 +1358,12 @@ zero-match success. Set `scope_mode: create` explicitly to permit a new root. A 
 exact file in an existing directory is permitted when declared in `deliverables`;
 otherwise a missing dotted name such as `RIN.Video` is still treated as a missing
 root, not guessed to be a file. Free-form prose and XML are never executed as tools.
+
+## System 1 communication and dispatch advice
+
+Fleet `1` opens a read-only request/response viewer. Press `e` to enable memory-only
+capture, Enter to inspect a pair, left/right and Enter to copy, `d` to disable and
+clear. `j` navigation is unchanged. The optional `dispatch_triage` tool is for the
+orchestrator, not a human slash command; all dispatch gates remain authoritative.
+See [the guide](../../../docs/system1-dispatch-triage.md) for opt-in configuration,
+privacy boundaries, evaluation commands and outstanding live acceptance.
