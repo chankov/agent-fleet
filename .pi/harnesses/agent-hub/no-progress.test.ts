@@ -37,6 +37,24 @@ test("evidenced changes permit supported recovery, while indeterminate cause nev
 	assert.equal(guard.begin("unknown", "rev-b").allowed, false, "unknown cause stays fail-closed despite changed conditions");
 });
 
+test("a no-launch refusal does not replace an indeterminate fence, including after task reset and restore", () => {
+	const entries: any[] = [];
+	const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+	const first = guard.begin("contract", "fp", "exec");
+	guard.finish(first, "fp", failed("ind-1", "indeterminate"));
+	assert.equal(guard.settle(first.operationId!, first.attemptId!, "proc-close"), true);
+	assert.equal(guard.authorizeIndeterminate(first.operationId!, first.attemptId!, "nonce"), true);
+	const retry = guard.begin("contract", "fp-changed", "exec");
+	assert.equal(retry.allowed, true);
+	guard.finish(retry, "fp-changed", failed("pre-1", "not_started"));
+	assert.equal(guard.begin("contract", "fp-again", "exec").allowed, false, "same task must not launch after the no-launch retry");
+	guard.reset();
+	assert.equal(guard.begin("contract", "fp-new-task", "exec").allowed, false, "task reset must not drop the unknown-write fence");
+	const restored = createNoProgressGuard();
+	restored.restore(entries);
+	assert.equal(restored.begin("contract", "fp-restored", "exec").allowed, false, "restart must keep the effect fence");
+});
+
 test('one settled indeterminate grant enables only one explicit next attempt, including after task reset', () => {
  const g = createNoProgressGuard(); const first = g.begin('contract', 'same', 'builder');
  g.finish(first, 'same', failed('ind-1', 'indeterminate'));
@@ -95,6 +113,19 @@ test("research progress ignores paraphrase but recognizes a normalized read-scop
 	model = "local/b";
 	await run("4", base, undefined, undefined, { cwd } as any);
 	assert.equal(calls, 3, "effective model is part of execution conditions");
+});
+
+test("integer exit without explicit lifecycle does not settle; closeSeen does", async t => {
+	const cwd = mkdtempSync(join(tmpdir(), "lifecycle-settle-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	execFileSync("git", ["init", "-q", cwd]); writeFileSync(join(cwd, "src.ts"), "one");
+	const unsettled = createNoProgressGuard();
+	const unsetRun = withNoProgress({ noProgress: unsettled, artifacts: { loadInputArtifacts: () => [] } } as any, "dispatch", async () => ({ content: [], details: { status: "error", exitCode: 1, dispatchId: "exit-only" } }));
+	await unsetRun("1", { agent: "builder", task: "work", scope: ["src.ts"], deliverables: [] } as any, undefined, undefined, { cwd } as any);
+	assert.equal(unsettled.byDispatch("exit-only")?.attempts.at(-1)?.settled, undefined);
+	const settled = createNoProgressGuard();
+	const settledRun = withNoProgress({ noProgress: settled, artifacts: { loadInputArtifacts: () => [] } } as any, "dispatch", async () => ({ content: [], details: { status: "error", exitCode: 1, dispatchId: "closed", lifecycle: { launched: true, closeSeen: true } } }));
+	await settledRun("1", { agent: "builder", task: "work", scope: ["src.ts"], deliverables: [] } as any, undefined, undefined, { cwd } as any);
+	assert.match(String(settled.byDispatch("closed")?.attempts.at(-1)?.settled), /^runtime-lifecycle:/);
 });
 
 test('production tool refusal offers validated recover commands and stored original-contract invocation without replay', async t => {

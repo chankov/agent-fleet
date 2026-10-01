@@ -69,17 +69,26 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 	const setProcessState = (value: ProcessObligationState) => { fallbackProcessState = value; d.setProcessState?.(value); d.persistProcessState?.(value); };
 	const executeSetTaskTier: ToolExecutor<SetTaskTierParams> = async (_callId, params, signal, _onUpdate, ctx) => {
 		const { tier, risk, scope, reason, new_task } = params;
+		// T7: single authoritative snapshot for setter/result/gate. Prompt prose never
+		// changes state — only this explicit tool call does, against one snapshot.
+		const snapshot = {
+			taskId: d.currentTaskId(),
+			tier: d.getTaskTier(),
+			tierAssumed: d.getTaskTierAssumed(),
+			revision: (() => { try { return d.currentRevision(ctx); } catch { return "unavailable"; } })(),
+			process: getProcessState(),
+		};
 		if (new_task && !(typeof reason === "string" && reason.trim())) return { content: [{ type: "text", text: "A genuine new task requires a non-empty reason." }], details: { status: "error", reason: "new_task_reason_required" } };
 		if (!new_task) { const refusal = d.provisionalCapabilityRefusal("fleet"); if (refusal) return refusal; }
-		const currentTier = new_task ? null : (d.getTaskTierAssumed() ? null : d.getTaskTier());
+		const currentTier = new_task ? null : (snapshot.tierAssumed ? null : snapshot.tier);
 		const change = applyTierChange(currentTier, tier, reason);
 		if (!change.ok) return { content: [{ type: "text", text: change.message }], details: { status: "error", reason: change.reason, tier: change.tier } };
 		if (d.processBlock?.()?.reason === "process_state_corrupt") return { content: [{ type: "text", text: d.processBlock()!.message }], details: { status: "refused", reason: "process_state_corrupt" } };
-		const processChange = applyProcessClassification(getProcessState(), { risk, scope, reason, newTask: !!new_task });
+		const processChange = applyProcessClassification(snapshot.process, { risk, scope, reason, newTask: !!new_task });
 		if (!processChange.ok) return { content: [{ type: "text", text: processChange.message }], details: { status: "error", reason: "process_classification", tier: change.tier, risk: processChange.state.risk, scope: processChange.state.scope } };
 		let reservedNewTaskId: string | undefined;
 		if (new_task) reservedNewTaskId = reserveActualTaskId();
-		if (new_task && processOpenObligations(getProcessState()).length) {
+		if (new_task && processOpenObligations(snapshot.process).length) {
 			let consumed = false;
 			try {
 				const confirmed = !!d.confirmTaskSupersession && await d.confirmTaskSupersession({ oldTaskId: d.currentTaskId(), newTaskId: reservedNewTaskId!, reason: String(reason).trim() }, ctx, signal);
@@ -91,7 +100,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		}
 		let adopted = processChange.state;
 		try { if (d.adoptTaskTriage) {
-			const bound = await d.adoptTaskTriage(new_task ? reservedNewTaskId! : d.currentTaskId(), !!new_task, !new_task && processChange.state.scope !== getProcessState().scope ? processChange.state.scope : undefined);
+			const bound = await d.adoptTaskTriage(new_task ? reservedNewTaskId! : snapshot.taskId, !!new_task, !new_task && processChange.state.scope !== snapshot.process.scope ? processChange.state.scope : undefined);
 			adopted = applyProcessClassification(bound, { risk, scope, reason, newTask: false }).state;
 		} } catch {
 			if (reservedNewTaskId) consumeReservedTaskId(reservedNewTaskId);
@@ -113,7 +122,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		const b = d.budget.currentBudget(); const tb = d.budget.currentTaskBudget();
 		const cap = (n: number | null) => n == null ? "unlimited" : String(n);
 		const spent = `${d.getTaskDispatchCount()}/${cap(tb.maxDispatches)} dispatches, ${d.getTaskResearchCount()}/${cap(tb.maxResearch)} research`;
-		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} Budget tier differs intentionally: it limits spend and cannot erase correctness obligations.\nPer turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Whole task: ${spent} spent. Size the apparatus accordingly — do not spend a cap just because it exists.` }], details: { status: "ok", tier: change.tier, risk: adopted.risk, scope: adopted.scope, process: adopted, escalated: change.escalated, newTask: !!new_task, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
+		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} Budget tier differs intentionally: it limits spend and cannot erase correctness obligations.\nPer turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Whole task: ${spent} spent. Size the apparatus accordingly — do not spend a cap just because it exists.` }], details: { status: "ok", tier: change.tier, risk: adopted.risk, scope: adopted.scope, process: adopted, escalated: change.escalated, newTask: !!new_task, snapshot: { taskId: snapshot.taskId, tier: snapshot.tier, revision: snapshot.revision }, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
 	};
 
 	const executeTeamAdjust: ToolExecutor<TeamAdjustParams> = async (_id, params, _signal, _update, ctx) => {

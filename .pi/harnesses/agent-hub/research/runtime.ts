@@ -68,6 +68,8 @@ export interface ResearchResult {
 	exitCode: number;
 	elapsed: number;
 	termination?: Termination;
+	/** T3 runtime lifecycle facts. Safety refusal and spawn failure never launched. */
+	lifecycle?: { launched: boolean; closeSeen: boolean };
 }
 
 export interface ResearchFinalizeOutcome {

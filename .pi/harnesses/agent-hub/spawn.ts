@@ -131,6 +131,9 @@ export interface SpawnPiAgentResult {
 	modelFallback?: ModelFallbackNotice;
 	/** Present only when parent-side bounded termination was requested. */
 	termination?: Termination;
+	/** T3 runtime lifecycle facts: launched/close/termination are separate dimensions.
+	 *  Safety refusal and spawn failure never launched; timeout without close stays uncertain. */
+	lifecycle: { launched: boolean; closeSeen: boolean };
 	boundedOutput?: { truncated: boolean; totalBytes: number; handle: string; contentPath: string; sha256: string };
 	writeIsolation?: Pick<WriteIsolationResult, "applied" | "failClosed" | "mechanism" | "permissionExpansion" | "rollsBackUserEdits" | "protectsConcurrentUserWrites">;
 }
@@ -201,7 +204,7 @@ export function spawnPiAgent(opts: SpawnPiAgentOptions, cbs: SpawnPiAgentCallbac
 			if(active) opts={...opts,env:{...opts.env,[PROFILE_ENV]:JSON.stringify(active)}};
 			return await spawnPiAgentUnchecked(opts,cbs);
 		} catch(error) {
-			return {output:'',stderr:String(error),exitCode:1,spawnError:String(error),modelUsed:opts.model,toolCallsStarted:0};
+			return {output:'',stderr:String(error),exitCode:1,spawnError:String(error),modelUsed:opts.model,toolCallsStarted:0,lifecycle:{launched:false,closeSeen:false}};
 		}
 	});
 }
@@ -236,6 +239,7 @@ function spawnPiAgentUnchecked(
 		return Promise.resolve({
 			output: "", stderr: "", exitCode: null, modelUsed: opts.model, toolCallsStarted: 0,
 			termination: { reason: "cancelled", confirmed: false, escalated: false },
+			lifecycle: { launched: false, closeSeen: false },
 		});
 	}
 	const childEnv = nativeChildEnv(process.env, opts.env);
@@ -247,6 +251,7 @@ function spawnPiAgentUnchecked(
 			output: "", stderr: isolation.reason ?? "write isolation unavailable", exitCode: 1,
 			spawnError: isolation.reason ?? "write isolation unavailable; unsandboxed execution refused",
 			modelUsed: opts.model, toolCallsStarted: 0, writeIsolation: publishedIsolation,
+			lifecycle: { launched: false, closeSeen: false },
 		});
 	}
 	const launchCommand = isolation?.command ?? "pi";
@@ -324,6 +329,9 @@ function spawnPiAgentUnchecked(
 				stderr: stderrChunks.join(""),
 				toolCallsStarted, runtimeTests, toolEvents,
 				modelUsed: opts.model,
+				// T3: explicit lifecycle facts travel with every settlement.
+				// Missing close or an unconfirmed process tree stays uncertain downstream.
+				lifecycle: { launched: true, closeSeen },
 				...(spawnError ? { spawnError } : {}),
 				...(assistantError ? { assistantError } : {}),
 				...(termination ? { termination } : {}),
@@ -497,7 +505,7 @@ export async function spawnPiAgentWithModelFallback(
 	fallbackOptions: ModelFallbackOptions = {},
 ): Promise<SpawnPiAgentResult> {
 	try { fallbackModel=profileFallback(fallbackModel,readActiveProfile()??readActiveProfile(opts.env)); }
-	catch(error) { return {output:'',stderr:String(error),exitCode:1,spawnError:String(error),modelUsed:opts.model,toolCallsStarted:0}; }
+	catch(error) { return {output:'',stderr:String(error),exitCode:1,spawnError:String(error),modelUsed:opts.model,toolCallsStarted:0,lifecycle:{launched:false,closeSeen:false}}; }
 	if (!fallbackModel || fallbackModel === opts.model) return spawnPiAgent(opts, cbs);
 
 	const sessionExisted = existsSync(opts.sessionFile);

@@ -329,3 +329,17 @@ test("same-turn lifecycle has one pre-model surface assembly point for normal an
 	assert.match(indexSource, /function buildHubSystemPrompt\(\): \{ systemPrompt: string \} \{[\s\S]*?assembleHubPrompt\(hubPromptCtx\)/);
 	assert.doesNotMatch(indexSource, /classification model|classify.*model request|sendMessage\([\s\S]{0,100}classif/i);
 });
+
+test("T9 autonomous-recovery guidance uses the active catalog and read-only route, not slash resets", () => {
+	const workModeSource = readFileSync(new URL("./work-mode.ts", import.meta.url), "utf8");
+	const obligationsSource = readFileSync(new URL("./process-obligations.ts", import.meta.url), "utf8");
+	const hubPromptSource = readFileSync(new URL("../lib/context-budget-hub-prompt.ts", import.meta.url), "utf8");
+	assert.match(workModeSource, /read\/grep\/find\/ls with an explicit target path/);
+	assert.match(workModeSource, /no slash reset/);
+	assert.match(workModeSource, /Tool availability is never gate admission/);
+	assert.match(obligationsSource, /readOnlyInspectionRoute/);
+	assert.match(obligationsSource, /no regex[\s\S]*?exemption for arbitrary bash/i);
+	assert.match(hubPromptSource, /never at routine slash resets/);
+	assert.match(dispatchExecutionSource, /Prompt prose did not change state/);
+	assert.match(dispatchExecutionSource, /Snapshot: tier/);
+});

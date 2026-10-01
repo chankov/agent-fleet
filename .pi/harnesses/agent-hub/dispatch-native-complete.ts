@@ -1,4 +1,5 @@
 import type { NativeDispatchResult, NativeExecutionDiagnostics, NativeSpawnOutcome, PreparedNativeRun } from "./dispatch-native-types.ts";
+import { explicitProcessLifecycle } from "./recovery-contract.ts";
 import { boundOutput } from "./deterministic-fs.ts";
 import { safePathWithin } from "./helpers.ts";
 
@@ -26,11 +27,14 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 		termination: res.termination ?? null, modelFallback: res.modelFallback ?? null,
 	};
 	const diagnosticText = diagnostics.reason ? formatDiagnostics(diagnostics) : "";
+	const lifecycle = explicitProcessLifecycle(res.lifecycle);
 	const finish = (result: NativeDispatchResult): NativeDispatchResult => {
 		const combined = result.output + diagnosticText;
 		const parent = res.boundedOutput ? boundOutput({ content: combined, retentionDir: safePathWithin(run.evidenceDir, "bounded-output", "parent"), label: "parent-summary" }) : null;
 		return {
 			...result, runtimeTests: res.runtimeTests, toolEvents: res.toolEvents, writeIsolation: res.writeIsolation, dispatchId: run.dispatchId, transcriptPath: run.transcriptPath, diagnostics, sessionReset,
+			// T3: pass through explicit launch/close facts only. Missing lifecycle stays unknown.
+			...(lifecycle ? { lifecycle } : {}),
 			output: parent?.reply ?? combined,
 		};
 	};

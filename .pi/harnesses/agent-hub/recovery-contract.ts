@@ -1,5 +1,6 @@
 export const RECOVERY_CATEGORIES = [
 	"busy",
+	"not_started",
 	"invalid_input",
 	"resource_exhausted",
 	"operator_cancelled",
@@ -21,6 +22,9 @@ export interface RecoveryConditions {
 	effectsEstablished?: boolean;
 	processSettled?: boolean;
 	indeterminateGrantUsed?: boolean;
+	// Runtime-owned no-launch proof for legacy preflight entries that never
+	// produced a process, dispatch, or effect. Missing records alone never set this.
+	noLaunchEstablished?: boolean;
 }
 
 export interface RecoveryDecision {
@@ -45,6 +49,8 @@ export function recoveryDecision(category: RecoveryCategory, conditions: Recover
 	switch (category) {
 		case "busy":
 			return { ...base, allowed: explicit && changed && conditions.executorIdle === true, nextStep: "reinvoke_after_change", reason: "executor must be observed idle before an explicit re-invocation" };
+		case "not_started":
+			return { ...base, allowed: explicit && changed, nextStep: "correct_and_reinvoke", reason: "preflight refused before launch with no process or effects; correct inputs/prerequisites and re-invoke explicitly" };
 		case "invalid_input":
 			return { ...base, allowed: explicit && changed, nextStep: "correct_and_reinvoke", reason: "validated inputs must be materially corrected" };
 		case "resource_exhausted":
@@ -62,6 +68,51 @@ export function recoveryDecision(category: RecoveryCategory, conditions: Recover
 	}
 }
 
+const NOT_STARTED_STATUS = new Set([
+	"not_started",
+	"tier_persona_gate",
+	"scope_preflight_failed",
+	"artifact_preflight_failed",
+	"task_budget_refused",
+	"budget_refused",
+	"duplicate_refused",
+	"research_persona_via_dispatch",
+	"unknown_agent",
+	"process_plan_open",
+	"process_state_unavailable",
+	"process_obligations_open",
+	"action_confirmation_unsupported",
+	"process_state_corrupt",
+	"docs_lane",
+	"review_round_capped",
+	"review_round_cap",
+	"scope_gate",
+	"preflight_refused",
+]);
+
+/** Runtime lifecycle is trusted only when both facts are explicit booleans.
+ *  Missing fields are unknown — never inferred from exit, spawnError, or termination. */
+export function explicitProcessLifecycle(value: unknown): { launched: boolean; closeSeen: boolean } | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const launched = (value as { launched?: unknown }).launched;
+	const closeSeen = (value as { closeSeen?: unknown }).closeSeen;
+	if (typeof launched !== "boolean" || typeof closeSeen !== "boolean") return undefined;
+	return { launched, closeSeen };
+}
+
+/** Post-spawn exceptions must not be rewritten as a proven no-launch. */
+export function lifecycleAfterSpawnException(input: {
+	spawnAttempted: boolean;
+	spawnLifecycle?: unknown;
+	processSeen: boolean;
+}): { launched: boolean; closeSeen: boolean } | undefined {
+	if (!input.spawnAttempted) return { launched: false, closeSeen: false };
+	const known = explicitProcessLifecycle(input.spawnLifecycle);
+	if (input.processSeen || known?.launched === true) return { launched: true, closeSeen: false };
+	if (known?.launched === false) return { launched: false, closeSeen: false };
+	return undefined;
+}
+
 export function recoveryCategoryFromDetails(details: any): RecoveryCategory | null {
 	if (!details || typeof details !== "object") return null;
 	if (RECOVERY_CATEGORIES.includes(details.recoveryCategory as RecoveryCategory)) return details.recoveryCategory as RecoveryCategory;
@@ -70,6 +121,21 @@ export function recoveryCategoryFromDetails(details: any): RecoveryCategory | nu
 		.map(value => value.toLowerCase());
 	if (values.some(value => value === "busy")) return "busy";
 	if (values.some(value => value.includes("operator_cancel") || value === "cancelled" || value === "canceled")) return "operator_cancelled";
+	// T3: explicit runtime lifecycle facts outrank exit-code inference.
+	// Never launched (safety refusal, spawn failure, pre-launch cancel) is not_started,
+	// never an indeterminate attempt. Launched without close stays uncertain downstream.
+	if (details.lifecycle && typeof details.lifecycle === "object" && typeof details.lifecycle.launched === "boolean" && details.lifecycle.launched === false) {
+		if (values.some(value => value.includes("unknown_tool"))) return "unknown_tool";
+		return "not_started";
+	}
+	if (values.some(value => NOT_STARTED_STATUS.has(value) || value.includes("not_started") || value.includes("preflight"))) return "not_started";
+	// Runtime-owned preflight refusals carry started:false and never had a process.
+	// They must not become indeterminate attempts. Explicit cancellation stays
+	// cancellation even before launch; unknown_tool keeps its own lane.
+	if (details.started === false) {
+		if (values.some(value => value.includes("unknown_tool"))) return "unknown_tool";
+		return "not_started";
+	}
 	if (values.some(value => value.includes("invalid_input") || value.includes("validation"))) return "invalid_input";
 	if (values.some(value => value.includes("resource_exhausted") || value.includes("out_of_memory") || value === "oom")) return "resource_exhausted";
 	if (values.some(value => value.includes("verification_failed") || value.includes("deliverable_failed"))) return "verification_failed";

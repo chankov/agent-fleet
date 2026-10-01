@@ -94,6 +94,8 @@ export interface NativeDispatchResult {
  runtimeTests?: import("./runtime-test-check.ts").RuntimeTestRecord[];
  writeIsolation?: Pick<WriteIsolationResult, "applied" | "failClosed" | "mechanism" | "permissionExpansion" | "rollsBackUserEdits" | "protectsConcurrentUserWrites">;
  toolEvents?: import("./tool-protocol.ts").ToolExecutionEvent[];
+	/** T3 runtime lifecycle facts: launch/close/termination are separate from exit/acceptance. */
+	lifecycle?: { launched: boolean; closeSeen: boolean };
 	evidencePath?: string;
 	sessionPath?: string;
 	dispatchId?: string;

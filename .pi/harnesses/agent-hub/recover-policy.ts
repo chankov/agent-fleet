@@ -14,11 +14,28 @@ export function renderRecoveryInvocation(state: RecoverState, operationId: strin
  if (!operation || !operation.attempts.some(attempt => attempt.attemptId === attemptId)) return null;
  return command === 'inspect' ? `/af-recover inspect ${operationId}` : `/af-recover ${command} ${operationId} ${attemptId}`;
 }
-/** Human-facing invocation; the tool call is a template, never executed here. */
+/** Human-facing invocation; the tool call is a template, never executed here.
+ *  T6: abandoned operations never render a replay template; missing/invalid contracts
+ *  return null so callers can emit their distinct reason (see invocationStatus). */
 export function renderNextInvocation(guard: NoProgressGuard, operationId: string): string | null {
  const operation = guard.inspect(operationId), invocation = guard.invocation(operationId);
  if (!operation || !invocation || operation.abandoned || !ID.test(operationId)) return null;
+ const status = (guard as any).invocationStatus?.(operationId);
+ if (status && status.status !== 'available') return null;
  return `${invocation.tool}(${JSON.stringify(invocation.params)})`;
+}
+/** T6: distinct invocation-availability reason for exact recovery responses. */
+export function describeInvocationAvailability(guard: NoProgressGuard, operationId: string): string {
+ const status = (guard as any).invocationStatus?.(operationId);
+ if (!status) {
+  const operation = guard.inspect(operationId);
+  if (!operation) return 'missing_original_runtime_invocation: unknown operation';
+  if (operation.abandoned) return 'abandoned_operation: abandon closed the operation; parent obligations remain open';
+  if (!guard.invocation(operationId)) return 'missing_original_runtime_invocation: no validated contract was persisted';
+  return 'unknown_process: pending or unsettled process';
+ }
+ if (status.status === 'available') return 'available';
+ return `${status.reason}: ${(status.nextActions ?? []).join('; ')}`;
 }
 export function renderRecoverCommands(guard: NoProgressGuard, operationId: string, attemptId: string): string | null {
  const op = guard.inspect(operationId);

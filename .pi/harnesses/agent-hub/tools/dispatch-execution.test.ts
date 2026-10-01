@@ -189,7 +189,10 @@ for (const operation of ["dispatch", "research"] as const) {
 		(d.research as any).spawn = d.dispatchAgent;
 		(d.artifacts as any).writeRunArtifact = () => "/tmp/result.md";
 		const execute = operation === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
-		const result = await execute("call", { agent: "builder", task: "bounded work" }, undefined, undefined, { cwd: "/tmp" } as any);
+		// T2: research invocations use the research contract shape (no agent field);
+		// dispatch-style params are an invalid invocation and must refuse before launch.
+		const params = operation === "dispatch" ? { agent: "builder", task: "bounded work" } : { task: "bounded work" };
+		const result = await execute("call", params as any, undefined, undefined, { cwd: "/tmp" } as any);
 		assert.equal(asks, 1, "runtime must own confirmation even when the model never invokes ask_user");
 		assert.equal(runs, 1);
 		assert.equal((result.details as any).exitCode, 0);
@@ -200,7 +203,8 @@ for (const operation of ["dispatch", "research"] as const) {
 		d.budgetRecovery.ensure = async () => ({ reason: "budget_stopped", message: "Human declined; stop." }) as any;
 		d.dispatchAgent = async () => { runs++; return { output: "", exitCode: 0, elapsed: 0 }; };
 		const execute = operation === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
-		const result = await execute("call", { agent: "builder", task: "(1) continue" }, undefined, undefined, {} as any);
+		const params = operation === "dispatch" ? { agent: "builder", task: "(1) continue" } : { task: "(1) continue" };
+		const result = await execute("call", params as any, undefined, undefined, {} as any);
 		assert.equal((result.details as any).status, "budget_stopped");
 		assert.equal(runs, 0);
 		assert.equal(d._task(), 0);
@@ -254,7 +258,8 @@ for (const operation of ["dispatch", "research"] as const) {
 		d.budgetRecovery.ensure = async () => { controller.abort(); return null; };
 		d.dispatchAgent = async () => { runs++; return { output: "", exitCode: 0, elapsed: 0 }; };
 		const execute = operation === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
-		const result = await execute("cancel-after-ask", { agent: "builder", task: "work" }, controller.signal, undefined, {} as any);
+		const params = operation === "dispatch" ? { agent: "builder", task: "work" } : { task: "work" };
+		const result = await execute("cancel-after-ask", params as any, controller.signal, undefined, {} as any);
 		assert.equal((result.details as any).status, "cancelled"); assert.equal(runs, 0); assert.equal(d._task(), 0);
 	});
 }
@@ -418,10 +423,12 @@ test("repeated failed-work refusals stop only the requested operation, not the p
  const first = await run("second", { ...params, task: "Rephrased work" }, undefined, undefined, ctx);
  assert.equal((first.details as any).status, "no_progress_refused");
  const second = await run("third", { ...params, task: "Again rephrased work" }, undefined, undefined, ctx);
- assert.equal((second.details as any).status, "budget_refused"); assert.equal(aborts, 0); assert.equal(runs, 1);
- assert.equal(d.state.getTurnDispatchCount(), 2, "non-busy refusal spent existing dispatch budget without a child execution");
- assert.equal(d.state.getTurnReport().dispatches.length, 2);
- assert.equal(d.state.getTurnReport().dispatches[1].status, "no_progress_refused");
+ // T1/F7 Checkpoint C: refusals use explicit separate accounting and never consume
+ // physical launch counters. The anti-loop boundary stays in the guard (same
+ // fingerprint stays refused); budgets still fail closed on real launches.
+ assert.equal((second.details as any).status, "no_progress_refused"); assert.equal(aborts, 0); assert.equal(runs, 1);
+ assert.equal(d.state.getTurnDispatchCount(), 1, "no-progress refusals never consume launch counters");
+ assert.equal(d.state.getTurnReport().refusals, 2);
 });
 
 test("late result artifacts stay with the originating session namespace", async t => {

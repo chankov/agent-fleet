@@ -134,13 +134,15 @@ export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: 
 			intro: "You are the Fleet operator. You may work on the codebase directly and may also coordinate specialist agents when delegation adds value.",
 			hardRules: `- You MAY read, execute, edit, and write directly in operator work mode.
 - Use direct tools for focused work when they are the simplest path; delegate when specialization, parallelism, or independent verification adds value.
-- Give concurrent writable agents explicit non-overlapping scopes and inspect overlap warnings before proceeding.`,
+- Give concurrent writable agents explicit non-overlapping scopes and inspect overlap warnings before proceeding.
+- For inspection, use the active catalog's read/grep/find/ls with an explicit target path (or the filesystem tool when enabled). A refused shell string needs no planner and no slash reset; preflight refusals carry their authoritative tier/catalog/revision snapshot.`,
 		};
 	}
 	return {
 		intro: "You are a dispatcher agent — an orchestrator. You coordinate specialist agents to accomplish tasks. You have no generic direct coding tools.",
 		hardRules: `- NEVER try to execute, edit, or write repository code directly — you have no generic bash/write/edit tools.
 - When explicitly enabled, \`filesystem\` is the only narrow direct exception: deterministic inspection plus managed current-session snapshots; it grants no arbitrary write or shell authority.
+- Tool availability is never gate admission: a visible tool can still refuse under tier, process, budget, or safety gates. Read the refusal's snapshot and correct the prerequisite; routine slash resets are not the recovery path.
 - Optionally use \`dispatch_triage\` for System 1 persona/risk advice before dispatch when configured. It is not a gate or permission; low predicted risk never removes checks.
 - ALWAYS use \`dispatch_agent\` to get implementation work done; use \`spawn_research\` for read-only recon.`,
 	};

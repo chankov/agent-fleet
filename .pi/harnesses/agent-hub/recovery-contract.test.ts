@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RECOVERY_CATEGORIES, recoveryCategoryFromDetails, recoveryDecision } from "./recovery-contract.ts";
+import { RECOVERY_CATEGORIES, explicitProcessLifecycle, lifecycleAfterSpawnException, recoveryCategoryFromDetails, recoveryDecision } from "./recovery-contract.ts";
 
 test("shared recovery contract covers every T1 category without retry, waiting, or a new budget", () => {
-	assert.deepEqual(RECOVERY_CATEGORIES, ["busy", "invalid_input", "resource_exhausted", "operator_cancelled", "verification_failed", "tool_protocol_error", "unknown_tool", "indeterminate"]);
+	assert.deepEqual(RECOVERY_CATEGORIES, ["busy", "not_started", "invalid_input", "resource_exhausted", "operator_cancelled", "verification_failed", "tool_protocol_error", "unknown_tool", "indeterminate"]);
 	for (const category of RECOVERY_CATEGORIES) {
 		const decision = recoveryDecision(category);
 		assert.equal(decision.automaticRetry, false);
@@ -15,9 +15,10 @@ test("shared recovery contract covers every T1 category without retry, waiting, 
 
 test("recovery permits only explicit evidenced conditions and keeps special safeguards", () => {
 	assert.equal(recoveryDecision("busy", { explicitInvocation: true, relevantConditionsChanged: true, executorIdle: true }).allowed, true);
-	for (const category of ["invalid_input", "resource_exhausted", "verification_failed"] as const) {
+	for (const category of ["not_started", "invalid_input", "resource_exhausted", "verification_failed"] as const) {
 		assert.equal(recoveryDecision(category, { explicitInvocation: true, relevantConditionsChanged: true }).allowed, true);
 	}
+	assert.equal(recoveryDecision("not_started", { explicitInvocation: true, relevantConditionsChanged: false }).allowed, false);
 	assert.equal(recoveryDecision("operator_cancelled", { explicitInvocation: true, relevantConditionsChanged: true }).allowed, false);
 	assert.equal(recoveryDecision("operator_cancelled", { explicitInvocation: true, freshOneUseAuthorization: true }).allowed, true);
 	assert.equal(recoveryDecision("tool_protocol_error", { explicitInvocation: true, relevantConditionsChanged: true }).allowed, false);
@@ -28,8 +29,25 @@ test("recovery permits only explicit evidenced conditions and keeps special safe
 	assert.equal(recoveryDecision("indeterminate", { explicitInvocation: true, executorIdle: true, processSettled: true, freshOneUseAuthorization: true, indeterminateGrantUsed: true }).allowed, true);
 });
 
+test("missing lifecycle is unknown and a post-spawn exception is never rewritten as no-launch", () => {
+	assert.equal(explicitProcessLifecycle(undefined), undefined);
+	assert.equal(explicitProcessLifecycle({ launched: true }), undefined);
+	assert.deepEqual(explicitProcessLifecycle({ launched: false, closeSeen: false }), { launched: false, closeSeen: false });
+	assert.deepEqual(lifecycleAfterSpawnException({ spawnAttempted: false, processSeen: false }), { launched: false, closeSeen: false });
+	assert.equal(lifecycleAfterSpawnException({ spawnAttempted: true, processSeen: false }), undefined);
+	assert.deepEqual(lifecycleAfterSpawnException({ spawnAttempted: true, processSeen: true }), { launched: true, closeSeen: false });
+	assert.deepEqual(lifecycleAfterSpawnException({ spawnAttempted: true, processSeen: false, spawnLifecycle: { launched: true, closeSeen: true } }), { launched: true, closeSeen: false });
+	assert.equal(recoveryCategoryFromDetails({ status: "error", exitCode: 1, dispatchId: "d" }), "indeterminate");
+});
+
 test("execution details classify parent cancellation separately from child and verification failures", () => {
 	assert.equal(recoveryCategoryFromDetails({ status: "cancelled", exitCode: 1 }), "operator_cancelled");
+	assert.equal(recoveryCategoryFromDetails({ status: "cancelled", exitCode: 1, started: false }), "operator_cancelled");
+	assert.equal(recoveryCategoryFromDetails({ status: "tier_persona_gate", exitCode: 1, started: false }), "not_started");
+	assert.equal(recoveryCategoryFromDetails({ status: "scope_preflight_failed", exitCode: 1, started: false }), "not_started");
+	assert.equal(recoveryCategoryFromDetails({ status: "error", exitCode: 1, started: false }), "not_started");
+	assert.equal(recoveryCategoryFromDetails({ status: "error", exitCode: 1, lifecycle: { launched: false, closeSeen: false } }), "not_started");
+	assert.equal(recoveryCategoryFromDetails({ status: "error", exitCode: 1, dispatchId: "d", lifecycle: { launched: true, closeSeen: false } }), "indeterminate");
 	assert.equal(recoveryCategoryFromDetails({ status: "error", diagnostics: { reason: "assistant_error" }, exitCode: 1 }), "indeterminate");
 	assert.equal(recoveryCategoryFromDetails({ status: "verification_failed", exitCode: 1 }), "verification_failed");
 	assert.equal(recoveryCategoryFromDetails({ status: "completed_unverified", acceptanceStatus: "deliverable_failed", exitCode: 0 }), "verification_failed");

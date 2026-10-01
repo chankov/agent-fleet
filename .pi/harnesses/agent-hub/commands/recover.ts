@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from '@mariozechner/pi-coding-age
 import type { CommandContext } from './context.ts';
 import type { NoProgressGuard } from '../no-progress.ts';
 import { confirmRecoverAction, type RecoverAuthorizationPorts } from '../budget-recovery.ts';
-import { renderNextInvocation, renderRecoverCommands } from '../recover-policy.ts';
+import { describeInvocationAvailability, renderNextInvocation, renderRecoverCommands } from '../recover-policy.ts';
 
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
 export type RecoverRequest = { action: 'inspect'; operationId: string } | { action: 'retry' | 'reconcile' | 'abandon'; operationId: string; attemptId: string };
@@ -29,8 +29,16 @@ export async function runRecoverCommand(args: string, ctx: ExtensionContext, dep
  if (request.action === "inspect") {
   const last = op.attempts.at(-1);
   const commands = last ? renderRecoverCommands(deps.noProgress, op.operationId, last.attemptId) : null;
-  const missing = !last?.category ? 'pending or unknown process; settle before recovery' : last.category === 'indeterminate' && !last.settled ? 'independent process settlement' : !deps.noProgress.isIdle(op.executor) ? 'executor idle' : op.abandoned ? 'operation abandoned' : !deps.noProgress.invocation(op.operationId) ? 'validated original invocation' : 'category-specific evidence and existing budget/safety gates';
-  ctx.ui.notify(JSON.stringify({ operationId: op.operationId, taskId: op.taskId, attempts: op.attempts.map(a => ({ attemptId: a.attemptId, dispatchId: a.dispatchId, category: a.category ?? 'pending', settled: !!a.settled })), technical_block: op.technical?.status ?? 'open', abandoned: !!op.abandoned, indeterminateGrantUsed: op.indeterminateGrantUsed, missingPrerequisites: missing, commands }), 'info'); return;
+  // T6: proven no-launch history needs no slash reset; each missing prerequisite is distinct.
+  const invocationDetail = describeInvocationAvailability(deps.noProgress, op.operationId);
+  const missing = !last?.category ? 'pending_or_unknown_process: settle the live process before recovery; independent inspection is allowed'
+   : last.category === 'not_started' ? 'none: preflight refused before launch with no effects; correct inputs/prerequisites and re-invoke explicitly (no slash reset, no grant, no reconcile)'
+   : last.category === 'indeterminate' && !last.settled ? 'independent_process_settlement: missing close/termination facts'
+   : !deps.noProgress.isIdle(op.executor) ? 'executor_idle'
+   : op.abandoned ? 'operation_abandoned: abandon closed the operation; parent obligations remain open'
+   : invocationDetail !== 'available' ? invocationDetail
+   : 'category-specific evidence and existing budget/safety gates';
+  ctx.ui.notify(JSON.stringify({ operationId: op.operationId, taskId: op.taskId, attempts: op.attempts.map(a => ({ attemptId: a.attemptId, dispatchId: a.dispatchId, category: a.category ?? 'pending', settled: !!a.settled })), technical_block: op.technical?.status ?? 'open', abandoned: !!op.abandoned, indeterminateGrantUsed: op.indeterminateGrantUsed, missingPrerequisites: missing, invocationAvailability: invocationDetail, commands }), 'info'); return;
  }
  const attempt = op.attempts.find(a => a.attemptId === request.attemptId);
  if (!attempt || op.attempts.at(-1)?.attemptId !== attempt.attemptId || !attempt.category) { ctx.ui.notify("Unknown, live or stale attempt; nothing changed.", "error"); return; }
@@ -44,7 +52,8 @@ export async function runRecoverCommand(args: string, ctx: ExtensionContext, dep
  const authorized = await deps.confirm({ taskId: deps.noProgress.taskId(), operationId: op.operationId, attemptId: attempt.attemptId, action: request.action, category: attempt.category }, ctx, deps.askPorts(op, attempt, request.action));
  if (!authorized) { ctx.ui.notify("Human approval denied, stale, concurrent, or duplicate; no permission granted.", "error"); return; }
  const next = renderNextInvocation(deps.noProgress, op.operationId);
- ctx.ui.notify(request.action === "abandon" ? "Operation abandoned; parent obligations remain open." : `One-use permission recorded; no work was started. ${next ? `Next explicit original-contract invocation: ${next}` : 'Original validated invocation unavailable; re-establish the contract before dispatching.'} Existing budgets and safety gates apply. ${renderRecoverCommands(deps.noProgress, op.operationId, attempt.attemptId) ?? ''}`, "info");
+ const invocationDetail = describeInvocationAvailability(deps.noProgress, op.operationId);
+ ctx.ui.notify(request.action === "abandon" ? "Operation abandoned; parent obligations remain open." : `One-use permission recorded; no work was started. ${next ? `Next explicit original-contract invocation: ${next}` : `Original validated invocation unavailable (${invocationDetail}); re-establish the contract before dispatching.`} Existing budgets and safety gates apply. ${renderRecoverCommands(deps.noProgress, op.operationId, attempt.attemptId) ?? ''}`, "info");
 }
 
 export function registerRecover(pi: ExtensionAPI, commandCtx: CommandContext) {

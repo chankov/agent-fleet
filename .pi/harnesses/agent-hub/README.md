@@ -1368,18 +1368,24 @@ retaining failed delivery and every open AF-MIN-CHANGE/test/review/plan obligati
 does not satisfy dependent work. Audit exports IDs/statuses only, never prompts, nonces,
 raw contracts or evidence paths.
 
-Non-busy recovery refusals spend existing turn/task operation allowances. Exhaustion
+Non-busy recovery refusals use separate accounting and never consume turn/task launch
+counters. A `not_started` preflight refusal (runtime-owned, `started:false`, `effects:none`)
+records 0 launches and 0 indeterminate attempts; correcting the prerequisite and re-invoking
+explicitly needs no slash reset, grant, or reconcile. Exhaustion
 returns budget_refused; no new limit, parent abort, retry, wait or queue is added.
-Busy operations that never started spend no allowance. Turn reports include charged
-refusals as zero-time/zero-token no_progress_refused rows (research in its count);
-refusal totals include even uncharged budget refusals. Session execution totals
+Busy operations that never started spend no allowance and record no failure. Turn reports no
+longer charge refusals as dispatches; refusal totals count every refusal while launch
+counters count only real child executions. Session execution totals
 still count real dispatch attempts rather than guard refusals.
 
 The shared recovery contract is fail-closed. Protocol errors require changed
 conditions plus a trusted prior-effects inspection. The internal task-generation-bound
 establishEffects port accepts a retained inspection reference; it is not a model
-parameter or a promise that T3 exists. No T3 producer is installed yet. Unknown-tool
-recovery likewise has no trusted catalog-change producer in this slice.
+parameter or a promise that T3 exists. Launch/close/termination lifecycle facts are
+produced by the native spawn path and the research spawn path (safety refusal and spawn
+failure never launched; timeout without close stays uncertain). Unknown-tool
+recovery has a task-generation-bound catalog-change port; a trusted catalog-change
+producer must still supply the evidence — prose alone never authorizes it.
 
 ### Runtime verification contract
 

@@ -36,7 +36,12 @@ export const HUB_HERDR_SECTION = `
 - \`herdr_notify\` reaches an away human; it never replaces \`ask_user\`.
 `;
 
-/** Assemble the effective Hub replacement prompt. Ledger metadata is never interpolated. */
+/** Assemble the effective Hub replacement prompt. Ledger metadata is never interpolated.
+ *
+ * T9 truthful guidance: the prompt points at the active catalog and the read-only
+ * inspection route, never at routine slash resets. Preflight refusals carry their
+ * authoritative tier/catalog/revision snapshot; tool availability is never gate admission.
+ */
 export function assembleHubSystemPrompt(parts: HubPromptParts): string {
 	const team = parts.activeTeamName || "(none)";
 	const members = parts.teamMembers || "(none — add a persona before using dispatch_agent)";

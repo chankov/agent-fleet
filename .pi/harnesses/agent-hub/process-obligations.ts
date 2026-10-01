@@ -79,6 +79,13 @@ export function activeAdditionRecoveryHints(state: ProcessObligationState, taskI
  return `Active System 1 additions (not baseline): ${active.map(a => `${a.id} — ${descriptions[a.reason]} ${inputRevision && a.inputRevision === inputRevision ? `To contest this exact addition, ask the human to run /af-task-triage-waive ${a.id} <reason>.` : "Waiver unavailable for this input revision; do not reuse a stale authorization."}`).join(" ")} A waiver needs human authorization and cannot remove baseline or other additions.`;
 }
 
+/** T5/D2: trusted read-only inspection route for refused shell effects.
+ *  There is no regex/model-label/operator-mode exemption for arbitrary bash: unknown
+ *  shell/backend stays a potential effect. The usable route is the effective catalog's
+ *  deterministic inspection tools with an explicit target path — never the shell string. */
+export function readOnlyInspectionRoute(): string {
+ return "Usable read-only route: read/grep/find/ls with an explicit target path (or the filesystem tool when the deterministic-tools opt-in is enabled). Do not execute the shell string; no planner and no slash reset is needed for inspection.";
+}
 export function processActionGate(state: ProcessObligationState, contract?: ActionContract, grant?: ActionGrant): { reason: string; message: string } | null {
  const pending = normalizeProcessState(state).additions!.filter(a => a.status === "active" && a.reason === "irreversible_execution");
  if (!pending.length) return null;
@@ -97,7 +104,7 @@ export function processPreEffectGate(state: ProcessObligationState, effect: "wri
  const stageProducer = effect === "child" && (persona === "planner"
   ? effectiveProcessStage(s, "plan") && !s.plan.evidenceRef
   : ["code-reviewer", "plan-reviewer", "security-auditor"].includes(persona) && effectiveProcessStage(s, "review") && !s.review.evidenceRef);
- if ((effect === "write" || effect === "child") && effectiveProcessStage(s, "plan") && !s.plan.evidenceRef && persona !== "planner") return { reason: "process_plan_open", message: "Process gate refused the dependent effect: the wide-task plan obligation is open. Run the planner first; if no planner is on the roster, ask the human to use /af-agents-add planner or /af-agents-team." };
+ if ((effect === "write" || effect === "child") && effectiveProcessStage(s, "plan") && !s.plan.evidenceRef && persona !== "planner") return { reason: "process_plan_open", message: `Process gate refused the dependent effect: the wide-task plan obligation is open. Run the planner first; if no planner is on the roster, ask the human to use /af-agents-add planner or /af-agents-team. ${readOnlyInspectionRoute()}` };
  if ((effect === "write" || effect === "child") && !stageProducer) { const confirmation = processActionGate(s); if (confirmation) return confirmation; }
  if (effect === "prove") { const open = processOpenObligations(s, revision).filter(x => x !== "acceptance" && x !== "action_confirmation"); if (open.length) return { reason: "process_obligations_open", message: `Assertion cannot become proven while process obligations are open: ${open.join(", ")}.` }; }
  return null;

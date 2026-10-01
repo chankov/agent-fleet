@@ -10,6 +10,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { contextPct, resolveContextWindow } from "../context-window.js";
 import { isReadOnlyToolList, safePathWithin } from "../helpers.ts";
 import { researchTerminationOutcome, researchWatchdogSpawnOptions } from "../research-watchdog.ts";
+import { explicitProcessLifecycle, lifecycleAfterSpawnException } from "../recovery-contract.ts";
 import type { InputArtifactPreview } from "../context/assertions-artifacts.ts";
 import type { ResearchAgentDef, ResearchFinalizeOutcome, ResearchResult, ResearchRuntimeDeps, ResearchState } from "./runtime.ts";
 import { bumpMessageCount } from "../ui/activity-dots.ts";
@@ -41,6 +42,8 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 	const startTime = Date.now();
 	let result: ResearchResult | undefined;
 	let diagnostics: object | null = null;
+	let spawnAttempted = false;
+	let spawnLifecycle: { launched: boolean; closeSeen: boolean } | undefined;
 	const transcriptPath = safePathWithin(state.evidenceDir, "transcript.jsonl");
 
 	const settle = (status: ResearchFinalizeOutcome["status"], historyStatus: ResearchFinalizeOutcome["historyStatus"], lastWork: string, settled: ResearchResult): ResearchResult => {
@@ -56,7 +59,8 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		if (!state.histEntry) state.histEntry = deps.executionHistory.start("research", `Research r${state.id}`);
 
 		const safety = deps.requireSafetyHarness(deps.getSafetyHarnessPath());
-		if (!safety.ok) return settle("error", "error", safety.error, { output: safety.error, exitCode: 1, elapsed: 0 });
+		// T3: safety refusal never launched a process — distinct from spawn failure and timeout.
+		if (!safety.ok) return settle("error", "error", safety.error, { output: safety.error, exitCode: 1, elapsed: 0, lifecycle: { launched: false, closeSeen: false } });
 
 		state.status = "running";
 		state.task = prompt;
@@ -89,6 +93,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		const boundedOutputDir = safePathWithin(state.evidenceDir, "bounded-output");
 		const researchTools = deterministicTools && !deps.researchTools.split(",").includes("filesystem") ? `${deps.researchTools},filesystem` : deps.researchTools;
 		const cwd = ctx.cwd || process.cwd();
+		spawnAttempted = true;
 		const res = await deps.providerSemaphore.run(state.model, () => deps.spawnPiAgentWithModelFallback({
 			model: state.model, tools: researchTools, thinking: thinkingLevel,
 			systemPrompt: deps.nativeResearchSystemPrompt({
@@ -142,29 +147,33 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		diagnostics = { assistantError: res.assistantError ?? null, stderr: res.stderr, spawnError: res.spawnError ?? null, modelUsed: res.modelUsed ?? null, toolCallsStarted: res.toolCallsStarted ?? null, termination: res.termination ?? null, processExitCode: res.exitCode };
 		state.elapsed = Date.now() - startTime;
 		state.proc = undefined;
+		// T3: only explicit spawn lifecycle is trusted. Missing facts stay omitted, not inferred.
+		spawnLifecycle = explicitProcessLifecycle((res as { lifecycle?: unknown }).lifecycle);
+		const lifecycle = spawnLifecycle;
 		if (res.spawnError) {
-			return settle("error", "error", `Error: ${res.spawnError}`, { output: `Error spawning research helper: ${res.spawnError}`, exitCode: 1, elapsed: state.elapsed });
+			return settle("error", "error", `Error: ${res.spawnError}`, { output: `Error spawning research helper: ${res.spawnError}`, exitCode: 1, elapsed: state.elapsed, lifecycle });
 		}
 		if (res.termination) {
 			const outcome = researchTerminationOutcome(state.id, res.termination);
-			return settle("error", "error", outcome.lastWork, { output: outcome.output, exitCode: outcome.exitCode, elapsed: state.elapsed, termination: res.termination });
+			return settle("error", "error", outcome.lastWork, { output: outcome.output, exitCode: outcome.exitCode, elapsed: state.elapsed, termination: res.termination, lifecycle });
 		}
 		if (state.killedByOperator) {
 			state.killedByOperator = false;
-			return settle("idle", "idle", "(killed by operator)", { output: `Research helper r${state.id} was killed by the operator before it finished.`, exitCode: res.exitCode == null || res.exitCode === 0 ? 143 : res.exitCode, elapsed: state.elapsed });
+			return settle("idle", "idle", "(killed by operator)", { output: `Research helper r${state.id} was killed by the operator before it finished.`, exitCode: res.exitCode == null || res.exitCode === 0 ? 143 : res.exitCode, elapsed: state.elapsed, lifecycle });
 		}
 
 		const status = res.exitCode === 0 ? "done" : "error";
 		const lastWork = String(res.output ?? "").split("\n").filter((line: string) => line.trim()).pop() || "";
 		const completed = completeOutput(state, res);
 		const parent = res.boundedOutput ? boundOutput({ content: completed, retentionDir: safePathWithin(state.evidenceDir, "bounded-output", "parent"), label: "parent-summary" }) : null;
-		const settled = settle(status, status, lastWork, { output: parent?.reply ?? completed, exitCode: res.exitCode ?? 1, elapsed: state.elapsed });
+		const settled = settle(status, status, lastWork, { output: parent?.reply ?? completed, exitCode: res.exitCode ?? 1, elapsed: state.elapsed, lifecycle });
 		ctx.ui.notify(`Research r${state.id} ${status} in ${Math.round(state.elapsed / 1000)}s`, status === "done" ? "info" : "error");
 		return settled;
 	} catch (err: unknown) {
 		const message = err instanceof Error ? err.message : String(err);
 		state.elapsed = Date.now() - startTime;
-		return settle("error", "error", `Error: ${message}`, { output: `Error spawning research helper: ${message}`, exitCode: 1, elapsed: state.elapsed });
+		const lifecycle = lifecycleAfterSpawnException({ spawnAttempted, spawnLifecycle, processSeen: !!state.proc });
+		return settle("error", "error", `Error: ${message}`, { output: `Error spawning research helper: ${message}`, exitCode: 1, elapsed: state.elapsed, ...(lifecycle ? { lifecycle } : {}) });
 	} finally {
 		if (!result) {
 			state.elapsed = Date.now() - startTime;
