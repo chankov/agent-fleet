@@ -35,10 +35,12 @@ npx @chankov/agent-fleet@1.0.0 setup --preset default --features none --yes
 ```
 
 **Default** is the stable Fleet Core selection and creates neither `.claude/` nor voice configuration. **Full** selects every stable, platform-applicable catalogue root; it may install the recorded Claude Code coms bridge. **Full + all features** is not a permanent preset: it stores `preset: "full"` and an explicit snapshot of every currently platform-compatible feature, including experimental ones, so future features are not silently enabled. Features are named capabilities (`browser`, `voice`, `hermes`, `telegram`,
-`claude-bridge`, and the experimental `chatgpt-client` and `system1`), not an
+`claude-bridge`, and the experimental `chatgpt-client`, `system1` and
+`system1-task-triage`), not an
 arbitrary package-entry mode — `setup --help` lists them. Experimental features
 are selected only when named explicitly; automatic **Full** does not include
-`system1`.
+`system1` or `system1-task-triage`. Full + all features additionally needs
+separate task-context consent if task triage is selected.
 
 ### Experimental System 1 foundation
 
@@ -47,7 +49,7 @@ explicitly; a credential in the environment does not enable it:
 
 ```bash
 npx @chankov/agent-fleet@latest setup \
-  --preset default --features system1 --yes
+  --preset default --features system1 --save-desired --yes
 ```
 
 Setup installs the shared runtime and prints configuration instructions. It does
@@ -84,9 +86,9 @@ just fleet doctor
 npx @chankov/agent-fleet@latest doctor
 ```
 
-It distinguishes a name declared in `.env` from a nonempty value in its current
-process environment, but never prints the value, contacts TypeSafe, or claims
-the credential is valid. System 1 findings do not make an otherwise healthy
+It does not inspect or load `.env`; declaration status is unknown. It checks
+nonempty key presence in its current process environment, but never prints the
+value, contacts TypeSafe, or claims the credential is valid. System 1 findings do not make an otherwise healthy
 Fleet installation unlaunchable, and `doctor --fix` does not modify System 1
 configuration.
 
@@ -114,14 +116,61 @@ fallback are unsupported. Results are judgments, not permission to act.
 Distributions, probabilities, and provider confidence are retained when the
 provider supplies them, but are not invented or universally calibrated.
 
-Current verification is deliberately split: offline contract and installed
-package checks passed on Node 25.2.1; the real provider smoke was not run because
-`TYPESAFE_API_KEY` was absent, and packaged doctor execution on Node 18 remains
-unverified because that runtime was unavailable. This foundation has no
-Watchdog consumer, local-model installation, or guarantee that existing child
-processes cannot inherit the caller environment. A later integration must own
-credential filtering, consumer policy, and calibration for its domain and
-language.
+Verification remains boundary-specific: offline contract, extracted-package and
+real-Pi synthetic tests do not prove live provider accuracy or calibration.
+Node 18 compatibility covers the packaged installer/doctor; Pi's TypeScript
+runtime is tested separately. Watchdog, dispatch advice, proactive review and
+task triage have separate consumer policies/opt-ins. The shared foundation does
+not install a local model or guarantee universal child-environment isolation.
+
+### Active experimental task triage
+
+For the implementation in a source checkout, preview and then explicitly opt in:
+
+```bash
+node bin/cli.js setup --workspace ~/projects/my-app --preset default \
+  --features system1-task-triage --save-desired --dry-run
+node bin/cli.js setup --workspace ~/projects/my-app --preset default \
+  --features system1-task-triage --save-desired --task-triage-consent --yes
+```
+
+Use the same flags with the package CLI only for a version containing this
+implementation; editing the checkout does not update an already published
+package. `--features` is the complete feature set: include other features to
+keep them. `--save-desired` is needed to persist changes over an existing desired
+file. Temporary flags can install the consumer config while the saved selection
+still leaves the shared provider unselected. `--yes` is not remote-task consent.
+
+The experimental feature depends on `system1` and is excluded from automatic
+Default/Full. The exact-plan transaction creates absent nonsecret
+`.ai/task-triage.json` and `.ai/system1.json`; existing human files and explicit
+off are preserved. It does not collect credentials, create `.env` or infer.
+Supply a key through the runtime environment and run `just fleet deps`, or
+repeat setup with `--allow-exec --yes` and no replacement feature flags so it
+uses the saved selection. The next normal Hub session uses an
+active, uncalibrated consumer—not a shadow-only calibration placeholder.
+
+Task triage can add review, plan/review or one-use exact-action confirmation,
+but never increases the tier, model, budgets or permissions. Limits are 40 KiB
+aggregate task text, 64 KiB state, 100 logical evaluations per saved session and
+2,000 ms per evaluation. Direct bash/edit/write confirmation shows complete
+tool inputs as JSON and cwd, with an **8 KiB (8192 bytes)** detail cap. Unsafe,
+missing, oversized or mismatched details refuse **without truncation or partial
+redaction**, never a hash-only grant. The question is **not local-only**: existing
+ask-user local/remote human routes may receive action paths/content. Metadata
+audit does not sanitize that route or ordinary Pi tool/session rendering.
+Disable stops future calls, not existing obligations:
+
+```bash
+node bin/cli.js setup --workspace ~/projects/my-app --preset default \
+  --features none --save-desired --yes
+```
+
+Replace `none` with your complete remaining feature set. Restart/resume Hub,
+cancel current work if necessary, and do not delete process records to roll
+back. The config stays intact; a source-scoped human waiver is a separate path.
+See [the exact task-triage config, thresholds, recovery and privacy contract](agent-fleet-setup.md#task-triage-active-experimental-off-by-default).
+No release, live pilot, calibration or semantic correctness follows from setup.
 
 ### Then install the runtime dependencies
 
@@ -131,7 +180,7 @@ reason *"runs a command — re-run with `--allow-exec` to include it"*. **A
 workspace is not launchable until they run.** Either let setup run them:
 
 ```bash
-npx @chankov/agent-fleet@latest setup --preset default --features none --allow-exec --yes
+npx @chankov/agent-fleet@latest setup --allow-exec --yes
 ```
 
 …or run them afterwards through the recipe setup just installed:

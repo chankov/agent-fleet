@@ -46,9 +46,10 @@ jobs:
       # quickly and the portability check is not skipped after a suite failure.
       - name: Portability regressions (non-default temp root and symlink paths)
         run: npm run test:portability
+      # The fast default is for local feedback; release qualification runs every test.
       - name: Full suite (includes packed installer and narrow PTY)
         timeout-minutes: 10
-        run: npm test
+        run: npm run test:full
       - name: Verify generated manifest
         run: npm run check:manifest
       - name: Verify package contents

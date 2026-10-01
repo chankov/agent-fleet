@@ -1,3 +1,4 @@
+import { processPreEffectGate, type ProcessObligationState } from "../process-obligations.ts";
 import { PROFILE_ENV, profilePeerGate, profileSpawnPeerRefusal, readActiveProfile } from '../policy/profile-runtime.ts';
 import { PANE_PROMPT_TIMEOUT_MS, launchPeerInPane } from "../../lib/spawned-peers.js";
 import { herdrPaneId } from "../../lib/herdr-presence.ts";
@@ -8,6 +9,8 @@ import { worktreeTag } from "../../../agent-fleet/scripts/lib/team-project.ts";
 import type { HerdrClosePaneParams, HerdrNotifyParams, HerdrReadPaneParams, HerdrSpawnPaneParams, HerdrSpawnPeerParams, ToolExecutionResult, ToolExecutor } from "./context.ts";
 
 export interface HerdrExecutorDeps {
+	getProcessState?(): ProcessObligationState | null;
+	processBlock?(): { reason: string; message: string } | null;
 	provisionalCapabilityRefusal(pack: "workspace"): ToolExecutionResult | null;
 	isFleetReady(): boolean;
 	isComsReady(): boolean;
@@ -27,7 +30,12 @@ const unavailable = (): ToolExecutionResult => ({ content: [{ type: "text", text
 const noPane = (): ToolExecutionResult => ({ content: [{ type: "text", text: "not inside a herdr pane." }], details: { error: "no pane" } });
 
 export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./context.ts").ToolContext, "executeHerdrSpawnPeer" | "executeHerdrSpawnPane" | "executeHerdrReadPane" | "executeHerdrClosePane" | "executeHerdrNotify"> {
+	const effectGate = (): ToolExecutionResult | null => {
+		const gate = d.processBlock?.() ?? (d.getProcessState ? processPreEffectGate(d.getProcessState()!, "child", "") : null);
+		return gate ? { content: [{ type: "text", text: gate.message }], details: { status: "refused", reason: gate.reason } } : null;
+	};
 	const executeHerdrSpawnPeer: ToolExecutor<HerdrSpawnPeerParams> = async (_id, params) => {
+		const gate = effectGate(); if (gate) return gate;
 		const earlyProfile = profilePeerGate({ targetResolved: false }); if (earlyProfile) return earlyProfile;
 		const refusal = d.provisionalCapabilityRefusal("workspace"); if (refusal) return refusal;
 		if (!d.isFleetReady()) return unavailable();
@@ -54,6 +62,7 @@ export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./conte
 		} catch (err) { const m = err instanceof Error ? err.message : String(err); return { content: [{ type: "text", text: `herdr_spawn_peer failed before readiness: ${m}` }], details: { error: m } }; }
 	};
 	const executeHerdrSpawnPane: ToolExecutor<HerdrSpawnPaneParams> = async (_id, params) => {
+		const gate = effectGate(); if (gate) return gate;
 		const refusal = d.provisionalCapabilityRefusal("workspace"); if (refusal) return refusal;
 		if (!d.isFleetReady()) return unavailable(); const ownPane = herdrPaneId(); if (!ownPane) return noPane();
 		try {

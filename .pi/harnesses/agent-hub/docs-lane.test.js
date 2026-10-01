@@ -90,3 +90,10 @@ test("docsLaneNotice tells the dispatcher not to open a review gate", () => {
 	assert.equal(docsLaneNotice("documenter", ["src/**"]), null);
 	assert.equal(docsLaneNotice("code-reviewer", ["Docs/**"]), null, "reviewers are refused, not notified");
 });
+
+test("docsLaneNotice defers to a required process review instead of advising premature closure", () => {
+	const notice = docsLaneNotice("probe-builder", ["README.md"], true);
+	assert.match(notice, /required process review remains open/i);
+	assert.doesNotMatch(notice, /do not dispatch a reviewer/i);
+	assert.match(docsLaneNotice("probe-builder", ["README.md"]), /do not dispatch a reviewer/i, "default docs-only advice remains unchanged");
+});

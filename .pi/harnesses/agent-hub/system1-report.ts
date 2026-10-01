@@ -8,6 +8,56 @@ import type { FindingEntry, FindingReview } from "./proactive-findings.ts";
 import { readProactiveTrace, type ProactiveTraceRecord } from "./system1-activity.ts";
 import { projectWatchdogReadback, readWatchdogTrace, type WatchdogActivity, type WatchdogTraceRecord } from "./system1-activity.ts";
 import type { WatchdogSystem1Session } from "./system1-runtime.ts";
+import { isTaskTriageTraceRecord, readTaskTriageTrace, type TaskTriageTraceRecord } from "./system1-activity.ts";
+
+/** Metadata metrics only. Provider success/assessment signals never imply process acceptance. */
+export function buildTaskTriageReport(events: readonly unknown[], live?: { degraded: boolean } | null, integrity?: WatchdogTraceIntegrity) {
+ const starts = new Map<string, TaskTriageTraceRecord>(), finishes = new Map<string, TaskTriageTraceRecord>();
+ let invalidRecords = integrity?.invalidRecords ?? 0, duplicateEvents = 0;
+ for (const event of events) {
+  if (!isTaskTriageTraceRecord(event)) { invalidRecords++; continue; }
+  const key = JSON.stringify([event.sessionId, event.taskId, event.evaluationId, event.inputRevision]);
+  const table = event.type === "evaluation_started" ? starts : finishes;
+  if (table.has(key)) { duplicateEvents++; continue; }
+  table.set(key, event);
+ }
+ const keys = new Set([...starts.keys(), ...finishes.keys()]);
+ const rows = [...keys].map(key => ({ start: starts.get(key), finish: finishes.get(key) }));
+ const calls = rows.filter(r => r.start?.logicalCall !== false);
+ const logicalKnown = rows.filter(r => typeof r.start?.logicalCall === "boolean");
+ const attempts = calls.flatMap(r => r.finish?.attempts !== null && r.finish?.attempts !== undefined ? [r.finish.attempts] : []);
+ const usages = calls.flatMap(r => r.finish?.usage ? [r.finish.usage] : []);
+ const latencies = rows.flatMap(r => r.finish?.latencyMs !== null && r.finish?.latencyMs !== undefined ? [r.finish.latencyMs] : []).sort((a, b) => a - b);
+ const observedInputTokens = usages.reduce((n, u) => n + u.inputTokens, 0), observedOutputTokens = usages.reduce((n, u) => n + u.outputTokens, 0);
+ const incomplete = rows.filter(r => r.start && !r.finish).length, orphanFinishes = rows.filter(r => !r.start && r.finish).length;
+ const bindingMismatches = rows.filter(r => r.start && r.finish && r.start.logicalCall !== r.finish.logicalCall).length;
+ const degraded = !!live?.degraded || invalidRecords > 0 || duplicateEvents > 0 || orphanFinishes > 0 || bindingMismatches > 0 || !!integrity?.partialTail || !!integrity?.readError;
+ const totalsKnown = calls.length > 0 && usages.length === calls.length && !degraded;
+ const byStatus: Record<string, number> = {};
+ for (const row of rows) { const status = row.finish?.status ?? "interrupted"; byStatus[status] = (byStatus[status] ?? 0) + 1; }
+ return { schema: "task-triage-report/v1" as const, consumer: "task-triage" as const, readOnly: true as const,
+  availability: events.length ? "retained-trace" : "unavailable", scope: "retained-evaluation-metadata", completeness: "unknown outside retained trace",
+  assessments: { started: starts.size, finished: finishes.size, incomplete, byStatus },
+  logicalCalls: { known: logicalKnown.length, reserved: logicalKnown.length ? logicalKnown.filter(r => r.start!.logicalCall === true).length : null, unknown: rows.length - logicalKnown.length },
+  physicalAttempts: { known: attempts.length, observed: attempts.length ? attempts.reduce((n, a) => n + a, 0) : null, unknown: calls.length - attempts.length },
+  usage: { known: usages.length, unknown: calls.length - usages.length,
+   observedInputTokens: usages.length ? observedInputTokens : null, observedOutputTokens: usages.length ? observedOutputTokens : null,
+   inputTokens: totalsKnown ? observedInputTokens : null, outputTokens: totalsKnown ? observedOutputTokens : null },
+  latencyMs: { p50: latencies.length ? latencies[Math.ceil(latencies.length * .5) - 1] : null, p95: latencies.length ? latencies[Math.ceil(latencies.length * .95) - 1] : null, known: latencies.length },
+  obligations: "not_instrumented" as const, taskAcceptance: "not_instrumented" as const, cost: null, calibrationAccepted: false as const,
+  observability: { degraded, invalidRecords, duplicateEvents, orphanFinishes, bindingMismatches, partialTail: integrity?.partialTail ?? false, readError: integrity?.readError ?? false } };
+}
+export function readTaskTriageReport(sessionDir: string) {
+ const events: TaskTriageTraceRecord[] = [], integrity: WatchdogTraceIntegrity = { invalidRecords: 0, partialTail: false, readError: false };
+ let offset = 0;
+ for (;;) {
+  const page = readTaskTriageTrace(join(sessionDir, "artifacts/task-triage-activity/task-triage-events.jsonl"), { after: offset, limit: 100 });
+  events.push(...page.events); integrity.invalidRecords += page.invalidRecords; integrity.partialTail ||= page.partialTail; integrity.readError ||= page.readError;
+  if (page.nextOffset === offset) break;
+  offset = page.nextOffset;
+ }
+ return buildTaskTriageReport(events, null, integrity);
+}
 
 export interface WatchdogTraceIntegrity { invalidRecords: number; partialTail: boolean; readError: boolean }
 /** Read the trace, not the provider or worker accounting. Corruption remains visible as metadata. */

@@ -21,8 +21,9 @@ this page describes the current architecture.
 | **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `.pi/agent-fleet/scripts/lib/`) — see [Hermes artifacts](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `.pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `.pi/agent-fleet/scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
 | **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-client.ts`, `.pi/agent-fleet/scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
-| **System 1 foundation** | Experimental, opt-in provider-neutral structured judgments; currently TypeSafe Jev only, with a separate off-by-default native watchdog shadow consumer and closed active gate | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
+| **System 1 foundation** | Experimental shared structured-judgment service; TypeSafe Jev only, with independent watchdog/dispatch/proactive/task-triage consumer opt-ins | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
 | **System 1 dispatch advice / communication** | Optional off-by-default `dispatch_triage` tool; shared-service memory-only Fleet `1` viewer, independently opt-in; live calibration not yet accepted | `.pi/harnesses/agent-hub/dispatch-triage-*.ts`, `system1-communication-store.ts`, `ui/system1-communication.ts` — [guide](system1-dispatch-triage.md) |
+| **System 1 task triage** | Active uncalibrated opt-in: uncertain predicates add process obligations, never spend/permission authority; session Fleet/audit metadata | `.pi/harnesses/agent-hub/task-triage-*.ts`, human-owned `.ai/task-triage.json` — [config/recovery](agent-fleet-setup.md#task-triage-active-experimental-off-by-default) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
 
@@ -453,7 +454,7 @@ The existing `agent-fleet doctor` command also performs a read-only manifest pre
 ### System 1 watchdog consumer (off by default)
 
 The native specialist Layer 1 drift watchdog can use the shared System 1 runtime
-only after explicit `watchdog-system1: shadow` in `## agent-hub`, feature selection,
+only after explicit `watchdog-system1: shadow|active` in `## agent-hub`, feature selection,
 valid provider configuration, an available key and an armed watchdog. It takes a
 session snapshot; setup and doctor do not infer. Shadow starts the LLM judge at
 once and separately observes the same bounded state with Jev. Only the LLM
@@ -549,8 +550,10 @@ probabilities, and provider confidence when supplied and required, but never
 invents missing uncertainty or treats provider confidence as universal
 calibration.
 
-The experimental `system1` feature must be named explicitly in the human-owned
-`.ai/agent-fleet.json`; automatic Full excludes it. Provider configuration is a
+The shared service requires saved desired selection of experimental `system1`,
+directly or via its `system1-task-triage` feature dependency; automatic Full
+excludes both. Use `--save-desired` for permanent CLI changes over an existing
+human-owned `.ai/agent-fleet.json`. Provider configuration is a
 separate human-owned `.ai/system1.json` with exactly this version-1 contract:
 
 ```json
@@ -579,24 +582,75 @@ There is no arbitrary endpoint, SDK dependency, Pi/local-model fallback, daemon,
 or local-model installation.
 
 Doctor reuses the shared configuration validator and is advisory, read-only,
-and offline—even with `--fix`. It distinguishes an `.env` declaration from a
-nonempty key in its own process but cannot prove API validity. The standalone
+and offline—even with `--fix`. It does not inspect or load `.env`; key presence
+in its current process remains local readiness, never API validity. The standalone
 demo is also offline by default; only explicit `--live` sends its embedded
 synthetic Bulgarian/English examples. Public setup and commands are documented
 in [Install and lifecycle](npm-install.md#experimental-system-1-foundation).
 
-This foundation has no Watchdog integration or other action consumer. It also
-makes no child-environment isolation promise: existing Fleet children may
-inherit caller environment. A future consumer must own field allowlisting,
-credential filtering, policy, thresholds, and calibration for its provider,
-model, question version, domain, and language. Synthetic success is not
-Watchdog accuracy.
+Consumers own their field allowlists, data consent and policy separately. The
+native managed child spawn filters the shared key, but this is not universal
+file/environment isolation for arbitrary launchers. Watchdog's active scope
+shortcut, profile-gated dispatch advice and active uncalibrated task triage are
+different contracts; one consumer's profile/consent cannot enable another.
 
-Evidence remains split by boundary. Offline contract and extracted-package
-checks passed on Node 25.2.1. A real-provider smoke was not executed because
-`TYPESAFE_API_KEY` was absent, packaged doctor execution on Node 18 remains
-unverified because no Node 18 runtime was available, and final maintainer review
-is pending. None of those open items is implied by fixtures or readiness output.
+Evidence stays split: Node 18 verifies installer/doctor portability, real-Pi
+synthetic sessions verify registered runtime hooks, and an extracted tarball
+verifies install/import closure and disable/resume gates. Human UI observation
+and independent checkpoint reviews are separate. None proves live Jev accuracy,
+calibration, semantic assertion adequacy or universal remote effects.
+
+### Task triage: additive process evidence, not spend authority
+
+The separately consented `system1-task-triage` consumer evaluates accepted user
+input before the first Hub model turn, using the existing shared service even
+with watchdog off. It supplies bounded user text and declared scope, not file
+bodies, environment, transcripts or tool output. Runtime limits are 40 KiB
+aggregate task/clarifications, 64 KiB serialized state, 100 logical evaluations
+per saved session and a 2,000 ms deadline including adapter retries. Cache keys
+bind input/scope/version; task adoption and compaction/resume cannot refill the
+allowance. Physical attempts and unknown usage remain distinct from logical calls.
+
+Independent intent-aware predicates at inclusive thresholds add review
+(`security_change` ≥0.80), plan/review (`wide_change` ≥0.85), or exact-action human
+confirmation (`irreversible_execution` ≥0.80). They do not set risk/tier, select
+a model/roster, increase spend or weaken baseline protections. Low probabilities
+are not clearance; missing/invalid/provider-failed results add nothing while
+existing obligations persist. This is active experimental policy, not calibrated
+persona advice or a watchdog stop profile.
+
+Source additions retain task/evaluation/input provenance and union with baseline
+requirements. New scope invalidates uncovered evidence. A narrow correlated
+human waiver releases one bound addition as `waived`, not `satisfied`; baseline
+and other-source requirements survive. Pending task transition and authoritative
+state/grant/consumption persistence refusal fence dependent effects. Supported
+native planner/reviewer stages use the existing evidence path; exact-action
+confirmation supports Hub direct bash/edit/write, not arbitrary child/remote/coms
+execution. The human question shows complete tool inputs as JSON and cwd with
+an **8 KiB (8192 bytes)** full-detail cap: invalid, missing, sensitive,
+terminal/bidi-control, oversized or mismatched details refuse **without
+truncation or partial redaction**. JSON preserves non-ASCII input through escapes;
+sensitive-text detection remains heuristic. The one-use binding and pre-effect
+recheck include task/revision, tool call, operation, input hash and cwd.
+The question is **not local-only**: configured ask-user local/remote human routes
+can carry action paths/content. Normal Pi tool/session rendering, human-route
+records and clipboard are separate from metadata-only audit and its caps.
+Unsupported bindings refuse the affected operation.
+
+The full Fleet dashboard and `/af-audit` separate declared classification,
+assessment, effective obligations, source waivers, blockers, logical calls,
+physical attempts and recorded action grant/consumption/tool result. None means
+semantic task acceptance by itself. New persistent trace/audit projections are
+metadata-only; optional observation failure cannot alter enforcement. The
+communication viewer stays separately opt-in, memory-only and capped at 32 KiB;
+a larger valid task payload is withheld, not truncated. Task-triage presentation
+is session-level and does not fabricate worker rows or a second dashboard.
+
+Setup creates absent nonsecret consumer/provider templates transactionally only
+with explicit task-context consent; it preserves existing configs/off. Disable
+and restart stop future calls without deleting resumed obligations. Detailed
+schema, saved desired selection, role/budget recovery, narrow waiver and rollback
+are in [Project Files](agent-fleet-setup.md#task-triage-active-experimental-off-by-default).
 
 ## Repository module map
 

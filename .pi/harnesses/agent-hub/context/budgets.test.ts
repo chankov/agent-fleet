@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createTaskClock } from "../run-budget.js";
+import { createNoProgressGuard } from "../no-progress.ts";
+import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
+import { createProcessState, evaluateProcessObligations, latestProcessState, processAuditRecord } from "../process-obligations.ts";
 import { createExecutionHistoryStore } from "../ui/history-store.ts";
 import { createBudgetContext, freshTurnReport } from "./budgets.ts";
 
-function fixture() {
+function fixture(onReset?: (persistTaskIdentity?: boolean) => void) {
 	const values: any = {
 		turnDispatch: 3, turnResearch: 2, turnWait: 50, pending: { kind: "task", reason: "cap" },
 		taskContinuation: 4, turnContinuation: 1, taskDispatch: 7, taskResearch: 5,
@@ -19,7 +22,7 @@ function fixture() {
 		getTurnDispatchCount: () => values.turnDispatch, setTurnDispatchCount: value => { values.turnDispatch = value; events.push("turn-dispatch"); },
 		getTurnResearchCount: () => values.turnResearch, setTurnResearchCount: value => { values.turnResearch = value; events.push("turn-research"); },
 		getTurnBudgetAskUserWaitMs: () => values.turnWait, setTurnBudgetAskUserWaitMs: value => { values.turnWait = value; events.push("turn-wait"); },
-		resetNoProgress() { events.push("progress-reset"); },
+		resetNoProgress(persistTaskIdentity) { events.push("progress-reset"); onReset?.(persistTaskIdentity); },
 		resetUnknownToolCounter() { events.push("unknown-tool-reset"); },
 		resetBudgetRecovery: () => { values.pending = null; events.push("recovery-reset"); },
 		getTaskContinuationCount: () => values.taskContinuation, setTaskContinuationCount: value => { values.taskContinuation = value; events.push("task-continuation"); },
@@ -56,6 +59,31 @@ test("task continuation renews counters while preserving task identity and block
 	assert.ok(!events.includes("capabilities"));
 	assert.ok(!events.includes("blockers"));
 	assert.ok(!events.includes("progress-reset"));
+});
+
+test("session setup resets budgets without appending a task identity over a compacted process binding", () => {
+	const entries: any[] = [];
+	const original = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+	const taskId = original.taskId();
+	original.persistTaskIdentity();
+	const bound = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["security_change"] },
+		{ taskId, evaluationId: "evaluation-1", inputRevision: "revision-1" });
+	entries.push({ customType: "agent-hub-process-state", data: processAuditRecord(bound, evaluateProcessObligations(bound, { writable: true, budgetTier: "small" })) });
+	original.compact(entries);
+	const restored = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+	const { context } = fixture(persistTaskIdentity => restored.reset(persistTaskIdentity));
+	context.resetTaskWindow(null, 300, false); // applySessionOverrides, before restoreRoster
+	restored.restore(entries, taskId);
+	assert.equal(restored.taskId(), taskId);
+	assert.equal(latestProcessState(entries).additions?.[0]?.taskId, restored.taskId());
+	assert.equal(entries.filter(e => e.data?.kind === "guard" && e.data.event?.type === "task").length, 1,
+		"startup must not invent a newer, authoritative task event");
+	restored.persistTaskIdentity();
+	assert.equal(entries.filter(e => e.data?.kind === "guard" && e.data.event?.type === "task").length, 1,
+		"the next pre-model hook does not duplicate the restored task event");
+	context.resetTaskWindow("new task", 400);
+	assert.notEqual(restored.taskId(), taskId, "explicit new-task reset still creates a distinct identity");
+	assert.equal(entries.filter(e => e.data?.kind === "guard" && e.data.event?.type === "task").length, 2);
 });
 
 test("new-task reset preserves the capability, blocker, and status side-effect order", () => {

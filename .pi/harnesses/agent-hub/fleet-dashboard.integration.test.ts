@@ -5,7 +5,7 @@ import { TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { buildFleetRows, type FleetSource } from "../lib/fleet-read-model.ts";
 import { renderFleetDashboard, renderProactiveHistory } from "../lib/fleet-dashboard-view.ts";
 import { detailBodyLines, openProactiveEvidence } from "../lib/fleet-detail-view.ts";
-import { projectProactive } from "../lib/fleet-read-model.ts";
+import { projectProactive, projectTaskTriage } from "../lib/fleet-read-model.ts";
 import { createProactiveFindings } from "./proactive-findings.ts";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
@@ -120,6 +120,74 @@ test("mounted controller: zero-row review history, explicit retained evidence an
 	projection = projectProactive({ records: [], history: [], current: [], activity: [] });
 	await panel.handleInput("e"); assertFullFrame(); assert.equal(reads, 1, "old session selection cannot read back"); assert.match(panel.render(100).join("\n"), /unavailable/);
 	await panel.handleInput("\u001b"); assertFullFrame(); assert.match(panel.render(100).join("\n"), /history unavailable/); await panel.handleInput("\u001b"); assertFullFrame(); await panel.handleInput("q"); await opened;
+});
+
+test("mounted Fleet dashboard keeps task triage above workers and keyboard selection on the visible row", async t => {
+ let panel: any, close!: () => void, openedKey: string | undefined;
+ const rows = Array.from({ length: 12 }, (_, i) => ({ ...buildFleetRows({ specialists: [specialist(`w${i}`, "running")], research: [], peers: [] }, { showFinished: true })[0], runToken: `w${i}:1` }));
+ let taskTriage = projectTaskTriage({ configuredStatus: "off" });
+ const terminal = { rows: 15, columns: 120 }, ctx: any = { ui: { notify() {}, custom: (factory: any) => {
+  panel = factory({ terminal, requestRender() {} }, theme, null, () => close()); return new Promise<void>(resolve => { close = resolve; });
+ } } };
+ const dashboard = createFleetDashboard({ getFleetRows: () => rows, getTaskTriage: () => taskTriage, getFilter: () => "", setFilter() {},
+  getShowFinished: () => false, setShowFinished() {}, getComsLines: () => [], modelPolicy: { allKnownModels: () => [] },
+  actions: { open: async key => { openedKey = key; return false; }, execute: async () => {} } } as any);
+ const opened = dashboard.openFleetDashboard(ctx); t.after(() => { close(); panel.dispose(); });
+ assert.match(panel.render(120).join("\n"), /Task triage.*off/);
+ for (let i = 0; i < 11; i++) await panel.handleInput("j");
+ assert.match(panel.render(120).join("\n"), /❯.*W11/);
+ await panel.handleInput("\r"); assert.equal(openedKey, "w11");
+ taskTriage = projectTaskTriage({ configuredStatus: "invalid", runtimeBlocks: ["process_persistence_blocked"] });
+ assert.match(panel.render(120).join("\n"), /process_persistence_blocked/);
+ for (const [height, width] of [[8, 40], [24, 160]]) {
+  terminal.rows = height; terminal.columns = width;
+  const frame = panel.render(width); assert.equal(frame.length, height - 1); assert.ok(frame.every((line: string) => visibleWidth(line) <= width));
+  assert.match(frame.join("\n"), /❯.*W11/, "selected worker stays visible after resize reduces the list viewport");
+ }
+ await panel.handleInput("q"); await opened;
+});
+
+test("Hub task-triage presentation uses memory metadata ports and does not enable capture or call provider", () => {
+ assert.match(source, /getTaskTriage: \(\) => [\s\S]*?taskTriageMetadata\(\)/);
+ assert.match(source, /getTaskTriage: \(\) => fleetSource\.snapshot\(Date\.now\(\)\)\.taskTriage/);
+ assert.match(fleetSource, /projectTaskTriage\(triage\)/);
+ assert.doesNotMatch(fleetSource, /readTaskTriageTrace|readTaskTriageReport|\.evaluate\(/);
+});
+
+test("actual process producer feeds zero-row mounted Fleet without payloads or acceptance claims", async t => {
+ const { createProcessState, applyProcessClassification, evaluateProcessObligations } = await import("./process-obligations.ts");
+ const { applyTaskTriageAdditions } = await import("./task-triage-obligations.ts");
+ const taskId = "11111111-1111-4111-8111-111111111111", inputRevision = "a".repeat(64), evaluationId = "22222222-2222-4222-8222-222222222222";
+ const classification = applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "PRIVATE_REASON" });
+ const assessment = { status: "applied" as const, reasons: ["wide_change" as const], probabilities: { security_change: .1, wide_change: .9, irreversible_execution: .1 } };
+ const state = applyTaskTriageAdditions(classification.state, assessment, { taskId, evaluationId, inputRevision });
+ let input: any = { taskId, inputRevision, assessment: { taskId, inputRevision, evaluationId, assessment },
+  process: { schema: state.schema, ...evaluateProcessObligations(state, { writable: true, budgetTier: "small" }) } };
+ const adapter = createFleetSource({ getAgents: () => new Map(), getResearch: () => new Map(), getPeerInputs: () => [], getPeerCards: () => new Map(),
+  getPendingReplies: () => [], displayName: (s: string) => s, modelForAgent: () => "", modelForResearch: () => "", modelForPeer: (s: string) => s,
+  getTaskTriage: () => input });
+ let panel: any, close!: () => void; const terminal = { rows: 20, columns: 160 };
+ const ctx: any = { ui: { notify() {}, custom: (factory: any) => { panel = factory({ terminal, requestRender() {} }, theme, null, () => close());
+  return new Promise<void>(resolve => { close = resolve; }); } } };
+ const dashboard = createFleetDashboard({ getFleetRows: () => adapter.rows(Date.now(), { showFinished: true }), getTaskTriage: () => adapter.snapshot(Date.now()).taskTriage,
+  getFilter: () => "", setFilter() {}, getShowFinished: () => true, setShowFinished() {}, getComsLines: () => [],
+  modelPolicy: { allKnownModels: () => [] }, actions: { open: async () => false, execute: async () => {} } } as any);
+ const opened = dashboard.openFleetDashboard(ctx); t.after(() => { close(); panel.dispose(); });
+ assert.deepEqual(adapter.rows(Date.now(), { showFinished: true }), []);
+ const screen = panel.render(160).join("\n");
+ assert.match(screen, /Task triage.*applied/); assert.match(screen, /Blockers: (?=[^\n]*plan)(?=[^\n]*acceptance)(?=[^\n]*review)/);
+ assert.match(screen, /wide_change: 1 active/); assert.match(screen, /tier small \(spend only\)/);
+ assert.match(screen, /Task acceptance: not_recorded/); assert.doesNotMatch(screen, /PRIVATE_REASON/);
+ for (const [height, width] of [[20, 160], [12, 40], [8, 79]]) {
+  terminal.rows = height; terminal.columns = width;
+  const compositor = new TUI({ ...terminal, hideCursor() {} } as any) as any; compositor.requestRender = () => {};
+  compositor.showOverlay(panel, FULLSCREEN_OVERLAY.overlayOptions);
+  const painted: string[] = compositor.compositeOverlays(Array(height).fill("PRIVATE_CHAT_SENTINEL"), width, height);
+  assert.equal(painted.filter(line => line.includes("PRIVATE_CHAT_SENTINEL")).length, 1);
+ }
+ input = null;
+ assert.doesNotMatch(panel.render(79).join("\n"), /Task triage|wide_change/, "cleared source never shows old task data");
+ await panel.handleInput("q"); await opened;
 });
 
 test("common fleet source feeds zero-row mounted grid with idle review retention", () => {

@@ -16,23 +16,29 @@ const extensionPaths = [
 	".pi/harnesses/agent-hub/index.ts",
 ];
 
-function runExtensionStack(cwd: string, extraArgs: string[] = []) {
-	return spawnSync(
-		piExecutable,
-		[
-			"--mode",
-			"rpc",
-			"--no-session",
-			"--no-extensions",
-			...extensionPaths.flatMap((extensionPath) => ["-e", extensionPath]),
-			...extraArgs,
-		],
-		{
-			cwd,
-			encoding: "utf8",
-			env: { ...process.env, PI_OFFLINE: "1" },
-		},
-	);
+function runExtensionStack(cwd: string, extraArgs: string[] = [], childEnv: Record<string, string> = {}) {
+	// Socket paths must not inherit a deeply nested reviewer HOME or live registry.
+	const comsDir = mkdtempSync(join(tmpdir(), "loader-coms-"));
+	try {
+		return spawnSync(
+			piExecutable,
+			[
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				...extensionPaths.flatMap((extensionPath) => ["-e", extensionPath]),
+				...extraArgs,
+			],
+			{
+				cwd,
+				encoding: "utf8",
+				env: { ...process.env, ...childEnv, PI_OFFLINE: "1", PI_COMS_DIR: comsDir },
+			},
+		);
+	} finally {
+		rmSync(comsDir, { recursive: true, force: true });
+	}
 }
 
 function assertExtensionStackLoaded(result: ReturnType<typeof spawnSync>) {
@@ -90,13 +96,13 @@ function startRpcProbe(
 		}
 	});
 
-	function request(command: Record<string, unknown>): Promise<any> {
+	function request(command: Record<string, unknown>, timeoutMs = 20_000): Promise<any> {
 		const id = `work-mode-rpc-${++sequence}`;
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
 				pending.delete(id);
 				reject(new Error(`RPC timeout for ${JSON.stringify(command)}\n${stderr}`));
-			}, 20_000);
+			}, timeoutMs);
 			pending.set(id, event => {
 				clearTimeout(timer);
 				resolve(event);
@@ -137,6 +143,24 @@ function startRpcProbe(
 	}
 
 	return { request, activeTools, notificationAfter, waitForNotification, close };
+}
+
+/** turn_end is observational; only a validated RPC state can fence a new ordinary prompt. */
+async function waitForRpcIdle(
+	request: (command: Record<string, unknown>, timeoutMs: number) => Promise<any>,
+	timeoutMs = 10_000,
+): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const remaining = deadline - Date.now();
+		assert.ok(remaining > 0, "RPC seed turn did not become idle within the bounded deadline");
+		const reply = await request({ type: "get_state" }, remaining);
+		assert.ok(Date.now() < deadline, "RPC seed turn did not become idle within the bounded deadline");
+		assert.equal(reply?.success, true, `RPC get_state refused: ${JSON.stringify(reply)}`);
+		assert.equal(typeof reply.data?.isStreaming, "boolean", `Invalid RPC streaming state: ${JSON.stringify(reply)}`);
+		if (!reply.data.isStreaming) return;
+		await new Promise(resolve => setTimeout(resolve, Math.min(20, Math.max(0, deadline - Date.now()))));
+	}
 }
 
 type JsonReadinessState = {
@@ -186,6 +210,31 @@ async function waitForValidJson<T>(
 		}
 	}
 }
+
+test("RPC idle wait polls actual streaming state without resending a prompt", async () => {
+	const calls: string[] = [];
+	await waitForRpcIdle(async (command, timeoutMs) => {
+		calls.push(String(command.type));
+		assert.ok(timeoutMs > 0 && timeoutMs <= 1000);
+		return { success: true, data: { isStreaming: calls.length < 2 } };
+	}, 1000);
+	assert.deepEqual(calls, ["get_state", "get_state"]);
+});
+
+test("RPC idle wait rejects refusal or malformed state rather than treating unknown as idle", async () => {
+	for (const reply of [{ success: false, error: "busy" }, { success: true }, { success: true, data: {} }, { success: true, data: { isStreaming: "false" } }]) {
+		await assert.rejects(waitForRpcIdle(async () => reply), /get_state refused|Invalid RPC streaming state/);
+	}
+});
+
+test("RPC idle wait expires on persistent streaming without another provider request", async () => {
+	const calls: string[] = [];
+	await assert.rejects(waitForRpcIdle(async command => {
+		calls.push(String(command.type));
+		return { success: true, data: { isStreaming: true } };
+	}, 25), /bounded deadline/);
+	assert.ok(calls.length > 0 && calls.every(name => name === "get_state"));
+});
 
 test("Pi loads the guarded agent-hub extension stack through jiti", () => {
 	assertExtensionStackLoaded(runExtensionStack(repoRoot));
@@ -428,7 +477,11 @@ export default function (pi) {
   });
   pi.registerTool({ name: "pressure_probe", label: "Pressure Probe", description: "Return a large synthetic tool result.",
     parameters: Type.Object({}), async execute() { return { content: [{ type: "text", text: "x".repeat(140000) }] }; } });
-  pi.on("turn_end", (_event, ctx) => record({ type: "turn_end", active: pi.getActiveTools(), entries: ctx.sessionManager.getEntries().map(entry => entry.type) }));
+  pi.on("turn_end", async (_event, ctx) => {
+    record({ type: "turn_end", active: pi.getActiveTools(), entries: ctx.sessionManager.getEntries().map(entry => entry.type) });
+    // Keep the seed turn streaming after its marker: turn_end is NOT an idle fence.
+    if (providerCalls === 1) await new Promise(resolve => setTimeout(resolve, 300));
+  });
 }
 `);
 	const previousPath = process.env.PRESSURE_EVENT_PATH;
@@ -441,7 +494,9 @@ export default function (pi) {
 			if (Date.now() >= firstTurnDeadline) assert.fail("seed turn did not settle");
 			await new Promise(resolve => setTimeout(resolve, 20));
 		}
-		assert.equal((await rpc.request({ type: "prompt", message: "run the pressure probe" })).success, true);
+		await waitForRpcIdle(rpc.request);
+		const pressureReply = await rpc.request({ type: "prompt", message: "run the pressure probe" });
+		assert.equal(pressureReply.success, true, JSON.stringify(pressureReply));
 		await rpc.waitForNotification("Context reached 90%; pausing the tool loop for automatic compaction.", 10_000);
 		const abortReadyDeadline = Date.now() + 10_000;
 		while (!(existsSync(eventPath) && readFileSync(eventPath, "utf8").includes('"type":"provider_aborted"'))) {
@@ -917,6 +972,7 @@ test('separately loaded Pi extensions share addressed question registration and 
  const workspace=mkdtempSync(join(tmpdir(),'fleet-question-loader-'));
  try {
   const capture=join(workspace,'questions.json');const probe=join(workspace,'probe.ts');
+  const environmentCapture=join(workspace,'coms-environment.json');
   writeFileSync(probe, `
 import { writeFileSync } from 'node:fs';
 import { questionChannel } from ${JSON.stringify(join(repoRoot,'.pi/harnesses/ask-user-remote/questions.ts'))};
@@ -924,13 +980,23 @@ export default function(pi) {
  pi.on('session_start',()=>{
   const q=questionChannel.open('loader-probe',{question:'Loader question?',options:['OK']});
   writeFileSync(${JSON.stringify(capture)},JSON.stringify({enabled:questionChannel.enabled,opened:!!q}));
+  writeFileSync(${JSON.stringify(environmentCapture)},JSON.stringify({home:process.env.HOME,coms:process.env.PI_COMS_DIR}));
   q?.expire();
  });
 }
 `);
-  const result=runExtensionStack(repoRoot,['-e',probe,'--project','question-loader-test']);
+  // A reviewer sandbox HOME may exceed the Unix socket pathname limit. The
+  // loader fixture must own a short coms root rather than use ambient HOME.
+  const longHome=join(workspace,'reviewer-evidence','c4-postfix-full','home');
+  mkdirSync(longHome,{recursive:true});
+  const result=runExtensionStack(repoRoot,['-e',probe,'--project','question-loader-test'],{HOME:longHome});
   assertExtensionStackLoaded(result);
-  assert.deepEqual(JSON.parse(readFileSync(capture,'utf8')),{enabled:true,opened:true});
+  assert.deepEqual(JSON.parse(readFileSync(capture,'utf8')),{enabled:true,opened:true}, `${result.stdout}\n${result.stderr}`);
+  const environment=JSON.parse(readFileSync(environmentCapture,'utf8'));
+  assert.equal(environment.home,longHome);
+  assert.ok(environment.coms.startsWith(join(tmpdir(),'loader-coms-')));
+  assert.ok(!environment.coms.startsWith(longHome), 'socket root must not inherit long HOME');
+  assert.equal(existsSync(environment.coms),false,'the private child registry/socket root is removed after exit');
  } finally {rmSync(workspace,{recursive:true,force:true});}
 });
 

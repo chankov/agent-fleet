@@ -23,6 +23,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACK_MAX_BUFFER = 64 * 1024 * 1024;
 const SYSTEM1_RUNTIME = [
   "config.js",
+  "selection.js",
   "contracts.ts",
   "demo.ts",
   "jev.ts",
@@ -205,6 +206,50 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     const system1Finding = doctor.findings.find((finding) => finding.type === "system1");
     assert.ok(system1Finding);
     assert.equal(system1Finding.readiness, "missing_key");
+
+    const triageWs = join(fixture, "task-triage");
+    mkdirSync(triageWs);
+    execFileSync(process.execPath, [cli, "setup", "--workspace", triageWs, "--preset", "default", "--features", "none", "--yes"], { encoding: "utf8" });
+    assert.equal(existsSync(join(triageWs, ".ai/task-triage.json")), false);
+    const triagePreview = JSON.parse(execFileSync(process.execPath, [cli, "setup", "--workspace", triageWs,
+      "--preset", "default", "--features", "system1-task-triage", "--dry-run", "--json"], { encoding: "utf8" }));
+    assert.equal(triagePreview.taskTriage.write, true);
+    assert.equal(triagePreview.taskTriageProvider.write, true);
+    const noConsent = spawnSync(process.execPath, [cli, "setup", "--workspace", triageWs, "--preset", "default",
+      "--features", "system1-task-triage", "--yes"], { encoding: "utf8" });
+    assert.equal(noConsent.status, 1);
+    assert.match(noConsent.stderr, /--task-triage-consent/);
+    assert.equal(existsSync(join(triageWs, ".ai/task-triage.json")), false);
+    execFileSync(process.execPath, [cli, "setup", "--workspace", triageWs, "--preset", "default",
+      "--features", "system1-task-triage", "--task-triage-consent", "--yes"], { encoding: "utf8" });
+    const triageConfigPath = join(triageWs, ".ai/task-triage.json");
+    const humanTriage = readFileSync(triageConfigPath, "utf8");
+    assert.equal(JSON.parse(humanTriage).remoteContextApproved, true);
+    assert.equal(JSON.parse(readFileSync(join(triageWs, ".ai/system1.json"), "utf8")).mode, "auto");
+    assert.equal(JSON.parse(readFileSync(join(triageWs, ".ai/agent-fleet-state.json"), "utf8")).taskTriageSelected, true);
+    assert.ok(existsSync(join(triageWs, ".pi/harnesses/agent-hub/task-triage-config.ts")), "installed runtime closure contains the consumer config gate");
+    const installedConfigUrl = new URL(`file://${join(triageWs, ".pi/harnesses/agent-hub/task-triage-config.ts")}`).href;
+    const runtimeStatus = () => spawnSync(process.execPath, ["--import", join(root, "bin/test/helpers/system1-no-network.js"),
+      "--experimental-strip-types", "--input-type=module", "-e",
+      `const mod = await import(${JSON.stringify(installedConfigUrl)}); process.stdout.write(mod.loadTaskTriageConfig(process.cwd()).status);`],
+    { cwd: triageWs, encoding: "utf8", env: { ...process.env, TYPESAFE_API_KEY: "synthetic-test-only-key", PI_OFFLINE: "1" } });
+    const enabled = runtimeStatus();
+    assert.equal(enabled.status, 0, enabled.stderr);
+    assert.equal(enabled.stdout, "active", "installed code sees explicit experimental consent");
+    materializeRuntimeDependencies(triageWs);
+    const triageDoctorText = execFileSync(process.execPath, [cli, "doctor", "--workspace", triageWs, "--json"], {
+      encoding: "utf8", env: { ...doctorEnv, TYPESAFE_API_KEY: "synthetic-test-only-key" },
+    });
+    assert.equal(triageDoctorText.includes("synthetic-test-only-key"), false);
+    const triageDoctor = JSON.parse(triageDoctorText).findings.find(f => f.type === "task-triage");
+    assert.equal(triageDoctor.readiness, "missing_local_producer", "installed Default lacks a planner even with a locally ready provider");
+    assert.ok(triageDoctor.missingLocalProducers.includes("planner"));
+    assert.match(triageDoctor.fix, /\/af-agents-add planner/);
+    execFileSync(process.execPath, [cli, "setup", "--workspace", triageWs, "--preset", "default", "--features", "none", "--yes"], { encoding: "utf8" });
+    assert.equal(readFileSync(triageConfigPath, "utf8"), humanTriage, "disable preserves the human config");
+    const disabled = runtimeStatus();
+    assert.equal(disabled.status, 0, disabled.stderr);
+    assert.equal(disabled.stdout, "off", "installed runtime obeys the applied feature switch");
 
     const node18 = findNode18();
     await t.test("packaged doctor runs on Node 18", { skip: node18 ? false : "Node 18 binary not on PATH" }, () => {

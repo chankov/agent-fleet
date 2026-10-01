@@ -1,0 +1,3856 @@
+{
+  "schemaVersion": 2,
+  "agent": "pi",
+  "method": "copy",
+  "packageVersion": "2.0.14",
+  "sourceRoot": "/home/nchankov/repos/agent-fleet",
+  "taskTriageSelected": true,
+  "profiles": [],
+  "installedAt": "2026-10-01T06:31:04.275Z",
+  "updatedAt": "2026-10-01T06:31:04.313Z",
+  "items": {
+    "command:build": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/prompts/af-build.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-build.md",
+          "mode": "copy",
+          "sha256": "3da296002853e4bc16068d0f80d951f2f37bfd80fa560c08f73d78cef7f938b4"
+        }
+      ]
+    },
+    "command:plan": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/prompts/af-plan.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-plan.md",
+          "mode": "copy",
+          "sha256": "73cca5723ccb12a7a4254ef1bf3f034d83d4cf66b860a74c21fe8fa2c36d751b"
+        }
+      ]
+    },
+    "command:review": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/prompts/af-review.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-review.md",
+          "mode": "copy",
+          "sha256": "33a5115ad5b3aa1372f5bdfdb82befbee20dc3081e9c420de7d6ad43e3c66bdc"
+        }
+      ]
+    },
+    "command:spec": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/prompts/af-spec.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-spec.md",
+          "mode": "copy",
+          "sha256": "bab25d3f82ad85e5805a90830c1e41e22cebc0b493d0b0b80fc509ba1faf3b3d"
+        }
+      ]
+    },
+    "command:test": {
+      "kind": "command",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/prompts/af-test.md",
+      "files": [
+        {
+          "path": ".pi/prompts/af-test.md",
+          "mode": "copy",
+          "sha256": "cbf0fa4bd9d9fc6ed5ae45d7d9d0075645217b7f0fa164a2a52aec0deb9ea492"
+        }
+      ]
+    },
+    "companion:damage-control-rules": {
+      "kind": "companion",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/damage-control-rules.yaml",
+      "files": [
+        {
+          "path": ".pi/damage-control-rules.yaml",
+          "mode": "copy",
+          "sha256": "7bb80664a515511324fdb96c97aa640291195d8f02def2924e815d5159e894bc"
+        }
+      ]
+    },
+    "companion:harness-runtime-closure": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/agent-fleet/hermes/skills",
+      "files": [
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-conductor/SKILL.md",
+          "mode": "copy",
+          "sha256": "3a18b33d5551365a3d810cdc7896187deb168215c0c1d3e9e3608e8468118f79"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-liaison/SKILL.md",
+          "mode": "copy",
+          "sha256": "db710aa934f32521d98a1df38c2eef6bfb9cc4f10bd55ef5220b8ab1da8d3b67"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/SKILL.md",
+          "mode": "copy",
+          "sha256": "cfbc842d12ab7b7bfbca02ca4c8c4d66052fdf7fc1b0f0e7e2d45068ebcfb605"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/manifest.json",
+          "mode": "copy",
+          "sha256": "b3fb890343b04f8180fda66dd296c23707284323bd884805a561baf70dec9718"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog.py",
+          "mode": "copy",
+          "sha256": "cce4fb3dbbb17b842052f4c7e4338eeb1100b68d5680f4f9d23601912d9bec81"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_actions.py",
+          "mode": "copy",
+          "sha256": "a68087b00fc5efaab4f09fd9b99d61379362a4a0aea459d4551b9606beab1aa9"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_contract.py",
+          "mode": "copy",
+          "sha256": "e3ace5840e506a6df8684a18dc96373942cd3c78912e6049efc3ec14927e5358"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_delivery.py",
+          "mode": "copy",
+          "sha256": "7b6b4738bead918610815253d351e600b4d056b176791b0f4083a2d668dff186"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_engine.py",
+          "mode": "copy",
+          "sha256": "8790252b0df7d8197ef01d25b8959114ed97bdefc2af3555a7932316056eff4b"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_judgment.py",
+          "mode": "copy",
+          "sha256": "baaf35c2de02525848d111d0e4c4de67616743b6bf8c576e3b2567b061773c9a"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_recovery.py",
+          "mode": "copy",
+          "sha256": "e8c9927d9cb83ea6b3fb0094a47a4e1b18f836f1132b8cf017c6d4af2b043095"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_state.py",
+          "mode": "copy",
+          "sha256": "c44712ecc9c7605dc09bc3fe326ab88aed1c3c8546591d9883c1fe805195cda5"
+        },
+        {
+          "path": ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
+          "mode": "copy",
+          "sha256": "465021befb21ec49cabb8d69eed44a66361e9aa1a455cbce73b5b4d4c2d0af9d"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/claude-code-preflight.ts",
+          "mode": "copy",
+          "sha256": "87af618d423acd80e4a7e6d668254bec6388be54db31316de649a5299c65ada6"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/coms-claude-bridge.ts",
+          "mode": "copy",
+          "sha256": "2320e3e6ba911783397620cd2ff124973dbc30edab83505580c5e000c0047615"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/coms-cli.ts",
+          "mode": "copy",
+          "sha256": "d3a8b080eb34a48122a05f60377014f82bb18ef4bfc4b76a121e21a4ca237d6b"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/coms-hermes-bridge.ts",
+          "mode": "copy",
+          "sha256": "43663454ab00b2e6badcf14592b7cde921f6e0776f5287b866e4b1469aa30a8b"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/fleet.ts",
+          "mode": "copy",
+          "sha256": "b4544898a0bcaae9dd1616180f7d90796d637d9ee84d83175d81745f679dfb85"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/flow.ts",
+          "mode": "copy",
+          "sha256": "c247fe7a92a01c3f40a58c1215bd7f9b7d1f75f7d2e168dd9c4e99b5672d812d"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/claude-bridge-core.ts",
+          "mode": "copy",
+          "sha256": "25838018e9132ed585be2866d31de3b7f99bb51fe387ef4268dafac53797ce8e"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
+          "mode": "copy",
+          "sha256": "db14b053158f3320d947304f1883a45d8ac32ac2ab5b524b7f8a22136a550f0d"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/fleet-command.ts",
+          "mode": "copy",
+          "sha256": "dc518adc055089bed9ad24371085e206ae243a7889be7e2c60d5317e66250cc4"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/flow-command.ts",
+          "mode": "copy",
+          "sha256": "f78d92eecf8a378076ea22e35c68ee6ab4a17dc9bf609c9a6357966dfcf4e081"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
+          "mode": "copy",
+          "sha256": "1d7ca2dc668a9613248b62418636fc1e51f23ac0280407cdd79feb02b48c7064"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/herdr-layout.ts",
+          "mode": "copy",
+          "sha256": "c1347deced7195ecb691d7e9aedb3cafb86a00c6e5b1e4aec1d7531a74be0218"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/hermes-bridge-core.ts",
+          "mode": "copy",
+          "sha256": "35b081ce0410164b9e78dd04cf0d457844efce5e7396949fb86c85bcdaadf736"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/monitor-env.ts",
+          "mode": "copy",
+          "sha256": "5a1b149b7c194dcd785eb554aaf6417605ecf7853ba708038a91741b22ec0466"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/peer-launch.ts",
+          "mode": "copy",
+          "sha256": "4441c870893a1bf19b0dd6602579b35614b70c198d60cde40190fd76fe43f141"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/persona-banner.ts",
+          "mode": "copy",
+          "sha256": "b4a538420130aa67cda909fede08629310f0b4f2f36acdcaf9fee12383101c89"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/persona-dirs.ts",
+          "mode": "copy",
+          "sha256": "b8db80148b09902cb5121904654dd0fed89dcd418c7cdb701ba508fa126e183f"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/runtime-dependencies.js",
+          "mode": "copy",
+          "sha256": "06b5ec201b6c0bfa364ec71dc7d135d25cfcf5b9f81be962b60aaad65f01fed5"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/spawn-stagger.ts",
+          "mode": "copy",
+          "sha256": "c39c1a7a62213e355cda0165729f30c49220070dafbf2759c9f4b6d08847ae1c"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/team-project.ts",
+          "mode": "copy",
+          "sha256": "40f8e87158865b4760c71debbf4846f5014ed1b4f4b583756fc7e5b8d536af87"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/team-snapshot.ts",
+          "mode": "copy",
+          "sha256": "be3fbd7e107730df67c3fcf0425e6fb701813e950ad3ebb130f79cc00ef00d5d"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/peer-banner.ts",
+          "mode": "copy",
+          "sha256": "615de675cd0e2c3f28164d3ec03c085a57239fd694b26fef9000d9a2ddd0b2a8"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/peer-launch.ts",
+          "mode": "copy",
+          "sha256": "57eafe532e188303d728f82f8ec616aa235abe07ad8b847cd61c027009c0a480"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/team-snapshot.ts",
+          "mode": "copy",
+          "sha256": "bdb9eb0bfa12aeebe536c52e3f333983778e81a38f74731732ba3950ea3ee03a"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/team-up.ts",
+          "mode": "copy",
+          "sha256": "1fba412d43e0ac3d71f97ea907182d2dbb09459ff286bb5f4ebcdc26d0850d48"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/agent-phase.ts",
+          "mode": "copy",
+          "sha256": "74e9511c480cfb83a16905287701f3efa9193f8b29e6f3ffcd1a210b056513d4"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/changes.ts",
+          "mode": "copy",
+          "sha256": "956e5734f1c7a895da84cca8ee437680b69f02b0e535fe6359b240d31b68fa3f"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/debate.ts",
+          "mode": "copy",
+          "sha256": "2916da50bf48288998c5711bcb326d7eaf094ffeea8cde3543466f72515b2b50"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/env.ts",
+          "mode": "copy",
+          "sha256": "25d2107ea40be0808e118d18c74d0af57314862b271ab9eb3bfa0a773e6e5544"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/envelopes.ts",
+          "mode": "copy",
+          "sha256": "271d3194b145e19b5fc0c42e46f5044a509a4c508672747cc769675bb7865dcc"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/gates.ts",
+          "mode": "copy",
+          "sha256": "668dc0dfd20c7ad91299b20d0b23f75dc62d28031f40f5abc80796c87bf74814"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/git.ts",
+          "mode": "copy",
+          "sha256": "8121d8af4723d38a568003facbe5d59c761810fc42d9554515876b5b5b5e29f4"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/isolated-snapshot.ts",
+          "mode": "copy",
+          "sha256": "0c33e7fa7683f3b090ad4af3bb6c201bfcca0833c4305e0d8d02497cd8bff006"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/merge.ts",
+          "mode": "copy",
+          "sha256": "61204f92ac7b31b83f86998001a592acd4786fa9c672b0d8ac5bcb8a03657552"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/model-profile.ts",
+          "mode": "copy",
+          "sha256": "f92f13d1f8db1b1ff447a0ea75b43fc5d304a186773edc50dab2f6b7369be3cc"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/model-visibility.ts",
+          "mode": "copy",
+          "sha256": "e1558d6e9f09f3c6f78778f8ef2ec952da55194e31b29b77edaa1e9ec82eb2ee"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/permissions.ts",
+          "mode": "copy",
+          "sha256": "14a137fd97073f1de87e5238ea193da857a60b48e0eae70ec87a2c54dc56584c"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/personas.ts",
+          "mode": "copy",
+          "sha256": "8c355e1ebef8134fe95dac6ce586abf4284eaf4a9fccb44a509cd3d28182acc5"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/poll.ts",
+          "mode": "copy",
+          "sha256": "3d5c8cb1255bacc4361f0583aabaeaeb4fd79a8466ebcd37b8c2d1776e5f5b65"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/quality.ts",
+          "mode": "copy",
+          "sha256": "7899c46d750889981669263dc2a00f29f4a62c6fc097d824b02fdffc1691e955"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/run.ts",
+          "mode": "copy",
+          "sha256": "86174811d09166935377ca4252b7dbbb6572528f245608e4b7750d72aa37395f"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/scout-data-boundary.ts",
+          "mode": "copy",
+          "sha256": "927f63baf54d045fd216b074f2f362d83a5e3620b92cc2791f8fb3d2fba3322b"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/trace.ts",
+          "mode": "copy",
+          "sha256": "bca30a253f4da62a89725044960b4f233048b38f0fe62478452b3fd5758b5a9c"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/voices.ts",
+          "mode": "copy",
+          "sha256": "e4473a95ade10146943d1eead58a0f1981272b13c275cbadf87a2b8292916816"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/writer-lease.ts",
+          "mode": "copy",
+          "sha256": "5dd7333fb2c94d90cd255c1523608be0c124e860f0f2c09e8926dd1a8c056c77"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-build-test.ts",
+          "mode": "copy",
+          "sha256": "aa5d420f3062ae145e703f7288771ce2edcff86ccdaea2b9b6d92b7554a31c50"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-debate.ts",
+          "mode": "copy",
+          "sha256": "31d1212d1b58b2e3fd43d939b1edeb52810b2a9fafb25d4fe2f51a926cc7ccee"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-document.ts",
+          "mode": "copy",
+          "sha256": "aabfa923f415eadb6051b4862160cc0b2f50af2f64880689b243bd31dbae0f28"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-poll.ts",
+          "mode": "copy",
+          "sha256": "45e9d527be5a9349403ada0ae8910793107cce407b8346e2890f516b0f6bff0e"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-quality.ts",
+          "mode": "copy",
+          "sha256": "c4ef332b99424e2e0facdd8a18ff89593ecba249958e223f740cfb071972b5ff"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-scout.ts",
+          "mode": "copy",
+          "sha256": "7227482f45cd07a3fde3b8ffb5703f6fa9990b3442486f5d209f65b693dee5dc"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-config.ts",
+          "mode": "copy",
+          "sha256": "4af701f9b65a2b9234286b46f08ddfe8c0dc21ea912a6b6789a89c50b14aa605"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-evaluate.ts",
+          "mode": "copy",
+          "sha256": "dcb75bbf77e712839073f67b3d2be40f7bac43c6b3a9bf0fabbfe11f2f4a45b7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-feedback.ts",
+          "mode": "copy",
+          "sha256": "d884ab4679693bc41c53f1b529cd498531f999a5dfff311255af62c1d3b0fbf6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-findings.ts",
+          "mode": "copy",
+          "sha256": "18f99572ce6f0184b1714db34425994f1f3d1f5bb3b728f48b271d8eaada8ee2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-local.ts",
+          "mode": "copy",
+          "sha256": "e49a3de6c224086616a5e55784ef0c0b6c1c3176c4db661c09c68d89589d4356"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-observer.ts",
+          "mode": "copy",
+          "sha256": "0991fb79626c8d81bdc806d1d47ac29bf77d759bffcf3674c9c928073949f05b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-rules.ts",
+          "mode": "copy",
+          "sha256": "ed19f8c85a81eaed6fd7c75a636e66eeeb6722d6a66d55bd4c48184129469c3d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-runtime.ts",
+          "mode": "copy",
+          "sha256": "492cd9c51534711e33bb6cfd991e63d129e401eaeacc7ba1759cd9a1658ded57"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-selection.ts",
+          "mode": "copy",
+          "sha256": "e179869e3f1bd4f594bda491ac830462cf2d1ed5b446052feca87cd193fe5535"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-snapshot-worker.mjs",
+          "mode": "copy",
+          "sha256": "dd12909d6cc16a817160c62b982a9757a9efd6a9e67d46423d7622fec243ddf6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-snapshot.ts",
+          "mode": "copy",
+          "sha256": "0dfdb59927b23758de7c37670fcc8099545eb502a8854a1550b61d4fbd07225b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-types.ts",
+          "mode": "copy",
+          "sha256": "32e35c2454599ca7219dbc326fa040ca0f3df4a547f570be2074a98eb846b6e4"
+        }
+      ]
+    },
+    "companion:justfile-region": {
+      "kind": "companion",
+      "strategy": "managed-region",
+      "method": "managed-region",
+      "version": "2.0.14",
+      "sourceRoot": "justfile",
+      "files": [
+        {
+          "path": "justfile",
+          "mode": "managed-region",
+          "region": "harnesses",
+          "sha256": "29a3d2a00185a6d104b34645be544306357821d053d30aa65c68bd5a7a4eb132"
+        }
+      ]
+    },
+    "companion:pi-agent-configs": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/agents/dispatch-policy.yaml",
+      "files": [
+        {
+          "path": ".pi/agents/dispatch-policy.yaml",
+          "mode": "copy",
+          "sha256": "f6c7232ef831065bb5f8471049ac15e27b865d7011d13f7250fb83ab97d87662"
+        },
+        {
+          "path": ".pi/agents/model-profiles.yaml",
+          "mode": "copy",
+          "sha256": "65512d38f73512cc9a322f76b08bdff8b05465e3d71002b4c70fb12b7f02d77d"
+        },
+        {
+          "path": ".pi/agents/peers.yaml",
+          "mode": "copy",
+          "sha256": "99936eb6717b375fc4687d51d1475e9662e1aa1e6ba82ab9ea5cd4a7c9f64adf"
+        },
+        {
+          "path": ".pi/agents/teams.yaml",
+          "mode": "copy",
+          "sha256": "e293ddc2c240a9ab39a6169ffc2ce56efcb8ecb8f8d68e010b6b12d39503d40a"
+        },
+        {
+          "path": ".pi/agents/voices.yaml",
+          "mode": "copy",
+          "sha256": "175a295bb0fa881fb9e1f2747f34097a78e19e0b7a453ade1970afb4d9d94631"
+        }
+      ]
+    },
+    "companion:pi-extension-manifests": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/extensions/package.json",
+      "files": [
+        {
+          "path": ".pi/extensions/package.json",
+          "mode": "copy",
+          "sha256": "75454ab3e5a63efde851ed1807fdde58d8e2cda6c93542f3cc1b393ddbe14e8a"
+        },
+        {
+          "path": ".pi/extensions/package-lock.json",
+          "mode": "copy",
+          "sha256": "caba8b3c40ea40f20e1c888339c98c52e18b475c0d711f3412abbf9ad5a8d9c5"
+        }
+      ]
+    },
+    "companion:pi-harness-lib": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/harnesses/lib",
+      "files": [
+        {
+          "path": ".pi/harnesses/lib/changed-file-diagnostics.test.ts",
+          "mode": "copy",
+          "sha256": "70b044a21b900604bdabadbdf4938766a88655eccb013870dae6deeebab737be"
+        },
+        {
+          "path": ".pi/harnesses/lib/changed-file-diagnostics.ts",
+          "mode": "copy",
+          "sha256": "990b6156e2eff638937d27204f408bd780452b7e203238411a513bf34150175f"
+        },
+        {
+          "path": ".pi/harnesses/lib/coms-core-io.ts",
+          "mode": "copy",
+          "sha256": "7056fd654c1eb31cfb68ad72c3fb7564e3fece882e74f81575cac2c6cbd1dac8"
+        },
+        {
+          "path": ".pi/harnesses/lib/coms-core.test.ts",
+          "mode": "copy",
+          "sha256": "bddb9adb566bd0fe5a7ee43659663be36ef98ed7290c357b20a64932d1663161"
+        },
+        {
+          "path": ".pi/harnesses/lib/coms-core.ts",
+          "mode": "copy",
+          "sha256": "71f4f7cd25c375e7f93e478c6432669d20fe2ea6e13ca0bef9632990cf703a80"
+        },
+        {
+          "path": ".pi/harnesses/lib/coms-registry-entry.test.ts",
+          "mode": "copy",
+          "sha256": "3da8ae4398d47d1cac2f0608d6319d2da28d189e371d4946dac125695a450529"
+        },
+        {
+          "path": ".pi/harnesses/lib/coms-registry-entry.ts",
+          "mode": "copy",
+          "sha256": "d680b539f7a0dd8b54db98d9f9a81734258202a0b88d91d308c7e7cfa183c09c"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-child-prompt.test.ts",
+          "mode": "copy",
+          "sha256": "dec34f8370a31042bb354ed099433cfb4ea09a21f44178e752a65917dd0c2cd3"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-child-prompt.ts",
+          "mode": "copy",
+          "sha256": "d4badf8c0befb116d37781570db7f8a79342ec6b1d243f29e77ee8d2bf0f8c21"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-hub-prompt.test.ts",
+          "mode": "copy",
+          "sha256": "def0f506e0c32a77b8b8a7c4af69fe6bb0761a1436d1fa6f64bc63730a0ff410"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-hub-prompt.ts",
+          "mode": "copy",
+          "sha256": "daca7057bd997048de6b9c45a836186be966fc0204b65b41bbb109ef8924b130"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-view.test.ts",
+          "mode": "copy",
+          "sha256": "31999e0304d9a49f4f85f672eb87e127495e3fea7541642f06ae75956a122cfd"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget-view.ts",
+          "mode": "copy",
+          "sha256": "d6ce8802865805d7ccd8ba99138698b7b1379d368bfa3b673cf2c6ef4d094dbb"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget.test.ts",
+          "mode": "copy",
+          "sha256": "964e70d1674658d15c8f38611b5fe6c76fcf5dad2562f5334da647e78c44b5cc"
+        },
+        {
+          "path": ".pi/harnesses/lib/context-budget.ts",
+          "mode": "copy",
+          "sha256": "de504de483b60858936154ec69bb0cf4e3c406abddf160e03f8d5e2c10afbad7"
+        },
+        {
+          "path": ".pi/harnesses/lib/damage-control-shared.test.ts",
+          "mode": "copy",
+          "sha256": "dfe8110ab7d14295680c7c24660d7bdb6342caf6c5f0981924483062c0f264af"
+        },
+        {
+          "path": ".pi/harnesses/lib/damage-control-shared.ts",
+          "mode": "copy",
+          "sha256": "cf4b8f01a435707d6dbfd375a09b96369b5edad7c2fba59b3de637e58d74b333"
+        },
+        {
+          "path": ".pi/harnesses/lib/deterministic-handle-path.ts",
+          "mode": "copy",
+          "sha256": "ddd9e743ea45c6d0c610fca29aa641b0f53aeefef75d95de7961fe857fdeec0a"
+        },
+        {
+          "path": ".pi/harnesses/lib/fixtures/context-budget-profiles.json",
+          "mode": "copy",
+          "sha256": "0b8e939d07b91b600a56c22b92e08c99d6f771bdbb42f166b3dc3a0dc4bd0d22"
+        },
+        {
+          "path": ".pi/harnesses/lib/fixtures/hub-prompt-operator.legacy.txt",
+          "mode": "copy",
+          "sha256": "bd3b2c75481760fa6eb8c49f8f1496da5570fe72bb9d798613066d8b5d9c6567"
+        },
+        {
+          "path": ".pi/harnesses/lib/fixtures/hub-prompt-orchestrator.legacy.txt",
+          "mode": "copy",
+          "sha256": "a5525c33104103bfdcd9c78410da679d9cc005aae4db8d80ddd31812f7de524d"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-dashboard-ops.test.ts",
+          "mode": "copy",
+          "sha256": "d27215b00fcb96d0326f481c36c924eaedad9220c3b1451d2a83738b321f3376"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-dashboard-ops.ts",
+          "mode": "copy",
+          "sha256": "e27f8e0e75d195296bd74f29f2da983fd25d1f29d31bbbe7dcb556473c6899c6"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-dashboard-view.test.ts",
+          "mode": "copy",
+          "sha256": "42d44eb8767cbde26ef05a0a25f310ea9f051cf9ec65c27e68e92c053fff9168"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-dashboard-view.ts",
+          "mode": "copy",
+          "sha256": "5bbaedb4db71758dcffcedc23bd12cfe4dfdb2dcdd84f6fdb72d8b7f555fecf4"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-detail-view.test.ts",
+          "mode": "copy",
+          "sha256": "374a3a959433a6ffe10c617756ddbaca6d2f5d3672586b0293d828ea7b312897"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-detail-view.ts",
+          "mode": "copy",
+          "sha256": "28fc3503f8b274932f794c950db90fe5e2455397f743629ab2305bf4642b70d6"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-overlay.test.ts",
+          "mode": "copy",
+          "sha256": "9fc46c633c8e99efe32b0079dc4500dcc3e485076ca8d5634e6e93d2b275ff78"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-overlay.ts",
+          "mode": "copy",
+          "sha256": "774e2a710925513894b18b63d5659ec6ebb449dfda99c632d56331d59c886ddf"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-panel.test.ts",
+          "mode": "copy",
+          "sha256": "d96be622dbdec3166ee778a82e13e6e3da50a3bfa687f8298e005799f3c6d92b"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-panel.ts",
+          "mode": "copy",
+          "sha256": "2353c5c20f79524ae96b26e52fed8252b63f384d7cebb23a8a404a2879064b26"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-read-model.test.ts",
+          "mode": "copy",
+          "sha256": "48b390c584b5dc1d4246d5b36dae6548654243ee5141da666c355368ec51cdd6"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-read-model.ts",
+          "mode": "copy",
+          "sha256": "e9b2bc2fd301f6fcf9ba5a80351ab6a6b4c220443f7fa192640dcafc7be646f1"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-selection.test.ts",
+          "mode": "copy",
+          "sha256": "5c214708aee8221d78034ec2d1fc2497d25cd206220e4696a143c2d6233fd350"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-selection.ts",
+          "mode": "copy",
+          "sha256": "3eef262ee2ff70111b0850cdb0ec314930c6f2e04dff672242f3268ce0c3b019"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-strip-controller.test.ts",
+          "mode": "copy",
+          "sha256": "c84996d37f25366684381bab8daaad774321ae0856cad6d4878c8a01dde403ce"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-strip-controller.ts",
+          "mode": "copy",
+          "sha256": "4a8d23afca810bfb436ea00fe6af78212e342e5038460febe6378bedb931900e"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-strip-view.test.ts",
+          "mode": "copy",
+          "sha256": "25f19206f4343583711a47e02bbb4eabc25479169039e8a2b762f5b7581a2edf"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-strip-view.ts",
+          "mode": "copy",
+          "sha256": "0c544584873a54b6f8a5cc2c886a69c14e812235c13736c5d94fa1ad3e2db387"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-transcript-store.test.ts",
+          "mode": "copy",
+          "sha256": "dcd68b315b8d2456658e7a53916fbc3f1f2af891eabe48e63b22aa00465a685e"
+        },
+        {
+          "path": ".pi/harnesses/lib/fleet-transcript-store.ts",
+          "mode": "copy",
+          "sha256": "6f2ea05c0598d1f80a4b79024d91d8605dc1e1441e1a4385dda1976246c17528"
+        },
+        {
+          "path": ".pi/harnesses/lib/herdr-client.test.ts",
+          "mode": "copy",
+          "sha256": "eaa3b29a8c68159f67fa10699a75962ccd7e5a9d091eec62c6fb3517ccbd95e9"
+        },
+        {
+          "path": ".pi/harnesses/lib/herdr-client.ts",
+          "mode": "copy",
+          "sha256": "d06d54f2bad643206c5eb9fe58fd22b58ebcd615b093567a342f6bb246603f9d"
+        },
+        {
+          "path": ".pi/harnesses/lib/herdr-presence.test.ts",
+          "mode": "copy",
+          "sha256": "b0dd5a92f0c658271bda865bd9c061839058a3456a4c02d2626c0d864d71ee00"
+        },
+        {
+          "path": ".pi/harnesses/lib/herdr-presence.ts",
+          "mode": "copy",
+          "sha256": "918e6492eef3bf5c943f1a426988f402e03c9331b255dcb1012a6175a75cd361"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-events.ts",
+          "mode": "copy",
+          "sha256": "23736e95e3c4a7febf92832ae7ec9f6feb9cd41d57b440e976766c44378267c4"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-herdr.ts",
+          "mode": "copy",
+          "sha256": "c03b00b026d06a6cc8172f6b353c0a60977e584ed0068b5cd88037bd3e0614d3"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-model.ts",
+          "mode": "copy",
+          "sha256": "10b36e57818c12a137d768a4d99c982dc307a6f5c9c6cf23282d37461475ed1f"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-registry.ts",
+          "mode": "copy",
+          "sha256": "78f4b80f385943f185272becc587a6aedcfbf93ac4cf525d3f1dd76309b1e6ab"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-socket.ts",
+          "mode": "copy",
+          "sha256": "3d0d7b1b8961802db13794c25575f9544809c0ab9d18f017469c0ffe3fa3aaf0"
+        },
+        {
+          "path": ".pi/harnesses/lib/hermes-monitor-store.ts",
+          "mode": "copy",
+          "sha256": "24d68e7556941c20df6830d7a275bf9e19200c60924a58345742cb4afa4d3cdd"
+        },
+        {
+          "path": ".pi/harnesses/lib/spawned-peers.js",
+          "mode": "copy",
+          "sha256": "ae2a5fbed763ebd119ec37db4330d57a67e910da435af177f736c8396fbede28"
+        },
+        {
+          "path": ".pi/harnesses/lib/spawned-peers.test.js",
+          "mode": "copy",
+          "sha256": "481c17c1735e48a4922870dd5662a46f1921e11f64fc441ff7eabae1d5196698"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/config.js",
+          "mode": "copy",
+          "sha256": "d385bc3670e08bec328c088075ba2462ace9ed359bb3a00b9d5aed6861fd2dde"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/config.test.js",
+          "mode": "copy",
+          "sha256": "bc8a78d95ab0ee55dc6369dbb312362ff3383c1ed15abe5ab66ab8520501e59c"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/contracts.ts",
+          "mode": "copy",
+          "sha256": "f28f7e83d619c525394f99231d1dfbe1a707f65e68b4c5939b8446f03a973ba1"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/demo.test.ts",
+          "mode": "copy",
+          "sha256": "c99b74201063547fb9e424ffc3386f4b238bbc8130927fb90dca45cd53175b8c"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/demo.ts",
+          "mode": "copy",
+          "sha256": "692530c3a7d5a1c4abb34b63f806ae2d3b6a228c5df976b7b6fef20e554b7ae2"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/fake-provider.test.ts",
+          "mode": "copy",
+          "sha256": "ac20ebb7775d875b81e786c34b292acb2235b6db365fc38864f1902112d1aeba"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/jev.test.ts",
+          "mode": "copy",
+          "sha256": "dc7f2c996f60853a2e7cd0135a39bb95ce883655d307557681718dcb5c73de52"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/jev.ts",
+          "mode": "copy",
+          "sha256": "449c72fc5c6b93c6b5e28e1d371e9ed2f717f3305e4f3532a9d8a028a804a636"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/selection.js",
+          "mode": "copy",
+          "sha256": "8a7bac8d189c0354a2248c1bf6f28f576055a1548833c7f72b40a043ec25b67e"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/service.test.ts",
+          "mode": "copy",
+          "sha256": "623c6dbb7b3fece82f34bbd1a4b485f83976928c8ade0853108511cf360120d0"
+        },
+        {
+          "path": ".pi/harnesses/lib/system1/service.ts",
+          "mode": "copy",
+          "sha256": "54f17a172c055b1f56a0147b914b2cbbf6aac3b68cb98d0b75b76e5e27ce71db"
+        },
+        {
+          "path": ".pi/harnesses/lib/update-check.test.ts",
+          "mode": "copy",
+          "sha256": "1310da82dc0947564b7df81b81501758968c7363b1bd1957b237c61a5b211c28"
+        },
+        {
+          "path": ".pi/harnesses/lib/update-check.ts",
+          "mode": "copy",
+          "sha256": "255a9d51e7fbd721727ad1c27cdcfd740d1e7685a64c5731c22be750a9c6ce58"
+        }
+      ]
+    },
+    "companion:pi-harness-manifests": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/harnesses/package.json",
+      "files": [
+        {
+          "path": ".pi/harnesses/package.json",
+          "mode": "copy",
+          "sha256": "cfb665b3b310302794d38ea32b8ea5cee4096c73238717df55dbd8fc9435c453"
+        },
+        {
+          "path": ".pi/harnesses/package-lock.json",
+          "mode": "copy",
+          "sha256": "7e4f56a9929d7f57e422aa1d1b90048c6f7269ced9abf2f408f210460d83d3fb"
+        }
+      ]
+    },
+    "companion:skills-internal-grilling": {
+      "kind": "companion",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/_internal/grilling.md",
+      "files": [
+        {
+          "path": ".pi/skills/_internal/grilling.md",
+          "mode": "copy",
+          "sha256": "04a4f80faed312a61c67e88495e95dded7fe897b2d95082067b119fc1bb4cd01"
+        }
+      ]
+    },
+    "companion:workflow-guide": {
+      "kind": "companion",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "docs/workflows.md",
+      "files": [
+        {
+          "path": ".pi/agent-fleet/docs/workflows.md",
+          "mode": "copy",
+          "sha256": "6b570ee7603c910385a7078b23c8e7e2556eb7aabe24c606e9ba2b7e533edaa2"
+        }
+      ]
+    },
+    "companion:workflow-runtime": {
+      "kind": "companion",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/agent-fleet/scripts/flow.ts",
+      "files": [
+        {
+          "path": ".pi/agent-fleet/scripts/flow.ts",
+          "mode": "copy",
+          "sha256": "c247fe7a92a01c3f40a58c1215bd7f9b7d1f75f7d2e168dd9c4e99b5672d812d"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/package.json",
+          "mode": "copy",
+          "sha256": "bc82eeebacc3ccd87149d190f3bcaf84db1ab5b2ba185189a3ecd9c1b737e5a8"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/package-lock.json",
+          "mode": "copy",
+          "sha256": "8cc9f5764264aeb219bfb4aea5f69d09801562e40826fd6e1c48f27d6e094640"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/flow-command.ts",
+          "mode": "copy",
+          "sha256": "f78d92eecf8a378076ea22e35c68ee6ab4a17dc9bf609c9a6357966dfcf4e081"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
+          "mode": "copy",
+          "sha256": "1d7ca2dc668a9613248b62418636fc1e51f23ac0280407cdd79feb02b48c7064"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/agent-phase.test.ts",
+          "mode": "copy",
+          "sha256": "aab979785fe742fa00a4f42a5311154b02e9f9245039449ac750b127cb2b37e7"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/agent-phase.ts",
+          "mode": "copy",
+          "sha256": "74e9511c480cfb83a16905287701f3efa9193f8b29e6f3ffcd1a210b056513d4"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/changes.test.ts",
+          "mode": "copy",
+          "sha256": "f532e55d2be4d76b35d0d0fe2b5d2126e6c5a9960476d8723c5da4933b7c8a72"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/changes.ts",
+          "mode": "copy",
+          "sha256": "956e5734f1c7a895da84cca8ee437680b69f02b0e535fe6359b240d31b68fa3f"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/debate.test.ts",
+          "mode": "copy",
+          "sha256": "93ac61456de515fe78445f59343ad4c0c76a6b0c2a2afb4f8b4abf82030f5792"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/debate.ts",
+          "mode": "copy",
+          "sha256": "2916da50bf48288998c5711bcb326d7eaf094ffeea8cde3543466f72515b2b50"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/env.test.ts",
+          "mode": "copy",
+          "sha256": "d5e2a2912e9698e4b585bf40a32af13bedd7d107d18b5c93a626e7f272026faa"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/env.ts",
+          "mode": "copy",
+          "sha256": "25d2107ea40be0808e118d18c74d0af57314862b271ab9eb3bfa0a773e6e5544"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/envelopes-triad.test.ts",
+          "mode": "copy",
+          "sha256": "f408ea836bf2cc4bf406a6a4643be372ec853b01a4a017da1a8bf24d3ba6b0a6"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/envelopes.test.ts",
+          "mode": "copy",
+          "sha256": "4259d6a4364983378f336c5b5871d6262f6879f53c647108c17f5b5c919ecead"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/envelopes.ts",
+          "mode": "copy",
+          "sha256": "271d3194b145e19b5fc0c42e46f5044a509a4c508672747cc769675bb7865dcc"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/gates.test.ts",
+          "mode": "copy",
+          "sha256": "139bf4ba93688f7534599e7cfd9e5ff9dcc8c8d5abb60e4bcf6ff0f9c3efbcc5"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/gates.ts",
+          "mode": "copy",
+          "sha256": "668dc0dfd20c7ad91299b20d0b23f75dc62d28031f40f5abc80796c87bf74814"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/git.test.ts",
+          "mode": "copy",
+          "sha256": "db9953a1a9de370ebfb90dc05d52f7c41abbb1799255b529b6c804aae9129551"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/git.ts",
+          "mode": "copy",
+          "sha256": "8121d8af4723d38a568003facbe5d59c761810fc42d9554515876b5b5b5e29f4"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/isolated-snapshot.test.ts",
+          "mode": "copy",
+          "sha256": "ea37856dcd6c83c0dffe4d2b23a28c58182f9c3fa44789f39df8274d29c60c3d"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/isolated-snapshot.ts",
+          "mode": "copy",
+          "sha256": "0c33e7fa7683f3b090ad4af3bb6c201bfcca0833c4305e0d8d02497cd8bff006"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/merge.test.ts",
+          "mode": "copy",
+          "sha256": "7c5252b2c0400029071eec9af7ff088499dbc27ae3132bf041ee98d76320d74f"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/merge.ts",
+          "mode": "copy",
+          "sha256": "61204f92ac7b31b83f86998001a592acd4786fa9c672b0d8ac5bcb8a03657552"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/model-profile.ts",
+          "mode": "copy",
+          "sha256": "f92f13d1f8db1b1ff447a0ea75b43fc5d304a186773edc50dab2f6b7369be3cc"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/model-visibility.test.ts",
+          "mode": "copy",
+          "sha256": "b267836708ec1c5708ec10067664751f43ec09f00619238c40b21578b910316d"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/model-visibility.ts",
+          "mode": "copy",
+          "sha256": "e1558d6e9f09f3c6f78778f8ef2ec952da55194e31b29b77edaa1e9ec82eb2ee"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/permissions.test.ts",
+          "mode": "copy",
+          "sha256": "736073129876a31fdcfccae4a26187cc64819663743754969fdc463abb4b1fad"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/permissions.ts",
+          "mode": "copy",
+          "sha256": "14a137fd97073f1de87e5238ea193da857a60b48e0eae70ec87a2c54dc56584c"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/personas.ts",
+          "mode": "copy",
+          "sha256": "8c355e1ebef8134fe95dac6ce586abf4284eaf4a9fccb44a509cd3d28182acc5"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/poll.test.ts",
+          "mode": "copy",
+          "sha256": "0a4995b9b79e0b8411a9cb930edbdfe167007f5843c5c6a3855653dbed9e0d70"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/poll.ts",
+          "mode": "copy",
+          "sha256": "3d5c8cb1255bacc4361f0583aabaeaeb4fd79a8466ebcd37b8c2d1776e5f5b65"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/project-policy.test.ts",
+          "mode": "copy",
+          "sha256": "604ca65929f0879c5fafca3a9484a2fe84a81238f18dd88186f9ac62f1b14089"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/project-policy.ts",
+          "mode": "copy",
+          "sha256": "0b909aadc7aa43331b8c9962448308413f314549663b090330bc943bbfe149eb"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/quality.test.ts",
+          "mode": "copy",
+          "sha256": "44bfad0bd47c5026da7338dfda1342789d60cd3110d050b1901a52d8a57982d3"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/quality.ts",
+          "mode": "copy",
+          "sha256": "7899c46d750889981669263dc2a00f29f4a62c6fc097d824b02fdffc1691e955"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/run.test.ts",
+          "mode": "copy",
+          "sha256": "cfe31b2ff51bd40ffbcfe249012cdfcc4194fabbc5154bccbcb7a98d0f30de73"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/run.ts",
+          "mode": "copy",
+          "sha256": "86174811d09166935377ca4252b7dbbb6572528f245608e4b7750d72aa37395f"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/scout-data-boundary.test.ts",
+          "mode": "copy",
+          "sha256": "a59a93e7dd2159d0127d628a0ede4fc029a336882854912032624eb111df4b29"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/scout-data-boundary.ts",
+          "mode": "copy",
+          "sha256": "927f63baf54d045fd216b074f2f362d83a5e3620b92cc2791f8fb3d2fba3322b"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/trace.ts",
+          "mode": "copy",
+          "sha256": "bca30a253f4da62a89725044960b4f233048b38f0fe62478452b3fd5758b5a9c"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/voices.test.ts",
+          "mode": "copy",
+          "sha256": "22764cfc73c772cfa88ea5e86b06170f5e84ff1563a5f36a355a93dd804af6fc"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/voices.ts",
+          "mode": "copy",
+          "sha256": "e4473a95ade10146943d1eead58a0f1981272b13c275cbadf87a2b8292916816"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/writer-lease.test.ts",
+          "mode": "copy",
+          "sha256": "449d979905b590d7e265fc4f41a887eb226ff2fb194aafbb62f641c873e082e8"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/lib/writer-lease.ts",
+          "mode": "copy",
+          "sha256": "5dd7333fb2c94d90cd255c1523608be0c124e860f0f2c09e8926dd1a8c056c77"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/tsconfig.json",
+          "mode": "copy",
+          "sha256": "82d902bd256f7587fa90f014629027a8ab731528eab4a8c4d392c3f43ffced87"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-build-test.test.ts",
+          "mode": "copy",
+          "sha256": "fb40f523519a569e27aec83942a051497fd441326bde37dd51abf730aad65e3e"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-build-test.ts",
+          "mode": "copy",
+          "sha256": "aa5d420f3062ae145e703f7288771ce2edcff86ccdaea2b9b6d92b7554a31c50"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-debate.test.ts",
+          "mode": "copy",
+          "sha256": "f2993c9dabbe497b0ea25fe9cb5a4ac8a04c335f3b9e2892378abc70a9c9dc07"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-debate.ts",
+          "mode": "copy",
+          "sha256": "31d1212d1b58b2e3fd43d939b1edeb52810b2a9fafb25d4fe2f51a926cc7ccee"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-document.test.ts",
+          "mode": "copy",
+          "sha256": "30b576154992cfa8d5d6bd8a7d03c2e65615e0452b03b55027a760e7fd95e1bf"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-document.ts",
+          "mode": "copy",
+          "sha256": "aabfa923f415eadb6051b4862160cc0b2f50af2f64880689b243bd31dbae0f28"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-poll.test.ts",
+          "mode": "copy",
+          "sha256": "53a158ca4fd36f11ab8de24da0d49892c9448c35ce666413419120a45703f224"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-poll.ts",
+          "mode": "copy",
+          "sha256": "45e9d527be5a9349403ada0ae8910793107cce407b8346e2890f516b0f6bff0e"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-quality.ts",
+          "mode": "copy",
+          "sha256": "c4ef332b99424e2e0facdd8a18ff89593ecba249958e223f740cfb071972b5ff"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-scout.test.ts",
+          "mode": "copy",
+          "sha256": "6210b34a31bcfe27040a48bfdbe9ab462f96f9bc97a10f539d6eacd443a08865"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/workflows/wf-scout.ts",
+          "mode": "copy",
+          "sha256": "7227482f45cd07a3fde3b8ffb5703f6fa9990b3442486f5d209f65b693dee5dc"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/return-contract.js",
+          "mode": "copy",
+          "sha256": "d35243357ba6ad464bcd11f8f44c37f596688c86d87c60e18bbc4f4a623f7114"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/run-namespace.js",
+          "mode": "copy",
+          "sha256": "cae9b4f0e542f0877b76890230afc681023d289244176b07213b8bad6843c1e1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/agents.ts",
+          "mode": "copy",
+          "sha256": "da66ab07717a96a3d591c575080105e716ea51632b38bcedbf9b4aac37b150f3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/overrides.ts",
+          "mode": "copy",
+          "sha256": "61e2fad4786eac5844a92e3a17092a4117467d11d0361d870b79e4032d3fc718"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/backend-policy.js",
+          "mode": "copy",
+          "sha256": "53f213d1ee5038fb78aa8b46066a43cfd8008de54773a6cb73a50dfb6c4fd8ac"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/execution-evidence.ts",
+          "mode": "copy",
+          "sha256": "5dccf82c807cd54267065e2bcb0d24027932999ff7375f2702ec09dc501da1fc"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-window.js",
+          "mode": "copy",
+          "sha256": "7f4cd9c5ab38815306e804fc2ddc8b33d24d30585209f50120918086e3a5efca"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/spawn.ts",
+          "mode": "copy",
+          "sha256": "b639e3c6d5f5bf7f44cbaf9dd211405319801e953d9cb1158d2542bfcc248f94"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/runtime-test-check.ts",
+          "mode": "copy",
+          "sha256": "9ca1587b0119947b9452ebd4823021a086c1450670364c953080798a50580592"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tool-protocol.ts",
+          "mode": "copy",
+          "sha256": "992ec196b61630d7c56882176f6984688d43ebf71173509d23fa2fefbe4b43d1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/profile-runtime.ts",
+          "mode": "copy",
+          "sha256": "317794d3e0a8c97df14cb2dea1e4bd56a09d578293d73e2fc588c685b76c1275"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/model-profiles.ts",
+          "mode": "copy",
+          "sha256": "a51ea79db03276c1f01b25e8b469d28adcce8b22d0bd18960825496c1c3d1547"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/scope-gate.js",
+          "mode": "copy",
+          "sha256": "3e4d7c61814532b7b84ea43568a72a94924801574abe1066275d51f51a518930"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/write-isolation.ts",
+          "mode": "copy",
+          "sha256": "acd478087dbef83111184a5f9e0f2b8359a0dab58f32b2f904936b2f9687e81a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/deterministic-fs.ts",
+          "mode": "copy",
+          "sha256": "9064292af1d0ec5c966e5cb2a12b914a5689b5e85a0d8db0e798fb4ff5f5de47"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/helpers.ts",
+          "mode": "copy",
+          "sha256": "a3101fa442b8207baf65076d2f9676db59bc82466b577a81b51b97a00e75a888"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/external-blocker.js",
+          "mode": "copy",
+          "sha256": "39385a5cfc22b9bc6f39b07ac876cc29afd053db9f00551ac45d5f4819e9304b"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/README.md",
+          "mode": "copy",
+          "sha256": "32140162eb0acc8560c36d2e45d95fd8feb6b08b0a4bf678fa42525cd7a7021e"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/exemptions.test.js",
+          "mode": "copy",
+          "sha256": "108e8c8caa660c443bc0f264e551803abdb201bf3873b5523bf822a8ffd15aec"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/herdr-rules.test.js",
+          "mode": "copy",
+          "sha256": "e89fb5258b488ae78de46e25d87120c8d6ecfb017b6195184bd03b59f73faa7d"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/index.ts",
+          "mode": "copy",
+          "sha256": "13087cf8be9e6f1f5b5c08ae3519f27460dccf97d393ec5039ab9ffe65526275"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/package.json",
+          "mode": "copy",
+          "sha256": "b9780d7524fc0860c2af017c30c60a408f7984a0cce1f3e21d02928068f2d142"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/version.ts",
+          "mode": "copy",
+          "sha256": "386a08291046bf785a21ab1b193df3c29c891427181f5476dbcefda304471400"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/types.ts",
+          "mode": "copy",
+          "sha256": "d000b2213a24406b772c528d55babb244a6ca239203dd9d9a11bc379ccca158e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-core.ts",
+          "mode": "copy",
+          "sha256": "265de0a053403d1346b55257849d299a3a84d64eb08cebd10e61b7a902318759"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-coms.ts",
+          "mode": "copy",
+          "sha256": "48139533dd77d6e76c22a256ff0484b2724dc54d8fd55aaf24006e69662e0991"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-runtime.ts",
+          "mode": "copy",
+          "sha256": "0fae773df60543048123c1df37416b372b4496cda638a577860b30a531061011"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/acceptance.ts",
+          "mode": "copy",
+          "sha256": "e793beab9525215f9b324aa940d42ad2637f4d3ec22c03fa2820ce4a3955ccef"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/artifacts.js",
+          "mode": "copy",
+          "sha256": "9fe4f3941d2fe74cd15830b4c424c8c7d1475a480389e8f71d68a886fd632038"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/context.ts",
+          "mode": "copy",
+          "sha256": "cf7a52b6ef987b9d11b1c967dd939fa05393d6f09ea150341b20b8b87aea6ad2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-watchdog.js",
+          "mode": "copy",
+          "sha256": "49f607baa7c8a21ff8678ae51a89521d260798798e2a53aaf5dbc64281b160fe"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/return-extract.js",
+          "mode": "copy",
+          "sha256": "a29f95c56ea83f3fd6acadc9812e8a1272a040846f6de16faff11c34fc326c76"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native.ts",
+          "mode": "copy",
+          "sha256": "dc6608e5500ddfa01206d132f87af144222cf2dc40b352eb5f559e3a49c98df2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/assist-profile.ts",
+          "mode": "copy",
+          "sha256": "d0cb158db568b9b46fae2cc0d8d9c62623c9105f9c990260d51232cc5060d544"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-control.ts",
+          "mode": "copy",
+          "sha256": "bf785e48f15cab4225eb699d1d1eeffd8901a0db455b6a4e6c3aef9e83fbcb3a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-prepare.ts",
+          "mode": "copy",
+          "sha256": "288433bf6f586bd08f726c18c3ec900a85824d3ec56b7748f2dad736b9739214"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/bounded-output.ts",
+          "mode": "copy",
+          "sha256": "a2062b05459e4fec954c7b33c2240ea114f15c9e4a613cc654da3bc4e80ef4c3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/filesystem-tool.ts",
+          "mode": "copy",
+          "sha256": "2e2d2f3e3cf6a70ed56b37036a470c7c88ebf3e8ed8f502c92d92ba501e2a882"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/run-budget.js",
+          "mode": "copy",
+          "sha256": "57569bacb6a9f377602885aeb54f53df43293d374664e58c071f355c0bc0fd78"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-health.js",
+          "mode": "copy",
+          "sha256": "53d9b445dedb7f09cde25d58c3e75220624938e318058023d057875feb75d5b8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/safety-routing.ts",
+          "mode": "copy",
+          "sha256": "5b234c9c7b67f2951069e83007047f4dc34b7b62d235baffd5eb86be836c1c28"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-types.ts",
+          "mode": "copy",
+          "sha256": "f2067e14d3c4849c2daeb6cf56f3c6adee58e56e793b28c7e00ac4973195f594"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/history-store.ts",
+          "mode": "copy",
+          "sha256": "baac05afccb7e067114ed48fd3b3c50089d852279a31f46d98101a3884cd0ee3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/zoom.ts",
+          "mode": "copy",
+          "sha256": "07552931bd6349d060e6dc6f15d62a4b28117b34e3658cd5ed1670528eaca380"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-observability.ts",
+          "mode": "copy",
+          "sha256": "97704b2e1beef58c509d7b6ec6b0aa90fe06cee260d5f857a1ee529258db10c5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/activity-dots.ts",
+          "mode": "copy",
+          "sha256": "a8e716f5360fa9b402e98ea22fe62f48af44b5e4c695f064876d339f291662cd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-resume-contract.ts",
+          "mode": "copy",
+          "sha256": "e3460cb3fbccb485c68cfb1e594ea0b77ac550c34d4e7aa882edd7131cd3156a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-runtime.ts",
+          "mode": "copy",
+          "sha256": "af944cf9e44ea27ec111cb41b4d4212b8a012f23f338b08b91e8afa51ade5ac3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-contract.ts",
+          "mode": "copy",
+          "sha256": "5dc69675cf51c4339f0253de2daf5a73c99c6ffe97e5f58cec0524d9acddeedf"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-state.ts",
+          "mode": "copy",
+          "sha256": "94be4c8ffba3b90d273b937f4879f50d8dc6d2fb1020836002432154e96a1747"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-policy.ts",
+          "mode": "copy",
+          "sha256": "eef862c72a820aa8a67c6c8bec1c0fba506cd243d753c8002aac260547a8c953"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-runtime.ts",
+          "mode": "copy",
+          "sha256": "a689aac7cac7579b503b6bf9f1896967e2471e7491897d979e59a89b89a881a5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-eval.ts",
+          "mode": "copy",
+          "sha256": "9b3a141954f296aa3bc1c484c072a52bad158c9a98afcfd76be20175dcdeca51"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-communication-store.ts",
+          "mode": "copy",
+          "sha256": "80749674fec907471987cc37f1c7d72382c9fcd804b6eb75f1d0a98322684674"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/system1-communication.ts",
+          "mode": "copy",
+          "sha256": "83fa48a38714eed4c8a11b5bcaffded446dbf0f9af2191afe43f7138850b7cff"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/dispatch-triage.ts",
+          "mode": "copy",
+          "sha256": "20254415dca53323e83bda170b4764b15565181a56412f88f50f82e52a19b8b9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-system1-policy.ts",
+          "mode": "copy",
+          "sha256": "61e1d4eb13bcdfd5995b6971b9e2c23a463b77f68e66fdb449a82e176e71eef5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-system1.ts",
+          "mode": "copy",
+          "sha256": "403067b2456f78c83d4c33cd91d0d48f59ec803ee0af41c599dc9bb79893d428"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-activity.ts",
+          "mode": "copy",
+          "sha256": "c405c3f61709107205792ae79749f79403aa881f6a08dae0339dcf4e40e6facd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-judge.ts",
+          "mode": "copy",
+          "sha256": "720f75e42039fe11799b5d39b1bfe9178a77512c736f245119103e240be04cde"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-spawn.ts",
+          "mode": "copy",
+          "sha256": "71ba3d58eaca2fd01adcd838ffb744960a129c67484dd2a3670f7768526d2d18"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/timeline.ts",
+          "mode": "copy",
+          "sha256": "17e18080ab1d3fdc877d66b78ff0a0a4fd89275fb9b917644ef7b468875e3f67"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-complete.ts",
+          "mode": "copy",
+          "sha256": "133081fc513db53ecee682d33437b14b38eac67b3b6269c61808a137c215623a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/runtime.ts",
+          "mode": "copy",
+          "sha256": "1507ed038c95bc23c1b46968c8c8f165e1eaa30b03dd8dea80d056f64da04632"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/hub-state.ts",
+          "mode": "copy",
+          "sha256": "c0700e2d554efb71699c1394457d73c7b8bff59b3166fd3f46e62bed3d262735"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/budgets.ts",
+          "mode": "copy",
+          "sha256": "54f7cdddff0e6933a362c366ea21172ddc3a2c764c87766cf807ed52e7e64a2f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/hub-state-audit.js",
+          "mode": "copy",
+          "sha256": "51177235db7ddda4595b3c63f832d5ea45c65d7ded93c2d085aa9fbf7b3150fa"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/budget-continuation.ts",
+          "mode": "copy",
+          "sha256": "2fffe1682fcda737ceb839a9de25241ec37f854b406caaca593af16e13cb4095"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/budget-recovery.ts",
+          "mode": "copy",
+          "sha256": "c747ca26a30d904c30ab08fc0593ed767fc67c9ed2939c7e31a1031f6eda7437"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/assertions-artifacts.ts",
+          "mode": "copy",
+          "sha256": "35bb931cb478f6c9bc34a2a25317eec82d6aa3cb7300a631f25e5ed53cac22ce"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/provider-semaphore.js",
+          "mode": "copy",
+          "sha256": "3e32c9b1e3960b50e4381559634d9e6af9c314ff9a3fc9075dc5e13e2d1cf24c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/spawn-run.ts",
+          "mode": "copy",
+          "sha256": "66d1ca5ddf2d18a130e756acb2552e4ba65952dde9482ab7fe31f557eb2a53a8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research-watchdog.ts",
+          "mode": "copy",
+          "sha256": "ac7a14e61b93e1ea498885473bf3b48ea60589fc2d013c8d265796d50d990f3d"
+        },
+        {
+          "path": ".pi/agent-fleet/scripts/lib/persona-dirs.ts",
+          "mode": "copy",
+          "sha256": "b8db80148b09902cb5121904654dd0fed89dcd418c7cdb701ba508fa126e183f"
+        }
+      ]
+    },
+    "persona:builder": {
+      "kind": "persona",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "agents/builder.md",
+      "files": [
+        {
+          "path": ".pi/agents/personas/builder.md",
+          "mode": "copy",
+          "sha256": "10f97b23f42a5db614a5c349d54f2b8fc3f8e34c52287012b25d2f0fa8ee834f"
+        }
+      ]
+    },
+    "persona:code-reviewer": {
+      "kind": "persona",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "agents/code-reviewer.md",
+      "files": [
+        {
+          "path": ".pi/agents/personas/code-reviewer.md",
+          "mode": "copy",
+          "sha256": "d87af061c313df58809260b2604741dc80e58c3351abc6cc4ca1d48442a1635e"
+        }
+      ]
+    },
+    "persona:test-engineer": {
+      "kind": "persona",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "agents/test-engineer.md",
+      "files": [
+        {
+          "path": ".pi/agents/personas/test-engineer.md",
+          "mode": "copy",
+          "sha256": "e874d805c2b96247cd4357cd3ebbf263cef9abab41f68ede4aeb7548efcc7b29"
+        }
+      ]
+    },
+    "pi-extension:btw": {
+      "kind": "pi-extension",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/extensions/btw",
+      "files": [
+        {
+          "path": ".pi/extensions/btw/README.md",
+          "mode": "copy",
+          "sha256": "c59912a242de604634023b7dee762644b471f498c19cf1c3f4488f80ecb152c6"
+        },
+        {
+          "path": ".pi/extensions/btw/index.test.ts",
+          "mode": "copy",
+          "sha256": "1c13ba2527602ef73ae1ec15573cf78025843a475f5e023192b5174e9b4b4c28"
+        },
+        {
+          "path": ".pi/extensions/btw/index.ts",
+          "mode": "copy",
+          "sha256": "bee0d4dd52b36e86fa4f720eac23db4a7275dc820f9fc119e9bece5d8af06587"
+        },
+        {
+          "path": ".pi/extensions/btw/package.json",
+          "mode": "copy",
+          "sha256": "d26c231a7c59f57679ebbbd2fb998f666400776f75b5e1ad1dcf08ca152bce1a"
+        },
+        {
+          "path": ".pi/extensions/btw/state.js",
+          "mode": "copy",
+          "sha256": "bec9458ecca78fd6ec76830b2d0c36311b87d84aa56c537d7ca7d5549de870d2"
+        },
+        {
+          "path": ".pi/extensions/btw/state.test.js",
+          "mode": "copy",
+          "sha256": "6499cdbfcbae26423dd44cf3aeaee554505e401c60bb087ed7c3724b1eedd25f"
+        }
+      ]
+    },
+    "pi-extension:compact-and-continue": {
+      "kind": "pi-extension",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/extensions/compact-and-continue",
+      "files": [
+        {
+          "path": ".pi/extensions/compact-and-continue/README.md",
+          "mode": "copy",
+          "sha256": "3741ede5dff20e0211d8f6845965ab863c11ce6d98bbd04874616f3d8bd9f718"
+        },
+        {
+          "path": ".pi/extensions/compact-and-continue/index.ts",
+          "mode": "copy",
+          "sha256": "5c851aabccbb6a35c9160bf286db5fac8dfd5e16d24f87e2cbe0c2cbe327f04d"
+        },
+        {
+          "path": ".pi/extensions/compact-and-continue/package.json",
+          "mode": "copy",
+          "sha256": "dc35d73066e4f65fb910bb72121e2a4f899ca0bbe1678826a7290911edda7b61"
+        }
+      ]
+    },
+    "pi-harness:agent-hub": {
+      "kind": "pi-harness",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/harnesses/agent-hub",
+      "files": [
+        {
+          "path": ".pi/harnesses/agent-hub/README.md",
+          "mode": "copy",
+          "sha256": "b2fa47a007b27cec7d3ca5459a975f13c57fc0129bc7a9fd3fcc952f745d53c9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/acceptance.test.ts",
+          "mode": "copy",
+          "sha256": "0f29fc11518f8c64b4ab9cebe63d293156c0ce8708361eb2bcc6280453262d41"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/acceptance.ts",
+          "mode": "copy",
+          "sha256": "e793beab9525215f9b324aa940d42ad2637f4d3ec22c03fa2820ce4a3955ccef"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/access-approval.ts",
+          "mode": "copy",
+          "sha256": "9b6e0426d39d71721af3047063dac01523bd0554bcafaca76b49d86376d00af4"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/approval-routing.integration.test.ts",
+          "mode": "copy",
+          "sha256": "e56fdc8bff8aec998ae41b3ff7095b05dc371ea924ccf122fc6cdd0e749f3a40"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/artifacts.js",
+          "mode": "copy",
+          "sha256": "9fe4f3941d2fe74cd15830b4c424c8c7d1475a480389e8f71d68a886fd632038"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/artifacts.test.js",
+          "mode": "copy",
+          "sha256": "4b66d9e2e8a99df3a8f86f5ab81a54930a7b0fde6826ddb9fda5806158ab83dd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/assertion-ledger.js",
+          "mode": "copy",
+          "sha256": "59b03f42216b3df36d4cba6c2d1650f5e8d5e655434bd63a73544f9eb8efdc00"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/assertion-ledger.test.js",
+          "mode": "copy",
+          "sha256": "71b8182d5064e3b3f3c1f96928fb1d7a2168fe213c8b3ede4e1f4c901e9ebb47"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/assist-profile.ts",
+          "mode": "copy",
+          "sha256": "d0cb158db568b9b46fae2cc0d8d9c62623c9105f9c990260d51232cc5060d544"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/backend-policy.js",
+          "mode": "copy",
+          "sha256": "53f213d1ee5038fb78aa8b46066a43cfd8008de54773a6cb73a50dfb6c4fd8ac"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/backend-policy.test.js",
+          "mode": "copy",
+          "sha256": "f15e72e35a199398374ef7e9f11938adf75a4c78ae7e0d2550e558b6d7c83929"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/backend-routing.integration.test.ts",
+          "mode": "copy",
+          "sha256": "93e32a80bdf187a23f52304962a71ba21406094f3a22c1348442afc80d01d119"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/bounded-output.test.ts",
+          "mode": "copy",
+          "sha256": "67131e645afc2bbcf49e5252cf2fa6d87060b93c73f6fa08040c07a02d22a2c6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/bounded-output.ts",
+          "mode": "copy",
+          "sha256": "a2062b05459e4fec954c7b33c2240ea114f15c9e4a613cc654da3bc4e80ef4c3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/budget-continuation.integration.test.ts",
+          "mode": "copy",
+          "sha256": "5a27a754d6b442dbae943f2784be4224da10b5a3470b8777a270fa9e6d9c88d0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/budget-continuation.test.ts",
+          "mode": "copy",
+          "sha256": "aa9dcd4431df518ed74cfb4231c0dc74b06214af08d3e49c127f20654d74ef05"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/budget-continuation.ts",
+          "mode": "copy",
+          "sha256": "2fffe1682fcda737ceb839a9de25241ec37f854b406caaca593af16e13cb4095"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/budget-recovery.test.ts",
+          "mode": "copy",
+          "sha256": "718f00d5fd591ffe0df5de00196669b34e299d22520c61cc8543f818c1a7cbc3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/budget-recovery.ts",
+          "mode": "copy",
+          "sha256": "c747ca26a30d904c30ab08fc0593ed767fc67c9ed2939c7e31a1031f6eda7437"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/capability-confirmation.test.ts",
+          "mode": "copy",
+          "sha256": "1a0e3b1a0378a1aad1b03be3654aec8086453e2af05720f1e179f2f65392311b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/capability-confirmation.ts",
+          "mode": "copy",
+          "sha256": "992cba9e52e359409fa8eab969dc56cc3338e38cea867662ced4205322b46440"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/capability-matrix.test.ts",
+          "mode": "copy",
+          "sha256": "318dccc2284c5f220e30aed90368b25da559ba6a11c1968ab75fa841fedea0b3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/capability-packs.test.ts",
+          "mode": "copy",
+          "sha256": "87587bb91b11c65c84ff8f48e04197ee9381eb2d1b1306a9e1c033c54c17d887"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/capability-packs.ts",
+          "mode": "copy",
+          "sha256": "7d14d8f5b92293683ca2433532e1f2437a9520bde88de8a572e84464d03fb24a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agent-model-thinking.ts",
+          "mode": "copy",
+          "sha256": "4b0bea7ba1d0ae784c761a40345944f2a0922790062775ec476d8591bc35f451"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agent-model.ts",
+          "mode": "copy",
+          "sha256": "57e33efd629871751e2f40dcacbadcb69d67fcf55e805a561564ea58aa58a1b8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agent-models-substitute.ts",
+          "mode": "copy",
+          "sha256": "2612f9786c66367daed74e4c5256da43be85fd23698965c47c0633385ecbe109"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-add.ts",
+          "mode": "copy",
+          "sha256": "9a9160061e7896996c3987d2b516ad31c8ffbf70d29717cd400f1cecd71701e8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-drop.ts",
+          "mode": "copy",
+          "sha256": "e0f6a67ab89ba48bcf921f86316dbc246930e0eed0cc6681ab82bebd5bb1ac93"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-history.ts",
+          "mode": "copy",
+          "sha256": "7809e8f17bc8bf5b7bc6b28f0d4ba7e982487bd3f2881c8dbcfc915bb5aaf38a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-kill.ts",
+          "mode": "copy",
+          "sha256": "ec5da71e0d0a42a7190da4a85aa02cc8052b72de632ddab27879dfcfd3a6a924"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-list.ts",
+          "mode": "copy",
+          "sha256": "195ed8dcf1ef2ac9828c199e57de0ba779007412bf22c766635dc94e3e83fba7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-restart.ts",
+          "mode": "copy",
+          "sha256": "f9daff531d10ab1ffc14e83d3a96ff8a39a06bf594b5759b3b28382701c9719f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-save.ts",
+          "mode": "copy",
+          "sha256": "71e2bd172645c32f94db9f927225a96c5fadbad5a2cfaa7061596d4647d0283b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/agents-team.ts",
+          "mode": "copy",
+          "sha256": "1ad68d8763ad64ee6b46f043fc74e95bd53a665d87e816521c1af63a85b727a5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/audit.ts",
+          "mode": "copy",
+          "sha256": "ac800645b2dc30f56f15f3868dc8378082c964ff11f081e37cff1e5581e50620"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/budget-continue.ts",
+          "mode": "copy",
+          "sha256": "313016eb850b88f34024678d78c5c81ea398facd4f3145a0d87b396a22a0b284"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/compound.ts",
+          "mode": "copy",
+          "sha256": "1c0e8026261ca12b246bf5782e21c20d283d6f66a9a356eb6ea86bcc5bb4e65d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/coms.ts",
+          "mode": "copy",
+          "sha256": "6c0e0e979f66c92a0c6e895a53bde682d2715670fd91f81347d759ca0997bb00"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/context-command.ts",
+          "mode": "copy",
+          "sha256": "a8751609ddc45de22c7a0d36b0519d7f6f3cbce63df5d95fb2cf28841c2464a9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/context.ts",
+          "mode": "copy",
+          "sha256": "40a8ec9bf6d1c0781ba7691ffee4c21519a2ad39dd2d0d6b77efba3e0d6fb44f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/debate.ts",
+          "mode": "copy",
+          "sha256": "d6c36a6d00a69c843b2e16f197cc226549e4fa96b865db7902bec64f8020483e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/dispatch-policy.ts",
+          "mode": "copy",
+          "sha256": "da2fe109563ce72fac2abdca43ff385f0217411fb0360e9ed47f7059dc8b655b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/handoff.ts",
+          "mode": "copy",
+          "sha256": "b04fbde2d1acb8bb1a33c2b6fb21c4009482e66d55f14a5d1b87396d1fc7fce8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/hub-report.ts",
+          "mode": "copy",
+          "sha256": "b594b4d626f05796f6d11e205d83c5fe543fd3ee55eef13ae23b4d18ec03b803"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/models.ts",
+          "mode": "copy",
+          "sha256": "d5363c474da2b5f9e7351647eeb1f128b6b891d25af3e9ea288c2bc8b736a31f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/poll.ts",
+          "mode": "copy",
+          "sha256": "769a1de1ec3dd2395f5c9f28a4248bc4833ffa081895707967af3a27fbcd006c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/recover.ts",
+          "mode": "copy",
+          "sha256": "e36093a982ed21d3dd0aed61fe2e892ef9629b61616fda0c5700122a51b3e131"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/retry.ts",
+          "mode": "copy",
+          "sha256": "3fe1b79c8c39766b37cad03530719dd2cf5403ece1f227f65f5c9998b5b6939c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/task-triage-recover.ts",
+          "mode": "copy",
+          "sha256": "d6fe9ac6e4420e92b377c41c05847f89ec703878a24cd9c3af85610f20ff3bb3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/task-triage-waive.ts",
+          "mode": "copy",
+          "sha256": "da97027bb56d228fd3e1a61782d7a9182be741cca1fdecdcdc7f8045d4515183"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/watchdog.ts",
+          "mode": "copy",
+          "sha256": "f8a4cc7b0cac615c789d241cd5cf16aa644df2de71be53fb3712d2c863593bb0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/work-mode.ts",
+          "mode": "copy",
+          "sha256": "9a7a965a4d25601821863fd328bef434e97c41e576d4d9957926482f749ff860"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/commands/zoom.ts",
+          "mode": "copy",
+          "sha256": "89d844705cc7b13ea35156a054be45c73f00fb9c2bbac48cc5aa1371943a9384"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/agents.ts",
+          "mode": "copy",
+          "sha256": "da66ab07717a96a3d591c575080105e716ea51632b38bcedbf9b4aac37b150f3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/model-profiles.test.ts",
+          "mode": "copy",
+          "sha256": "6ec40659d612c445c6b9aa48a16006e67009befe6908223afdf1cb8770826dee"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/model-profiles.ts",
+          "mode": "copy",
+          "sha256": "a51ea79db03276c1f01b25e8b469d28adcce8b22d0bd18960825496c1c3d1547"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/overrides.test.ts",
+          "mode": "copy",
+          "sha256": "469589e597c101b537bd698064c0e1fdabdb8f35bcc3e648b8f7067231624dc0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/config/overrides.ts",
+          "mode": "copy",
+          "sha256": "61e2fad4786eac5844a92e3a17092a4117467d11d0361d870b79e4032d3fc718"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-budget-snapshot.test.ts",
+          "mode": "copy",
+          "sha256": "a298a3da69e1e5ef2739d22175b3a7ce8c5b238de194c7bb18e4d6df5e6caf05"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-budget-snapshot.ts",
+          "mode": "copy",
+          "sha256": "4b4fa3e5e8005134d6a109b5b67f89253b8eabe4e5f0d75dbfe5d90da2697582"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-budget.integration.test.ts",
+          "mode": "copy",
+          "sha256": "e94d734658fede0aea1334fa8d09978674557134dd04150e87271b4135bfac40"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-pressure.test.ts",
+          "mode": "copy",
+          "sha256": "961a7f9b284dc94281c42f8b2b782565809a34eb4005873e48026c447204b9f6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-pressure.ts",
+          "mode": "copy",
+          "sha256": "e5afa868b5d210df0b651181ce258c71cb35090c77740162b0bc4b97bffcc201"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-window.js",
+          "mode": "copy",
+          "sha256": "7f4cd9c5ab38815306e804fc2ddc8b33d24d30585209f50120918086e3a5efca"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context-window.test.js",
+          "mode": "copy",
+          "sha256": "3a4cc294d54d59aade43ce73dd81966f9a011539294f272d3ad509adb8ed4595"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/agent-state.ts",
+          "mode": "copy",
+          "sha256": "e9f76e3d35dcade11ce7f6ea0539bf0ceefd80340bbdc48cdafb58561598656b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/assertions-artifacts.test.ts",
+          "mode": "copy",
+          "sha256": "8cad361309f3c462b6b85ffa4f4a434ce072a32121cfa4f5b6626cc9f025d318"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/assertions-artifacts.ts",
+          "mode": "copy",
+          "sha256": "35bb931cb478f6c9bc34a2a25317eec82d6aa3cb7300a631f25e5ed53cac22ce"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/budgets.test.ts",
+          "mode": "copy",
+          "sha256": "71936a088825d98174cb0a0d4c5cda26c1d7d32d9f7f7c0f3052cf10549214b8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/budgets.ts",
+          "mode": "copy",
+          "sha256": "54f7cdddff0e6933a362c366ea21172ddc3a2c764c87766cf807ed52e7e64a2f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/hub-state.test.ts",
+          "mode": "copy",
+          "sha256": "ff5913f7911e5e0e73598b115eb74382c286bb538d691fc67ba0ad10a7cdce3f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/context/hub-state.ts",
+          "mode": "copy",
+          "sha256": "c0700e2d554efb71699c1394457d73c7b8bff59b3166fd3f46e62bed3d262735"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/debate-command.test.ts",
+          "mode": "copy",
+          "sha256": "fa901f6da9e2777e6a5d0c17b12e71a0a1cdc81431c4aee4a367caf72e79831f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/debate-command.ts",
+          "mode": "copy",
+          "sha256": "1ef1eb30940cba87ce0184e9caf0915fd8aeb6ea409a00212fa6dcae20bf1057"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/delegate-thinking.test.ts",
+          "mode": "copy",
+          "sha256": "b19f69f9720e6a473f62aa8d18e31a8ec48f46058b276d33c197f1097fee3a34"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/delegate.ts",
+          "mode": "copy",
+          "sha256": "95622af981fceb390c1a783a91585880a47fad2243fa9b814d62e7656b05e89e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/deterministic-fs.test.ts",
+          "mode": "copy",
+          "sha256": "ebf76b3b6b3c8161223368a9d8b607aafaa2c3a06e38772d02b0f0616179d359"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/deterministic-fs.ts",
+          "mode": "copy",
+          "sha256": "9064292af1d0ec5c966e5cb2a12b914a5689b5e85a0d8db0e798fb4ff5f5de47"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/diagnostic-probe-extension.test.ts",
+          "mode": "copy",
+          "sha256": "6720c5c0148f58c636ce8ef9c437c7b3324a023846c5e86ad76200548506a958"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/diagnostic-probe-extension.ts",
+          "mode": "copy",
+          "sha256": "6df1dd7766ec5a7d75fd5ed26e671f7f44dcfc5a5f9838204c598cf98c80fe48"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/diagnostic-series-budget.test.ts",
+          "mode": "copy",
+          "sha256": "37d61ecc989ce0700de8022a015a60df3a1093d9d034fe395e14562dea9341b5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/diagnostic-series-budget.ts",
+          "mode": "copy",
+          "sha256": "e19c2b41e3d69dad57c10a6098b495086c150f66f14da06e31e0684aef0a68e1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-coms.ts",
+          "mode": "copy",
+          "sha256": "48139533dd77d6e76c22a256ff0484b2724dc54d8fd55aaf24006e69662e0991"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-core.test.ts",
+          "mode": "copy",
+          "sha256": "20e3ed043d5451f326cb8aabd4c98e467bdf3f0c9433cf947bbed3f7ba1eb6dc"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-core.ts",
+          "mode": "copy",
+          "sha256": "265de0a053403d1346b55257849d299a3a84d64eb08cebd10e61b7a902318759"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-complete.ts",
+          "mode": "copy",
+          "sha256": "133081fc513db53ecee682d33437b14b38eac67b3b6269c61808a137c215623a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-prepare.ts",
+          "mode": "copy",
+          "sha256": "288433bf6f586bd08f726c18c3ec900a85824d3ec56b7748f2dad736b9739214"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-spawn.ts",
+          "mode": "copy",
+          "sha256": "71ba3d58eaca2fd01adcd838ffb744960a129c67484dd2a3670f7768526d2d18"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native-types.ts",
+          "mode": "copy",
+          "sha256": "f2067e14d3c4849c2daeb6cf56f3c6adee58e56e793b28c7e00ac4973195f594"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-native.ts",
+          "mode": "copy",
+          "sha256": "dc6608e5500ddfa01206d132f87af144222cf2dc40b352eb5f559e3a49c98df2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-observability.ts",
+          "mode": "copy",
+          "sha256": "97704b2e1beef58c509d7b6ec6b0aa90fe06cee260d5f857a1ee529258db10c5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-contract.ts",
+          "mode": "copy",
+          "sha256": "5dc69675cf51c4339f0253de2daf5a73c99c6ffe97e5f58cec0524d9acddeedf"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-eval.ts",
+          "mode": "copy",
+          "sha256": "9b3a141954f296aa3bc1c484c072a52bad158c9a98afcfd76be20175dcdeca51"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-policy.ts",
+          "mode": "copy",
+          "sha256": "eef862c72a820aa8a67c6c8bec1c0fba506cd243d753c8002aac260547a8c953"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-runtime.ts",
+          "mode": "copy",
+          "sha256": "a689aac7cac7579b503b6bf9f1896967e2471e7491897d979e59a89b89a881a5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage-state.ts",
+          "mode": "copy",
+          "sha256": "94be4c8ffba3b90d273b937f4879f50d8dc6d2fb1020836002432154e96a1747"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/dispatch-triage.test.ts",
+          "mode": "copy",
+          "sha256": "efb9ca92f62f69ecea40349b4dee94bdca0a48196a0e7bed76141b60ae8bd545"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/docs-lane.js",
+          "mode": "copy",
+          "sha256": "81ef9b3f83d1fca7000d2e32b3fe35fda2abee04d81d68173ed48763477863ba"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/docs-lane.test.js",
+          "mode": "copy",
+          "sha256": "285638bfd842ef24f0c91104c4403c748a08fa15ce0a5d2a2195c01092cec79c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-judge.test.ts",
+          "mode": "copy",
+          "sha256": "e422cbd1073353912ab1683d051721d7a2deedad00767fc016d682b53b317388"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-judge.ts",
+          "mode": "copy",
+          "sha256": "720f75e42039fe11799b5d39b1bfe9178a77512c736f245119103e240be04cde"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-runtime.test.ts",
+          "mode": "copy",
+          "sha256": "a17dd54e1f5226427a8325b6b3c4112c1abbc1e297fccc4313efc67f527527fa"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-runtime.ts",
+          "mode": "copy",
+          "sha256": "0fae773df60543048123c1df37416b372b4496cda638a577860b30a531061011"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-system1-policy.test.ts",
+          "mode": "copy",
+          "sha256": "6893bbc73ba3080b57fda86fe534b3f81ac21bc35944f4a8764ffb809ac9d9aa"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-system1-policy.ts",
+          "mode": "copy",
+          "sha256": "61e1d4eb13bcdfd5995b6971b9e2c23a463b77f68e66fdb449a82e176e71eef5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-system1.test.ts",
+          "mode": "copy",
+          "sha256": "8380974e31a81353b9528c643b170cb9fa3a3670eb5f902d5a0f3a82a3503a01"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-system1.ts",
+          "mode": "copy",
+          "sha256": "403067b2456f78c83d4c33cd91d0d48f59ec803ee0af41c599dc9bb79893d428"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-watchdog.js",
+          "mode": "copy",
+          "sha256": "49f607baa7c8a21ff8678ae51a89521d260798798e2a53aaf5dbc64281b160fe"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/drift-watchdog.test.js",
+          "mode": "copy",
+          "sha256": "22088ade734408b319fa2b82cc47e028a25c2d9f3e9fc05544c824da27b77220"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/evidence-retention.test.ts",
+          "mode": "copy",
+          "sha256": "1ace7a3d38df51410537ed1296d72c58dea6cef37aadec431ae3a1c9ae8df8f3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/evidence-rules.js",
+          "mode": "copy",
+          "sha256": "1ec9d50e524ac22b6e75d20ccb4e581100e826fe2a8a56b2005652c8bc3f320e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/evidence-rules.test.js",
+          "mode": "copy",
+          "sha256": "a6c28e00f197922ba6265a476486d53e74ff52d3c94497b1a4eebb0b1aa8241b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/execution-evidence.ts",
+          "mode": "copy",
+          "sha256": "5dccf82c807cd54267065e2bcb0d24027932999ff7375f2702ec09dc501da1fc"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/extension-loader.test.ts",
+          "mode": "copy",
+          "sha256": "c1f8c09dfe0b5098dc8c66079bc62edbe6df15999336069b033220de64b87f63"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/external-blocker.js",
+          "mode": "copy",
+          "sha256": "39385a5cfc22b9bc6f39b07ac876cc29afd053db9f00551ac45d5f4819e9304b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/external-blocker.test.js",
+          "mode": "copy",
+          "sha256": "d4b435889a94c41460a6b214d9dc5a7829cf886b87a4150b86fb228080df3891"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/filesystem-tool.integration.test.ts",
+          "mode": "copy",
+          "sha256": "fad682cf55075bee280e59069ad0943db7353d76f60b7ab16a34c1e3c8197901"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/filesystem-tool.ts",
+          "mode": "copy",
+          "sha256": "2e2d2f3e3cf6a70ed56b37036a470c7c88ebf3e8ed8f502c92d92ba501e2a882"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/fixtures/registration-surface.json",
+          "mode": "copy",
+          "sha256": "bcd0dc4079d5512f01d0e784dcb14bb822bffdedd876dafc4eb1fee0563bc7fb"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/fixtures/t0a-synthetic/catalog.ts",
+          "mode": "copy",
+          "sha256": "7de986ed7b38859f2e1e10aca053e8a587ef7b20616c90ea27e432449a3437b7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/fleet-dashboard.integration.test.ts",
+          "mode": "copy",
+          "sha256": "197cb7be8de9b8ed1372fd29bd4e8f1323a27ecf4ee1c2f84053333cc9fc379d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/footer.test.ts",
+          "mode": "copy",
+          "sha256": "62359bd4581c51851f1edab452c9ff3863c4b5fde3f054678341de629ccee2e2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/footer.ts",
+          "mode": "copy",
+          "sha256": "ad6483aaec14a7bfc47ed17252a0b0510a079d5e4a7cf4aeb8a81215aa9a78eb"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/helpers.ts",
+          "mode": "copy",
+          "sha256": "a3101fa442b8207baf65076d2f9676db59bc82466b577a81b51b97a00e75a888"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/hub-state-audit.js",
+          "mode": "copy",
+          "sha256": "51177235db7ddda4595b3c63f832d5ea45c65d7ded93c2d085aa9fbf7b3150fa"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/hub-state-audit.test.js",
+          "mode": "copy",
+          "sha256": "170b3d64fdeded6249381d278a434d0eeb808a3664de37c5d1525622228a80fa"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/index.ts",
+          "mode": "copy",
+          "sha256": "a4a229e96f905c4acb9cf55f14ce487318c6b1b0610f0201c00bee70662e0bc6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/input/completions.ts",
+          "mode": "copy",
+          "sha256": "80e41be3d43d627ca3da8bc8022feb5bac6c0f6ff4b04db6ad26d85e075ec482"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/input/presentation.test.ts",
+          "mode": "copy",
+          "sha256": "edb9a0b3acd7420f209878e3f506c18113f2a660da9dcb6b19640585f0bfc954"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/input/shortcuts.test.ts",
+          "mode": "copy",
+          "sha256": "00d7ea8d165a625ca6f69d9adbd61c42479c8bd961a449abeaa894d13ecd7a19"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/input/shortcuts.ts",
+          "mode": "copy",
+          "sha256": "398570e0a9b96e1131b9dbf3f79595e6d6ed0ea1f500f4c42a5122e0ae3fc6b0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/context-pressure.ts",
+          "mode": "copy",
+          "sha256": "ea52360a1e18ee69bbc6fb8b5276eb33854f964a45438363ab3d9057370e0fb6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/lifecycle.test.ts",
+          "mode": "copy",
+          "sha256": "dc7e09f9f412e312b305ac1a6c60fede07a11b1bdee918ce7261a32672c25be8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/monitor-session.ts",
+          "mode": "copy",
+          "sha256": "d130ef8b7a8d654d08337eb3ad1a7927de677f37fa619e80ada0a42f2679cfbe"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/session-orchestration.test.ts",
+          "mode": "copy",
+          "sha256": "aa34bf2c2f9fbbfd5a05d10d6deb1f651ae28c3b5ec67755a6693b938acf2a3e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/session-orchestration.ts",
+          "mode": "copy",
+          "sha256": "825bcb494210bcc080e1262f50617197d97286b6171528ff7c0aa72ddbb2b9c9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/lifecycle/turn-handlers.ts",
+          "mode": "copy",
+          "sha256": "eb9dc3b2807fd7faac74c26375096f7eed4055d7b3cf682d313d073a044105cd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-bridge-runtime.test.ts",
+          "mode": "copy",
+          "sha256": "a58e1ae43d353537c20e045003c3dca384f7b47d680a4a7bfa52a62774e307c5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-cancel-race.test.ts",
+          "mode": "copy",
+          "sha256": "4ffdb20660222985eea922b375fa7930f128a3e7eb9d478033a03bf1a521f395"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-coms-turn.test.ts",
+          "mode": "copy",
+          "sha256": "308639a3d58e56e646eb180c9abe718a6fe8f9e36ad630425d09473582579f14"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-control.test.ts",
+          "mode": "copy",
+          "sha256": "6142c8de76d7821f837461b48d9141ac3f5c0c53fd1b9cee785cf0a336d7f967"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-control.ts",
+          "mode": "copy",
+          "sha256": "bf785e48f15cab4225eb699d1d1eeffd8901a0db455b6a4e6c3aef9e83fbcb3a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-index.integration.test.ts",
+          "mode": "copy",
+          "sha256": "9261e7570891a11044b58c5b2fd54e3b368eade9e73494e4d37f1e0916d2c040"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-invoke-journal.test.ts",
+          "mode": "copy",
+          "sha256": "13d6919da84371a2cf01e8823446511198c898d7184f4db75519df08638134d9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-invoke-journal.ts",
+          "mode": "copy",
+          "sha256": "684127310f75782cbdfaf984ff4ba0858c98691bc1dead8f512f2c9a2870ac7c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-invoke.test.ts",
+          "mode": "copy",
+          "sha256": "bb4905e307439db6ab65df920d7aea11b39cc05906e071f1d5a38cdbe92ba92d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-invoke.ts",
+          "mode": "copy",
+          "sha256": "533463138dfb7b02bbcb3464a333480083302d941f09b3a63dbcf513de380f32"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-lifecycle-lease.test.ts",
+          "mode": "copy",
+          "sha256": "ca60de307f6d6145a1a7b95055c8c25a86099c099a85d1e68e41fccb46579fe3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-lifecycle.ts",
+          "mode": "copy",
+          "sha256": "5ad86609df5ba0ee375ac88a1ac25249b8af5b7664df67470fd5caededa7c94a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-live-bridge-gaps.test.ts",
+          "mode": "copy",
+          "sha256": "5d5ed5d52550d6020fd75bee572a3aafc2fbd37146dc572505e4589b5d49e463"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-publisher.test.ts",
+          "mode": "copy",
+          "sha256": "66c865fcde66800d599c1c1c67378c1cd3f6a34618e9d88f244d81751173bd50"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-publisher.ts",
+          "mode": "copy",
+          "sha256": "e0b0c84fd066171441983695053a5fd1594724ed45d00b7933f584fd5ecaa561"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-reconcile.test.ts",
+          "mode": "copy",
+          "sha256": "de4a70b211acf2fa5ec2d8f145fe807d61db4dafa8e0a2c34a58188a817fc76e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-recovery.test.ts",
+          "mode": "copy",
+          "sha256": "9887e483aa68e85e7fb68fe53e0edbc84b6eefb8b955721259fe1251df5b55d0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-recovery.ts",
+          "mode": "copy",
+          "sha256": "21bb0eb4faad17ce9e07017dca9ce4f9a5630bd72445fbc637d47b17cce36137"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-review-live-wiring.red.test.ts",
+          "mode": "copy",
+          "sha256": "943288314763e252dd56c5d8e64a8ecda17199ab5ddbd1d5baee2a86f40922b0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-runtime.test.ts",
+          "mode": "copy",
+          "sha256": "ecd442bb245ddc302a1d0ff6043f1589e9543ef29f01f25295e4922f947d6c8f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-runtime.ts",
+          "mode": "copy",
+          "sha256": "622a4ecedb5c9f1577e95cbaa673aa521953fe7c843b58db974f10eb432f991f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-session-bridge-race.test.ts",
+          "mode": "copy",
+          "sha256": "5cd95a577e8df154bea5248520e885198d8bb8c5793de8ed1fd1ce4998d8cd1a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-session-bridge.test.ts",
+          "mode": "copy",
+          "sha256": "7d8dc2740c51aedde244378f566ee2ff01402e5a1cbf409ab9f9d34e4ef97e0e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-session-bridge.ts",
+          "mode": "copy",
+          "sha256": "aa305817f2079da47a06d1ed918e098db60a218cdabfbd76004a71d9c1f14845"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/monitor-wait-only.test.ts",
+          "mode": "copy",
+          "sha256": "77dc9bc3d9328946d9aefd644fb0ab3d853ca933ad5840785a5b85c42e330512"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/no-progress.test.ts",
+          "mode": "copy",
+          "sha256": "d32e151813c3de97b8d7b6f4882a54f57b26f9fbd7a87c856a89481d5c1a674b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/no-progress.ts",
+          "mode": "copy",
+          "sha256": "8d409dc7709d847983db16d36e5c2dbdfd9bdded681ed9e8049cf30af0b77f26"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/overlay-migration.test.ts",
+          "mode": "copy",
+          "sha256": "07be05d2a16354038087e947b534bd2a2eefa49a594768fa94b541e2f68f3c88"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/package.json",
+          "mode": "copy",
+          "sha256": "646699e4b4ce6a14e459729dbcbbd8b4ca8df46c5bbd1c07104d80c5f4947d41"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/peer-spawn-plan.test.ts",
+          "mode": "copy",
+          "sha256": "288f8bb2bbf400df67d6ceccabba027fb4215abf647ea50ab1b5de8308968e04"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/peer-spawn-plan.ts",
+          "mode": "copy",
+          "sha256": "0715adce9d347f665bb15a76f5913205894ef3bd67d5558a69f5e1fa963fe87a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/peer-spawn.integration.test.ts",
+          "mode": "copy",
+          "sha256": "5d7275a162b4e057787dcc93a0bf699575a6602fa8f916e3b4421ccebe1adb2e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/models.test.ts",
+          "mode": "copy",
+          "sha256": "ff2e370e05fd7b3ebd8bbf100da63a4bfbde65b14133af213267146696a8881f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/models.ts",
+          "mode": "copy",
+          "sha256": "2f5fc257ea2851316086bcbde03f7593d61eab9c49c9b6881cd1f63c066e4ef5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/profile-activation.test.ts",
+          "mode": "copy",
+          "sha256": "d58729969969ef480c3837898c221d21c7d93ea096559da65ad47313aa34a91c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/profile-activation.ts",
+          "mode": "copy",
+          "sha256": "a6bfc36c9c83f128dae26ee4094fd63bad3b980bed80461682f5407dc9054e8d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/profile-runtime.test.ts",
+          "mode": "copy",
+          "sha256": "8d1a94b18fa105f2b8218276277d8aaf68ec7f5dab0698cea4f1969e4d9b2dcb"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/profile-runtime.ts",
+          "mode": "copy",
+          "sha256": "317794d3e0a8c97df14cb2dea1e4bd56a09d578293d73e2fc588c685b76c1275"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/roster.test.ts",
+          "mode": "copy",
+          "sha256": "83a072a331bd096a8418efe1b4cc1714da6a4a2f98e7c5ffef61cb82c552b218"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/roster.ts",
+          "mode": "copy",
+          "sha256": "5d41257df47d2c9c8773e6232b914b61f3b9db2f0450e9140a7cfda71de257fb"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/work-mode.test.ts",
+          "mode": "copy",
+          "sha256": "000d39954afe02fe587567bf176406b6327cc3a8f0d404b114e4d43583cb4350"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/policy/work-mode.ts",
+          "mode": "copy",
+          "sha256": "90320f6c204d13129c49092edad2bcfcf0105b127a536df07a374a23c8e5512c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/poll-command.test.ts",
+          "mode": "copy",
+          "sha256": "9f1ec4a51e0d95ac7d36a9ef11100236347d54775a83e253816512c964f423ea"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/poll-command.ts",
+          "mode": "copy",
+          "sha256": "a9b2d20754f87938f8268e7b6325583f5902182692988d700a1ed387938d579a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/presentation.ts",
+          "mode": "copy",
+          "sha256": "1df06f3acb385b05ef23ae5871c8bb3b4ffaaf22bee1c4f755e4dc1039dd5551"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-config.test.ts",
+          "mode": "copy",
+          "sha256": "33381c83aeea4c72ab341b7b2212c326ecbefb18838d54921d99fdfc898921d8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-config.ts",
+          "mode": "copy",
+          "sha256": "4af701f9b65a2b9234286b46f08ddfe8c0dc21ea912a6b6789a89c50b14aa605"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-evaluate.test.ts",
+          "mode": "copy",
+          "sha256": "d78f409766e56a1b533fb22dc110e63108cd5dce2b35e7281834d97f96ae83ed"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-evaluate.ts",
+          "mode": "copy",
+          "sha256": "dcb75bbf77e712839073f67b3d2be40f7bac43c6b3a9bf0fabbfe11f2f4a45b7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-feedback.test.ts",
+          "mode": "copy",
+          "sha256": "3f0ad3731bd9b83173c15674ce2ef45f1d170f21529f32ef6c11126bd4c777a5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-feedback.ts",
+          "mode": "copy",
+          "sha256": "d884ab4679693bc41c53f1b529cd498531f999a5dfff311255af62c1d3b0fbf6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-findings.test.ts",
+          "mode": "copy",
+          "sha256": "7fa7c09fda898e49d16a98f80cdc48509f00617990463e0bfa6b22c465bc5215"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-findings.ts",
+          "mode": "copy",
+          "sha256": "18f99572ce6f0184b1714db34425994f1f3d1f5bb3b728f48b271d8eaada8ee2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-integration.test.ts",
+          "mode": "copy",
+          "sha256": "35c452f171f5bb70fdba70037e26f5ee5c997f2da1bc53af2db66622ff025b05"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-local.test.ts",
+          "mode": "copy",
+          "sha256": "2f5c413c019320fff05b0c40a34a1a9ffa6bd9952f676e052584322a6c340b70"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-local.ts",
+          "mode": "copy",
+          "sha256": "e49a3de6c224086616a5e55784ef0c0b6c1c3176c4db661c09c68d89589d4356"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-observer.test.ts",
+          "mode": "copy",
+          "sha256": "be29aa418f1d4a53b963d91af0aab1748244aefc3657c02230330964c8dd5c86"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-observer.ts",
+          "mode": "copy",
+          "sha256": "0991fb79626c8d81bdc806d1d47ac29bf77d759bffcf3674c9c928073949f05b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-rules.test.ts",
+          "mode": "copy",
+          "sha256": "8fd036f1edf5e2201364c4954fb65eac87f1045ea788d681dc3e30da21ecd67d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-rules.ts",
+          "mode": "copy",
+          "sha256": "ed19f8c85a81eaed6fd7c75a636e66eeeb6722d6a66d55bd4c48184129469c3d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-runtime.test.ts",
+          "mode": "copy",
+          "sha256": "f1d07d767e6652a4b25c2ced65a2d186a056136261f45679333d551678798c81"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-runtime.ts",
+          "mode": "copy",
+          "sha256": "492cd9c51534711e33bb6cfd991e63d129e401eaeacc7ba1759cd9a1658ded57"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-selection.test.ts",
+          "mode": "copy",
+          "sha256": "9d7f4901496a8270c748794ca6528d2a03ec8804ecb711c236d74791dd85a352"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-selection.ts",
+          "mode": "copy",
+          "sha256": "e179869e3f1bd4f594bda491ac830462cf2d1ed5b446052feca87cd193fe5535"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-snapshot-worker.mjs",
+          "mode": "copy",
+          "sha256": "dd12909d6cc16a817160c62b982a9757a9efd6a9e67d46423d7622fec243ddf6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-snapshot.test.ts",
+          "mode": "copy",
+          "sha256": "ab1f3426dabea28b0b7f93150e558a73f563e28c77cae9b0e9908c101c66f315"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-snapshot.ts",
+          "mode": "copy",
+          "sha256": "0dfdb59927b23758de7c37670fcc8099545eb502a8854a1550b61d4fbd07225b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/proactive-types.ts",
+          "mode": "copy",
+          "sha256": "32e35c2454599ca7219dbc326fa040ca0f3df4a547f570be2074a98eb846b6e4"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/process-obligations.ts",
+          "mode": "copy",
+          "sha256": "4948dcbf31b3a4407b994ba5ca11634ecb778c70219cfca8b3c9278f7e5d927c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/profile-execution.test.ts",
+          "mode": "copy",
+          "sha256": "162a2c0e30be25981d2d242adbc7e7a94227c613bd7e734c5e6731cdaf8b9863"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/context.ts",
+          "mode": "copy",
+          "sha256": "ccaae78cec19a9b931bcc5a4a671d978346475152c1810a9c68009e1266773bb"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/fragments.ts",
+          "mode": "copy",
+          "sha256": "c68436d4c7d7bef7ab1e7479ca79a04cb3591ed6fc37c5b78b2bd8c0f80274f9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/session-start.test.ts",
+          "mode": "copy",
+          "sha256": "dd20fa7225f44b80546e68fe1d2f386bb2f551b853221c618ec89c794722baed"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/session-start.ts",
+          "mode": "copy",
+          "sha256": "3945562ac6da7ebe69bf20c7fdddbb4b89b3d1e2fe56b648e49cc294f64045fe"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/system-prompt.test.ts",
+          "mode": "copy",
+          "sha256": "a3bb8567db6d2bec3f0ae1a02fe260e6f10560b2bdde3f882852d441664f99d2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/prompts/system-prompt.ts",
+          "mode": "copy",
+          "sha256": "8f54a977bea9c21ba19d5735cc60e1fe534c3b3834c240843a112efa92bceb53"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/provider-semaphore.js",
+          "mode": "copy",
+          "sha256": "3e32c9b1e3960b50e4381559634d9e6af9c314ff9a3fc9075dc5e13e2d1cf24c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/provider-semaphore.test.js",
+          "mode": "copy",
+          "sha256": "6c6ecf80689b5f579114b92a482ed5cd1adc53e7cbc1f6f657d9f47bfe107fa1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/reconcile.test.ts",
+          "mode": "copy",
+          "sha256": "c6be2fca64eae3889ac8a3ede57776b34915cd8674dab410106658cc07a58ae2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/reconcile.ts",
+          "mode": "copy",
+          "sha256": "85e01cf0d139d4170989e9c1c58fa026b4ad36a7a5e885e46680cd04017c86ee"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/recover-policy.test.ts",
+          "mode": "copy",
+          "sha256": "682497d70612dbc4d207e53bc2d488b483110f9a511d35e920dc3f9f50e6081d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/recover-policy.ts",
+          "mode": "copy",
+          "sha256": "57325263c5ff5807585391eedb314bbee541e2cd12e2071c1022eac7d58722f2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/recover-state.test.ts",
+          "mode": "copy",
+          "sha256": "70383159e4cbb82872e10142917bf747ff6634672d922589c7a5b51bca5b6bbd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/recover-state.ts",
+          "mode": "copy",
+          "sha256": "07fc31cf02174316e228160534b9aadf4b87206d59b0455543cc0fbfeafdf7f7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/recover.integration.test.ts",
+          "mode": "copy",
+          "sha256": "67aad480b538ccbe2dcca0520b8e870fb5fcdca6c178d50a5d557383edacc35d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/recovery-contract.test.ts",
+          "mode": "copy",
+          "sha256": "1fe8c7bc41cbd5aa3effcef535a6b3b71e0ac624ed4a29e8c33f894bb274d2df"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/recovery-contract.ts",
+          "mode": "copy",
+          "sha256": "3863c6e5c65c04cd64bdf1308fa8a2dd6b63ddf283436fe1f0abf9765f2685f1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/registration-surface.test.ts",
+          "mode": "copy",
+          "sha256": "366a7e684e2e6d08d95965ca87b801b03628cd4fe2a684b85a18eb8ba8d279b4"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research-watchdog.ts",
+          "mode": "copy",
+          "sha256": "ac7a14e61b93e1ea498885473bf3b48ea60589fc2d013c8d265796d50d990f3d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/controls.test.ts",
+          "mode": "copy",
+          "sha256": "4b07505d715b4cf57a82e02a8c6b916808b83296fcd58665f77c8f5fc3cce558"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/controls.ts",
+          "mode": "copy",
+          "sha256": "f019dbc69d5454e3b32eb94413937a967351119abb0ac19503df660fbc1dc070"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/runtime.test.ts",
+          "mode": "copy",
+          "sha256": "c72a058c425904991c0be3e24ba19fc608d226a309177aec3bd603a6553372ae"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/runtime.ts",
+          "mode": "copy",
+          "sha256": "1507ed038c95bc23c1b46968c8c8f165e1eaa30b03dd8dea80d056f64da04632"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/research/spawn-run.ts",
+          "mode": "copy",
+          "sha256": "66d1ca5ddf2d18a130e756acb2552e4ba65952dde9482ab7fe31f557eb2a53a8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/return-contract.js",
+          "mode": "copy",
+          "sha256": "d35243357ba6ad464bcd11f8f44c37f596688c86d87c60e18bbc4f4a623f7114"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/return-contract.test.js",
+          "mode": "copy",
+          "sha256": "d41db83b6b8624c6ed3b7bfe45b69f0ab101db0a5e457a935a3b297f84831075"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/return-extract.js",
+          "mode": "copy",
+          "sha256": "a29f95c56ea83f3fd6acadc9812e8a1272a040846f6de16faff11c34fc326c76"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/return-extract.test.js",
+          "mode": "copy",
+          "sha256": "99e2c7c5cf6f3e77a043c250dd7c4581bc7eb0241183a6222a733c2d3bfbbe68"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/review-findings.js",
+          "mode": "copy",
+          "sha256": "2c42067a699b788314fcf15320683c9aea6730a571cd050791ffffe7c4fb369a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/review-findings.test.js",
+          "mode": "copy",
+          "sha256": "bf046d16a7b4d6e22256fee4f239b10f1a030b3847e2ed246d2778fc2a8572b7"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/roster-startup.test.ts",
+          "mode": "copy",
+          "sha256": "c36369fc7a599a7ad72b90f44ac6a5512ef120924a2f308bf159971df4ddaa4a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/run-budget.js",
+          "mode": "copy",
+          "sha256": "57569bacb6a9f377602885aeb54f53df43293d374664e58c071f355c0bc0fd78"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/run-budget.test.js",
+          "mode": "copy",
+          "sha256": "5cd48c9fbe5d6ef7a28de03b301d3e3cdcc09e6b1ff21c30dac0f796101520ff"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/run-namespace.js",
+          "mode": "copy",
+          "sha256": "cae9b4f0e542f0877b76890230afc681023d289244176b07213b8bad6843c1e1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/run-namespace.test.js",
+          "mode": "copy",
+          "sha256": "a54fa830ff93ce614dc122fc054ff5231008baf0f06ae80f864a2ed579502a43"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/runtime-test-check.test.ts",
+          "mode": "copy",
+          "sha256": "f421d9ba60cf1809450c6dc0eeff299ba92facc0cec3efe5f3cd93c871d1913e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/runtime-test-check.ts",
+          "mode": "copy",
+          "sha256": "9ca1587b0119947b9452ebd4823021a086c1450670364c953080798a50580592"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/safety-routing.test.ts",
+          "mode": "copy",
+          "sha256": "76108951ebb2e86007fb324ae28b71160ef289eac4af71b6e93d18e7f2b9dfa1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/safety-routing.ts",
+          "mode": "copy",
+          "sha256": "5b234c9c7b67f2951069e83007047f4dc34b7b62d235baffd5eb86be836c1c28"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/scope-gate.js",
+          "mode": "copy",
+          "sha256": "3e4d7c61814532b7b84ea43568a72a94924801574abe1066275d51f51a518930"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/scope-gate.test.js",
+          "mode": "copy",
+          "sha256": "0bddfcca67d801fed6016b1a9545d00239e474b82b58bd86b3c7a90a0e36d829"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-audit.test.ts",
+          "mode": "copy",
+          "sha256": "736997399addbe4fd18fdb2474322284f307024bbbed7d85ef9cab3294bb4b22"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-audit.ts",
+          "mode": "copy",
+          "sha256": "a112c58daf7cc35e109fd88cbef69c4881259d84941466459c156805ed7d071f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-health.js",
+          "mode": "copy",
+          "sha256": "53d9b445dedb7f09cde25d58c3e75220624938e318058023d057875feb75d5b8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-health.test.js",
+          "mode": "copy",
+          "sha256": "1bbc2d9e46464d3c65e8b9ab06d63154b6e3227fdf1416318b1c01c645be25fa"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-start.test.ts",
+          "mode": "copy",
+          "sha256": "b92fe0ea8a5cf46bfd4ced2e0489f58ce1cd1cf3e300e3c30750e782726efd75"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/session-start.ts",
+          "mode": "copy",
+          "sha256": "e0fbc1541e7fcdbb5c70c24b2a4c6574e41f9f51753c347567ab9faf7c92b54d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/spawn-system1-env.test.ts",
+          "mode": "copy",
+          "sha256": "ccd3526c6772e64d006878bb2a9ba2dea05c363190fb8d6c698960981b6cbe96"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/spawn.ts",
+          "mode": "copy",
+          "sha256": "b639e3c6d5f5bf7f44cbaf9dd211405319801e953d9cb1158d2542bfcc248f94"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-activity.test.ts",
+          "mode": "copy",
+          "sha256": "4898da5af3305193eab0af679cfdc2e3d5e7ce98dae0b9e63475c462b751358b"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-activity.ts",
+          "mode": "copy",
+          "sha256": "c405c3f61709107205792ae79749f79403aa881f6a08dae0339dcf4e40e6facd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-communication-store.test.ts",
+          "mode": "copy",
+          "sha256": "5081c4655b5509c80a27b96cd6d08ec1a8b6c331aab85d5ebeaa62cc50839224"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-communication-store.ts",
+          "mode": "copy",
+          "sha256": "80749674fec907471987cc37f1c7d72382c9fcd804b6eb75f1d0a98322684674"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-report.test.ts",
+          "mode": "copy",
+          "sha256": "2de57dea150307faab78d131e0bc11f9365a773140721c16e4017f40c193f282"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-report.ts",
+          "mode": "copy",
+          "sha256": "6e840b7b9038fff0cb229ec5fc193ab504ed38a7ce4987c36d5e5db09bbb6017"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-runtime.test.ts",
+          "mode": "copy",
+          "sha256": "14cfedbf166c98e6a861762c5dde00034e077c1923edb934effe890d517ab9a4"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-runtime.ts",
+          "mode": "copy",
+          "sha256": "af944cf9e44ea27ec111cb41b4d4212b8a012f23f338b08b91e8afa51ade5ac3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/system1-timeline.test.ts",
+          "mode": "copy",
+          "sha256": "16f61017d73d2bdd3837dce4d6b9d23863d762403a55fb2e7e4e20e69270b328"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/t0a-synthetic-fixtures.test.ts",
+          "mode": "copy",
+          "sha256": "2c2228f706811f598b23a298f999619ed3917593d1277f49ca90123cc1069ca3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/t4-t6-t10a-contract.red.test.ts",
+          "mode": "copy",
+          "sha256": "835e039df95cfb2e9261642de1502ccc3a32c2b2d089601a6e1150f2228ab420"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-resume-contract.ts",
+          "mode": "copy",
+          "sha256": "e3460cb3fbccb485c68cfb1e594ea0b77ac550c34d4e7aa882edd7131cd3156a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-authorization.test.ts",
+          "mode": "copy",
+          "sha256": "74fa540b89d0ac31b869fbad2ecc47c6c304945e73a72b53c7728e8a850bbc3e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-authorization.ts",
+          "mode": "copy",
+          "sha256": "2a7264b694e34bede198c9d074fb27d9e076ac1571360535d554c2e00ed088c2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-config.test.ts",
+          "mode": "copy",
+          "sha256": "227bfb212c05c61712dc4f38a05b6821a725d5531881ec0c57b380836a58b5da"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-config.ts",
+          "mode": "copy",
+          "sha256": "271b5d5da2ee3374b5f5fd4e472c92a931bfe938d72b34a20fec5440c0c57e38"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-contract.ts",
+          "mode": "copy",
+          "sha256": "cb125b5ee1d93a353f93d2c063778eac52f64cb14b363bd17c511fa5968b62c1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-effects.integration.test.ts",
+          "mode": "copy",
+          "sha256": "9b8b9d75e36c0759dfa47f978533b0e9d0c1d6e8178850f230459fe4aad85072"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-live-stage-boundary.mjs",
+          "mode": "copy",
+          "sha256": "88686df7adc2416f092d00620b61c43d6319f36b151bfb319d468eeb7f6a9751"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-live-stage-boundary.test.mjs",
+          "mode": "copy",
+          "sha256": "01b99da0d6b41a9a0c9e6dee018872bec30217548989a83bc14f962ff0bdd17a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-live-stage-closure.contract.test.mjs",
+          "mode": "copy",
+          "sha256": "c3ff59fa8209aa9ca3facce3ff2710743a61671e1d65c2b4f8ad45048a39393c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-live-stage-closure.user-run.mjs",
+          "mode": "copy",
+          "sha256": "eb8029e9b1731fcd339838af920a16b730185f08c3d9810490df52b7c3fe6c61"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-obligations.test.ts",
+          "mode": "copy",
+          "sha256": "1ac2a0633e7ae789ba3b6574b56d2cf2daca8664d01a0d94e43295bbca93d08c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-obligations.ts",
+          "mode": "copy",
+          "sha256": "f9bfb07b6265439eed5810806c64d2cd76ba70d54312ce961801dcd20f8718e5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-persisted-compaction.integration.test.ts",
+          "mode": "copy",
+          "sha256": "395cdfd1cadcb45f51f9c2a9788bbdab37d89dc1a88e7f0b93b2c331a91de7d9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-policy.test.ts",
+          "mode": "copy",
+          "sha256": "fa93a38d242495f2f21bfc3458ca2980356798f05d3328569b6cfa940617a884"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-policy.ts",
+          "mode": "copy",
+          "sha256": "72e90c63ac3d63f57617033530baf4ae2a0295352bd1c63be2014add1f12d80e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-pressure.integration.test.ts",
+          "mode": "copy",
+          "sha256": "419ebfe916666160d8a32e8cc847b9ed27d34a123501ce9f3c0c3850b9659bc2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-real-pi.integration.test.ts",
+          "mode": "copy",
+          "sha256": "0ad9e39458d7d7d7b4488a2bdef67436708f708958a91ae1f0243838ad752b47"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-review-contract.mjs",
+          "mode": "copy",
+          "sha256": "9489800ad15eca784dd475b96ba99455960715f3ba2faf1c12c710558aad9d27"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-review-contract.test.mjs",
+          "mode": "copy",
+          "sha256": "1220777db7eb30deaf1b0d0f4db8aafb90c3eddc66ff74fe027022a92dc39499"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-reviewer-only-contract.mjs",
+          "mode": "copy",
+          "sha256": "243581832f8e3d9c2369fa13e74437fdb912e81205310e9eb81d895ba574cbc8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-reviewer-only-diagnostics.mjs",
+          "mode": "copy",
+          "sha256": "250e2ea0079eddf5876a6e2f0051aa9185108f53b948acd62f95e4e7d34f9938"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-reviewer-only.contract.test.mjs",
+          "mode": "copy",
+          "sha256": "5bf4910ae880b394704561cd9cc0ec7889d2a3c54adceeea168142b744eba9d9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-reviewer-only.user-run.mjs",
+          "mode": "copy",
+          "sha256": "77217da8710336aa0ff366c6c4a7964258d15470e7c0aebe6e020b6e14da8c5e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-runtime.test.ts",
+          "mode": "copy",
+          "sha256": "73e522988fc40cda0372d305620a032e3eb97db211654169f93c7b783593e603"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-runtime.ts",
+          "mode": "copy",
+          "sha256": "65a3861da8510bcf5341307c762d63febce11ffe2a989a10c99e7e427e421d4d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-stage-guard.ts",
+          "mode": "copy",
+          "sha256": "bb558ac4bccd23493fe8eac9dfd6cd6a0dc634933e263710bf9094ea0c869c36"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-state.test.ts",
+          "mode": "copy",
+          "sha256": "c949c244764d5c7b962016b5b56487372dd97794f9abd6604f1da423901e370d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/task-triage-state.ts",
+          "mode": "copy",
+          "sha256": "aa71a5f7d50144e0ba36c505067080897c0069b9dc5610490255ddaee0f12146"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/timeline.ts",
+          "mode": "copy",
+          "sha256": "17e18080ab1d3fdc877d66b78ff0a0a4fd89275fb9b917644ef7b468875e3f67"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tool-catalog-runtime.ts",
+          "mode": "copy",
+          "sha256": "db57f7b4fb7bbed149fc60b6d8c3a9b3d150159837caf6880148a1d6676700aa"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tool-catalog-state.ts",
+          "mode": "copy",
+          "sha256": "74a78863d9daa5d8d8d59d4a328f1a91bb19a4f222a747862403fe7a64a2cefd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tool-protocol.test.ts",
+          "mode": "copy",
+          "sha256": "41a51cc82ee73b528f0ba09dae9e9c34bb853b4241a60d5d9bb1af382720662d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tool-protocol.ts",
+          "mode": "copy",
+          "sha256": "992ec196b61630d7c56882176f6984688d43ebf71173509d23fa2fefbe4b43d1"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/action-executors.test.ts",
+          "mode": "copy",
+          "sha256": "0f202a66b5888d053838692e34e9174c476f0e37f392782f066f55b007c03bae"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/action-executors.ts",
+          "mode": "copy",
+          "sha256": "756bc0a26d2798d1106a388e640628c5a6112a15f642bfd6a1a5d9a3523fbafe"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/coms-tools.ts",
+          "mode": "copy",
+          "sha256": "531fc8480601524a2a9187cf1cfc6d4f99e6788ac22b128f41d88d02e88f8475"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/context.ts",
+          "mode": "copy",
+          "sha256": "cf7a52b6ef987b9d11b1c967dd939fa05393d6f09ea150341b20b8b87aea6ad2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/dispatch-agent.ts",
+          "mode": "copy",
+          "sha256": "ed10e474e1467e91aa4b4c9ef51ba4a936e8383fca78fbe5134cd28893bda0ad"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/dispatch-execution.test.ts",
+          "mode": "copy",
+          "sha256": "bc28fb6d63e98ea0d308e457d98723a2681e37a4b37499f9d983c823a094c991"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/dispatch-execution.ts",
+          "mode": "copy",
+          "sha256": "8c14e7112511637d1354ee57231a7672fb098c90d8cb1f1cc996499dd68b62bb"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/dispatch-triage.ts",
+          "mode": "copy",
+          "sha256": "20254415dca53323e83bda170b4764b15565181a56412f88f50f82e52a19b8b9"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/execution-orchestration.test.ts",
+          "mode": "copy",
+          "sha256": "5a2d0b3a30d9cb32600a8fd7ff145da7f8489a51e5bffbdcad9c28562c137aee"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/execution-orchestration.ts",
+          "mode": "copy",
+          "sha256": "e9d939507172d22588f253f0fbb35cce06738ecf857a48ba3454c776561f6a84"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/fleet-tools.ts",
+          "mode": "copy",
+          "sha256": "b5deb8382d91e7f0fbbcb578d10a9b85ce84ecbdd8bac71aa3de4ec8272c7324"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/herdr-executors.ts",
+          "mode": "copy",
+          "sha256": "38d11e47b40a460ee07c405f34245e015965047884a2b850510974509fdfc0d5"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/run-flow.test.ts",
+          "mode": "copy",
+          "sha256": "04b5d66e1943d84d81b03526e94e4439cd4ebff072f8878304526c5f4a09dfce"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/run-flow.ts",
+          "mode": "copy",
+          "sha256": "87636f6b6dd3a28f73eaabd5a8aab430b6c0baa41d7f04d85ca5b688f10df820"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/set-task-tier.ts",
+          "mode": "copy",
+          "sha256": "a7ad461ad6a8ef6c6b29c3dff50675acb1fc0ba7d2e37e1dff31825b8ba00e07"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/spawn-research.ts",
+          "mode": "copy",
+          "sha256": "d5d7654adb52809a6421adae212c26e4022e50629eeb94273b06471da9c33624"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/team-adjust.ts",
+          "mode": "copy",
+          "sha256": "0c32e619c93b0c37a5bb2d01ea276796b999573755419dee6eef66dc296f4201"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tools/verification-contract.ts",
+          "mode": "copy",
+          "sha256": "f27435671a49f8ddb4c8dbca3017c1e108665bdf7442e80f0af7e7db43574c79"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/tsconfig.json",
+          "mode": "copy",
+          "sha256": "8c70e15645a2f6e8be4bc145e47d76a5dc33ea7a348b174227f2be192d4fc5ca"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/types.ts",
+          "mode": "copy",
+          "sha256": "d000b2213a24406b772c528d55babb244a6ca239203dd9d9a11bc379ccca158e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/activity-dots.ts",
+          "mode": "copy",
+          "sha256": "a8e716f5360fa9b402e98ea22fe62f48af44b5e4c695f064876d339f291662cd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/context-budget.ts",
+          "mode": "copy",
+          "sha256": "13419491c8c1120cd4a1d90af8100afc344d08f4a3dd72776581580bfd9ba25e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/detail-panel.ts",
+          "mode": "copy",
+          "sha256": "cba5b3d5776b7b7bfd767a15e0f40f3e7dce34a023652988db2ee7fc6489e08e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-actions.test.ts",
+          "mode": "copy",
+          "sha256": "2e041066f40e5975264742c5c118c79dede708478442395d01cc12b7c8a99c99"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-actions.ts",
+          "mode": "copy",
+          "sha256": "7d65979daead946174eb1025403a9c60d6b74d66d8dccda5e93ad95a4a9054db"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-dashboard.test.ts",
+          "mode": "copy",
+          "sha256": "9f2a7c86ea80fea75aff2551ed0ceaa2b681bc3d12def7639c5ccd41bf1a52f8"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-dashboard.ts",
+          "mode": "copy",
+          "sha256": "02c1822e329993735e60faafd758539919ad0e40367247a51ac3c05f72d76623"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-editor.test.ts",
+          "mode": "copy",
+          "sha256": "d22d0f449beb51e2db5ea6271cef68e5716b0ce48d47bac94e15e7cebd9e2aa6"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-editor.ts",
+          "mode": "copy",
+          "sha256": "909903d365e3131db470f62c571136823c51ce40e49a3dc3d3120104c7b87cc0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-source.test.ts",
+          "mode": "copy",
+          "sha256": "32efc0476f31753a621c0c3eb64a49c373dd5b61396a792fbacdb82885d3715c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/fleet-source.ts",
+          "mode": "copy",
+          "sha256": "432fb50beb70a896995ab09915d6e1c530ba6d3b80b71a676f0e5b827c775f64"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/grid.test.ts",
+          "mode": "copy",
+          "sha256": "034da635028c7f6b95f3876347617614b0fb5ef367dd1418071a1006ac1509b0"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/grid.ts",
+          "mode": "copy",
+          "sha256": "e1ac73674e66d2a56488ee876ed41c636c730c83e2eadbeb3396af509dd2795a"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/history-store.ts",
+          "mode": "copy",
+          "sha256": "baac05afccb7e067114ed48fd3b3c50089d852279a31f46d98101a3884cd0ee3"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/history.ts",
+          "mode": "copy",
+          "sha256": "c9ea415d1fdfd8841a73a9a9c858d57cd60b432ecaf9a4303271ab6a11afed26"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/pool.ts",
+          "mode": "copy",
+          "sha256": "ec136e5eca06f2fc834f831c55a1cae475094c995b6fda427caa1112bb37a000"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/running-strip.test.ts",
+          "mode": "copy",
+          "sha256": "7a74f27e734614e30ad9650bcce9300d60488ca8f0f89a536126c5229c86f06f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/running-strip.ts",
+          "mode": "copy",
+          "sha256": "d45f2066abe99836232f261b1acf1798abbd987b5498c8405439f7835e2b087e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/system1-communication.test.ts",
+          "mode": "copy",
+          "sha256": "7ae1b24d2f03b8a6bf11e9ac85ebcc067c2f2a6874ba049d97c2a0214f814614"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/system1-communication.ts",
+          "mode": "copy",
+          "sha256": "83fa48a38714eed4c8a11b5bcaffded446dbf0f9af2191afe43f7138850b7cff"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/ui/zoom.ts",
+          "mode": "copy",
+          "sha256": "07552931bd6349d060e6dc6f15d62a4b28117b34e3658cd5ed1670528eaca380"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/unknown-tool-counter.ts",
+          "mode": "copy",
+          "sha256": "859fc514a17431cf676327e9e80ae04c385c4bd78befde8a0bcd1cc551ffd98e"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/version.ts",
+          "mode": "copy",
+          "sha256": "386a08291046bf785a21ab1b193df3c29c891427181f5476dbcefda304471400"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/view-default.test.ts",
+          "mode": "copy",
+          "sha256": "1b51e8c9171c82d21d47d54e2d93bc1d3c4829fb824ffce496d76a7f316b2f0f"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/watchdog-evaluation.test.ts",
+          "mode": "copy",
+          "sha256": "8b56520693859b30706627d59bfc55c04a5e7230ffbc05809c1e8982204475dd"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/watchdog-evaluation.ts",
+          "mode": "copy",
+          "sha256": "17c61b332a007e13e24209011a35dedec673ac695d22b7559aa1a0286270176c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/work-mode-controls.test.ts",
+          "mode": "copy",
+          "sha256": "b0af1f2112457c930ffe85baf7b0069350dce72d9f7897dc6979f8ed1aff54de"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/work-mode-controls.ts",
+          "mode": "copy",
+          "sha256": "5dd281e8d9bcacc0948346be31465800449f0e78502387979b004d64b859bc8c"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/work-mode-integration.test.ts",
+          "mode": "copy",
+          "sha256": "a7a6152979b22bf87f90faefef61976e783af01830e3d92cb6f9416ca572831d"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/work-mode.test.ts",
+          "mode": "copy",
+          "sha256": "0a443540debc5b5ee893541f200327249f7c1e985f6004dfe10b3f244f733ec2"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/work-mode.ts",
+          "mode": "copy",
+          "sha256": "3b43ad375bebfed1e13386bd500d3ce82da372e730eae42cba5ce867e28c6313"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/write-isolation.test.ts",
+          "mode": "copy",
+          "sha256": "9f4640b2691031d610c45538f6171004eb1dbc355a67933d4a99f2dbea965394"
+        },
+        {
+          "path": ".pi/harnesses/agent-hub/write-isolation.ts",
+          "mode": "copy",
+          "sha256": "acd478087dbef83111184a5f9e0f2b8359a0dab58f32b2f904936b2f9687e81a"
+        }
+      ]
+    },
+    "pi-harness:ask-user-remote": {
+      "kind": "pi-harness",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/harnesses/ask-user-remote",
+      "files": [
+        {
+          "path": ".pi/harnesses/ask-user-remote/README.md",
+          "mode": "copy",
+          "sha256": "6cce6143007978c6ffcee4ee12c4cbb679c85ae4d28f5b5c493859a011e21ac2"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/index.test.ts",
+          "mode": "copy",
+          "sha256": "32860c2f2191a70cb3dae29cf8dcaf2dd2a533c892760ccc6332766e1f6bb467"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/index.ts",
+          "mode": "copy",
+          "sha256": "afbd3016acd37adf62665255570975442bde9aaa332109c11f7c101d01b9edaa"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/questions.test.ts",
+          "mode": "copy",
+          "sha256": "2eb486c83ce17a14a073528ac32e2f4ca181fa60096b1a141d5aa9307a66b834"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/questions.ts",
+          "mode": "copy",
+          "sha256": "207e672e2947f23b2bdd8414c8add0d36de37872be62ee1ba7315802f73a1e23"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/race-core.js",
+          "mode": "copy",
+          "sha256": "792ec0d92dd400c379ee999f304406be18119326305e4036cab2e23c19e8aeab"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/race-core.test.js",
+          "mode": "copy",
+          "sha256": "52fde3587246f5935806beacc89c3b3125aaf9171ca580e58902e6ebae159ff6"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/runtime-ask.test.ts",
+          "mode": "copy",
+          "sha256": "7a8d5d0fd3adda9f89eae2225af8aa9957a0e7211c89a56115593e1b5d0c0a98"
+        },
+        {
+          "path": ".pi/harnesses/ask-user-remote/runtime-ask.ts",
+          "mode": "copy",
+          "sha256": "b8b893ca0dd4659bb041ae86cb3902be1b178ed551fc2d6bcdcbea106dbd281f"
+        }
+      ]
+    },
+    "pi-harness:coms": {
+      "kind": "pi-harness",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/harnesses/coms",
+      "files": [
+        {
+          "path": ".pi/harnesses/coms/README.md",
+          "mode": "copy",
+          "sha256": "75c871cbe55ab119e6c3be28b90801cdbca691f59d4236c41579f58e944b9d31"
+        },
+        {
+          "path": ".pi/harnesses/coms/index.ts",
+          "mode": "copy",
+          "sha256": "d017f3c64c4435d9deedb23b8e197dc061e39c36e2b19ab46e0bc5b28154a7d9"
+        },
+        {
+          "path": ".pi/harnesses/coms/package.json",
+          "mode": "copy",
+          "sha256": "56a523a287d6dbe7772f1d3197a677bf127bf94dbf42675859dbe02bcaca2af6"
+        },
+        {
+          "path": ".pi/harnesses/coms/version.ts",
+          "mode": "copy",
+          "sha256": "386a08291046bf785a21ab1b193df3c29c891427181f5476dbcefda304471400"
+        }
+      ]
+    },
+    "pi-harness:damage-control-continue": {
+      "kind": "pi-harness",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": ".pi/harnesses/damage-control-continue",
+      "files": [
+        {
+          "path": ".pi/harnesses/damage-control-continue/README.md",
+          "mode": "copy",
+          "sha256": "32140162eb0acc8560c36d2e45d95fd8feb6b08b0a4bf678fa42525cd7a7021e"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/exemptions.test.js",
+          "mode": "copy",
+          "sha256": "108e8c8caa660c443bc0f264e551803abdb201bf3873b5523bf822a8ffd15aec"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/herdr-rules.test.js",
+          "mode": "copy",
+          "sha256": "e89fb5258b488ae78de46e25d87120c8d6ecfb017b6195184bd03b59f73faa7d"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/index.ts",
+          "mode": "copy",
+          "sha256": "13087cf8be9e6f1f5b5c08ae3519f27460dccf97d393ec5039ab9ffe65526275"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/package.json",
+          "mode": "copy",
+          "sha256": "b9780d7524fc0860c2af017c30c60a408f7984a0cce1f3e21d02928068f2d142"
+        },
+        {
+          "path": ".pi/harnesses/damage-control-continue/version.ts",
+          "mode": "copy",
+          "sha256": "386a08291046bf785a21ab1b193df3c29c891427181f5476dbcefda304471400"
+        }
+      ]
+    },
+    "reference:communication-contract": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "references/communication-contract.md",
+      "files": [
+        {
+          "path": ".pi/references/communication-contract.md",
+          "mode": "copy",
+          "sha256": "e7566e2ef1d52094e1d1355ad8baf0beaaf6f30cfbfe9fb4b7582944b2b7f6b2"
+        }
+      ]
+    },
+    "reference:definition-of-done": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "references/definition-of-done.md",
+      "files": [
+        {
+          "path": ".pi/references/definition-of-done.md",
+          "mode": "copy",
+          "sha256": "d1c75d2ae65d2c7a9cd01f93fa8de63e00e75f2fe5d08be224d576157054dcee"
+        }
+      ]
+    },
+    "reference:fleet-coordination-patterns": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "references/fleet-coordination-patterns.md",
+      "files": [
+        {
+          "path": ".pi/references/fleet-coordination-patterns.md",
+          "mode": "copy",
+          "sha256": "eb9a596ff1c35deb421412f4a5615bc0d4296facb5ee174455bb67c369821697"
+        }
+      ]
+    },
+    "reference:performance-checklist": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "references/performance-checklist.md",
+      "files": [
+        {
+          "path": ".pi/references/performance-checklist.md",
+          "mode": "copy",
+          "sha256": "40f564d1e62341e277c01ba42c42d95264b9ef3b8e5a23249dc6e121a7e70067"
+        }
+      ]
+    },
+    "reference:security-checklist": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "references/security-checklist.md",
+      "files": [
+        {
+          "path": ".pi/references/security-checklist.md",
+          "mode": "copy",
+          "sha256": "963922cb36bc87b81e56c8f86ff8f6db813ed7efe88066914dceaf6adba2ac90"
+        }
+      ]
+    },
+    "reference:testing-patterns": {
+      "kind": "reference",
+      "strategy": "copy-file",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "references/testing-patterns.md",
+      "files": [
+        {
+          "path": ".pi/references/testing-patterns.md",
+          "mode": "copy",
+          "sha256": "f0bf05acd0edcadc27297ad5b74f104c8103ccfedba1a05cd6d6ae4af8364c56"
+        }
+      ]
+    },
+    "skill:code-review-and-quality": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/code-review-and-quality",
+      "files": [
+        {
+          "path": ".pi/skills/code-review-and-quality/SKILL.md",
+          "mode": "copy",
+          "sha256": "8f3cabca581bbf7cb5f0add3f7454e7a4523f9d4353a6a4a217e6fa515309612"
+        }
+      ]
+    },
+    "skill:compound-learning": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/compound-learning",
+      "files": [
+        {
+          "path": ".pi/skills/compound-learning/SKILL.md",
+          "mode": "copy",
+          "sha256": "4a2c861027f823b8e601c7f65661d26cb8b1ca1baaa6f51824ac9c836035db43"
+        }
+      ]
+    },
+    "skill:debugging-and-error-recovery": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "vendor/agent-skills-upstream/skills/debugging-and-error-recovery",
+      "files": [
+        {
+          "path": ".pi/skills/debugging-and-error-recovery/SKILL.md",
+          "mode": "copy",
+          "sha256": "21f3960f5d7ae2cc95c40896545004dbbcbbd752ea65fc2d53962554d4174220"
+        }
+      ]
+    },
+    "skill:git-workflow-and-versioning": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/git-workflow-and-versioning",
+      "files": [
+        {
+          "path": ".pi/skills/git-workflow-and-versioning/SKILL.md",
+          "mode": "copy",
+          "sha256": "5b38c9af3587956494e544906d7271fed601df3d63f5fb3e52255d9735fed7a4"
+        }
+      ]
+    },
+    "skill:incremental-implementation": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/incremental-implementation",
+      "files": [
+        {
+          "path": ".pi/skills/incremental-implementation/SKILL.md",
+          "mode": "copy",
+          "sha256": "f44dd615f5b88a668cbd6a9bcdf05c68123b51bbe8441bd05069cc11656f6cf5"
+        }
+      ]
+    },
+    "skill:orchestration-verification": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/orchestration-verification",
+      "files": [
+        {
+          "path": ".pi/skills/orchestration-verification/SKILL.md",
+          "mode": "copy",
+          "sha256": "2bfb64dc3bec548ab4e64ebd8ed45887ff5f080d7294032437d6cb9b7f0c2b95"
+        }
+      ]
+    },
+    "skill:planning-and-task-breakdown": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/planning-and-task-breakdown",
+      "files": [
+        {
+          "path": ".pi/skills/planning-and-task-breakdown/SKILL.md",
+          "mode": "copy",
+          "sha256": "bf038f935ed15c2521c9226525b72a8cf31f6246fbc407861354b3694e612711"
+        }
+      ]
+    },
+    "skill:spec-driven-development": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/spec-driven-development",
+      "files": [
+        {
+          "path": ".pi/skills/spec-driven-development/SKILL.md",
+          "mode": "copy",
+          "sha256": "19cb8dae2f6939b66e46d908d3a6775b22c93603729e047135a6f124d41c8ac4"
+        }
+      ]
+    },
+    "skill:test-driven-development": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "vendor/agent-skills-upstream/skills/test-driven-development",
+      "files": [
+        {
+          "path": ".pi/skills/test-driven-development/SKILL.md",
+          "mode": "copy",
+          "sha256": "7c0c6ac057c19d7f8be65d9f49c3a638703b868f4625c78b70da5439d5d74fca"
+        }
+      ]
+    },
+    "skill:using-agent-skills": {
+      "kind": "skill",
+      "strategy": "copy-tree",
+      "method": "copy",
+      "version": "2.0.14",
+      "sourceRoot": "skills/using-agent-skills",
+      "files": [
+        {
+          "path": ".pi/skills/using-agent-skills/SKILL.md",
+          "mode": "copy",
+          "sha256": "479604ec9f6ff7f966b05b385c429404a70a866cc468a03d07e57a09b2460026"
+        }
+      ]
+    }
+  },
+  "externalPackages": [],
+  "runtimeRepairs": [],
+  "events": [
+    {
+      "at": "2026-10-01T06:31:04.313Z",
+      "verb": "setup",
+      "packageVersion": "2.0.14",
+      "actions": 21,
+      "conflicts": 0,
+      "failed": 0
+    }
+  ]
+}

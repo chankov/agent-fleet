@@ -33,6 +33,8 @@ export interface CommandContext {
 	handleBudgetContinue(ctx: ExtensionContext): Promise<void>;
 	handleRetry(args: string, ctx: ExtensionContext): Promise<void>;
 	handleRecover(args: string, ctx: ExtensionContext): Promise<void>;
+	handleTaskTriageWaive(args: string, ctx: ExtensionContext): Promise<boolean>;
+	handleTaskTriageRecover(): boolean;
 	handleDebate(args: string, ctx: ExtensionContext): Promise<void>;
 	getAgentsKillCompletions(prefix: string): AutocompleteItem[] | null;
 	getZoomCompletions(prefix: string): AutocompleteItem[] | null;

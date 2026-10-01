@@ -70,9 +70,9 @@ test("agent-hub registration surface matches the checked-in fixture", async () =
 		const ctx = { cwd: repoRoot, ui: { notify() {}, setStatus() {} } } as any;
 		const setTier = extension.tools.get("set_task_tier")!.definition;
 		const classified = await setTier.execute!("t11", { tier: "small", risk: "high", scope: "wide", reason: "production callback gate" }, new AbortController().signal, () => {}, ctx);
-		assert.equal((classified.details as any).status, "ok");
-		const decisions = await Promise.all((extension.handlers.get("tool_call") ?? []).map(handler => handler({ type: "tool_call", toolName: "write", input: { path: "blocked" } }, ctx)));
-		assert.ok(decisions.some(decision => decision?.block === true && /plan obligation/i.test(decision.reason)), "production tool_call callback blocks operator effects while the plan obligation is open");
+		// Loader-only registration has no live Pi session for authoritative process persistence.
+		// Classification must fail closed; actual write gating is exercised in live-hook tests.
+		assert.deepEqual(classified.details, { status: "refused", reason: "task_triage_persistence" });
 	} finally {
 		// The hub installs shutdown hooks when its factory runs. Avoid leaking them
 		// into other tests when this file shares a Node test process.

@@ -16,7 +16,7 @@ export async function openSystem1Communication(ctx: Pick<ExtensionContext, "ui">
     let content: string[];
     if (detail) {
      const p = store.snapshot().find(p => p.id === detail);
-     content = p ? [`${p.consumer} · ${p.provider}/${p.model} · ${p.status} · ${p.id}`, "Request", p.request ?? p.requestOmitted ?? "unavailable", "Response", p.response ?? p.responseOmitted ?? "pending", `${action === 0 ? "❯" : " "} Copy request    ${action === 1 ? "❯" : " "} Copy response`].flatMap(x => x.split("\n")) : ["Pair evicted or capture cleared. Esc back."];
+     content = p ? [`${p.consumer} · ${p.provider}/${p.model} · ${p.status} · ${p.id}`, ...(p.consumer === "task-triage" ? ["Provider result only; task acceptance and obligations are separate"] : []), "Request", p.request ?? p.requestOmitted ?? "unavailable", "Response", p.response ?? p.responseOmitted ?? "pending", `${action === 0 ? "❯" : " "} Copy request    ${action === 1 ? "❯" : " "} Copy response`].flatMap(x => x.split("\n")) : ["Pair evicted or capture cleared. Esc back."];
     } else {
      const entries = rows(); const retained = entries.findIndex(r => `${r.pair.id}:${r.direction}` === selectedKey); if (retained >= 0) selected = retained; selected = Math.max(0, Math.min(selected, entries.length - 1));
      selectedKey = entries[selected] ? `${entries[selected].pair.id}:${entries[selected].direction}` : "";

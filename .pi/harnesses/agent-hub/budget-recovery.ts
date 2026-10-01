@@ -39,13 +39,13 @@ export interface BudgetRecovery {
 /** Keeps the approved identity scoped to one synchronous task-window reset. */
 export function createReservedTaskIdentityReset(
 	budgetRecovery: Pick<BudgetRecovery, "adopt" | "reset">,
-	noProgress: { adopt(id: string): void; reset(): void },
+	noProgress: { adopt(id: string): void; reset(persistIdentity?: boolean): void },
 ) {
 	let reservedId: string | undefined;
 	const rawBudgetReset = budgetRecovery.reset.bind(budgetRecovery);
 	const rawNoProgressReset = noProgress.reset.bind(noProgress);
 	budgetRecovery.reset = () => { if (reservedId) budgetRecovery.adopt(reservedId); else rawBudgetReset(); };
-	noProgress.reset = () => { if (reservedId) noProgress.adopt(reservedId); else rawNoProgressReset(); };
+	noProgress.reset = (persistIdentity?: boolean) => { if (reservedId) noProgress.adopt(reservedId); else rawNoProgressReset(persistIdentity); };
 	return {
 		run(id: string, resetTaskWindow: () => void) {
 			if (reservedId) throw new Error("A reserved task identity reset is already active.");

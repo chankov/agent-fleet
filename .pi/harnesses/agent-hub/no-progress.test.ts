@@ -248,6 +248,33 @@ test('production restore refuses a conflicting checkpoint without reopening a co
  assert.equal(resumed.authorizeIndeterminate(first.operationId!, first.attemptId!, 'nonce-2'), false);
 });
 
+test('first pre-model task identity survives compaction and resume without a dispatch or reset', () => {
+ const entries: any[] = [];
+ const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+ const original = guard.taskId();
+ guard.persistTaskIdentity(); guard.persistTaskIdentity();
+ assert.equal(entries.filter(row => row.data.kind === 'guard' && row.data.event.type === 'task').length, 1);
+ guard.compact(entries);
+ const resumed = createNoProgressGuard();
+ resumed.restore(entries);
+ assert.equal(resumed.taskId(), original);
+ resumed.persistTaskIdentity();
+ resumed.reset(false); // a genuine new task is still a separate identity
+ assert.notEqual(resumed.taskId(), original);
+});
+
+test('legacy assessment identity restores only with no conflicting recovery history', () => {
+ const initial = createNoProgressGuard();
+ initial.restore([], 'saved-task');
+ assert.equal(initial.taskId(), 'saved-task');
+ const entries: any[] = [];
+ const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+ guard.persistTaskIdentity();
+ const resumed = createNoProgressGuard();
+ resumed.restore(entries, 'different-process-task');
+ assert.equal(resumed.taskId(), guard.taskId(), 'an explicit persisted task wins over a stale fallback');
+});
+
 test('failed guard replay does not replace the current cancellation fence', () => {
  const entries: any[] = [], guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
  const first = guard.begin('work', 'same', 'builder');

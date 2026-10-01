@@ -34,7 +34,7 @@
 // `agents/` or `skills/` tree (many breakages are stale names from the
 // pre-merge layout, e.g. `reviewer` → `code-reviewer`).
 
-import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
 import { join, resolve, dirname, basename, relative, isAbsolute, sep, delimiter } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
@@ -42,6 +42,8 @@ import { validateOverrides } from "./validate-overrides.js";
 import { readState, STATE_REL_PATH } from "./state.js";
 import { runtimeDependencyFindings } from "../../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
 import { resolveSystem1Readiness } from "../../.pi/harnesses/lib/system1/config.js";
+import { system1SelectedByDesired } from "../../.pi/harnesses/lib/system1/selection.js";
+import { planTaskTriageConfig } from "./task-triage-setup.js";
 
 export const AGENT_FLEET_PACKAGE_NAME = "@chankov/agent-fleet";
 const AGENT_FLEET_PACKAGE_PATTERN = /(^|[/:])@chankov\/agent-fleet(@[^/]*)?$/;
@@ -180,6 +182,7 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
   // 9. Optional System 1 readiness. This reads local declarations only; it does
   // not load .env, create a provider, or contact the API.
   findings.push(...scanSystem1Readiness({ workspace, env }));
+  findings.push(...scanTaskTriageReadiness({ workspace, env }));
 
   if (!apply) return findings;
 
@@ -222,7 +225,7 @@ export function scanSystem1Readiness({ workspace, env = process.env }) {
   if (existsSync(desiredPath)) {
     try {
       const desired = JSON.parse(readFileSync(desiredPath, "utf8"));
-      selected = desired?.features?.system1 === true;
+      selected = system1SelectedByDesired(desired);
     } catch {
       // A malformed desired-state file is handled by the installer lifecycle;
       // without a trustworthy explicit selection System 1 remains inactive.
@@ -237,21 +240,15 @@ export function scanSystem1Readiness({ workspace, env = process.env }) {
     catch { config = null; }
   }
   const readiness = resolveSystem1Readiness({ selected, config, env });
-  const envPath = join(workspace, ".env");
-  let envDeclared = false;
-  if (existsSync(envPath)) {
-    try {
-      envDeclared = /^(?:\s*export\s+)?\s*TYPESAFE_API_KEY\s*=/m.test(readFileSync(envPath, "utf8"));
-    } catch { /* Unreadable declarations remain absent. */ }
-  }
+  // .env can contain secret values. Report declaration status as unknown rather
+  // than reading that file merely to improve an advisory message.
+  const envDeclared = null;
   const environmentPresent = typeof env.TYPESAFE_API_KEY === "string" && env.TYPESAFE_API_KEY.trim().length > 0;
   const readinessName = readiness.status === "ready" ? "ready" : readiness.reason;
   const detail = {
     disabled: "configuration mode is off; other fields were not validated",
     missing_config: ".ai/system1.json is absent",
-    missing_key: envDeclared
-      ? "TYPESAFE_API_KEY is declared in .env but is not present in the current process environment; .env was not loaded"
-      : "TYPESAFE_API_KEY is not present in the current process environment",
+    missing_key: "TYPESAFE_API_KEY is not present in the current process environment; .env was not inspected or loaded",
     invalid_config: ".ai/system1.json is invalid",
     ready: "configuration and current environment are locally ready",
   }[readinessName];
@@ -268,6 +265,82 @@ export function scanSystem1Readiness({ workspace, env = process.env }) {
     environmentPresent,
     apiValidity: "unverified",
   }];
+}
+
+export function scanTaskTriageReadiness({ workspace, env = process.env }) {
+  const aiPath = join(workspace, ".ai");
+  try { if (!lstatSync(aiPath).isDirectory()) return [taskTriageFinding("invalid_selection", false)]; }
+  catch (error) { if (error.code === "ENOENT") return []; return [taskTriageFinding("invalid_selection", false)]; }
+  const statePath = join(aiPath, "agent-fleet-state.json");
+  let selection;
+  try {
+    const stateStat = lstatSync(statePath);
+    selection = stateStat.isFile() ? JSON.parse(readFileSync(statePath, "utf8")).taskTriageSelected : "invalid";
+  } catch (error) { if (error.code !== "ENOENT") selection = "invalid"; }
+  if (selection === false) return existsSync(join(workspace, ".ai/task-triage.json"))
+    ? [taskTriageFinding("disabled_by_setup", false)] : [];
+  let config;
+  try { config = planTaskTriageConfig(workspace); }
+  catch { config = { status: "invalid", alreadyApproved: false }; }
+  if (selection !== true && config.status === "missing") return [];
+  if (selection === "invalid" || (selection !== true && selection !== undefined)) return [taskTriageFinding("invalid_selection", false)];
+  let readiness = { missing: "missing_config", invalid: "invalid_config", policy_mismatch: "policy_mismatch",
+    off: "disabled", unapproved: "unapproved" }[config.status];
+  if (!readiness && config.status === "active") {
+    const providerPath = join(workspace, ".ai/system1.json");
+    let provider;
+    try {
+      if (!lstatSync(providerPath).isFile()) provider = null;
+      else provider = JSON.parse(readFileSync(providerPath, "utf8"));
+    } catch (error) { provider = error.code === "ENOENT" ? undefined : null; }
+    const result = resolveSystem1Readiness({ selected: true, config: provider, env });
+    readiness = ({ disabled: "provider_off", missing_config: "missing_provider", invalid_config: "invalid_provider",
+      missing_key: "missing_key" })[result.reason] ?? (result.status === "ready" ? "locally_ready" : "invalid_provider");
+  }
+  const producers = config.status === "active" ? localStageProducers(workspace) : null;
+  if (readiness === "locally_ready" && producers?.status === "missing") readiness = "missing_local_producer";
+  return [taskTriageFinding(readiness ?? "invalid_config", selection === true || config.alreadyApproved,
+    config.status === "active", producers)];
+}
+
+function localStageProducers(workspace) {
+  const found = new Set();
+  let uncertain = false, count = 0;
+  for (const relativeDir of AGENT_DIRS) {
+    const dir = join(workspace, relativeDir);
+    if (!existsSync(dir)) continue;
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.name.endsWith(".md")) continue;
+        if (++count > 128 || !entry.isFile()) { uncertain = true; continue; }
+        const fd = openSync(join(dir, entry.name), "r");
+        const buffer = Buffer.alloc(4096);
+        let size;
+        try { size = readSync(fd, buffer, 0, buffer.length, 0); } finally { closeSync(fd); }
+        const header = buffer.toString("utf8", 0, size).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+        if (!header) { uncertain = true; continue; }
+        const name = header[1].match(/^name:\s*([^\r\n]+)$/m)?.[1]?.trim().toLowerCase();
+        if (name === "planner" || name === "code-reviewer") found.add(name);
+      }
+    } catch { uncertain = true; }
+  }
+  const missing = ["planner", "code-reviewer"].filter(name => !found.has(name));
+  return { status: uncertain ? "unverified" : missing.length ? "missing" : "local_files_present_roster_unverified",
+    missing: uncertain ? [] : missing };
+}
+
+function taskTriageFinding(readiness, selected, configured = false, producers = null) {
+  const remoteApproved = configured;
+  const missingLocalProducers = producers?.missing ?? [];
+  return {
+    type: "task-triage", path: ".ai/task-triage.json", classification: "advisory",
+    selected, configured, remoteApproved, readiness, apiValidity: "unverified",
+    ...(producers ? { stageProducerStatus: producers.status, missingLocalProducers } : {}),
+    issue: `Task triage: ${readiness}; API validity is unverified${missingLocalProducers.length ? `; locally missing ${missingLocalProducers.join(", ")}` : ""}`,
+    fix: missingLocalProducers.length ? `${missingLocalProducers.map(name => `/af-agents-add ${name}`).join(" or ")} or /af-agents-team; choose/enable roles explicitly, no automatic roster change`
+      : readiness === "locally_ready" || readiness === "disabled_by_setup" || readiness === "disabled"
+        ? "no automatic action" : "review the human-owned task triage configuration and local provider readiness; doctor never starts inference",
+  };
 }
 
 function escapeRe(s) {

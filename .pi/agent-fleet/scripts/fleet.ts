@@ -47,7 +47,8 @@ DETERMINISTIC FLOWS
   just flow merge 2       # squash-merge accepted selection 2, then remove it
       Cleanup and merge require Worktrunk. Dirty worktrees are refused; merge
       targets the source branch recorded when the run started. See
-      .pi/agent-fleet/docs/workflows.md.
+      docs/workflows.md in a source checkout, or
+      .pi/agent-fleet/docs/workflows.md in an installed workspace.
 
 FLEET CORE — loaded in every Pi mode
   Damage Control Continue · local/remote ask_user · Compact & Continue

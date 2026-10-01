@@ -84,6 +84,75 @@ requires_user_decision: []
 
 	assert.equal(parsed.assertions_proven[0].id, "A4");
 	assert.equal(parsed.assertions_proven[0].evidence, ".pi/harnesses/agent-hub/index.ts:10");
+	assert.deepEqual(parsed.requires_user_decision, []);
+});
+
+test("fenced planner return keeps an empty decision list empty in the whole-response candidate", () => {
+	// Sanitized shape of the retained planner result: all declared keys are inside
+	// the fence, with the empty decision as the last field before its closing line.
+	const parsed = parseStructuredReturn(`Artifact: artifacts/plans/synthetic-readme-fix.md
+
+Digest: plan written; verification deferred to the builder.
+
+Structured return:
+\`\`\`text
+changed_files: [artifacts/plans/synthetic-readme-fix.md — typo-only plan]
+assertions_proven: []
+assertions_unproven: [A1 — builder must verify]
+assertions_failed: []
+tests_run: []
+open_risks: []
+requires_user_decision: []
+\`\`\``);
+	assert.deepEqual(parsed.requires_user_decision, []);
+	assert.deepEqual(parsed.assertions_unproven.map(entry => entry.id), ["A1"]);
+	assert.deepEqual(parsed.changed_files, ["artifacts/plans/synthetic-readme-fix.md — typo-only plan"]);
+});
+
+test("fenced and later decisions stay visible without swallowing trailing prose", () => {
+	const parsed = parseStructuredReturn(`\`\`\`yaml
+requires_user_decision: [Which file should be edited?]
+\`\`\`
+Narrative after the fence is not part of the decision.
+\`\`\`json
+requires_user_decision: []
+\`\`\`
+requires_user_decision: [Should the user approve?]
+Trailing prose is not part of a fenced value.`);
+	assert.deepEqual(parsed.requires_user_decision, ["Which file should be edited?", "Should the user approve?", "Trailing prose is not part of a fenced value."]);
+	assert.deepEqual(parseStructuredReturn("requires_user_decision: []\nDigest: ambiguous trailing text").requires_user_decision,
+		["Digest: ambiguous trailing text"], "unfenced trailing prose must not silently clear a decision");
+});
+
+test("fenced structured return does not swallow prose after its closing fence", () => {
+	const parsed = parseStructuredReturn(`\`\`\`yaml
+assertions_proven: [A2: verified — evidence: test:2]
+requires_user_decision: []
+\`\`\`
+Summary after the fence: no additional question.`);
+	assert.deepEqual(parsed.requires_user_decision, []);
+	assert.equal(parsed.assertions_proven[0].evidence, "test:2");
+});
+
+test("JSON and YAML decision lists preserve real questions and malformed values fail closed", () => {
+	const json = parseStructuredReturn(`\`\`\`json
+{
+  "requires_user_decision": ["Which file should be edited?", "Approve the change?"],
+  "assertions_unproven": []
+}
+\`\`\``);
+	assert.deepEqual(json.requires_user_decision, ["Which file should be edited?", "Approve the change?"]);
+	const yaml = parseStructuredReturn(`\`\`\`yaml
+requires_user_decision:
+- Which file should be edited?
+- Approve the change?
+\`\`\``);
+	assert.deepEqual(yaml.requires_user_decision, ["Which file should be edited?", "Approve the change?"]);
+	const malformed = parseStructuredReturn(`\`\`\`yaml
+requires_user_decision: [Which file?
+\`\`\``);
+	assert.notDeepEqual(malformed.requires_user_decision, []);
+	assert.deepEqual(parseStructuredReturn("ASK_USER: Which file should be edited?"), null, "ASK_USER remains the separate marker path");
 });
 
 test("parseStructuredReturn accepts markdown section lists", () => {

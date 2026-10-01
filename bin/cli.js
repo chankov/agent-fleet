@@ -23,6 +23,7 @@ import { askChoice, askFinalApproval, chooseSetup, selectionSummary } from "./li
 import { defaultDesired, readDesired } from "./lib/desired.js";
 import { normalizeFeatureSet } from "./lib/features.js";
 import { readSttConfig, STT_PROVIDERS } from "./lib/stt-wizard.js";
+import { planTaskTriageConfig } from "./lib/task-triage-setup.js";
 import { prepareDesiredRepair } from "./lib/repair-desired.js";
 import { purgeHumanConfig } from "./lib/purge.js";
 import { capturePlanFingerprints, recoverTransaction, journalPath, transactionRecovery } from "./lib/transaction.js";
@@ -82,6 +83,7 @@ const parsed = (() => {
         features:  { type: "string" },
         "stt-provider": { type: "string" },
         "save-desired": { type: "boolean" },
+        "task-triage-consent": { type: "boolean" },
         "repair-config": { type: "boolean" },
         migrate: { type: "boolean" },
         "on-conflict": { type: "string" },
@@ -307,6 +309,7 @@ async function cmdSetup() {
   let features = opts.features;
   let sttProvider = opts["stt-provider"] ?? null;
   let sttReplacementApproved = Boolean(opts.yes || dryRun);
+  let taskTriageConsent = Boolean(opts["task-triage-consent"]);
   let tuiDesired = null;
   let setupReadLine = null;
   let setupRl = null;
@@ -344,6 +347,14 @@ async function cmdSetup() {
         else if (!replacement.value) sttProvider = null;
         else sttReplacementApproved = true;
       }
+      if (!selection.cancelled && selection.features.includes("system1-task-triage") && !taskTriageConsent && !planTaskTriageConfig(workspace).alreadyApproved) {
+        const consent = await askChoice({ output: stdout, readLine: setupReadLine,
+          prompt: "Active experimental task triage sends bounded task/clarification text and relevant repository metadata to the configured TypeSafe Jev provider (up to 40 KiB task, 64 KiB state, 100 assessments/session, 2 s each). It adds process checks without increasing spend tier. File bodies, environment and credentials are excluded by design; sensitive input is refused, but secret detection is not guaranteed. Separately approve remote task context? yes/y | no/n; Enter = no > ",
+          validate: (value) => /^y(?:es)?$/i.test(value) ? { ok: true, value: true } : value === "" || /^n(?:o)?$/i.test(value) ? { ok: true, value: false } : { ok: false, error: "Enter yes/y for task-context consent or no/n to cancel setup." },
+        });
+        if (consent.cancelled || !consent.value) selection = { cancelled: true, reason: consent.reason ?? "task-context consent declined" };
+        else taskTriageConsent = true;
+      }
     } catch (err) { setupRl.close(); fail(err.message); }
     if (selection.cancelled) { setupRl.close(); console.log(`${setupAborted} (${selection.reason ?? "cancelled"})`); exit(0); }
     preset = selection.preset; features = selection.features.join(",");
@@ -364,7 +375,7 @@ async function cmdSetup() {
       allowExec: Boolean(opts["allow-exec"]),
       // The interactive selector and final exact-plan confirmation are the
       // migration consent. Automation retains every explicit gate.
-      migrate: opts.migrate || interactiveMigration, yes: opts.yes || interactive,
+      migrate: opts.migrate || interactiveMigration, yes: opts.yes || interactive, taskTriageConsent,
       accept: opts["on-conflict"] ?? null, sttProvider, sttReplacementApproved });
   } catch (err) {
     setupRl?.close();
@@ -415,7 +426,7 @@ async function cmdDoctor() {
     catch (err) { fail(`cannot recover pending transaction: ${err.message}`); }
   }
 
-  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1"]);
+  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1", "task-triage"]);
   // These findings affect launch readiness and the doctor exit code, but npm
   // execution remains behind its dedicated explicit-consent commands.
   const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies", "manifest-tool"]);
@@ -1015,6 +1026,8 @@ function printConfigurationWrites(plan) {
     plan.writeDesired ? plan.desiredPath : null,
     plan.overrides?.write ? plan.overrides.path : null,
     plan.stt?.write ? plan.stt.path : null,
+    plan.taskTriage?.write ? plan.taskTriage.path : null,
+    plan.taskTriageProvider?.write ? plan.taskTriageProvider.path : null,
     plan.stt?.env?.missing?.length ? plan.stt.env.path : null,
   ].filter(Boolean);
   if (writes.length === 0) return;
@@ -1247,6 +1260,7 @@ Options:
   --stt-provider <openai|groq|azure|azure-openai>
                                         Select provider explicitly; non-OpenAI setup requires prepared .ai/stt.json
   --save-desired                       Persist CLI overrides to .ai/agent-fleet.json
+  --task-triage-consent                Separately approve experimental remote task context (not implied by --yes)
   --migrate                            Permit non-interactive first migration (with explicit preset/features and --yes)
   --allow-exec                         Run consented runtime commands after the file transaction
   --on-conflict <ours|theirs>           Resolve a three-way conflict before the transaction

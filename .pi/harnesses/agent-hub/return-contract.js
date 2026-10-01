@@ -149,8 +149,8 @@ function parseCandidate(text) {
 	let score = 0;
 
 	const keyBlocks = collectKeyBlocks(text);
-	for (const [key, block] of keyBlocks) {
-		result[key] = parseEntries(key, block);
+	for (const [key, blocks] of keyBlocks) {
+		result[key] = blocks.flatMap((block) => parseEntries(key, block));
 		score += 2 + result[key].length;
 	}
 
@@ -189,7 +189,7 @@ function collectKeyBlocks(text) {
 	const found = new Map();
 	const lines = text.split(/\r?\n/);
 	for (let i = 0; i < lines.length; i++) {
-		const match = lines[i].match(/^\s*([A-Za-z][A-Za-z0-9_ -]*)\s*:\s*(.*)$/);
+		const match = lines[i].match(/^\s*["']?([A-Za-z][A-Za-z0-9_ -]*)["']?\s*:\s*(.*)$/);
 		if (!match) continue;
 		const key = normalizeKey(match[1]);
 		if (!STRUCTURED_KEYS.includes(key)) continue;
@@ -199,15 +199,21 @@ function collectKeyBlocks(text) {
 		let j = i + 1;
 		for (; j < lines.length; j++) {
 			const next = lines[j];
-			const nextKey = next.match(/^\s*([A-Za-z][A-Za-z0-9_ -]*)\s*:\s*/);
+			const nextKey = next.match(/^\s*["']?([A-Za-z][A-Za-z0-9_ -]*)["']?\s*:\s*/);
 			const isKnownNextKey = nextKey && STRUCTURED_KEYS.includes(normalizeKey(nextKey[1]));
 			const isHeading = /^\s*#{1,6}\s+/.test(next);
+			// Fences delimit a structured candidate, never a value. In the
+			// whole-response candidate a closing fence used to become the last
+			// decision entry (e.g. "[]\n```").
+			if (/^\s*```/.test(next) || (bracketBalance <= 0 && /^\s*}[,;]?\s*$/.test(next))) break;
 			if (bracketBalance <= 0 && (isKnownNextKey || isHeading)) break;
 			if (next.trim() === "" && bracketBalance <= 0) break;
 			block.push(next);
 			bracketBalance += balanceBrackets(next);
 		}
-		found.set(key, block.join("\n"));
+		// Repeated blocks (including distinct fences) must not hide a real
+		// decision behind a later empty declaration.
+		found.set(key, [...(found.get(key) || []), block.join("\n")]);
 	}
 	return found;
 }
@@ -251,6 +257,22 @@ function collectLineFormAssertions(text) {
 }
 
 function parseEntries(key, rawBlock) {
+	if (key === "requires_user_decision") {
+		const [first, ...rest] = rawBlock.split(/\r?\n/);
+		// A completed inline list cannot consume following prose as a single
+		// array value. Retain that prose as an additional decision rather than
+		// silently discarding ambiguous or malformed content.
+		if (rest.length && /^\[.*\],?$/.test(first.trim())) {
+			return [...parseEntries(key, first), ...splitListEntries(rest.join("\n"))];
+		}
+		const value = rawBlock.trim().replace(/,\s*$/, "");
+		if (/^\[.*\]$/s.test(value)) {
+			try {
+				const entries = JSON.parse(value);
+				if (Array.isArray(entries) && entries.every((entry) => typeof entry === "string")) return entries;
+			} catch { /* YAML and malformed list content remain visible to the caller. */ }
+		}
+	}
 	if (ASSERTION_KEYS.has(key)) {
 		return splitAssertionEntries(rawBlock).map(parseAssertionEntry).filter(Boolean);
 	}

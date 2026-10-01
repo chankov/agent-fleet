@@ -1,6 +1,6 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -149,6 +149,43 @@ test("unsupported snapshot metadata fails before journaling with no workspace wr
   assert.match(applied.failure.detail, /unsupported snapshot manifest schemaVersion/);
   assert.equal(existsSync(join(workspace, JOURNAL_REL_PATH)), false);
   assert.equal(readFileSync(join(workspace, ".pi/skills/alpha/SKILL.md"), "utf8"), before);
+});
+
+test("task-triage config and desired selection roll back together on interrupted setup", t => {
+  const workspace = temporaryDirectory(t, "af-tx-triage-");
+  const plan = buildReconcilePlan({
+    workspace, sourceRoot: repoRoot, packageVersion: manifest.packageVersion, manifest,
+    preset: "default", features: "system1-task-triage", taskTriageConsent: true, yes: true,
+  });
+  assert.equal(plan.taskTriage?.write, true);
+  assert.equal(plan.taskTriageProvider?.write, true);
+  const failed = applyPlan({ plan, manifest, failAt: "after-commit" });
+  assert.equal(failed.exitCode, 1);
+  assert.equal(existsSync(join(workspace, ".ai/task-triage.json")), false);
+  assert.equal(existsSync(join(workspace, ".ai/system1.json")), false);
+  assert.equal(existsSync(join(workspace, ".ai/agent-fleet.json")), false);
+  assert.equal(readState(workspace), null);
+  assert.equal(existsSync(join(workspace, JOURNAL_REL_PATH)), false);
+  const applied = applyPlan({ plan, manifest });
+  assert.equal(applied.exitCode, 0, applied.failure?.detail);
+  assert.equal(JSON.parse(readFileSync(join(workspace, ".ai/task-triage.json"), "utf8")).mode, "experimental");
+  assert.equal(JSON.parse(readFileSync(join(workspace, ".ai/system1.json"), "utf8")).apiKeyEnv, "TYPESAFE_API_KEY");
+});
+
+test("task-triage planning refuses a linked config or linked .ai parent before reading outside the workspace", t => {
+  const workspace = temporaryDirectory(t, "af-tx-triage-links-");
+  const foreign = temporaryDirectory(t, "af-tx-triage-foreign-");
+  const sentinel = write(foreign, "secret.json", '{"remoteContextApproved":true}\n');
+  mkdirSync(join(workspace, ".ai"));
+  symlinkSync(sentinel, join(workspace, ".ai/task-triage.json"));
+  const plan = () => buildReconcilePlan({ workspace, sourceRoot: repoRoot, packageVersion: manifest.packageVersion, manifest,
+    preset: "default", features: "system1-task-triage", taskTriageConsent: true, yes: true });
+  assert.throws(plan, /must be a regular file/);
+  rmSync(join(workspace, ".ai/task-triage.json"));
+  rmSync(join(workspace, ".ai"), { recursive: true });
+  symlinkSync(foreign, join(workspace, ".ai"));
+  assert.throws(plan, /linked \.ai directory/);
+  assert.equal(readFileSync(sentinel, "utf8"), '{"remoteContextApproved":true}\n');
 });
 
 test("desired and applied state commit in the same transaction", t => {

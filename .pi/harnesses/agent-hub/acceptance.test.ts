@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildRuntimeResult, mapCompatibilityStatus, minimalChangeRequirement, preflightDeliverables, readBackDeliverables } from "./acceptance.ts";
 import { applyProcessClassification, createProcessState, evaluateProcessObligations, latestProcessState, noteProcessStage, processAuditRecord, processPreEffectGate } from "./process-obligations.ts";
+import { applyTaskTriageAdditions } from "./task-triage-obligations.ts";
 
 function fixture(t: any) {
  const cwd = mkdtempSync(join(tmpdir(), "fleet-acceptance-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
@@ -165,6 +166,21 @@ test("T11 risk obligations are independent of budget tier and ratchet until a ge
  assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "trivial", t2Accepted: true }).accepted, true);
  const reset = applyProcessClassification(state, { newTask: true, risk: "low", scope: "small", reason: "genuine new task" });
  assert.equal(reset.ok, true); assert.equal(reset.state.review.required, false); assert.equal(reset.state.review.evidenceRef, null);
+});
+
+test("T2 acceptance closes after a confirmed action without waiving per-effect confirmation", () => {
+ const state = applyTaskTriageAdditions(
+  applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "declared" }).state,
+  { status: "applied", reasons: ["irreversible_execution"] },
+  { taskId: "task-1", evaluationId: "eval-1", inputRevision: "input-1" },
+ );
+ const result = runtime({ checks: [{ producer: "runtime", taskId: "task-1", command: ["node", "--test"], exitCode: 0, inspectedRevision: "rev-after", evidenceRef: "/e/test", requirementIds: ["AF-MIN-CHANGE"] }] });
+ assert.equal(result.acceptance.accepted, true);
+ const verdict = evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: result.acceptance.accepted, currentRevision: "rev-after" });
+ assert.equal(verdict.accepted, true);
+ assert.equal(verdict.obligations.confirmation?.status, "open", "the next effect still needs confirmation");
+ assert.equal(processPreEffectGate(state, "write")?.reason, "action_confirmation_unsupported");
+ assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: false }).accepted, false, "T2 remains mandatory");
 });
 
 test("T11 scope expansion requires an explicit reason and risk reassessment; wide work keeps plan and review", () => {

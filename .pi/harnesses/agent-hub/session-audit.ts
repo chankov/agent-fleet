@@ -3,9 +3,13 @@ import { basename, join } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { redactSecrets } from "../lib/fleet-transcript-store.ts";
 import { RECOVERY_CATEGORIES, type RecoveryCategory } from "./recovery-contract.ts";
-import { readWatchdogEvents, buildProactiveReport, readProactiveReport, type ProactiveReportInput } from "./system1-report.ts";
-import { projectWatchdogReadback } from "./system1-activity.ts";
+import { readWatchdogEvents, buildProactiveReport, readProactiveReport, readTaskTriageReport, buildTaskTriageReport, type ProactiveReportInput } from "./system1-report.ts";
+import { projectTaskTriage, type TaskTriageProjectionInput, type TaskTriageSessionView } from "../lib/fleet-read-model.ts";
+import { projectWatchdogReadback, type TaskTriageActivity } from "./system1-activity.ts";
+export type TaskTriageAuditInput = Omit<TaskTriageProjectionInput, "process"> & { activity?: ReturnType<TaskTriageActivity["live"]> };
 import { createNoProgressGuard, projectRecoveryRows } from './no-progress.ts';
+import { createHash } from "node:crypto";
+import { taskTriageActionAuditRecord, type TaskTriageActionAuditRecord } from "./task-triage-authorization.ts";
 
 const RESULT_SCHEMA = "agent-fleet.runtime-result/v1";
 const PROTOCOL_SCHEMA = "agent-fleet.tool-protocol-diagnostic/v1";
@@ -33,7 +37,8 @@ export interface SessionAuditEvent {
 	risk?: "unknown" | "low" | "high";
 	scope?: "unknown" | "read-only" | "small" | "wide";
 	budgetTier?: string | null;
-	obligations?: Record<string, "satisfied" | "open" | "unsupported">;
+	obligations?: Record<string, "satisfied" | "open" | "unsupported" | "waived">;
+	processAdditions?: TaskTriageSessionView["process"]["additions"];
 	appliedRuleIds?: string[];
 	currentStage?: string;
 	admissibleNextAction?: string;
@@ -52,6 +57,7 @@ export interface SessionAuditSummary {
 	};
 	events: SessionAuditEvent[];
 	proactive: ReturnType<typeof buildProactiveReport> | ReturnType<typeof readProactiveReport>;
+	taskTriage: TaskTriageSessionView & { metrics: ReturnType<typeof readTaskTriageReport>; actions: ReturnType<typeof projectTaskTriageActions> };
 	unavailable: string[];
 }
 
@@ -76,8 +82,66 @@ function runtimeResult(details: Record<string, any> | null): Record<string, any>
 	return value?.schema === RESULT_SCHEMA ? value : null;
 }
 
+/** Diagnostic joins only: durable consumption is not proof of execution or semantic acceptance. */
+export function projectTaskTriageActions(entries: readonly unknown[], binding?: Pick<TaskTriageProjectionInput, "taskId" | "inputRevision">) {
+ type ActionRow = { metadata: TaskTriageActionAuditRecord; requested: boolean; denied: boolean; grant: boolean; consumed: boolean;
+  consumptionFailed: boolean; execution: "not_recorded" | "tool_result_ok" | "tool_result_error"; ambiguous: boolean; seen: Set<string> };
+ const rows = new Map<string, ActionRow>();
+ let invalidRecords = 0, overflow = false;
+ const hash = (v: unknown): v is string => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
+ const uuid = (v: unknown): v is string => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
+ for (const entry of entries) {
+  const record = entryData(entry);
+  const observation = record.type === "agent-hub-task-triage-action-observation";
+  const grant = record.type === "agent-hub-task-triage-action-grant", consumed = record.type === "agent-hub-task-triage-action-consumed";
+  if (observation || grant || consumed) {
+   const data = record.data;
+   let metadata: TaskTriageActionAuditRecord | null = null;
+   if (observation && data?.schema === "task-triage-action-audit/v1" && uuid(data.taskId) && hash(data.inputRevision)
+    && hash(data.actionFingerprint) && hash(data.callFingerprint) && ["bash", "edit", "write"].includes(data.operation)
+    && ["requested", "not_granted", "consumption_failed"].includes(data.status)
+    && Object.keys(data).length === 7) metadata = { schema: data.schema, taskId: data.taskId, inputRevision: data.inputRevision,
+     actionFingerprint: data.actionFingerprint, callFingerprint: data.callFingerprint, operation: data.operation, status: data.status };
+   else if (!observation && data) metadata = taskTriageActionAuditRecord(data as any, "requested");
+   if (!metadata) { invalidRecords++; continue; }
+   const key = JSON.stringify([metadata.taskId, metadata.inputRevision, metadata.callFingerprint]);
+   let row = rows.get(key);
+   if (!row) {
+    if (rows.size >= 300) { overflow = true; continue; }
+    row = { metadata, requested: false, denied: false, grant: false, consumed: false, consumptionFailed: false, execution: "not_recorded", ambiguous: false, seen: new Set() };
+    rows.set(key, row);
+   }
+   const type = grant ? "grant" : consumed ? "consumed" : metadata.status;
+   if (row.seen.has(type) || row.metadata.actionFingerprint !== metadata.actionFingerprint || row.metadata.operation !== metadata.operation) row.ambiguous = true;
+   row.seen.add(type);
+   if (grant) { if (row.denied || row.consumed) row.ambiguous = true; row.grant = true; }
+   else if (consumed) { if (!row.grant || row.denied || row.consumptionFailed) row.ambiguous = true; row.consumed = true; }
+   else if (metadata.status === "requested") row.requested = true;
+   else if (metadata.status === "not_granted") { if (row.grant || row.consumed) row.ambiguous = true; row.denied = true; }
+   else { if (row.consumed || !row.grant) row.ambiguous = true; row.consumptionFailed = true; }
+   continue;
+  }
+  const message = object(object(entry)?.message);
+  if (message?.role !== "toolResult" || typeof message.toolCallId !== "string" || !message.toolCallId || message.toolCallId.length > 512) continue;
+  const call = createHash("sha256").update(message.toolCallId).digest("hex");
+  const matching = [...rows.values()].filter(row => row.metadata.callFingerprint === call && row.metadata.operation === message.toolName && row.consumed);
+  if (matching.length > 1) { matching.forEach(row => { row.ambiguous = true; }); continue; }
+  const row = matching[0]; if (!row) continue;
+  if (row.execution !== "not_recorded") row.ambiguous = true;
+  if (typeof message.isError === "boolean") row.execution = message.isError ? "tool_result_error" : "tool_result_ok";
+ }
+ const records = [...rows.values()].map(row => ({ taskId: row.metadata.taskId, inputRevision: row.metadata.inputRevision,
+  actionFingerprint: row.metadata.actionFingerprint, operation: row.metadata.operation,
+  binding: !binding?.taskId || !binding?.inputRevision ? "unbound" : row.metadata.taskId === binding.taskId && row.metadata.inputRevision === binding.inputRevision ? "current" : "stale",
+  authorization: row.ambiguous ? "ambiguous" : row.grant ? "recorded_grant" : row.denied ? "not_granted" : "not_recorded",
+  consumption: row.ambiguous ? "ambiguous" : row.consumptionFailed ? "persistence_failed" : row.consumed ? "recorded_once" : "not_recorded",
+  execution: row.ambiguous ? "not_recorded" : row.denied || row.consumptionFailed ? "blocked" : row.execution }));
+ return { availability: records.length ? "recorded" : "unavailable", records, invalidRecords, overflow,
+  ambiguous: records.filter(row => row.authorization === "ambiguous").length, completeness: "retained session entries only; no replay authority" };
+}
+
 /** Build an allowlisted audit from runtime-owned records. Prompt, output, payload, paths and environment values are never copied. */
-export function buildSessionAudit(input: { entries: readonly unknown[]; sessionDir: string; proactive?: ProactiveReportInput }): SessionAuditSummary {
+export function buildSessionAudit(input: { entries: readonly unknown[]; sessionDir: string; proactive?: ProactiveReportInput; taskTriage?: TaskTriageAuditInput }): SessionAuditSummary {
 	const unavailable = new Set<string>(), meta = readJson(join(input.sessionDir, "session.json"));
 	const rootSessionId = runtimeId(meta?.sessionId) ?? runtimeId(basename(input.sessionDir));
 	if (!meta) unavailable.add("root_session_metadata");
@@ -131,10 +195,22 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
             evidence: type === 'technical' || type === 'settled' ? 'available' : 'available',
             explanation: type === 'grant' ? 'Human-authorized one-use indeterminate retry; partial side effects and duplicate effects were warned; no automatic execution.' : type === 'technical' ? 'Technical assessment only; failed execution and parent acceptance remain independent.' : undefined });
     }
+	let latestProcess: unknown;
 	for (const entry of input.entries) {
 		const record = entryData(entry), snapshotId = record.type === "compaction" || record.type === "session_compact" ? record.id : null;
 		if (snapshotId) { snapshots.add(snapshotId); continue; }
 		if (record.type === "agent-hub-process-state") {
+			latestProcess = record.data;
+			if (record.data && Object.hasOwn(record.data, "additions")) {
+				const projected = projectTaskTriage({ ...input.taskTriage, process: record.data }).process;
+				add({ kind: "process_obligation", rootSessionId, childDispatchId: null, childSessionId: null, snapshotId: null,
+					status: projected.completion === "process_complete" ? "accepted" : "not_accepted",
+					risk: projected.declaration.risk as SessionAuditEvent["risk"], scope: projected.declaration.scope as SessionAuditEvent["scope"],
+					budgetTier: projected.declaration.budgetTier, obligations: projected.obligations ?? undefined, processAdditions: projected.additions,
+					currentStage: projected.currentStage, evidence: projected.availability === "available" ? "available" : "unavailable",
+					explanation: "Process status only; waivers remain waived and per-effect confirmation is independent of task acceptance." });
+				continue;
+			}
 			const data = record.data, risk = ["unknown", "low", "high"].includes(data?.risk) ? data!.risk as "unknown" | "low" | "high" : "unknown";
 			const budgetTier = ["trivial", "small", "feature", "project"].includes(data?.budgetTier) ? data!.budgetTier : null;
 			const scope = ["unknown", "read-only", "small", "wide"].includes(data?.scope) ? data!.scope : "unknown";
@@ -206,9 +282,19 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 			},
 			evidence: check.evaluation === "interrupted" || check.llm === "interrupted" ? "unavailable" : "available" });
 	}
+	const diskMetrics = readTaskTriageReport(input.sessionDir);
+	// Disk includes prior session instances. Use bounded live fallback only if this
+	// observer lost writes; report the source rather than duplicating its events.
+	const liveActivity = input.taskTriage?.activity;
+	const metrics = liveActivity?.degraded ? { ...buildTaskTriageReport(liveActivity.events, liveActivity, diskMetrics.observability),
+		availability: "session-memory", scope: "bounded-live-observer; durable trace degraded" } : diskMetrics;
+	const taskTriage = { ...projectTaskTriage({ ...input.taskTriage, process: latestProcess }), metrics, actions: projectTaskTriageActions(input.entries, input.taskTriage) };
+	if (taskTriage.actions.invalidRecords || taskTriage.actions.ambiguous || taskTriage.actions.overflow) unavailable.add("task_triage_action_integrity");
+	if (latestProcess !== undefined && taskTriage.process.availability === "unavailable") unavailable.add("task_triage_process_integrity");
+	if (taskTriage.metrics.observability.degraded) unavailable.add("task_triage_trace_integrity");
 	const deduped = new Map<string, SessionAuditEvent>();
 	for (const event of rawEvents) {
-		const key = JSON.stringify([event.kind, event.rootSessionId, event.childDispatchId, event.childSessionId, event.snapshotId, event.category ?? null, event.status, event.taskId ?? null, event.requestId ?? null, event.operation ?? null, event.risk ?? null, event.scope ?? null, event.budgetTier ?? null, event.obligations ?? null, event.appliedRuleIds ?? null, event.currentStage ?? null, event.admissibleNextAction ?? null, event.auditScope ?? null, event.watchdog ?? null, event.operationId ?? null, event.attemptId ?? null, event.technicalBlock ?? null, event.openRequirements ?? null]);
+		const key = JSON.stringify([event.kind, event.rootSessionId, event.childDispatchId, event.childSessionId, event.snapshotId, event.category ?? null, event.status, event.taskId ?? null, event.requestId ?? null, event.operation ?? null, event.risk ?? null, event.scope ?? null, event.budgetTier ?? null, event.obligations ?? null, event.processAdditions ?? null, event.appliedRuleIds ?? null, event.currentStage ?? null, event.admissibleNextAction ?? null, event.auditScope ?? null, event.watchdog ?? null, event.operationId ?? null, event.attemptId ?? null, event.technicalBlock ?? null, event.openRequirements ?? null]);
 		const prior = deduped.get(key);
 		if (prior) prior.repeatCount++;
 		else deduped.set(key, { ...event, repeatCount: 1 });
@@ -216,12 +302,12 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 	return {
 		schema: "agent-fleet.session-audit/v1", readOnly: true,
 		identity: { rootSessionId, children: [...children].map(([dispatchId, sessionId]) => ({ dispatchId, sessionId })), snapshots: [...snapshots].map(snapshotId => ({ snapshotId })) },
-		events: [...deduped.values()], proactive: input.proactive ? buildProactiveReport(input.proactive) : readProactiveReport(input.sessionDir), unavailable: [...unavailable].sort(),
+		events: [...deduped.values()], proactive: input.proactive ? buildProactiveReport(input.proactive) : readProactiveReport(input.sessionDir), taskTriage, unavailable: [...unavailable].sort(),
 	};
 }
 
 export function formatSessionAudit(summary: SessionAuditSummary): string { return JSON.stringify(summary, null, 2); }
 
-export async function showSessionAudit(ctx: ExtensionContext, sessionDir: string, proactive?: ProactiveReportInput): Promise<void> {
-	ctx.ui.notify(formatSessionAudit(buildSessionAudit({ entries: ctx.sessionManager.getEntries(), sessionDir, proactive })), "info");
+export async function showSessionAudit(ctx: ExtensionContext, sessionDir: string, proactive?: ProactiveReportInput, taskTriage?: TaskTriageAuditInput): Promise<void> {
+	ctx.ui.notify(formatSessionAudit(buildSessionAudit({ entries: ctx.sessionManager.getEntries(), sessionDir, proactive, taskTriage })), "info");
 }

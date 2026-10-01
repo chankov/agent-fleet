@@ -240,11 +240,84 @@ export function projectProactive(input: ProactiveLedgerInput): ProactiveSessionV
 	const lastFinishedAt = input.activity.filter(event => event.type === "job_finished" && Number.isFinite(event.at)).reduce<number | null>((at, event) => Math.max(at ?? -Infinity, event.at!), null);
 	return { consumer: "proactive-review", ...totals, owners: [...owners.values()], lastFinishedAt, retainUntil: lastFinishedAt === null ? 0 : lastFinishedAt + SYSTEM1_RETENTION_MS };
 }
+export interface TaskTriageProjectionInput {
+ taskId?: string; inputRevision?: string; configuredStatus?: "active" | "off" | "invalid";
+ runtimeBlocks?: readonly ("process_persistence_blocked" | "task_transition_pending")[];
+ process?: unknown; assessment?: unknown;
+}
+const triageObject = (v: unknown): Record<string, unknown> | null => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : null;
+const triageUuid = (v: unknown): v is string => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
+const triageHash = (v: unknown): v is string => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
+const triageReasons = new Set(["security_change", "wide_change", "irreversible_execution"]);
+const triageStatuses = new Set(["applied", "no_additions", "invalid_result", "stale", "incomplete_input", "sensitive_input", "oversized_input", "skipped", "unavailable", "unsupported", "cancelled", "unknown"]);
+const triageStages = new Set(["classify-risk", "plan", "execute", "acceptance", "review", "confirm-action", "complete"]);
+const triageObligationStatuses = new Set(["satisfied", "open", "unsupported", "waived"]);
+/** Pure metadata projection shared by Fleet and audit; it neither executes nor authorizes anything. */
+export function projectTaskTriage(input: TaskTriageProjectionInput) {
+ const taskId = triageUuid(input.taskId) ? input.taskId : null, inputRevision = triageHash(input.inputRevision) ? input.inputRevision : null;
+ const binding = (task: unknown, revision: unknown): "current" | "stale" | "unbound" => !taskId || !inputRevision ? "unbound" : task === taskId && revision === inputRevision ? "current" : "stale";
+ const rawAssessment = triageObject(input.assessment), assessmentData = triageObject(rawAssessment?.assessment);
+ const assessmentValid = !!rawAssessment && triageUuid(rawAssessment.taskId) && triageUuid(rawAssessment.evaluationId) && triageHash(rawAssessment.inputRevision)
+  && !!assessmentData && typeof assessmentData.status === "string" && triageStatuses.has(assessmentData.status)
+  && Array.isArray(assessmentData.reasons) && assessmentData.reasons.length <= 3 && assessmentData.reasons.every(r => typeof r === "string" && triageReasons.has(r));
+ const suppliedProbabilities = triageObject(assessmentData?.probabilities);
+ const probabilitiesValid = assessmentData?.status !== "applied" && assessmentData?.status !== "no_additions"
+  || !!suppliedProbabilities && [...triageReasons].every(key => typeof suppliedProbabilities[key] === "number"
+   && Number.isFinite(suppliedProbabilities[key]) && (suppliedProbabilities[key] as number) >= 0 && (suppliedProbabilities[key] as number) <= 1);
+ const assessmentBinding = assessmentValid ? binding(rawAssessment!.taskId, rawAssessment!.inputRevision) : "unbound";
+ const probabilities: Record<string, number> = {};
+ if (assessmentValid && probabilitiesValid && assessmentBinding === "current" && input.configuredStatus !== "off" && input.configuredStatus !== "invalid") {
+  for (const key of triageReasons) { const p = suppliedProbabilities?.[key]; if (typeof p === "number" && Number.isFinite(p) && p >= 0 && p <= 1) probabilities[key] = p; }
+ }
+ const assessment = { status: input.configuredStatus === "off" ? "off" : input.configuredStatus === "invalid" ? "invalid_config"
+   : assessmentValid ? assessmentBinding !== "current" ? "stale" : probabilitiesValid ? String(assessmentData!.status) : "invalid_result" : rawAssessment ? "invalid_result" : "unknown",
+  binding: assessmentBinding, evaluationId: assessmentValid ? rawAssessment!.evaluationId as string : null,
+  reasons: assessmentValid && probabilitiesValid && assessmentBinding === "current" && input.configuredStatus !== "off" && input.configuredStatus !== "invalid" ? [...assessmentData!.reasons as string[]] : [],
+  probabilities: Object.keys(probabilities).length ? probabilities : null };
+ const rawProcess = triageObject(input.process), rawObligations = triageObject(rawProcess?.obligations);
+ const obligations: Record<string, "satisfied" | "open" | "unsupported" | "waived"> = {};
+ let valid = rawProcess?.schema === "agent-fleet.process-obligations/v1" && !!rawObligations
+  && typeof rawProcess.risk === "string" && ["unknown", "low", "high"].includes(rawProcess.risk)
+  && typeof rawProcess.scope === "string" && ["unknown", "read-only", "small", "wide"].includes(rawProcess.scope)
+  && typeof rawProcess.currentStage === "string" && triageStages.has(rawProcess.currentStage);
+ for (const key of ["risk", "acceptance", "review", "plan", ...(rawObligations && Object.hasOwn(rawObligations, "confirmation") ? ["confirmation"] : [])]) {
+  const s = triageObject(rawObligations?.[key])?.status;
+  if (typeof s !== "string" || !triageObligationStatuses.has(s)) valid = false;
+  obligations[key] = typeof s === "string" && triageObligationStatuses.has(s) ? s as typeof obligations[string] : "unsupported";
+ }
+ const additionIds = new Set<string>();
+ const additions: { id: string; taskId: string; evaluationId: string; inputRevision: string; reason: string; status: "active" | "waived"; binding: "current" | "stale" | "unbound" }[] = [];
+ if (rawProcess?.additions !== undefined && (!Array.isArray(rawProcess.additions) || rawProcess.additions.length > 300)) valid = false;
+ else for (const entry of rawProcess?.additions as unknown[] ?? []) {
+  const a = triageObject(entry);
+  if (!a || !triageHash(a.id) || !triageUuid(a.taskId) || !triageUuid(a.evaluationId) || !triageHash(a.inputRevision)
+   || typeof a.reason !== "string" || !triageReasons.has(a.reason) || (a.status !== "active" && a.status !== "waived") || additionIds.has(a.id)) { valid = false; continue; }
+  additionIds.add(a.id);
+  additions.push({ id: a.id, taskId: a.taskId, evaluationId: a.evaluationId, inputRevision: a.inputRevision, reason: a.reason, status: a.status, binding: binding(a.taskId, a.inputRevision) });
+ }
+ const blockers = valid ? Object.entries(obligations).filter(([, s]) => s === "open" || s === "unsupported").map(([key]) => key === "confirmation" ? "action_confirmation" : key) : rawProcess ? ["process_state_invalid"] : ["process_state_unavailable"];
+ const staleTask = valid && taskId !== null && additions.some(a => a.taskId !== taskId);
+ if (staleTask) blockers.push("task_binding_stale");
+ const runtimeBlocks = [...new Set((input.runtimeBlocks ?? []).filter(b => b === "process_persistence_blocked" || b === "task_transition_pending"))];
+ blockers.push(...runtimeBlocks);
+ const taskOpen = blockers.filter(key => key !== "action_confirmation");
+ const process = { availability: valid ? "available" : "unavailable", declaration: {
+   risk: valid ? rawProcess!.risk as string : "unknown", scope: valid ? rawProcess!.scope as string : "unknown",
+   budgetTier: valid && ["trivial", "small", "feature", "project"].includes(String(rawProcess!.budgetTier)) ? String(rawProcess!.budgetTier) : null },
+  currentStage: valid ? rawProcess!.currentStage as string : "unknown", obligations: valid ? obligations : null,
+  additions: valid ? additions : [], blockers,
+  completion: !valid || staleTask || runtimeBlocks.length > 0 ? "unknown" : !taskOpen.length && rawProcess!.currentStage === "complete" ? "process_complete" : "not_complete" };
+ return { consumer: "task-triage" as const, taskId, inputRevision, assessment, process, runtimeBlocks, taskAcceptance: "not_recorded" as const };
+}
+export type TaskTriageSessionView = ReturnType<typeof projectTaskTriage>;
+
 export interface FleetSource {
 	specialists: readonly SpecialistInput[];
 	research: readonly ResearchInput[];
 	peers: readonly PeerInput[];
 	proactive?: ProactiveSessionView;
+	/** Session-level metadata; never attributed to an unrelated worker/peer run. */
+	taskTriage?: TaskTriageSessionView;
 }
 export interface FleetFilter { showFinished: boolean; query?: string; }
 export interface WidgetSelectionPin { key: string; runToken?: string; }

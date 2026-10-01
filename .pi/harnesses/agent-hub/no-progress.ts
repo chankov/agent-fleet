@@ -55,6 +55,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
  let recovery = createRecoverState([], event => persist?.(RECOVER_ENTRY, { kind: 'ledger', event }));
 	let generation = {};
 	let taskId: string = randomUUID();
+	let taskIdentityPersisted = false;
 	const pending = new Map<string, object>();
 	const pendingExecutors = new Map<string, object>();
 	const pendingLineages = new Map<string, { operationId: string; attemptId: string }>();
@@ -65,6 +66,13 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 	return {
 		taskToken: () => generation,
 		taskId: () => taskId,
+		/** The first task has no reset event. Save its identity before binding any
+		 * pre-model assessment so a resumed session cannot mint another task ID. */
+		persistTaskIdentity() {
+			if (taskIdentityPersisted) return;
+			persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'task', taskId } satisfies GuardHistory });
+			taskIdentityPersisted = true;
+		},
 		begin(key: string, fingerprint: string, executorKey = key, scope: string[] = [], currentRevision?: string): Ticket {
 			const cancelled = [...cancellations.values()].filter(item => item.executorKey === executorKey);
 			const old = cancelled.find(item => !item.entry.authorized)?.entry ?? cancelled[0]?.entry ?? failures.get(key), id = {};
@@ -149,7 +157,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             const rows = projectRecoveryRows(entries);
             persist?.(RECOVER_ENTRY, { kind: 'snapshot', rows: structuredClone(rows) });
         },
-        restore(entries: readonly unknown[]) {
+        restore(entries: readonly unknown[], initialTaskId?: string) {
             const rows = projectRecoveryRows(entries);
             const ledger = rows.filter(row => row?.kind === 'ledger').map(row => row.event as RecoverEvent);
             const validated = createRecoverState(ledger, event => persist?.(RECOVER_ENTRY, { kind: 'ledger', event }));
@@ -157,7 +165,10 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             const nextCancellations = new Map<string, { executorKey: string; scope: string[]; entry: RecordedFailure }>();
             const nextEvidence = new Map<string, DispatchEvidence>();
             const nextInvocations = new Map<string, NonNullable<GuardHistory['invocation']>>();
-            let nextTaskId = taskId;
+            // Legacy pre-model sessions may have process additions but no dispatch,
+            // reset, or recovery event yet. Their sole persisted task binding is
+            // authoritative only when there is no recovery history to contradict it.
+            let nextTaskId = rows.length === 0 && initialTaskId ? initialTaskId : taskId;
             for (const row of rows.filter(row => row?.kind === 'guard')) {
                 const event = row.event as GuardHistory;
                 if (event.type === 'failure' && event.failure && event.key && event.fingerprint && event.executorKey && validated.byDispatch(event.failure.dispatchId)?.contract === event.key && validated.byDispatch(event.failure.dispatchId)?.executor === event.executorKey && validated.byDispatch(event.failure.dispatchId)?.attempts.some(a => a.dispatchId === event.failure!.dispatchId && a.category === event.failure!.category)) {
@@ -182,6 +193,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
                 if (latest?.type === 'start') nextTaskId = latest.taskId;
             }
             recovery = validated; taskId = nextTaskId;
+            taskIdentityPersisted = rows.some(row => row?.kind === 'guard' && row.event?.type === 'task' && row.event.taskId === nextTaskId);
             failures.clear(); for (const [key, value] of nextFailures) failures.set(key, value);
             cancellations.clear(); for (const [key, value] of nextCancellations) cancellations.set(key, value);
             dispatchEvidence.clear(); for (const [key, value] of nextEvidence) dispatchEvidence.set(key, value);
@@ -238,7 +250,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 			}
 			return false;
 		},
-		adopt(id: string, persistIdentity = true) { /* A live process is never synthesized as completed during reset. */ pendingLineages.clear(); generation = {}; taskId = id; if (persistIdentity) persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'task', taskId: id } satisfies GuardHistory }); pending.clear(); pendingExecutors.clear(); /* Preserve failure/fence lineage across task reset. */ },
+		adopt(id: string, persistIdentity = true) { /* A live process is never synthesized as completed during reset. */ pendingLineages.clear(); generation = {}; if (persistIdentity) persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'task', taskId: id } satisfies GuardHistory }); taskId = id; taskIdentityPersisted = persistIdentity; pending.clear(); pendingExecutors.clear(); /* Preserve failure/fence lineage across task reset. */ },
 		reset(persistIdentity = true) { this.adopt(randomUUID(), persistIdentity); },
 	};
 }

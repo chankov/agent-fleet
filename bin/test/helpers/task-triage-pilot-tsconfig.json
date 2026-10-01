@@ -1,0 +1,12 @@
+{
+  "extends": "../../../.pi/harnesses/agent-hub/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../../..",
+    "paths": {
+      "@mariozechner/pi-coding-agent": ["node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"],
+      "@mariozechner/pi-tui": ["node_modules/@earendil-works/pi-tui/dist/index.d.ts"]
+    }
+  },
+  "include": ["../../task-triage-pilot.ts", "../../lib/task-triage-pilot-budget.ts"],
+  "exclude": []
+}

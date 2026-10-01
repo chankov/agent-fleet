@@ -9,12 +9,13 @@ import { readState } from "./state.js";
 import { scanProject } from "./scan.js";
 import { planOverrides } from "./overrides.js";
 import { planStt } from "./stt-wizard.js";
+import { planTaskTriageConfig, planTaskTriageProviderConfig } from "./task-triage-setup.js";
 
 /** Build one setup plan. This function writes nothing. */
 export function buildReconcilePlan(opts) {
   const { workspace, manifest, sourceRoot, packageVersion, agent = "pi", method,
     preset, features, saveDesired = false, tuiDesired = null, dryRun = false,
-    migrate = false, yes = false, accept = null, allowExec = false,
+    migrate = false, yes = false, taskTriageConsent = false, accept = null, allowExec = false,
     sttProvider = null, sttReplacementApproved = false, platform = process.platform } = opts;
   const state = readState(workspace);
   const desiredPath = join(workspace, DESIRED_FILE);
@@ -33,6 +34,11 @@ export function buildReconcilePlan(opts) {
     features: Object.entries(desiredResult.desired.features).filter(([, enabled]) => enabled).map(([name]) => name),
     agent, platform,
   });
+  const taskTriage = featureResult.features.includes("system1-task-triage") ? planTaskTriageConfig(workspace) : null;
+  if (taskTriage && !dryRun && !taskTriageConsent && !taskTriage.alreadyApproved) {
+    throw new Error("system1-task-triage requires separate task-context approval: pass --task-triage-consent; --yes and Full + all features are not data consent");
+  }
+  const taskTriageProvider = taskTriage ? planTaskTriageProviderConfig(workspace) : null;
   const base = buildPlan({ workspace, sourceRoot, packageVersion, manifest, verb: "install", agent,
     method, items: featureResult.roots, accept, allowExec, platform });
   const wanted = new Set(featureResult.selected);
@@ -58,6 +64,8 @@ export function buildReconcilePlan(opts) {
     actions, conflicts,
     overrides,
     stt,
+    taskTriage,
+    taskTriageProvider,
     summary: { ...base.summary, remove: removals.length, changes: base.summary.changes + removals.length },
   };
 }

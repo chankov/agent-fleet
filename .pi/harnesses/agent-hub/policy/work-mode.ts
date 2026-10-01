@@ -38,6 +38,8 @@ export interface WorkModePolicy {
 	restoreCapabilities(state: PersistedCapabilityRestore): void;
 	resetCapabilities(): void;
 	resolveIncomingCapabilities(userText: string, newTask?: boolean): void;
+	/** Recompute state/lease changes without losing the current input's transient compaction intent. */
+	refreshCapabilities(): void;
 	provisionalCapabilityRefusal(pack: ConfirmableCapabilityPack): { content: { type: "text"; text: string }[]; details: { status: string; confirmation: string; pack: ConfirmableCapabilityPack } } | null;
 	applyWorkModeTools(): void;
 	updateStatus(ctx: WorkModeUiPort): void;
@@ -57,9 +59,10 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 	let taskPacks: CapabilityPack[] = [];
 	let provisionalPacks: CapabilityPack[] = [];
 	let confirmation: CapabilityConfirmationState = {};
+	let currentExplicitCompaction = false;
 	let resolution = resolveCapabilityPacks({ workMode, userText: "", taskPacks: [], comsReady: false, herdrReady: false, pendingOperations: [], contextState: "normal" });
 
-	function resolveIncomingCapabilities(userText: string, newTask = false): void {
+	function resolveIncomingCapabilities(userText: string, newTask = false, refresh = false): void {
 		resolution = resolveCapabilityPacks({
 			workMode, userText,
 			taskTier: (["trivial", "small", "feature", "project"] as const).find(tier => tier === ports.getTaskTier()),
@@ -67,6 +70,11 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 			comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(),
 			pendingOperations: ports.getPendingOperations(), contextState: ports.getContextState(), newTask,
 		});
+		if (refresh && currentExplicitCompaction && !newTask) {
+			resolution.active = CAPABILITY_PACKS.filter(pack => pack === "compaction" || resolution.active.includes(pack));
+			resolution.reasons.compaction = "explicit-compaction";
+		}
+		currentExplicitCompaction = resolution.active.includes("compaction") && resolution.reasons.compaction === "explicit-compaction";
 		for (const pack of ["fleet", "peer", "workspace"] as const) {
 			if (confirmation[pack] === "promoted" || confirmation[pack] === "declined") {
 				resolution.provisional = resolution.provisional.filter(candidate => candidate !== pack);
@@ -114,9 +122,9 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 		getWorkMode: () => workMode, setRestoredWorkMode: mode => { workMode = mode; },
 		getCapabilityResolution: () => resolution, getCapabilityConfirmation: () => confirmation,
 		setCapabilityConfirmation: (pack, status) => { if (status) confirmation[pack] = status; else delete confirmation[pack]; },
-		restoreCapabilities: state => { taskPacks = [...state.taskPacks]; provisionalPacks = [...state.provisional]; confirmation = { ...state.confirmation }; },
-		resetCapabilities: () => { taskPacks = []; provisionalPacks = []; confirmation = {}; },
-		resolveIncomingCapabilities,
+		restoreCapabilities: state => { taskPacks = [...state.taskPacks]; provisionalPacks = [...state.provisional]; confirmation = { ...state.confirmation }; currentExplicitCompaction = false; },
+		resetCapabilities: () => { taskPacks = []; provisionalPacks = []; confirmation = {}; currentExplicitCompaction = false; },
+		resolveIncomingCapabilities, refreshCapabilities: () => resolveIncomingCapabilities("", false, true),
 		provisionalCapabilityRefusal: pack => { const gate = confirmationGate(confirmation, pack, resolution.provisional.includes(pack)); return gate.allowed ? null : { content: [{ type: "text", text: gate.message }], details: { status: "provisional_confirmation_required", confirmation: gate.status, pack } }; },
 		applyWorkModeTools, updateStatus: ctx => ctx.ui.setStatus("hub-work-mode", `Work Mode: ${workMode}`), statusText,
 		modelWorkBlockedByRosterRecovery: ctx => { if (workMode !== "orchestrator" || !rosterRecoveryRequired) return false; const message = `${rosterRecoveryDiagnostic || "No valid native roster is active."} Select one with /af-agents-team, restart with --agent-team <name>, or switch explicitly with /af-work-mode operator.`; ctx.ui.notify(message, "error"); if (!ctx.hasUI) console.error(`[agent-hub] ${message}`); return true; },

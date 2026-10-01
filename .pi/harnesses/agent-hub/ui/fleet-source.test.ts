@@ -18,8 +18,22 @@ function source(options: any = {}) {
 		modelForResearch: () => "research-model",
 		modelForPeer: (model: string) => model,
 		getProactive: () => options.ledger ?? null,
+		getTaskTriage: () => options.taskTriage ?? null,
 	});
 }
+
+test("Fleet source projects task triage from memory only and isolates session/worker identity", () => {
+ const taskId = "11111111-1111-4111-8111-111111111111", inputRevision = "a".repeat(64), evaluationId = "22222222-2222-4222-8222-222222222222";
+ const input = { taskId, inputRevision, assessment: { taskId, inputRevision, evaluationId,
+  assessment: { status: "no_additions", reasons: [], probabilities: { security_change: .1, wide_change: .1, irreversible_execution: .1 }, body: "PRIVATE_BODY" } } };
+ const fleet = source({ taskTriage: input });
+ assert.equal((fleet.snapshot(now) as any).taskTriage.assessment.status, "no_additions");
+ assert.doesNotMatch(JSON.stringify((fleet.snapshot(now) as any).taskTriage), /PRIVATE_BODY/);
+ assert.deepEqual([fleet.rows(now, { showFinished: true })[0].status, fleet.rows(now, { showFinished: true })[0].toolCount], ["running", 2]);
+ input.inputRevision = "c".repeat(64);
+ assert.equal((fleet.snapshot(now) as any).taskTriage.assessment.status, "stale");
+ assert.equal((source().snapshot(now) as any).taskTriage, undefined);
+});
 
 test("shared source preserves nested delegate hierarchy and stable run identity", () => {
 	const delegations = new Map([

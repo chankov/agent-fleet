@@ -47,7 +47,8 @@ ships is `agent-fleet` — both names are intentional.
 
    ```bash
    npm install
-   npm test              # CLI smoke
+   npm test              # fast local feedback
+   npm run test:full      # full suite required for release checks
    npm run pack:dry      # verify tarball contents + size
    node bin/cli.js doctor --dry-run
    ```
@@ -77,7 +78,7 @@ If the workflow is broken or you need to publish from your laptop:
 git checkout main && git pull
 npm install
 npm run version:changeset  # bumps, updates lock + changelog, writes snapshot
-npm test
+npm run test:full
 npm run pack:dry           # validate the exact release tarball
 git add -A
 git commit -m "chore: release"

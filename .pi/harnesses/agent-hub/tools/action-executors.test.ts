@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createActionExecutors } from "./action-executors.ts";
 import { applyProcessClassification, createProcessState } from "../process-obligations.ts";
+import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
 import { PROFILE_ENV, setActiveProfile } from "../policy/profile-runtime.ts";
 
 const allowProfile: any = {
@@ -59,6 +60,41 @@ function comsDeps(overrides: Record<string, unknown> = {}) {
 		...overrides,
 	};
 }
+
+test("coms_send refuses process transitions, open plans and unbound action confirmation before sending", async () => {
+ await withProfile(allowProfile, "local-duo", async () => {
+  const plan = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "task-1", evaluationId: "eval", inputRevision: "rev" });
+  const action = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["irreversible_execution"] }, { taskId: "task-1", evaluationId: "eval", inputRevision: "rev" });
+  for (const [depsOverride, reason] of [
+   [{ processBlock: () => ({ reason: "task_transition_pending", message: "transition" }) }, "task_transition_pending"],
+   [{ processBlock: () => ({ reason: "process_state_corrupt", message: "persistence failed" }) }, "process_state_corrupt"],
+   [{ getProcessState: () => plan }, "process_plan_open"],
+   [{ getProcessState: () => action }, "action_confirmation_unsupported"],
+  ] as const) {
+   const deps = comsDeps(depsOverride);
+   const result = await createActionExecutors(deps as any).executeComsSend("1", { target: "test", prompt: "run migration" } as any, new AbortController().signal, () => {}, {} as any);
+   assert.equal((result.details as any).reason, reason); assert.equal(deps.sent(), 0);
+  }
+ });
+});
+
+test("coms read operations remain available while effects are process-blocked", async () => {
+ let reads = 0;
+ const deps = comsDeps({
+  processBlock: () => ({ reason: "task_transition_pending", message: "transition" }),
+  getComs: () => ({
+   scope: { includeExplicit: false },
+   list: async () => { reads++; return { project: "test", agents: [], widenRequested: false }; },
+   get: () => { reads++; return { status: "pending" }; },
+   await: async () => { reads++; return { status: "complete", response: "ok" }; },
+  }),
+ });
+ const tools = createActionExecutors(deps as any);
+ assert.equal((await tools.executeComsList("list", {} as any, undefined, undefined, {} as any)).details?.project, "test");
+ assert.match((await tools.executeComsGet("get", { msg_id: "m1" }, undefined, undefined, {} as any)).content[0].text, /pending/);
+ assert.match((await tools.executeComsAwait("await", { msg_id: "m1" }, undefined, undefined, {} as any)).content[0].text, /ok/);
+ assert.equal(reads, 3);
+});
 
 test("coms_send allows allowlisted peer model and refuses a foreign model without the blanket native text", async () => {
 	await withProfile(allowProfile, "local-duo", async () => {
@@ -147,6 +183,21 @@ test("set_task_tier requires explicit reasoned risk changes and persists process
  assert.equal((lowerTier.details as any).tier, "trivial"); assert.equal(process.review.required, true, "budget lowering cannot erase review");
 });
 
+test("S1 confirmation addition survives tier downgrade and requires human supersession before new-task reset", async () => {
+ let process: any = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["irreversible_execution"] }, { taskId: "task-old", evaluationId: "eval", inputRevision: "input" });
+ let resets = 0, approvals = 0;
+ const deps = comsDeps({
+  getProcessState: () => process, setProcessState: (s: any) => { process = s; }, persistProcessState() {},
+  confirmTaskSupersession: async () => { approvals++; return false; },
+  budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { resets++; }, appendTaskResetEntry() {}, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+ });
+ const run = createActionExecutors(deps as any).executeSetTaskTier;
+ const lower = await run("lower", { tier: "trivial" } as any, undefined, undefined, {} as any);
+ assert.equal((lower.details as any).tier, "trivial"); assert.equal(process.additions.length, 1);
+ const denied = await run("new", { tier: "small", reason: "different task", new_task: true } as any, undefined, undefined, {} as any);
+ assert.equal((denied.details as any).reason, "task_supersession_not_authorized"); assert.equal(approvals, 1); assert.equal(resets, 0); assert.equal(process.additions.length, 1);
+});
+
 test("new-task reset clears prior acceptance assertions with the task window", async () => {
  let assertions: any[] = [{ id: "A1" }], reset = 0, persisted = 0;
  const deps = comsDeps({
@@ -185,6 +236,33 @@ test("new-task consumer passes exact old and reserved future ids then uses that 
  assert.equal(adopted, granted.newTaskId);
  assert.equal((result.details as any).newTaskId, granted.newTaskId);
  assert.equal(reset, 1); assert.equal((result.details as any).newTask, true); assert.equal(process.risk, "unknown");
+});
+
+test("new-task adoption retains pending assessment at the reserved identity and refuses failed binding", async () => {
+ for (const fails of [false, true]) {
+  let process: any = createProcessState(), adopted = "", resets = 0;
+  const deps = comsDeps({
+   getProcessState: () => process, setProcessState: (value: any) => { process = value; }, persistProcessState() {},
+   confirmTaskSupersession: async () => true,
+   adoptTaskTriage: async (id: string, newTask: boolean) => {
+    assert.equal(newTask, true); adopted = id;
+    if (fails) throw new Error("persistence failed");
+    return applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["security_change"] }, { taskId: id, evaluationId: "eval", inputRevision: "revision" });
+   },
+   budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { resets++; }, appendTaskResetEntry() {}, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+   artifacts: { persistAssertions() {} },
+   adoptReservedTaskId: (_id: string, reset: () => void) => reset(),
+  });
+  const result = await createActionExecutors(deps as any).executeSetTaskTier("new", { tier: "small", new_task: true, reason: "different task" } as any, undefined, undefined, {} as any);
+  assert.ok(adopted);
+  assert.equal(resets, fails ? 0 : 1);
+  assert.equal(process.additions?.length ?? 0, fails ? 0 : 1);
+  if (fails) assert.equal((result.details as any).reason, "task_triage_persistence");
+  else {
+   assert.equal(process.additions[0].taskId, adopted);
+   assert.deepEqual((result.details as any).process, process, "tool result exposes the adopted process state, not the pre-adoption classification");
+  }
+ }
 });
 
 test("invalid new-task inputs never ask, consume, arm, reset, or mutate the old task", async () => {

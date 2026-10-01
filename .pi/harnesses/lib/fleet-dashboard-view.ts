@@ -1,4 +1,4 @@
-import type { FleetRow, ProactiveSessionView } from "./fleet-read-model.ts";
+import type { FleetRow, ProactiveSessionView, TaskTriageSessionView } from "./fleet-read-model.ts";
 import { proactiveHistoryLines } from "./fleet-detail-view.ts";
 import { moveSelection, type Selection } from "./fleet-selection.ts";
 import { confirmFleetAction, type FleetConfirmation } from "./fleet-dashboard-ops.ts";
@@ -16,6 +16,7 @@ export interface FleetViewModel {
 	confirmation?: string;
 	comsLines?: readonly string[];
 	proactive?: ProactiveSessionView;
+	taskTriage?: TaskTriageSessionView;
 }
 
 /** Session history, including Hub turns with no dispatched worker rows. No strip expiry filter. */
@@ -31,6 +32,28 @@ const tokens = (n: number | null) => n == null ? "—" : n >= 1000 ? `${Math.rou
 const glyph = (row: FleetRow) => row.status === "running" ? "●" : row.status === "done" ? "✓" : row.status === "error" ? "✗" : row.status === "pending" ? "◌" : row.status === "stale" ? "○" : "▪";
 const context = (pct: number | null) => pct == null ? "[automatic]  —" : `[${"#".repeat(Math.max(0, Math.min(10, Math.round(pct / 10))))}${"·".repeat(Math.max(0, 10 - Math.round(pct / 10)))}] ${Math.round(pct)}%`;
 
+/** Session metadata, not a worker or an acceptance badge. Never reads provider/disk state. */
+export function taskTriageDashboardLines(view: TaskTriageSessionView): string[] {
+ const { assessment, process } = view;
+ const counts = [...new Set(process.additions.map(a => a.reason))].map(reason => {
+  const matching = process.additions.filter(a => a.reason === reason);
+  return `${reason}: ${matching.filter(a => a.status === "active").length} active / ${matching.filter(a => a.status === "waived").length} waived`;
+ });
+ return [
+  ` Task triage · experimental · ${safeTerminalText(assessment.status)} · ${assessment.binding} · not acceptance`,
+  ` Blockers: ${process.blockers.map(safeTerminalText).join(", ") || "none recorded"} · /af-audit for metadata`,
+  ` Declared ${process.declaration.risk}/${process.declaration.scope} · tier ${process.declaration.budgetTier ?? "unknown"} (spend only) · stage ${process.currentStage}`,
+  ` Obligations: ${process.obligations ? Object.entries(process.obligations).map(([k, v]) => `${k} ${v}`).join(" · ") : "unknown"}`,
+  ` Probabilities: ${assessment.probabilities ? Object.entries(assessment.probabilities).map(([k, p]) => `${k}=${p}`).join(" · ") : "unknown"}`,
+  ` Additions: ${counts.join(" · ") || "none recorded"} · ${!process.additions.length ? "no addition evidence" : process.additions.some(a => a.binding !== "current") ? "stale/unbound source evidence" : "current source evidence"}`,
+  ` Process: ${process.completion} · Task acceptance: ${view.taskAcceptance}`,
+ ];
+}
+/** Reserve metadata cells without hiding every worker or changing keyboard row indices. */
+export function fleetDashboardListBody(body: number, rowCount: number, triage?: TaskTriageSessionView): number {
+ return Math.max(0, body - (triage ? Math.min(7, Math.max(0, body - (rowCount ? 1 : 0))) : 0));
+}
+
 /** Render a constant-height, width-bounded fleet list without pi runtime dependencies. */
 export function renderFleetDashboard(vm: FleetViewModel, width: number, bodyHeight: number, theme: ThemeLike, metrics: TextMetrics): string[] {
 	const w = Math.max(1, width), body = Math.max(0, bodyHeight);
@@ -40,12 +63,14 @@ export function renderFleetDashboard(vm: FleetViewModel, width: number, bodyHeig
 	const title = ` Fleet ${vm.filterQuery ? `· filter: ${safeTerminalText(vm.filterQuery)}` : ""}`;
 	const header = fit(title, Math.max(1, w - metrics.visibleWidth(summary) - 1), metrics);
 	const lines: string[] = [fit(theme.bold(header) + " " + theme.fg("dim", summary), w, metrics), theme.fg("dim", "╭" + "─".repeat(Math.max(0, w - 2)) + "╮")];
+	const listBody = fleetDashboardListBody(body, vm.rows.length, vm.taskTriage);
+	if (vm.taskTriage) lines.push(...taskTriageDashboardLines(vm.taskTriage).slice(0, body - listBody).map(line => fit(theme.fg("dim", safeTerminalText(line)), w, metrics)));
 	if (vm.rows.length === 0) {
 		const message = "no agents dispatched yet";
-		lines.push(...Array.from({ length: body }, (_, i) => i === Math.floor(body / 2) ? fit(theme.fg("dim", " ".repeat(Math.max(0, Math.floor((w - metrics.visibleWidth(message)) / 2))) + message), w, metrics) : ""));
+		lines.push(...Array.from({ length: listBody }, (_, i) => i === Math.floor(listBody / 2) ? fit(theme.fg("dim", " ".repeat(Math.max(0, Math.floor((w - metrics.visibleWidth(message)) / 2))) + message), w, metrics) : ""));
 	} else {
-		const offset = Math.max(0, Math.min(vm.scrollOffset ?? 0, Math.max(0, vm.rows.length - body)));
-		for (let i = 0; i < body; i++) {
+		const offset = Math.max(0, Math.min(vm.scrollOffset ?? 0, Math.max(0, vm.rows.length - listBody)));
+		for (let i = 0; i < listBody; i++) {
 			const row = vm.rows[offset + i];
 			if (!row) { lines.push(""); continue; }
 			const selected = offset + i === vm.selection.index;

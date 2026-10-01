@@ -17,6 +17,70 @@ peers, and hand the session to a visible coms peer.
 
 **Optional ChatGPT client:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live Pi session that the experimental [ChatGPT Fleet session client](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md) selects. Hermes remains the inbound `ask_user` route.
 
+## System 1 task triage (active experimental; off by default)
+
+Task triage is a separate consumer of the existing TypeSafe `jev-1.13.0` service,
+not `dispatch_triage` persona advice, watchdog calibration or the spend tier.
+Select experimental `system1-task-triage` with separate task-context consent;
+Default/Full and `--yes` alone do not enable it. Over an existing desired file,
+use `--save-desired` for permanent headless opt-in/disable. Setup proposes absent
+nonsecret consumer/provider configs transactionally and never flips a human off
+config or collects a key. Runtime dependencies and caller key readiness remain
+separate. See [exact config and setup](../../../docs/agent-fleet-setup.md#task-triage-active-experimental-off-by-default).
+
+An enabled consumer evaluates accepted user task input before the first model
+turn, including when the dispatcher skips `set_task_tier` or watchdog is off.
+Limits: 40 KiB aggregate user task/clarifications, 64 KiB state, 100 logical calls
+per saved session and 2,000 ms per evaluation. Identical input/scope is cached;
+new scope can require another call. Reset, compaction, resume or work-mode change
+does not refill the allowance. No file bodies/tool outputs/environment are sent
+by this consumer; sensitive/oversized input is refused, not silently truncated.
+
+Independent predicates add review for requested security changes (p ≥0.80),
+plan/review for broad changes (p ≥0.85), and exact-action one-use confirmation for
+requested potentially irreversible execution (p ≥0.80). They do not change the
+tier/model/roster, increase spend or authorize effects. Review is before task
+acceptance, not a blanket authoring ban. Low probability is never safety clearance.
+Baseline and source additions persist through failures, disable and resume.
+
+Missing roles require the human `/af-agents-add planner`, `/af-agents-add
+code-reviewer` (or a permitted reviewer), or `/af-agents-team` path. Budget
+exhaustion needs existing explicit continuation, not automatic escalation.
+`/af-task-triage-waive <addition-id> <reason>` uses a correlated human answer for
+one current addition; it remains waived rather than satisfied and cannot erase
+baseline/other additions. `/af-task-triage-recover` performs checked process
+append/readback, not JSONL editing. Pending input must be bound before dependent
+effects. Direct Hub bash/edit/write confirmation is exact-call/input/cwd-bound.
+It shows complete tool inputs as JSON and working directory, not merely a hash;
+the **8 KiB (8192 bytes)** detail cap refuses missing, invalid, sensitive,
+terminal/bidi-control, mismatched or oversized inputs **without truncation or
+partial redaction**. JSON escapes preserve non-ASCII data. Sensitive-text refusal
+is heuristic, not complete secret/PII detection. Inputs, cwd, task/revision,
+operation and call ID are rechecked before one-use consumption. The human
+question is **not local-only**: the existing ask-user local/remote human route
+can carry action paths/content. Metadata-only audit does not sanitize ordinary
+Pi tool/session rendering, human-route records or clipboard. Unsupported
+child/coms/remote action bindings refuse that effect. Damage-control
+and existing review/acceptance gates remain independent.
+
+The full Fleet dashboard shows assessment, probabilities, active/waived additions,
+effective stages and blockers even with no workers; it adds no small-strip badge.
+Fleet `1` offers separately enabled memory-only capture with the unchanged
+32 KiB viewer cap; larger otherwise-valid payloads are withheld. `/af-audit`
+separates logical reservations/physical attempts/unknown usage and action grant,
+consumption and tool result. Provider ok, assessment applied, process complete,
+a waiver and tool-result success are not independent semantic acceptance. Trace
+failure is optional; authoritative process/grant/consumption persistence failure
+blocks the dependent effect.
+
+Disable with the complete remaining feature set plus `--save-desired`, then
+restart/resume; the human config and old task obligations survive. Cancel current
+work normally if immediate stopping is needed. Active experimental is not live
+accuracy, calibration, universal remote protection or release authority.
+`npm run test:task-triage` is the guarded source regression suite and is included
+in `npm run test:full`; scripted fixture reviews never replace independent
+semantic review.
+
 ## Proactive turn review (experimental; off by default)
 
 This is a **separate, per-repository, session-bound** advisory consumer of the
@@ -106,7 +170,11 @@ the Hub asks one focused `ask_user` confirmation. Confirming promotes it for the
 cancel removes it and leaves no message, child, or pane behind. Active task packs persist through
 follow-up turns so a workflow does not lose tools. They shrink only through
 `set_task_tier(new_task: true)` (apart from mandatory work mode and pending-operation leases), never
-merely because the next message sounds different.
+merely because the next message sounds different. Compaction is the transient exception:
+a task-triage assessment refresh preserves the current input's already-resolved explicit
+compaction intent without re-reading task text or promoting declined packs. The next
+ordinary input/reset/restore clears that explicit intent; context-pressure and pending-operation
+leases remain independent. Showing `request_compaction` does not itself execute compaction.
 
 `/af-context` separates stable replacement-prompt cost from the volatile state capsule and active
 schemas. Inactive and ready-but-inactive packs cost zero model-visible characters. Provider totals,
@@ -876,7 +944,8 @@ Terminal `loop`, `failures`, and `toolcap` always go to LLM. `/af-watchdog`
 shows `experimental: scope only; G2 not validated`; an unavailable/mismatched
 provider falls back to LLM. Production approved profiles are still empty.
 This is not G2 approval or a safety guarantee: the experiment can miss a scope
-advisory. No automatic hook is added for research, coms or normal Hub requests.
+advisory. This watchdog consumer adds no automatic hook for research, coms or normal Hub
+requests; the separately consented task-triage consumer owns its own Hub input hook.
 
 The limited **System 1** state includes reviewed task text, normalized
 relative paths, structured tool kinds/outcomes and counters, not tool

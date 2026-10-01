@@ -1,6 +1,14 @@
 import { registerDispatchTriage } from "./tools/dispatch-triage.ts";
 import { createTriageRuntime } from "./dispatch-triage-runtime.ts";
 import { parseTriageConfig, type TriageInput } from "./dispatch-triage-contract.ts";
+import { loadTaskTriageConfig } from "./task-triage-config.ts";
+import { TASK_TRIAGE_MODEL } from "./task-triage-contract.ts";
+import type { JevTransport } from "../lib/system1/jev.ts";
+import { createTaskTriageRuntime, evaluatedTaskTriageInputChanged, TASK_TRIAGE_RUNTIME_ENTRY } from "./task-triage-runtime.ts";
+import { adoptTaskTriageState, applyTaskTriageAdditions, recoverTaskTriageProcessState } from "./task-triage-obligations.ts";
+import { confirmTaskTriageAction, confirmTaskTriageWaiver, consumeActionGrant, taskTriageActionAuditRecord, type TaskTriageActionObservation } from "./task-triage-authorization.ts";
+import { registerTaskTriageRecover } from "./commands/task-triage-recover.ts";
+import { registerTaskTriageWaiver } from "./commands/task-triage-waive.ts";
 import { createCommunicationStore } from "./system1-communication-store.ts";
 import { openSystem1Communication } from "./ui/system1-communication.ts";
 import { registerRetry } from "./commands/retry.ts";
@@ -59,7 +67,7 @@ import {
 } from "../lib/spawned-peers.js";
 import { contextPct, estimatePromptTokens, resolveContextWindow } from "./context-window.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, normalizeWatchdogSetting, resolveWatchdogActive } from "./drift-watchdog.js";
-import { createWatchdogActivity, type WatchdogActivity } from "./system1-activity.ts";
+import { createWatchdogActivity, createTaskTriageActivity, type WatchdogActivity, type TaskTriageActivity } from "./system1-activity.ts";
 import { createWatchdogSystem1Session, disposeWatchdogSystem1Session, readWatchdogSystem1Snapshot, type WatchdogSystem1Session } from "./system1-runtime.ts";
 import { shouldExtractReturn } from "./return-extract.js";
 import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "./return-contract.js";
@@ -81,7 +89,7 @@ import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { showSessionAudit } from "./session-audit.ts";
 import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
-import { createProcessState, processAllowsPersona, evaluateProcessObligations, latestProcessState, processAuditRecord, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
+import { createProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
 import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
@@ -180,11 +188,45 @@ import { join, resolve } from "path";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 // ── Extension ────────────────────────────────────
 
 const CONTEXT_WARN_THRESHOLD = 70;
 const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
+
+/**
+ * Test-only transport seam for real-Pi acceptance. With the offline guard,
+ * the normal shared System 1 service uses deterministic wire responses rather
+ * than HTTPS; config, readiness, adapter, deadlines and consumers remain real.
+ * A profile alone cannot activate this seam outside the guarded test process.
+ */
+let taskTriageFakeInstances = 0;
+function resolveTaskTriageTestTransport(): JevTransport | undefined {
+	const profile = process.env.AGENT_HUB_TASK_TRIAGE_FAKE;
+	const guard = `--import=${fileURLToPath(new URL("../../../bin/test/helpers/system1-no-network.js", import.meta.url))}`;
+	if (!profile || process.env.PI_OFFLINE !== "1" || !process.env.NODE_OPTIONS?.split(/\s+/).includes(guard)) return undefined;
+	const hot = profile === "security" ? "security_change" : profile === "wide" ? "wide_change" : profile === "irreversible" ? "irreversible_execution" : null;
+	if (!hot && profile !== "plain" && profile !== "timeout") return undefined;
+	const instanceId = ++taskTriageFakeInstances;
+	return async request => {
+		const wire = JSON.parse(request.body.toString("utf8"));
+		const recordPath = process.env.AGENT_HUB_TASK_TRIAGE_FAKE_RECORD;
+		if (recordPath) {
+			try { fs.appendFileSync(recordPath, JSON.stringify({ at: Date.now(), profile, instanceId, pid: process.pid, questions: Object.keys(wire.questions), stateFingerprint: createHash("sha256").update(JSON.stringify(wire.state)).digest("hex"), questionFingerprint: createHash("sha256").update(JSON.stringify(wire.questions)).digest("hex"), stack: (new Error("fake-transport").stack ?? "").split("\n").slice(1, 6) }) + "\n"); } catch { /* evidence best-effort */ }
+		}
+		if (profile === "timeout") {
+			return new Promise((_, reject) => {
+				if (request.signal.aborted) return reject(new Error("guarded fake transport deadline"));
+				request.signal.addEventListener("abort", () => reject(new Error("guarded fake transport deadline")), { once: true });
+			});
+		}
+		return { status: 200, headers: {}, body: JSON.stringify({ model: TASK_TRIAGE_MODEL,
+			answers: Object.fromEntries(Object.keys(wire.questions).map(id => [id, { type: "noul", noul: id === hot ? 0.95 : 0.05 }])),
+			usage: { input_tokens: 1, output_tokens: 1 },
+		}) };
+	};
+}
 
 export default function (pi: ExtensionAPI) {
 	// ── Embedded coms: identity CLI flags ──
@@ -409,8 +451,17 @@ export default function (pi: ExtensionAPI) {
 	// Correctness obligations are independent of the spend tier. They persist for
 	// the current task and reset only through the explicit new-task tool path.
 	let processState = createProcessState();
+	let taskTriage: ReturnType<typeof createTaskTriageRuntime> | null = null;
+	let taskTriageTestTransportActive = false;
+	let taskTriageActivity: TaskTriageActivity | null = null;
+	let taskTriageConfigStatus: "active" | "off" | "invalid" = "off";
+	let taskTriageConfigured = false;
+	let processPersistenceBlocked = false;
+	let pendingTaskTransition = false;
+	const processBlock = () => processPersistenceBlocked ? { reason: "process_state_corrupt", message: "Process persistence is blocked; dependent effects remain refused. Ask the human to run /af-task-triage-recover for a checked in-session append/readback; if it refuses, inspect or resume a valid session. Never edit session JSONL or reset obligations." } : pendingTaskTransition ? { reason: "task_transition_pending", message: taskTransitionRecoveryHint } : null;
 	const persistProcessVerdict = (state: ProcessObligationState, verdict: ProcessVerdict) => {
-		try { pi.appendEntry("agent-hub-process-state", processAuditRecord(state, verdict)); } catch {}
+		try { pi.appendEntry("agent-hub-process-state", processAuditRecord(state, verdict)); }
+		catch { processPersistenceBlocked = true; }
 	};
 	// Duplicate-dispatch guard: fingerprints of (agent, task) already dispatched
 	// THIS turn. Auto-research resumes and /af-agents-restart call dispatchAgent
@@ -453,6 +504,12 @@ export default function (pi: ExtensionAPI) {
 	let delegatedTokens = 0;
 
 	const noProgress = createNoProgressGuard((type, data) => pi.appendEntry(type, data));
+	const taskTriageMetadata = () => {
+		const current = taskTriage?.current;
+		return { taskId: noProgress.taskId(), inputRevision: taskTriage?.inputRevision, configuredStatus: taskTriageConfigStatus,
+			runtimeBlocks: [...(processPersistenceBlocked ? ["process_persistence_blocked" as const] : []), ...(pendingTaskTransition ? ["task_transition_pending" as const] : [])],
+			assessment: current ? { taskId: current.taskId, evaluationId: current.evaluationId, inputRevision: current.revision, assessment: current.assessment } : undefined };
+	};
 	let taskIdentityReset: ReturnType<typeof createReservedTaskIdentityReset>;
 	let unknownToolCounter = createUnknownToolCounter({ limit: 3 });
 	const toolCatalogRuntime = createToolCatalogRuntime(catalogSnapshot("operator", []));
@@ -470,7 +527,7 @@ export default function (pi: ExtensionAPI) {
 		getTurnResearchCount: () => turnResearchCount, setTurnResearchCount: value => { turnResearchCount = value; },
 		getTurnBudgetAskUserWaitMs: () => turnBudgetAskUserWaitMs, setTurnBudgetAskUserWaitMs: value => { turnBudgetAskUserWaitMs = value; },
 		resetBudgetRecovery: () => budgetRecovery.reset(),
-		resetNoProgress: () => noProgress.reset(), resetUnknownToolCounter: resetUnknownToolCounterForCurrentTask,
+		resetNoProgress: (persistTaskIdentity) => noProgress.reset(persistTaskIdentity), resetUnknownToolCounter: resetUnknownToolCounterForCurrentTask,
 		getTaskContinuationCount: () => taskContinuationCount, setTaskContinuationCount: value => { taskContinuationCount = value; },
 		getTurnContinuationCount: () => turnContinuationCount, setTurnContinuationCount: value => { turnContinuationCount = value; },
 		getTaskDispatchCount: () => taskDispatchCount, setTaskDispatchCount: value => { taskDispatchCount = value; },
@@ -656,6 +713,11 @@ export default function (pi: ExtensionAPI) {
 		modelForResearch: state => shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
 		modelForPeer: abbreviateModel,
 		getSystem1: () => watchdogActivity?.live() ?? null,
+		getTaskTriage: () => {
+			if (!taskTriageConfigured && !processState.additions?.length) return null;
+			try { return { ...taskTriageMetadata(), process: { schema: processState.schema, ...evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }) } }; }
+			catch { return { ...taskTriageMetadata(), process: { schema: "invalid" } }; }
+		},
 		getProactive: () => proactiveRuntime ? { records: proactiveRuntime.records, history: proactiveRuntime.findings.history, current: proactiveRuntime.findings.current, activity: proactiveRuntime.activity.live() } : null,
 	});
 	let fleetActions: ReturnType<typeof createFleetActions<AgentState, ResearchState>> | null = null;
@@ -720,6 +782,7 @@ export default function (pi: ExtensionAPI) {
 
 	const nativeDispatch = createDispatchNative({
 		getAgentState: key => agentStates.get(key),
+		getProcessState: () => processState,
 		listAgentStates: () => Array.from(agentStates.values()),
 		getSessionDir: () => sessionDir,
 		getDispatchPolicy: () => dispatchPolicy,
@@ -845,6 +908,8 @@ export default function (pi: ExtensionAPI) {
 
 	function pendingCapabilityOperations(): PendingOperation[] {
 		const pending: PendingOperation[] = [];
+		if (pendingTaskTransition) pending.push({ pack: "fleet", kind: "task-transition" });
+		if (processOpenObligations(processState).some(stage => stage === "plan" || stage === "review")) pending.push({ pack: "fleet", kind: "process-stage" });
 		if (Array.from(agentStates.values()).some(state => state.status === "running") || Array.from(researchStates.values()).some(state => state.status === "running")) pending.push({ pack: "fleet", kind: "child" });
 		if (pendingReplies.size > 0 || pendingHandoff) pending.push({ pack: "peer", kind: "message" });
 		if (hubSpawnedPeers.size > 0) pending.push({ pack: "workspace", kind: "pane" });
@@ -904,7 +969,7 @@ export default function (pi: ExtensionAPI) {
 				getTaskResearchCount: () => taskResearchCount, setTaskResearchCount: value => { taskResearchCount = value; },
 				getTaskReviewRounds: () => taskReviewRounds, setTaskReviewRounds: value => { taskReviewRounds = value; },
 				getTaskTier: () => taskTier, getTurnReport: () => turnReport, getSessionTotals: () => sessionTotals,
-				getProcessState: () => processState, setProcessState: value => { processState = value; }, persistProcessVerdict,
+				getProcessState: () => processState, setProcessState: value => { processState = value; }, persistProcessVerdict, processBlock,
 				getTurnDispatchFingerprints: () => turnDispatchFingerprints,
 				getExternalBlockers: () => externalBlockers,
 				getExternalBlockerAcknowledged: () => externalBlockerAcknowledged, setExternalBlockerAcknowledged: value => { externalBlockerAcknowledged = value; },
@@ -926,6 +991,16 @@ export default function (pi: ExtensionAPI) {
 			getTaskTier: () => taskTier, setTaskTier: value => { taskTier = value; },
 			getTaskTierAssumed: () => taskTierAssumed, setTaskTierAssumed: value => { taskTierAssumed = value; },
 			getProcessState: () => processState, setProcessState: value => { processState = value; },
+			processBlock, adoptTaskTriage: async (id, newTask, expandedScope) => {
+				if (processPersistenceBlocked) throw new Error("corrupt process state");
+				const next = await adoptTaskTriageState({ runtime: taskTriage, taskId: id, newTask,
+					expandedScope, pendingTransition: pendingTaskTransition, state: processState,
+					persist: state => pi.appendEntry("agent-hub-process-state", processAuditRecord(state, evaluateProcessObligations(state, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }))),
+					onPostCommitFailure: () => { processPersistenceBlocked = true; },
+				});
+				pendingTaskTransition = false;
+				return next;
+			},
 			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER })),
 			getTaskDispatchCount: () => taskDispatchCount, getTaskResearchCount: () => taskResearchCount,
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
@@ -937,6 +1012,7 @@ export default function (pi: ExtensionAPI) {
 			appendMachineHandoffSections, markPeerAddressed,
 		},
 		herdr: {
+			getProcessState: () => processState, processBlock,
 			provisionalCapabilityRefusal, isFleetReady: () => herdrFleetReady, isComsReady: () => comsReady,
 			getIdentity: () => identity, getCurrentContext: () => currentCtx, peersInScope,
 			getComsPeerNames: () => peersInScope().map(peer => peer.name), herdr: herdrApi,
@@ -952,7 +1028,7 @@ export default function (pi: ExtensionAPI) {
   const candidates = [...agentStates.values()].map(s => {
    const name = s.def.name.toLowerCase();
    const research = ["researcher", "deep-researcher", ...researchPersonas.map(p => p.name.toLowerCase())].includes(name);
-   const gate = processPreEffectGate(processState, "child", name) ?? (processAllowsPersona(processState,name) ? null : checkTierPersonaGate(taskTier,name)) ?? checkReviewRoundCap(taskTier,name,taskReviewRounds) ?? checkDocsLane(name, scope, undefined) ?? taskGate ?? turnGate;
+   const gate = processBlock() ?? processPreEffectGate(processState, "child", name) ?? (processAllowsPersona(processState,name) ? null : checkTierPersonaGate(taskTier,name)) ?? checkReviewRoundCap(taskTier,name,taskReviewRounds) ?? checkDocsLane(name, scope, undefined) ?? taskGate ?? turnGate;
    return { name, description: s.def.description, ...(research ? { excluded: "research_persona" } : s.status === "running" ? { excluded: "busy" } : gate ? { excluded: gate.reason } : {}) };
   });
   return { taskId: noProgress.taskId(), task, scope, language, domain, candidates, constraints: JSON.stringify({ tier: taskTier, process: { risk: processState.risk, scope: processState.scope }, externalBlocked: externalBlockers.length > 0 && !externalBlockerAcknowledged }), complete: !(externalBlockers.length > 0 && !externalBlockerAcknowledged) };
@@ -1040,9 +1116,38 @@ export default function (pi: ExtensionAPI) {
 		getWorkModeStatusText: workModeStatusText,
 		openWorkModePicker,
 		handleBudgetContinue: async ctx => { await budgetRecovery.resume(ctx); },
+		handleTaskTriageRecover: () => {
+			if (!processPersistenceBlocked) return false;
+			try {
+				const recovered = recoverTaskTriageProcessState({ state: processState, current: taskTriage?.current ? { taskId: taskTriage.current.taskId, evaluationId: taskTriage.current.evaluationId, inputRevision: taskTriage.current.revision, assessment: taskTriage.current.assessment } : null,
+					taskId: noProgress.taskId(), budgetTier: taskTier ?? DEFAULT_TASK_TIER,
+					append: record => pi.appendEntry("agent-hub-process-state", record),
+					entries: () => currentCtx?.sessionManager.getEntries() ?? [],
+				});
+				processState = recovered;
+				processPersistenceBlocked = false;
+				resolveIncomingCapabilities(""); applyWorkModeTools();
+				return true;
+			} catch { return false; }
+		},
+		handleTaskTriageWaive: async (args, ctx) => {
+			const [id, ...words] = args.trim().split(/\s+/);
+			const addition = processState.additions?.find(a => a.id === id && a.status === "active" && a.taskId === noProgress.taskId());
+			if (!addition || !words.length || processBlock()) return false;
+			const next = await confirmTaskTriageWaiver(processState, { taskId: addition.taskId, evaluationId: addition.evaluationId, inputRevision: addition.inputRevision, additionId: id, reason: words.join(" ") }, {
+				taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
+				ask: (nonce, question, askCtx, signal) => requestRuntimeAsk(pi.events, nonce, question, askCtx, signal),
+				startWait: nonce => executionHistory.startAskUser(nonce), endWait: (nonce, sameTask) => { const wait = executionHistory.endAskUser(nonce, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } },
+				persist: value => pi.appendEntry("agent-hub-process-state", processAuditRecord(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }))),
+			}, ctx);
+			if (next) processState = next;
+			return !!next;
+		},
 		handleAudit: async (ctx, args = "") => {
 			const input = proactiveReportInput();
-			await showSessionAudit(ctx, sessionDir, input && { ...input, labels: commandProactiveLabels(sessionDir, args) });
+			await showSessionAudit(ctx, sessionDir, input && { ...input, labels: commandProactiveLabels(sessionDir, args) }, {
+				...taskTriageMetadata(), activity: taskTriageActivity?.live(),
+			});
 		},
 		handleRetry: async (args, ctx) => {
             const dispatchId = args?.trim();
@@ -1795,6 +1900,8 @@ export default function (pi: ExtensionAPI) {
 	registerRetry(pi, commandCtx);
 	registerRecover(pi, commandCtx);
 	registerDebate(pi, commandCtx);
+	registerTaskTriageRecover(pi, commandCtx);
+	registerTaskTriageWaiver(pi, commandCtx);
 
 	const detailPanel = createDetailPanel<AgentDef, AgentState, ResearchState>({
 		getAgent: key => agentStates.get(key),
@@ -1837,6 +1944,7 @@ export default function (pi: ExtensionAPI) {
 		onThinkingChanged: updateWidget,
   openSystem1: ctx => openSystem1Communication(ctx, communicationStore),
 		getFleetRows: (now, unfiltered) => fleetSource.rows(now, unfiltered ? { showFinished: true } : { showFinished: fleetShowFinished, query: fleetFilter }),
+		getTaskTriage: () => fleetSource.snapshot(Date.now()).taskTriage,
 		getProactive: () => fleetSource.snapshot(Date.now()).proactive,
 		readProactiveEvidence: (finding) => proactiveRuntime?.findings.readback(finding.snapshotHandle, finding.snapshotHash, finding.snapshotId, finding.unitId, finding.excerptHash) ?? null,
 		actions: fleetActions,
@@ -1939,10 +2047,33 @@ export default function (pi: ExtensionAPI) {
 	// ask_user call with its tool_execution start/end so /af-agents-history can subtract
 	// that "away from keyboard" time from the dispatcher's real work.
 	// T11 production pre-effect gate: operator direct side effects use the same task-scoped process state as child dispatch.
-	pi.on("tool_call", async (event: any) => {
+	pi.on("tool_call", async (event: any, ctx) => {
 		if (!["bash", "edit", "write"].includes(String(event.toolName || "").toLowerCase())) return;
+		const block = processBlock();
+		if (block) return { block: true, reason: block.message };
 		const gate = processPreEffectGate(processState, "write");
-		if (gate) return { block: true, reason: gate.message };
+		if (!gate) return;
+		if (gate.reason !== "action_confirmation_unsupported") return { block: true, reason: gate.message };
+		const bound = taskTriage?.current;
+		// Pi's tool_call contract provides the exact call id and input; absent fields cannot be bound.
+		if (!bound || bound.taskId !== noProgress.taskId() || !event.toolCallId || !event.input || !ctx) return { block: true, reason: gate.message };
+		const action = { taskId: bound.taskId, inputRevision: bound.revision, actionId: String(event.toolCallId), operation: String(event.toolName), target: crypto.createHash("sha256").update(JSON.stringify(event.input)).digest("hex"), cwd: ctx.cwd };
+		const observeAction = (status: TaskTriageActionObservation) => {
+			try { const record = taskTriageActionAuditRecord(action, status); if (record) pi.appendEntry("agent-hub-task-triage-action-observation", record); }
+			catch { /* Diagnostic trace cannot alter effect authorization. */ }
+		};
+		observeAction("requested");
+		const grant = await confirmTaskTriageAction(action, {
+			taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
+			ask: (id, question, askCtx, signal) => requestRuntimeAsk(pi.events, id, question, askCtx, signal),
+			startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } },
+		}, ctx, contract => { pi.appendEntry("agent-hub-task-triage-action-grant", contract); return true; }, undefined, { input: event.input, cwd: ctx.cwd });
+		if (processBlock() || ctx.cwd !== action.cwd || String(event.toolName) !== action.operation || String(event.toolCallId) !== action.actionId
+			|| noProgress.taskId() !== action.taskId || taskTriage?.current?.revision !== action.inputRevision
+			|| crypto.createHash("sha256").update(JSON.stringify(event.input)).digest("hex") !== action.target) return { block: true, reason: "Action changed while confirmation was pending; effect refused." };
+		if (!grant || !consumeActionGrant(grant, action)) { observeAction("not_granted"); return { block: true, reason: gate.message }; }
+		try { pi.appendEntry("agent-hub-task-triage-action-consumed", action); }
+		catch { observeAction("consumption_failed"); return { block: true, reason: "One-use authorization consumption could not be persisted; effect refused." }; }
 	});
 	pi.on("tool_execution_start", async event => turnHandlers.toolStart(event));
 	observeAskUserResults(({ params, result, phase }) => {
@@ -2019,7 +2150,10 @@ export default function (pi: ExtensionAPI) {
 	function buildHubSystemPrompt(): { systemPrompt: string } {
 		const built = assembleHubPrompt(hubPromptCtx);
 		lastHubLedger = built.ledger;
-		return { systemPrompt: built.systemPrompt };
+		const names = new Set(Array.from(agentStates.values(), s => s.def.name.toLowerCase()));
+		const missingRoles = missingProcessRoleRecoveryHints(processState, names);
+		const additions = activeAdditionRecoveryHints(processState, noProgress.taskId(), taskTriage?.current?.revision);
+		return { systemPrompt: `${built.systemPrompt}\n\nTask-triage (experimental, uncertain): ${JSON.stringify(taskTriage?.status ?? { status: "skipped", detail: "consumer_off" })}. This does not change budget or authorize effects.${processBlock() ? ` BLOCKED: ${processBlock()!.message}` : ""}${missingRoles ? ` ${missingRoles} Never auto-raise tier or substitute an unrelated role.` : ""}${additions ? ` ${additions}` : ""}` };
 	}
 
 	const turnHandlers = createTurnLifecycleHandlers({
@@ -2041,6 +2175,29 @@ export default function (pi: ExtensionAPI) {
 		respondToPeer: ctx => coms.respond(ctx),
 	});
 	pi.on("before_agent_start", async () => {
+		if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
+			try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "before_agent_start", consumerPresent: !!taskTriage, consumerStatus: taskTriage?.status.status ?? null, consumerDetail: taskTriage?.status.detail ?? null, calls: taskTriage?.calls ?? null, processPersistenceBlocked, rosterBlocked: !!currentCtx && modelWorkBlockedByRosterRecovery(currentCtx), pendingTaskTransition }) + "\n"); } catch { /* diagnostic only */ }
+		}
+		// Pressure/roster recovery gates run first; assessment runs before this model input.
+		if (taskTriage && !processPersistenceBlocked && (!currentCtx || !modelWorkBlockedByRosterRecovery(currentCtx))) {
+			// Persist the first task identity before binding a pre-model assessment:
+			// compaction/resume must not mint a new ID for the same cached input.
+			try { noProgress.persistTaskIdentity(); } catch { processPersistenceBlocked = true; }
+			const assessment = processPersistenceBlocked ? null : await taskTriage.evaluate(noProgress.taskId());
+			// Guarded offline fixture diagnostics: metadata only, never task text or provider payload.
+			if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
+				try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "assessment", inputRevision: assessment?.revision ?? null, fingerprint: assessment?.fingerprint ?? null, taskId: assessment?.taskId ?? null, status: assessment?.assessment.status ?? null, calls: taskTriage.calls, pendingTaskTransition, processPersistenceBlocked }) + "\n"); } catch { /* diagnostic only */ }
+			}
+			if (assessment && !pendingTaskTransition && !processPersistenceBlocked) {
+				try {
+					const next = applyTaskTriageAdditions(processState, assessment.assessment, { taskId: assessment.taskId, evaluationId: assessment.evaluationId, inputRevision: assessment.revision });
+					pi.appendEntry("agent-hub-process-state", processAuditRecord(next, evaluateProcessObligations(next, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER })));
+					processState = next;
+				} catch { processPersistenceBlocked = true; }
+			}
+		}
+		// Assessment can open a plan/review lease after input resolved its original packs.
+		if (taskTriage) workModePolicy.refreshCapabilities();
 		const result = turnHandlers.beforeAgentStart();
 		toolCatalogRuntime.beginTurn();
 		return result;
@@ -2054,6 +2211,12 @@ export default function (pi: ExtensionAPI) {
 		sendUserMessage: (content, options) => pi.sendUserMessage(content as any, options),
 		resolveCapabilities: resolveIncomingCapabilities, applyWorkMode: applyWorkModeTools,
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
+		onAcceptedInput: (text, source, replayed) => {
+			if ((source === "extension" && !replayed) || !text.trim()) return;
+			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) pendingTaskTransition = true;
+			hubTaskText = text;
+			taskTriage?.input(text, "interactive");
+		},
 	});
 	function replayDeferredRecoveryInputs(): void { pressureLifecycle.replayDeferred(); }
 	pi.on("message_end", async (event, ctx) => {
@@ -2079,7 +2242,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_settled", async (_event, ctx) => pressureLifecycle.agentSettled(ctx));
 	pi.on("session_compact", async (_event, ctx) => {
         noProgress.compact(ctx.sessionManager.getEntries());
-		persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }));
+		if (!processPersistenceBlocked) persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }));
 		const result = toolCatalogRuntime.compact({
 			mode: getWorkMode(), getEffectiveTools: () => pi.getActiveTools(),
 			persist: (type, data) => pi.appendEntry(type, data), counterSnapshot: () => unknownToolCounter.snapshot(),
@@ -2091,9 +2254,8 @@ export default function (pi: ExtensionAPI) {
 		if (result) latestToolCatalogDelta = result.delta;
 	});
 	pi.on("input", async (event, ctx) => {
-		// Only user-owned input is task prose. Extension-generated input is not a task revision.
-		if (event.source !== "extension" && typeof event.text === "string" && event.text.trim()) hubTaskText = event.text;
-		return pressureLifecycle.input(event, ctx);
+		const outcome = pressureLifecycle.input(event, ctx);
+		return { action: outcome.action };
 	});
 
 	// ── Session Start ────────────────────────────
@@ -2183,18 +2345,37 @@ export default function (pi: ExtensionAPI) {
 			watchdogSystem1 = disposeWatchdogSystem1Session(watchdogSystem1);
    communicationStore.dispose();
    triageRuntime?.dispose(); triageRuntime = null;
+			taskTriage?.dispose(); taskTriage = null;
+			taskTriageActivity?.dispose(); taskTriageActivity = null;
 			try { watchdogActivity?.dispose(); } catch { /* trace disposal must not block the session */ }
 			// Stable for a real session across snapshot replacement; G2 must not split one session into artificial samples.
 			watchdogActivity = sessionDir ? createWatchdogActivity({ directory: `${sessionDir}/artifacts/watchdog`, sessionId: path.basename(sessionDir) }) : null;
+			const taskTriageTestTransport = resolveTaskTriageTestTransport();
+			taskTriageTestTransportActive = !!taskTriageTestTransport;
 			watchdogSystem1 = createWatchdogSystem1Session({ ...readWatchdogSystem1Snapshot({
 				cwd: _ctx.cwd,
 				configuredMode: sessionOverrides.watchdogSystem1Mode,
 				watchdogSetting: sessionOverrides.watchdogSetting,
 				env: process.env,
+				transport: taskTriageTestTransport,
 				warnings: sessionOverrides.warnings,
 			}), wrapService: service => communicationStore.wrap(service, { provider: "typesafe", model: "jev-1.13.0" }) });
 			let triageConfig = null;
    try { triageConfig = parseTriageConfig(JSON.parse(fs.readFileSync(path.join(_ctx.cwd, ".ai/dispatch-triage.json"), "utf8"))); } catch { /* absent/invalid is off */ }
+   const taskTriageConfig = loadTaskTriageConfig(_ctx.cwd || process.cwd());
+   const sharedService = watchdogSystem1?.sharedService;
+   const serviceUnavailableReason = watchdogSystem1?.readiness.status === "ready" ? "unavailable" : watchdogSystem1?.readiness.reason ?? "unavailable";
+   taskTriageConfigured = taskTriageConfig.status !== "missing";
+   taskTriageConfigStatus = taskTriageConfig.status === "active" ? "active" : taskTriageConfig.status === "invalid" ? "invalid" : "off";
+   taskTriageActivity = taskTriageConfig.status === "active" ? createTaskTriageActivity({ directory: sessionDir ? path.join(sessionDir, "artifacts/task-triage-activity") : undefined }) : null;
+   taskTriage = taskTriageConfig.status === "active" ? createTaskTriageRuntime({ root: _ctx.cwd || process.cwd(), service: sharedService, serviceUnavailableReason, persist: state => pi.appendEntry(TASK_TRIAGE_RUNTIME_ENTRY, state), observer: taskTriageActivity! }) : null;
+   if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
+    try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "service_init", configStatus: taskTriageConfig.status, consumerPresent: !!taskTriage, fakeTransportActive: taskTriageTestTransportActive, sharedServiceReady: !!sharedService, serviceUnavailableReason }) + "\n"); } catch { /* diagnostic only */ }
+   }
+   if (taskTriage && !sharedService) {
+    try { _ctx.ui.notify(`Task triage is enabled but unavailable (${serviceUnavailableReason}); no inference or new requirements will be added. Existing process obligations remain enforced.`, "warning"); }
+    catch { /* Optional UI must not change process enforcement. The prompt retains the status. */ }
+   }
    triageRuntime = createTriageRuntime({ config: triageConfig, service: watchdogSystem1?.sharedService,
     current: input => triageInput(input.task,input.scope,input.language,input.domain),
     trace: event => pi.appendEntry("agent-hub-triage", event),
@@ -2203,7 +2384,10 @@ export default function (pi: ExtensionAPI) {
 				setLanguage: value => { userLanguage = value; },
 				setReconTimeout: value => { reconSearchTimeoutMs = value; }, setBudgetOverrides: value => { budgetOverrides = value; },
 				setWatchdog: (setting, judge) => { watchdogSetting = setting; watchdogJudgeModel = judge; },
-				resetTurnCounts: () => { turnDispatchCount = 0; turnResearchCount = 0; }, resetTaskWindow: () => resetTaskWindow(null), updateModeStatus,
+				resetTurnCounts: () => { turnDispatchCount = 0; turnResearchCount = 0; },
+				// Session setup clears in-memory budgets before restore, not the saved task.
+				// A persisted reset here would append a new task event after the old one.
+				resetTaskWindow: () => resetTaskWindow(null, Date.now(), false), updateModeStatus,
 				setProjectRules: value => { projectRulesDirs = value; }, setProjectDocs: value => { projectDocsPaths = value; },
 				resetModelPolicy: () => {modelPolicy.reset();profileActivation.reset();applyWorkModeTools();}, getModelProfileErrors: () => modelProfileErrors, getAgentDefs: () => allAgentDefs, getModelProfiles: () => modelProfiles,
 				deleteModelProfile: name => { delete modelProfiles[name]; }, allowedModels,
@@ -2225,8 +2409,18 @@ export default function (pi: ExtensionAPI) {
 			comsMissNotified.clear();
 			recomputeGrid();
 			const sessionEntries = _ctx.sessionManager.getEntries();
-			processState = latestProcessState(sessionEntries);
-            noProgress.restore(sessionEntries);
+			// An in-flight transition belongs to the prior session. Resume restores persisted
+			// additions/counter, but not the pending input; a new input gets a fresh assessment.
+			pendingTaskTransition = false;
+			try { processState = latestProcessState(sessionEntries); processPersistenceBlocked = false; }
+			catch { processState = createProcessState(); processPersistenceBlocked = true; }
+			taskTriage?.restore(sessionEntries);
+            const savedTaskIds = new Set(processState.additions?.map(addition => addition.taskId));
+            noProgress.restore(sessionEntries, savedTaskIds.size === 1 ? [...savedTaskIds][0] : undefined);
+            if (processTaskIdentityConflicts(processState, noProgress.taskId())) processPersistenceBlocked = true;
+            if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
+             try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "restore", processPersistenceBlocked, savedTaskIdCount: savedTaskIds.size, taskIdMatchesAddition: savedTaskIds.size === 1 && savedTaskIds.has(noProgress.taskId()), consumerPresent: !!taskTriage, calls: taskTriage?.calls ?? null, consumerStatus: taskTriage?.status.status ?? null }) + "\n"); } catch { /* diagnostic only */ }
+            }
 			const persistedCatalog = latestPersistedToolCatalog(sessionEntries);
 			if (persistedCatalog) toolCatalogRuntime.restore(persistedCatalog);
 			const persistedUnknownTools = latestPersistedUnknownToolCounter(sessionEntries);
@@ -2348,6 +2542,9 @@ export default function (pi: ExtensionAPI) {
 			watchdogSystem1 = disposeWatchdogSystem1Session(watchdogSystem1);
    communicationStore.dispose();
    triageRuntime?.dispose(); triageRuntime = null;
+			taskTriage?.dispose(); taskTriage = null;
+			taskTriageActivity?.dispose(); taskTriageActivity = null;
+			taskTriageConfigStatus = "off"; taskTriageConfigured = false;
 			try { watchdogActivity?.dispose(); } catch { /* trace disposal must not block shutdown */ }
 			watchdogActivity = null;
 			for (const st of [...agentStates.values(), ...researchStates.values()]) {

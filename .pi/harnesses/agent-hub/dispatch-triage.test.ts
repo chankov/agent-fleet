@@ -56,6 +56,44 @@ test("sensitive context is refused before remote inference",async()=>{
  const runtime=createTriageRuntime({config,service:{async evaluate(){throw Error("must not call");}},current:i=>i});
  assert.equal((await runtime.evaluate({...input,task:"password=SENTINEL"})).reason,"sensitive_context_withheld");assert.equal(runtime.calls,0);
 });
+test("ordinary nested repository paths remain usable while absolute paths are withheld",()=>{
+ const relativeScope=".pi/harnesses/agent-hub/task-triage-runtime.ts";
+ const relative=buildTriageState({...input,scope:[relativeScope]},config);
+ assert.equal(relative.ok,true);
+ if(relative.ok)assert.deepEqual(relative.state.scope,[relativeScope]);
+ const absolute=buildTriageState({
+  ...input,
+  task:"Review /home/nick/agent-fleet/.pi/harnesses/agent-hub/task-triage-runtime.ts",
+  scope:[relativeScope,"/home/nick/agent-fleet/src/index.ts"],
+  candidates:[{name:"reviewer",description:"Review /Users/nick/agent-fleet/docs/README.md"}],
+ },config);
+ assert.equal(absolute.ok,true);
+ if(absolute.ok){
+  assert.doesNotMatch(JSON.stringify(absolute.state),/\/(?:home|Users)\/nick\/agent-fleet/);
+  assert.equal(absolute.state.scope[0],relativeScope);
+  assert.equal(absolute.state.scope[1],"[PATH]");
+  assert.match(absolute.candidates[0].description,/\[PATH\]/);
+ }
+ const windows=buildTriageState({...input,task:"Review C:\\Users\\nick\\agent-fleet\\src\\index.ts"},config);
+ assert.equal(windows.ok,true);
+ if(windows.ok)assert.doesNotMatch(windows.state.task,/C:\\Users\\nick/);
+});
+test("runtime sends relative paths but not absolute paths to the triage service",async()=>{
+ const requests:any[]=[];
+ const runtime=createTriageRuntime({config,service:{async evaluate(request:any){requests.push(request);return result();}},current:i=>i});
+ const relativeScope=".pi/harnesses/agent-hub/task-triage-runtime.ts";
+ const outcome=await runtime.evaluate({
+  ...input,
+  task:"Review /home/nick/agent-fleet/src/index.ts",
+  scope:[relativeScope],
+  candidates:[{name:"reviewer",description:"Review /home/nick/agent-fleet/docs/README.md"}],
+ });
+ assert.equal(outcome.status,"suggest_persona");
+ assert.equal(runtime.calls,1);
+ assert.equal(requests.length,1);
+ assert.equal(requests[0].state.scope[0],relativeScope);
+ assert.doesNotMatch(JSON.stringify(requests[0]),/\/home\/nick\/agent-fleet/);
+});
 test("explicit disposition correlates only current evaluations and never authorizes dispatch",async()=>{
  const events:any[]=[];let current=input;const runtime=createTriageRuntime({config,service:{async evaluate(){return result();}},current:()=>current,trace:e=>events.push(e)});
  const r=await runtime.evaluate(input);assert.ok("id" in r);const id=(r as any).id;

@@ -3,8 +3,13 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { resolveCapabilityPacks } from "./capability-packs.ts";
+import { resolveWorkModeTools } from "./work-mode.ts";
+import { applyTaskTriageAdditions } from "./task-triage-obligations.ts";
+import { createProcessState, processOpenObligations, processPreEffectGate } from "./process-obligations.ts";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const triageObligationsSource = readFileSync(new URL("./task-triage-obligations.ts", import.meta.url), "utf8");
 const budgetSource = readFileSync(new URL("./context/budgets.ts", import.meta.url), "utf8");
 const researchRuntimeSource = readFileSync(new URL("./research/runtime.ts", import.meta.url), "utf8");
 const researchSpawnSource = readFileSync(new URL("./research/spawn-run.ts", import.meta.url), "utf8");
@@ -69,12 +74,44 @@ const commandModules = [
 	["retry", "registerRetry"],
 	["recover", "registerRecover"],
 	["debate", "registerDebate"],
+	["task-triage-recover", "registerTaskTriageRecover"],
+	["task-triage-waive", "registerTaskTriageWaiver"],
 ] as const;
 const comsCoreSource = readFileSync(new URL("../lib/coms-core.ts", import.meta.url), "utf8");
 const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
-test("wiring contract: all 27 Hub commands use typed modules and one flat registrar list", () => {
-	assert.equal(commandModules.length, 27);
+test("operator gets actionable fleet tools only when transition or S1 stage needs them", () => {
+ const bind = { taskId: "task-1", evaluationId: "eval-1", inputRevision: "input-1" };
+ const baseline = ["read", "grep", "find", "ls", "bash", "edit", "write"];
+ const tools = (pendingOperations: Array<{ pack: "fleet"; kind: string }>) => {
+  const packs = resolveCapabilityPacks({ workMode: "operator", userText: "Fix the README typo", taskTier: "small", taskPacks: [], comsReady: false, herdrReady: false, pendingOperations, contextState: "normal" });
+  return { packs, active: resolveWorkModeTools({ workMode: "operator", baselineTools: baseline, comsReady: false, herdrReady: false, askUserAvailable: true, capabilityPacks: packs.active }) };
+ };
+ const ordinary = tools([]);
+ assert.deepEqual(ordinary.packs.active, ["core"]);
+ assert.ok(!ordinary.active.includes("set_task_tier"));
+ for (const stage of ["wide_change", "security_change"] as const) {
+  const state = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: [stage] }, bind);
+  const pending = processOpenObligations(state).some(name => name === "plan" || name === "review") ? [{ pack: "fleet" as const, kind: "process-stage" }] : [];
+  const { active, packs } = tools(pending);
+  assert.equal(packs.reasons.fleet, "pending-operation");
+  assert.ok(active.includes("set_task_tier") && active.includes("dispatch_agent"), stage);
+  assert.deepEqual(active.filter(name => baseline.includes(name)), baseline, "operator tools unchanged");
+  assert.equal(processPreEffectGate(state, "write")?.reason === "process_plan_open", stage === "wide_change");
+ }
+ const transition = tools([{ pack: "fleet", kind: "task-transition" }]);
+ assert.ok(transition.active.includes("set_task_tier") && transition.active.includes("dispatch_agent"));
+ assert.deepEqual(tools([]), ordinary, "no lease when the assessment is unavailable");
+ assert.match(indexSource, /pendingTaskTransition[\s\S]*?pack: "fleet", kind: "task-transition"/);
+ assert.match(indexSource, /processOpenObligations\(processState\)[\s\S]*?pack: "fleet", kind: "process-stage"/);
+ assert.match(indexSource, /adoptTaskTriageState\(\{ runtime: taskTriage, taskId: id, newTask,[\s\S]*?pendingTransition: pendingTaskTransition/);
+ assert.match(triageObligationsSource, /if \(needsBinding\) persist\(options\.newTask \? options\.state : base\);[\s\S]*?await runtime!\.bindInput\(taskId\)[\s\S]*?if \(pendingTransition && runtime && !bound\) throw/);
+ assert.match(indexSource, /onAcceptedInput: \(text, source, replayed\) => \{[\s\S]*?if \(\(source === "extension" && !replayed\) \|\| !text\.trim\(\)\) return;[\s\S]*?evaluatedTaskTriageInputChanged\(taskTriage\?\.current \?\? null, text\)[\s\S]*?pendingTaskTransition = true;[\s\S]*?taskTriage\?\.input\(text, "interactive"\)/);
+ assert.match(pressureLifecycleSource, /ports\.onAcceptedInput\?\.\(text, event\.source, replaying\);[\s\S]*?ports\.resolveCapabilities\(text\); ports\.applyWorkMode\(\)/);
+});
+
+test("wiring contract: all 29 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 29);
 	for (const [file, registrar] of commandModules) {
 		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
 		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));
@@ -244,7 +281,8 @@ test("T4 real lifecycle paths record mode deltas, unknown calls, compaction rest
 	assert.match(indexSource, /getToolCatalogVersion: \(\) => toolCatalogRuntime\.catalogForMessage\(\)\.catalogVersion/);
 	assert.match(indexSource, /pi\.on\("agent_end"[\s\S]*?toolCatalogRuntime\.endTurn\(\)/);
 	assert.match(indexSource, /UNKNOWN_TOOL_COUNTER_ENTRY_TYPE[\s\S]*?unknownToolCounter\.snapshot\(\)/);
-	assert.match(indexSource, /resetNoProgress: \(\) => noProgress\.reset\(\), resetUnknownToolCounter: resetUnknownToolCounterForCurrentTask/);
+	assert.match(indexSource, /resetNoProgress: \(persistTaskIdentity\) => noProgress\.reset\(persistTaskIdentity\), resetUnknownToolCounter: resetUnknownToolCounterForCurrentTask/);
+	assert.match(indexSource, /resetTaskWindow: \(\) => resetTaskWindow\(null, Date\.now\(\), false\)/, "session setup must not append a new task event before restore");
 	assert.doesNotMatch(indexSource, /sendUserMessage\([^)]*unknown.tool|execute\([^)]*unknown.tool/i);
 });
 
@@ -286,7 +324,7 @@ test("stale-roster gate covers every command and dashboard path that can start m
 test("same-turn lifecycle has one pre-model surface assembly point for normal and resumed remote turns", () => {
 	assert.match(indexSource, /pi\.on\("input"[\s\S]*?pressureLifecycle\.input/, "incoming normal and remote messages share Pi's input hook");
 	assert.match(indexSource, /pi\.on\("before_agent_start"[\s\S]*?turnHandlers\.beforeAgentStart/, "all model turns share the before_agent_start hook");
-	assert.match(pressureLifecycleSource, /ports\.resolveCapabilities\(incomingText\(event\)\); ports\.applyWorkMode\(\)/);
+	assert.match(pressureLifecycleSource, /const text = incomingText\(event\);[\s\S]*?ports\.onAcceptedInput\?\.\(text, event\.source, replaying\);[\s\S]*?ports\.resolveCapabilities\(text\); ports\.applyWorkMode\(\)/);
 	assert.match(turnLifecycleSource, /const resetTurn[\s\S]*?ports\.applyWorkMode\(\)/);
 	assert.match(indexSource, /function buildHubSystemPrompt\(\): \{ systemPrompt: string \} \{[\s\S]*?assembleHubPrompt\(hubPromptCtx\)/);
 	assert.doesNotMatch(indexSource, /classification model|classify.*model request|sendMessage\([\s\S]{0,100}classif/i);

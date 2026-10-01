@@ -27,6 +27,15 @@ test("wiring contract: requested backend and current task contract reach initial
 	assert.match(dispatchExecutionSource, /dispatchAgent\(p\.agent, resume, ctx, p\.inputArtifacts, p\.scopeGlobs, params\.watchdog, params\.backend \?\? "auto", true, p\.resumeContract\)/);
 });
 
+test("confirmation-required stage production routes natively with a restricted child tool surface", () => {
+ assert.match(source, /getProcessState: \(\) => processState/);
+ assert.match(dispatchNativeSource, /confirmationRequired \|\| isolationRequired/);
+ assert.match(dispatchNativeSource, /requestedBackend === "coms"/);
+ assert.match(dispatchNativePrepareSource, /stageProducerTools\(state\.def\.tools\)/);
+ assert.match(dispatchNativePrepareSource, /task-triage-stage-guard\.ts/);
+ assert.match(dispatchNativePrepareSource, /!stageConfirmation && turnBudget\.delegation/);
+});
+
 test("wiring contract: explicit coms refusal precedes native spawn", () => {
 	assert.match(dispatchNativeSource, /route\.backend === "coms-unavailable"/);
 	assert.match(dispatchNativeSource, /explicitComsRefusal\(deps\.displayName\(state\.def\.name\)\)/);

@@ -33,3 +33,4 @@ plans/
 docs/prds/
 .tmp-proactive-*
 .pi/tmp-*/
+.tmp-*

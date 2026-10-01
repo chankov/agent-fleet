@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import type { JevTransport } from "./jev.ts";
 import { createSystem1Runtime } from "./service.ts";
+import { system1SelectedByDesired } from "./selection.js";
 
 const SYNTHETIC_REQUEST = {
   state: {
@@ -41,10 +42,7 @@ function readJson(path: string): unknown {
 
 function workspaceInputs(cwd: string): { selected: boolean; config: unknown } {
   const desired = readJson(join(cwd, ".ai", "agent-fleet.json"));
-  const selected = typeof desired === "object" && desired !== null &&
-    !Array.isArray(desired) &&
-    typeof (desired as { features?: unknown }).features === "object" &&
-    (desired as { features: { system1?: unknown } }).features?.system1 === true;
+  const selected = system1SelectedByDesired(desired);
   return { selected, config: readJson(join(cwd, ".ai", "system1.json")) };
 }
 

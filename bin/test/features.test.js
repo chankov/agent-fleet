@@ -21,6 +21,18 @@ test("System 1 is explicit and reuses shared-library ownership with an operator 
   assert.equal(selected.selected.filter((id) => id === "companion:pi-harness-lib").length, 1);
 });
 
+test("task triage is experimental, explicit, and depends on the System 1 foundation", () => {
+  const feature = manifest.features["system1-task-triage"];
+  assert.equal(feature.stability, "experimental");
+  assert.deepEqual(feature.requiresFeatures, ["system1"]);
+  const full = resolveDesiredFeatures(manifest, { preset: "full" });
+  assert.equal(full.features.includes("system1-task-triage"), false);
+  const selected = resolveDesiredFeatures(manifest, { features: ["system1-task-triage"] });
+  assert.deepEqual(selected.features, ["system1", "system1-task-triage"]);
+  assert.ok(selected.selected.includes("pi-harness:agent-hub"));
+  assert.ok(selected.selected.includes("companion:system1-config"));
+});
+
 test("retired Codex remote feature refuses before mutation", () => {
   assert.throws(() => resolveFeatures(manifest, ["codex-remote"]), /retired feature "codex-remote"/);
 });

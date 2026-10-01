@@ -17,6 +17,8 @@ from the current roster, excluding research personas, busy specialists, and role
 blocked by current process, tier, review, documentation-lane and budget checks.
 These are advisory snapshots, not reservations. Dispatch always checks again.
 Use minimal non-secret context, never credentials, transcripts or file contents.
+Credential-like text is refused before inference; absolute paths are replaced with
+`[PATH]`, while project-relative paths remain available as scope context.
 
 ## Human-owned configuration
 
@@ -88,7 +90,7 @@ without modifying files. After its normal task/process classification, expect
 `dispatch_triage` followed by an independently chosen `dispatch_agent` with a
 `triage_id` and truthful `triage_reason`. `uncalibrated` is expected, not an error.
 The viewer should show the triage request/response. Empty roster, process restrictions,
-missing service, sensitive context or exhausted budget produce explicit skips;
+missing service, credential-like context or exhausted budget produce explicit skips;
 no automatic retry loop or gate bypass is introduced.
 
 To disable: set `mode` to `off` and start a new session. To keep optional tool use

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { System1Result, System1Service } from "../lib/system1/contracts.ts";
 import { createSystem1Runtime } from "../lib/system1/service.ts";
+import { system1SelectedByDesired } from "../lib/system1/selection.js";
 import { parseTriageConfig, triageQuestions, TRIAGE_VERSION, type TriageInput, type TriageConfig } from "./dispatch-triage-contract.ts";
 import { buildTriageState } from "./dispatch-triage-state.ts";
 import { triageAdvice } from "./dispatch-triage-policy.ts";
@@ -67,7 +68,7 @@ export async function runTriageEvaluator(argv=process.argv.slice(2)) {
   // Consent and budget validation happens before constructing the provider or reading its key.
   if (!config.remoteContextApproved || corpus.some(e=>!e.remoteApproved) || !Number.isSafeInteger(Number(value("--max-calls"))) || Number(value("--max-calls"))<=0 || !Number.isSafeInteger(Number(value("--max-ms"))) || Number(value("--max-ms"))<=0) throw new Error("Live consent or budgets missing");
   const desired=JSON.parse(readFileSync(resolve(workspace,".ai/agent-fleet.json"),"utf8"));
-  const runtime=createSystem1Runtime({selected:desired?.features?.system1===true,config:JSON.parse(readFileSync(resolve(workspace,".ai/system1.json"),"utf8")),env:process.env});
+  const runtime=createSystem1Runtime({selected:system1SelectedByDesired(desired),config:JSON.parse(readFileSync(resolve(workspace,".ai/system1.json"),"utf8")),env:process.env});
   if (runtime.readiness.status!=="ready") throw new Error("System 1 unavailable"); service=runtime.service;
  }
  console.log(JSON.stringify(await evaluateCorpus(corpus,config,{service,maxCalls:Number(value("--max-calls")),maxMs:Number(value("--max-ms"))}),null,2));

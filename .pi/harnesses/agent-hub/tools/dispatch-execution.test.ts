@@ -5,8 +5,11 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import { createDispatchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt } from "./dispatch-execution.ts";
-import { applyProcessClassification, createProcessState } from "../process-obligations.ts";
+import { createDispatchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt, validateDispatchAgent } from "./dispatch-execution.ts";
+import { applyProcessClassification, createProcessState, noteProcessStage, processPreEffectGate, evaluateProcessObligations } from "../process-obligations.ts";
+import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
+import { worktreeRevision } from "../scope-gate.js";
+import { extractAskUserQuestions } from "../presentation.ts";
 
 function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?: number; tools?: string } = {}) {
 	let turn = overrides.turn ?? 0;
@@ -733,6 +736,56 @@ for (const tag of ["test", "code-grep"]) test(`explicit ${tag} runtime evidence 
  assert.ok(existsSync(details.verificationResult.checks[0].evidenceRef));
 });
 
+test("T4 check evidence separates observed command, declared coverage, and evaluated acceptance", async t => {
+ for (const scenario of ["passed", "failed", "stale", "uncovered"] as const) {
+  const { cwd, d } = await gitDiagnosticsFixture(t);
+  const command = "node --test README.test.js";
+  d.state.getAssertions = () => [{ id: "A1", tag: "test", text: "README corrected", source: "fixture", testCommand: command, status: "open", evidence: "untrusted claim" }];
+  d.dispatchAgent = async () => {
+   writeFileSync(join(cwd, "README.md"), `corrected ${scenario}\n`);
+   const revision = worktreeRevision(cwd, []);
+   return { output: "delivered", exitCode: 0, elapsed: 1, dispatchId: `t4-check-${scenario}`, runtimeTests: [{
+    producer: "agent-fleet.runtime-test/v1",
+    command: scenario === "uncovered" ? "node --test other.test.js" : command,
+    exitCode: scenario === "failed" ? 1 : 0,
+    beforeRevision: scenario === "stale" ? "prior-revision" : revision,
+    afterRevision: revision,
+   }] };
+  };
+  const result = await createDispatchExecutor(d as any)(scenario, { agent: "builder", task: `A1 check ${scenario}`, scope: ["README.md"] }, undefined, undefined, { cwd } as any);
+  const details = result.details as any;
+  const assessment = JSON.parse(readFileSync(details.assessmentPath, "utf8"));
+  const requirement = assessment.verification.requirements.find((item: any) => item.id === "A1");
+  assert.equal(assessment.execution.status, "completed", scenario);
+  assert.deepEqual(requirement.claimedEvidenceRefs, ["untrusted claim"], scenario);
+  assert.equal(assessment.verification.evidenceRefs.includes("untrusted claim"), false, scenario);
+  if (scenario === "uncovered") {
+   assert.deepEqual(assessment.verification.checks, [], "uncovered command is not approved check evidence");
+   assert.equal(requirement.status, "missing");
+   assert.deepEqual(requirement.evidenceRefs, []);
+  } else {
+   const check = assessment.verification.checks[0];
+   const artifact = JSON.parse(readFileSync(check.evidenceRef, "utf8"));
+   assert.equal(artifact.schema, "agent-fleet.runtime-test-evidence/v1");
+   assert.equal(artifact.observation.producer, "agent-fleet.runtime-test/v1");
+   assert.equal(artifact.observation.command, command);
+   assert.equal(artifact.observation.exitCode, scenario === "failed" ? 1 : 0);
+   assert.equal(artifact.declaration.taskId, assessment.task.id);
+   assert.deepEqual(artifact.declaration.coverage, check.coverage);
+   assert.deepEqual(artifact.declaration.coverage.map((item: any) => item.id), ["A1"]);
+   assert.equal(artifact.requirements, undefined, "no pre-evaluation requirement status or evidence refs");
+   assert.equal(artifact.evaluationSource, "agent-fleet.runtime-result/v1 verification.checks and verification.requirements");
+   assert.equal(check.status, scenario);
+   assert.equal(requirement.status, scenario);
+   assert.deepEqual(requirement.evidenceRefs, [check.evidenceRef]);
+   assert.ok(assessment.verification.evidenceRefs.includes(check.evidenceRef));
+  }
+  assert.equal(assessment.verification.status, scenario === "passed" ? "passed" : scenario === "uncovered" ? "missing" : scenario);
+  assert.equal(assessment.acceptance.accepted, scenario === "passed", scenario);
+  assert.equal(details.accepted, scenario === "passed", scenario);
+ }
+});
+
 test("compiler evidence cannot be relabelled with a revision changed during verification", async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src/api.ts"), "export const value = 2;\n"); return { output: "done", exitCode: 0, elapsed: 1 }; };
@@ -764,6 +817,233 @@ async function highRiskChangedFixture(t: any) {
  return { cwd, d, process: () => process };
 }
 
+test("T4 wide small: actual dispatch artifacts close plan then covered review without changing the two-dispatch cap", async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ const binding = { taskId: d.noProgress.taskId(), evaluationId: "evaluation", inputRevision: "input" };
+ const revision = worktreeRevision(cwd, []);
+ let process = applyTaskTriageAdditions(
+  applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "declared" }).state,
+  { status: "applied", reasons: ["wide_change"] }, binding);
+ process = noteProcessStage(process, "acceptance", { evidenceRef: "test:verified", revision, changedFiles: ["src/api.ts"] });
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+ d._agents.set("planner", { def: { name: "planner", tools: "read" }, runCount: 0, lastBackend: "native" });
+ d._agents.set("code-reviewer", { def: { name: "code-reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
+ d.budget.currentTaskBudget = () => ({ maxDispatches: 2, maxResearch: 2, maxReviewRounds: 1 });
+ d.budget.currentBudget = () => ({ maxDispatches: 2, maxResearch: 2 });
+ let output = "Plan: inspect and update src/api.ts, then test and independently review the changed scope.";
+ d.dispatchAgent = async () => ({ output, exitCode: 0, elapsed: 1, dispatchId: output.startsWith("Plan") ? "plan-run" : "review-run" });
+ const execute = createDispatchExecutor(d as any);
+ assert.equal(processPreEffectGate(process, "child", "builder")?.reason, "process_plan_open");
+ const plan = await execute("plan", { agent: "planner", task: "Produce a plan" }, undefined, undefined, { cwd } as any);
+ assert.ok((plan.details as any).returnPath, "the Hub persisted the actual producer response");
+ assert.equal(process.plan.evidenceRef, (plan.details as any).returnPath);
+ assert.equal((plan.details as any).processVerdict.obligations.review.status, "open");
+ assert.equal((plan.details as any).accepted, false, "plan occurrence does not finish the task");
+ output = "verdict: APPROVE\nCurrent src/api.ts changed scope inspected.";
+ const review = await execute("review", { agent: "code-reviewer", task: "Review changed scope", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
+ assert.equal(process.review.evidenceRef, (review.details as any).returnPath);
+ assert.equal((review.details as any).processVerdict.accepted, true);
+ assert.equal(d._task(), 2); assert.equal(d._turn(), 2);
+ assert.equal(d.state.getTaskTier(), "small");
+ assert.equal(d.budget.currentTaskBudget().maxDispatches, 2);
+ assert.equal(evaluateProcessObligations(process, { writable: true, budgetTier: "small", currentRevision: revision }).obligations.plan.status, "satisfied");
+ // Runtime acceptance of an artifact is still not independent semantic review of the plan or approval.
+});
+
+test("T4 human refusal at spent small dispatch cap leaves S1 review and proof open", async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ let process = applyTaskTriageAdditions(
+  applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "declared" }).state,
+  { status: "applied", reasons: ["security_change"] }, { taskId: "task", evaluationId: "evaluation", inputRevision: "input" });
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+ d._agents.set("code-reviewer", { def: { name: "code-reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
+ d.state.setTaskDispatchCount(2);
+ d.budget.currentTaskBudget = () => ({ maxDispatches: 2, maxResearch: 2, maxReviewRounds: 1 });
+ let asks = 0, launches = 0;
+ d.budgetRecovery.ensure = async () => { asks++; return { reason: "budget_stopped", message: "Human declined budget continuation." }; };
+ d.dispatchAgent = async () => { launches++; return { output: "verdict: APPROVE", exitCode: 0, elapsed: 1 }; };
+ const refusal = await createDispatchExecutor(d as any)("review", { agent: "code-reviewer", task: "review", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
+ assert.equal((refusal.details as any).reason, "budget_stopped");
+ assert.equal(asks, 1); assert.equal(launches, 0); assert.equal(d._task(), 2);
+ assert.equal(process.review.evidenceRef, null);
+ assert.equal(processPreEffectGate(process, "prove")?.reason, "process_obligations_open");
+ assert.equal(evaluateProcessObligations(process, { writable: true, budgetTier: "small", t2Accepted: true }).accepted, false);
+});
+
+test("T4 an empty planner result cannot close the wide-small pre-effect gate", async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ let process = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" });
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+ d._agents.set("planner", { def: { name: "planner", tools: "read" }, runCount: 0, lastBackend: "native" });
+ d.dispatchAgent = async () => ({ output: "  ", exitCode: 0, elapsed: 1, dispatchId: "empty-plan" });
+ const result = await createDispatchExecutor(d as any)("plan", { agent: "planner", task: "Plan" }, undefined, undefined, { cwd } as any);
+ assert.ok((result.details as any).returnPath, "the empty dispatch still has a run artifact");
+ assert.equal(process.plan.evidenceRef, null, "artifact existence alone is not plan evidence");
+ assert.equal(processPreEffectGate(process, "write")?.reason, "process_plan_open");
+ assert.equal((result.details as any).accepted, false);
+});
+
+test("T4 planner refusal with a missing declared plan cannot close the pre-effect gate", async t => {
+ const { cwd, sessionDir, d } = await gitDiagnosticsFixture(t);
+ let process = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" });
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+ d._agents.set("planner", { def: { name: "planner", tools: "read,write" }, runCount: 0, lastBackend: "native" });
+ const planPath = join(sessionDir, "artifacts", "plan", "synthetic-readme-fix.md");
+ d.dispatchAgent = async () => ({ output: "I cannot provide a compliant plan handoff.\nrequires_user_decision: [Grant permission to create the plan artifact]", exitCode: 0, elapsed: 1, dispatchId: "refused-plan" });
+ const result = await createDispatchExecutor(d as any)("plan", { agent: "planner", task: "Produce a plan", deliverables: [planPath] }, undefined, undefined, { cwd } as any);
+ const details = result.details as any;
+ assert.ok(details.returnPath, "a nonempty exit-0 refusal still has a retained return");
+ assert.equal(details.deliverableReadback[0].status, "missing");
+ assert.equal(details.acceptanceStatus, "deliverable_failed");
+ assert.deepEqual(details.structuredReturn.requires_user_decision, ["Grant permission to create the plan artifact"]);
+ assert.equal(process.plan.evidenceRef, null);
+ assert.equal(processPreEffectGate(process, "write")?.reason, "process_plan_open");
+});
+
+test("T4 planner substantive parsed user decision blocks even without a declared deliverable", async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ let process = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" });
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+ d._agents.set("planner", { def: { name: "planner", tools: "read" }, runCount: 0, lastBackend: "native" });
+ d.dispatchAgent = async () => ({ output: "Plan pending decision.\nrequires_user_decision: [Which file should be edited?]", exitCode: 0, elapsed: 1, dispatchId: "decision-plan" });
+ const result = await createDispatchExecutor(d as any)("plan", { agent: "planner", task: "Plan" }, undefined, undefined, { cwd } as any);
+ assert.deepEqual((result.details as any).structuredReturn.requires_user_decision, ["Which file should be edited?"]);
+ assert.equal(process.plan.evidenceRef, null);
+ assert.equal(processPreEffectGate(process, "write")?.reason, "process_plan_open");
+});
+
+test("T4 fenced empty planner decision closes only with a readback plan and no real question", async t => {
+ for (const scenario of ["empty", "question", "ask", "missing"] as const) {
+  const { cwd, sessionDir, d } = await gitDiagnosticsFixture(t);
+  let process = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" });
+  d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+  d._agents.set("planner", { def: { name: "planner", tools: "read,write" }, runCount: 0, lastBackend: "native" });
+  d.extractAskUserQuestions = extractAskUserQuestions;
+  const planPath = join(sessionDir, "artifacts", "plans", "synthetic-readme-fix.md");
+  d.dispatchAgent = async () => {
+   if (scenario !== "missing") {
+    mkdirSync(join(sessionDir, "artifacts", "plans"), { recursive: true });
+    writeFileSync(planPath, "Correct only the synthetic typo; builder verifies.\n");
+   }
+   return { output: `Artifact: artifacts/plans/synthetic-readme-fix.md\n\nStructured return:\n\`\`\`text\nchanged_files: [artifacts/plans/synthetic-readme-fix.md — typo-only plan]\nassertions_proven: []\nassertions_unproven: [A1 — builder verifies]\nassertions_failed: []\ntests_run: []\nopen_risks: []\nrequires_user_decision: ${scenario === "question" ? "[Which file should be edited?]" : "[]"}\n\`\`\`${scenario === "ask" ? "\nASK_USER: Which file should be edited?" : ""}`, exitCode: 0, elapsed: 1, dispatchId: `fenced-${scenario}` };
+  };
+  const result = await createDispatchExecutor(d as any)(scenario, { agent: "planner", task: "Produce a plan", deliverables: [planPath] }, undefined, undefined, { cwd } as any);
+  const details = result.details as any;
+  assert.equal(details.deliverableReadback[0].status, scenario === "missing" ? "missing" : "read", scenario);
+  assert.deepEqual(details.structuredReturn.requires_user_decision, scenario === "question" ? ["Which file should be edited?"] : [], scenario);
+  assert.equal(process.plan.evidenceRef, scenario === "empty" ? details.returnPath : null, scenario);
+  assert.equal(details.processVerdict.obligations.plan.status, scenario === "empty" ? "satisfied" : "open", scenario);
+  assert.equal(processPreEffectGate(process, "write")?.reason, scenario === "empty" ? undefined : "process_plan_open", scenario);
+ }
+});
+
+test("T4 planner with a real declared plan and literal none decision still closes plan", async t => {
+ const { cwd, sessionDir, d } = await gitDiagnosticsFixture(t);
+ let process = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" });
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+ d._agents.set("planner", { def: { name: "planner", tools: "read,write" }, runCount: 0, lastBackend: "native" });
+ const planPath = join(sessionDir, "artifacts", "plan", "synthetic-readme-fix.md");
+ d.dispatchAgent = async () => {
+  mkdirSync(join(sessionDir, "artifacts", "plan"), { recursive: true });
+  writeFileSync(planPath, "Inspect README, correct the typo, run the declared check.\n");
+  return { output: "Plan: correct only the README typo and check.\nrequires_user_decision: [none]", exitCode: 0, elapsed: 1, dispatchId: "valid-plan" };
+ };
+ const result = await createDispatchExecutor(d as any)("plan", { agent: "planner", task: "Produce a plan", deliverables: [planPath] }, undefined, undefined, { cwd } as any);
+ const details = result.details as any;
+ assert.equal(details.deliverableReadback[0].status, "read");
+ assert.equal(details.deliverableReadback[0].changed, true);
+ assert.deepEqual(details.structuredReturn.requires_user_decision, ["none"]);
+ assert.equal(process.plan.evidenceRef, details.returnPath);
+ assert.equal(details.processVerdict.obligations.plan.status, "satisfied");
+});
+
+async function runtimeEvidenceReviewFixture(t: any, unrelated = false, protectEvidence = false) {
+ const { cwd, sessionDir, d } = await gitDiagnosticsFixture(t);
+ let process = applyProcessClassification(createProcessState(), { risk: "low", scope: "wide", reason: "review task change" }).state;
+ process = noteProcessStage(process, "plan", { evidenceRef: "test:plan", revision: worktreeRevision(cwd, []) });
+ d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+ d._agents.set("code-reviewer", { def: { name: "code-reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
+ d.budget.currentBudget = () => ({ maxDispatches: 8, maxResearch: 2 });
+ const command = "node --test README.test.js";
+ if (protectEvidence) {
+  mkdirSync(join(sessionDir, "artifacts", "watchdog"), { recursive: true });
+  writeFileSync(join(sessionDir, "artifacts", "watchdog", "events.jsonl"), "");
+ }
+ d.state.getAssertions = () => [{ id: "A1", tag: "test", text: "README edit", source: "fixture", testCommand: command, status: "open" }];
+ d.dispatchAgent = async () => {
+  writeFileSync(join(cwd, "README.md"), "fixed fixture\n");
+  mkdirSync(join(sessionDir, "artifacts", "watchdog"), { recursive: true });
+  mkdirSync(join(sessionDir, "dispatches", "run"), { recursive: true });
+  writeFileSync(join(sessionDir, "artifacts", "watchdog", "events.jsonl"), "event\n");
+  writeFileSync(join(sessionDir, "dispatches", "run", "result.json"), "{}\n");
+  if (unrelated) writeFileSync(join(cwd, "src", "new-source.js"), "unrelated\n");
+  const revision = worktreeRevision(cwd, []);
+  return { output: "README fixed", exitCode: 0, elapsed: 1, dispatchId: "build-evidence", runtimeTests: [{ command, exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
+ };
+ const execute = createDispatchExecutor(d as any);
+ const build = await execute("build", { agent: "builder", task: "A1 README change", scope: ["README.md", ...(protectEvidence ? [".pi/agent-sessions/sessions/test/artifacts/watchdog/events.jsonl"] : [])] }, undefined, undefined, { cwd } as any);
+ assert.equal((build.details as any).verificationResult.status, "passed");
+ assert.equal(process.acceptance.evidenceRef != null, true);
+ return { cwd, sessionDir, d, execute, process: () => process };
+}
+
+test("T11 approved README review closes over generated current-session runtime evidence", async t => {
+ const { cwd, d, execute, process } = await runtimeEvidenceReviewFixture(t);
+ assert.deepEqual(process().changedFiles, ["README.md"]);
+ d.dispatchAgent = async () => ({ output: "VERDICT: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "review-evidence" });
+ const result = await execute("review", { agent: "code-reviewer", task: "review README", scope: ["README.md"] }, undefined, undefined, { cwd } as any);
+ assert.equal((result.details as any).processVerdict.obligations.review.status, "satisfied");
+ assert.equal((result.details as any).processVerdict.accepted, true);
+ assert.deepEqual((result.details as any).processVerdict.auditScope, ["README.md"]);
+});
+
+test("T11 explicitly scoped edits to runtime-path evidence still require review coverage", async t => {
+ const { cwd, d, execute, process } = await runtimeEvidenceReviewFixture(t, false, true);
+ assert.deepEqual(process().changedFiles, [".pi/agent-sessions/sessions/test/artifacts/watchdog/events.jsonl", "README.md"]);
+ d.dispatchAgent = async () => ({ output: "VERDICT: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "review-task-evidence" });
+ const result = await execute("review", { agent: "code-reviewer", task: "review README only", scope: ["README.md"] }, undefined, undefined, { cwd } as any);
+ assert.equal((result.details as any).processVerdict.obligations.review.status, "open");
+ assert.equal(process().review.evidenceRef, null);
+});
+
+test("T11 runtime evidence exclusion does not hide unrelated user source or bypass verdict/scope/staleness", async t => {
+ // Separate task fixtures prevent an earlier review's guard/budget state from deciding a later case.
+ const partialFixture = await runtimeEvidenceReviewFixture(t, true);
+ assert.deepEqual(partialFixture.process().changedFiles, ["README.md", "src/new-source.js"]);
+ partialFixture.d.dispatchAgent = async () => ({ output: "VERDICT: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "review-partial" });
+ const partial = await partialFixture.execute("partial", { agent: "code-reviewer", task: "partial", scope: ["README.md"] }, undefined, undefined, { cwd: partialFixture.cwd } as any);
+ assert.equal((partial.details as any).executionStatus, "completed", "partial review must reach the reviewer");
+ assert.deepEqual((partial.details as any).processVerdict.auditScope, ["README.md", "src/new-source.js"]);
+ assert.equal((partial.details as any).processVerdict.obligations.review.status, "open");
+ assert.equal((partial.details as any).processVerdict.accepted, false);
+ assert.equal(partialFixture.process().review.evidenceRef, null);
+
+ const rejectFixture = await runtimeEvidenceReviewFixture(t, true);
+ assert.deepEqual(rejectFixture.process().changedFiles, ["README.md", "src/new-source.js"]);
+ rejectFixture.d.dispatchAgent = async () => ({ output: "VERDICT: REJECT", exitCode: 0, elapsed: 1, dispatchId: "review-reject" });
+ const rejected = await rejectFixture.execute("reject", { agent: "code-reviewer", task: "reject", scope: ["README.md", "src/new-source.js"] }, undefined, undefined, { cwd: rejectFixture.cwd } as any);
+ assert.equal((rejected.details as any).executionStatus, "completed", "REJECT must reach the reviewer");
+ assert.deepEqual((rejected.details as any).processVerdict.auditScope, ["README.md", "src/new-source.js"]);
+ assert.equal((rejected.details as any).processVerdict.obligations.review.status, "open");
+ assert.equal((rejected.details as any).processVerdict.accepted, false);
+ assert.equal(rejectFixture.process().review.evidenceRef, null);
+
+ const staleFixture = await runtimeEvidenceReviewFixture(t, true);
+ assert.deepEqual(staleFixture.process().changedFiles, ["README.md", "src/new-source.js"]);
+ const verifiedRevision = staleFixture.process().acceptance.revision;
+ writeFileSync(join(staleFixture.cwd, "README.md"), "changed after verified revision\n");
+ staleFixture.d.dispatchAgent = async () => ({ output: "VERDICT: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "review-stale" });
+ const stale = await staleFixture.execute("stale", { agent: "code-reviewer", task: "stale", scope: ["README.md", "src/new-source.js"] }, undefined, undefined, { cwd: staleFixture.cwd } as any);
+ assert.equal((stale.details as any).executionStatus, "completed", "stale review must reach the reviewer");
+ assert.deepEqual((stale.details as any).processVerdict.auditScope, ["README.md", "src/new-source.js"]);
+ assert.notEqual(worktreeRevision(staleFixture.cwd, []), verifiedRevision);
+ assert.equal(staleFixture.process().acceptance.revision, verifiedRevision);
+ assert.equal((stale.details as any).processVerdict.obligations.review.status, "satisfied");
+ assert.equal(staleFixture.process().review.revision, worktreeRevision(staleFixture.cwd, []));
+ assert.equal((stale.details as any).processVerdict.obligations.acceptance.status, "open");
+ assert.equal((stale.details as any).processVerdict.accepted, false);
+});
+
 test("T11 reviewer REJECT cannot satisfy the open review obligation", async t => {
  const { cwd, d, process } = await highRiskChangedFixture(t);
  d.dispatchAgent = async () => ({ output: "verdict: REJECT\nfindings remain", exitCode: 0, elapsed: 1, dispatchId: "rev-reject" });
@@ -787,10 +1067,28 @@ test("T11 reviewer APPROVE covering current changed files records review at curr
  assert.equal(process().review.revision, process().acceptance.revision);
 });
 
-test("T11 docs-lane blocks process-required reviewer without explicit review_reason", async t => {
+test("empty roster names explicit human role recovery without tier escalation", async t => {
+ const { d } = await highRiskChangedFixture(t);
+ d.state.getAgentStates().clear();
+ const refusal = validateDispatchAgent(d as any, "code-reviewer", "review");
+ assert.match((refusal!.content[0] as any).text, /\/af-agents-add code-reviewer|\/af-agents-team/);
+ assert.equal((refusal!.details as any).status, "unknown_agent");
+});
+
+test("partial roster still names the missing required role recovery", async t => {
+ const { d } = await highRiskChangedFixture(t);
+ d.state.getAgentStates().clear();
+ d.state.getAgentStates().set("builder", { def: { name: "builder" } });
+ for (const role of ["planner", "code-reviewer"]) {
+  const refusal = validateDispatchAgent(d as any, role, "required stage");
+  assert.match((refusal!.content[0] as any).text, new RegExp(`/af-agents-add ${role}`));
+ }
+});
+
+test("process-required reviewer is not refused by docs-lane hint", async t => {
  const { cwd, d } = await highRiskChangedFixture(t);
  const blocked = await createDispatchExecutor(d as any)("docs", { agent: "code-reviewer", task: "review docs", scope: ["README.md"] }, undefined, undefined, { cwd } as any);
- assert.match(String((blocked.details as any).status || (blocked.content[0] as any).text), /docs|review_reason/i);
+ assert.notEqual((blocked.details as any).status, "docs_only_lane");
  const allowed = await createDispatchExecutor(d as any)("docs-ok", { agent: "code-reviewer", task: "review docs", scope: ["README.md"], review_reason: "docs-only closeout" }, undefined, undefined, { cwd } as any);
  assert.notEqual((allowed.details as any).status, (blocked.details as any).status);
 });

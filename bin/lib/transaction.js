@@ -10,6 +10,8 @@ export const RECOVERY_REL_PATH = ".ai/.agent-fleet-recovery";
 const DESIRED_REL_PATH = ".ai/agent-fleet.json";
 const OVERRIDES_REL_PATH = ".ai/agent-fleet-overrides.md";
 const STT_REL_PATH = ".ai/stt.json";
+const TASK_TRIAGE_REL_PATH = ".ai/task-triage.json";
+const SYSTEM1_PROVIDER_REL_PATH = ".ai/system1.json";
 export function journalPath(workspace) { return join(workspace, JOURNAL_REL_PATH); }
 
 function sourceLeaves(path) {
@@ -41,6 +43,8 @@ export function touchedPaths(plan, manifest) {
   if (plan?.writeDesired) paths.add(ownedRelativePath(plan.workspace, plan.desiredPath ?? DESIRED_REL_PATH));
   if (plan?.overrides?.write) paths.add(ownedRelativePath(plan.workspace, plan.overrides.path ?? OVERRIDES_REL_PATH));
   if (plan?.stt?.write) paths.add(ownedRelativePath(plan.workspace, plan.stt.path ?? STT_REL_PATH));
+  if (plan?.taskTriage?.write) paths.add(ownedRelativePath(plan.workspace, plan.taskTriage.path ?? TASK_TRIAGE_REL_PATH));
+  if (plan?.taskTriageProvider?.write) paths.add(ownedRelativePath(plan.workspace, plan.taskTriageProvider.path ?? SYSTEM1_PROVIDER_REL_PATH));
   if (plan?.stt?.env?.missing?.length) paths.add(ownedRelativePath(plan.workspace, plan.stt.env.path));
   const collapseManagedLink = (value) => {
     const rel = ownedRelativePath(plan.workspace, value); const parts = rel.split(/[/\\]/); let cursor = plan.workspace;

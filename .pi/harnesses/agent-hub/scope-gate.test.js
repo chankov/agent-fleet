@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:
 import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
+import { checkScope, diffAgainst, reviewableChangedPaths, snapshotWorktree } from "./scope-gate.js";
 
 function git(args, cwd) {
 	return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
@@ -52,6 +52,18 @@ test("checkScope supports exact file, exact directory prefix, *, and **", t => {
 		inScope: ["src/deep/nested.ts"],
 		outOfScope: ["srcfile.ts"],
 	});
+});
+
+test("review accounting excludes only unrequested outputs from the owning runtime session", t => {
+ const cwd = "/tmp/review-repo", sessionDir = join(cwd, ".pi/agent-sessions/sessions/current");
+ const own = ".pi/agent-sessions/sessions/current/artifacts/returns/run.md";
+ const paths = [own, ".pi/agent-sessions/sessions/other/artifacts/returns/user.md", ".pi/agent-sessions/sessions/current/user-task.txt", "src/user.ts", "README.md"];
+ assert.deepEqual(reviewableChangedPaths(paths, cwd, sessionDir, ["README.md"]), paths.slice(1));
+ assert.deepEqual(reviewableChangedPaths([own], cwd, sessionDir, [own]), [own], "explicit task scope is protected");
+ assert.deepEqual(reviewableChangedPaths([own], cwd, sessionDir, ["**/*.md", ".pi/**"]), [], "generic broad globs do not select runtime output as a task edit");
+ assert.deepEqual(reviewableChangedPaths([own], cwd, sessionDir, ["README.md"], [join(cwd, own)]), [own], "declared deliverable is protected");
+ assert.deepEqual(reviewableChangedPaths([own], cwd, "/tmp/other-session", ["README.md"]), [own], "no global hidden-path rule");
+ assert.deepEqual(reviewableChangedPaths([own], cwd, sessionDir, ["README.md"]), [], "runtime outputs alone are not reviewed task changes");
 });
 
 test("snapshotWorktree and diffAgainst include untracked files", t => {

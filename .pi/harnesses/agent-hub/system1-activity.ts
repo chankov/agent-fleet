@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, constants, fchmodSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ShadowTrace, ShadowTraceEvent } from "./drift-judge.ts";
+import type { System1Result } from "../lib/system1/contracts.ts";
+import { TASK_TRIAGE_STATE_VERSION, TASK_TRIAGE_QUESTION_VERSION, TASK_TRIAGE_POLICY_VERSION, TASK_TRIAGE_PROVIDER, TASK_TRIAGE_MODEL, type TaskTriageAssessment } from "./task-triage-contract.ts";
 
 export const WATCHDOG_TRACE_SCHEMA = "watchdog-trace/v1";
 export const WATCHDOG_TRACE_FILE = "events.jsonl";
@@ -440,6 +442,119 @@ export function projectWatchdogReadback(events: readonly WatchdogTraceRecord[]):
 		if (check.usage == null) check.usage = "unknown";
 	}
 	return [...checks.values()];
+}
+
+export const TASK_TRIAGE_TRACE_SCHEMA = "task-triage-trace/v1";
+const TRIAGE_STATUSES = new Set(["applied", "no_additions", "invalid_result", "stale", "incomplete_input", "sensitive_input", "oversized_input", "skipped", "unavailable", "unsupported", "cancelled", "unknown"]);
+const TRIAGE_REASONS = new Set([...REASONS, "policy_version", "version_or_provider", "answers", "counter_restore_ambiguous", "reserved_result_unavailable", "session_call_cap", "counter_persistence_failed", "result_persistence_failed", "deadline_or_cancelled", "provider_failure", "no_user_input", "shared_service_disabled", "shared_service_missing_config", "shared_service_missing_key", "shared_service_invalid_config", "shared_service_unavailable"]);
+const TRIAGE_SIGNALS = ["security_change", "wide_change", "irreversible_execution"] as const;
+const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+export interface TaskTriageTraceIdentity { taskId: string; evaluationId: string; inputRevision: string }
+export interface TaskTriageTraceRecord extends TaskTriageTraceIdentity {
+ schema: typeof TASK_TRIAGE_TRACE_SCHEMA; consumer: "task-triage"; type: "evaluation_started" | "evaluation_finished";
+ sessionId: string; sequence: number; at: number; stateVersion: typeof TASK_TRIAGE_STATE_VERSION;
+ questionsVersion: typeof TASK_TRIAGE_QUESTION_VERSION; policyVersion: typeof TASK_TRIAGE_POLICY_VERSION;
+ provider: typeof TASK_TRIAGE_PROVIDER; requestedModel: typeof TASK_TRIAGE_MODEL;
+ logicalCall: boolean | null; status: string; reason: string; reasons: string[];
+ probabilities: Record<string, number> | null; providerStatus: string; returnedModel: string | null;
+ attempts: number | null; latencyMs: number | null; usage: { inputTokens: number; outputTokens: number } | null;
+}
+const triageIdentity = (v: TaskTriageTraceIdentity) => v && typeof v.taskId === "string" && UUID.test(v.taskId)
+ && typeof v.evaluationId === "string" && UUID.test(v.evaluationId) && typeof v.inputRevision === "string" && /^[a-f0-9]{64}$/.test(v.inputRevision);
+const triageKey = (v: TaskTriageTraceIdentity) => JSON.stringify([v.taskId, v.evaluationId, v.inputRevision]);
+const nonnegative = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+function triageProbabilities(value: unknown): Record<string, number> | null {
+ if (!isRecord(value)) return null;
+ const out: Record<string, number> = {};
+ for (const key of TRIAGE_SIGNALS) if (nonnegative(value[key]) && value[key] <= 1) out[key] = value[key];
+ return Object.keys(out).length ? out : null;
+}
+function safeTraceParent(path: string) {
+ for (let parent = dirname(path); ; parent = dirname(parent)) {
+  try { if (lstatSync(parent).isSymbolicLink()) throw new Error("linked trace directory"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  if (parent === dirname(parent)) break;
+ }
+}
+/** Separate metadata-only observer. It cannot authorize effects or change runtime counters. */
+export function createTaskTriageActivity(options: { directory?: string; sessionId?: string; now?: () => number; write?: (line: string) => void } = {}) {
+ const sessionId = randomUUID(), path = options.directory ? join(options.directory, "task-triage-events.jsonl") : null;
+ const spans = new Map<string, TaskTriageTraceRecord>();
+ const finished = new Set<string>(), events: TaskTriageTraceRecord[] = [];
+ let sequence = 0, degraded = false, disposed = false;
+ const append = (record: TaskTriageTraceRecord) => {
+  events.push(record);
+  try {
+   if (options.write) options.write(`${JSON.stringify(record)}\n`);
+   else if (path) { safeTraceParent(path); secureAppend(path, `${JSON.stringify(record)}\n`); }
+  } catch { degraded = true; }
+ };
+ const terminal = (identity: TaskTriageTraceIdentity, input: { assessment: TaskTriageAssessment; result?: System1Result }) => {
+  const key = triageKey(identity), start = spans.get(key);
+  if (!start || finished.has(key)) return;
+  finished.add(key);
+  const metadata = input.result?.status === "ok" ? input.result.evaluation.metadata : undefined;
+  append({ ...start, type: "evaluation_finished", sequence: ++sequence, at: (options.now ?? Date.now)(),
+   status: enumValue(input.assessment.status, TRIAGE_STATUSES, "unknown"), reason: enumValue(input.assessment.detail, TRIAGE_REASONS, "unknown"),
+   reasons: [...new Set((input.assessment.reasons ?? []).filter(r => TRIAGE_SIGNALS.includes(r)))],
+   probabilities: triageProbabilities(input.assessment.probabilities),
+   providerStatus: enumValue(input.result?.status, STATUSES, "unknown"), returnedModel: metadata?.returnedModel === TASK_TRIAGE_MODEL ? TASK_TRIAGE_MODEL : null,
+   attempts: Number.isSafeInteger(metadata?.attempts) && nonnegative(metadata?.attempts) ? metadata.attempts : null,
+   latencyMs: nonnegative(metadata?.latencyMs) ? metadata.latencyMs : null, usage: usage(metadata?.usage) });
+ };
+ return {
+  get path() { return path; }, get degraded() { return degraded; },
+  live(): { events: TaskTriageTraceRecord[]; degraded: boolean } { return { events: structuredClone(events), degraded }; },
+  evaluationStarted(identity: TaskTriageTraceIdentity, logicalCall: boolean | null) {
+   if (disposed || !triageIdentity(identity) || spans.has(triageKey(identity))) return;
+   if (spans.size >= COMPLETED_LIMIT) { degraded = true; return; }
+   const record: TaskTriageTraceRecord = { taskId: identity.taskId, evaluationId: identity.evaluationId, inputRevision: identity.inputRevision,
+    schema: TASK_TRIAGE_TRACE_SCHEMA, consumer: "task-triage", type: "evaluation_started", sessionId, sequence: ++sequence, at: (options.now ?? Date.now)(),
+    stateVersion: TASK_TRIAGE_STATE_VERSION, questionsVersion: TASK_TRIAGE_QUESTION_VERSION, policyVersion: TASK_TRIAGE_POLICY_VERSION,
+    provider: TASK_TRIAGE_PROVIDER, requestedModel: TASK_TRIAGE_MODEL, logicalCall: typeof logicalCall === "boolean" ? logicalCall : null,
+    status: "unknown", reason: "unknown", reasons: [], probabilities: null, providerStatus: "unknown", returnedModel: null, attempts: null, latencyMs: null, usage: null };
+   spans.set(triageKey(identity), record); append(record);
+  },
+  evaluationFinished(identity: TaskTriageTraceIdentity, input: { assessment: TaskTriageAssessment; result?: System1Result }) { if (!disposed) terminal(identity, input); },
+  dispose() {
+   if (disposed) return;
+   for (const start of spans.values()) terminal(start, { assessment: { status: "cancelled", reasons: [], detail: "disposed" } });
+   disposed = true;
+  },
+ };
+}
+export type TaskTriageActivity = ReturnType<typeof createTaskTriageActivity>;
+const TRIAGE_TRACE_KEYS = new Set(["taskId", "evaluationId", "inputRevision", "schema", "consumer", "type", "sessionId", "sequence", "at", "stateVersion", "questionsVersion", "policyVersion", "provider", "requestedModel", "logicalCall", "status", "reason", "reasons", "probabilities", "providerStatus", "returnedModel", "attempts", "latencyMs", "usage"]);
+/** Validate durable readback as strictly as emission; reject payload extras instead of copying them. */
+export function isTaskTriageTraceRecord(value: unknown): value is TaskTriageTraceRecord {
+ if (!isRecord(value) || Object.keys(value).length !== TRIAGE_TRACE_KEYS.size || Object.keys(value).some(k => !TRIAGE_TRACE_KEYS.has(k))) return false;
+ const v = value as unknown as TaskTriageTraceRecord;
+ return triageIdentity(v) && typeof v.sessionId === "string" && UUID.test(v.sessionId) && v.schema === TASK_TRIAGE_TRACE_SCHEMA && v.consumer === "task-triage"
+  && ["evaluation_started", "evaluation_finished"].includes(v.type) && Number.isSafeInteger(v.sequence) && v.sequence > 0 && nonnegative(v.at)
+  && v.stateVersion === TASK_TRIAGE_STATE_VERSION && v.questionsVersion === TASK_TRIAGE_QUESTION_VERSION && v.policyVersion === TASK_TRIAGE_POLICY_VERSION
+  && v.provider === TASK_TRIAGE_PROVIDER && v.requestedModel === TASK_TRIAGE_MODEL && (typeof v.logicalCall === "boolean" || v.logicalCall === null)
+  && TRIAGE_STATUSES.has(v.status) && TRIAGE_REASONS.has(v.reason) && Array.isArray(v.reasons) && v.reasons.length <= 3 && v.reasons.every(r => TRIAGE_SIGNALS.includes(r as typeof TRIAGE_SIGNALS[number]))
+  && (v.probabilities === null || (isRecord(v.probabilities) && Object.keys(v.probabilities).every(k => TRIAGE_SIGNALS.includes(k as typeof TRIAGE_SIGNALS[number]) && nonnegative(v.probabilities![k]) && v.probabilities![k] <= 1)))
+  && STATUSES.has(v.providerStatus) && (v.returnedModel === null || v.returnedModel === TASK_TRIAGE_MODEL)
+  && (v.attempts === null || (Number.isSafeInteger(v.attempts) && v.attempts >= 0)) && (v.latencyMs === null || nonnegative(v.latencyMs))
+  && (v.usage === null || (isRecord(v.usage) && Object.keys(v.usage).sort().join(",") === "inputTokens,outputTokens" && usage(v.usage) !== null));
+}
+export function readTaskTriageTrace(path: string, options: { after?: number; limit?: number } = {}) {
+ const after = Number.isSafeInteger(options.after) && options.after! >= 0 ? options.after! : 0;
+ const limit = Number.isSafeInteger(options.limit) ? Math.min(100, Math.max(1, options.limit!)) : 100;
+ let text = "", fd: number | undefined;
+ try {
+  safeTraceParent(path);
+  if (!lstatSync(path).isFile()) throw new Error("trace unavailable");
+  fd = openSync(path, constants.O_RDONLY | ((constants as { O_NOFOLLOW?: number }).O_NOFOLLOW ?? 0));
+  const stat = fstatSync(fd); if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error("trace unavailable");
+  text = readFileSync(fd, "utf8");
+ } catch (error) { return { events: [] as TaskTriageTraceRecord[], nextOffset: after, invalidRecords: 0, partialTail: false, readError: (error as NodeJS.ErrnoException).code !== "ENOENT", missing: (error as NodeJS.ErrnoException).code === "ENOENT" }; }
+ finally { if (fd !== undefined) closeSync(fd); }
+ const lines = text.split("\n").slice(0, -1), page = lines.slice(after, after + limit);
+ const events: TaskTriageTraceRecord[] = []; let invalidRecords = 0;
+ for (const line of page) { try { const value: unknown = JSON.parse(line); if (isTaskTriageTraceRecord(value)) events.push(value); else invalidRecords++; } catch { invalidRecords++; } }
+ return { events, nextOffset: after + page.length, invalidRecords, partialTail: !!text && !text.endsWith("\n"), readError: false, missing: false };
 }
 
 /** Separate proactive consumer in the existing session activity store; never stores evidence payloads. */

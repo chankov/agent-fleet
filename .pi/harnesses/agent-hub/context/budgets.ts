@@ -38,7 +38,7 @@ export interface BudgetStatePorts {
 	getTurnBudgetAskUserWaitMs(): number;
 	setTurnBudgetAskUserWaitMs(value: number): void;
 	resetBudgetRecovery(): void;
-	resetNoProgress(): void;
+	resetNoProgress(persistTaskIdentity?: boolean): void;
 	resetUnknownToolCounter(): void;
 	getTaskContinuationCount(): number;
 	setTaskContinuationCount(value: number): void;
@@ -79,7 +79,7 @@ export interface BudgetContext {
 	renewTurnBudgetWindow(now?: number): void;
 	continueTaskBudgetWindow(now?: number): void;
 	closeTurnActiveTime(now?: number): void;
-	resetTaskWindow(label?: string | null, now?: number): void;
+	resetTaskWindow(label?: string | null, now?: number, persistTaskIdentity?: boolean): void;
 	hubAuditIdentity(ctx?: ExtensionContext): ReturnType<typeof buildHubAuditIdentity>;
 	hubLocationSuffix(ctx?: ExtensionContext): string;
 	taskResetSnapshot(now?: number): { tier: string | null; dispatches: number; research: number; reviewRounds: number; activeMs: number };
@@ -150,14 +150,14 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 			renewTurnBudgetWindow(now);
 		},
 		closeTurnActiveTime(now = Date.now()) { state.setTaskClock(closeTaskClock(state.getTaskClock(), now)); },
-		resetTaskWindow(label = null, now = Date.now()) {
+		resetTaskWindow(label = null, now = Date.now(), persistTaskIdentity = true) {
 			state.setTaskDispatchCount(0);
 			state.setTaskResearchCount(0);
 			state.setTaskClock(resetTaskClock(state.getTaskClock(), now));
 			state.setTaskReviewRounds(0);
 			state.setTaskContinuationCount(0);
 			state.resetBudgetRecovery();
-			state.resetNoProgress();
+			state.resetNoProgress(persistTaskIdentity);
 			state.resetUnknownToolCounter();
 			state.setTaskLabel(label);
 			state.setTaskTier(null);

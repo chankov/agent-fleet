@@ -78,6 +78,39 @@ test("pending operation leases survive a mode switch without restoring direct wr
 	assert.ok(!f.tools().includes("bash"));
 });
 
+test("assessment refresh retains only current explicit compaction, not a permanent task pack", () => {
+	const f = fixture();
+	f.policy.resolveIncomingCapabilities("Please compact the conversation.");
+	assert.equal(f.policy.getCapabilityResolution().reasons.compaction, "explicit-compaction");
+	f.policy.refreshCapabilities();
+	assert.ok(f.policy.getCapabilityResolution().active.includes("compaction"));
+	assert.ok(!f.policy.getCapabilityResolution().nextTaskPacks.includes("compaction"));
+	assert.ok(!JSON.stringify(f.entries).includes("Please compact"), "refresh never retains raw task text");
+	f.policy.resolveIncomingCapabilities("Explain the parser.");
+	f.policy.refreshCapabilities();
+	assert.ok(!f.policy.getCapabilityResolution().active.includes("compaction"));
+});
+
+test("assessment refresh cannot turn a declined provisional pack into permission", () => {
+	const f = fixture();
+	f.policy.resolveIncomingCapabilities("Please compact the conversation; someone else to handle this");
+	f.policy.setCapabilityConfirmation("fleet", "declined");
+	f.policy.refreshCapabilities();
+	assert.equal(f.policy.getCapabilityConfirmation().fleet, "declined");
+	assert.equal(f.policy.provisionalCapabilityRefusal("fleet")?.details.confirmation, "declined");
+	assert.ok(f.policy.getCapabilityResolution().active.includes("compaction"));
+	assert.ok(!f.policy.getCapabilityResolution().active.includes("fleet"));
+});
+
+test("assessment refresh does not restore explicit compaction from old persisted active state", () => {
+	const f = fixture();
+	f.policy.resolveIncomingCapabilities("Please compact the conversation.");
+	f.policy.resetCapabilities();
+	f.policy.restoreCapabilities({ taskPacks: [], provisional: [], confirmation: {} });
+	f.policy.refreshCapabilities();
+	assert.ok(!f.policy.getCapabilityResolution().active.includes("compaction"));
+});
+
 test("capability confirmation promotes provisional packs and operation leases keep packs active", () => {
 	const f = fixture();
 	f.policy.resolveIncomingCapabilities("someone else to handle this");

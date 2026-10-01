@@ -11,9 +11,10 @@ export interface ContextPressureRootState {
 	automaticPending: boolean;
 	automaticRunning: boolean;
 	deferredReplayAllowance: number;
+	deferredReplayTexts: string[];
 	deferredInputs: DeferredRecoveryInput[];
 }
-export const createContextPressureRootState = (): ContextPressureRootState => ({ pressure: createContextPressureState(), automaticPending: false, automaticRunning: false, deferredReplayAllowance: 0, deferredInputs: [] });
+export const createContextPressureRootState = (): ContextPressureRootState => ({ pressure: createContextPressureState(), automaticPending: false, automaticRunning: false, deferredReplayAllowance: 0, deferredReplayTexts: [], deferredInputs: [] });
 
 export interface ContextPressurePorts {
 	getState(): ContextPressureRootState;
@@ -24,6 +25,8 @@ export interface ContextPressurePorts {
 	resolveCapabilities(input: string): void;
 	applyWorkMode(): void;
 	modelWorkBlocked(ctx: ExtensionContext): boolean;
+	/** Accepted user input (including an authenticated pressure replay), before pack resolution. */
+	onAcceptedInput?(text: string, source: string, replayed: boolean): void;
 }
 
 export interface ContextPressureLifecycle {
@@ -36,7 +39,7 @@ export interface ContextPressureLifecycle {
 	context(ctx: ExtensionContext): void;
 	agentSettled(ctx: ExtensionContext): void;
 	sessionCompact(): void;
-	input(event: any, ctx: ExtensionContext): { action: "handled" | "continue" };
+	input(event: any, ctx: ExtensionContext): { action: "handled" | "continue"; replayedUserInput?: boolean };
 	replayDeferred(): void;
 }
 
@@ -85,6 +88,7 @@ export function createContextPressureLifecycle(ports: ContextPressurePorts): Con
 	const replayDeferred = () => {
 		if (state().automaticPending || state().automaticRunning || state().deferredInputs.length === 0) return;
 		const queued = state().deferredInputs.splice(0); state().deferredReplayAllowance += queued.length;
+		state().deferredReplayTexts.push(...queued.map(input => input.text));
 		queued.forEach((input, index) => ports.sendUserMessage(input.images?.length ? [{ type: "text", text: input.text }, ...input.images] : input.text, { deliverAs: index === 0 ? input.streamingBehavior : "followUp" }));
 	};
 	const runCompaction: ContextPressureLifecycle["runCompaction"] = (ctx, source) => {
@@ -106,9 +110,11 @@ export function createContextPressureLifecycle(ports: ContextPressurePorts): Con
 		agentSettled(ctx) { runCompaction(ctx, "agent_settled"); },
 		sessionCompact() { markSucceeded(); if (!state().automaticRunning) setTimeout(replayDeferred, 0); },
 		input(event, ctx) {
-			const replaying = event.source === "extension" && state().deferredReplayAllowance > 0;
-			if (replaying) state().deferredReplayAllowance--;
+			const replaying = event.source === "extension" && state().deferredReplayTexts[0] === incomingText(event);
+			if (replaying) { state().deferredReplayTexts.shift(); state().deferredReplayAllowance--; }
 			else {
+				// Extension feedback/status cannot join the user-owned recovery queue.
+				if (event.source === "extension") return { action: state().automaticPending || state().automaticRunning ? "handled" : "continue" };
 				if (state().pressure.phase === "normal") observe(ctx, "input");
 				if (state().automaticPending || state().automaticRunning || state().pressure.phase === "failed") {
 					state().deferredInputs.push({ text: event.text, images: event.images ? [...event.images] : undefined, streamingBehavior: event.streamingBehavior });
@@ -119,7 +125,9 @@ export function createContextPressureLifecycle(ports: ContextPressurePorts): Con
 			}
 			if (replaying && ports.modelWorkBlocked(ctx)) { state().deferredInputs.push({ text: event.text, images: event.images ? [...event.images] : undefined, streamingBehavior: event.streamingBehavior }); return { action: "handled" }; }
 			if (ports.modelWorkBlocked(ctx)) return { action: "handled" };
-			ports.resolveCapabilities(incomingText(event)); ports.applyWorkMode(); return { action: "continue" };
+			const text = incomingText(event);
+			ports.onAcceptedInput?.(text, event.source, replaying);
+			ports.resolveCapabilities(text); ports.applyWorkMode(); return { action: "continue", ...(replaying ? { replayedUserInput: true } : {}) };
 		},
 	};
 }

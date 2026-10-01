@@ -126,6 +126,7 @@ export interface NativeProviderSemaphore {
 
 export interface NativeDispatchDeps {
 	getAgentState(key: string): NativeDispatchState | undefined;
+	getProcessState?(): import("./process-obligations.ts").ProcessObligationState;
 	listAgentStates(): NativeDispatchState[];
 	getSessionDir(): string;
 	getDispatchPolicy(): NativeDispatchPolicy;

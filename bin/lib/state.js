@@ -75,6 +75,7 @@ function orderState(state) {
     method: state.method,
     packageVersion: state.packageVersion,
     sourceRoot: state.sourceRoot,
+    ...(typeof state.taskTriageSelected === "boolean" ? { taskTriageSelected: state.taskTriageSelected } : {}),
     profiles: [...(state.profiles ?? [])].sort(),
     installedAt: state.installedAt,
     updatedAt: state.updatedAt,

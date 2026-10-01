@@ -154,6 +154,29 @@ function removeClosure(source, workspace, owned) {
   }
 }
 
+test("task-triage tests have a separate guarded registration included in the full lane", () => {
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const script = pkg.scripts["test:task-triage"];
+  assert.equal(typeof script, "string", "dispatch advice tests are not task-triage coverage");
+  assert.match(script, /--import .*system1-no-network\.js/);
+  for (const file of ["task-triage-config.test.ts", "task-triage-state.test.ts", "task-triage-policy.test.ts", "task-triage-obligations.test.ts",
+    "task-triage-authorization.test.ts", "task-triage-runtime.test.ts", "task-triage-effects.integration.test.ts", "task-triage-pressure.integration.test.ts",
+    "task-triage-persisted-compaction.integration.test.ts", "task-triage-real-pi.integration.test.ts"]) assert.ok(script.includes(file), file);
+  assert.match(pkg.scripts["test:full"], /npm run test:task-triage/);
+  assert.doesNotMatch(script, /user-run|\.user-run|--live/);
+});
+
+test("pilot budget remains offline-test registered and excluded from the published runtime", () => {
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  assert.match(pkg.scripts["test:task-triage-pilot"] ?? "", /system1-no-network\.js/);
+  assert.match(pkg.scripts["test:task-triage-pilot"] ?? "", /task-triage-pilot-budget\.test\.ts/);
+  assert.match(pkg.scripts["test:task-triage-pilot"] ?? "", /tsc.*task-triage-pilot-tsconfig\.json/);
+  assert.match(pkg.scripts["test:task-triage-pilot"] ?? "", /bin\/test\/task-triage-pilot\.test\.ts/);
+  assert.match(pkg.scripts["test:full"], /npm run test:task-triage-pilot/);
+  assert.ok(pkg.files.includes("!bin/lib/task-triage-pilot*.ts"));
+  assert.ok(pkg.files.includes("!bin/task-triage-pilot.ts"));
+});
+
 test("manifest contains the executable harness runtime closure without product docs", () => {
   const paths = validateManifest(root);
   assert.deepEqual(paths.directories, [".pi/agent-fleet/hermes/skills"]);
@@ -480,8 +503,8 @@ test("package, snapshot, and harness closure surfaces stay aligned", () => {
   assert.ok(pkg.files.includes(".pi/agent-fleet/hermes/desktop-plugins/"));
   assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/watchdog-tests/"));
   assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/**/__pycache__/"));
-  assert.match(pkg.scripts.test, /\.pi\/agent-fleet\/scripts\/coms-cli\.test\.ts/);
-  assert.doesNotMatch(pkg.scripts.test, /scripts\/lib\/codex-remote-control\.test\.ts/);
+  assert.match(pkg.scripts["test:full"], /\.pi\/agent-fleet\/scripts\/coms-cli\.test\.ts/);
+  assert.doesNotMatch(pkg.scripts["test:full"], /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");
   for (const required of ["codex", ".pi/agent-fleet/hermes", "docs/coms-hermes-bridge.md", ".pi/agent-fleet/scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);

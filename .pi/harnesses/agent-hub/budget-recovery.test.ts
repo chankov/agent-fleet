@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { confirmTaskSupersession, consumeReservedTaskId, createBudgetRecovery, createReservedTaskIdentityReset, reserveActualTaskId, type BudgetRecoveryPorts } from "./budget-recovery.ts";
+import { createNoProgressGuard, RECOVER_ENTRY } from "./no-progress.ts";
 
 function fixture(answer: (id: string, params: any, ctx: any, signal: AbortSignal) => Promise<unknown>) {
 	let spent = true, renewals = 0, aborts = 0, starts = 0, ends = 0;
@@ -182,6 +183,26 @@ test("reserved task identity reset gives both guards the approved UUID in either
   });
   assert.equal(budgetId, approved); assert.equal(progressId, approved);
  }
+});
+
+test("wrapped no-progress reset forwards persistence choice without changing default or reserved adoption", () => {
+ const saved: Array<{ type: string; data: any }> = [];
+ const progress = createNoProgressGuard((type, data) => saved.push({ type, data }));
+ let budgetId = "old-budget";
+ const budget = { adopt: (id: string) => { budgetId = id; }, reset: () => { budgetId = "fresh-budget"; } };
+ const coordinator = createReservedTaskIdentityReset(budget, progress);
+ const taskRows = () => saved.filter(row => row.type === RECOVER_ENTRY && row.data?.kind === "guard" && row.data.event?.type === "task");
+ progress.reset(false);
+ assert.equal(taskRows().length, 0, "startup reset(false) must not persist a new task row");
+ progress.reset();
+ assert.equal(taskRows().length, 1, "ordinary reset still persists its new identity");
+ assert.equal(taskRows()[0].data.event.taskId, progress.taskId());
+ const approved = reserveActualTaskId();
+ coordinator.run(approved, () => { budget.reset(); progress.reset(false); });
+ assert.equal(budgetId, approved);
+ assert.equal(progress.taskId(), approved);
+ assert.equal(taskRows().length, 2, "reserved transition still persists its approved identity");
+ assert.equal(taskRows()[1].data.event.taskId, approved);
 });
 
 test("reserved task identity reset clears its candidate after cancellation or exception", () => {

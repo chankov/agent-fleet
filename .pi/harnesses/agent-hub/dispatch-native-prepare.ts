@@ -16,6 +16,8 @@ import { extractAssertionIds } from "./return-contract.js";
 import type { NativeDispatchResult, NativeRunBase, PreparedNativeRun } from "./dispatch-native-types.ts";
 import { bindResume, type TaskResumeInput } from "./task-resume-contract.ts";
 import { confineNativeChild, type WriteIsolationRequest } from "./write-isolation.ts";
+import { effectiveProcessStage } from "./process-obligations.ts";
+import { stageProducerTools } from "./task-triage-stage-guard.ts";
 
 export function sessionObserverAssignment(config: ProactiveConfig | null | undefined, personaKey: string, assignment: Omit<ObserverAssignment, "config">): ObserverAssignment | undefined {
 	return isProactiveSpecialist(personaKey) && config && isCaptureEnabled(config) ? { ...assignment, config } : undefined;
@@ -92,7 +94,9 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		}))
 		: null;
 	const delegateExtPath = deps.getDelegateExtensionPath();
-	const delegationActive = turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
+	const stageConfirmation = !!deps.getProcessState && effectiveProcessStage(deps.getProcessState(), "confirmation");
+	if (stageConfirmation) resumeAllowed = false; // never resume a prior, unguarded tool catalog
+	const delegationActive = !stageConfirmation && turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
 	const projectPolicy = {
 		rulesPaths: deps.specialistProjectPolicyPaths(ctx.cwd || process.cwd()),
 		docsPaths: deps.getProjectDocsPaths(),
@@ -118,8 +122,14 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
  const deterministicTools = assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
  if (boundedOutput) extensions.push(fileURLToPath(new URL("./bounded-output.ts", import.meta.url)));
  if (deterministicTools) extensions.push(fileURLToPath(new URL("./filesystem-tool.ts", import.meta.url)));
- if (declaredTools.includes("bash")) extensions.push(fileURLToPath(new URL("./runtime-test-check.ts", import.meta.url)));
+ if (!stageConfirmation && declaredTools.includes("bash")) extensions.push(fileURLToPath(new URL("./runtime-test-check.ts", import.meta.url)));
 	let effectiveTools = deterministicTools && !declaredTools.includes("filesystem") ? `${state.def.tools},filesystem` : state.def.tools;
+	if (stageConfirmation) {
+		// Stage children have no exact action binding. The Hub records their
+		// response as a run artifact; neither shell nor planner writes are exempt.
+		effectiveTools = stageProducerTools(state.def.tools);
+		extensions.push(fileURLToPath(new URL("./task-triage-stage-guard.ts", import.meta.url)));
+	}
 	let delegateEnv: Record<string, string> | undefined;
 	if (delegationActive) {
 		const delegationDir = safePathWithin(base.evidenceDir, "delegations");
@@ -168,7 +178,8 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 			delegateRoles: delegationActive ? Object.keys(subagentRoles!) : [],
 		});
 	state.specialistManifest = manifest;
-	const replacementSystemPrompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: deps.getUserLanguage(), agentKey, runNumber, artifactRoot: safePathWithin(base.sessionDir, "artifacts"), dispatchId: base.dispatchId });
+	const replacementSystemPrompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: deps.getUserLanguage(), agentKey, runNumber, artifactRoot: safePathWithin(base.sessionDir, "artifacts"), dispatchId: base.dispatchId })
+		+ (stageConfirmation ? "\n\nActive exact-action confirmation: this stage run has inspection tools only. Return the full plan/review in your final response; the Hub saves that response as the stage artifact. Do not use bash, write, edit, delegate or remote execution. No stage result authorizes a later effect." : "");
 	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 	const wantThinking = thinkingLevel !== "off";
 	const runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs);

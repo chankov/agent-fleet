@@ -15,6 +15,69 @@ import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, form
 import { registerAudit } from "./commands/audit.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { buildSessionAudit } from "./session-audit.ts";
+import * as activities from "./system1-activity.ts";
+import * as reports from "./system1-report.ts";
+
+test("task-triage report separates assessments, logical calls, physical attempts and unknown usage", () => {
+ const activity = activities.createTaskTriageActivity({ now: () => 10 });
+ const inputRevision = "a".repeat(64), taskId = "11111111-1111-4111-8111-111111111111";
+ const first = { taskId, inputRevision, evaluationId: "22222222-2222-4222-8222-222222222222" };
+ const second = { taskId, inputRevision, evaluationId: "33333333-3333-4333-8333-333333333333" };
+ const third = { taskId, inputRevision, evaluationId: "44444444-4444-4444-8444-444444444444" };
+ activity.evaluationStarted(first, true);
+ activity.evaluationFinished(first, { assessment: { status: "applied", reasons: ["security_change"] }, result: { status: "ok",
+  evaluation: { answers: [], metadata: { provider: "typesafe", requestedModel: "jev-1.13.0", questionSetVersion: "task-triage/questions/v1",
+   attempts: 2, latencyMs: 12, returnedModel: "jev-1.13.0", usage: { inputTokens: 3, outputTokens: 1 } } } } });
+ activity.evaluationStarted(second, true);
+ activity.evaluationFinished(second, { assessment: { status: "unavailable", reasons: [], detail: "timeout" },
+  result: { status: "unavailable", reason: "timeout" } });
+ activity.evaluationStarted(third, false);
+ activity.evaluationFinished(third, { assessment: { status: "oversized_input", reasons: [] } });
+ const report = reports.buildTaskTriageReport(activity.live().events);
+ assert.equal(report.consumer, "task-triage"); assert.equal(report.assessments.started, 3); assert.equal(report.assessments.finished, 3);
+ assert.deepEqual(report.logicalCalls, { known: 3, reserved: 2, unknown: 0 });
+ assert.deepEqual(report.physicalAttempts, { known: 1, observed: 2, unknown: 1 });
+ assert.deepEqual(report.usage, { known: 1, unknown: 1, observedInputTokens: 3, observedOutputTokens: 1, inputTokens: null, outputTokens: null });
+ assert.equal(report.latencyMs.p95, 12); assert.equal(report.obligations, "not_instrumented"); assert.equal(report.taskAcceptance, "not_instrumented");
+ assert.equal(report.cost, null); assert.equal(report.calibrationAccepted, false);
+ assert.doesNotMatch(JSON.stringify(report), /PRIVATE_|rawBody/);
+});
+test("task-triage report keeps crash, duplicates and missing trace as unknown evidence", t => {
+ const activity = activities.createTaskTriageActivity();
+ const identity = { taskId: "11111111-1111-4111-8111-111111111111", evaluationId: "22222222-2222-4222-8222-222222222222", inputRevision: "a".repeat(64) };
+ activity.evaluationStarted(identity, true);
+ const events = activity.live().events;
+ const report = reports.buildTaskTriageReport([...events, events[0]]);
+ assert.equal(report.assessments.incomplete, 1); assert.equal(report.assessments.finished, 0);
+ assert.equal(report.observability.duplicateEvents, 1); assert.equal(report.observability.degraded, true);
+ assert.equal(report.physicalAttempts.observed, null); assert.equal(report.physicalAttempts.unknown, 1);
+ assert.equal(report.usage.inputTokens, null); assert.equal(report.latencyMs.p50, null);
+ const dir = mkdtempSync(join(tmpdir(), "task-triage-report-")); t.after(() => rmSync(dir, { recursive: true, force: true }));
+ const missing = reports.readTaskTriageReport(dir);
+ assert.equal(missing.availability, "unavailable"); assert.equal(missing.assessments.started, 0);
+ const disk = activities.createTaskTriageActivity({ directory: join(dir, "artifacts/task-triage-activity") });
+ disk.evaluationStarted(identity, true); appendFileSync(disk.path!, "{PRIVATE_ERROR}\n{PRIVATE_TAIL");
+ const read = reports.readTaskTriageReport(dir);
+ assert.equal(read.observability.invalidRecords, 1); assert.equal(read.observability.partialTail, true);
+ assert.doesNotMatch(JSON.stringify(read), /PRIVATE_/);
+});
+
+test("task-triage report rejects hostile trace extras and preserves explicitly observed zero usage", () => {
+ const activity = activities.createTaskTriageActivity();
+ const identity = { taskId: "11111111-1111-4111-8111-111111111111", evaluationId: "22222222-2222-4222-8222-222222222222", inputRevision: "a".repeat(64) };
+ activity.evaluationStarted(identity, true);
+ activity.evaluationFinished(identity, { assessment: { status: "no_additions", reasons: [] }, result: { status: "ok",
+  evaluation: { answers: [], metadata: { provider: "typesafe", requestedModel: "jev-1.13.0", returnedModel: "jev-1.13.0",
+   questionSetVersion: "task-triage/questions/v1", attempts: 1, latencyMs: 0, usage: { inputTokens: 0, outputTokens: 0 } } } } });
+ const events = activity.live().events, report = reports.buildTaskTriageReport(events);
+ assert.equal(report.usage.inputTokens, 0); assert.equal(report.usage.outputTokens, 0); assert.equal(report.usage.unknown, 0);
+ const hostile = reports.buildTaskTriageReport([...events, { ...events[1], task: "PRIVATE_TASK", reason: "PRIVATE_ERROR" }]);
+ assert.equal(hostile.observability.invalidRecords, 1); assert.equal(hostile.usage.inputTokens, null);
+ assert.doesNotMatch(JSON.stringify(hostile), /PRIVATE_/);
+ const mismatch = reports.buildTaskTriageReport([events[0], { ...events[1], logicalCall: false }]);
+ assert.equal(mismatch.observability.bindingMismatches, 1); assert.equal(mismatch.observability.degraded, true);
+ assert.equal(mismatch.usage.inputTokens, null);
+});
 
 const id = { dispatchId: "dispatch-1", attemptId: "attempt-1", checkId: "check-1", snapshotId: "snapshot-1", llmAttemptId: "llm-1" };
 test("T10 readback counts checks, evaluations, LLM attempts separately without worker tokens or secrets", t => {

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SYSTEM1_CONFIG_RELATIVE_PATH } from "../lib/system1/config.js";
+import { system1SelectedByDesired } from "../lib/system1/selection.js";
 import type { JsonText, System1Availability, System1Result, System1Service } from "../lib/system1/contracts.ts";
 import { createSystem1Runtime, DEFAULT_SYSTEM1_TIMEOUT_MS } from "../lib/system1/service.ts";
 import type { JevTransport } from "../lib/system1/jev.ts";
@@ -100,7 +101,7 @@ export interface ReadWatchdogSystem1SnapshotInput {
  wrapService?: (service: System1Service) => System1Service;
 }
 
-/** Caller-owned reads. Matches doctor selection: only an explicit features.system1 true counts. Does not load dotenv. */
+/** Caller-owned reads. Matches doctor selection, including declared feature dependencies. Does not load dotenv. */
 export function readWatchdogSystem1Snapshot(input: ReadWatchdogSystem1SnapshotInput): CreateWatchdogSystem1SessionOptions {
 	return {
 		configuredMode: input.configuredMode,
@@ -118,7 +119,7 @@ function readFeatureSelected(cwd: string): boolean {
 	if (!existsSync(path)) return false;
 	try {
 		const desired = JSON.parse(readFileSync(path, "utf8"));
-		return desired?.features?.system1 === true;
+		return system1SelectedByDesired(desired);
 	} catch {
 		return false;
 	}

@@ -233,6 +233,16 @@
         "companion:pi-harness-lib",
         "companion:system1-config"
       ]
+    },
+    "system1-task-triage": {
+      "title": "Active System 1 task triage (separate data consent required)",
+      "stability": "experimental",
+      "requiresFeatures": [
+        "system1"
+      ],
+      "items": [
+        "pi-harness:agent-hub"
+      ]
     }
   },
   "profiles": {

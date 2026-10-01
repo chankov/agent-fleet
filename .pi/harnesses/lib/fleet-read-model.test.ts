@@ -1,7 +1,60 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { proactiveReviewLines } from "./fleet-detail-view.ts";
+import * as readModel from "./fleet-read-model.ts";
 import { buildFleetRows, fleetTiming, projectProactive, projectSystem1Owner, selectWidgetRows, summarise, summariseWidget, system1Visible, unionMs, type FleetRow, type FleetSource, type System1CheckInput } from "./fleet-read-model.ts";
+
+const triageBinding = { taskId: "11111111-1111-4111-8111-111111111111", inputRevision: "a".repeat(64) };
+const triageAddition = { ...triageBinding, id: "b".repeat(64), evaluationId: "22222222-2222-4222-8222-222222222222",
+ reason: "security_change", status: "waived", waiverReason: "PRIVATE_REASON" };
+const triageProcess = { schema: "agent-fleet.process-obligations/v1", risk: "low", scope: "small", budgetTier: "small",
+ currentStage: "complete", obligations: { risk: { status: "satisfied" }, acceptance: { status: "satisfied" },
+ plan: { status: "satisfied" }, review: { status: "waived" }, confirmation: { status: "open" } }, additions: [triageAddition],
+ state: { lastReason: "PRIVATE_TASK" }, auditScope: ["PRIVATE_PATH"], explanation: "PRIVATE_EXPLANATION" };
+test("task-triage Fleet projection separates assessment, waived stages, effect confirmation and acceptance", () => {
+ const view = (readModel as any).projectTaskTriage({ ...triageBinding, process: triageProcess,
+  assessment: { ...triageBinding, evaluationId: triageAddition.evaluationId, assessment: { status: "applied", reasons: ["security_change"],
+   probabilities: { security_change: .9, wide_change: .1, irreversible_execution: .1 }, detail: "PRIVATE_ERROR" } } });
+ assert.equal(view.consumer, "task-triage"); assert.equal(view.assessment.status, "applied");
+ assert.equal(view.assessment.probabilities.security_change, .9);
+ assert.equal(view.process.obligations.review, "waived"); assert.equal(view.process.obligations.confirmation, "open");
+ assert.equal(view.process.additions[0].status, "waived"); assert.equal(view.process.additions[0].binding, "current");
+ assert.equal(view.process.completion, "process_complete"); assert.equal(view.taskAcceptance, "not_recorded");
+ assert.deepEqual(view.process.blockers, ["action_confirmation"]);
+ assert.doesNotMatch(JSON.stringify(view), /PRIVATE_/);
+ const source = { specialists: [], research: [], peers: [], taskTriage: view };
+ assert.deepEqual(buildFleetRows(source, { showFinished: true }), []);
+ assert.equal(summariseWidget([]).running, 0);
+});
+test("task-triage stale, off and invalid metadata never imply clearance or erase open obligations", () => {
+ const project = (readModel as any).projectTaskTriage;
+ const process = { ...triageProcess, currentStage: "review", obligations: { ...triageProcess.obligations, review: { status: "open" } },
+  additions: [{ ...triageAddition, status: "active" }] };
+ const stale = project({ taskId: triageBinding.taskId, inputRevision: "c".repeat(64), process,
+  assessment: { ...triageBinding, evaluationId: triageAddition.evaluationId, assessment: { status: "no_additions", reasons: [] } } });
+ assert.equal(stale.assessment.status, "stale"); assert.equal(stale.process.additions[0].binding, "stale");
+ assert.ok(stale.process.blockers.includes("review")); assert.equal(stale.taskAcceptance, "not_recorded");
+ const off = project({ ...triageBinding, configuredStatus: "off", process });
+ assert.equal(off.assessment.status, "off"); assert.equal(off.process.obligations.review, "open");
+ const absent = project({}); assert.equal(absent.assessment.status, "unknown"); assert.equal(absent.process.availability, "unavailable");
+ const corrupt = project({ ...triageBinding, process: { ...process, additions: [{ ...triageAddition, id: "PRIVATE_ID" }] } });
+ assert.equal(corrupt.process.availability, "unavailable"); assert.ok(corrupt.process.blockers.includes("process_state_invalid"));
+ assert.doesNotMatch(JSON.stringify(corrupt), /PRIVATE_/);
+});
+
+test("task-triage projection refuses malformed probabilities and conflicting addition IDs", () => {
+ const project = (readModel as any).projectTaskTriage;
+ for (const probabilities of [{ security_change: 2, wide_change: .1, irreversible_execution: .1 },
+  { security_change: .9 }, { security_change: NaN, wide_change: .1, irreversible_execution: .1 }]) {
+  const view = project({ ...triageBinding, process: triageProcess, assessment: { ...triageBinding, evaluationId: triageAddition.evaluationId,
+   assessment: { status: "applied", reasons: ["security_change"], probabilities } } });
+  assert.equal(view.assessment.status, "invalid_result"); assert.equal(view.assessment.probabilities, null);
+ }
+ const conflict = project({ ...triageBinding, process: { ...triageProcess, additions: [triageAddition, { ...triageAddition, status: "active" }] } });
+ assert.equal(conflict.process.availability, "unavailable"); assert.equal(conflict.process.completion, "unknown");
+ const staleTask = project({ taskId: "33333333-3333-4333-8333-333333333333", inputRevision: triageBinding.inputRevision, process: triageProcess });
+ assert.equal(staleTask.process.completion, "unknown"); assert.ok(staleTask.process.blockers.includes("task_binding_stale"));
+});
 
 const base = (key: string, status: FleetRow["status"] = "running"): any => ({ key, name: key, status, model: "model-x", backend: "native", contextPct: 25, contextTokens: 250, elapsed: 1_000, startedAt: 10, toolCount: 2, lastWork: "read file", hasTimeline: true });
 

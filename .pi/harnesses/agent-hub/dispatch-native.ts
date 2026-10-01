@@ -8,6 +8,7 @@ import { comsRequiredRefusal, explicitComsRefusal, resolveDispatchBackend } from
 import { monitorKeyForAgent } from "./monitor-control.ts";
 import { normalizeAgentInput, safeAgentKey, safePathWithin } from "./helpers.ts";
 import { prepareNativeRun } from "./dispatch-native-prepare.ts";
+import { effectiveProcessStage, processPreEffectGate } from "./process-obligations.ts";
 import { runPreparedNative } from "./dispatch-native-spawn.ts";
 import { completeNativeRun } from "./dispatch-native-complete.ts";
 import type { TaskResumeInput } from "./task-resume-contract.ts";
@@ -132,7 +133,14 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 	const { deps, state, task, ctx, inputArtifacts, scopeGlobs, personaKey, monitorKey, startTime, histEntry } = run;
 	const livePeerNames = () => deps.isComsReady() && deps.getIdentity() ? deps.peersInScope().map(entry => entry.name) : [];
 	const isolationRequired = run.assistSnapshot['write-isolation'];
-	const forceNative = isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
+	const processState = deps.getProcessState?.();
+	const confirmationRequired = !!processState && effectiveProcessStage(processState, "confirmation");
+	if (confirmationRequired) {
+		const gate = processPreEffectGate(processState!, "child", personaKey);
+		if (gate) return run.finishRun(gate.message, 1);
+		if (requestedBackend === "coms") return run.finishRun("Confirmation-required stage production needs a guarded native child; coms has no exact effect binding.", 1);
+	}
+	const forceNative = confirmationRequired || isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
 	if (isolationRequired && requestedBackend === "coms") return run.finishRun("Write isolation is native-only; coms dispatch refused because remote isolation cannot be claimed.", 1);
 	if (forceNative && requestedBackend === 'coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.', 1);
 	const dispatchPolicy = forceNative ? { default: 'native', grace_s: 0, substitutions: {} } : deps.getDispatchPolicy();

@@ -112,6 +112,81 @@ test("System 1 setup is explicit, prints operator instructions, and preserves hu
   assert.equal(readFileSync(configPath, "utf8"), original);
 });
 
+test("task-triage selection is previewable but --yes alone never consents to remote task context", (context) => {
+  const ws = workspace(); context.after(() => rmSync(ws, { recursive: true, force: true }));
+  let result = setup(ws, "--preset", "default", "--features", "system1-task-triage", "--dry-run", "--json");
+  assert.equal(result.status, 0, result.stderr);
+  const preview = JSON.parse(result.stdout);
+  assert.ok(preview.selection.desired.features.includes("system1-task-triage"));
+  assert.ok(preview.selection.desired.features.includes("system1"));
+  assert.equal(preview.taskTriageProvider?.write, true, "missing provider template is included in the exact plan");
+  assert.equal(existsSync(join(ws, ".ai")), false, "dry-run does not mutate the workspace");
+
+  result = setup(ws, "--preset", "default", "--features", "system1-task-triage", "--yes");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--task-triage-consent/);
+  assert.equal(existsSync(join(ws, ".ai/agent-fleet.json")), false, "refused selection is not persisted");
+  assert.equal(existsSync(join(ws, ".ai/task-triage.json")), false, "no active consumer after refusal");
+
+  result = setup(ws, "--preset", "default", "--features", "system1-task-triage", "--task-triage-consent", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  const configPath = join(ws, ".ai/task-triage.json");
+  const providerPath = join(ws, ".ai/system1.json");
+  const providerOriginal = readFileSync(providerPath, "utf8");
+  assert.deepEqual(JSON.parse(providerOriginal), {
+    version: 1, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY",
+  });
+  assert.equal(existsSync(join(ws, ".env")), false, "no credential declaration or value is generated");
+  const original = readFileSync(configPath, "utf8");
+  assert.deepEqual(JSON.parse(original), {
+    version: 1, mode: "experimental", remoteContextApproved: true,
+    provider: "typesafe", model: "jev-1.13.0", questionVersion: "task-triage/questions/v1", policyVersion: "task-triage/policy/v1",
+    limits: { maxTaskBytes: 40960, maxStateBytes: 65536, maxCallsPerSession: 100, timeoutMs: 2000 },
+  });
+  result = setup(ws, "--preset", "default", "--features", "system1-task-triage", "--yes");
+  assert.equal(result.status, 0, result.stderr, "existing valid consent permits idempotent setup");
+  assert.equal(readFileSync(configPath, "utf8"), original);
+  assert.equal(readFileSync(providerPath, "utf8"), providerOriginal);
+  result = run(["update", "--workspace", ws, "--preset", "default", "--features", "system1-task-triage", "--yes"]);
+  assert.equal(result.status, 0, result.stderr, "update alias honors previously approved consent without changing human config");
+  assert.equal(readFileSync(configPath, "utf8"), original);
+  assert.equal(readFileSync(providerPath, "utf8"), providerOriginal);
+  writeFileSync(configPath, '{"version":1,"mode":"off","remoteContextApproved":false}\n');
+  result = setup(ws, "--preset", "default", "--features", "system1-task-triage", "--task-triage-consent", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(configPath, "utf8"), '{"version":1,"mode":"off","remoteContextApproved":false}\n', "explicit off never flips silently");
+});
+
+test("task-triage setup preserves a human-owned off provider byte-for-byte", context => {
+  const ws = workspace(); context.after(() => rmSync(ws, { recursive: true, force: true }));
+  mkdirSync(join(ws, ".ai"));
+  const providerPath = join(ws, ".ai/system1.json");
+  const off = '{"version":1,"mode":"off","provider":"typesafe","model":"jev-1.13.0","apiKeyEnv":"TYPESAFE_API_KEY"}\n';
+  writeFileSync(providerPath, off);
+  const result = setup(ws, "--preset", "default", "--features", "system1-task-triage", "--task-triage-consent", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(providerPath, "utf8"), off);
+});
+
+test("deselecting task triage records an effective off switch without rewriting human config", (context) => {
+  const ws = workspace(); context.after(() => rmSync(ws, { recursive: true, force: true }));
+  let result = setup(ws, "--preset", "default", "--features", "system1-task-triage", "--task-triage-consent", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  const configPath = join(ws, ".ai/task-triage.json");
+  const before = readFileSync(configPath, "utf8");
+  let state = JSON.parse(readFileSync(join(ws, ".ai/agent-fleet-state.json"), "utf8"));
+  assert.equal(state.taskTriageSelected, true);
+  result = setup(ws, "--preset", "default", "--features", "none", "--yes");
+  assert.equal(result.status, 0, result.stderr);
+  state = JSON.parse(readFileSync(join(ws, ".ai/agent-fleet-state.json"), "utf8"));
+  assert.equal(state.taskTriageSelected, false);
+  assert.equal(readFileSync(configPath, "utf8"), before, "human config is preserved when the feature is disabled");
+  result = run(["update", "--workspace", ws, "--preset", "default", "--features", "none", "--yes"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(readFileSync(join(ws, ".ai/agent-fleet-state.json"), "utf8")).taskTriageSelected, false);
+  assert.equal(readFileSync(configPath, "utf8"), before, "update cannot silently reactivate the saved opt-in");
+});
+
 test("setup preserves an existing configured overrides file byte-for-byte", (context) => {
   const ws = workspace();
   context.after(() => rmSync(ws, { recursive: true, force: true }));

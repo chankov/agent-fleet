@@ -1,0 +1,28 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildTaskTriageState } from "./task-triage-state.ts";
+import { TASK_TRIAGE_LIMITS } from "./task-triage-contract.ts";
+test("metadata-only outbound fixture, bounded UTF-8 and hostile data", t => {
+ const root = mkdtempSync(join(tmpdir(), "triage-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+ mkdirSync(join(root, "src")); writeFileSync(join(root, "src/file.ts"), "TOP SECRET BODY"); symlinkSync(tmpdir(), join(root, "escape"));
+ const built = buildTaskTriageState({ task: "Поправи typo в README", paths: ["src/file.ts", "missing.ts"], constraints: ["no network"] }, root, path => path !== "denied.ts");
+ assert.equal(buildTaskTriageState({ task: "x", paths: ["src/file.ts"] }, root).reason, "sensitive_input", "unbound access-control port fails closed");
+ assert.equal(buildTaskTriageState({ task: "x", paths: ["denied.ts"] }, root, () => false).reason, "sensitive_input");
+ assert.equal(built.ok, true); if (!built.ok) return;
+ const wire = JSON.stringify(built.state); assert.equal(wire.includes("TOP SECRET BODY"), false); assert.equal(wire.includes(root), false); assert.deepEqual(built.state.gaps, ["missing.ts"]);
+ assert.equal(buildTaskTriageState({ task: "x".repeat(TASK_TRIAGE_LIMITS.maxTaskBytes - 2), clarifications: ["Б"] }, root).ok, true);
+ assert.equal(buildTaskTriageState({ task: "x".repeat(TASK_TRIAGE_LIMITS.maxTaskBytes - 1), clarifications: ["Б"] }, root).reason, "oversized_input");
+ for (const path of ["../escape", "/etc/passwd", "escape/file", ".env", ".pi/secret"]) assert.equal(buildTaskTriageState({ task: "explain", paths: [path] }, root, () => true).ok, false, path);
+ for (const task of ["password=abc", "contact name@example.org", "Bearer abc", "sk-verylongsecret"]) assert.equal(buildTaskTriageState({ task }, root).reason, "sensitive_input");
+ assert.equal(buildTaskTriageState({ task: "", metadataComplete: false }, root).reason, "incomplete_input");
+ const emptyWire = buildTaskTriageState({ task: "x", constraints: [""] }, root);
+ assert.equal(emptyWire.ok, true); if (!emptyWire.ok) return;
+ const available = TASK_TRIAGE_LIMITS.maxStateBytes - Buffer.byteLength(JSON.stringify(emptyWire.state));
+ const exact = buildTaskTriageState({ task: "x", constraints: ["a".repeat(available)] }, root);
+ assert.equal(exact.ok, true); if (exact.ok) assert.equal(Buffer.byteLength(JSON.stringify(exact.state)), TASK_TRIAGE_LIMITS.maxStateBytes);
+ assert.equal(buildTaskTriageState({ task: "x", constraints: ["a".repeat(available + 1)] }, root).reason, "oversized_input");
+ assert.equal(buildTaskTriageState({ task: "x", constraints: ["a".repeat(TASK_TRIAGE_LIMITS.maxStateBytes)] }, root).reason, "oversized_input");
+});

@@ -5,9 +5,169 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { buildRuntimeResult } from "./acceptance.ts";
 import { buildBudgetContinuationAudit } from "./hub-state-audit.js";
-import { buildSessionAudit, formatSessionAudit, showSessionAudit } from "./session-audit.ts";
+import { buildSessionAudit, formatSessionAudit, showSessionAudit, projectTaskTriageActions } from "./session-audit.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { createNoProgressGuard } from './no-progress.ts';
+import { createTaskTriageActivity } from "./system1-activity.ts";
+import { createProcessState, applyProcessClassification, evaluateProcessObligations, processAuditRecord, noteProcessStage } from "./process-obligations.ts";
+import { applyTaskTriageAdditions } from "./task-triage-obligations.ts";
+import { confirmTaskTriageWaiver, taskTriageActionAuditRecord } from "./task-triage-authorization.ts";
+
+const triageTask = "11111111-1111-4111-8111-111111111111", triageEvaluation = "22222222-2222-4222-8222-222222222222";
+function triageRecord(review: string = "waived") {
+ return { schema: "agent-fleet.process-obligations/v1", risk: "low", scope: "small", budgetTier: "small", currentStage: "complete",
+  obligations: { risk: { status: "satisfied" }, acceptance: { status: "satisfied" }, plan: { status: "satisfied" }, review: { status: review }, confirmation: { status: "open" } },
+  additions: [{ id: "b".repeat(64), taskId: triageTask, evaluationId: triageEvaluation, inputRevision: "a".repeat(64), reason: "security_change", status: "waived", waiverReason: "PRIVATE_REASON" }],
+  auditScope: ["PRIVATE_PATH"], explanation: "PRIVATE_EXPLANATION", state: { lastReason: "PRIVATE_TASK" } };
+}
+test("task-triage audit exposes persisted waived additions and per-effect confirmation separately", t => {
+ const sessionDir = fixture(t);
+ const audit = buildSessionAudit({ entries: [{ customType: "agent-hub-process-state", data: triageRecord() }], sessionDir });
+ const event = audit.events.find(e => e.kind === "process_obligation")!;
+ assert.equal(event.obligations!.review, "waived"); assert.equal(event.obligations!.confirmation, "open");
+ assert.equal(event.status, "accepted", "process completion permits task-level closure, not future effects or semantic A1 acceptance");
+ const view = (audit as any).taskTriage;
+ assert.equal(view.process.additions[0].status, "waived"); assert.equal(view.taskAcceptance, "not_recorded");
+ assert.equal(view.assessment.status, "unknown", "a process addition does not reconstruct a missing classifier result");
+ assert.equal(view.process.completion, "process_complete"); assert.ok(view.process.blockers.includes("action_confirmation"));
+ assert.doesNotMatch(formatSessionAudit(audit), /PRIVATE_/);
+});
+test("task-triage audit reads metadata trace without turning provider success into acceptance", t => {
+ const sessionDir = fixture(t);
+ const activity = createTaskTriageActivity({ directory: join(sessionDir, "artifacts/task-triage-activity") });
+ const identity = { taskId: triageTask, evaluationId: triageEvaluation, inputRevision: "a".repeat(64) };
+ activity.evaluationStarted(identity, true);
+ activity.evaluationFinished(identity, { assessment: { status: "applied", reasons: ["security_change"] } });
+ const audit = buildSessionAudit({ entries: [], sessionDir });
+ assert.equal((audit as any).taskTriage.metrics.assessments.finished, 1);
+ assert.equal((audit as any).taskTriage.process.availability, "unavailable");
+ assert.equal((audit as any).taskTriage.taskAcceptance, "not_recorded");
+ appendFileSync(activity.path!, "{PRIVATE_TAIL");
+ const corrupt = buildSessionAudit({ entries: [], sessionDir });
+ assert.ok(corrupt.unavailable.includes("task_triage_trace_integrity"));
+ assert.doesNotMatch(formatSessionAudit(corrupt), /PRIVATE_/);
+});
+test("task-triage audit latest malformed process state cannot fall back to an older complete state", t => {
+ const sessionDir = fixture(t);
+ const entries = [{ customType: "agent-hub-process-state", data: triageRecord() },
+  { customType: "agent-hub-process-state", data: { ...triageRecord(), additions: [{ id: "PRIVATE_ID", status: "waived" }] } }];
+ const audit = buildSessionAudit({ entries, sessionDir });
+ assert.equal((audit as any).taskTriage.process.availability, "unavailable");
+ assert.ok(audit.unavailable.includes("task_triage_process_integrity"));
+ assert.doesNotMatch(formatSessionAudit(audit), /PRIVATE_/);
+});
+
+test("task-triage audit projects actual process/authorized-waiver producer without free-form reason leakage", async t => {
+ const sessionDir = fixture(t), inputRevision = "a".repeat(64), entries: unknown[] = [];
+ const classification = applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "PRIVATE_CLASSIFICATION" });
+ assert.equal(classification.ok, true);
+ let state = applyTaskTriageAdditions(classification.state, { status: "applied", reasons: ["security_change"] },
+  { taskId: triageTask, evaluationId: triageEvaluation, inputRevision });
+ state = noteProcessStage(state, "acceptance", { evidenceRef: "/PRIVATE_EVIDENCE", revision: "PRIVATE_REVISION" });
+ const emit = () => entries.push({ customType: "agent-hub-process-state", data: processAuditRecord(state, evaluateProcessObligations(state, { writable: true, budgetTier: "small" })) });
+ emit();
+ const before = buildSessionAudit({ sessionDir, entries, taskTriage: { taskId: triageTask, inputRevision } } as any);
+ assert.equal((before as any).taskTriage.process.obligations.review, "open");
+ const next = await confirmTaskTriageWaiver(state, { taskId: triageTask, evaluationId: triageEvaluation, inputRevision, additionId: state.additions![0].id, reason: "PRIVATE_WAIVER_REASON" }, {
+  taskId: () => triageTask, inputRevision: () => inputRevision, startWait() {}, endWait() {}, persist: value => { state = value; emit(); },
+  ask: async (id, question) => ({ details: { runtimeAsk: { requestId: id }, response: { kind: "selection", selections: [question.options[0]] } } }),
+ }, {} as any);
+ assert.ok(next);
+ const after = buildSessionAudit({ sessionDir, entries, taskTriage: { taskId: triageTask, inputRevision } } as any);
+ assert.equal((after as any).taskTriage.process.obligations.review, "waived");
+ assert.equal((after as any).taskTriage.process.additions[0].binding, "current");
+ assert.equal((after as any).taskTriage.process.completion, "process_complete");
+ assert.equal((after as any).taskTriage.taskAcceptance, "not_recorded");
+ assert.doesNotMatch(formatSessionAudit(after), /PRIVATE_/);
+});
+
+test("task-triage audit preserves source waiver history while baseline review remains open", t => {
+ const sessionDir = fixture(t);
+ const common = { ...triageRecord("open"), risk: "high", currentStage: "review" };
+ const active = { ...common, additions: common.additions.map(a => ({ ...a, status: "active" })) };
+ const audit = buildSessionAudit({ sessionDir, entries: [
+  { customType: "agent-hub-process-state", data: active }, { customType: "agent-hub-process-state", data: common },
+ ] });
+ const events = audit.events.filter(e => e.kind === "process_obligation");
+ assert.equal(events.length, 2, "distinct source states must not collapse into one repeated review-open event");
+ assert.equal((events[0] as any).processAdditions[0].status, "active");
+ assert.equal((events[1] as any).processAdditions[0].status, "waived");
+ assert.equal(audit.taskTriage.process.obligations!.review, "open");
+ assert.equal(audit.taskTriage.process.completion, "not_complete");
+ assert.doesNotMatch(formatSessionAudit(audit), /PRIVATE_/);
+});
+
+test("task-triage audit exposes live observer degradation even when no trace file was written", t => {
+ const sessionDir = fixture(t), activity = createTaskTriageActivity({ write() { throw Error("PRIVATE_DISK_ERROR"); } });
+ const identity = { taskId: triageTask, evaluationId: triageEvaluation, inputRevision: "a".repeat(64) };
+ activity.evaluationStarted(identity, true);
+ activity.evaluationFinished(identity, { assessment: { status: "unavailable", reasons: [], detail: "timeout" } });
+ const audit = buildSessionAudit({ sessionDir, entries: [], taskTriage: { taskId: triageTask, inputRevision: identity.inputRevision, activity: activity.live() } } as any);
+ assert.equal(audit.taskTriage.metrics.assessments.finished, 1);
+ assert.equal(audit.taskTriage.metrics.observability.degraded, true);
+ assert.ok(audit.unavailable.includes("task_triage_trace_integrity"));
+ assert.doesNotMatch(formatSessionAudit(audit), /PRIVATE_DISK_ERROR/);
+});
+
+test("action audit joins durable grant, one-use consumption and tool result without implying acceptance", t => {
+ const sessionDir = fixture(t);
+ const contract = { taskId: triageTask, inputRevision: "a".repeat(64), actionId: "PRIVATE_CALL_ID", operation: "write", target: "/PRIVATE_TARGET", nonce: "PRIVATE_NONCE" };
+ const grant = { customType: "agent-hub-task-triage-action-grant", data: contract };
+ const consumed = { customType: "agent-hub-task-triage-action-consumed", data: contract };
+ const result = { type: "message", message: { role: "toolResult", toolCallId: contract.actionId, toolName: "write", isError: false, content: [{ type: "text", text: "PRIVATE_OUTPUT" }] } };
+ const entries = [grant, consumed, result, { ...result, message: { ...result.message, toolCallId: "UNRELATED_CALL" } }];
+ const audit = buildSessionAudit({ sessionDir, entries, taskTriage: { taskId: triageTask, inputRevision: contract.inputRevision } });
+ const history = (audit.taskTriage as any).actions;
+ assert.equal(history.availability, "recorded"); assert.equal(history.records.length, 1);
+ assert.equal(history.records[0].authorization, "recorded_grant"); assert.equal(history.records[0].consumption, "recorded_once");
+ assert.equal(history.records[0].execution, "tool_result_ok"); assert.equal(history.records[0].binding, "current");
+ assert.equal(audit.taskTriage.taskAcceptance, "not_recorded");
+ assert.doesNotMatch(formatSessionAudit(audit), /PRIVATE_|UNRELATED_CALL/);
+ const reopened = buildSessionAudit({ sessionDir, entries });
+ assert.equal((reopened.taskTriage as any).actions.records[0].binding, "unbound");
+});
+test("action audit preserves missing results, duplicates, conflicting bindings and unsupported calls as unknown", t => {
+ const sessionDir = fixture(t), base = { taskId: triageTask, inputRevision: "a".repeat(64), actionId: "PRIVATE_CALL", operation: "write", target: "a".repeat(64) };
+ const grant = { customType: "agent-hub-task-triage-action-grant", data: base }, consume = { customType: "agent-hub-task-triage-action-consumed", data: base };
+ for (const [entries, expected] of [ [[grant], "not_recorded"], [[grant, consume], "recorded_once"], [[grant, consume, consume], "ambiguous"],
+  [[consume], "ambiguous"], [[grant, { ...consume, data: { ...base, target: "b".repeat(64) } }], "ambiguous"] ] as const) {
+  const audit = buildSessionAudit({ sessionDir, entries }); const history = (audit.taskTriage as any).actions;
+  assert.equal(history.records[0].consumption, expected); assert.equal(history.records[0].execution, "not_recorded");
+  assert.doesNotMatch(formatSessionAudit(audit), /PRIVATE_CALL/);
+ }
+ const malformed = buildSessionAudit({ sessionDir, entries: [{ ...grant, data: { ...base, taskId: "PRIVATE_ID" } }] });
+ assert.equal((malformed.taskTriage as any).actions.invalidRecords, 1);
+ assert.ok(malformed.unavailable.includes("task_triage_action_integrity"));
+});
+
+test("action audit rejects contradictory consumption and hostile observation extras", t => {
+ const sessionDir = fixture(t), contract = { taskId: triageTask, inputRevision: "a".repeat(64), actionId: "PRIVATE_CALL", operation: "write", target: "a".repeat(64) };
+ const grant = { customType: "agent-hub-task-triage-action-grant", data: contract }, consumed = { customType: "agent-hub-task-triage-action-consumed", data: contract };
+ const failed = { customType: "agent-hub-task-triage-action-observation", data: taskTriageActionAuditRecord(contract, "consumption_failed") };
+ for (const entries of [[grant, consumed, failed], [grant, failed, consumed]]) {
+  const history = buildSessionAudit({ sessionDir, entries }).taskTriage.actions;
+  assert.equal(history.ambiguous, 1); assert.equal(history.records[0].execution, "not_recorded");
+ }
+ const result = { type: "message", message: { role: "toolResult", toolCallId: contract.actionId, toolName: "write", isError: true, content: "PRIVATE_ERROR" } };
+ const error = buildSessionAudit({ sessionDir, entries: [grant, consumed, result] }).taskTriage.actions;
+ assert.equal(error.records[0].execution, "tool_result_error");
+ const duplicate = buildSessionAudit({ sessionDir, entries: [grant, consumed, result, result] }).taskTriage.actions;
+ assert.equal(duplicate.records[0].execution, "not_recorded"); assert.equal(duplicate.ambiguous, 1);
+ const hostile = { customType: failed.customType, data: { ...failed.data, rawBody: "PRIVATE_BODY" } };
+ const invalid = buildSessionAudit({ sessionDir, entries: [hostile] });
+ assert.equal(invalid.taskTriage.actions.invalidRecords, 1); assert.doesNotMatch(formatSessionAudit(invalid), /PRIVATE_/);
+});
+
+test("action audit caps retained records, preserves stale bindings and never treats early results as execution", () => {
+ const base = { taskId: triageTask, inputRevision: "a".repeat(64), actionId: "one", operation: "write", target: "a".repeat(64) };
+ const grant = { customType: "agent-hub-task-triage-action-grant", data: base }, consumed = { customType: "agent-hub-task-triage-action-consumed", data: base };
+ const result = { message: { role: "toolResult", toolCallId: "one", toolName: "write", isError: false } };
+ const early = projectTaskTriageActions([grant, result, consumed], { taskId: triageTask, inputRevision: "b".repeat(64) });
+ assert.equal(early.records[0].execution, "not_recorded"); assert.equal(early.records[0].binding, "stale");
+ const capped = projectTaskTriageActions(Array.from({ length: 301 }, (_, i) => ({ ...grant, data: { ...base, actionId: `call-${i}` } })));
+ assert.equal(capped.records.length, 300); assert.equal(capped.overflow, true);
+ assert.doesNotMatch(JSON.stringify(capped), /call-/);
+});
 
 function fixture(t: any) {
 	const dir = mkdtempSync(join(tmpdir(), "af-audit-")); t.after(() => rmSync(dir, { recursive: true, force: true }));

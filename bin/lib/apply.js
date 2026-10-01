@@ -107,6 +107,8 @@ export function applyPlan({ plan, manifest, allowExec = false, now = () => new D
       if (plan.writeDesired) writeFileSyncDeep(join(plan.workspace, ".ai", "agent-fleet.json"), renderDesired(plan.desired), plan.workspace);
       if (plan.overrides?.write) writeFileSyncDeep(plan.overrides.path, plan.overrides.text, plan.workspace);
       if (plan.stt?.write) writeFileSyncDeep(plan.stt.path, plan.stt.text, plan.workspace);
+      if (plan.taskTriage?.write) writeFileSyncDeep(plan.taskTriage.path, plan.taskTriage.text, plan.workspace);
+      if (plan.taskTriageProvider?.write) writeFileSyncDeep(plan.taskTriageProvider.path, plan.taskTriageProvider.text, plan.workspace);
       if (plan.stt?.env?.missing?.length) writeFileSyncDeep(plan.stt.env.path, plan.stt.env.text, plan.workspace);
       return applyImmediate({ plan, manifest, allowExec: false, now });
     } });
@@ -152,6 +154,9 @@ function applyImmediate({ plan, manifest, now = () => new Date().toISOString() }
   // the workspace against the current binding, which is exactly what the
   // version asserts.
   state.schemaVersion = STATE_SCHEMA_VERSION;
+  // Config stays human-owned; the last applied setup selection is the runtime
+  // switch, including ephemeral CLI overrides that did not rewrite desired state.
+  if (plan.verb === "setup") state.taskTriageSelected = plan.selection.desired.features.includes("system1-task-triage");
   state.agent = agent;
   state.method = method;
   state.sourceRoot = sourceRoot;

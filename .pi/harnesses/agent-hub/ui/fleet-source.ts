@@ -1,4 +1,4 @@
-import { buildFleetRows, fleetTiming, projectProactive, projectSystem1Owner, type DelegateInput, type FleetFilter, type FleetRow, type FleetSource, type PeerInput, type ProactiveLedgerInput, type ResearchInput, type SpecialistInput, type System1CheckInput, type System1OwnerView } from "../../lib/fleet-read-model.ts";
+import { buildFleetRows, fleetTiming, projectProactive, projectTaskTriage, type TaskTriageProjectionInput, projectSystem1Owner, type DelegateInput, type FleetFilter, type FleetRow, type FleetSource, type PeerInput, type ProactiveLedgerInput, type ResearchInput, type SpecialistInput, type System1CheckInput, type System1OwnerView } from "../../lib/fleet-read-model.ts";
 
 export interface FleetSourceAgent {
 	def: { name: string; description?: string };
@@ -58,6 +58,8 @@ export interface FleetSourceDeps<TAgent extends FleetSourceAgent = FleetSourceAg
 	getSystem1?(): { active: readonly System1CheckInput[]; completed: readonly System1CheckInput[]; degraded?: boolean } | null | undefined;
 	/** Session-owned in-memory ledger; never read private evidence or trace files here. */
 	getProactive?(): ProactiveLedgerInput | null | undefined;
+	/** Current session metadata only; no provider or disk reads while rendering. */
+	getTaskTriage?(): TaskTriageProjectionInput | null | undefined;
 }
 
 function delegateForest(children: readonly FleetSourceDelegate[], now: number, model: (value: string) => string): DelegateInput[] {
@@ -108,6 +110,8 @@ export function createFleetSource<TAgent extends FleetSourceAgent, TResearch ext
 	function snapshot(now: number): FleetSource {
 		const ledger = deps.getProactive?.();
 		const proactive = ledger ? projectProactive(ledger) : undefined;
+		const triage = deps.getTaskTriage?.();
+		const taskTriage = triage ? projectTaskTriage(triage) : undefined;
 		const specialists: SpecialistInput[] = Array.from(deps.getAgents().entries()).map(([key, state]) => ({
 			key,
 			name: deps.displayName(state.def.name),
@@ -166,7 +170,7 @@ export function createFleetSource<TAgent extends FleetSourceAgent, TResearch ext
 				peers.push({ key: `peer-pending:${encodeURIComponent(name)}`, name, model: "", lastWork: `${pending.count} pending ${pending.count === 1 ? "reply" : "replies"}`, status: "running", timingKind: pending.oldest == null ? "unknown" : "wait", startedAt: pending.oldest, elapsed: pending.oldest == null ? 0 : Math.max(0, now - pending.oldest) });
 			}
 		}
-		return { specialists, research, peers, ...(proactive ? { proactive } : {}) };
+		return { specialists, research, peers, ...(proactive ? { proactive } : {}), ...(taskTriage ? { taskTriage } : {}) };
 	}
 	return {
 		snapshot,

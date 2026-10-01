@@ -1,9 +1,97 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createWatchdogActivity, projectWatchdogReadback, readWatchdogTrace, type WatchdogTraceRecord } from "./system1-activity.ts";
+import * as activities from "./system1-activity.ts";
+
+const taskIdentity = { taskId: "11111111-1111-4111-8111-111111111111", evaluationId: "22222222-2222-4222-8222-222222222222", inputRevision: "a".repeat(64) };
+test("task-triage activity writes sanitized metadata once and leaves unknown counters unknown", () => {
+ const lines: string[] = [];
+ const activity = activities.createTaskTriageActivity({ sessionId: "PRIVATE_SESSION", write: (line: string) => lines.push(line), now: () => 10 });
+ activity.evaluationStarted(taskIdentity, true); activity.evaluationStarted(taskIdentity, true);
+ activity.evaluationFinished(taskIdentity, { assessment: { status: "applied", reasons: ["security_change", "PRIVATE_REASON"],
+  probabilities: { security_change: .9, wide_change: .1, irreversible_execution: .1, PRIVATE_KEY: 1 }, detail: "PRIVATE_ERROR", task: "PRIVATE_TASK" },
+  result: { status: "ok", evaluation: { metadata: { returnedModel: "jev-1.13.0", attempts: 2, latencyMs: 12,
+   usage: { inputTokens: 3, outputTokens: 1, secret: "PRIVATE_USAGE" }, rawBody: "PRIVATE_PROVIDER_BODY" } } } } as any);
+ activity.evaluationFinished(taskIdentity, { assessment: { status: "no_additions", reasons: [] } });
+ assert.equal(lines.length, 2);
+ const finished = JSON.parse(lines[1]);
+ assert.equal(finished.consumer, "task-triage"); assert.equal(finished.status, "applied");
+ assert.equal(finished.providerStatus, "ok"); assert.equal(finished.logicalCall, true); assert.equal(finished.attempts, 2);
+ assert.equal(finished.reason, "unknown"); assert.deepEqual(finished.reasons, ["security_change"]);
+ assert.deepEqual(finished.usage, { inputTokens: 3, outputTokens: 1 });
+ assert.doesNotMatch(lines.join(""), /PRIVATE_/);
+ const copy = activity.live(); copy.events[1].reasons.push("PRIVATE_MUTATION");
+ assert.doesNotMatch(JSON.stringify(activity.live()), /PRIVATE_MUTATION/);
+ activity.dispose(); activity.dispose(); assert.equal(lines.length, 2);
+});
+test("task-triage activity dispose and writer failure are bounded observational failures", () => {
+ const lines: string[] = [];
+ const activity = activities.createTaskTriageActivity({ write: (line: string) => { lines.push(line); throw Error("PRIVATE_DISK_ERROR"); } });
+ assert.doesNotThrow(() => activity.evaluationStarted(taskIdentity, null));
+ activity.dispose(); activity.dispose(); activity.evaluationStarted({ ...taskIdentity, evaluationId: "33333333-3333-4333-8333-333333333333" }, true);
+ assert.equal(lines.length, 2); assert.equal(activity.live().degraded, true);
+ const finished = JSON.parse(lines[1]); assert.equal(finished.status, "cancelled");
+ assert.equal(finished.attempts, null); assert.equal(finished.usage, null); assert.equal(finished.logicalCall, null);
+});
+test("task-triage disk reader rejects payload-bearing records, incomplete tails and linked files", t => {
+ const dir = mkdtempSync(join(tmpdir(), "task-triage-trace-")); t.after(() => rmSync(dir, { recursive: true, force: true }));
+ const activity = activities.createTaskTriageActivity({ directory: dir }); activity.evaluationStarted(taskIdentity, false);
+ const raw = readFileSync(activity.path!, "utf8");
+ appendFileSync(activity.path!, JSON.stringify({ ...JSON.parse(raw), task: "PRIVATE_TASK" }) + "\n");
+ appendFileSync(activity.path!, raw.trimEnd());
+ const page = activities.readTaskTriageTrace(activity.path!);
+ assert.equal(page.events.length, 1); assert.equal(page.invalidRecords, 1); assert.equal(page.partialTail, true);
+ assert.doesNotMatch(JSON.stringify(page), /PRIVATE_TASK/);
+ const link = join(dir, "link.jsonl"); symlinkSync(activity.path!, link);
+ assert.equal(activities.readTaskTriageTrace(link).readError, true);
+ const alias = join(dir, "parent-link"); symlinkSync(dir, alias);
+ assert.equal(activities.readTaskTriageTrace(join(alias, "task-triage-events.jsonl")).readError, true);
+ for (const extra of [{ usage: { inputTokens: 1, outputTokens: 2, raw: "PRIVATE_USAGE" } }, { attempts: -1 },
+  { probabilities: { security_change: 2 } }, { taskId: null }]) {
+  assert.equal(activities.isTaskTriageTraceRecord({ ...JSON.parse(raw), ...extra }), false);
+ }
+ assert.equal(readFileSync(activity.path!, "utf8").endsWith("\n"), false, "readback never repairs trace files");
+});
+
+test("task-triage observer caps retained spans and sanitizes hostile numeric metadata", () => {
+ const activity = activities.createTaskTriageActivity();
+ const result = { status: "ok", evaluation: { metadata: { attempts: -1, latencyMs: NaN, returnedModel: "/PRIVATE_MODEL",
+  usage: { inputTokens: -2, outputTokens: 3 } } } } as any;
+ activity.evaluationStarted(taskIdentity, true);
+ activity.evaluationFinished(taskIdentity, { assessment: { status: "unavailable", reasons: [],
+  probabilities: { security_change: Infinity, wide_change: -1, irreversible_execution: 2 } }, result });
+ const record = activity.live().events[1];
+ assert.equal(record.attempts, null); assert.equal(record.latencyMs, null); assert.equal(record.usage, null);
+ assert.equal(record.returnedModel, null); assert.equal(record.probabilities, null);
+ assert.doesNotMatch(JSON.stringify(record), /PRIVATE_MODEL/);
+ for (let index = 0; index < 101; index++) {
+  const identity = { ...taskIdentity, evaluationId: `${index.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000` };
+  activity.evaluationStarted(identity, false); activity.evaluationFinished(identity, { assessment: { status: "skipped", reasons: [] } });
+ }
+ assert.equal(activity.live().events.length, 200); assert.equal(activity.degraded, true);
+ activity.dispose(); assert.equal(activity.live().events.length, 200);
+});
+test("task-triage activity retains exact shared-service readiness reasons without free-form errors", () => {
+ for (const reason of ["shared_service_disabled", "shared_service_missing_config", "shared_service_missing_key", "shared_service_invalid_config", "shared_service_unavailable"]) {
+  const activity = activities.createTaskTriageActivity();
+  activity.evaluationStarted(taskIdentity, false);
+  activity.evaluationFinished(taskIdentity, { assessment: { status: "unavailable", reasons: [], detail: reason } });
+  assert.equal(activity.live().events[1].reason, reason);
+ }
+});
+
+test("task-triage late result cannot overwrite cancelled or another revision", () => {
+ const activity = activities.createTaskTriageActivity();
+ activity.evaluationStarted(taskIdentity, true);
+ activity.evaluationFinished({ ...taskIdentity, inputRevision: "b".repeat(64) }, { assessment: { status: "applied", reasons: ["security_change"] } });
+ assert.equal(activity.live().events.length, 1);
+ activity.dispose();
+ activity.evaluationFinished(taskIdentity, { assessment: { status: "applied", reasons: ["security_change"] } });
+ assert.equal(activity.live().events.length, 2); assert.equal(activity.live().events[1].status, "cancelled");
+});
 
 const SECRET = "sk-abcdefghijklmnopqrstuvwxyz";
 const ABSOLUTE = "/tmp/watchdog-secret-source";

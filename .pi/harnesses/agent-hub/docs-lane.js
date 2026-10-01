@@ -113,10 +113,11 @@ export function checkDocsLane(agent, scopeGlobs, reviewReason = "") {
 }
 
 /** Note appended to a non-review dispatch that runs in the docs lane. */
-export function docsLaneNotice(agent, scopeGlobs) {
+export function docsLaneNotice(agent, scopeGlobs, requiredReview = false) {
 	if (!isDocsOnlyScope(scopeGlobs)) return null;
 	const name = String(agent || "").trim().toLowerCase();
 	if (DOCS_BLOCKED_PERSONAS.includes(name)) return null;
+	if (requiredReview) return `📝 Docs lane: this dispatch's scope is documentation only, but required process review remains open. Dispatch an allowed reviewer for the changed scope; the writer's own check cannot close it.`;
 	return `📝 Docs lane: this dispatch's scope is documentation only, so it needs no review gate. ` +
 		`Take ${name}'s own verification as sufficient and close the item — do not dispatch a reviewer for it.`;
 }

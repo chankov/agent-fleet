@@ -164,15 +164,33 @@ test("real TTY setup reaches one final confirmation for Default, feature, and Fu
   }
 });
 
-test("real TTY Full + all persists an explicit feature snapshot", { timeout: 30000 }, () => {
+test("real TTY Full + all needs separate task-context consent before final exact-plan approval", { timeout: 30000 }, () => {
   const ws = workspace();
   try {
-    const result = interactiveSetup(ws, ["3\n", "\n", "openai\n", "y\n"], ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep", "Enter = cancel (no secret values requested) >", "Enter = no (cancel without applying) >"]);
+    const needles = ["Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep",
+      "Enter = cancel (no secret values requested) >", "Separately approve remote task context? yes/y | no/n; Enter = no >",
+      "Enter = no (cancel without applying) >"];
+    const result = interactiveSetup(ws, ["3\n", "\n", "openai\n", "y\n", "y\n"], needles);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const desired = JSON.parse(readFileSync(join(ws, ".ai/agent-fleet.json"), "utf8"));
     assert.equal(desired.preset, "full");
     assert.ok(Object.values(desired.features).every(Boolean), "snapshot stores each currently available feature explicitly");
     assert.match(result.stdout, /Selected features:.*chatgpt-client \(experimental\)/);
+    assert.equal(JSON.parse(readFileSync(join(ws, ".ai/task-triage.json"), "utf8")).remoteContextApproved, true);
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("real TTY Full + all refusal of task-context consent writes no selection", { timeout: 30000 }, () => {
+  const ws = workspace();
+  try {
+    const result = interactiveSetup(ws, ["3\n", "\n", "openai\n", "n\n"], [
+      "Choose: 1 | 2 | 3 | cancel; Enter =", "| none | cancel; Enter = keep",
+      "Enter = cancel (no secret values requested) >", "Separately approve remote task context? yes/y | no/n; Enter = no >",
+    ]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /task-context consent declined/);
+    assert.equal(existsSync(join(ws, ".ai/agent-fleet.json")), false);
+    assert.equal(existsSync(join(ws, ".ai/task-triage.json")), false);
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

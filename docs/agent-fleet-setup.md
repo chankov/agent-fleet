@@ -11,12 +11,15 @@ different readers and different lifetimes, so they are kept separate.
 | `.ai/agent-fleet-setup.md` | humans — rendered from the state file, never parsed back | Rewritten on every setup apply |
 | `.ai/agent-fleet-transaction.json` | the deterministic lifecycle (`setup`, `doctor --fix`) — crash-recovery journal for in-flight file transactions | Written during apply; recovered or discarded by setup/doctor; removed when the transaction commits or is cleaned up |
 | `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
-| `.ai/system1.json` *(optional)* | System 1 shared runtime and doctor | When the experimental `system1` feature is explicitly selected |
+| `.ai/system1.json` *(optional)* | System 1 shared runtime and doctor | When `system1` is selected directly or through `system1-task-triage` |
+| `.ai/task-triage.json` *(optional)* | Hub task-triage consumer and doctor | At Hub session start; missing/off/invalid means no new task-triage inference |
 | `.ai/proactive-review.json` *(optional)* | Hub proactive turn review consumer | At Hub session start; missing means off |
 
 The `.ai/system1.json` file is human-owned, non-secret provider configuration.
-Setup prints its required shape but does not create or overwrite it. Its
-`apiKeyEnv` field names a caller-environment variable; it never contains the
+Selecting the foundation alone prints its required shape. Consented task-triage
+setup additionally proposes this template when absent, in the same exact-plan
+transaction as the consumer config; existing provider files, including explicit
+off, are preserved. Its `apiKeyEnv` field names a caller-environment variable; it never contains the
 credential itself. See [System 1 configuration](#system-1-configuration).
 
 The `.ai/stt.json` file is present only when the optional `pi-voice-stt` voice-dictation
@@ -162,8 +165,9 @@ otherwise injected variable.
 
 `agent-fleet doctor` reads the desired state and configuration as data. Its
 System 1 result is advisory and read-only, including with `--fix`; it performs
-no provider request and does not validate the key. A declaration in `.env` is
-reported separately from a value present in doctor's current environment.
+no provider request and does not validate the key. Doctor does not inspect or
+load `.env`; declaration status is unknown (`envDeclared: null`). It checks only
+key presence in its current process environment and never prints the value.
 
 The installed demo is offline unless `--live` is supplied. Both forms require a
 Node runtime supporting `--experimental-strip-types`:
@@ -197,7 +201,7 @@ consumer mode/config snapshot; `/af-watchdog on|off|auto` changes Layer 1 arming
 not the System 1 consumer mode. For rollback set `watchdog-system1: off` for the
 next session (cancel the current run if needed).
 
-**System 1 outbound state** is limited to a redacted task, normalized relative
+**Watchdog System 1 outbound state** is limited to a redacted task, normalized relative
 scope/paths, 40 structured tool events without commands, bodies, arguments or
 outputs, rule facts, coverage and counters (32 KiB maximum). This does **not**
 limit the existing parallel LLM judge prompt: it includes the original task,
@@ -217,6 +221,175 @@ not a real shadow pilot. G1 requires manual/outbound review; G2 additionally
 requires independent human labels identifying the snapshot **and LLM attempt**,
 held-out session evaluation and an explicit maintainer-approved profile. Older
 labels without an LLM attempt ID cannot qualify. No gate is inferred from doctor readiness.
+
+## Task triage (active experimental; off by default)
+
+Task triage is a separate Hub consumer, not `dispatch_triage` persona advice,
+watchdog calibration, or the spend classification performed by `set_task_tier`.
+It uses the shared TypeSafe `jev-1.13.0` service, even with watchdog off. After
+explicit configuration and remote-context consent, it assesses user input before
+the first Hub model turn and adds process requirements; it is **active but not
+calibrated**. Selecting the foundation, having a key, `--yes`, or automatic Full
+does not grant task-context consent.
+
+### Enable and preserve the desired selection
+
+In a source checkout, use the local CLI (no publishing is implied):
+
+```bash
+# Preview only; no inference or target writes.
+node bin/cli.js setup --workspace ~/projects/my-app --preset default \
+  --features system1-task-triage --save-desired --dry-run
+
+# Separate task-context consent plus approval of the exact file plan.
+node bin/cli.js setup --workspace ~/projects/my-app --preset default \
+  --features system1-task-triage --save-desired --task-triage-consent --yes
+```
+
+For a package containing this implementation, use
+`npx @chankov/agent-fleet@<version> setup` with the same options from the target
+workspace. The checkout does not
+change an already published package. A real TTY asks separately for task-context
+consent, including Full + all features, before final exact-plan approval.
+
+`--features` names the **complete desired feature set**, not an additive toggle;
+include any features you want to keep. Over an existing `.ai/agent-fleet.json`,
+flags are temporary unless `--save-desired` is passed. Use it for persistent
+headless opt-in/disable: the shared service reads the saved desired features,
+while the consumer separately checks applied installer selection. A temporary
+opt-in can therefore install an active config while the shared service remains
+unselected. `config active` alone is not runtime readiness. Task-triage implies
+the `system1` dependency without rewriting it as a directly requested feature.
+
+Setup transactionally creates an absent consumer config and an absent nonsecret
+provider template. It does not collect a key or create `.env`. Existing human
+files, including explicit off, remain byte-for-byte unchanged: another consent
+flag does not flip them on. Runtime dependencies still require the existing
+`--allow-exec` path or `just fleet deps`; file installation is not dependency
+readiness. After persisting your selection, use `just fleet deps` or run setup
+with `--allow-exec --yes` and no replacement feature flags to retain that selection.
+Supply the key through the caller environment before launching Hub.
+
+The exact consumer v1 template is:
+
+```json
+{
+  "version": 1,
+  "mode": "experimental",
+  "remoteContextApproved": true,
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "questionVersion": "task-triage/questions/v1",
+  "policyVersion": "task-triage/policy/v1",
+  "limits": {
+    "maxTaskBytes": 40960,
+    "maxStateBytes": 65536,
+    "maxCallsPerSession": 100,
+    "timeoutMs": 2000
+  }
+}
+```
+
+Unsupported versions/fields/limits or provider/model mismatch do not become
+calibrated defaults. To turn this config off manually, retain its complete schema
+and change **both** `mode` to `"off"` and `remoteContextApproved` to `false`.
+Provider `.ai/system1.json` remains separate; provider off prevents all its
+consumers from making requests. Restart Hub to adopt configuration changes.
+
+### Input, requirements and recovery
+
+- The runtime input is user task/follow-up text plus its declared process scope.
+  The state builder supports allowlisted relative path/kind metadata, but does
+  not discover or read file bodies. Aggregate task/clarifications are limited to
+  **40 KiB UTF-8**, serialized state to **64 KiB**. Sensitive, incomplete or
+  oversized input is refused, not silently truncated; this is not a guarantee
+  that all possible private text can be detected.
+- At most **100 logical evaluations per saved session**, **2,000 ms total** per
+  evaluation including adapter retries. Identical input/scope reuses the cache;
+  task adoption/compaction/resume does not refill the budget. New scope can cause
+  a second evaluation. Physical attempts and logical calls are distinct; unknown
+  usage/cost stays unknown. These are not the separate live-pilot billing caps.
+- Requested `security_change` at **p ≥ 0.80** adds review before acceptance, not
+  before authoring. `wide_change` at **p ≥ 0.85** adds plan before dependent
+  effects plus review. `irreversible_execution` at **p ≥ 0.80** adds exact-action,
+  one-use human confirmation. Signals are independent; no multiplied score or
+  automatic tier/model/permission increase. A low score is not a safety clearance.
+- Additions retain task/evaluation/input provenance. Provider failure, low later
+  scores, disable and resume do not erase them. Classification and budgets remain
+  separate. Pending input must be bound through `set_task_tier` before dependent
+  effects; genuine new-task supersession can require human authorization.
+- For a missing plan producer, ask the human to use `/af-agents-add planner` or
+  `/af-agents-team`. For review, use `/af-agents-add code-reviewer` (or the
+  permitted plan-reviewer/security-auditor) or select a suitable roster. There is
+  no automatic roster change. Exhausted dispatch/review caps need existing
+  explicit budget continuation; refusal leaves requirements open.
+- `/af-task-triage-waive <addition-id> <reason>` asks for a correlated human
+  decision over one bound addition. It stays **waived**, never satisfied, and
+  cannot remove baseline or other-source requirements. Stale, denied, forged or
+  replayed grants do not authorize anything. `/af-task-triage-recover` retries a
+  blocked authoritative process append/readback; refusal requires session
+  inspection or valid resume, not editing JSONL.
+- Direct Hub `bash`/`edit`/`write` confirmation binds the exact tool call, input
+  fingerprint and working directory. The human question shows the **complete
+  tool inputs as JSON**, labelled data rather than instructions: bash command/
+  timeout, write path/content, or edit path/all replacements, plus cwd. The
+  complete detail block is capped at **8 KiB (8192 bytes)**; missing, invalid,
+  sensitive/credential-like/email, terminal/bidi-control, mismatched or oversized
+  details refuse authorization, **without truncation or partial redaction**.
+  Non-ASCII characters are losslessly escaped in JSON. Sensitive-text detection
+  is heuristic, not comprehensive secret/PII detection. Inputs/cwd/task/revision/
+  operation/call ID are rechecked before one-use consumption. Generic bash has
+  no new read-only exemption. Native stage-producer
+  exceptions are bounded to the existing supported path. Arbitrary child/coms/
+  remote action binding is not universally supported; a confirmation-required
+  effect without supported binding is refused. Damage-control remains separate.
+
+### Observe, disable and verify
+
+Doctor is offline advisory: it distinguishes missing/unapproved/invalid config,
+policy mismatch, provider off/missing key and locally missing canonical roles.
+`locally_ready` means no API validation; local persona files do not prove a live
+roster. Doctor/`--fix` do not activate inference or rewrite human triage/provider
+files, and do not inspect `.env` or print key values.
+
+`/af-agents-list` opens the full Fleet dashboard with session-level assessment,
+probabilities, effective obligations, active/waived additions and blockers, even
+without worker rows. Task triage is not added to the small below-editor strip.
+Fleet `1` opens the communication viewer: `e` explicitly enables memory-only
+capture, Enter inspects, left/right and Enter copy, `d` disables/clears. The
+**32 KiB viewer payload limit** is unchanged: a valid larger task may be withheld,
+not truncated. Clipboard may retain copied synthetic/sanitized data after clear.
+
+`/af-audit` exposes metadata-only evaluation/action history and unknown/degraded
+states. Observation failure does not change enforcement; authoritative state,
+grant or consumption persistence failure refuses dependent effects. Exact action
+inputs are not added to metadata audit, but the **human question is not local-only**:
+it uses the existing ask-user local/remote human route and can expose action
+paths/content to that configured human endpoint. That route, ordinary Pi tool/
+session rendering, terminal recordings and clipboard have separate privacy
+boundaries; the metadata/viewer caps do not sanitize them. Provider ok,
+assessment applied, process complete, an action grant and a tool result are
+separate facts; none by itself is independent semantic task acceptance.
+
+To stop future evaluations while keeping the human config and saved obligations:
+
+```bash
+node bin/cli.js setup --workspace ~/projects/my-app --preset default \
+  --features none --save-desired --yes
+```
+
+Use your complete remaining feature set instead of `none` if retaining other
+features. Restart/resume Hub after disabling; cancel in-flight work normally if
+immediate stopping is required. Do not delete additions or edit session JSONL to
+roll back. Re-enable only through reviewed desired selection and valid human
+consent/config; a preserved explicit off must be changed by the human.
+
+Source verification is offline: `npm run test:task-triage` runs guarded policy,
+authority, runtime, real-Pi and combined extracted-tarball/disable-resume tests;
+`npm run test:full` includes it and existing regressions. Node 18 checks CLI/doctor
+compatibility, not the TypeScript Pi runtime. A separate live pilot requires its
+own approved data/budget; offline success and UI approval do not prove accuracy,
+calibration or release readiness.
 
 ## Proactive turn review (experimental)
 

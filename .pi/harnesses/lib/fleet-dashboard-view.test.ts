@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { projectProactive } from "./fleet-read-model.ts";
+import { projectProactive, projectTaskTriage } from "./fleet-read-model.ts";
 import test from "node:test";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { dashboardTransition, renderFleetDashboard, renderProactiveHistory, FLEET_CHROME_ROWS, type DashboardControllerState } from "./fleet-dashboard-view.ts";
@@ -78,6 +78,30 @@ test("dashboard uses real cell metrics and scrubs hostile source fields before s
 	assert.ok(lines.every(line => visibleWidth(line) <= 48));
 	assert.doesNotMatch(lines.join("\n"), /\x1b\]|\x1b\[2J|work\r/);
 	assert.equal(visibleWidth(lines[2]!), 48, "selected background is padded by display cells");
+});
+
+test("task-triage dashboard shows independent signals, waived additions and blockers without inventing workers", () => {
+ const taskId = "11111111-1111-4111-8111-111111111111", inputRevision = "a".repeat(64), evaluationId = "22222222-2222-4222-8222-222222222222";
+ const taskTriage = projectTaskTriage({ taskId, inputRevision, assessment: { taskId, inputRevision, evaluationId,
+  assessment: { status: "applied", reasons: ["security_change"], probabilities: { security_change: .9, wide_change: .1, irreversible_execution: .2 }, task: "PRIVATE_TASK" } },
+  process: { schema: "agent-fleet.process-obligations/v1", risk: "low", scope: "small", budgetTier: "small", currentStage: "acceptance",
+   obligations: { risk: { status: "satisfied" }, acceptance: { status: "open" }, plan: { status: "satisfied" }, review: { status: "waived" } },
+   additions: [{ id: "b".repeat(64), taskId, inputRevision, evaluationId, reason: "security_change", status: "waived", waiverReason: "PRIVATE_REASON" }] } });
+ const lines = renderFleetDashboard({ ...vm([]), taskTriage }, 160, 10, theme, metrics);
+ const screen = lines.join("\n");
+ assert.match(screen, /Task triage.*applied.*not acceptance/);
+ assert.match(screen, /Blockers: acceptance/); assert.match(screen, /review waived/);
+ assert.match(screen, /security_change=0.9/); assert.match(screen, /security_change.*0 active.*1 waived/);
+ assert.match(screen, /Task acceptance: not_recorded/);
+ assert.doesNotMatch(screen, /PRIVATE_|✓.*applied/);
+ for (const width of [12, 40, 79, 120]) for (const body of [0, 1, 3, 10]) {
+  const frame = renderFleetDashboard({ ...vm([row("worker")]), taskTriage }, width, body, theme, metrics);
+  assert.equal(frame.length, body + FLEET_CHROME_ROWS); assert.ok(frame.every(line => visibleWidth(line) <= width));
+ }
+ const off = projectTaskTriage({ configuredStatus: "off" });
+ assert.match(renderFleetDashboard({ ...vm([]), taskTriage: off }, 160, 10, theme, metrics).join("\n"), /Task triage.*off/);
+ const pending = projectTaskTriage({ taskId, inputRevision, runtimeBlocks: ["task_transition_pending"] });
+ assert.match(renderFleetDashboard({ ...vm([]), taskTriage: pending }, 160, 10, theme, metrics).join("\n"), /task_transition_pending/);
 });
 
 const keys = (...ks: string[]) => ks.map((key) => ({ key, runToken: `${key}:1` }));

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 export function snapshotWorktree(cwd) {
  const status = gitStatus(cwd);
@@ -36,11 +36,32 @@ export function diffAgainst(snapshot, cwd) {
  } catch (error) { return { skipped: true, reason: String(error), paths: [] }; }
 }
 
+const isSessionOutput = path => path.startsWith(".pi/agent-sessions/");
+
+/** Review task edits, not outputs created inside this run's own session directory.
+ * A declared scope/deliverable under that directory is still a task edit to review.
+ * Other sessions' files and all non-session paths remain reviewable.
+ */
+export function reviewableChangedPaths(paths, cwd, sessionDir, scopes = [], deliverables = []) {
+ const sessionPath = relative(resolve(cwd), resolve(sessionDir)).replace(/\\/g, "/");
+ const ownedSession = /^\.pi\/agent-sessions\/sessions\/[^/]+$/.test(sessionPath) && !isAbsolute(sessionPath);
+ // A generic glob (for example **/*.md) does not explicitly select runtime evidence.
+ const explicitSessionScopes = scopes.filter(scope => {
+  const normalized = normalizePath(scope);
+  return normalized === sessionPath || normalized.startsWith(`${sessionPath}/`);
+ });
+ return paths.filter(path => {
+  const output = path.startsWith(`${sessionPath}/`) ? path.slice(sessionPath.length + 1) : "";
+  if (!ownedSession || !/^(?:artifacts|dispatches|transcripts|findings|delegations)\/|^(?:session|assertions)\.json$/.test(output)) return true;
+  return checkScope([path], explicitSessionScopes).inScope.length > 0 || deliverables.some(file => relative(resolve(cwd), resolve(file)) === path);
+ });
+}
+
 /** Runtime outputs are not input progress. Callers add explicitly supplied evidence separately. */
 export function worktreeRevision(cwd, scopes = []) {
  const snapshot = snapshotWorktree(cwd);
  if (snapshot.skipped) return "unavailable";
- const entries = [...snapshot.fingerprints].filter(([path]) => !path.startsWith(".pi/agent-sessions/") && (!scopes.length || checkScope([path], scopes).inScope.length)).sort(([a], [b]) => a.localeCompare(b));
+ const entries = [...snapshot.fingerprints].filter(([path]) => !isSessionOutput(path) && (!scopes.length || checkScope([path], scopes).inScope.length)).sort(([a], [b]) => a.localeCompare(b));
  return createHash("sha256").update(JSON.stringify([snapshot.head, entries])).digest("hex");
 }
 
