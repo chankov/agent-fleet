@@ -255,7 +255,7 @@ test("T11 production wiring gates operator bash edit write before execution", ()
  assert.match(indexSource, /\["bash", "edit", "write"\]/);
  assert.match(indexSource, /processPreEffectGate\(processState, "write"\)/);
  assert.match(indexSource, /block: true/);
- assert.match(indexSource, /transitionDiversionDecision\(transitionDiversions, block\.message\)/);
+ assert.match(indexSource, /transitionToolDecision\(transitionHintDelivered, transitionDiversions, block\.message\)/);
  assert.match(indexSource, /terminate: decision\.terminate/);
  assert.match(indexSource, /if \(decision\.terminate\) ctx\?\.abort\?\.\(\)/);
  assert.match(indexSource, /latestPendingTaskTransition\(sessionEntries\)/);

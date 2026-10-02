@@ -644,7 +644,7 @@ Source additions retain task/evaluation/input provenance and union with baseline
 requirements. New scope invalidates uncovered evidence. A narrow correlated
 human waiver releases one bound addition as `waived`, not `satisfied`; baseline
 and other-source requirements survive. Pending task transition and authoritative
-state/grant/consumption persistence refusal fence dependent effects. While that fence is up, `set_task_tier` and `ask_user` remain callable; any other tool is a diversion. The first diversion returns the bind hint. The second stops the turn, including a parallel batch, by aborting the run instead of repeating the same retryable refusal. The fence is persisted and restored on resume until `set_task_tier` clears it. Supported
+state/grant/consumption persistence refusal fence dependent effects. While that fence is up, `set_task_tier` and `ask_user` remain callable; any other tool is a diversion. The first assistant step that calls another tool is refused with the bind hint on every tool in that step and is not aborted, so the model can call `set_task_tier` next. A later step that still does not bind stops the turn, including its parallel batch, by aborting the run instead of repeating the same retryable refusal. The fence is persisted and restored on resume until `set_task_tier` clears it. Supported
 native planner/reviewer stages use the existing evidence path; exact-action
 confirmation supports Hub direct bash/edit/write, not arbitrary child/remote/coms
 execution. The human question shows complete tool inputs as JSON and cwd with

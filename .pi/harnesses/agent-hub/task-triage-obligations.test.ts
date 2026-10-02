@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyProcessClassification, createProcessState, evaluateProcessObligations, latestProcessState, noteProcessStage, processAuditRecord, processPreEffectGate, processActionGate, effectiveProcessStage, processTaskIdentityConflicts, activeAdditionRecoveryHints, missingProcessRoleRecoveryHints, taskTransitionRecoveryHint, transitionDiversionDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE } from "./process-obligations.ts";
+import { applyProcessClassification, createProcessState, evaluateProcessObligations, latestProcessState, noteProcessStage, processAuditRecord, processPreEffectGate, processActionGate, effectiveProcessStage, processTaskIdentityConflicts, activeAdditionRecoveryHints, missingProcessRoleRecoveryHints, taskTransitionRecoveryHint, transitionDiversionDecision, transitionToolDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE } from "./process-obligations.ts";
 import { adoptTaskTriageState, applyTaskTriageAdditions, pendingActionConfirmation, recoverTaskTriageProcessState, waiveTaskTriageAddition } from "./task-triage-obligations.ts";
 import { createTaskTriageRuntime } from "./task-triage-runtime.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -144,6 +144,12 @@ test("active additions expose exact waiver IDs, plain obligations and transition
  assert.match(firstDiversion.reason, /next tool that is not set_task_tier or ask_user stops the turn/);
  const stopped = transitionDiversionDecision(firstDiversion.nextCount, taskTransitionRecoveryHint);
  assert.equal(stopped.terminate, true);
+ const sameStep = transitionToolDecision(false, 0, taskTransitionRecoveryHint);
+ assert.equal(sameStep.terminate, undefined);
+ assert.match(sameStep.reason, /refused, not executed/);
+ assert.equal(transitionToolDecision(false, 4, taskTransitionRecoveryHint).terminate, undefined, "parallel tools in the first step must not stop the turn");
+ const laterStep = transitionToolDecision(true, sameStep.nextCount, taskTransitionRecoveryHint);
+ assert.equal(laterStep.terminate, true);
  assert.equal(stopped.nextCount, 2);
  assert.match(stopped.reason, /Turn stopped/);
  assert.match(stopped.reason, /Do not call another tool in this turn/);

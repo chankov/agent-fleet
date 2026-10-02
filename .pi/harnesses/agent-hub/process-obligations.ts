@@ -87,6 +87,13 @@ export function transitionDiversionDecision(count: number, hint: string): { next
  return { nextCount, reason: `${hint} This was diversion ${nextCount} of ${TRANSITION_DIVERSION_STOP}. The next tool that is not set_task_tier or ask_user stops the turn.` };
 }
 
+/** One assistant step may emit several tools at once. That step is a single refusal, not a stop:
+ *  aborting it prevents the model from calling set_task_tier. A later step that still does not bind stops. */
+export function transitionToolDecision(hintDelivered: boolean, count: number, hint: string): { nextCount: number; terminate?: true; reason: string } {
+ if (!hintDelivered) return { nextCount: 1, reason: `${hint} Tools in this step are refused, not executed. Call set_task_tier before any other tool. A later step that still does not bind stops the turn.` };
+ return transitionDiversionDecision(Math.max(count, 1), hint);
+}
+
 export function activeAdditionRecoveryHints(state: ProcessObligationState, taskId: string, inputRevision: string | undefined): string {
  const descriptions = {
   security_change: "Security-sensitive change: independent review before acceptance (not before authoring).",

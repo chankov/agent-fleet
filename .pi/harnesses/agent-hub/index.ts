@@ -89,7 +89,7 @@ import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { showSessionAudit } from "./session-audit.ts";
 import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
-import { createProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionDiversionDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
+import { createProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionToolDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
 import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
@@ -459,6 +459,8 @@ export default function (pi: ExtensionAPI) {
 	let processPersistenceBlocked = false;
 	let pendingTaskTransition = false;
 	let transitionDiversions = 0;
+	let transitionHintDelivered = false;
+	let transitionBatchRefused = false;
 	let orchestratorSelfReadUsed = 0;
 	const processBlock = () => processPersistenceBlocked ? { reason: "process_state_corrupt", message: "Process persistence is blocked; dependent effects remain refused. Ask the human to run /af-task-triage-recover for a checked in-session append/readback; if it refuses, inspect or resume a valid session. Never edit session JSONL or reset obligations." } : pendingTaskTransition ? { reason: "task_transition_pending", message: taskTransitionRecoveryHint } : null;
 	const persistProcessVerdict = (state: ProcessObligationState, verdict: ProcessVerdict) => {
@@ -1006,6 +1008,8 @@ export default function (pi: ExtensionAPI) {
 				});
 				pendingTaskTransition = false;
 				transitionDiversions = 0;
+				transitionHintDelivered = false;
+				transitionBatchRefused = false;
 				try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: false }); } catch { processPersistenceBlocked = true; }
 				return next;
 			},
@@ -2062,10 +2066,13 @@ export default function (pi: ExtensionAPI) {
 		const toolName = String(event.toolName || "").toLowerCase();
 		const block = processBlock();
 		// set_task_tier binds the fence. ask_user is the human supersession path. Every other tool is a diversion.
+		// The first assistant step may emit several tools together. Refuse that whole step without aborting,
+		// so the model can still call set_task_tier. Abort only a later step that ignores the hint; terminate
+		// alone cannot stop siblings whose calls already returned.
 		if (block && toolName !== "set_task_tier" && toolName !== "ask_user") {
-			const decision = transitionDiversionDecision(transitionDiversions, block.message);
+			const decision = transitionToolDecision(transitionHintDelivered, transitionDiversions, block.message);
 			transitionDiversions = decision.nextCount;
-			// terminate alone cannot stop a parallel batch whose first call already returned. Abort ends that run.
+			transitionBatchRefused = true;
 			if (decision.terminate) ctx?.abort?.();
 			return { block: true, terminate: decision.terminate, reason: decision.reason };
 		}
@@ -2232,7 +2239,7 @@ export default function (pi: ExtensionAPI) {
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		onAcceptedInput: (text, source, replayed) => {
 			if ((source === "extension" && !replayed) || !text.trim()) return;
-			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) { pendingTaskTransition = true; transitionDiversions = 0; try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: true }); } catch { processPersistenceBlocked = true; } }
+			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) { pendingTaskTransition = true; transitionDiversions = 0; transitionHintDelivered = false; transitionBatchRefused = false; try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: true }); } catch { processPersistenceBlocked = true; } }
 			hubTaskText = text;
 			taskTriage?.input(text, "interactive");
 		},
@@ -2248,6 +2255,8 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("turn_start", event => { orchestratorSelfReadUsed = 0; hubCapture.start(event.turnIndex); });
 	pi.on("turn_end", async (event, ctx) => {
+		if (transitionBatchRefused && pendingTaskTransition) transitionHintDelivered = true;
+		transitionBatchRefused = false;
 		pressureLifecycle.turnEnd(ctx);
 		const text = event.message.role === "assistant" ? event.message.content.filter(c => c.type === "text").map(c => c.text).join("") : "";
 		hubCapture.end(event.turnIndex, text);
@@ -2431,6 +2440,8 @@ export default function (pi: ExtensionAPI) {
 			// Resume restores the persisted fence. A missing entry is the legacy clear state.
 			pendingTaskTransition = latestPendingTaskTransition(sessionEntries);
 			transitionDiversions = 0;
+			transitionHintDelivered = false;
+			transitionBatchRefused = false;
 			try { processState = latestProcessState(sessionEntries); processPersistenceBlocked = false; }
 			catch { processState = createProcessState(); processPersistenceBlocked = true; }
 			taskTriage?.restore(sessionEntries);
