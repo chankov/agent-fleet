@@ -52,7 +52,7 @@ export function createRecoverState(history: readonly RecoverEvent[] = [], append
     if (attempt.category || attempt.completed || active.get(op.executor) !== attempt.attemptId) throw new Error('Invalid recovery history');
     attempt.completed = true; active.delete(op.executor); return;
    case 'failure':
-    if (attempt.category || active.get(op.executor) !== attempt.attemptId || !['not_started','invalid_input','resource_exhausted','operator_cancelled','verification_failed','tool_protocol_error','unknown_tool','indeterminate'].includes(event.category)) throw new Error('Invalid recovery history');
+    if (attempt.category || active.get(op.executor) !== attempt.attemptId || !['not_started','invalid_input','resource_exhausted','operator_cancelled','verification_failed','blocked_on_user','tool_protocol_error','unknown_tool','indeterminate'].includes(event.category)) throw new Error('Invalid recovery history');
     attempt.category = event.category; active.delete(op.executor); return;
    case 'settled':
     if (!attempt.category || attempt.settled || !nonempty(event.evidence)) throw new Error('Invalid recovery history');

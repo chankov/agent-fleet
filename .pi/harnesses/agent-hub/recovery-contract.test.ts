@@ -3,7 +3,7 @@ import test from "node:test";
 import { RECOVERY_CATEGORIES, explicitProcessLifecycle, lifecycleAfterSpawnException, recoveryCategoryFromDetails, recoveryDecision } from "./recovery-contract.ts";
 
 test("shared recovery contract covers every T1 category without retry, waiting, or a new budget", () => {
-	assert.deepEqual(RECOVERY_CATEGORIES, ["busy", "not_started", "invalid_input", "resource_exhausted", "operator_cancelled", "verification_failed", "tool_protocol_error", "unknown_tool", "indeterminate"]);
+	assert.deepEqual(RECOVERY_CATEGORIES, ["busy", "not_started", "invalid_input", "resource_exhausted", "operator_cancelled", "verification_failed", "blocked_on_user", "tool_protocol_error", "unknown_tool", "indeterminate"]);
 	for (const category of RECOVERY_CATEGORIES) {
 		const decision = recoveryDecision(category);
 		assert.equal(decision.automaticRetry, false);
@@ -53,4 +53,16 @@ test("execution details classify parent cancellation separately from child and v
 	assert.equal(recoveryCategoryFromDetails({ status: "completed_unverified", acceptanceStatus: "deliverable_failed", exitCode: 0 }), "verification_failed");
 	assert.equal(recoveryCategoryFromDetails({ status: "unknown_tool", exitCode: 1 }), "unknown_tool");
 	assert.equal(recoveryCategoryFromDetails({ status: "done", exitCode: 0 }), null);
+	assert.equal(recoveryCategoryFromDetails({ status: "blocked_on_user", questions: ["Which file?"], exitCode: 0 }), "blocked_on_user");
+	assert.notEqual(recoveryCategoryFromDetails({ status: "blocked_on_user", acceptanceStatus: "deliverable_failed", questions: ["Which file?"], exitCode: 0 }), "verification_failed");
+});
+
+test("ASK_USER is blocked_on_user and does not authorize retry", () => {
+	const decision = recoveryDecision("blocked_on_user", { explicitInvocation: true, relevantConditionsChanged: true });
+	assert.equal(decision.allowed, false);
+	assert.equal(decision.automaticRetry, false);
+	assert.equal(recoveryCategoryFromDetails({ status: "busy" }), "busy");
+	assert.equal(recoveryCategoryFromDetails({ status: "operator_cancelled" }), "operator_cancelled");
+	assert.equal(recoveryCategoryFromDetails({ status: "verification_failed", questions: [] }), "verification_failed");
+	assert.equal(recoveryCategoryFromDetails({ status: "error", exitCode: 1, dispatchId: "d" }), "indeterminate");
 });

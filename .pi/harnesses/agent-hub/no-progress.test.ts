@@ -10,6 +10,48 @@ function failed(id: string, category: any, reason = category) {
 	return { dispatchId: id, reason, category };
 }
 
+test("production re-dispatch resumes only with a USER_ANSWER marker", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "user-answer-"));
+	execFileSync("git", ["init", cwd], { stdio: "ignore" });
+	writeFileSync(join(cwd, "a.ts"), "a");
+	let calls = 0;
+	const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
+	const run = withNoProgress(d, "dispatch", async () => ({ content: [], details: { status: "blocked_on_user", recoveryCategory: "blocked_on_user", questions: ["Which file?"], exitCode: 0, dispatchId: `ask-${++calls}` } }), () => ({ model: "m" }));
+	const base: any = { agent: "builder", task: "edit", scope: ["a.ts"] };
+	await run("1", base, undefined, undefined, { cwd } as any);
+	const prose = await run("2", { ...base, task: "just continue" }, undefined, undefined, { cwd } as any);
+	assert.equal((prose.details as any).status, "no_progress_refused");
+	assert.equal(calls, 1);
+	const resumed = await run("3", { ...base, task: "USER_ANSWER: ask-1 :: Which file?" }, undefined, undefined, { cwd } as any);
+	assert.equal((resumed.details as any).status, "blocked_on_user");
+	assert.equal(calls, 2);
+});
+
+test("a recorded user answer resumes the same blocked task once", () => {
+	const guard = createNoProgressGuard();
+	const scope = ["src/adapter.ts"];
+	const first = guard.begin("edit", "model-a", "builder", scope);
+	guard.finish(first, "model-a", failed("ask-1", "blocked_on_user"));
+	assert.equal(guard.begin("edit", "model-b", "builder", scope).allowed, false, "unanswered");
+	assert.equal(guard.recordUserAnswer({ dispatchId: "ask-1", question: "Which file?", scope, prose: "just do it" }), true);
+	assert.equal(guard.begin("edit", "model-b", "builder", ["src", "secret.env"]).allowed, false, "changed scope");
+	const resumed = guard.begin("edit", "model-b", "builder", scope);
+	assert.equal(resumed.allowed, true, "answered");
+	guard.finish(resumed, "model-b", failed("ask-1b", "blocked_on_user"));
+	assert.equal(guard.begin("edit", "model-c", "builder", scope).allowed, false, "reused answer does not cover the next block");
+	const stale = guard.begin("stale", "model-a", "builder", scope);
+	guard.finish(stale, "model-a", failed("ask-3", "blocked_on_user"));
+	guard.recordUserAnswer({ dispatchId: "ask-3", question: "Still?", scope });
+	guard.adopt("other-task");
+	assert.equal(guard.begin("stale", "model-a", "builder", scope).allowed, false, "stale task");
+	const cancelled = guard.begin("cancel", "model-a", "builder", scope);
+	guard.finish(cancelled, "model-a", failed("ask-4", "blocked_on_user"));
+	guard.recordUserAnswer({ dispatchId: "ask-4", question: "Cancel?", scope });
+	assert.equal(guard.cancelUserAnswer("ask-4"), true);
+	assert.equal(guard.begin("cancel", "model-a", "builder", scope).allowed, false, "cancellation");
+	assert.deepEqual(guard.userAnswerCapabilities(), { filesystem: false, network: false, cloud: false, secrets: false });
+});
+
 test("operator cancellation requires fresh one-use authorization; model or fingerprint changes cannot bypass it", () => {
 	const guard = createNoProgressGuard();
 	const first = guard.begin("operation", "model-a");

@@ -5,6 +5,7 @@ export const RECOVERY_CATEGORIES = [
 	"resource_exhausted",
 	"operator_cancelled",
 	"verification_failed",
+	"blocked_on_user",
 	"tool_protocol_error",
 	"unknown_tool",
 	"indeterminate",
@@ -59,6 +60,8 @@ export function recoveryDecision(category: RecoveryCategory, conditions: Recover
 			return { ...base, allowed: explicit && conditions.freshOneUseAuthorization === true, nextStep: "authorize_once_and_reinvoke", reason: "operator cancellation requires fresh one-use authorization for this agent" };
 		case "verification_failed":
 			return { ...base, allowed: explicit && changed, nextStep: "correct_and_reinvoke", reason: "the checked state or evidence must have changed" };
+		case "blocked_on_user":
+			return { ...base, allowed: explicit && conditions.freshOneUseAuthorization === true, nextStep: "authorize_once_and_reinvoke", reason: "one recorded user answer may resume only the same task and scope; prose or a model switch is not authorization" };
 		case "tool_protocol_error":
 			return { ...base, allowed: explicit && changed && conditions.effectsEstablished === true, nextStep: "correct_and_reinvoke", reason: "requires the T3 trusted event/readback effects artifact plus corrected conditions; /af-retry cannot authorize this failure and already-observed effects must not be replayed blindly" };
 		case "unknown_tool":
@@ -138,6 +141,7 @@ export function recoveryCategoryFromDetails(details: any): RecoveryCategory | nu
 	}
 	if (values.some(value => value.includes("invalid_input") || value.includes("validation"))) return "invalid_input";
 	if (values.some(value => value.includes("resource_exhausted") || value.includes("out_of_memory") || value === "oom")) return "resource_exhausted";
+	if (values.some(value => value === "blocked_on_user") || (Array.isArray(details.questions) && details.questions.length > 0 && !values.some(value => value === "verification_failed"))) return "blocked_on_user";
 	if (values.some(value => value.includes("verification_failed") || value.includes("deliverable_failed"))) return "verification_failed";
 	if (values.some(value => value.includes("tool_protocol_error"))) return "tool_protocol_error";
 	if (values.some(value => value.includes("unknown_tool"))) return "unknown_tool";

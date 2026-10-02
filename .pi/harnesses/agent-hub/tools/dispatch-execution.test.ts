@@ -548,6 +548,7 @@ test("T11 real dispatch consumer refuses unknown/high-risk acceptance independen
   assert.equal((unknown.details as any).accepted, false); assert.equal((unknown.details as any).processVerdict.obligations.risk.status, "open");
  }
  const { cwd, d } = await gitDiagnosticsFixture(t); let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive boundary" }).state;
+ process = { ...process, plan: { ...process.plan, evidenceRef: "plan:approved", revision: "approved" } };
  d.state.getTaskTier = () => "small"; d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; }; d.state.persistProcessVerdict = () => {};
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "export const value = 4;\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "high-small" }; };
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
@@ -815,6 +816,7 @@ test("already-running agent rejected before prepare consumes budget or poisons t
 async function highRiskChangedFixture(t: any) {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive boundary" }).state;
+ process = { ...process, plan: { ...process.plan, evidenceRef: "plan:approved", revision: "approved" } };
  d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; }; d.state.persistProcessVerdict = () => {};
  d._agents.set("code-reviewer", { def: { name: "code-reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
@@ -846,7 +848,7 @@ test("T4 wide small: actual dispatch artifacts close plan then covered review wi
  assert.equal(process.plan.evidenceRef, (plan.details as any).returnPath);
  assert.equal((plan.details as any).processVerdict.obligations.review.status, "open");
  assert.equal((plan.details as any).accepted, false, "plan occurrence does not finish the task");
- output = "verdict: APPROVE\nCurrent src/api.ts changed scope inspected.";
+ output = "verdict: APPROVE\nCurrent src/api.ts changed scope inspected.\ntests_run: full regression";
  const review = await execute("review", { agent: "code-reviewer", task: "Review changed scope", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
  assert.equal(process.review.evidenceRef, (review.details as any).returnPath);
  assert.equal((review.details as any).processVerdict.accepted, true);
@@ -997,7 +999,7 @@ async function runtimeEvidenceReviewFixture(t: any, unrelated = false, protectEv
 test("T11 approved README review closes over generated current-session runtime evidence", async t => {
  const { cwd, d, execute, process } = await runtimeEvidenceReviewFixture(t);
  assert.deepEqual(process().changedFiles, ["README.md"]);
- d.dispatchAgent = async () => ({ output: "VERDICT: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "review-evidence" });
+ d.dispatchAgent = async () => ({ output: "VERDICT: APPROVE\ntests_run: full regression", exitCode: 0, elapsed: 1, dispatchId: "review-evidence" });
  const result = await execute("review", { agent: "code-reviewer", task: "review README", scope: ["README.md"] }, undefined, undefined, { cwd } as any);
  assert.equal((result.details as any).processVerdict.obligations.review.status, "satisfied");
  assert.equal((result.details as any).processVerdict.accepted, true);
@@ -1039,7 +1041,7 @@ test("T11 runtime evidence exclusion does not hide unrelated user source or bypa
  assert.deepEqual(staleFixture.process().changedFiles, ["README.md", "src/new-source.js"]);
  const verifiedRevision = staleFixture.process().acceptance.revision;
  writeFileSync(join(staleFixture.cwd, "README.md"), "changed after verified revision\n");
- staleFixture.d.dispatchAgent = async () => ({ output: "VERDICT: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "review-stale" });
+ staleFixture.d.dispatchAgent = async () => ({ output: "VERDICT: APPROVE\ntests_run: full regression", exitCode: 0, elapsed: 1, dispatchId: "review-stale" });
  const stale = await staleFixture.execute("stale", { agent: "code-reviewer", task: "stale", scope: ["README.md", "src/new-source.js"] }, undefined, undefined, { cwd: staleFixture.cwd } as any);
  assert.equal((stale.details as any).executionStatus, "completed", "stale review must reach the reviewer");
  assert.deepEqual((stale.details as any).processVerdict.auditScope, ["README.md", "src/new-source.js"]);
@@ -1116,4 +1118,46 @@ test("T11 unknown risk still allows research and still refuses changed-task acce
  const changed = await createDispatchExecutor(d as any)("b", { agent: "builder", task: "change" }, undefined, undefined, { cwd } as any);
  assert.equal((changed.details as any).accepted, false);
  assert.equal((changed.details as any).processVerdict.obligations.risk.status, "open");
+});
+
+test("high-risk work without an approved plan cannot skip the planner", async () => {
+ const d = prepareDeps({ agents: ["builder"] });
+ let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive" }).state;
+ d.state.getProcessState = () => process;
+ const result = await createDispatchExecutor(d as any)("high", { agent: "builder", task: "change the boundary" }, undefined, undefined, { cwd: "/tmp" } as any);
+ assert.equal((result.details as any).status, "planner_required");
+});
+
+test("secret work cannot skip the planner by calling itself small", async () => {
+ const d = prepareDeps({ agents: ["builder"] });
+ const result = await createDispatchExecutor(d as any)("secret", { agent: "builder", task: "small change to the cloud credential" }, undefined, undefined, { cwd: "/tmp" } as any);
+ assert.equal((result.details as any).status, "planner_required");
+});
+
+test("ASK_USER blocks the dispatch without a verification failure", async () => {
+ const d = prepareDeps({ agents: ["builder"] });
+ d.extractAskUserQuestions = extractAskUserQuestions;
+ let calls = 0;
+ d.dispatchAgent = async () => { calls++; return { output: "Need a decision.\nASK_USER: Which file should be edited?", exitCode: 0, elapsed: 1, dispatchId: "ask-1" }; };
+ const result = await createDispatchExecutor(d as any)("ask", { agent: "builder", task: "edit" }, undefined, undefined, { cwd: "/tmp" } as any);
+ const details = result.details as any;
+ assert.equal(details.status, "blocked_on_user");
+ assert.notEqual(details.status, "verification_failed");
+ assert.equal(details.recoveryCategory, "blocked_on_user");
+ assert.equal(details.orchestration.routingChanged, false);
+ assert.ok(details.orchestration.manifest);
+ assert.equal(calls, 1);
+ assert.deepEqual(details.questions, ["Which file should be edited?"]);
+});
+
+test("missing report stays a contract gap when ASK_USER is also present", async () => {
+ const d = prepareDeps({ agents: ["builder"] });
+ d.extractAskUserQuestions = extractAskUserQuestions;
+ d.dispatchAgent = async () => ({ output: "ASK_USER: Where is the report?", exitCode: 0, elapsed: 1, dispatchId: "ask-missing" });
+ const result = await createDispatchExecutor(d as any)("missing", { agent: "builder", task: "edit", deliverables: ["/tmp/missing-report.md"] }, undefined, undefined, { cwd: "/tmp" } as any);
+ const details = result.details as any;
+ assert.equal(details.status, "blocked_on_user");
+ assert.equal(details.acceptanceStatus, "deliverable_failed");
+ assert.equal(details.contractGap, "missing_deliverable");
+ assert.notEqual(details.recoveryCategory, "verification_failed");
 });

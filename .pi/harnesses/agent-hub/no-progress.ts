@@ -119,6 +119,8 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
     const dispatchEvidence = new Map<string, DispatchEvidence>();
     const invocations = new Map<string, NonNullable<GuardHistory['invocation']>>();
 	const cancellations = new Map<string, { executorKey: string; scope: string[]; entry: RecordedFailure }>();
+	const userGrants: { dispatchId: string; question: string; taskId: string; scope: string[]; used: boolean; cancelled: boolean }[] = [];
+	const sameScope = (left: string[], right: string[]) => JSON.stringify([...left].map(path => path.replace(/\\/g, "/")).sort()) === JSON.stringify([...right].map(path => path.replace(/\\/g, "/")).sort());
 	return {
 		taskToken: () => generation,
 		taskId: () => taskId,
@@ -130,6 +132,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 			taskIdentityPersisted = true;
 		},
 		begin(key: string, fingerprint: string, executorKey = key, scope: string[] = [], currentRevision?: string): Ticket {
+			let userGrant: (typeof userGrants)[number] | undefined;
 			const cancelled = [...cancellations.values()].filter(item => item.executorKey === executorKey);
 			const old = cancelled.find(item => !item.entry.authorized)?.entry ?? cancelled[0]?.entry ?? failures.get(key), id = {};
 			if (pendingExecutors.has(executorKey)) return { allowed: false, key, executorKey, scope, generation, id, refusal: "busy" };
@@ -148,10 +151,11 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 			if (old) {
 				const category = old.failure.category ?? "indeterminate";
 				const changed = old.fingerprint !== fingerprint || old.failure.noLaunchEstablished === true || (category === "unknown_tool" && old.failure.toolStateChanged === true);
+				userGrant = category === "blocked_on_user" ? userGrants.find(grant => grant.dispatchId === old.failure.dispatchId && !grant.used && !grant.cancelled && grant.taskId === taskId && sameScope(grant.scope, scope)) : undefined;
 				const decision = recoveryDecision(category, {
 					explicitInvocation: true,
 					relevantConditionsChanged: changed || category === "busy" || (category === 'verification_failed' && !!currentRevision && recovery.findContract(key)?.technical?.status === 'cleared' && recovery.findContract(key)?.technical?.revision === currentRevision),
-					freshOneUseAuthorization: old.authorized || (category === 'indeterminate' && recovery.findContract(key)?.grantedAttemptId === recovery.findContract(key)?.attempts.at(-1)?.attemptId),
+					freshOneUseAuthorization: old.authorized || !!userGrant || (category === 'indeterminate' && recovery.findContract(key)?.grantedAttemptId === recovery.findContract(key)?.attempts.at(-1)?.attemptId),
 					processSettled: category === 'indeterminate' && !!recovery.findContract(key)?.attempts.at(-1)?.settled,
 					indeterminateGrantUsed: category === 'indeterminate' && recovery.findContract(key)?.grantedAttemptId === recovery.findContract(key)?.attempts.at(-1)?.attemptId,
 					effectsEstablished: old.failure.effectsEstablished === true,
@@ -170,6 +174,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 			const lineageTaskId = phantomFromOtherTask ? taskId : (existing?.taskId ?? taskId);
 			const lineage = recovery.start(lineageTaskId, key, executorKey, randomUUID());
 			if (!lineage) return { allowed: false, key, executorKey, scope, generation, id, refusal: 'recovery' };
+			if (userGrant) userGrant.used = true;
             for (const item of cancelled) {
                 const failedKey = [...failures].find(([, entry]) => entry === item.entry)?.[0];
                 if (failedKey) persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'consume', key: failedKey, dispatchId: item.entry.failure.dispatchId } satisfies GuardHistory });
@@ -373,6 +378,19 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             const op = recovery.inspect(operationId), attempt = op?.attempts.at(-1);
             return !!op && op.taskId === taskId && !op.abandoned && attempt?.attemptId === attemptId && !!attempt.category && !pendingExecutors.has(op.executor) && (attempt.category === 'indeterminate' ? !!attempt.settled && !op.indeterminateGrantUsed : attempt.category === 'operator_cancelled' && !!cancellations.get(attempt.dispatchId) && !cancellations.get(attempt.dispatchId)!.entry.authorized);
         },
+		recordUserAnswer(input: { dispatchId: string; question: string; scope: string[]; prose?: string }): boolean {
+			const failure = [...failures.values()].find(entry => entry.failure.dispatchId === input.dispatchId && entry.failure.category === "blocked_on_user");
+			if (!failure || !input.question.trim() || userGrants.some(grant => grant.dispatchId === input.dispatchId && !grant.used && !grant.cancelled)) return false;
+			userGrants.push({ dispatchId: input.dispatchId, question: input.question.trim(), taskId, scope: [...input.scope], used: false, cancelled: false });
+			return true;
+		},
+		cancelUserAnswer(dispatchId: string): boolean {
+			const grant = userGrants.find(item => item.dispatchId === dispatchId && !item.used && !item.cancelled);
+			if (!grant) return false;
+			grant.cancelled = true;
+			return true;
+		},
+		userAnswerCapabilities() { return { filesystem: false, network: false, cloud: false, secrets: false } as const; },
 		authorize(dispatchId: string): boolean {
 			for (const { entry } of cancellations.values()) {
 				if (entry.failure.dispatchId !== dispatchId || entry.authorized || entry.failure.category !== "operator_cancelled") continue;
@@ -450,6 +468,8 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 			catalogVersion: (d as any).getToolCatalogVersion?.() ?? null,
 		});
 		const executorKey = canonicalExecutor(cwd, actor);
+		const userAnswer = "agent" in params ? params.task.match(/^USER_ANSWER:\s*(\S+)\s*::\s*(.+)$/m) : null;
+		if (userAnswer) d.noProgress.recordUserAnswer({ dispatchId: userAnswer[1], question: userAnswer[2].trim(), scope, prose: params.task });
 		const ticket = d.noProgress.begin(key, fingerprint(), executorKey, scope, worktreeRevision(cwd, []));
         // T2: invalid/unpersisted invocation refuses before launch with an exact reason.
         // Concurrency, interrupted append, and restore never produce duplicate execution.
