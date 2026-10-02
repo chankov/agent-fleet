@@ -110,7 +110,7 @@ export default function (pi: any) {
           : results.length === 2 && lastOk ? { tool: "bash", args: { command: process.env.TRIAGE_CHILD_CHECK } }
           : { text: results.length === 3 && lastOk ? "BUILDER FIXTURE: exact README correction and declared runtime check completed." : "BUILDER REFUSED: read, edit or check failed." }
           : role === "reviewer" ? results.length === 0 ? { tool: "read", args: { path: "README.md" } }
-          : { text: readOk ? "VERDICT: APPROVE\nchanged_files: [README.md]\nassertions_proven: []\nassertions_unproven: []\nassertions_failed: []\ntests_run: [fixture-only inspection; not an independent A1 return]\nopen_risks: []\nrequires_user_decision: []" : "VERDICT: REJECT\nassertions_unproven: [README content not verified]" }
+          : { text: readOk ? "VERDICT: APPROVE\nchanged_files: [README.md]\nassertions_proven: []\nassertions_unproven: []\nassertions_failed: []\ntests_run: full regression\nopen_risks: [fixture-only inspection; not an independent A1 return]\nrequires_user_decision: []" : "VERDICT: REJECT\nassertions_unproven: [README content not verified]" }
           : results.length ? { text: readOk ? "PLAN: Correct only wdiget renders to widget renders in README.md; preserve other bytes and verify the exact change before review." : "PLAN REFUSED: README read was not verified." }
           : { tool: "read", args: { path: "README.md" } }; 
         appendFileSync(process.env.TRIAGE_CHILD_EVENTS as string, JSON.stringify({ pid: process.pid, role, call: ++calls, tools: (ctx.tools ?? []).map((t: any) => t.name), readOk, lastOk, step: step.tool ?? "return" }) + "\n");
@@ -746,8 +746,8 @@ test("real Pi orchestrator/populated-roster, recover command, session switch and
   assert.equal(hookTypes(second).filter(h => h === "session_shutdown").length, 1, "second session shut down independently");
 });
 
-test("real Pi T4 spent small budget: human refusal starts no third child, charges nothing, and leaves review open", { timeout: 240_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "probe-second", "code-reviewer"] });
+test("real Pi T4 spent orchestrator floor: human refusal starts no fourth child, charges nothing, and leaves review open", { timeout: 240_000 }, async t => {
+  const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "probe-second", "code-reviewer", "probe-correction"] });
   writeFileSync(join(dir, "README.md"), "synthetic security review scope\n");
   const session = await startSession(t, dir, { fake: "security", decisions: ["No — stop"],
     fleetArgs: ["--solo", "--work-mode", "orchestrator", "--agent-team", "stage"], script: [
@@ -757,6 +757,7 @@ test("real Pi T4 spent small budget: human refusal starts no third child, charge
       { tool: "dispatch_agent", args: { agent: "probe-builder", backend: "native", task: "Inspect synthetic fixture A for the security change" } },
       { tool: "dispatch_agent", args: { agent: "probe-second", backend: "native", task: "Independently inspect synthetic fixture B for the security change" } },
       { tool: "dispatch_agent", args: { agent: "code-reviewer", backend: "native", task: "Review the security change", scope: ["README.md"] } },
+      { tool: "dispatch_agent", args: { agent: "probe-correction", backend: "native", task: "Apply one correction after review; this attempt is beyond the orchestrator floor" } },
       { text: "stopped" },
     ] });
   const response = await session.request("Review the high-risk security change and verify acceptance criteria in this synthetic workspace");
@@ -766,24 +767,25 @@ test("real Pi T4 spent small budget: human refusal starts no third child, charge
   assert.equal(report.success, true, JSON.stringify(report));
   const budgetEvidence = () => JSON.stringify({
     decisions: session.decisions(),
-    dispatchResults: session.contexts().flatMap(c => c.results ?? []).filter(r => /^e2e-[456]$/.test(r.id)).map(r => ({ id: r.id, status: r.details?.status, reason: r.details?.reason, recoveryCategory: r.details?.recoveryCategory, text: r.text.slice(0, 450) })),
+    dispatchResults: session.contexts().flatMap(c => c.results ?? []).filter(r => /^e2e-[4-7]$/.test(r.id)).map(r => ({ id: r.id, status: r.details?.status, reason: r.details?.reason, recoveryCategory: r.details?.recoveryCategory, text: r.text.slice(0, 450) })),
     budgetNotices: session.notifications().filter(n => /budget|dispatch|refusal|Session —/i.test(n)).map(n => n.slice(0, 450)).slice(-6),
   });
   assert.deepEqual(session.decisions().map(d => d.value), ["No — stop"], `a real Pi UI decision denied the one-click budget continuation; ${budgetEvidence()}`);
   assert.match(session.decisions()[0].title, /budget window|dispatches|budget/i, "the refused decision is the budget question, not an action confirmation");
   const calls = session.contexts();
-  // A denied budget calls ctx.abort(): Pi persists the sixth tool result and ends
-  // the turn without a seventh model invocation to carry it in ctx.messages.
-  const observedResults = session.events().filter(e => e.hook === "tool_result" && /^e2e-[1-6]$/.test(e.id));
+  // Orchestrator raises the small turn cap to 3. A denied budget calls ctx.abort():
+  // Pi persists the seventh tool result and ends the turn without an eighth model
+  // invocation to carry it in ctx.messages.
+  const observedResults = session.events().filter(e => e.hook === "tool_result" && /^e2e-[1-7]$/.test(e.id));
   const observed = () => JSON.stringify({
-    expected: { modelCalls: [1, 2, 3, 4, 5, 6], resultIds: ["e2e-4", "e2e-5", "e2e-6"], event: "tool_result", chargedDispatches: 2 },
+    expected: { modelCalls: [1, 2, 3, 4, 5, 6, 7], resultIds: ["e2e-4", "e2e-5", "e2e-6", "e2e-7"], event: "tool_result", chargedDispatches: 3 },
     modelCalls: calls.slice(0, 8).map(c => ({ call: c.call, tool: c.step?.tool })),
     toolResults: observedResults.slice(0, 8).map(e => ({ id: e.id, tool: e.tool, status: e.details?.status, reason: e.details?.reason, exitCode: e.details?.exitCode, text: e.text.slice(0, 300) })),
     decisions: session.decisions().slice(0, 3),
     budgetReport: session.notifications().filter(n => n.includes("Session —")).slice(-1).map(n => n.slice(0, 450)),
   });
-  assert.ok(calls.length >= 6, `six scripted registered tool calls reached the real Pi model; ${observed()}`);
-  for (const [id, tool] of [[4, "dispatch_agent"], [5, "dispatch_agent"], [6, "dispatch_agent"]] as const) {
+  assert.ok(calls.length >= 7, `seven scripted registered tool calls reached the real Pi model; ${observed()}`);
+  for (const [id, tool] of [[4, "dispatch_agent"], [5, "dispatch_agent"], [6, "dispatch_agent"], [7, "dispatch_agent"]] as const) {
     assert.equal(calls[id - 1]?.step?.tool, tool, `scripted call e2e-${id} requested ${tool}; ${observed()}`);
     assert.equal(observedResults.find(e => e.id === `e2e-${id}`)?.tool, tool, `registered executor returned e2e-${id}; ${observed()}`);
   }
@@ -798,18 +800,18 @@ test("real Pi T4 spent small budget: human refusal starts no third child, charge
   assert.equal(toolResult(session, 3)?.details?.reason, "process_obligations_open", `proof is blocked by effective obligations; ${registeredProof()}`);
   assert.match(toolResult(session, 3).text, /review/, `the independent review obligation is open; ${registeredProof()}`);
   const notices = session.notifications().join("\n");
-  assert.match(notices, /Session — .*2 dispatch\(es\)/, "the refused third dispatch did not inflate charged session dispatches");
+  assert.match(notices, /Session — .*3 dispatch\(es\)/, "the refused fourth dispatch did not inflate charged session dispatches");
   assert.match(notices, /1 refusal\(s\)/, "the human-denied budget attempt is reported as a refusal");
-  const refusedReview = observedResults.find(e => e.id === "e2e-6");
-  assert.match(refusedReview?.details?.status ?? "", /budget_stopped|budget_refused/, `human denial blocks the reviewer, not a substitute no-progress refusal; ${observed()}`);
-  assert.equal(refusedReview?.details?.exitCode, 1, `refused review reports failure rather than child success; ${observed()}`);
+  const refusedCorrection = observedResults.find(e => e.id === "e2e-7");
+  assert.match(refusedCorrection?.details?.status ?? "", /budget_stopped|budget_refused/, `human denial blocks the dispatch beyond the orchestrator floor, not a substitute no-progress refusal; ${observed()}`);
+  assert.equal(refusedCorrection?.details?.exitCode, 1, `refused correction reports failure rather than child success; ${observed()}`);
   assert.notEqual(toolResult(session, 3)?.details?.status, "proven", "the independent review was never marked proven");
   const sessionsRoot = join(dir, ".pi/agent-sessions/sessions");
   const dispatches = readdirSync(sessionsRoot).flatMap(id => {
     const path = join(sessionsRoot, id, "dispatches");
     return existsSync(path) ? readdirSync(path) : [];
   });
-  assert.equal(dispatches.length, 2, "only the two previously charged attempts launched; denied reviewer has no child session");
+  assert.equal(dispatches.length, 3, "only the three floor-allowed attempts launched; denied correction has no child session");
   assert.equal(toolResult(session, 3)?.details?.reason, "process_obligations_open", `no review evidence was invented; ${registeredProof()}`);
 });
 

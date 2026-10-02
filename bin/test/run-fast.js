@@ -41,7 +41,7 @@ const fastTestFiles = [
   ".pi/harnesses/agent-hub/backend-policy.test.ts",
 ];
 
-console.log(`Fast lane: ${fastTestFiles.length} focused test files; release checks use npm run test:full.`);
+console.log(`Fast lane: ${fastTestFiles.length} focused test files; release CI uses this lane. npm run test:full remains available locally.`);
 const result = spawnSync(process.execPath, ["--test", "--test-concurrency=4", "--test-timeout=30000", ...fastTestFiles], {
   cwd: root,
   stdio: "inherit",

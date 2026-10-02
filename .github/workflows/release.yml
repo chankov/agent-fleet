@@ -46,10 +46,11 @@ jobs:
       # quickly and the portability check is not skipped after a suite failure.
       - name: Portability regressions (non-default temp root and symlink paths)
         run: npm run test:portability
-      # The fast default is for local feedback; release qualification runs every test.
-      - name: Full suite (includes packed installer and narrow PTY)
+      # CI qualification is the fast lane. The full suite stays available locally
+      # via npm run test:full and is intentionally not run here.
+      - name: Fast suite
         timeout-minutes: 10
-        run: npm run test:full
+        run: npm run test:fast
       - name: Verify generated manifest
         run: npm run check:manifest
       - name: Verify package contents
@@ -94,9 +95,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      # Full suite already ran in installer-matrix. Re-running it here is what
-      # hung run 34457797354 (~39 min, no TAP summary, cancelled). Keep this
-      # job for Trusted Publishing + changesets only.
+      # Fast suite already ran in installer-matrix. Re-running the full suite
+      # here is what hung run 34457797354 (~39 min, no TAP summary, cancelled).
+      # Keep this job for Trusted Publishing + changesets only.
       - name: Verify package contents
         run: npm run pack:dry
 

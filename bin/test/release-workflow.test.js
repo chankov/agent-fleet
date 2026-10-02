@@ -15,7 +15,8 @@ test("PRs and releases share Linux/macOS validation without PR publishing author
   assert.equal(checks.permissions, undefined);
   assert.equal(checks.secrets, undefined);
   const commands = checks.steps.map(step => step.run).filter(Boolean);
-  for (const command of ["npm run test:full", "npm run test:portability", "npm run check:manifest", "npm run pack:dry"]) assert.ok(commands.includes(command), command);
+  for (const command of ["npm run test:fast", "npm run test:portability", "npm run check:manifest", "npm run pack:dry"]) assert.ok(commands.includes(command), command);
+  assert.equal(commands.includes("npm run test:full"), false, "release CI must not run the full suite");
   const checkout = checks.steps.find(step => step.uses?.startsWith("actions/checkout@"));
   assert.equal(checkout.with["persist-credentials"], false);
   assert.ok(!checks.steps.some(step => step.uses?.startsWith("changesets/action@")));

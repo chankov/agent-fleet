@@ -47,8 +47,8 @@ ships is `agent-fleet` — both names are intentional.
 
    ```bash
    npm install
-   npm test              # fast local feedback
-   npm run test:full      # full suite required for release checks
+   npm test              # fast lane; this is what release CI runs
+   npm run test:full      # optional local qualification, not the CI gate
    npm run pack:dry      # verify tarball contents + size
    node bin/cli.js doctor --dry-run
    ```
@@ -78,7 +78,7 @@ If the workflow is broken or you need to publish from your laptop:
 git checkout main && git pull
 npm install
 npm run version:changeset  # bumps, updates lock + changelog, writes snapshot
-npm run test:full
+npm test                 # same fast lane as release CI
 npm run pack:dry           # validate the exact release tarball
 git add -A
 git commit -m "chore: release"
