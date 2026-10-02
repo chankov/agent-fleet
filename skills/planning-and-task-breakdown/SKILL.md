@@ -1,6 +1,6 @@
 ---
 name: planning-and-task-breakdown
-description: Breaks work into ordered tasks and grills unspecified design forks before writing them. Use when you have a spec or clear requirements and need to break work into implementable tasks. Use when a task feels too large to start, when you need to estimate scope, when parallel work is possible, or when more than one valid approach exists and the plan must lock a choice.
+description: Breaks work into a sequential implementation plan and grills unspecified design forks before writing tasks. Use when you have a spec or clear requirements and need locally verifiable implementation tasks. A plan is an implementation plan unless the human explicitly asks for another kind. Close one task before starting the next. Do not include environment, operator, deploy, publish, activation, or rollout work.
 ---
 
 # Planning and Task Breakdown
@@ -9,11 +9,16 @@ description: Breaks work into ordered tasks and grills unspecified design forks 
 
 Decompose work into small, verifiable tasks with explicit acceptance criteria. Good task breakdown is the difference between an agent that completes work reliably and one that produces a tangled mess. Every task should be small enough to implement, test, and verify in a single focused session.
 
+Unless the human explicitly asks for another kind of plan (research, migration design, retirement, or a deployment checklist), the plan is an **implementation plan**: ordered work to implement the stated requirements and verify them locally. Do not add a rollout, publish, delivery, or deployment phase. Do not add any task whose closure requires an environment, an operator, deploy, publish, activation, a post-deploy script, live mail, a live queue, or any other runtime that is not a local check. Those items are not numbered tasks. Mention them at most once, under "Out of scope / noticed", as belonging to a separate deployment checklist. Do not write that checklist unless the human explicitly asked for a deployment plan.
+
+Tasks are a sequence, not a parallel batch. Close task N — its acceptance criteria met and its local verification done — before starting task N+1. A checkpoint is a gate after closed tasks, not permission to run several tasks at once. Vertical slices describe the shape of each task (one complete, locally testable path). They are not permission to execute slices in parallel. Parallel execution is allowed only when the human explicitly asks for it.
+
+Do not choose how the plan will be executed. Do not ask whether to run it slice by slice or at once, and do not infer that from plan size or a worktree. Do not write `Execution: whole-plan` yourself. At execution time, `incremental-implementation` keeps per-slice human review unless the operator explicitly requests whole-plan execution. A checkpoint's human review applies only to that default. When the operator has already opted in, a checkpoint is local verification only. An unresolved plan or PRD problem during execution still interrupts and is grilled with `ask_user`. This skill does not waive that.
+
 ## When to Use
 
 - You have a spec and need to break it into implementable units
 - A task feels too large or vague to start
-- Work needs to be parallelized across multiple agents or sessions
 - You need to communicate scope to a human
 - The implementation order isn't obvious
 - More than one valid approach, a contradiction, or competing code patterns must be locked before tasks are written
@@ -35,7 +40,8 @@ Rules that follow from this:
 - **Never write a plan longer than the work it plans.** If the plan document would take longer to read than the change takes to make, it is the wrong artifact.
 - **A safety requirement is a task, not a subsystem.** "Don't remove existing permissions" is one acceptance criterion with one verification step — not a hash-pinned manifest, an immutable evidence namespace, and a fixture suite. Provenance machinery is warranted only when the human asked for an audit trail or the change is irreversible at scale.
 - **Plan the ask, not the neighbourhood.** Adjacent problems you notice go in a short "Out of scope / noticed" list at the end for the human to decide on. They do not become tasks.
-- **Split by phase when the phases have different owners.** Repository work, cloud/infrastructure preparation, deployment, and retirement belong in separate plans: bundling them means the whole plan is blocked on whichever phase stalls, and every review re-reads all of it.
+- **Split by phase when the phases have different owners.** Repository work, cloud/infrastructure preparation, deployment, and retirement belong in separate plans only when the human explicitly asks for that other plan. An implementation plan does not include those phases. Bundling them blocks the whole plan on whichever phase stalls, and every review re-reads all of it.
+- **No task that cannot close locally.** If closing the task needs a deployed or shared environment, an operator action, schema publish, a post-deploy script, activation, live mail, or a live queue, it is not an implementation task. Naming it "verification", "follow-up", or "rollout" does not make it one. Leave it off the task list.
 - **Review findings do not silently enlarge the plan.** When a plan revision adds requirements nobody asked for, say so explicitly and let the human accept or drop them.
 - **Unspecified forks still get grilled.** Skipping a plan file does not skip a load-bearing choice. Already-stated requirements (chat, prompt, PRD, rules) are not re-asked.
 
@@ -129,7 +135,9 @@ Task 3: User can create a task (task schema + API + UI for creation)
 Task 4: User can view task list (query + API + UI for list view)
 ```
 
-Each vertical slice delivers working, testable functionality.
+Each vertical slice delivers working, locally testable functionality. "Locally testable" means tests, builds, and checks that run without a deployed environment or an operator.
+
+Execute slices strictly in order. Finish and close one slice — acceptance criteria and local verification — before opening the next. Do not schedule independent slices as a parallel batch. Looking independent is not permission to parallelize.
 
 ### Step 4: Write Tasks
 
@@ -147,9 +155,11 @@ Each task follows this structure, whether it lands in the plan's `## Task List`,
 **Verification:**
 - [ ] Tests pass: [the project's `quality:` command, or the repository's focused-test command]
 - [ ] Build succeeds: [the repository's build command]
-- [ ] Manual check: [description of what to verify]
+- [ ] Local manual check, if needed: [description of what to verify without an environment or an operator]
 
 **Dependencies:** [Task numbers this depends on, or "None"]
+
+**Closes locally:** Yes. Acceptance and verification use only local tests, builds, and static checks. If this task cannot close without an environment, an operator, deploy, publish, activation, a post-deploy script, live mail, or a live queue, delete it from this plan.
 
 **Files likely touched:**
 - `src/path/to/file.ts`
@@ -162,8 +172,9 @@ Arrange tasks so that:
 
 1. Dependencies are satisfied (build foundation first)
 2. Each task leaves the system in a working state
-3. Verification checkpoints occur after every 2-3 tasks
+3. Verification checkpoints occur after every 2-3 closed tasks
 4. High-risk tasks are early (fail fast)
+5. The next task does not start until the previous task is closed. Do not mark a set of tasks as parallelizable unless the human explicitly asked for parallel execution
 
 Add explicit checkpoints to the task list target:
 
@@ -171,8 +182,9 @@ Add explicit checkpoints to the task list target:
 ## Checkpoint: After Tasks 1-3
 - [ ] All tests pass
 - [ ] Application builds without errors
-- [ ] Core user flow works end-to-end
-- [ ] Review with human before proceeding
+- [ ] Core user flow works end-to-end in local tests or a local run
+- [ ] Review with human before starting the next task (default execution only; when the operator has explicitly requested whole-plan execution, this line is local verification only)
+- [ ] No later task was started before this checkpoint's tasks were closed
 ```
 
 ## Task Sizing Guidelines
@@ -199,12 +211,14 @@ If a task is 5-8 files (Multi-component feature , such as Search with filtering 
 
 ## Task List
 
+Execution is strictly sequential. Close one task before starting the next. No parallel batch.
+
 ### Phase 1: Foundation
 - [ ] Task 1: ...
 - [ ] Task 2: ...
 
 ### Checkpoint: Foundation
-- [ ] Tests pass, builds clean
+- [ ] Local tests pass, builds clean
 
 ### Phase 2: Core Features
 - [ ] Task 3: ...
@@ -232,13 +246,13 @@ If a task is 5-8 files (Multi-component feature , such as Search with filtering 
 
 When tasks live in an external tracker, keep the Task List section above as an ordered index of tracker item IDs or links instead of a duplicate checklist.
 
-## Parallelization Opportunities
+## Parallel execution is not the default
 
-When multiple agents or sessions are available:
+Do not plan tasks for parallel agents or sessions unless the human explicitly asks for parallel execution.
 
-- **Safe to parallelize:** Independent feature slices, tests for already-implemented features, documentation
-- **Must be sequential:** Database migrations, shared state changes, dependency chains
-- **Needs coordination:** Features that share an API contract (define the contract first, then parallelize)
+- **Default:** one ordered sequence. Close the current task before starting the next, including when several slices look independent.
+- **Explicit parallel request only:** the human asked to parallelize. Even then, database migrations, shared-state changes, and dependency chains stay sequential. No parallel task may require an environment, an operator, deploy, or publish to close.
+- **Deployment checklist:** not part of an implementation plan. Write one only when the human explicitly asks for a deployment or rollout plan. Do not append environment verification, operator actions, publish, activation, or delivery as the next numbered tasks.
 
 ## Common Rationalizations
 
@@ -252,6 +266,10 @@ When multiple agents or sessions are available:
 | "The PRD already covers everything, no need to grill" | Then grilling produces zero questions. Still run the inventory so silent forks do not slip through. |
 | "I'll pick the obvious variant and note it in Architecture Decisions" | If more than one variant exists and none was mandated, it is not obvious to the programmer who was not in the room. Ask, then record the choice. |
 | "Re-confirming the PRD points shows thoroughness" | Re-asking settled requirements wastes the user and implies the agent did not read them. Skip them. |
+| "These slices are independent, so plan them in parallel" | Independence is not permission. Close one slice before the next unless the human explicitly asked to parallelize. |
+| "The plan is small, or it will run on a worktree, so I'll record whole-plan" | No. The operator writes that opt-in. The planner does not ask which execution mode to use and does not infer it. |
+| "The next tasks are just environment verification, not rollout" | If a task cannot close without an environment or an operator, it is not an implementation task. It belongs on a separate deployment checklist, not in this plan. |
+| "The requirements mention deploy, so the implementation plan should include it" | A mention of deploy, publish, or delivery does not add those phases. Record them once under Out of scope unless the human explicitly asked for a deployment plan. |
 
 ## Red Flags
 
@@ -266,6 +284,12 @@ When multiple agents or sessions are available:
 - Writing tasks that silently pick a library, pattern, or behavior not mandated in chat/PRD/rules
 - Re-asking a requirement already explicit in chat, prompt, PRD, spec, or rules
 - Leaving an unspecified fork as an Open Question without asking
+- Planning tasks as a parallel batch without an explicit human request to parallelize
+- Asking, during planning, whether to execute the plan at once
+- Writing `Execution: whole-plan` into the plan to waive the human review gate
+- A rollout, publish, delivery, or deployment phase in an implementation plan
+- A numbered task whose closure needs an environment, an operator, deploy, publish, activation, a post-deploy script, live mail, or a live queue
+- Numbering deployment-checklist items as implementation tasks, including under a "verification" or "follow-up" heading
 
 ## Verification
 
@@ -283,6 +307,11 @@ Before starting implementation, confirm:
 - [ ] Already-stated requirements (chat, prompt, PRD, spec, rules) were not re-asked
 - [ ] Each remaining load-bearing decision has an accepted/rejected/deferred status in the plan
 - [ ] No open questions left (All are resolved/answered/commented)
+- [ ] The plan is an implementation plan unless the human explicitly asked for another kind
+- [ ] Every task can close with local tests, builds, or static checks
+- [ ] No task requires an environment, an operator, deploy, publish, activation, a post-deploy script, live mail, or a live queue
+- [ ] Rollout, publish, delivery, and deployment are absent from the task list; if noticed, they appear at most once under Out of scope
+- [ ] Tasks are ordered for sequential execution: each task closes before the next starts, unless the human explicitly asked to parallelize
 
 ## See Also
 

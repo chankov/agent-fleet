@@ -31,7 +31,7 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 
 | Skill | What It Does | Use When |
 |-------|-------------|----------|
-| [incremental-implementation](../skills/incremental-implementation/SKILL.md) | Thin vertical slices - implement, test, verify, commit. Feature flags, safe defaults, rollback-friendly changes | Any change touching more than one file |
+| [incremental-implementation](../skills/incremental-implementation/SKILL.md) | Thin vertical slices - implement, test, verify, review. An explicit whole-plan opt-in skips per-slice approval only; an unresolved plan or PRD problem still interrupts for grilling and ask_user. Feature flags, safe defaults, rollback-friendly changes | Any change touching more than one file, or an explicit request to execute a whole plan at once |
 | [test-driven-development](../vendor/agent-skills-upstream/skills/test-driven-development/SKILL.md) | Red-Green-Refactor, test pyramid (80/15/5), test sizes, DAMP over DRY, Beyonce Rule, browser testing | Implementing logic, fixing bugs, or changing behavior |
 | [context-engineering](../skills/context-engineering/SKILL.md) | Feed agents the right information at the right time - rules files, context packing, MCP integrations | Starting a session, switching tasks, or when output quality drops |
 | [source-driven-development](../vendor/agent-skills-upstream/skills/source-driven-development/SKILL.md) | Ground every framework decision in official documentation - verify, cite sources, flag what's unverified | You want authoritative, source-cited code for any framework or library |

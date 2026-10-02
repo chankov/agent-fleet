@@ -43,7 +43,7 @@ export function dispatchFragment(fleetActive: boolean, askUserAvailable: boolean
 - For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
 - After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
   the result \`details.questions\`). For each one: call \`ask_user\` in ${userLanguage},
-  then re-dispatch the specialist with a line `USER_ANSWER: <dispatchId> :: <question>`. Prose alone does not authorize the resume.`
+  then re-dispatch the specialist with a line \`USER_ANSWER: <dispatchId> :: <question>\`. Prose alone does not authorize the resume.`
 		: `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
   ways, STATE your assumption explicitly in ${userLanguage} and wait for the user
   to correct it. Never invent constraints or "reasonable defaults" silently.

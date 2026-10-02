@@ -61,8 +61,10 @@ function digest(text: string): string {
 
 test("full extracted Hub prompt preserves exact text, ordering, and ledger", () => {
 	const built = buildHubSystemPrompt(fixture());
-	assert.equal(digest(built.systemPrompt), "8131c54a45e5b46578203dfd1842f27a51e155136990f017b1e8be626d5908dd");
+	assert.equal(digest(built.systemPrompt), "06b540cb0b1321af5aceb31f9ae26249952f9a9b76b658f99eb3b2a3e863c436");
 	assert.match(built.systemPrompt, /Optionally use `dispatch_triage`/);
+	assert.match(built.systemPrompt, /re-dispatch the specialist with a line `USER_ANSWER: <dispatchId> :: <question>`\. Prose alone does not authorize the resume/);
+	assert.doesNotMatch(built.systemPrompt, /with the answer\./);
 	assert.match(built.systemPrompt, /risk high; scope small; open obligations: review/);
 	assert.match(built.systemPrompt, /correctness obligations are independent of tier/);
 	assert.deepEqual(built.ledger.map(entry => entry.id), [
@@ -96,7 +98,7 @@ test("trusted tool catalog producer and refusal state survive the production pro
 
 test("language and unavailable ask_user branch preserve exact prompt text", () => {
 	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "2bf73e013c05922f968e30dddb79a0beb6518efc3bb5fd92f51e63f1195d011b");
+	assert.equal(digest(built.systemPrompt), "3a63681f54396ad07af9b6415c6df2b7af89c13bcb3b5bc4ace71b219193e336");
 	assert.match(built.systemPrompt, /ask_user is NOT available/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);

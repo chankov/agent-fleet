@@ -47,6 +47,7 @@ Two kinds of native skills exist:
   `incremental-implementation/`, `interview-me/`,
   `planning-and-task-breakdown/`, `spec-driven-development/`,
   `using-agent-skills/`.
+  `incremental-implementation` also has a Fleet-only whole-plan opt-in: an explicit operator request may run an implementation plan in one pass without per-slice approval. An unresolved problem in the plan or PRD still interrupts execution and goes through grilling and `ask_user`.
 - **Shadows carrying no customization.** As of the `6ca0cd7` import,
   `code-review-and-quality/`, `deprecation-and-migration/`,
   `frontend-ui-engineering/`, `performance-optimization/`, and

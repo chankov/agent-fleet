@@ -151,7 +151,7 @@ For a complete feature, the typical skill sequence is:
 4.  planning-and-task-breakdown → Break into verifiable chunks
 5.  context-engineering         → Load the right context
 6.  source-driven-development   → Verify against official docs
-7.  incremental-implementation  → Build slice by slice
+7.  incremental-implementation  → Build slice by slice; whole-plan only on an explicit operator request
 8.  observability-and-instrumentation → Instrument as you build (runs parallel with 7-9, not after)
 9.  doubt-driven-development    → Cross-examine non-trivial decisions in-flight
 10. test-driven-development     → Prove each slice works
@@ -174,7 +174,7 @@ Not every task needs every skill. A bug fix might only need: `debugging-and-erro
 | Define | idea-refine | Refine ideas through structured divergent and convergent thinking |
 | Define | spec-driven-development | Requirements and acceptance criteria before code |
 | Plan | planning-and-task-breakdown | Decompose into small, verifiable tasks |
-| Build | incremental-implementation | Thin vertical slices, test each before expanding |
+| Build | incremental-implementation | Thin vertical slices, test each before expanding; an explicit whole-plan opt-in skips per-slice approval only, not grilling |
 | Build | source-driven-development | Verify against official docs before implementing |
 | Build | doubt-driven-development | Adversarial fresh-context review of every non-trivial decision |
 | Build | context-engineering | Right context at the right time |
