@@ -11,6 +11,8 @@ export function createTriageRuntime(deps: { config: TriageConfig | null; service
  return {
   get calls() { return calls; },
   get orchestratorBeforeDispatch() { return !disposed && deps.config?.mode === "advisory" && deps.config.remoteContextApproved && deps.config.orchestratorBeforeDispatch === true && !!deps.service && calls < deps.config.maxCalls; },
+  /** Model-visible only when a call can do more than return consumer_off. */
+  get available() { return !disposed && !!deps.config && deps.config.mode !== "off" && deps.config.remoteContextApproved && !!deps.service; },
   dispose() { disposed = true; abort.abort(); evaluations.clear(); },
   disposition(id: string, persona: string, reason: string) {
    const e = evaluations.get(id);

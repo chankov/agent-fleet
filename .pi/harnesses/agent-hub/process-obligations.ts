@@ -67,6 +67,25 @@ export function missingProcessRoleRecoveryHints(state: ProcessObligationState, r
 }
 
 export const taskTransitionRecoveryHint = "Pending task transition: before dependent effects, call set_task_tier with the current tier and explicit risk/scope to bind this input to the same task; for a genuinely different task use new_task: true with a reason and obtain human supersession authorization if prior obligations are open. Do not waive while pending; bind first, then use only active addition IDs for the bound task.";
+export const TASK_TRANSITION_ENTRY_TYPE = "agent-hub-task-transition";
+export const TRANSITION_DIVERSION_STOP = 2;
+
+/** Resume keeps an unbound transition fenced. A missing entry is the legacy clear state; a corrupt entry fails closed. */
+export function latestPendingTaskTransition(entries: readonly unknown[]): boolean {
+ for (let i = entries.length - 1; i >= 0; i--) {
+  const entry = entries[i] as { type?: unknown; customType?: unknown; data?: { pending?: unknown } } | null;
+  if (!entry || entry.type !== "custom" || entry.customType !== TASK_TRANSITION_ENTRY_TYPE) continue;
+  return entry.data?.pending !== false;
+ }
+ return false;
+}
+
+/** First non-recovery tool while a transition is pending gets the hint. The next one stops the turn. */
+export function transitionDiversionDecision(count: number, hint: string): { nextCount: number; terminate?: true; reason: string } {
+ const nextCount = count + 1;
+ if (nextCount >= TRANSITION_DIVERSION_STOP) return { nextCount, terminate: true, reason: `Turn stopped after ${nextCount} tool calls while a task transition was pending. ${hint} Do not call another tool in this turn.` };
+ return { nextCount, reason: `${hint} This was diversion ${nextCount} of ${TRANSITION_DIVERSION_STOP}. The next tool that is not set_task_tier or ask_user stops the turn.` };
+}
 
 export function activeAdditionRecoveryHints(state: ProcessObligationState, taskId: string, inputRevision: string | undefined): string {
  const descriptions = {

@@ -178,7 +178,7 @@ harnesses:
 - **Two live Work Modes** — bare `just fleet` starts as an operator with direct coding tools and an
   empty native roster; `/af-work-mode operator|orchestrator` switches prompt and tool surface without
   restarting or losing session state, while `/af-work-mode` without an argument and **Alt+M** open
-  the picker. Orchestrator removes direct coding tools. Budgets and nested delegation follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
+  the picker. Orchestrator removes `bash`/`edit`/`write`, keeps read-only `filesystem` inspection, refuses self-read above 64 KiB per file or per turn, and raises a trivial/small turn to at least 3 dispatches unless a lower ceiling is configured. A pending task transition lets `set_task_tier` and `ask_user` through; the second other tool call stops the turn, including a parallel batch, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
   refuse actionably.
 - **Fleet widget** — **`Alt+I`**, registered through Pi's shortcut API, expands or collapses the
   bounded below-editor fleet view when its focus, empty-editor, autocomplete/modal, row, and height

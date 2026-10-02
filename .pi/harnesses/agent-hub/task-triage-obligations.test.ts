@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyProcessClassification, createProcessState, evaluateProcessObligations, latestProcessState, noteProcessStage, processAuditRecord, processPreEffectGate, processActionGate, effectiveProcessStage, processTaskIdentityConflicts, activeAdditionRecoveryHints, missingProcessRoleRecoveryHints, taskTransitionRecoveryHint } from "./process-obligations.ts";
+import { applyProcessClassification, createProcessState, evaluateProcessObligations, latestProcessState, noteProcessStage, processAuditRecord, processPreEffectGate, processActionGate, effectiveProcessStage, processTaskIdentityConflicts, activeAdditionRecoveryHints, missingProcessRoleRecoveryHints, taskTransitionRecoveryHint, transitionDiversionDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE } from "./process-obligations.ts";
 import { adoptTaskTriageState, applyTaskTriageAdditions, pendingActionConfirmation, recoverTaskTriageProcessState, waiveTaskTriageAddition } from "./task-triage-obligations.ts";
 import { createTaskTriageRuntime } from "./task-triage-runtime.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -137,6 +137,20 @@ test("active additions expose exact waiver IDs, plain obligations and transition
  assert.match(hint, /wide change.*plan before effects.*review before acceptance/i);
  assert.match(hint, /irreversible execution.*exact.*human confirmation before each effect/i);
  assert.match(taskTransitionRecoveryHint, /pending task transition.*set_task_tier.*new_task: true.*human supersession/i);
+ const firstDiversion = transitionDiversionDecision(0, taskTransitionRecoveryHint);
+ assert.equal(firstDiversion.terminate, undefined);
+ assert.equal(firstDiversion.nextCount, 1);
+ assert.match(firstDiversion.reason, /set_task_tier/);
+ assert.match(firstDiversion.reason, /next tool that is not set_task_tier or ask_user stops the turn/);
+ const stopped = transitionDiversionDecision(firstDiversion.nextCount, taskTransitionRecoveryHint);
+ assert.equal(stopped.terminate, true);
+ assert.equal(stopped.nextCount, 2);
+ assert.match(stopped.reason, /Turn stopped/);
+ assert.match(stopped.reason, /Do not call another tool in this turn/);
+ assert.equal(latestPendingTaskTransition([]), false);
+ assert.equal(latestPendingTaskTransition([{ type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: true } }]), true);
+ assert.equal(latestPendingTaskTransition([{ type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: true } }, { type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: false } }]), false);
+ assert.equal(latestPendingTaskTransition([{ type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: "bad" } }]), true);
  assert.doesNotMatch(activeAdditionRecoveryHints(state, "another-task", binding.inputRevision), /\/af-task-triage-waive/);
  const stale = activeAdditionRecoveryHints(state, binding.taskId, "new-input");
  assert.match(stale, /Waiver unavailable for this input revision/);

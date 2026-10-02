@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { decodeDeterministicHandle } from "../lib/deterministic-handle-path.ts";
 export { deterministicHandlePath } from "../lib/deterministic-handle-path.ts";
@@ -23,11 +23,52 @@ function checkedExisting(path: string, allowedRoot = dirname(resolve(path))): st
  if (!within(rootReal, cursorReal)) throw new Error(`Symlink escape outside allowed root: ${path}`);
  return lexical;
 }
+function hashAndSize(path: string): { size: number; hash: string } {
+ const fd = openSync(path, "r");
+ try {
+  const size = fstatSync(fd).size, hash = createHash("sha256"), chunk = Buffer.alloc(64 * 1024);
+  let offset = 0;
+  while (offset < size) {
+   const n = readSync(fd, chunk, 0, Math.min(chunk.length, size - offset), offset);
+   if (n <= 0) break;
+   hash.update(chunk.subarray(0, n));
+   offset += n;
+  }
+  return { size, hash: hash.digest("hex") };
+ } finally { closeSync(fd); }
+}
+function readWindow(path: string, offset: number, length: number): Buffer {
+ const fd = openSync(path, "r");
+ try {
+  const buf = Buffer.alloc(length);
+  let filled = 0;
+  while (filled < length) {
+   const n = readSync(fd, buf, filled, length - filled, offset + filled);
+   if (n <= 0) break;
+   filled += n;
+  }
+  return buf.subarray(0, filled);
+ } finally { closeSync(fd); }
+}
+function lineAtFile(path: string, offset: number): number {
+ if (offset <= 0) return 1;
+ const fd = openSync(path, "r");
+ try {
+  const chunk = Buffer.alloc(64 * 1024);
+  let seen = 0, lines = 1;
+  while (seen < offset) {
+   const n = readSync(fd, chunk, 0, Math.min(chunk.length, offset - seen), seen);
+   if (n <= 0) break;
+   for (let i = 0; i < n; i++) if (chunk[i] === 10) lines++;
+   seen += n;
+  }
+  return lines;
+ } finally { closeSync(fd); }
+}
 function fileState(path: string, allowedRoot?: string) {
  const checked = checkedExisting(path, allowedRoot);
  if (!existsSync(checked) || !statSync(checked).isFile()) throw new Error(`Not a regular file: ${path}`);
- const bytes = readFileSync(checked);
- return { path: checked, bytes, hash: sha256(bytes) };
+ return { path: checked, ...hashAndSize(checked) };
 }
 function directoryState(root: string) {
  const checked = checkedExisting(root, root);
@@ -49,8 +90,6 @@ function directoryState(root: string) {
 function utf8Preview(bytes: Buffer, chars = PREVIEW_CHARS): string {
  return [...bytes.toString("utf8")].slice(0, chars).join("");
 }
-function lineAt(bytes: Buffer, offset: number): number { return offset === 0 ? 1 : bytes.subarray(0, offset).toString("utf8").split("\n").length; }
-
 export function inventory(input: { root: string; handle?: string; pageSize?: number; boundedOutput?: boolean; followSymlinkEscape?: boolean }) {
  if (input.followSymlinkEscape) throw new Error("Symlink escape following is forbidden");
  const state = directoryState(input.root);
@@ -75,12 +114,12 @@ export function excerpt(input: { path: string; allowedRoot?: string; handle?: st
   if (handle.kind !== "file" || resolve(handle.path) !== state.path || handle.hash !== state.hash) throw new Error("Stale file handle");
   offset = handle.offset;
  }
- if (!Number.isSafeInteger(offset) || offset < 0 || offset > state.bytes.length) throw new Error("Invalid excerpt offset");
- const requested = input.maxBytes ?? (input.boundedOutput === false ? state.bytes.length : CONTENT_REPLY_BYTES);
+ if (!Number.isSafeInteger(offset) || offset < 0 || offset > state.size) throw new Error("Invalid excerpt offset");
+ const requested = input.maxBytes ?? (input.boundedOutput === false ? state.size : CONTENT_REPLY_BYTES);
  const maxBytes = input.boundedOutput === false ? requested : Math.min(requested, CONTENT_REPLY_BYTES);
- const content = state.bytes.subarray(offset, Math.min(state.bytes.length, offset + maxBytes));
- const nextOffset = offset + content.length, nextHandle = nextOffset < state.bytes.length ? encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset: nextOffset }) : null;
- return { path: state.path, reference: `${state.path}:${lineAt(state.bytes, offset)}`, hash: state.hash, offset, content: Buffer.from(content), contentBytes: content.length, totalBytes: state.bytes.length, preview: utf8Preview(content, Math.min(input.previewChars ?? PREVIEW_CHARS, PREVIEW_CHARS)), onDiskHandle: encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset }), nextHandle, truncated: nextHandle !== null, untrusted: true, modelDelegated: false };
+ const content = readWindow(state.path, offset, Math.min(maxBytes, state.size - offset));
+ const nextOffset = offset + content.length, nextHandle = nextOffset < state.size ? encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset: nextOffset }) : null;
+ return { path: state.path, reference: `${state.path}:${lineAtFile(state.path, offset)}`, hash: state.hash, offset, content: Buffer.from(content), contentBytes: content.length, totalBytes: state.size, preview: utf8Preview(content, Math.min(input.previewChars ?? PREVIEW_CHARS, PREVIEW_CHARS)), onDiskHandle: encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset }), nextHandle, truncated: nextHandle !== null, untrusted: true, modelDelegated: false };
 }
 
 export function readback(input: { handle: string; expectedHash?: string; allowedRoot?: string; maxBytes?: number; boundedOutput?: boolean }) {
@@ -105,9 +144,9 @@ export function snapshotSource(input: { origin: "file"; path: string; allowedRoo
   if (existing.hash !== state.hash) throw new Error(`Snapshot collision or stale target: ${contentPath}`);
  }
  const metadataPath = `${contentPath}.json`;
- if (!existsSync(metadataPath)) writeFileSync(metadataPath, JSON.stringify({ source: { origin: "file", path: state.path, bytes: state.bytes.length }, sha256: state.hash, contentPath, untrusted: true, modelDelegated: false }, null, 2), { mode: 0o600 });
+ if (!existsSync(metadataPath)) writeFileSync(metadataPath, JSON.stringify({ source: { origin: "file", path: state.path, bytes: state.size }, sha256: state.hash, contentPath, untrusted: true, modelDelegated: false }, null, 2), { mode: 0o600 });
  else checkedExisting(metadataPath, root);
- return { source: { origin: "file" as const, path: state.path, bytes: state.bytes.length }, hash: state.hash, contentPath, metadataPath, handle: encode({ v: 1, kind: "file", path: contentPath, hash: state.hash, offset: 0 }), untrusted: true, modelDelegated: false };
+ return { source: { origin: "file" as const, path: state.path, bytes: state.size }, hash: state.hash, contentPath, metadataPath, handle: encode({ v: 1, kind: "file", path: contentPath, hash: state.hash, offset: 0 }), untrusted: true, modelDelegated: false };
 }
 
 function utf8Prefix(buffer: Buffer, maxBytes: number): Buffer {

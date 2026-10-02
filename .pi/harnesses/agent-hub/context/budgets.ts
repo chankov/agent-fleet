@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
-	DEFAULT_TASK_TIER, budgetStatusLine, closeTaskClock, resetTaskClock,
+	DEFAULT_TASK_TIER, budgetStatusLine, closeTaskClock, orchestratorTurnBudget, resetTaskClock,
 	resolveTaskBudget, resolveTurnBudget, taskClockElapsedMs,
 } from "../run-budget.js";
 import { buildBudgetContinuationAudit, buildHubAuditIdentity, buildTaskResetAudit } from "../hub-state-audit.js";
@@ -68,6 +68,7 @@ export interface BudgetStatePorts {
 	getAuditContext(): { cwd?: string; sessionId?: string; project?: string };
 	appendEntry(type: string, data: unknown): void;
 	executionHistory: ExecutionHistoryStore;
+	getWorkMode?(): string;
 }
 
 export interface BudgetContext {
@@ -99,8 +100,9 @@ export function createSessionTotals(): SessionTotals {
 }
 
 export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
-	const currentBudget = () => resolveTurnBudget(state.getTaskTier() ?? DEFAULT_TASK_TIER, state.getBudgetOverrides());
-	const currentTaskBudget = () => resolveTaskBudget(currentBudget());
+	const tierTurnBudget = () => resolveTurnBudget(state.getTaskTier() ?? DEFAULT_TASK_TIER, state.getBudgetOverrides());
+	const currentBudget = () => orchestratorTurnBudget(tierTurnBudget(), state.getWorkMode?.() ?? "operator", state.getBudgetOverrides().maxDispatches);
+	const currentTaskBudget = () => resolveTaskBudget(tierTurnBudget());
 	const taskCounters = () => ({ dispatches: state.getTaskDispatchCount(), research: state.getTaskResearchCount() });
 	const taskActiveElapsedMs = (now = Date.now()) => taskClockElapsedMs(state.getTaskClock(), now, state.executionHistory.openAskUserWaitMs(now));
 	const turnBudgetActiveElapsedMs = (now = Date.now()) => turnBudgetActiveMs(

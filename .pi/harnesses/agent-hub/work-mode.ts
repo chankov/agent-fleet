@@ -141,10 +141,11 @@ export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: 
 	return {
 		intro: "You are a dispatcher agent — an orchestrator. You coordinate specialist agents to accomplish tasks. You have no generic direct coding tools.",
 		hardRules: `- NEVER try to execute, edit, or write repository code directly — you have no generic bash/write/edit tools.
-- When explicitly enabled, \`filesystem\` is the only narrow direct exception: deterministic inspection plus managed current-session snapshots; it grants no arbitrary write or shell authority.
+- \`filesystem\` is the only narrow direct exception: always available in orchestrator for read-only stat, inventory, excerpt, and readback. Call stat before excerpt. The self-read ceiling is 64 KiB for one file and 64 KiB for the whole turn, including inventory. A too_large refusal means do not retry: call spawn_research for a summary or dispatch_agent with the path only. Snapshot stays profile-gated. It grants no arbitrary write or shell authority.
 - Tool availability is never gate admission: a visible tool can still refuse under tier, process, budget, or safety gates. Read the refusal's snapshot and correct the prerequisite; routine slash resets are not the recovery path.
-- Optionally use \`dispatch_triage\` for System 1 persona/risk advice before dispatch when configured. It is not a gate or permission; low predicted risk never removes checks.
-- ALWAYS use \`dispatch_agent\` to get implementation work done; use \`spawn_research\` for read-only recon.`,
+- Optionally use \`dispatch_triage\` for System 1 persona/risk advice before dispatch when it is listed in the active tools. It is not a gate or permission; low predicted risk never removes checks. Do not call it when it is absent.
+- ALWAYS use \`dispatch_agent\` to get implementation work done; use \`spawn_research\` for recon that \`filesystem\` cannot answer.
+- The turn dispatch number in Current task state is the effective allowance. Orchestrator raises trivial/small to at least 3 dispatches per turn unless a max-dispatches-per-turn ceiling is configured. Research calls and the task dispatch envelope stay on the tier.`,
 	};
 }
 
@@ -155,6 +156,8 @@ export function resolveWorkModeTools(options: {
 	herdrReady: boolean;
 	askUserAvailable: boolean;
 	deterministicTools?: boolean;
+	/** Omit dispatch_triage unless the consumer can evaluate. Default off. */
+	triageEnabled?: boolean;
 	/** Active and provisional packs; omitted only for legacy callers. */
 	capabilityPacks?: readonly ("core" | "fleet" | "verification" | "peer" | "workspace" | "compaction")[];
 }): string[] {
@@ -163,14 +166,14 @@ export function resolveWorkModeTools(options: {
 		? options.baselineTools.filter(name => !HUB_OWNED_TOOLS.has(name))
 		: [];
 
-	if (packs.has("fleet")) tools.push(...FLEET_TOOLS);
+	if (packs.has("fleet")) tools.push(...(options.triageEnabled ? FLEET_TOOLS : FLEET_TOOLS.filter(name => name !== "dispatch_triage")));
 	if (packs.has("verification")) tools.push(...VERIFICATION_TOOLS);
 	if (packs.has("peer") && options.comsReady) tools.push(...COMS_TOOLS);
 	if (packs.has("workspace") && options.herdrReady) tools.push(...HERDR_TOOLS);
 	if (packs.has("core") && options.askUserAvailable) tools.push("ask_user");
 	if (packs.has("compaction")) tools.push("request_compaction");
-	// Profile-gated deterministic inspection is safe in either work mode, but never
-	// appears in the effective surface when the explicit opt-in is absent.
-	if (options.deterministicTools === true) tools.push("filesystem");
+	// Operator inspection stays profile-gated. Orchestrator always gets the same
+	// tool, but snapshot remains refused unless deterministic-tools is on.
+	if (options.deterministicTools === true || options.workMode === "orchestrator") tools.push("filesystem");
 	return [...new Set(tools)];
 }

@@ -34,7 +34,7 @@ harness. Three independent choices shape that runtime:
 
 | Axis | Choices | What it controls |
 | --- | --- | --- |
-| **Work Mode** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes direct coding tools and keeps dispatch, research, assertions, `ask_user`, and available coms/Herdr tools. `/af-work-mode` and **Alt+M** switch this axis. |
+| **Work Mode** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes those coding tools and keeps dispatch, research, assertions, `ask_user`, read-only `filesystem` stat/inventory/excerpt/readback, and available coms/Herdr tools. The orchestrator self-read ceiling is 64 KiB for one file and 64 KiB for the turn. Above that, research or a specialist gets the path, not the body. `dispatch_triage` is listed only when that consumer can evaluate. `/af-work-mode` and **Alt+M** switch this axis. |
 | **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Roster changes do not change work mode in a live session. |
 | **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change work mode or the native roster. |
 
@@ -45,7 +45,9 @@ orchestrator startup requires a roster. `/af-work-mode` and **Alt+M** switch
 only work mode in the live session, and `/af-agents-*` changes
 only the native roster. Dispatch, research, nested delegation, and Verification
 Contract rigor follow the **task tier** (`trivial`/`small`/`feature`/`project`),
-not a session execution mode.
+not a session execution mode. One orchestrator exception: the turn dispatch
+allowance is at least 3 unless `max-dispatches-per-turn` sets a lower ceiling.
+The task envelope stays 3× the tier turn budget, not 3× that floor.
 
 All Hub-owned slash commands remain registered in both work modes. Capability packs are resolved automatically from explicit task intent, work mode, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain.
 
@@ -262,7 +264,7 @@ children but appears in their effective tool surface only while the inherited co
 `assist.deterministic-tools: true`; stale or forged calls are refused at execution too. Profile and
 work-mode changes rebuild the truthful T4 catalog, and compaction reconciles that effective surface.
 Orchestrator mode may use this narrow inspection/managed-snapshot exception, but still has no generic
-bash, edit, or write tools. Native specialist, research, and nested-delegate explicit tool caps remain
+bash, edit, or write tools. Orchestrator excerpt, readback, and inventory share a 64 KiB turn ceiling and refuse a file above 64 KiB without returning its body. Excerpt hashes and reads a window, not the whole file into memory. The recovery is `spawn_research` or a specialist dispatch that carries the path, not the contents. Native specialist, research, and nested-delegate explicit tool caps remain
 authoritative: the assist flag cannot append `filesystem` outside a declared cap.
 Opaque handles bind canonical paths,
 content hashes/fingerprints, and offsets; continuation fails on stale bytes or directory state,
@@ -642,7 +644,7 @@ Source additions retain task/evaluation/input provenance and union with baseline
 requirements. New scope invalidates uncovered evidence. A narrow correlated
 human waiver releases one bound addition as `waived`, not `satisfied`; baseline
 and other-source requirements survive. Pending task transition and authoritative
-state/grant/consumption persistence refusal fence dependent effects. Supported
+state/grant/consumption persistence refusal fence dependent effects. While that fence is up, `set_task_tier` and `ask_user` remain callable; any other tool is a diversion. The first diversion returns the bind hint. The second stops the turn, including a parallel batch, by aborting the run instead of repeating the same retryable refusal. The fence is persisted and restored on resume until `set_task_tier` clears it. Supported
 native planner/reviewer stages use the existing evidence path; exact-action
 confirmation supports Hub direct bash/edit/write, not arbitrary child/remote/coms
 execution. The human question shows complete tool inputs as JSON and cwd with

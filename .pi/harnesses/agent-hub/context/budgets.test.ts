@@ -11,7 +11,7 @@ function fixture(onReset?: (persistTaskIdentity?: boolean) => void) {
 	const values: any = {
 		turnDispatch: 3, turnResearch: 2, turnWait: 50, pending: { kind: "task", reason: "cap" },
 		taskContinuation: 4, turnContinuation: 1, taskDispatch: 7, taskResearch: 5,
-		label: "task", clock: createTaskClock(), reviews: 2, tier: "large", assumed: false,
+		label: "task", clock: createTaskClock(), reviews: 2, tier: "large", assumed: false, workMode: "operator",
 		report: freshTurnReport(0),
 	};
 	const events: string[] = [];
@@ -42,6 +42,7 @@ function fixture(onReset?: (persistTaskIdentity?: boolean) => void) {
 		getTurnReport: () => values.report,
 		setStatus: () => events.push("status"),
 		getAuditContext: () => ({ cwd: "/repo" }), appendEntry: () => {}, executionHistory,
+		getWorkMode: () => values.workMode,
 	});
 	return { context, values, events };
 }
@@ -97,4 +98,15 @@ test("new-task reset preserves the capability, blocker, and status side-effect o
 	assert.ok(events.indexOf("unknown-tool-reset") > events.indexOf("progress-reset"));
 	const ordered = ["capabilities", "blockers", "fingerprints", "resolve-capabilities", "work-mode-tools", "status"];
 	assert.deepEqual(events.filter(event => ordered.includes(event)), ordered);
+});
+
+test("orchestrator turn floor is visible without inflating the task envelope", () => {
+	const { context, values } = fixture();
+	values.tier = "small";
+	values.workMode = "orchestrator";
+	assert.equal(context.currentBudget().maxDispatches, 3);
+	assert.equal(context.currentBudget().maxResearch, 2);
+	assert.equal(context.currentTaskBudget().maxDispatches, 6);
+	values.workMode = "operator";
+	assert.equal(context.currentBudget().maxDispatches, 2);
 });

@@ -89,7 +89,7 @@ import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { showSessionAudit } from "./session-audit.ts";
 import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
-import { createProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
+import { createProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionDiversionDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
 import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
@@ -458,6 +458,8 @@ export default function (pi: ExtensionAPI) {
 	let taskTriageConfigured = false;
 	let processPersistenceBlocked = false;
 	let pendingTaskTransition = false;
+	let transitionDiversions = 0;
+	let orchestratorSelfReadUsed = 0;
 	const processBlock = () => processPersistenceBlocked ? { reason: "process_state_corrupt", message: "Process persistence is blocked; dependent effects remain refused. Ask the human to run /af-task-triage-recover for a checked in-session append/readback; if it refuses, inspect or resume a valid session. Never edit session JSONL or reset obligations." } : pendingTaskTransition ? { reason: "task_transition_pending", message: taskTransitionRecoveryHint } : null;
 	const persistProcessVerdict = (state: ProcessObligationState, verdict: ProcessVerdict) => {
 		try { pi.appendEntry("agent-hub-process-state", processAuditRecord(state, verdict)); }
@@ -521,8 +523,10 @@ export default function (pi: ExtensionAPI) {
 		seenUnknownToolCalls.clear();
 		latestUnknownToolNotice = "";
 	};
+	let readWorkMode: () => string = () => "operator";
 	const budgetCtx = createBudgetContext({
 		getBudgetOverrides: () => budgetOverrides,
+		getWorkMode: () => readWorkMode(),
 		getTurnDispatchCount: () => turnDispatchCount, setTurnDispatchCount: value => { turnDispatchCount = value; },
 		getTurnResearchCount: () => turnResearchCount, setTurnResearchCount: value => { turnResearchCount = value; },
 		getTurnBudgetAskUserWaitMs: () => turnBudgetAskUserWaitMs, setTurnBudgetAskUserWaitMs: value => { turnBudgetAskUserWaitMs = value; },
@@ -936,6 +940,7 @@ export default function (pi: ExtensionAPI) {
 	const workModePolicy = createWorkModePolicy({
 		getBaselineTools: () => baselineTools, getRosterSize: () => agentStates.size,
 		getDeterministicToolsEnabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
+		getDispatchTriageEnabled: () => triageRuntime?.available === true,
 		activateFallbackRoster: ctx => {
 			if (!rosterPolicy.activateFirstValidTeam()) return;
 			workModePolicy.clearRosterRecovery();
@@ -958,6 +963,7 @@ export default function (pi: ExtensionAPI) {
 		applyWorkModeTools, modelWorkBlockedByRosterRecovery,
 		statusText: workModeStatusText, applySelection: applyWorkModeSelection, openPicker: openWorkModePicker,
 	} = workModePolicy;
+	readWorkMode = () => getWorkMode();
 
 
 	const toolCtx: ToolContext = createToolExecutionOrchestration({
@@ -999,6 +1005,8 @@ export default function (pi: ExtensionAPI) {
 					onPostCommitFailure: () => { processPersistenceBlocked = true; },
 				});
 				pendingTaskTransition = false;
+				transitionDiversions = 0;
+				try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: false }); } catch { processPersistenceBlocked = true; }
 				return next;
 			},
 			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER })),
@@ -1068,7 +1076,10 @@ export default function (pi: ExtensionAPI) {
 	registerFleetTools(pi, toolCtx);
 	registerFilesystemTool(pi, {
 		enabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
+		readOnly: () => getWorkMode() === "orchestrator",
 		sessionDir: () => sessionDir,
+		remainingSelfReadBytes: () => Math.max(0, 64 * 1024 - orchestratorSelfReadUsed),
+		noteSelfReadBytes: bytes => { orchestratorSelfReadUsed += bytes; },
 	});
 
 	const researchControls = createResearchControls({
@@ -2048,9 +2059,17 @@ export default function (pi: ExtensionAPI) {
 	// that "away from keyboard" time from the dispatcher's real work.
 	// T11 production pre-effect gate: operator direct side effects use the same task-scoped process state as child dispatch.
 	pi.on("tool_call", async (event: any, ctx) => {
-		if (!["bash", "edit", "write"].includes(String(event.toolName || "").toLowerCase())) return;
+		const toolName = String(event.toolName || "").toLowerCase();
 		const block = processBlock();
-		if (block) return { block: true, reason: block.message };
+		// set_task_tier binds the fence. ask_user is the human supersession path. Every other tool is a diversion.
+		if (block && toolName !== "set_task_tier" && toolName !== "ask_user") {
+			const decision = transitionDiversionDecision(transitionDiversions, block.message);
+			transitionDiversions = decision.nextCount;
+			// terminate alone cannot stop a parallel batch whose first call already returned. Abort ends that run.
+			if (decision.terminate) ctx?.abort?.();
+			return { block: true, terminate: decision.terminate, reason: decision.reason };
+		}
+		if (!["bash", "edit", "write"].includes(toolName)) return;
 		const gate = processPreEffectGate(processState, "write");
 		if (!gate) return;
 		if (gate.reason !== "action_confirmation_unsupported") return { block: true, reason: gate.message };
@@ -2213,7 +2232,7 @@ export default function (pi: ExtensionAPI) {
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		onAcceptedInput: (text, source, replayed) => {
 			if ((source === "extension" && !replayed) || !text.trim()) return;
-			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) pendingTaskTransition = true;
+			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) { pendingTaskTransition = true; transitionDiversions = 0; try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: true }); } catch { processPersistenceBlocked = true; } }
 			hubTaskText = text;
 			taskTriage?.input(text, "interactive");
 		},
@@ -2227,7 +2246,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		pressureLifecycle.messageEnd(event, ctx);
 	});
-	pi.on("turn_start", event => hubCapture.start(event.turnIndex));
+	pi.on("turn_start", event => { orchestratorSelfReadUsed = 0; hubCapture.start(event.turnIndex); });
 	pi.on("turn_end", async (event, ctx) => {
 		pressureLifecycle.turnEnd(ctx);
 		const text = event.message.role === "assistant" ? event.message.content.filter(c => c.type === "text").map(c => c.text).join("") : "";
@@ -2409,9 +2428,9 @@ export default function (pi: ExtensionAPI) {
 			comsMissNotified.clear();
 			recomputeGrid();
 			const sessionEntries = _ctx.sessionManager.getEntries();
-			// An in-flight transition belongs to the prior session. Resume restores persisted
-			// additions/counter, but not the pending input; a new input gets a fresh assessment.
-			pendingTaskTransition = false;
+			// Resume restores the persisted fence. A missing entry is the legacy clear state.
+			pendingTaskTransition = latestPendingTaskTransition(sessionEntries);
+			transitionDiversions = 0;
 			try { processState = latestProcessState(sessionEntries); processPersistenceBlocked = false; }
 			catch { processState = createProcessState(); processPersistenceBlocked = true; }
 			taskTriage?.restore(sessionEntries);

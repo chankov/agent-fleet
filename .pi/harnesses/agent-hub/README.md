@@ -137,8 +137,10 @@ These are independent runtime axes:
   restarting or losing session state; `/af-work-mode` without an argument and **Alt+M** open the
   two-option picker. Operator keeps `read`, `bash`, `edit`, `write`, approved extension tools, and
   orchestration. Orchestrator withholds direct coding tools but keeps dispatch, research, assertions,
-  roster controls, `ask_user`, ready coms, and ready Herdr tools. In orchestrator work mode, raw
-  Herdr panes are auxiliary-process orchestration—not a route around delegation for reading,
+  roster controls, `ask_user`, read-only `filesystem` stat/inventory/excerpt/readback, ready coms, and ready Herdr tools.
+  Self-read stops above 64 KiB for one file or for the turn; use research or a specialist and pass the path.
+  `dispatch_triage` is listed only when that consumer can evaluate. Snapshot stays profile-gated.
+  In orchestrator work mode, raw Herdr panes are auxiliary-process orchestration—not a route around delegation for reading,
   editing, testing, or implementing code.
 - **Native roster** — local headless Pi specialists from `.pi/agents/teams.yaml`. Bare Fleet starts
   empty; select one with `--agents frontend` or add one live with `/af-agents-add code-reviewer`.
@@ -150,6 +152,8 @@ team in configuration order (`default` in the shipped configuration), skipping e
 with missing personas. Existing agents are kept. If no valid team is available, the switch is refused
 with a warning. The selected team is saved in the session just like a manual team selection.
 Budgets, nested delegation, and Verification Contract rigor follow the **task tier**, not Work Mode.
+Orchestrator turn dispatches are the exception: trivial/small rise to at least 3 per turn unless
+`max-dispatches-per-turn` sets a lower ceiling. Research calls and the task envelope stay on the tier.
 
 All Hub slash commands, including `/af-handoff`, are registered in both work modes. A command whose
 runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`

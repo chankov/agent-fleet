@@ -139,9 +139,10 @@ test("operator preserves coding and approved extension tools while gating Hub ca
 		askUserAvailable: true,
 	});
 
-	for (const tool of ["read", "bash", "edit", "write", "bowser", "ask_user", ...ORCHESTRATION_TOOLS]) {
+	for (const tool of ["read", "bash", "edit", "write", "bowser", "ask_user", ...ORCHESTRATION_TOOLS.filter(name => name !== "dispatch_triage")]) {
 		assert.ok(tools.includes(tool), `${tool} should be active`);
 	}
+	assert.ok(!tools.includes("dispatch_triage"), "dispatch_triage stays hidden until the consumer can evaluate");
 	for (const tool of [...COMS_TOOLS, ...HERDR_TOOLS]) {
 		assert.ok(!tools.includes(tool), `${tool} should be gated`);
 	}
@@ -173,9 +174,21 @@ test("orchestrator excludes direct and unrelated extension tools", () => {
 	for (const tool of ["read", "bash", "edit", "write", "bowser"]) {
 		assert.ok(!tools.includes(tool), `${tool} should not be active`);
 	}
-	for (const tool of [...ORCHESTRATION_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS, "ask_user"]) {
+	for (const tool of [...ORCHESTRATION_TOOLS.filter(name => name !== "dispatch_triage"), ...COMS_TOOLS, ...HERDR_TOOLS, "ask_user", "filesystem"]) {
 		assert.ok(tools.includes(tool), `${tool} should be active`);
 	}
+	assert.ok(!tools.includes("dispatch_triage"));
+});
+
+test("dispatch_triage is listed only when the consumer can evaluate", () => {
+	const hidden = resolveWorkModeTools({
+		workMode: "orchestrator", baselineTools: ["read"], comsReady: false, herdrReady: false, askUserAvailable: false,
+	});
+	const shown = resolveWorkModeTools({
+		workMode: "orchestrator", baselineTools: ["read"], comsReady: false, herdrReady: false, askUserAvailable: false, triageEnabled: true,
+	});
+	assert.ok(!hidden.includes("dispatch_triage"));
+	assert.ok(shown.includes("dispatch_triage"));
 });
 
 test("ask_user remains gated even when present in the baseline", () => {

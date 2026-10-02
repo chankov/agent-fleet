@@ -35,18 +35,18 @@ ask the human. You MUST instead:
 export function dispatchFragment(fleetActive: boolean, askUserAvailable: boolean, userLanguage: string): string {
 	if (!fleetActive) return "";
 	return askUserAvailable
-		? `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
-  ways, call \`ask_user\` first. Never invent constraints or "reasonable defaults"
-  the user did not state.
+		? `- BEFORE dispatching: a missing repository fact is not an ambiguity. Use \`spawn_research\`, or \`filesystem\` stat/inventory/excerpt/readback when that tool is listed. Stat first. Above 64 KiB for one file, or 64 KiB already used this turn, a too_large refusal is not self-read: spawn_research for a summary or dispatch_agent with the path only. Call \`ask_user\` first only for a preference, a contradiction, a destructive or costly scope, or a value only the user knows. Never invent those constraints.
+- At trivial/small, do not dispatch planner, architect, security-auditor, or deep-researcher — the runtime refuses them and does not charge the call. Dispatch the working specialist, or call \`set_task_tier\` with a higher tier and a reason first. If the refusal says planner_required, raise the tier before retrying planner. Do not retry the same refused call.
+- Do not invent an assertion ledger or mark an assertion proven unless \`set_assertions\` is in the active tool list. Missing verification tools means the tier has not opened that contract, not that the work is accepted.
 - Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
   augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
 - For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
 - After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
   the result \`details.questions\`). For each one: call \`ask_user\` in ${userLanguage},
   then re-dispatch the specialist with a line \`USER_ANSWER: <dispatchId> :: <question>\`. Prose alone does not authorize the resume.`
-		: `- BEFORE dispatching: if anything is ambiguous, missing, or could go several valid
-  ways, STATE your assumption explicitly in ${userLanguage} and wait for the user
-  to correct it. Never invent constraints or "reasonable defaults" silently.
+		: `- BEFORE dispatching: a missing repository fact is not an ambiguity. Use \`spawn_research\`, or \`filesystem\` stat/inventory/excerpt/readback when that tool is listed. Stat first. Above 64 KiB for one file, or 64 KiB already used this turn, a too_large refusal is not self-read: spawn_research for a summary or dispatch_agent with the path only. If a preference, contradiction, or costly choice is unresolved, STATE the assumption explicitly in ${userLanguage} and wait for the user to correct it. Never invent constraints silently.
+- At trivial/small, do not dispatch planner, architect, security-auditor, or deep-researcher — the runtime refuses them and does not charge the call. Dispatch the working specialist, or call \`set_task_tier\` with a higher tier and a reason first. If the refusal says planner_required, raise the tier before retrying planner. Do not retry the same refused call.
+- Do not invent an assertion ledger or mark an assertion proven unless \`set_assertions\` is in the active tool list. Missing verification tools means the tier has not opened that contract, not that the work is accepted.
 - Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
   augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
 - For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
@@ -57,10 +57,8 @@ export function dispatchFragment(fleetActive: boolean, askUserAvailable: boolean
 
 export function ambiguityFragment(askUserAvailable: boolean, userLanguage: string): string {
 	return askUserAvailable
-		? `- NEVER proceed past an ambiguity by guessing. Either call \`ask_user\`, or state
-  the assumption explicitly in ${userLanguage} and say you'll proceed unless corrected.`
-		: `- NEVER proceed past an ambiguity by guessing. State the assumption explicitly
-  in ${userLanguage} and wait for the user to confirm or correct.`;
+		? `- NEVER proceed past an ambiguity by guessing. A fact about the repository is not an ambiguity: inspect it with \`filesystem\` or \`spawn_research\`. Stat before excerpt; above 64 KiB, do not self-read — spawn_research or dispatch the path. Call \`ask_user\` for a preference, contradiction, or costly choice; otherwise state the assumption explicitly in ${userLanguage} and say you'll proceed unless corrected.`
+		: `- NEVER proceed past an ambiguity by guessing. A fact about the repository is not an ambiguity: inspect it with \`filesystem\` or \`spawn_research\`. Stat before excerpt; above 64 KiB, do not self-read — spawn_research or dispatch the path. State every remaining assumption explicitly in ${userLanguage} and wait for the user to confirm or correct.`;
 }
 
 export function languageFragment(askUserAvailable: boolean, userLanguage: string): string {

@@ -10,6 +10,7 @@ import {
 	TIER_CAPS,
 	normalizeTaskTier,
 	resolveTurnBudget,
+	orchestratorTurnBudget,
 	checkTurnBudget,
 	shouldRecycleSession,
 	budgetStatusLine,
@@ -63,6 +64,15 @@ test("resolveTurnBudget treats overrides as a ceiling; off stays bounded by the 
 	assert.equal(b.delegation, true);
 	assert.equal(resolveTurnBudget("small", { maxDispatches: 99 }).maxDispatches, 2);
 	assert.equal(resolveTurnBudget("small", { maxDispatches: null }).maxDispatches, 2);
+});
+
+test("orchestrator turn dispatch floor does not raise feature, task math, or an explicit ceiling", () => {
+	const small = resolveTurnBudget("small");
+	assert.equal(orchestratorTurnBudget(small, "orchestrator", undefined).maxDispatches, 3);
+	assert.equal(orchestratorTurnBudget(small, "operator", undefined).maxDispatches, 2);
+	assert.equal(orchestratorTurnBudget(resolveTurnBudget("feature"), "orchestrator", undefined).maxDispatches, 8);
+	assert.equal(orchestratorTurnBudget(resolveTurnBudget("small", { maxDispatches: 1 }), "orchestrator", 1).maxDispatches, 1);
+	assert.equal(resolveTaskBudget(small).maxDispatches, 6);
 });
 
 test("delegation is tier-owned and never overridable", () => {

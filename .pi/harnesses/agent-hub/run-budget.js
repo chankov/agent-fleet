@@ -106,6 +106,18 @@ export function resolveTurnBudget(tier, overrides = {}) {
 	};
 }
 
+/** Orchestrator needs one implementation, one review, and one correction in a turn.
+ *  This raises only the turn dispatch cap. A configured max-dispatches-per-turn
+ *  ceiling still wins, and the task envelope stays on the unfloored tier budget. */
+export const ORCHESTRATOR_TURN_DISPATCH_FLOOR = 3;
+
+export function orchestratorTurnBudget(turnBudget, workMode, explicitDispatchCeiling) {
+	if (workMode !== "orchestrator" || !turnBudget || turnBudget.maxDispatches == null) return turnBudget;
+	if (typeof explicitDispatchCeiling === "number") return turnBudget;
+	if (turnBudget.maxDispatches >= ORCHESTRATOR_TURN_DISPATCH_FLOOR) return turnBudget;
+	return { ...turnBudget, maxDispatches: ORCHESTRATOR_TURN_DISPATCH_FLOOR };
+}
+
 function refusalTail(tier) {
 	const label = normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER;
 	return "Do NOT retry this call before human confirmation. Summarize progress so far (including " +

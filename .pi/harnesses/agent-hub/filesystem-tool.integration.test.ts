@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { registerHooks } from "node:module";
 import { join } from "node:path";
+import { CONTENT_REPLY_BYTES } from "./deterministic-fs.ts";
 import { registerFilesystemTool } from "./filesystem-tool.ts";
 
 registerHooks({resolve(specifier,context,nextResolve){if(specifier==="@mariozechner/pi-coding-agent")return{url:"data:text/javascript,export const isToolCallEventType=(name,event)=>event.toolName===name;",shortCircuit:true};return nextResolve(specifier,context);}});
@@ -15,12 +16,12 @@ import { resolveDelegateTools } from "./helpers.ts";
 const temp = () => mkdtempSync(join(tmpdir(), "fleet-filesystem-tool-"));
 const invoke = async (tool: any, params: any, cwd: string) => tool.execute("call", params, new AbortController().signal, () => {}, { cwd });
 
-test("T5 effective surface follows deterministic-tools across both work modes", () => {
- for (const workMode of ["operator","orchestrator"] as const) {
-  const base={workMode,baselineTools:["read","filesystem"],comsReady:false,herdrReady:false,askUserAvailable:false,capabilityPacks:["core"] as const};
-  assert.equal(resolveWorkModeTools({...base,deterministicTools:false}).includes("filesystem"),false);
-  assert.equal(resolveWorkModeTools({...base,deterministicTools:true}).includes("filesystem"),true);
- }
+test("T5 effective surface follows deterministic-tools for operator and is read-only-visible for orchestrator", () => {
+ const base={baselineTools:["read","filesystem"],comsReady:false,herdrReady:false,askUserAvailable:false,capabilityPacks:["core"] as const};
+ assert.equal(resolveWorkModeTools({...base,workMode:"operator",deterministicTools:false}).includes("filesystem"),false);
+ assert.equal(resolveWorkModeTools({...base,workMode:"operator",deterministicTools:true}).includes("filesystem"),true);
+ assert.equal(resolveWorkModeTools({...base,workMode:"orchestrator",deterministicTools:false}).includes("filesystem"),true);
+ assert.equal(resolveWorkModeTools({...base,workMode:"orchestrator",deterministicTools:false}).includes("bash"),false);
 });
 
 test("T5 nested delegate explicit tool caps control filesystem exposure", () => {
@@ -78,4 +79,64 @@ test("T5 filesystem refuses disabled, forged, remote, destination and symlink es
   await assert.rejects(()=>invoke(tools[0],{operation:"inventory",path:join(root,"escape")},root),/symlink/i);
   await assert.rejects(()=>invoke(tools[0],{operation:"snapshot",origin:"file",path:join(root,"escape","secret")},root),/symlink/i);
  } finally {rmSync(root,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});rmSync(session,{recursive:true,force:true});}
+});
+
+test("orchestrator read-only filesystem inspects and refuses snapshot", async () => {
+ const root=temp(), session=temp(), tools:any[]=[];
+ try {
+  writeFileSync(join(root,"note.txt"),"visible");
+  registerFilesystemTool({registerTool:(tool:any)=>tools.push(tool)} as any,{enabled:()=>false,readOnly:()=>true,sessionDir:()=>session});
+  const listed=await invoke(tools[0],{operation:"inventory",path:root},root);
+  assert.equal(listed.details.result.entries.some((entry:any)=>entry.name==="note.txt"),true);
+  const excerpted=await invoke(tools[0],{operation:"excerpt",path:join(root,"note.txt")},root);
+  assert.match(String(excerpted.details.result.content),/visible/);
+  await assert.rejects(()=>invoke(tools[0],{operation:"snapshot",origin:"file",path:join(root,"note.txt")},root),/deterministic-tools|snapshot/i);
+  assert.equal(existsSync(join(session,"artifacts")),false);
+ } finally {rmSync(root,{recursive:true,force:true});rmSync(session,{recursive:true,force:true});}
+});
+
+test("orchestrator read-only filesystem stats size and refuses self-read above 64 KiB", async () => {
+ const root=temp(), session=temp(), readOnlyTools:any[]=[], enabledTools:any[]=[];
+ try {
+  const big=join(root,"big.txt");
+  writeFileSync(big, Buffer.alloc(CONTENT_REPLY_BYTES + 1, 0x61));
+  registerFilesystemTool({registerTool:(tool:any)=>readOnlyTools.push(tool)} as any,{enabled:()=>false,readOnly:()=>true,sessionDir:()=>session});
+  const sized=await invoke(readOnlyTools[0],{operation:"stat",path:big},root);
+  assert.equal(sized.details.result.bytes, CONTENT_REPLY_BYTES + 1);
+  assert.equal(sized.details.result.selfRead, false);
+  const refused=await invoke(readOnlyTools[0],{operation:"excerpt",path:big},root);
+  assert.equal(refused.details.result.refused, true);
+  assert.equal(refused.details.result.reason, "too_large");
+  assert.equal(refused.details.result.content, null);
+  assert.match(refused.details.result.instruction, /spawn_research/);
+  const handle=`t5:${Buffer.from(JSON.stringify({v:1,kind:"file",path:big,hash:"ab".repeat(32),offset:0})).toString("base64url")}`;
+  const readRefused=await invoke(readOnlyTools[0],{operation:"readback",handle},root);
+  assert.equal(readRefused.details.result.content, null);
+  assert.equal(readRefused.details.result.reason, "too_large");
+  registerFilesystemTool({registerTool:(tool:any)=>enabledTools.push(tool)} as any,{enabled:()=>true,sessionDir:()=>session});
+  const paged=await invoke(enabledTools[0],{operation:"excerpt",path:big},root);
+  assert.equal(paged.details.result.refused, undefined);
+  assert.equal(paged.details.result.contentBytes, CONTENT_REPLY_BYTES);
+ } finally {rmSync(root,{recursive:true,force:true});rmSync(session,{recursive:true,force:true});}
+});
+
+test("orchestrator self-read turn budget refuses the next file and an inventory once the ceiling is spent", async () => {
+ const root=temp(), session=temp(), tools:any[]=[], used={bytes:0}, ceiling=10_000;
+ try {
+  writeFileSync(join(root,"a.txt"), "a".repeat(6_000));
+  writeFileSync(join(root,"b.txt"), "b".repeat(6_000));
+  registerFilesystemTool({registerTool:(tool:any)=>tools.push(tool)} as any,{
+   enabled:()=>false, readOnly:()=>true, sessionDir:()=>session,
+   remainingSelfReadBytes:()=>Math.max(0, ceiling-used.bytes), noteSelfReadBytes:bytes=>{used.bytes+=bytes;},
+  });
+  const first=await invoke(tools[0],{operation:"excerpt",path:join(root,"a.txt")},root);
+  assert.match(String(first.details.result.content), /a{6000}/);
+  const second=await invoke(tools[0],{operation:"excerpt",path:join(root,"b.txt")},root);
+  assert.equal(second.details.result.reason, "too_large");
+  assert.equal(second.details.result.content, null);
+  used.bytes=ceiling;
+  const listed=await invoke(tools[0],{operation:"inventory",path:root},root);
+  assert.equal(listed.details.result.reason, "too_large");
+  assert.equal(listed.details.result.entries, undefined);
+ } finally {rmSync(root,{recursive:true,force:true});rmSync(session,{recursive:true,force:true});}
 });

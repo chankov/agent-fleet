@@ -334,7 +334,7 @@ See **[ChatGPT Fleet session client](docs/codex-session-bridge.md)**.
 
 ## agent-hub: a thin-context dispatcher for pi
 
-Every public Pi Fleet session is now one `agent-hub` runtime with two work modes. Bare `just fleet` starts in **operator** work mode: direct `read`/`bash`/`edit`/`write`, orchestration tools, embedded `coms`, and an empty native roster. **Orchestrator** work mode removes direct coding tools and drives specialist subagents — planner, builder, reviewer, test-engineer, documenter — under the Verification Contract. Both work modes keep the same Hub commands, research helpers, peer collaboration, and `damage-control-continue` guardrails.
+Every public Pi Fleet session is now one `agent-hub` runtime with two work modes. Bare `just fleet` starts in **operator** work mode: direct `read`/`bash`/`edit`/`write`, orchestration tools, embedded `coms`, and an empty native roster. **Orchestrator** work mode removes `bash`/`edit`/`write` and drives specialist subagents — planner, builder, reviewer, test-engineer, documenter — under the Verification Contract. It keeps read-only `filesystem` inspection, refuses to self-read above 64 KiB per file or per turn, and keeps at least 3 dispatches per turn unless a lower ceiling is configured. Both work modes keep the same Hub commands, research helpers, peer collaboration, and `damage-control-continue` guardrails.
 
 ![The agent-hub dispatcher fanning one request out to six peers over coms and awaiting each reply, with every peer's presence dashboard beside it](docs/assets/agent-hub-dispatch.png)
 

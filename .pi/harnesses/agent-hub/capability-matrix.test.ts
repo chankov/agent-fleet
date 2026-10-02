@@ -33,12 +33,16 @@ test("end-to-end deterministic capability matrix exposes only the intended profi
 	assert.deepEqual(direct.resolution.active, ["core"]);
 	assert.ok(absent(direct.tools, [...FLEET_TOOLS, ...VERIFICATION_TOOLS]));
 
+	const visibleFleet = FLEET_TOOLS.filter(tool => tool !== "dispatch_triage");
 	const fleet = surface({ userText: "Delegate this implementation to a specialist." });
-	assert.ok(FLEET_TOOLS.every(tool => fleet.tools.includes(tool)));
+	assert.ok(visibleFleet.every(tool => fleet.tools.includes(tool)));
+	assert.ok(!fleet.tools.includes("dispatch_triage"));
 	assert.ok(absent(fleet.tools, [...VERIFICATION_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS]));
 
 	const orchestrator = surface({ workMode: "orchestrator" });
-	assert.ok(FLEET_TOOLS.every(tool => orchestrator.tools.includes(tool)));
+	assert.ok(visibleFleet.every(tool => orchestrator.tools.includes(tool)));
+	assert.ok(orchestrator.tools.includes("filesystem"));
+	assert.ok(!orchestrator.tools.includes("dispatch_triage"));
 	assert.ok(absent(orchestrator.tools, baseline));
 
 	const verification = surface({ userText: "Implement this feature with acceptance criteria.", taskTier: "feature" });

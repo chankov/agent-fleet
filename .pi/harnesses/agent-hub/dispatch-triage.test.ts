@@ -109,6 +109,10 @@ test("orchestrator pre-dispatch advice requires explicit consent, readiness, mod
  assert.equal(parseTriageConfig({...config,orchestratorBeforeDispatch:"yes"}),null);
  const enabled={...config,orchestratorBeforeDispatch:true,maxCalls:1};
  assert.equal(createTriageRuntime({config:enabled,current:i=>i}).orchestratorBeforeDispatch,false);
+ assert.equal(createTriageRuntime({config,service,current:i=>i}).available,true);
+ assert.equal(createTriageRuntime({config:{...config,mode:"shadow"},service,current:i=>i}).available,true);
+ assert.equal(createTriageRuntime({config:{...config,mode:"off"},service,current:i=>i}).available,false);
+ assert.equal(createTriageRuntime({config,current:i=>i}).available,false);
  const runtime=createTriageRuntime({config:enabled,service,current:i=>i});
  assert.equal(runtime.orchestratorBeforeDispatch,true);
  await runtime.evaluate(input);assert.equal(runtime.orchestratorBeforeDispatch,false);

@@ -12,7 +12,7 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
    triage_id: Type.Optional(Type.String({ description: "Optional prior dispatch_triage evaluation ID for decision trace; never authorization" })),
    triage_reason: Type.Optional(Type.Union([Type.Literal("used"), Type.Literal("better_fit"), Type.Literal("changed_scope"), Type.Literal("independent_judgment")])),
 			agent: Type.String({ description: "Agent name (case-insensitive)" }),
-			task: Type.String({ description: "Task description for the agent to execute" }),
+			task: Type.String({ description: "English task for the specialist. Do not write this in the user's language. One focused outcome; pass artifact paths, not pasted documents." }),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path; the specialist reads it." }))),
 			scope: Type.Optional(Type.Array(Type.String({ description: "Advisory globs; isolation accepts exact existing relative files or recursive directories only." }))),
 			deliverables: Type.Optional(Type.Array(Type.String({ description: "Expected output file path, read back after execution. Presence is not semantic acceptance." }))),
