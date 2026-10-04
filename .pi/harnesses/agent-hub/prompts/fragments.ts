@@ -4,24 +4,8 @@ import type { HubPromptState } from "./context.ts";
 export function askUserFragment(askUserAvailable: boolean, userLanguage: string): string {
 	return askUserAvailable
 		? `## When to call \`ask_user\` (non-negotiable triggers)
-- Requirements are ambiguous, incomplete, or contradictory.
-- Multiple valid approaches exist and the trade-off is preference-dependent
-  (architecture, library choice, naming, scope cuts).
-- A specialist returned an \`ASK_USER:\` marker — surface every one.
-- A specialist's output contradicts an earlier specialist's output, or contradicts
-  the user's stated requirement — ask the user to resolve it.
-- The next dispatch would be costly to undo (destructive edit, migration, mass
-  rename, production-facing change, secret/credential handling).
-- You're about to assume a value (path, version, flag, threshold) the user did
-  not specify.
-
-Calling \`ask_user\`:
-- Read the tool's own description for the exact parameter shape — different
-  installs ship slightly different schemas. Always pass \`question\` and, when
-  helpful, \`context\` (a 1–3 line summary of what you've already found).
-- Provide multiple-choice \`options\` whenever you can enumerate 2–6 valid
-  answers — it's faster for the user than free text.
-- Ask exactly **one** focused question per call. Do not bundle unrelated questions.`
+Ask for ambiguous/incomplete/contradictory requirements; preference-dependent choices (architecture, library, naming, scope); every specialist ASK_USER; conflicting specialist outputs or conflicts with requirements; costly-to-undo dispatches (destructive edits, migrations, mass renames, production changes, secrets/credentials); or unspecified path/version/flag/threshold values.
+Read the tool's current schema. Pass question and helpful 1–3 line context. Offer 2–6 choices when enumerable. Ask exactly one focused question per call; never bundle unrelated questions.`
 		: `## ask_user is NOT available in this session
 The \`pi-ask-user\` package is not installed, so you have no interactive way to
 ask the human. You MUST instead:
@@ -34,25 +18,14 @@ ask the human. You MUST instead:
 
 export function dispatchFragment(fleetActive: boolean, askUserAvailable: boolean, userLanguage: string): string {
 	if (!fleetActive) return "";
-	return askUserAvailable
-		? `- BEFORE dispatching: a missing repository fact is not an ambiguity. Use \`spawn_research\`, or \`filesystem\` stat/inventory/excerpt/readback when that tool is listed. Stat first. Above 64 KiB for one file, or 64 KiB already used this turn, a too_large refusal is not self-read: spawn_research for a summary or dispatch_agent with the path only. Call \`ask_user\` first only for a preference, a contradiction, a destructive or costly scope, or a value only the user knows. Never invent those constraints.
-- At trivial/small, do not dispatch planner, architect, security-auditor, or deep-researcher — the runtime refuses them and does not charge the call. Dispatch the working specialist, or call \`set_task_tier\` with a higher tier and a reason first. If the refusal says planner_required, raise the tier before retrying planner. Do not retry the same refused call.
-- Do not invent an assertion ledger or mark an assertion proven unless \`set_assertions\` is in the active tool list. Missing verification tools means the tier has not opened that contract, not that the work is accepted.
-- Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
-  augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
-- For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
-- After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
-  the result \`details.questions\`). For each one: call \`ask_user\` in ${userLanguage},
-  then re-dispatch the specialist with a line \`USER_ANSWER: <dispatchId> :: <question>\`. Prose alone does not authorize the resume.`
-		: `- BEFORE dispatching: a missing repository fact is not an ambiguity. Use \`spawn_research\`, or \`filesystem\` stat/inventory/excerpt/readback when that tool is listed. Stat first. Above 64 KiB for one file, or 64 KiB already used this turn, a too_large refusal is not self-read: spawn_research for a summary or dispatch_agent with the path only. If a preference, contradiction, or costly choice is unresolved, STATE the assumption explicitly in ${userLanguage} and wait for the user to correct it. Never invent constraints silently.
-- At trivial/small, do not dispatch planner, architect, security-auditor, or deep-researcher — the runtime refuses them and does not charge the call. Dispatch the working specialist, or call \`set_task_tier\` with a higher tier and a reason first. If the refusal says planner_required, raise the tier before retrying planner. Do not retry the same refused call.
-- Do not invent an assertion ledger or mark an assertion proven unless \`set_assertions\` is in the active tool list. Missing verification tools means the tier has not opened that contract, not that the work is accepted.
-- Dispatch tasks via \`dispatch_agent\`. Each dispatched task is automatically
-  augmented with clarification/research plus deliverable-to-file protocols. For document handoff, pass artifact paths through the optional \`artifacts\` array; never paste full plan/review/inventory bodies into a task.
-- For dispatches carrying A1/A2-style assertions, specialist returns arrive pre-parsed as \`details.structuredReturn\` with \`details.contractNotices\`; the full raw output is persisted at \`details.returnPath\` and kept for compatibility in \`details.fullOutput\`. Spawn a reader only when the digest/path is not enough.
-- After each dispatch, INSPECT the result for ASK_USER questions (also surfaced in
-  the result \`details.questions\`). For each one: relay it verbatim to the user
-  in ${userLanguage} and wait for the reply before re-dispatching.`;
+	const questions = askUserAvailable
+		? `Ask \`ask_user\` in ${userLanguage} for preferences, contradictions, costly/destructive scope or user-only values. For every returned ASK_USER/details.questions item, ask the human, then re-dispatch with \`USER_ANSWER: <dispatchId> :: <question>\`; prose alone cannot authorize resume.`
+		: `For unresolved preferences, contradictions, costly choices or user-only values, state assumptions in ${userLanguage} and wait for correction. Relay every ASK_USER/details.questions item verbatim in ${userLanguage}; wait for the reply before re-dispatch.`;
+	return `- Missing repository facts are not ambiguities: use \`spawn_research\` or listed \`filesystem\` stat/inventory/excerpt/readback. Stat first. Above 64 KiB/file or 64 KiB read this turn, do not self-read a too_large refusal: request a research summary or dispatch the path only. Never invent constraints. ${questions}
+- Trivial/small refuses planner, architect, security-auditor and deep-researcher without charging. Use the working specialist, or raise tier with an honest reason first. planner_required needs a tier increase before retry. Never repeat an unchanged refusal.
+- Only use an assertion ledger/proven status when \`set_assertions\` is active; its absence means the tier has not opened verification, not acceptance.
+- Use \`dispatch_agent\` for one focused task; clarification/research and file-deliverable protocols are added automatically. Pass optional \`artifacts\` paths, never full plan/review/inventory bodies.
+- Returns: parsed \`details.structuredReturn\`/\`details.contractNotices\`, raw \`details.returnPath\`/\`details.fullOutput\`. Read via a helper only if digest/path is insufficient. Check every return for questions.`;
 }
 
 export function ambiguityFragment(askUserAvailable: boolean, userLanguage: string): string {
@@ -64,12 +37,9 @@ export function ambiguityFragment(askUserAvailable: boolean, userLanguage: strin
 export function languageFragment(askUserAvailable: boolean, userLanguage: string): string {
 	const englishNoOp = userLanguage.toLowerCase() === "english" ? " (If user-language is English this is a no-op.)" : "";
 	return askUserAvailable
-		? `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
-  write to the user, every \`ask_user\` question and \`context\` field — ${userLanguage}.
-- Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
-  personas are written in English; do not translate task descriptions for them.
-- When a specialist emits an \`ASK_USER:\` line in English, translate it to
-  ${userLanguage} before passing it through \`ask_user\`.${englishNoOp}`
+		? `- All user-facing messages, \`ask_user\` questions/context: **${userLanguage}**.
+- \`dispatch_agent\` tasks/personas remain **English**, never translated.
+- Translate specialists' English \`ASK_USER:\` to ${userLanguage} before \`ask_user\`.${englishNoOp}`
 		: `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
   write to the user is ${userLanguage}.
 - Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
@@ -93,7 +63,7 @@ export function stateCapsuleFragment(state: HubPromptState, resolution: Capabili
 }
 
 export const TASK_TRIAGE_FRAGMENT = `## Task triage (before dispatch)
-Call \`set_task_tier\` honestly: trivial/small work uses minimal ceremony; feature/project work uses the assertion ledger and a review gate. A provided plan is the specification, not consent to execute unrequested phases. Keep related plan work in coherent batches, pass a narrow scope, and treat a budget refusal as a stop-and-ask-human signal; code enforcement remains authoritative.`;
+Call \`set_task_tier\` honestly: trivial/small uses minimal ceremony; feature/project requires assertions and review. Plans specify work, not consent for unrequested phases. Batch related work with narrow scopes. Budget refusal means stop/ask human; runtime enforcement is authoritative.`;
 
 export function verificationFragment(maxOpenAssertions: number): string {
 	return `## Verification Contract
@@ -115,9 +85,9 @@ export const COMPACTION_FRAGMENT = `
 - \`request_compaction\` is available for explicit recovery. Automatic recovery preserves task state and continues from the compaction summary.
 `;
 export const ASK_SYSTEM1_RECOMMENDED_FRAGMENT = `## Recommended System 1 usage
-For a bounded semantic judgment with suitable permitted evidence, call \`ask_system1\` first, on your own initiative. This applies in both work modes and all tiers, including trivial and small tasks. Use it for classification, selected-file relevance/scope, risk and assumptions, request clarity, and failure interpretation; these are examples, not an exhaustive list.
-For matching judgments, use it as the exclusive first route before extended independent reasoning or spawning research for the same question. Select relevant permitted file paths/ranges directly instead of reading whole files merely to form that judgment. Use minimal known state; obtain missing facts with ordinary tools when necessary. Prefer deterministic lookup, calculation or search for exact facts. Do not call merely to rubber-stamp an already settled answer.
-The operator treats System 1 as free and fast for routing decisions: actively prefer useful calls whenever they can save time or main-model context. Do not ration calls for financial reasons; there is no arbitrary per-task quota. Batch related independent questions and reuse applicable current answers. Actual runtime byte, time and session-call limits still apply. This routing preference is not a claim about measured price, usage or latency.
-If the tool refuses, is unavailable, returns stale/inconclusive advice, lacks evidence or reaches its budget, continue with ordinary reading, research or independent reasoning. Do not repeat unchanged calls to seek agreement, or automatically retry a refusal. Request user decisions through \`ask_user\` when required.
-The response remains advisory: it never grants authority or replaces required reading before editing, tests, independent review, permission checks or process gates. Honor existing consent, include scope and tool-output settings; never expand them merely to make a call possible. Dedicated task/dispatch triage and review obligations still use their own workflows.
+For bounded semantic judgments with permitted evidence, call \`ask_system1\` first in both modes/all tiers, including trivial and small tasks: classification, relevance/scope, risk/assumptions, clarity, failure interpretation, etc. It is the exclusive first route before extended reasoning/research on that question, never a rubber stamp.
+Select permitted paths/ranges directly, not whole-file reads just to judge relevance. Supply minimal known state; use ordinary tools for missing facts and deterministic lookup/calculation/search for exact facts.
+Treat System 1 as free and fast for routing decisions: save time/context, never ration financially; no arbitrary per-task quota. Batch independent questions/reuse current answers. Runtime byte/time/session-call limits apply; this is not a price/usage/latency measurement.
+On refusal, unavailability, stale/inconclusive advice, missing evidence or budget exhaustion, use ordinary reading, research or independent reasoning. Never repeat unchanged calls to seek agreement or automatically retry refusals. Ask required user decisions via \`ask_user\`.
+Advice never grants authority or replaces required reading before editing, tests, independent review, permission checks or process gates. Honor consent, include scope and tool-output settings; never expand them to enable a call. Dedicated task/dispatch triage and review still use their own workflows.
 `;

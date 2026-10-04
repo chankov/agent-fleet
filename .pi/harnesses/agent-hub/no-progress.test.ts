@@ -186,6 +186,39 @@ test('production tool refusal offers validated recover commands and stored origi
  assert.equal(calls,1);
 });
 
+test("dispatch triage metadata survives persistence without authorizing a retry", async t => {
+ const cwd = mkdtempSync(join(tmpdir(), "triage-contract-"));
+ t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ execFileSync("git", ["init", "-q", cwd]);
+ const guard = createNoProgressGuard();
+ let calls = 0;
+ const run = withNoProgress({ noProgress: guard, artifacts: { loadInputArtifacts: () => [] } } as any, "dispatch", async () => {
+  calls++;
+  return { content: [], details: { status: "indeterminate", dispatchId: "triage-physical", exitCode: 1, reason: "lost" } };
+ });
+ const params = { agent: "builder", task: "inspect", triage_id: "evaluation-1", triage_reason: "independent_judgment" as const };
+ await run("one", params, undefined, undefined, { cwd } as any);
+ assert.equal(calls, 1);
+ const operation = guard.byDispatch("triage-physical")!;
+ assert.deepEqual(guard.invocation(operation.operationId), { tool: "dispatch_agent", params });
+ const refused = await run("two", { ...params, triage_id: "evaluation-2", triage_reason: "used" }, undefined, undefined, { cwd } as any);
+ assert.equal((refused.details as any).status, "no_progress_refused");
+ assert.equal(calls, 1, "advisory metadata cannot authorize retry");
+});
+
+test("dispatch persistence rejects unknown keys and invalid triage metadata before launch", async t => {
+ const cwd = mkdtempSync(join(tmpdir(), "invalid-triage-contract-"));
+ t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ execFileSync("git", ["init", "-q", cwd]);
+ for (const extra of [{ unexpected: "value" }, { triage_id: 123 }, { triage_reason: "authorize" }, { triage_reason: false }]) {
+  let calls = 0;
+  const run = withNoProgress({ noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } } as any, "dispatch", async () => { calls++; return { content: [] }; });
+  const result = await run("one", { agent: "builder", task: "inspect", ...extra } as any, undefined, undefined, { cwd } as any);
+  assert.equal((result.details as any).reason, "invalid_invocation_shape");
+  assert.equal(calls, 0);
+ }
+});
+
 test("scope_mode, prose and disjoint scope do not bypass same-agent cancellation", async t => {
 	const cwd = mkdtempSync(join(tmpdir(), "dispatch-cancel-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
 	execFileSync("git", ["init", cwd], { stdio: "ignore" }); writeFileSync(join(cwd, "a.ts"), "a"); writeFileSync(join(cwd, "b.ts"), "b");

@@ -97,9 +97,14 @@ test("recommended instructions track current mode and active tool availability",
 
 test("full extracted Hub prompt preserves exact text, ordering, and ledger", () => {
 	const built = buildHubSystemPrompt(fixture());
-	assert.equal(digest(built.systemPrompt), "0145e3d06038eef854a1c89e703183e9a1a308277923e3f597f8b574fffd1767");
+	// Intentional prose compaction; semantic guards below remain independently asserted.
+	assert.equal(digest(built.systemPrompt), "7e6e2a965a955e6fa229fc40d1a01f460ab364eb3660f88cca9d71e14e21bd77");
 	assert.match(built.systemPrompt, /Optionally use `dispatch_triage`/);
-	assert.match(built.systemPrompt, /re-dispatch the specialist with a line `USER_ANSWER: <dispatchId> :: <question>`\. Prose alone does not authorize the resume/);
+	assert.match(built.systemPrompt, /re-dispatch with `USER_ANSWER: <dispatchId> :: <question>`; prose alone cannot authorize resume/);
+	assert.match(built.systemPrompt, /Stat first\. Above 64 KiB\/file or 64 KiB read this turn, do not self-read/);
+	assert.match(built.systemPrompt, /Never repeat an unchanged refusal/);
+	assert.match(built.systemPrompt, /absence means the tier has not opened verification, not acceptance/);
+	assert.match(built.systemPrompt, /Inspect|Check every return for questions/);
 	assert.doesNotMatch(built.systemPrompt, /with the answer\./);
 	assert.match(built.systemPrompt, /risk high; scope small; open obligations: review/);
 	assert.match(built.systemPrompt, /correctness obligations are independent of tier/);

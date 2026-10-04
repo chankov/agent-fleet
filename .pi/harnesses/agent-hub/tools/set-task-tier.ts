@@ -8,13 +8,13 @@ export function registerSetTaskTier(pi: ExtensionAPI, toolCtx: ToolContext): voi
 		name: "set_task_tier",
 		label: "Set Task Tier",
 		description:
-			"Classify the CURRENT TASK on independent axes. `tier` controls spend only. `risk` (unknown|low|high) and `scope` (read-only|small|wide) control correctness obligations; risk is explicit and is never inferred from prose. Initial/legacy risk is unknown. Any risk change and any scope expansion requires `reason`; scope expansion also requires explicit risk reassessment. Lowering tier cannot erase open acceptance, plan, or review obligations. Pass `new_task: true` only for genuinely different work; same-task follow-ups, mode switches, resume, and compaction preserve obligations.",
+			"Classify current task: tier controls spend only; explicit risk and scope control correctness, never inferred from prose. Initial/legacy risk is unknown. Risk changes or scope expansion require reason; expansion also requires risk reassessment. Lower tier never clears acceptance/plan/review. new_task is only for different work, not follow-ups, mode switches, resume or compaction.",
 		parameters: Type.Object({
 			tier: Type.String({ description: "Spend tier only: trivial | small | feature | project" }),
 			risk: Type.Optional(Type.String({ description: "Explicit correctness risk: unknown | low | high. Omitted legacy calls remain unknown." })),
 			scope: Type.Optional(Type.String({ description: "Explicit process scope: read-only | small | wide." })),
-			reason: Type.Optional(Type.String({ description: "Required when raising budget tier, changing risk, or expanding scope; explain the observed change/reassessment." })),
-			new_task: Type.Optional(Type.Boolean({ description: "The human moved on to a different piece of work: clears the task budget, the tier, and the duplicate guard. Not for a correction or a follow-up on the same work." })),
+			reason: Type.Optional(Type.String({ description: "Explain tier increase, risk change or scope expansion/reassessment." })),
+			new_task: Type.Optional(Type.Boolean({ description: "Human changed tasks: resets budget, tier and duplicate guard; never for same-task corrections/follow-ups." })),
 		}),
 		execute(toolCallId, params, signal, onUpdate, ctx) {
 			return toolCtx.executeSetTaskTier(toolCallId, params as SetTaskTierParams, signal, onUpdate, ctx);

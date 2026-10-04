@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -56,9 +56,9 @@ function assertExtensionStackLoaded(result: ReturnType<typeof spawnSync>) {
 function startRpcProbe(
 	probePath: string,
 	extraArgs: string[] = [],
-	options: { beforeHubExtensions?: string[]; fleetArgs?: string[] } = {},
+	options: { beforeHubExtensions?: string[]; fleetArgs?: string[]; cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ) {
-	const env = { ...process.env, PI_OFFLINE: "1" };
+	const env = { ...(options.env ?? process.env), PI_OFFLINE: "1" };
 	delete env.HERDR_ENV;
 	delete env.HERDR_PANE_ID;
 	delete env.HERDR_WORKSPACE_ID;
@@ -66,9 +66,9 @@ function startRpcProbe(
 	const fleetArgs = options.fleetArgs ?? ["--solo", "--work-mode", "operator", "--agent-team", "default"];
 	const child = spawn(piExecutable, [
 		"--mode", "rpc", "--no-session", "--no-extensions",
-		...stack.flatMap(extensionPath => ["-e", extensionPath]),
+		...stack.flatMap(extensionPath => ["-e", resolve(repoRoot, extensionPath)]),
 		"-e", probePath, ...extraArgs, ...fleetArgs,
-	], { cwd: repoRoot, env, stdio: ["pipe", "pipe", "pipe"] });
+	], { cwd: options.cwd ?? repoRoot, env, stdio: ["pipe", "pipe", "pipe"] });
 	let sequence = 0;
 	let stdoutBuffer = "";
 	let stderr = "";
@@ -240,6 +240,36 @@ test("Pi loads the guarded agent-hub extension stack through jiti", () => {
 	assertExtensionStackLoaded(runExtensionStack(repoRoot));
 });
 
+test("Hub tool schemas avoid regex lookaround rejected by Azure", () => {
+	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-azure-schema-"));
+	try {
+		const capturePath = join(workspace, "tools.json");
+		const probePath = join(workspace, "probe.ts");
+		writeFileSync(probePath, `
+import { writeFileSync } from "node:fs";
+export default function (pi) {
+  pi.on("session_start", () => {
+    writeFileSync(process.env.TOOL_CAPTURE, JSON.stringify(pi.getAllTools().map(tool => ({ name: tool.name, parameters: tool.parameters }))));
+  });
+}
+`);
+		assertExtensionStackLoaded(runExtensionStack(repoRoot, ["-e", probePath, "--solo", "--work-mode", "operator"], { TOOL_CAPTURE: capturePath }));
+		const tools = JSON.parse(readFileSync(capturePath, "utf8"));
+		assert.ok(tools.some((tool: any) => tool.name === "spawn_research"));
+		// Azure validates every supplied tool, even tools the model never calls.
+		function assertPortablePatterns(schema: any, path: string): void {
+			if (!schema || typeof schema !== "object") return;
+			if (typeof schema.pattern === "string") {
+				assert.doesNotMatch(schema.pattern, /\(\?(?:[=!]|<[=!])/, `${path}.pattern must not use regex lookaround`);
+			}
+			for (const [key, value] of Object.entries(schema)) assertPortablePatterns(value, `${path}.${key}`);
+		}
+		for (const tool of tools) assertPortablePatterns(tool.parameters, `${tool.name}.parameters`);
+	} finally {
+		rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
 test("Hub fleet, verification, coms, and Herdr schemas stay compact without changing their fields", () => {
 	const workspace = mkdtempSync(join(tmpdir(), "agent-hub-schema-runtime-"));
 	try {
@@ -331,22 +361,42 @@ test("capture JSON times out with bounded diagnostics for persistent malformed d
 	}
 });
 
-test("effective Hub profiles stay within deterministic prompt plus active-schema budgets", async () => {
-	const cases = [
+const budgetProfiles = [
 		{ name: "greeting", message: "hello", maxChars: 14_000, expectedTool: "ask_user" },
 		{ name: "direct", message: "Fix the parser and run its tests.", maxChars: 18_000, expectedTool: "read" },
 		{ name: "fleet", message: "Delegate this implementation to a specialist.", maxChars: 20_000, expectedTool: "dispatch_agent" },
 		{ name: "verification", message: "Implement this feature with acceptance criteria.", maxChars: 20_000, expectedTool: "set_assertions" },
-		{ name: "compaction", message: "Please compact the conversation.", maxChars: 20_000, expectedTool: "request_compaction", extraArgs: ["-e", ".pi/extensions/compact-and-continue/index.ts"] },
-	] as const;
-	for (const profile of cases) {
+		{ name: "compaction", message: "Please compact the conversation.", maxChars: 20_000, expectedTool: "request_compaction", extraArgs: ["-e", join(repoRoot, ".pi/extensions/compact-and-continue/index.ts")] },
+] as const;
+for (const mode of ["off", "recommended"] as const) {
+	for (const profile of budgetProfiles) {
+		test(`effective Hub profiles: ${mode}/${profile.name} stays within budget`, async () => {
 		const workspace = mkdtempSync(join(tmpdir(), `agent-hub-budget-${profile.name}-`));
+		// Own the workspace, home, roster and feature configuration: never use a developer's settings.
+		mkdirSync(join(workspace, ".ai"));
+		mkdirSync(join(workspace, ".pi", "agents"), { recursive: true });
+		mkdirSync(join(workspace, "home"));
+		symlinkSync(join(repoRoot, "node_modules"), join(workspace, "node_modules"), "dir");
+		symlinkSync(join(repoRoot, ".pi/agents/personas"), join(workspace, ".pi/agents/personas"), "dir");
+		writeFileSync(join(workspace, ".pi/agents/teams.yaml"), "default:\n  - builder\n  - test-engineer\n  - code-reviewer\n  - documenter\n");
+		writeFileSync(join(workspace, ".ai/agent-fleet-overrides.md"), "## agent-hub\nlanguage: English\n");
+		writeFileSync(join(workspace, ".ai/agent-fleet.json"), JSON.stringify({ features: { system1: mode !== "off" } }));
+		writeFileSync(join(workspace, ".ai/system1.json"), JSON.stringify({
+			version: 2, mode: mode === "off" ? "off" : "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY",
+			consumers: {
+				agenticAsk: { mode, remoteContextApproved: mode !== "off", include: [], allowToolOutputs: false },
+				dispatchTriage: { mode: mode === "off" ? "off" : "advisory", remoteContextApproved: mode !== "off", maxCalls: 1, maxStateBytes: 8192, maxTaskBytes: 4096, maxRoleBytes: 4096 },
+			},
+		}));
 		const probePath = join(workspace, "probe-budget.ts");
 		const capturePath = join(workspace, "profile-budget.json");
 		writeFileSync(probePath, `
 +import { writeFileSync } from "node:fs";
 +import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 +
++// This fixture only captures schemas; any accidental network request is a failure.
++let networkRequests = 0;
++globalThis.fetch = async () => { networkRequests++; throw new Error("Network forbidden in profile budget fixture"); };
 +const capturePath = ${JSON.stringify(capturePath)};
 +
 +function streamBudgetProbe(model, context) {
@@ -354,6 +404,7 @@ test("effective Hub profiles stay within deterministic prompt plus active-schema
 +  queueMicrotask(() => {
 +    const schemas = context.tools ?? [];
 +    writeFileSync(capturePath, JSON.stringify({
++      networkRequests,
 +      promptChars: String(context.systemPrompt ?? "").length,
 +      schemaChars: JSON.stringify(schemas).length,
 +      active: schemas.map(tool => tool.name),
@@ -388,18 +439,24 @@ test("effective Hub profiles stay within deterministic prompt plus active-schema
 			...("extraArgs" in profile ? [...profile.extraArgs] : []),
 			"--model", "profile-budget-test/model",
 		];
-		const rpc = startRpcProbe(probePath, extraArgs);
+		const rpc = startRpcProbe(probePath, extraArgs, {
+			cwd: workspace,
+			env: { PATH: process.env.PATH, HOME: join(workspace, "home"), PI_CODING_AGENT_DIR: join(workspace, "home/.pi/agent"), PI_COMS_DIR: join(workspace, "coms"), TYPESAFE_API_KEY: "synthetic-budget-test-not-a-credential" },
+		});
 		try {
 			const promptResponse = await rpc.request({ type: "prompt", message: profile.message });
 			assert.equal(promptResponse.success, true, `${profile.name}: ${JSON.stringify(promptResponse)}`);
 			const captureDeadline = Date.now() + 10_000;
-			const measured = await waitForValidJson<{ promptChars: number; schemaChars: number; active: string[] }>(
+			const measured = await waitForValidJson<{ promptChars: number; schemaChars: number; active: string[]; networkRequests: number }>(
 				capturePath,
 				profile.name,
 				captureDeadline,
 				{ pollMs: 20 },
 			);
+			assert.equal(measured.networkRequests, 0, "budget probes must not send network requests");
 			assert.ok(measured.promptChars > 0, `${profile.name} must expose its effective replacement prompt`);
+			assert.equal(measured.active.includes("ask_system1"), mode === "recommended", "explicit System 1 mode must match the active surface");
+			assert.equal(measured.active.includes("dispatch_triage"), mode === "recommended" && profile.name === "fleet");
 			assert.ok(measured.promptChars + measured.schemaChars <= profile.maxChars,
 				`${profile.name} effective chars=${measured.promptChars + measured.schemaChars} > ${profile.maxChars}`);
 			assert.ok(measured.active.includes(profile.expectedTool), `${profile.name} must expose ${profile.expectedTool}`);
@@ -408,8 +465,9 @@ test("effective Hub profiles stay within deterministic prompt plus active-schema
 			await rpc.close();
 			rmSync(workspace, { recursive: true, force: true });
 		}
+		});
 	}
-});
+}
 
 test("tool-result pressure aborts before a tool loop can make another provider request", async () => {
 	const workspace = mkdtempSync(join(repoRoot, ".tmp-context-pressure-e2e-"));
@@ -441,15 +499,17 @@ function streamPressure(model, context, options) {
     providerCalls++;
     const output = {
       role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
-      usage: { input: providerCalls === 1 ? 190000 : providerCalls === 2 ? 220000 : 1000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      usage: { input: providerCalls === 1 ? 190000 : providerCalls <= 3 ? 220000 : 1000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
       stopReason: "pending", timestamp: Date.now(),
     };
     output.usage.totalTokens = output.usage.input + output.usage.output;
     record({ type: "provider", call: providerCalls, summaryPrompt: /context summarization assistant/i.test(context.systemPrompt || ""), toolCount: context.tools?.length ?? 0, deferred: JSON.stringify(context.messages).includes("deferred-after-pressure") });
     stream.push({ type: "start", partial: output });
-    if (providerCalls === 2) {
-      const toolCall = { type: "toolCall", id: "pressure-call", name: "pressure_probe", arguments: {} };
+    if (providerCalls === 2 || providerCalls === 3) {
+      const toolCall = providerCalls === 2
+        ? { type: "toolCall", id: "bind-call", name: "set_task_tier", arguments: { tier: "small", risk: "low", scope: "read-only", new_task: false, reason: "Continue the same synthetic pressure test with explicit classification." } }
+        : { type: "toolCall", id: "pressure-call", name: "pressure_probe", arguments: {} };
       output.content.push(toolCall);
       stream.push({ type: "toolcall_start", contentIndex: 0, partial: output });
       stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: output });
@@ -476,7 +536,10 @@ export default function (pi) {
     streamSimple: streamPressure,
   });
   pi.registerTool({ name: "pressure_probe", label: "Pressure Probe", description: "Return a large synthetic tool result.",
-    parameters: Type.Object({}), async execute() { return { content: [{ type: "text", text: "x".repeat(140000) }] }; } });
+    parameters: Type.Object({}), async execute() { record({ type: "probe_executed", chars: 140000 }); return { content: [{ type: "text", text: "x".repeat(140000) }] }; } });
+  pi.on("message_end", (event) => {
+    if (event.message.role === "toolResult") record({ type: "probe_result", tool: event.message.toolName, isError: event.message.isError, chars: JSON.stringify(event.message.content).length, preview: JSON.stringify(event.message.content).slice(0, 800) });
+  });
   pi.on("turn_end", async (_event, ctx) => {
     record({ type: "turn_end", active: pi.getActiveTools(), entries: ctx.sessionManager.getEntries().map(entry => entry.type) });
     // Keep the seed turn streaming after its marker: turn_end is NOT an idle fence.
@@ -484,9 +547,9 @@ export default function (pi) {
   });
 }
 `);
-	const previousPath = process.env.PRESSURE_EVENT_PATH;
-	process.env.PRESSURE_EVENT_PATH = eventPath;
-	const rpc = startRpcProbe(probePath, ["-e", ".pi/extensions/compact-and-continue/index.ts", "--model", "pressure-test/pressure-model"]);
+	const rpc = startRpcProbe(probePath, ["-e", ".pi/extensions/compact-and-continue/index.ts", "--model", "pressure-test/pressure-model"], {
+		env: { ...process.env, PRESSURE_EVENT_PATH: eventPath },
+	});
 	try {
 		assert.equal((await rpc.request({ type: "prompt", message: "seed the previous turn" })).success, true);
 		const firstTurnDeadline = Date.now() + 10_000;
@@ -497,6 +560,15 @@ export default function (pi) {
 		await waitForRpcIdle(rpc.request);
 		const pressureReply = await rpc.request({ type: "prompt", message: "run the pressure probe" });
 		assert.equal(pressureReply.success, true, JSON.stringify(pressureReply));
+		const resultDeadline = Date.now() + 10_000;
+		for (;;) {
+			const results = readFileSync(eventPath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+			const failed = results.find(event => event.type === "probe_result" && event.isError);
+			assert.ok(!failed, `pressure fixture tool refused: ${JSON.stringify(failed)}`);
+			if (results.some(event => event.type === "probe_result" && event.tool === "pressure_probe" && event.chars >= 140000)) break;
+			assert.ok(Date.now() < resultDeadline, `large pressure result missing: ${JSON.stringify(results)}`);
+			await new Promise(resolve => setTimeout(resolve, 20));
+		}
 		await rpc.waitForNotification("Context reached 90%; pausing the tool loop for automatic compaction.", 10_000);
 		const abortReadyDeadline = Date.now() + 10_000;
 		while (!(existsSync(eventPath) && readFileSync(eventPath, "utf8").includes('"type":"provider_aborted"'))) {
@@ -519,11 +591,13 @@ export default function (pi) {
 			await new Promise(resolve => setTimeout(resolve, 20));
 		}
 		const events = readFileSync(eventPath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+		assert.equal(events.filter(event => event.type === "probe_executed" && event.chars === 140000).length, 1);
+		assert.equal(events.filter(event => event.type === "probe_result" && event.tool === "set_task_tier" && !event.isError).length, 1);
 		const providers = events.filter(event => event.type === "provider");
 		const deferredIndex = providers.findIndex(event => event.deferred);
-		assert.ok(deferredIndex >= 3, `expected seed + tool + compaction before replay: ${JSON.stringify(providers)}`);
-		assert.ok(providers[0].toolCount > 0 && providers[1].toolCount > 0, "the first two calls are ordinary agent turns");
-		assert.ok(providers.slice(2, deferredIndex).every(event => event.summaryPrompt && event.toolCount === 0),
+		assert.ok(deferredIndex >= 4, `expected seed + bind + tool + compaction before replay: ${JSON.stringify(providers)}`);
+		assert.ok(providers.slice(0, 3).every(event => event.toolCount > 0 && !event.summaryPrompt), "seed, bind and probe are ordinary agent calls");
+		assert.ok(providers.slice(3, deferredIndex).every(event => event.summaryPrompt && event.toolCount === 0),
 			`no ordinary provider request may run between pressure and recovery: ${JSON.stringify(providers)}`);
 		assert.equal(providers[deferredIndex].summaryPrompt, false);
 		assert.ok(providers[deferredIndex].toolCount > 0, "deferred input replays through the ordinary Hub surface");
@@ -534,8 +608,6 @@ export default function (pi) {
 			"the transient compaction tool is visible during the pressure episode");
 	} finally {
 		await rpc.close();
-		if (previousPath === undefined) delete process.env.PRESSURE_EVENT_PATH;
-		else process.env.PRESSURE_EVENT_PATH = previousPath;
 		rmSync(workspace, { recursive: true, force: true });
 	}
 });

@@ -101,9 +101,11 @@ function retainedFenceFailure(attempt: FenceAttempt, previous?: Failure): Failur
 function validInvocation(value: NonNullable<GuardHistory['invocation']>): boolean {
  if (!value || !['dispatch_agent', 'spawn_research'].includes(value.tool) || !value.params || typeof value.params !== 'object' || Array.isArray(value.params)) return false;
  const params = value.params as unknown as Record<string, unknown>;
- const keys = value.tool === 'dispatch_agent' ? ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','backend'] : ['task','persona','model','artifacts','read_scope','goal','expected_result'];
+ const keys = value.tool === 'dispatch_agent' ? ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','backend','triage_id','triage_reason'] : ['task','persona','model','artifacts','read_scope','goal','expected_result'];
  if (Object.keys(params).some(key => !keys.includes(key)) || typeof params.task !== 'string' || !params.task.trim()) return false;
  if (value.tool === 'dispatch_agent' && (typeof params.agent !== 'string' || !params.agent.trim())) return false;
+ // Advisory trace metadata is persisted, never treated as execution authority.
+ if (params.triage_reason !== undefined && !['used', 'better_fit', 'changed_scope', 'independent_judgment'].includes(params.triage_reason as string)) return false;
  return Object.entries(params).every(([key, item]) => item === undefined || (['artifacts','scope','deliverables','read_scope'].includes(key) ? Array.isArray(item) && item.every(s => typeof s === 'string') : key === 'watchdog' ? typeof item === 'boolean' : typeof item === 'string'));
 }
 export function createNoProgressGuard(persist?: (type: string, data: unknown) => void) {

@@ -13,7 +13,9 @@ export function registerSpawnResearch(pi: ExtensionAPI, toolCtx: ToolContext): v
 			persona: Type.Optional(Type.String({ description: "Research persona; omit for ad-hoc." })),
 			model: Type.Optional(Type.String({ description: "Anonymous-helper model; ignored with persona." })),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path." }))),
-			read_scope: Type.Optional(Type.Array(Type.String({ description: "Advisory relative scope; not isolation.", pattern: "^(?![/\\\\])(?![A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" }))),
+			// Path restrictions are enforced by normalizeResearchContract at runtime;
+			// Azure tool schemas do not support regex lookaround.
+			read_scope: Type.Optional(Type.Array(Type.String({ description: "Advisory repository-relative scope; no absolute paths or .. segments; not isolation.", minLength: 1 }))),
 			goal: Type.Optional(Type.String()),
 			expected_result: Type.Optional(Type.String()),
 		}),
