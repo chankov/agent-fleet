@@ -54,15 +54,16 @@ npx @chankov/agent-fleet@latest setup \
 
 Setup installs the shared runtime and prints configuration instructions. It does
 not create the human-owned `.ai/system1.json`, acquire a credential, contact the
-provider, or install a local model. Create this exact version-1 configuration:
+provider, or install a local model. Create this version-2 configuration (see [unified System 1 settings](system1-config.md)):
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "mode": "auto",
   "provider": "typesafe",
   "model": "jev-1.13.0",
-  "apiKeyEnv": "TYPESAFE_API_KEY"
+  "apiKeyEnv": "TYPESAFE_API_KEY",
+  "consumers": {}
 }
 ```
 
@@ -143,7 +144,7 @@ still leaves the shared provider unselected. `--yes` is not remote-task consent.
 
 The experimental feature depends on `system1` and is excluded from automatic
 Default/Full. The exact-plan transaction creates absent nonsecret
-`.ai/task-triage.json` and `.ai/system1.json`; existing human files and explicit
+one `.ai/system1.json` v2 document with `consumers.taskTriage`; existing human files and explicit
 off are preserved. It does not collect credentials, create `.env` or infer.
 Supply a key through the runtime environment and run `just fleet deps`, or
 repeat setup with `--allow-exec --yes` and no replacement feature flags so it
@@ -523,3 +524,7 @@ explicit opt-in. The orchestrator may call `dispatch_triage` when its separate
 human-owned configuration permits it. Both remain off by default; installation
 does not authorize live requests or calibrate the policy. See the
 [configuration, keys, privacy and evaluation guide](system1-dispatch-triage.md).
+
+## Unified System 1 settings and migration
+
+See [the v2 configuration contract](system1-config.md) for consumer sections, explicit local migration, protected backups and off semantics. v1 reports `migration_required`; runtime has no legacy fallback.

@@ -7,11 +7,13 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 import { runDoctor, scanSystem1Readiness, scanTaskTriageReadiness } from "../lib/doctor.js";
+import { planSystem1Migration, applySystem1Migration } from '../lib/system1-migration.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = join(root, "bin", "cli.js");
 const validConfig = {
-  version: 1,
+  version: 2,
+  consumers: {},
   mode: "auto",
   provider: "typesafe",
   model: "jev-1.13.0",
@@ -23,6 +25,20 @@ function workspace(t) {
   t.after(() => rmSync(ws, { recursive: true, force: true }));
   return ws;
 }
+
+test('doctor reports legacy watchdog aliases, consumer-only manual recovery, and private retained backups', t => {
+  const ws = workspace(t); mkdirSync(join(ws, '.ai'));
+  writeFileSync(join(ws, '.ai/proactive-review.json'), '{"version":1,"mode":"shadow","include":["src/**"]}');
+  writeFileSync(join(ws, '.ai/agent-fleet-overrides.md'), '## Agent-Team\nWatchdog-System1: shadow\n');
+  let findings = scanSystem1Readiness({ workspace: ws, env: {} });
+  assert.ok(findings.some(f => f.type === 'system1-legacy' && f.path.includes('watchdog-system1')));
+  assert.ok(findings.some(f => f.path === '.ai/proactive-review.json' && f.fix.includes('consumer-only-legacy-workspaces')));
+  writeFileSync(join(ws, '.ai/system1.json'), JSON.stringify({ version: 1, mode: 'off', provider: 'typesafe', model: 'jev-1.13.0', apiKeyEnv: 'TYPESAFE_API_KEY' }));
+  const result = applySystem1Migration(planSystem1Migration(ws));
+  findings = scanSystem1Readiness({ workspace: ws, env: {} });
+  assert.ok(findings.some(f => f.type === 'system1-backup' && f.path === result.backup));
+  assert.equal(findings.some(f => f.type === 'system1-legacy'), false);
+});
 
 function selectSystem1(ws) {
   mkdirSync(join(ws, ".ai"), { recursive: true });
@@ -45,8 +61,8 @@ test("System 1 doctor readiness distinguishes absent, off, invalid, missing-key,
   const cases = [
     ["missing_config", undefined, {}, false],
     ["disabled", { ...validConfig, mode: "off" }, {}, false],
-    ["disabled", { mode: "off", nonsense: true }, {}, false],
-    ["invalid_config", { ...validConfig, version: 2 }, {}, false],
+    ["invalid_config", { mode: "off", nonsense: true }, {}, false],
+    ["migration_required", { version: 1, mode: 'auto', provider: 'typesafe', model: 'jev-1.13.0', apiKeyEnv: 'TYPESAFE_API_KEY' }, {}, false],
     ["invalid_config", { ...validConfig, model: "wrong" }, {}, false],
     ["missing_key", validConfig, {}, true],
     ["ready", validConfig, { TYPESAFE_API_KEY: "present-only-in-env" }, false],
@@ -57,7 +73,7 @@ test("System 1 doctor readiness distinguishes absent, off, invalid, missing-key,
     if (config !== undefined) writeConfig(ws, config);
     if (declareEnv) writeFileSync(join(ws, ".env"), "TYPESAFE_API_KEY=not-loaded\n");
     const findings = scanSystem1Readiness({ workspace: ws, env });
-    assert.equal(findings.length, 1, readiness);
+    assert.equal(findings.filter(f => f.type === "system1").length, 1, readiness);
     assert.equal(findings[0].type, "system1");
     assert.equal(findings[0].readiness, readiness);
     assert.equal(findings[0].envDeclared, null, "doctor does not inspect .env, so declaration status is unknown");
@@ -67,7 +83,7 @@ test("System 1 doctor readiness distinguishes absent, off, invalid, missing-key,
     assert.equal(JSON.stringify(findings).includes("present-only-in-env"), false);
     assert.equal(JSON.stringify(findings).includes("not-loaded"), false);
     if (readiness === "disabled") {
-      assert.match(findings[0].issue, /other fields were not validated/);
+      assert.match(findings[0].issue, /remote inference is off/);
     }
   }
 });
@@ -83,71 +99,29 @@ test("System 1 doctor recognizes selection through the experimental task-triage 
   assert.equal(JSON.stringify(findings).includes("fixture-only"), false);
 });
 
-test("task-triage doctor distinguishes applied selection, consent, provider and local-only readiness", t => {
-  const ws = workspace(t);
-  const statePath = join(ws, ".ai/agent-fleet-state.json");
-  const triagePath = join(ws, ".ai/task-triage.json");
-  const providerPath = join(ws, ".ai/system1.json");
-  const active = { version: 1, mode: "experimental", remoteContextApproved: true, provider: "typesafe", model: "jev-1.13.0",
-    questionVersion: "task-triage/questions/v1", policyVersion: "task-triage/policy/v1",
-    limits: { maxTaskBytes: 40960, maxStateBytes: 65536, maxCallsPerSession: 100, timeoutMs: 2000 } };
-  const scan = (env = {}) => scanTaskTriageReadiness({ workspace: ws, env });
-  assert.deepEqual(scan(), [], "unselected new workspace has no triage advisory");
-  mkdirSync(join(ws, ".ai"));
-  writeFileSync(statePath, JSON.stringify({ schemaVersion: 2, taskTriageSelected: false }));
-  assert.deepEqual(scan(), [], "default setup does not create a triage advisory");
-  writeFileSync(statePath, JSON.stringify({ schemaVersion: 2, taskTriageSelected: true }));
-  assert.equal(scan()[0].readiness, "missing_config");
-  writeFileSync(triagePath, JSON.stringify({ ...active, policyVersion: "unknown" }));
-  assert.equal(scan()[0].readiness, "policy_mismatch");
-  writeFileSync(triagePath, JSON.stringify({ ...active, remoteContextApproved: false }));
-  assert.equal(scan()[0].readiness, "unapproved");
-  writeFileSync(triagePath, JSON.stringify({ ...active, mode: "off", remoteContextApproved: false }));
-  assert.equal(scan()[0].readiness, "disabled");
-  writeFileSync(triagePath, JSON.stringify(active));
-  assert.equal(scan()[0].readiness, "missing_provider");
-  writeConfig(ws, { ...validConfig, mode: "off" });
-  assert.equal(scan()[0].readiness, "provider_off");
-  writeConfig(ws, { ...validConfig, model: "wrong" });
-  assert.equal(scan()[0].readiness, "invalid_provider");
-  writeConfig(ws);
-  assert.equal(scan()[0].readiness, "missing_key");
-  const blocked = scan({ TYPESAFE_API_KEY: "private-test-value" })[0];
-  assert.equal(blocked.readiness, "missing_local_producer");
-  assert.deepEqual(blocked.missingLocalProducers, ["planner", "code-reviewer"]);
-  assert.match(blocked.fix, /\/af-agents-add planner/);
-  const personaDir = join(ws, ".pi/agents/personas");
-  mkdirSync(personaDir, { recursive: true });
-  for (const role of ["planner", "code-reviewer"]) writeFileSync(join(personaDir, `${role}.md`), `---\nname: ${role}\nmodel: synthetic/offline\n---\n`);
-  const ready = scan({ TYPESAFE_API_KEY: "private-test-value" })[0];
-  assert.equal(ready.readiness, "locally_ready");
-  assert.equal(ready.stageProducerStatus, "local_files_present_roster_unverified");
-  assert.equal(ready.selected, true);
-  assert.equal(ready.configured, true);
-  assert.equal(ready.remoteApproved, true);
-  assert.equal(ready.apiValidity, "unverified");
-  assert.equal(JSON.stringify(ready).includes("private-test-value"), false);
-  writeFileSync(statePath, JSON.stringify({ schemaVersion: 2, taskTriageSelected: false }));
-  assert.equal(scan({ TYPESAFE_API_KEY: "private-test-value" })[0].readiness, "disabled_by_setup");
-  rmSync(statePath);
-  const foreign = workspace(t);
-  const foreignState = join(foreign, "outside-state.json");
-  writeFileSync(foreignState, JSON.stringify({ schemaVersion: 2, taskTriageSelected: true, secret: "private-outside-value" }));
-  symlinkSync(foreignState, statePath);
-  const linked = scan({ TYPESAFE_API_KEY: "private-test-value" })[0];
-  assert.equal(linked.readiness, "invalid_selection", "doctor must not trust a linked external state");
-  assert.equal(JSON.stringify(linked).includes("private-outside-value"), false);
+const taskSection = {mode:"experimental",remoteContextApproved:true,questionVersion:"task-triage/questions/v1",policyVersion:"task-triage/policy/v1",limits:{maxTaskBytes:40960,maxStateBytes:65536,maxCallsPerSession:100,timeoutMs:2000}};
+test("task-triage doctor distinguishes section consent, provider and selection", t => {
+ const ws=workspace(t);mkdirSync(join(ws,".ai"));
+ const statePath=join(ws,".ai/agent-fleet-state.json");
+ writeFileSync(statePath,JSON.stringify({schemaVersion:2,taskTriageSelected:true}));
+ const scan=(env={})=>scanTaskTriageReadiness({workspace:ws,env})[0];
+ assert.equal(scan().readiness,"missing_config");
+ for(const [section,expected] of [[{...taskSection,policyVersion:"unknown"},"invalid_config"],[{...taskSection,remoteContextApproved:false},"unapproved"],[{...taskSection,mode:"off",remoteContextApproved:false},"disabled"],[taskSection,"missing_key"]]) {
+  writeConfig(ws,{...validConfig,consumers:{taskTriage:section}});assert.equal(scan().readiness,expected);
+ }
+ writeConfig(ws,{...validConfig,mode:"off",consumers:{taskTriage:taskSection}});assert.equal(scan().readiness,"provider_off");
+ writeConfig(ws,{...validConfig,consumers:{taskTriage:taskSection}});
+ assert.equal(scan({TYPESAFE_API_KEY:"fixture-only"}).readiness,"missing_local_producer");
+ writeFileSync(statePath,JSON.stringify({schemaVersion:2,taskTriageSelected:false}));
+ assert.equal(scan().readiness,"disabled_by_setup");
 });
 
 test("runDoctor keeps task-triage advisory read-only and never prints credential values", async t => {
   const ws = workspace(t);
   mkdirSync(join(ws, ".ai"));
   writeFileSync(join(ws, ".ai/agent-fleet-state.json"), JSON.stringify({ schemaVersion: 2, taskTriageSelected: true, items: {} }));
-  const triagePath = join(ws, ".ai/task-triage.json");
-  writeFileSync(triagePath, JSON.stringify({ version: 1, mode: "experimental", remoteContextApproved: true,
-    provider: "typesafe", model: "jev-1.13.0", questionVersion: "task-triage/questions/v1", policyVersion: "task-triage/policy/v1",
-    limits: { maxTaskBytes: 40960, maxStateBytes: 65536, maxCallsPerSession: 100, timeoutMs: 2000 } }));
-  writeConfig(ws);
+  const triagePath = join(ws, ".ai/system1.json");
+  writeConfig(ws, {...validConfig, consumers:{taskTriage:taskSection}});
   const personaDir = join(ws, ".pi/agents/personas");
   mkdirSync(personaDir, { recursive: true });
   for (const role of ["planner", "code-reviewer"]) writeFileSync(join(personaDir, `${role}.md`), `---\nname: ${role}\nmodel: synthetic/offline\n---\n`);

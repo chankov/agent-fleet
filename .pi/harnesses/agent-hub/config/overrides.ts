@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { clampDelegateDepth, MAX_DELEGATE_DEPTH } from "../helpers.ts";
 import { DEFAULT_RUN_HISTORY_KEEP, normalizeRunHistoryKeep } from "../run-namespace.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, normalizeWatchdogSetting } from "../drift-watchdog.js";
-import { DEFAULT_WATCHDOG_SYSTEM1_MODE, normalizeWatchdogSystem1Mode, type WatchdogSystem1Mode } from "../system1-runtime.ts";
+import { DEFAULT_WATCHDOG_SYSTEM1_MODE, type WatchdogSystem1Mode } from "../system1-runtime.ts";
 import type { SubagentRole } from "../types.ts";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
@@ -103,11 +103,6 @@ export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			else result.warnings.push(`watchdog "${value}" is not one of ${WATCHDOG_SETTINGS.join("|")} — using the default (${DEFAULT_WATCHDOG_SETTING})`);
 		}
 		if (key === "watchdog-judge-model" && value) result.watchdogJudgeModel = value;
-		if (key === "watchdog-system1" && value) {
-			const parsed = normalizeWatchdogSystem1Mode(value);
-			result.watchdogSystem1Mode = parsed.mode;
-			if (parsed.warning) result.warnings.push(parsed.warning);
-		}
 		if (key === "poll-panel" && value) result.pollPanel = value;
 		const budgetKeys: Record<string, { field: keyof AgentTeamOverrides["budgetOverrides"]; scaleMs: boolean }> = {
 			"max-dispatches-per-turn": { field: "maxDispatches", scaleMs: false }, "max-research-per-turn": { field: "maxResearch", scaleMs: false },

@@ -69,7 +69,7 @@
     ".pi/harnesses/*.json",
     ".pi/harnesses/*/*.ts",
     ".pi/harnesses/*/*/*.ts",
-    ".pi/harnesses/lib/system1/config.js",
+    ".pi/harnesses/lib/system1/*.js",
     ".pi/harnesses/lib/system1/selection.js",
     ".pi/harnesses/*/*.js",
     ".pi/harnesses/*/package.json",
@@ -134,7 +134,9 @@
     "!docs/plans/**",
     ".pi/agent-fleet/scripts/fleet-codex-read.py",
     "docs/codex-session-bridge.md",
-    ".pi/harnesses/agent-hub/proactive-snapshot-worker.mjs"
+    ".pi/harnesses/agent-hub/proactive-snapshot-worker.mjs",
+    "!**/task-triage*.user-run.mjs",
+    "docs/system1-config.md"
   ],
   "engines": {
     "node": ">=18.0.0"
@@ -149,7 +151,7 @@
     "test:task-triage": "node --import ./bin/test/helpers/system1-no-network.js --experimental-strip-types --test .pi/harnesses/agent-hub/task-triage-config.test.ts .pi/harnesses/agent-hub/task-triage-state.test.ts .pi/harnesses/agent-hub/task-triage-policy.test.ts .pi/harnesses/agent-hub/task-triage-obligations.test.ts .pi/harnesses/agent-hub/task-triage-authorization.test.ts .pi/harnesses/agent-hub/task-triage-runtime.test.ts .pi/harnesses/agent-hub/task-triage-effects.integration.test.ts .pi/harnesses/agent-hub/task-triage-pressure.integration.test.ts .pi/harnesses/agent-hub/task-triage-persisted-compaction.integration.test.ts .pi/harnesses/agent-hub/task-triage-real-pi.integration.test.ts",
     "test:triage": "node --import ./bin/test/helpers/system1-no-network.js --test .pi/harnesses/agent-hub/dispatch-triage.test.ts .pi/harnesses/agent-hub/system1-communication-store.test.ts .pi/harnesses/agent-hub/ui/system1-communication.test.ts",
     "test:task-triage-pilot": "tsc --noEmit -p bin/test/helpers/task-triage-pilot-tsconfig.json && node --import ./bin/test/helpers/system1-no-network.js --test bin/test/task-triage-pilot-budget.test.ts bin/test/task-triage-pilot.test.ts",
-    "test:system1": "npm run test:triage && npm run typecheck:system1 && node --test .pi/harnesses/lib/system1/config.test.js && node --experimental-strip-types --test .pi/harnesses/lib/system1/service.test.ts .pi/harnesses/lib/system1/fake-provider.test.ts .pi/harnesses/lib/system1/jev.test.ts .pi/harnesses/lib/system1/demo.test.ts",
+    "test:system1": "npm run test:triage && npm run typecheck:system1 && node --test .pi/harnesses/lib/system1/config*.test.js && node --experimental-strip-types --test .pi/harnesses/lib/system1/service.test.ts .pi/harnesses/lib/system1/fake-provider.test.ts .pi/harnesses/lib/system1/jev.test.ts .pi/harnesses/lib/system1/demo.test.ts",
     "test:portability": "node bin/test/helpers/run-portability.js",
     "typecheck:workflows": "tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit",
     "typecheck:hub": "tsc -p .pi/harnesses/agent-hub/tsconfig.json --noEmit",

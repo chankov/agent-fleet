@@ -1,6 +1,8 @@
+import { loadSystem1Snapshot } from "../lib/system1/config-loader.js";
+import { normalizeSystem1Config } from "../lib/system1/config-v2.js";
 import { registerDispatchTriage } from "./tools/dispatch-triage.ts";
 import { createTriageRuntime } from "./dispatch-triage-runtime.ts";
-import { parseTriageConfig, type TriageInput } from "./dispatch-triage-contract.ts";
+import { type TriageConfig, type TriageInput } from "./dispatch-triage-contract.ts";
 import { loadTaskTriageConfig } from "./task-triage-config.ts";
 import { TASK_TRIAGE_MODEL } from "./task-triage-contract.ts";
 import type { JevTransport } from "../lib/system1/jev.ts";
@@ -492,6 +494,7 @@ export default function (pi: ExtensionAPI) {
  const communicationStore = createCommunicationStore();
  let triageRuntime: ReturnType<typeof createTriageRuntime> | null = null;
 	let proactiveRuntime: ReturnType<typeof createProactiveRuntime> | null = null;
+	let system1Snapshot: ReturnType<typeof loadSystem1Snapshot> = normalizeSystem1Config(null);
 	let proactiveConfig: ProactiveConfig | null = null;
 	let proactiveHubDeliveries = 0;
 	const proactiveReportInput = () => proactiveRuntime ? { records: proactiveRuntime.records, history: proactiveRuntime.findings.history, current: proactiveRuntime.findings.current, activity: proactiveRuntime.activity.live(), feedback: { hubDelivered: proactiveHubDeliveries, nativeDelivered: null } } : undefined;
@@ -2305,7 +2308,7 @@ export default function (pi: ExtensionAPI) {
 			resetAccessApproval: accessApprovalRouter.reset,
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
-			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; proactiveHubDeliveries = 0; taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
+			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null); proactiveHubDeliveries = 0; taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
 			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },
@@ -2335,7 +2338,8 @@ export default function (pi: ExtensionAPI) {
 		},
 		initializeExemptions: (_ctx) => {
 			try {
-				const config = loadProactiveConfig(_ctx.cwd || process.cwd());
+				system1Snapshot = loadSystem1Snapshot(_ctx.cwd || process.cwd());
+				const config = loadProactiveConfig(_ctx.cwd || process.cwd(), system1Snapshot);
 				if (isCaptureEnabled(config)) proactiveConfig = config;
 			} catch { /* invalid config fails closed */ }
 			// ── Damage-control shared exemptions file ──
@@ -2382,15 +2386,15 @@ export default function (pi: ExtensionAPI) {
 			taskTriageTestTransportActive = !!taskTriageTestTransport;
 			watchdogSystem1 = createWatchdogSystem1Session({ ...readWatchdogSystem1Snapshot({
 				cwd: _ctx.cwd,
+    snapshot: system1Snapshot,
 				configuredMode: sessionOverrides.watchdogSystem1Mode,
 				watchdogSetting: sessionOverrides.watchdogSetting,
 				env: process.env,
 				transport: taskTriageTestTransport,
 				warnings: sessionOverrides.warnings,
 			}), wrapService: service => communicationStore.wrap(service, { provider: "typesafe", model: "jev-1.13.0" }) });
-			let triageConfig = null;
-   try { triageConfig = parseTriageConfig(JSON.parse(fs.readFileSync(path.join(_ctx.cwd, ".ai/dispatch-triage.json"), "utf8"))); } catch { /* absent/invalid is off */ }
-   const taskTriageConfig = loadTaskTriageConfig(_ctx.cwd || process.cwd());
+			const triageConfig = (system1Snapshot?.consumers.dispatchTriage.config ?? null) as TriageConfig | null;
+   const taskTriageConfig = loadTaskTriageConfig(_ctx.cwd || process.cwd(), system1Snapshot);
    const sharedService = watchdogSystem1?.sharedService;
    const serviceUnavailableReason = watchdogSystem1?.readiness.status === "ready" ? "unavailable" : watchdogSystem1?.readiness.reason ?? "unavailable";
    taskTriageConfigured = taskTriageConfig.status !== "missing";

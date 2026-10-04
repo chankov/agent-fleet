@@ -1,15 +1,16 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync, lstatSync, readlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runTransaction, JOURNAL_REL_PATH } from "../lib/transaction.js";
+import { runTransaction, capturePlanFingerprints, JOURNAL_REL_PATH } from "../lib/transaction.js";
 import { buildPlan } from "../lib/plan.js";
 import { applyPlan } from "../lib/apply.js";
 import { loadManifest } from "../lib/manifest.js";
 import { emptyState, writeState, readState } from "../lib/state.js";
 import { buildReconcilePlan } from "../lib/reconcile.js";
+import { assertSafeWorkspaceTarget } from '../lib/workspace-safety.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const manifest = loadManifest(repoRoot);
@@ -158,7 +159,7 @@ test("task-triage config and desired selection roll back together on interrupted
     preset: "default", features: "system1-task-triage", taskTriageConsent: true, yes: true,
   });
   assert.equal(plan.taskTriage?.write, true);
-  assert.equal(plan.taskTriageProvider?.write, true);
+  assert.equal(plan.taskTriageProvider?.write, false);
   const failed = applyPlan({ plan, manifest, failAt: "after-commit" });
   assert.equal(failed.exitCode, 1);
   assert.equal(existsSync(join(workspace, ".ai/task-triage.json")), false);
@@ -168,7 +169,7 @@ test("task-triage config and desired selection roll back together on interrupted
   assert.equal(existsSync(join(workspace, JOURNAL_REL_PATH)), false);
   const applied = applyPlan({ plan, manifest });
   assert.equal(applied.exitCode, 0, applied.failure?.detail);
-  assert.equal(JSON.parse(readFileSync(join(workspace, ".ai/task-triage.json"), "utf8")).mode, "experimental");
+  assert.equal(JSON.parse(readFileSync(join(workspace, ".ai/system1.json"), "utf8")).consumers.taskTriage.mode, "experimental");
   assert.equal(JSON.parse(readFileSync(join(workspace, ".ai/system1.json"), "utf8")).apiKeyEnv, "TYPESAFE_API_KEY");
 });
 
@@ -177,15 +178,40 @@ test("task-triage planning refuses a linked config or linked .ai parent before r
   const foreign = temporaryDirectory(t, "af-tx-triage-foreign-");
   const sentinel = write(foreign, "secret.json", '{"remoteContextApproved":true}\n');
   mkdirSync(join(workspace, ".ai"));
-  symlinkSync(sentinel, join(workspace, ".ai/task-triage.json"));
+  symlinkSync(sentinel, join(workspace, ".ai/system1.json"));
   const plan = () => buildReconcilePlan({ workspace, sourceRoot: repoRoot, packageVersion: manifest.packageVersion, manifest,
     preset: "default", features: "system1-task-triage", taskTriageConsent: true, yes: true });
-  assert.throws(plan, /must be a regular file/);
-  rmSync(join(workspace, ".ai/task-triage.json"));
+  assert.throws(plan, /symlink|regular file/);
+  rmSync(join(workspace, ".ai/system1.json"));
   rmSync(join(workspace, ".ai"), { recursive: true });
   symlinkSync(foreign, join(workspace, ".ai"));
-  assert.throws(plan, /linked \.ai directory/);
+  assert.throws(plan, /symlink/);
   assert.equal(readFileSync(sentinel, "utf8"), '{"remoteContextApproved":true}\n');
+});
+
+test('dangling symlinks are neither safe write targets nor absent fingerprints', t => {
+  const workspace = temporaryDirectory(t, 'af-tx-dangling-');
+  const outside = temporaryDirectory(t, 'af-tx-dangling-outside-');
+  mkdirSync(join(workspace, '.ai'));
+  const plan = { workspace, verb: 'configure', actions: [{ files: [{ path: '.ai/system1.json' }] }] };
+  plan.fingerprints = capturePlanFingerprints(plan, { items: [] });
+  symlinkSync(join(outside, 'not-present'), join(workspace, '.ai/system1.json'));
+  assert.throws(() => assertSafeWorkspaceTarget(workspace, '.ai/system1.json', { allowLeafSymlink: false }), /symlink/);
+  assert.throws(() => runTransaction({ workspace, plan, manifest: { items: [] }, commit: () => { throw Error('must not run'); } }), error => error.exitCode === 3 && /changed since preview/.test(error.message));
+  assert.equal(existsSync(join(outside, 'not-present')), false);
+  assert.equal(lstatSync(join(workspace, '.ai/system1.json')).isSymbolicLink(), true);
+});
+test('rollback retains a legitimate managed dangling leaf link', t => {
+  const workspace = temporaryDirectory(t, 'af-tx-dangling-rollback-');
+  mkdirSync(join(workspace, '.ai'));
+  const path = join(workspace, '.ai/managed-link');
+  symlinkSync(join(workspace, 'not-present'), path);
+  const target = readlinkSync(path);
+  const plan = { workspace, verb: 'configure', actions: [{ files: [{ path: '.ai/managed-link' }] }] };
+  plan.fingerprints = capturePlanFingerprints(plan, { items: [] });
+  assert.throws(() => runTransaction({ workspace, plan, manifest: { items: [] }, commit: () => { unlinkSync(path); writeFileSync(path, 'new'); throw Error('injected'); } }), /injected/);
+  assert.equal(lstatSync(path).isSymbolicLink(), true);
+  assert.equal(readlinkSync(path), target);
 });
 
 test("desired and applied state commit in the same transaction", t => {

@@ -1,10 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "./config-loader.js";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { JevTransport } from "./jev.ts";
 import { createSystem1Runtime } from "./service.ts";
-import { system1SelectedByDesired } from "./selection.js";
 
 const SYNTHETIC_REQUEST = {
   state: {
@@ -34,16 +33,8 @@ const SYNTHETIC_REQUEST = {
   ],
 };
 
-function readJson(path: string): unknown {
-  if (!existsSync(path)) return undefined;
-  try { return JSON.parse(readFileSync(path, "utf8")); }
-  catch { return null; }
-}
-
 function workspaceInputs(cwd: string): { selected: boolean; config: unknown } {
-  const desired = readJson(join(cwd, ".ai", "agent-fleet.json"));
-  const selected = system1SelectedByDesired(desired);
-  return { selected, config: readJson(join(cwd, ".ai", "system1.json")) };
+ return { selected: readSystem1Selected(cwd), config: providerDocument(loadSystem1Snapshot(cwd)) };
 }
 
 export interface RunSystem1DemoOptions {

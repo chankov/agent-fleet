@@ -19,7 +19,8 @@ import { WATCHDOG_QUESTIONS, WATCHDOG_STATE_MAX_BYTES, buildWatchdogState } from
 import { decideSystem1, WATCHDOG_POLICY_VERSION, type AcceptedWatchdogProfile } from "./drift-system1-policy.ts";
 
 const validConfig = {
-	version: 1,
+	version: 2,
+ consumers: { watchdog: { mode: "shadow" } },
 	mode: "auto",
 	provider: "typesafe",
 	model: "jev-1.13.0",
@@ -74,8 +75,8 @@ test("off, missing feature, missing config, invalid config, disabled mode, missi
 		createWatchdogSystem1Session({ ...ready, configuredMode: "off" }),
 		createWatchdogSystem1Session({ ...ready, configuredMode: "shadow", selected: false }),
 		createWatchdogSystem1Session({ ...ready, configuredMode: "shadow", config: undefined }),
-		createWatchdogSystem1Session({ ...ready, configuredMode: "shadow", config: { version: 1 } }),
-		createWatchdogSystem1Session({ ...ready, configuredMode: "shadow", config: { mode: "off" } }),
+		createWatchdogSystem1Session({ ...ready, configuredMode: "shadow", config: { version: 2 } }),
+		createWatchdogSystem1Session({ ...ready, configuredMode: "shadow", config: { ...validConfig, mode: "off" } }),
 		createWatchdogSystem1Session({ ...ready, configuredMode: "shadow", env: {} }),
 		createWatchdogSystem1Session({ ...ready, configuredMode: "shadow", watchdogArmed: false }),
 	];
@@ -121,7 +122,7 @@ test("experimental scope profile works for other workspaces only with explicit a
 	const dir = workspace();
 	try {
 		writeFileSync(join(dir, ".ai", "agent-fleet.json"), JSON.stringify({ features: { system1: true } }));
-		writeFileSync(join(dir, ".ai", "system1.json"), JSON.stringify(validConfig));
+		writeFileSync(join(dir, ".ai", "system1.json"), JSON.stringify({...validConfig, consumers:{watchdog:{mode:"active"}}}));
 		const open = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({
 			cwd: dir, configuredMode: "active", watchdogSetting: "on", env: {},
 		}));
@@ -132,6 +133,7 @@ test("experimental scope profile works for other workspaces only with explicit a
 		assert.equal(open.approvedProfiles[0].minConfidence, 0.95);
 		assert.equal(open.approvedProfiles[0].maxContradiction, 0.05);
 		open.dispose();
+		writeFileSync(join(dir, ".ai/system1.json"), JSON.stringify(validConfig));
 		const closed = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({
 			cwd: dir, configuredMode: "shadow", watchdogSetting: "on", env: {},
 		}));
@@ -323,7 +325,7 @@ test("snapshot reads feature and config as data, ignores dotenv, and does not ho
 			env: { TYPESAFE_API_KEY: "snapshot-key" },
 			transport: live.transport,
 		}));
-		assert.equal((await malformed.evaluate({ armed: true, state: smallState })).reason, "feature_unselected");
+		assert.equal((await malformed.evaluate({ armed: true, state: smallState })).reason, "consumer_off");
 		writeFileSync(join(dir, ".ai", "agent-fleet.json"), JSON.stringify({ features: { system1: true } }));
 		const badConfig = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({
 			cwd: dir,
@@ -332,7 +334,7 @@ test("snapshot reads feature and config as data, ignores dotenv, and does not ho
 			env: { TYPESAFE_API_KEY: "snapshot-key" },
 			transport: live.transport,
 		}));
-		assert.equal((await badConfig.evaluate({ armed: true, state: smallState })).reason, "invalid_config");
+		assert.equal((await badConfig.evaluate({ armed: true, state: smallState })).reason, "consumer_off");
 		assert.equal(live.calls(), 1);
 		malformed.dispose();
 		badConfig.dispose();

@@ -22,7 +22,7 @@ import { collectModelTargets } from "../lib/doctor.js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACK_MAX_BUFFER = 64 * 1024 * 1024;
 const SYSTEM1_RUNTIME = [
-  "config.js",
+  "config.js", "config-v2.js", "config-proactive.js", "config-triage.js", "config-json.js", "config-loader.js",
   "selection.js",
   "contracts.ts",
   "demo.ts",
@@ -174,7 +174,8 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     const system1Ws = join(fixture, "system1");
     mkdirSync(system1Ws);
     const humanConfigText = `${JSON.stringify({
-      version: 1,
+      version: 2,
+      consumers: {},
       mode: "auto",
       provider: "typesafe",
       model: "jev-1.13.0",
@@ -214,7 +215,7 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     const triagePreview = JSON.parse(execFileSync(process.execPath, [cli, "setup", "--workspace", triageWs,
       "--preset", "default", "--features", "system1-task-triage", "--dry-run", "--json"], { encoding: "utf8" }));
     assert.equal(triagePreview.taskTriage.write, true);
-    assert.equal(triagePreview.taskTriageProvider.write, true);
+    assert.equal(triagePreview.taskTriageProvider.write, false);
     const noConsent = spawnSync(process.execPath, [cli, "setup", "--workspace", triageWs, "--preset", "default",
       "--features", "system1-task-triage", "--yes"], { encoding: "utf8" });
     assert.equal(noConsent.status, 1);
@@ -222,9 +223,9 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     assert.equal(existsSync(join(triageWs, ".ai/task-triage.json")), false);
     execFileSync(process.execPath, [cli, "setup", "--workspace", triageWs, "--preset", "default",
       "--features", "system1-task-triage", "--task-triage-consent", "--yes"], { encoding: "utf8" });
-    const triageConfigPath = join(triageWs, ".ai/task-triage.json");
+    const triageConfigPath = join(triageWs, ".ai/system1.json");
     const humanTriage = readFileSync(triageConfigPath, "utf8");
-    assert.equal(JSON.parse(humanTriage).remoteContextApproved, true);
+    assert.equal(JSON.parse(humanTriage).consumers.taskTriage.remoteContextApproved, true);
     assert.equal(JSON.parse(readFileSync(join(triageWs, ".ai/system1.json"), "utf8")).mode, "auto");
     assert.equal(JSON.parse(readFileSync(join(triageWs, ".ai/agent-fleet-state.json"), "utf8")).taskTriageSelected, true);
     assert.ok(existsSync(join(triageWs, ".pi/harnesses/agent-hub/task-triage-config.ts")), "installed runtime closure contains the consumer config gate");
@@ -252,6 +253,26 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     assert.equal(disabled.stdout, "off", "installed runtime obeys the applied feature switch");
 
     const node18 = findNode18();
+    await t.test('packaged digest-bound migration runs on Node 18 without TypeScript or inference', { skip: node18 ? false : 'Node 18 binary not on PATH' }, () => {
+      const migrationWs = join(fixture, 'migration-node18');
+      mkdirSync(join(migrationWs, '.ai'), { recursive: true });
+      writeFileSync(join(migrationWs, '.ai/system1.json'), JSON.stringify({ version: 1, mode: 'off', provider: 'typesafe', model: 'jev-1.13.0', apiKeyEnv: 'TYPESAFE_API_KEY' }));
+      writeFileSync(join(migrationWs, '.ai/proactive-review.json'), '{"version":1,"mode":"shadow","include":["src/**"]}');
+      writeFileSync(join(migrationWs, '.ai/agent-fleet-overrides.md'), '## Agent-Team\nWatchdog-System1: shadow\n');
+      const args = [cli, 'setup', '--workspace', migrationWs, '--migrate-system1-config'];
+      const env = { PI_OFFLINE: '1', NODE_OPTIONS: `--import=${join(root, 'bin/test/helpers/system1-no-network.js')}` };
+      const preview = spawnSync(node18, [...args, '--dry-run'], { encoding: 'utf8', env });
+      assert.equal(preview.status, 0, preview.stderr);
+      const digest = JSON.parse(preview.stdout).digest;
+      const applied = spawnSync(node18, [...args, '--yes', '--expect-digest', digest], { encoding: 'utf8', env });
+      assert.equal(applied.status, 0, applied.stderr);
+      assert.equal(JSON.parse(applied.stdout).result.status, 'migrated');
+      const saved = JSON.parse(readFileSync(join(migrationWs, '.ai/system1.json'), 'utf8'));
+      assert.equal(saved.version, 2); assert.equal(saved.mode, 'off');
+      assert.equal(saved.consumers.watchdog.mode, 'shadow');
+      assert.equal(saved.consumers.proactiveReview.mode, 'shadow');
+      assert.equal(existsSync(join(migrationWs, '.ai/proactive-review.json')), false);
+    });
     await t.test("packaged doctor runs on Node 18", { skip: node18 ? false : "Node 18 binary not on PATH" }, () => {
       const doctor18 = spawnSync(node18, [cli, "doctor", "--workspace", system1Ws, "--json"], {
         encoding: "utf8",

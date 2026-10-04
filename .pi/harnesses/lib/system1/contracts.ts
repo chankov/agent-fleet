@@ -9,7 +9,8 @@ export type JsonText = string | { readonly [key: string]: JsonValue } | readonly
 export type System1State = JsonText;
 
 export interface System1Config {
-  version: 1;
+  version: 2;
+  consumers: Readonly<Record<string, unknown>>;
   mode: "auto" | "off";
   provider: "typesafe";
   model: "jev-1.13.0";
@@ -121,6 +122,7 @@ export type UnavailableReason =
   | "overloaded"
   | "invalid_response"
   | "invalid_config"
+  | "migration_required"
   | "invalid_request";
 
 export type System1Result =
@@ -145,7 +147,7 @@ export interface System1Provider {
 export type System1Availability =
   | { status: "ready" }
   | { status: "skipped"; reason: SkippedReason }
-  | { status: "unavailable"; reason: "invalid_config" };
+  | { status: "unavailable"; reason: "invalid_config" | "migration_required" };
 
 export interface System1Service {
   evaluate(request: EvaluateRequest): Promise<System1Result>;

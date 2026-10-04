@@ -1,0 +1,63 @@
+import '../../../bin/test/helpers/system1-no-network.js';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { loadSystem1Snapshot } from '../lib/system1/config-loader.js';
+import { loadProactiveConfig } from './proactive-config.ts';
+import { loadTaskTriageConfig } from './task-triage-config.ts';
+import { readWatchdogSystem1Snapshot, createWatchdogSystem1Session } from './system1-runtime.ts';
+import { TASK_TRIAGE_LIMITS } from './task-triage-contract.ts';
+const section = { mode: 'experimental', remoteContextApproved: true, questionVersion: 'task-triage/questions/v1', policyVersion: 'task-triage/policy/v1', limits: TASK_TRIAGE_LIMITS };
+const root = { version: 2, mode: 'auto', provider: 'typesafe', model: 'jev-1.13.0', apiKeyEnv: 'TYPESAFE_API_KEY', consumers: { watchdog: { mode: 'off' }, proactiveReview: { mode: 'shadow', include: ['src/**'] }, taskTriage: section } };
+function fixture(t: any) {
+ const ws = mkdtempSync(join(tmpdir(), 'system1-snapshot-'));
+ t.after(() => rmSync(ws, { recursive: true, force: true }));
+ mkdirSync(join(ws, '.ai'));
+ writeFileSync(join(ws, '.ai/agent-fleet.json'), JSON.stringify({ features: { system1: true } }));
+ return ws;
+}
+test('immutable snapshot, shared service with watchdog off, legacy never consulted', t => {
+ const ws = fixture(t);
+ writeFileSync(join(ws, '.ai/system1.json'), JSON.stringify(root));
+ for (const name of ['task-triage', 'dispatch-triage', 'proactive-review']) writeFileSync(join(ws, `.ai/${name}.json`), '{ invalid ignored legacy');
+ writeFileSync(join(ws, '.ai/agent-fleet-overrides.md'), '## agent-hub\nwatchdog-system1: active\n');
+ const snapshot = loadSystem1Snapshot(ws);
+ writeFileSync(join(ws, '.ai/system1.json'), '{changed after snapshot');
+ assert.equal(loadProactiveConfig(ws, snapshot).mode, 'shadow');
+ assert.equal(loadTaskTriageConfig(ws, snapshot).status, 'active');
+ const session = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({ cwd: ws, configuredMode: 'active', watchdogSetting: 'off', snapshot, env: { TYPESAFE_API_KEY: 'synthetic' } }));
+ assert.equal(session.configuredMode, 'off');
+ assert.ok(session.sharedService);
+ const same = session.sharedService;
+ assert.equal(session.sharedService, same);
+ session.dispose();
+ assert.equal(session.sharedService, undefined);
+ assert.equal(loadSystem1Snapshot(ws).status, 'invalid');
+});
+test('root off preserves local capture, section isolation and selection veto', t => {
+ const ws = fixture(t);
+ writeFileSync(join(ws, '.ai/system1.json'), JSON.stringify({ ...root, mode: 'off', consumers: { ...root.consumers, dispatchTriage: { unknown: true } } }));
+ const snapshot = loadSystem1Snapshot(ws);
+ assert.equal(snapshot.consumers.dispatchTriage.status, 'invalid');
+ assert.equal(loadProactiveConfig(ws, snapshot).mode, 'shadow');
+ const session = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({ cwd: ws, configuredMode: 'active', watchdogSetting: 'on', snapshot, env: { TYPESAFE_API_KEY: 'synthetic' } }));
+ assert.equal(session.sharedService, undefined);
+ assert.deepEqual(session.readiness, { status: 'skipped', reason: 'disabled' });
+ writeFileSync(join(ws, '.ai/agent-fleet-state.json'), JSON.stringify({ schemaVersion: 2, taskTriageSelected: false }));
+ assert.equal(loadTaskTriageConfig(ws, snapshot).status, 'off');
+});
+test('v1 requires migration with zero requests and no capture', t => {
+ const ws = fixture(t);
+ let calls = 0;
+ const { consumers, ...provider } = root;
+ writeFileSync(join(ws, '.ai/system1.json'), JSON.stringify({ ...provider, version: 1 }));
+ const snapshot = loadSystem1Snapshot(ws);
+ assert.equal(snapshot.status, 'migration_required');
+ assert.equal(loadProactiveConfig(ws, snapshot).mode, 'off');
+ const session = createWatchdogSystem1Session(readWatchdogSystem1Snapshot({ cwd: ws, configuredMode: 'active', watchdogSetting: 'on', snapshot, env: { TYPESAFE_API_KEY: 'synthetic' }, transport: async () => { calls++; throw Error('never'); } }));
+ assert.deepEqual(session.readiness, { status: 'unavailable', reason: 'migration_required' });
+ assert.equal(session.sharedService, undefined);
+ assert.equal(calls, 0);
+});

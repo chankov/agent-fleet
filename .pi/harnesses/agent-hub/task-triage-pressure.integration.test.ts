@@ -17,7 +17,7 @@ test("pressure queues two inputs, replays each into its own assessment and resto
  const journal: any[] = [];
  let transportCalls = 0;
  const session = createWatchdogSystem1Session({ configuredMode: "off", watchdogArmed: false, selected: true,
-  config: { version: 1, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" },
+  config: { version: 2, consumers: {}, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" },
   env: { TYPESAFE_API_KEY: "synthetic-key" }, transport: async request => {
    transportCalls++;
    const outbound = JSON.parse(request.body.toString("utf8"));

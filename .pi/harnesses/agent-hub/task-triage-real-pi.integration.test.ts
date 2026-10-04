@@ -22,7 +22,7 @@ const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const hubDir = join(repoRoot, ".pi/harnesses/agent-hub");
 const piExecutable = join(repoRoot, "node_modules/.bin/pi");
 const noNetworkPreload = join(repoRoot, "bin/test/helpers/system1-no-network.js");
-const README_CHECK = `node -e 'const fs=require("node:fs");process.exit(fs.readFileSync("README.md","utf8")==="The widget renders a greeting.\\n"?0:1)'`; 
+const README_CHECK = `node -e 'const fs=require("node:fs");process.exit(fs.readFileSync("README.md","utf8")==="The widget renders a greeting.\\n"?0:1)'`;
 
 const TRIAGE_CONFIG = {
   version: 1, mode: "experimental", remoteContextApproved: true,
@@ -94,7 +94,7 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 let calls = 0;
 export default function (pi: any) {
   pi.on("tool_result", (event: any) => { if (event.toolName === "bash") appendFileSync(process.env.TRIAGE_CHILD_EVENTS as string, JSON.stringify({ role: "tool_result", tool: "bash", isError: event.isError, runtimeTest: event.details?.runtimeTest ?? null }) + "\n"); });
-  pi.registerProvider("triage-e2e", { name: "triage-e2e", baseUrl: "http://127.0.0.1", apiKey: "fixture", api: "triage-e2e-api", 
+  pi.registerProvider("triage-e2e", { name: "triage-e2e", baseUrl: "http://127.0.0.1", apiKey: "fixture", api: "triage-e2e-api",
     models: [{ id: "m", name: "m", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 64000, maxTokens: 2000 }],
     streamSimple(model: any, ctx: any) {
       const stream = createAssistantMessageEventStream();
@@ -112,7 +112,7 @@ export default function (pi: any) {
           : role === "reviewer" ? results.length === 0 ? { tool: "read", args: { path: "README.md" } }
           : { text: readOk ? "VERDICT: APPROVE\nchanged_files: [README.md]\nassertions_proven: []\nassertions_unproven: []\nassertions_failed: []\ntests_run: full regression\nopen_risks: [fixture-only inspection; not an independent A1 return]\nrequires_user_decision: []" : "VERDICT: REJECT\nassertions_unproven: [README content not verified]" }
           : results.length ? { text: readOk ? "PLAN: Correct only wdiget renders to widget renders in README.md; preserve other bytes and verify the exact change before review." : "PLAN REFUSED: README read was not verified." }
-          : { tool: "read", args: { path: "README.md" } }; 
+          : { tool: "read", args: { path: "README.md" } };
         appendFileSync(process.env.TRIAGE_CHILD_EVENTS as string, JSON.stringify({ pid: process.pid, role, call: ++calls, tools: (ctx.tools ?? []).map((t: any) => t.name), readOk, lastOk, step: step.tool ?? "return" }) + "\n");
         const msg: any = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
           usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
@@ -150,8 +150,13 @@ interface RpcSession {
 }
 
 const workspaceSessions = new Map<string, RpcSession[]>();
+function triageDocument(legacy: Record<string, unknown>) {
+ const {version,provider,model,...section}=legacy;
+ return {version:2,mode:"auto",provider:"typesafe",model:"jev-1.13.0",apiKeyEnv:"TYPESAFE_API_KEY",consumers:{taskTriage:section}};
+}
 function setupWorkspace(t: any, opts: { team?: string; personas?: string[]; childProvider?: boolean } = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "triage-real-pi-"));
+  writeFileSync(join(dir, "package.json"), JSON.stringify({type:"module"}));
   const offlinePreloaded = process.execArgv.some(arg => arg.includes("system1-no-network.js")) ||
     process.env.NODE_OPTIONS?.split(/\s+/).includes(`--import=${noNetworkPreload}`);
   const retainIndex = opts.childProvider && process.env.PI_OFFLINE === "1" && offlinePreloaded &&
@@ -170,9 +175,9 @@ function setupWorkspace(t: any, opts: { team?: string; personas?: string[]; chil
   mkdirSync(join(dir, ".ai"), { recursive: true });
   mkdirSync(join(dir, "home"), { recursive: true });
   mkdirSync(join(dir, "agent"), { recursive: true });
-  writeFileSync(join(dir, ".ai/task-triage.json"), JSON.stringify(TRIAGE_CONFIG));
+
   writeFileSync(join(dir, ".ai/agent-fleet.json"), JSON.stringify({ features: { system1: true } }));
-  writeFileSync(join(dir, ".ai/system1.json"), JSON.stringify({ version: 1, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" }));
+  writeFileSync(join(dir, ".ai/system1.json"), JSON.stringify(triageDocument(TRIAGE_CONFIG)));
   writeFileSync(join(dir, "probe.ts"), PROBE_SOURCE);
   if (opts.childProvider) {
     const childProvider = join(dir, "child-provider.ts");
@@ -347,7 +352,7 @@ const toolResult = (s: RpcSession, call: number) => s.contexts().flatMap(c => c.
 
 test("extracted tarball real Pi off to consented gates to disabled saved-session resume", { timeout: 240_000 }, async t => {
   const dir = setupWorkspace(t);
-  rmSync(join(dir, ".ai/task-triage.json")); rmSync(join(dir, ".ai/agent-fleet.json")); rmSync(join(dir, ".ai/system1.json"));
+  rmSync(join(dir, ".ai/agent-fleet.json")); rmSync(join(dir, ".ai/system1.json"));
   const packed = JSON.parse(execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", dir], { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
   const extracted = join(dir, "package"); mkdirSync(extracted);
   execFileSync("tar", ["-xzf", join(dir, packed[0].filename), "--strip-components=1", "-C", extracted]);
@@ -369,7 +374,7 @@ test("extracted tarball real Pi off to consented gates to disabled saved-session
   await off.request("Synthetic off baseline"); assert.equal(off.fakeCalls().length, 0); await off.close();
   setup("--features", "system1-task-triage", "--task-triage-consent", "--save-desired");
   assert.equal(JSON.parse(readFileSync(join(dir, ".ai/agent-fleet.json"), "utf8")).features["system1-task-triage"], true);
-  const humanConfig = readFileSync(join(dir, ".ai/task-triage.json"), "utf8");
+  const humanConfig = readFileSync(join(dir, ".ai/system1.json"), "utf8");
   const active = await startSession(t, dir, { fake: "security", script: [{ tool: "write", args: { path: "README.md", content: "synthetic" } },
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "synthetic installed classification" } }, { text: "done" }],
     hubEntry: installedHub, offlineGuardPath: fixtureGuard, persistSession: true });
@@ -385,7 +390,7 @@ test("extracted tarball real Pi off to consented gates to disabled saved-session
   const original = processRecord.state.additions;
   assert.equal(original.length, 1); assert.equal(original[0].reason, "security_change");
   await active.close();
-  setup("--features", "none", "--save-desired"); assert.equal(readFileSync(join(dir, ".ai/task-triage.json"), "utf8"), humanConfig);
+  setup("--features", "none", "--save-desired"); assert.equal(readFileSync(join(dir, ".ai/system1.json"), "utf8"), humanConfig);
   assert.equal(JSON.parse(readFileSync(join(dir, ".ai/agent-fleet.json"), "utf8")).features["system1-task-triage"], false);
   const resumed = await startSession(t, dir, { fake: "security", script: [
     { tool: "set_assertions", args: { assertions: [{ id: "A1", tag: "test", text: "Installed change independently reviewed", source: "synthetic tarball fixture", test_command: "node --test fixture" }] } },
@@ -402,10 +407,43 @@ test("extracted tarball real Pi off to consented gates to disabled saved-session
   assert.equal(packed[0].files.some((f: any) => /task-triage.*(?:test|user-run)|bin\/test\//.test(f.path)), false);
 });
 
+for (const unavailable of ['root-off', 'migration-required', 'invalid-task-section'] as const) test(`real Pi ${unavailable} resume retains process obligations without inference`, { timeout: 90_000 }, async t => {
+  const dir = setupWorkspace(t);
+  const input = 'Synthetic installer trust-boundary change and verify acceptance criteria';
+  const active = await startSession(t, dir, { fake: 'security', persistSession: true, script: [
+    { tool: 'set_task_tier', args: { tier: 'small', risk: 'low', scope: 'small', reason: 'synthetic persisted classification' } }, { text: 'seeded' }] });
+  await active.request(input);
+  const saved = (await active.rpc({ type: 'get_state' })).data.sessionFile;
+  const entries = (await active.rpc({ type: 'get_entries' })).data.entries;
+  const original = entries.filter((e: any) => e.customType === 'agent-hub-process-state').at(-1).data;
+  assert.equal(original.obligations.review.status, 'open');
+  assert.ok(original.state.additions.some((a: any) => a.source === 'system1' && a.status === 'active'));
+  await active.close();
+  const document = triageDocument(TRIAGE_CONFIG);
+  let replacement: unknown;
+  if (unavailable === 'root-off') replacement = { ...document, mode: 'off' };
+  else if (unavailable === 'migration-required') {
+    const { consumers, ...provider } = document;
+    replacement = { ...provider, version: 1 };
+  } else replacement = { ...document, consumers: { taskTriage: { ...document.consumers.taskTriage, mode: 'invalid' } } };
+  writeFileSync(join(dir, '.ai/system1.json'), JSON.stringify(replacement));
+  const resumed = await startSession(t, dir, { fake: 'security', savedSession: saved, script: [
+    { tool: 'set_assertions', args: { assertions: [{ id: 'A1', tag: 'test', text: 'Persisted change independently reviewed', source: 'synthetic resume fixture', test_command: 'node --test fixture' }] } },
+    { tool: 'update_assertion', args: { id: 'A1', status: 'proven', evidence: 'synthetic evidence' } }, { text: 'resumed' }] });
+  await resumed.request(input);
+  assert.equal(resumed.fakeCalls().length, 0, 'unavailable configuration cannot start new inference');
+  const restored = (await resumed.rpc({ type: 'get_entries' })).data.entries.filter((e: any) => e.customType === 'agent-hub-process-state').at(-1).data;
+  assert.deepEqual(restored.state.additions, original.state.additions);
+  assert.equal(restored.obligations.review.status, 'open');
+  const proof = resumed.events().filter(e => e.hook === 'tool_result' && e.tool === 'update_assertion').at(-1);
+  assert.equal(proof?.details?.status, 'refused');
+  assert.equal(proof?.details?.reason, 'process_obligations_open');
+});
+
 test("real Pi active assessment refresh preserves explicit compaction and drops it on ordinary follow-up", { timeout: 90000 }, async t => {
   for (const mode of ["off", "plain", "timeout", "wide"] as const) {
     const dir = setupWorkspace(t);
-    if (mode === "off") writeFileSync(join(dir, ".ai/task-triage.json"), JSON.stringify({ ...TRIAGE_CONFIG, mode: "off", remoteContextApproved: false }));
+    if (mode === "off") writeFileSync(join(dir, ".ai/system1.json"), JSON.stringify(triageDocument({ ...TRIAGE_CONFIG, mode: "off", remoteContextApproved: false })));
     const session = await startSession(t, dir, { fake: mode === "off" ? "plain" : mode, script: [{ text: "Synthetic capability inspection only; no tool execution." }],
       fleetArgs: ["--solo", "--work-mode", "operator", "-e", join(repoRoot, ".pi/extensions/compact-and-continue/index.ts")] });
     assert.equal((await session.request("Please compact the conversation.")).success, true);
@@ -431,7 +469,7 @@ test("real Pi active assessment refresh preserves explicit compaction and drops 
 
 test("real Pi first turn uses installed Hub after consented setup and applies active triage", { timeout: 180_000 }, async t => {
   const dir = setupWorkspace(t);
-  rmSync(join(dir, ".ai/task-triage.json"));
+  rmSync(join(dir, ".ai/system1.json"));
   rmSync(join(dir, ".ai/agent-fleet.json"));
   const setup = spawnSync(process.execPath, [join(repoRoot, "bin/cli.js"), "setup", "--workspace", dir,
     "--preset", "default", "--features", "system1-task-triage", "--task-triage-consent", "--yes"], {
@@ -439,7 +477,7 @@ test("real Pi first turn uses installed Hub after consented setup and applies ac
   });
   assert.equal(setup.status, 0, setup.stderr);
   assert.equal(JSON.parse(readFileSync(join(dir, ".ai/agent-fleet-state.json"), "utf8")).taskTriageSelected, true);
-  assert.equal(JSON.parse(readFileSync(join(dir, ".ai/task-triage.json"), "utf8")).remoteContextApproved, true);
+  assert.equal(JSON.parse(readFileSync(join(dir, ".ai/system1.json"), "utf8")).consumers.taskTriage.remoteContextApproved, true);
   assert.equal(JSON.parse(readFileSync(join(dir, ".ai/system1.json"), "utf8")).mode, "auto");
   const desired = JSON.parse(readFileSync(join(dir, ".ai/agent-fleet.json"), "utf8"));
   assert.equal(desired.features?.["system1-task-triage"], true);

@@ -18,9 +18,10 @@ export function assertSafeWorkspaceTarget(workspace, value, { allowLeafSymlink =
   let cursor = resolve(workspace);
   for (const [index, part] of rel.split(sep).entries()) {
     cursor = join(cursor, part);
-    if (!existsSync(cursor)) continue;
+    let stat;
+    try { stat = lstatSync(cursor); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
     const leaf = index === rel.split(sep).length - 1;
-    if (lstatSync(cursor).isSymbolicLink() && !(leaf && allowLeafSymlink)) {
+    if (stat.isSymbolicLink() && !(leaf && allowLeafSymlink)) {
       throw new Error(`refusing target through symlink: ${rel}`);
     }
   }

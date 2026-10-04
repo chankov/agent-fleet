@@ -9,7 +9,8 @@ import {
   validateSystem1Config,
 } from "./config.js";
 const valid = {
-  version: 1,
+  version: 2,
+  consumers: {},
   mode: "auto",
   provider: "typesafe",
   model: "jev-1.13.0",
@@ -18,13 +19,13 @@ const valid = {
 
 test("validates only the phase-0 System 1 configuration contract", () => {
   assert.equal(SYSTEM1_CONFIG_RELATIVE_PATH, ".ai/system1.json");
-  assert.equal(SYSTEM1_CONFIG_VERSION, 1);
+  assert.equal(SYSTEM1_CONFIG_VERSION, 2);
   assert.deepEqual(validateSystem1Config(valid), { ok: true, config: valid });
   for (const value of [
     null,
     {},
     { mode: valid.mode, provider: valid.provider, model: valid.model, apiKeyEnv: valid.apiKeyEnv },
-    { ...valid, version: 2 },
+    { ...valid, version: 1 },
     { ...valid, mode: "on" },
     { ...valid, provider: "other" },
     { ...valid, model: "jev-latest" },
@@ -38,7 +39,7 @@ test("validates only the phase-0 System 1 configuration contract", () => {
 test("readiness follows selection, off precedence, config, and nonempty caller environment", () => {
   const cases = [
     ["unselected", { selected: false, config: { nonsense: true }, env: {} }, { status: "skipped", reason: "disabled" }],
-    ["off wins over invalid fields", { selected: true, config: { mode: "off", nonsense: true }, env: {} }, { status: "skipped", reason: "disabled" }],
+    ["off wins over invalid fields", { selected: true, config: { ...valid, mode: "off" }, env: {} }, { status: "skipped", reason: "disabled" }],
     ["missing config", { selected: true, config: undefined, env: {} }, { status: "skipped", reason: "missing_config" }],
     ["invalid active config", { selected: true, config: { ...valid, model: "wrong" }, env: {} }, { status: "unavailable", reason: "invalid_config" }],
     ["missing key", { selected: true, config: valid, env: {} }, { status: "skipped", reason: "missing_key" }],

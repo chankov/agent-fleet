@@ -20,24 +20,7 @@ export interface LocalFinding extends ReviewFinding {
 export interface LocalAssessment { readonly findings: readonly LocalFinding[]; readonly gaps: readonly string[] }
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 const safePath = (path: unknown): path is string => typeof path === "string" && path.length > 0 && path.length <= 256 && !path.includes("\\") && !path.includes("\0") && !path.startsWith("/") && path.split("/").every(s => !!s && s !== "." && s !== ".." && !s.startsWith("."));
-const safeRulePath = (path: unknown): path is string => typeof path === "string" && path.startsWith(".ai/") ? safePath(path.slice(4)) : safePath(path);
-const exact = (v: unknown, keys: readonly string[]): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).every(k => keys.includes(k)) && keys.every(k => k in v);
-const paths = (v: unknown): v is string[] => Array.isArray(v) && v.length <= 32 && v.every(safePath) && new Set(v).size === v.length;
-const safeBasename = (v: unknown): v is string => typeof v === "string" && safePath(v) && !v.includes("/") && !v.includes("*") && !v.includes("?");
-export function parseLocalBindings(value: unknown): readonly ReviewedLocalBinding[] {
- if (!Array.isArray(value) || value.length > 16) throw new Error("Invalid local bindings");
- return Object.freeze(value.map((item: unknown) => {
-  if (!exact(item, ["version", "validator", "rule", "applicability", "exceptions", "placement"]) && !exact(item, ["version", "validator", "rule", "applicability", "exceptions"])) throw new Error("Invalid local binding schema");
-  const b = item as unknown as ReviewedLocalBinding;
-  if (b.version !== 1 || !["relative-markdown-links", "new-file-placement"].includes(b.validator) ||
-   !exact(b.rule, ["path", "heading", "occurrence", "hash"]) || !safeRulePath(b.rule.path) || !b.rule.path.endsWith(".md") ||
-   typeof b.rule.heading !== "string" || !b.rule.heading.trim() || b.rule.heading.length > 200 || !Number.isSafeInteger(b.rule.occurrence) || b.rule.occurrence < 1 || !/^[a-f0-9]{64}$/.test(b.rule.hash) ||
-   (!exact(b.applicability, ["paths", "kinds"]) && !exact(b.applicability, ["paths", "kinds", "basename"])) || (b.applicability.basename !== undefined && (!safeBasename(b.applicability.basename) || !b.applicability.paths.includes(b.applicability.basename))) || !paths(b.applicability.paths) || !b.applicability.paths.length || !Array.isArray(b.applicability.kinds) || !b.applicability.kinds.length || new Set(b.applicability.kinds).size !== b.applicability.kinds.length || !b.applicability.kinds.every(k => k === "added" || k === "modified") ||
-   !exact(b.exceptions, ["paths", "legacy"]) || !paths(b.exceptions.paths) || typeof b.exceptions.legacy !== "boolean" ||
-   (b.validator === "new-file-placement" ? !exact(b.placement, ["prefix"]) || !safePath(b.placement.prefix) || b.applicability.kinds.some(k => k !== "added") : b.placement !== undefined)) throw new Error("Invalid local binding values");
-  return Object.freeze({ version: 1 as const, validator: b.validator, rule: Object.freeze({ ...b.rule }), applicability: Object.freeze({ paths: Object.freeze([...b.applicability.paths]), kinds: Object.freeze([...b.applicability.kinds]), ...(b.applicability.basename === undefined ? {} : { basename: b.applicability.basename }) }), exceptions: Object.freeze({ paths: Object.freeze([...b.exceptions.paths]), legacy: b.exceptions.legacy }), ...(b.placement ? { placement: Object.freeze({ ...b.placement }) } : {}) });
- }));
-}
+export { parseLocalBindings } from "../lib/system1/config-proactive.js";
 const matches = (path: string, patterns: readonly string[]) => patterns.some(p => p.endsWith("/**") ? path.startsWith(p.slice(0, -3) + "/") : path === p);
 // Only an explicitly named basename in the reviewed paths can match across captured include-authorized directories.
 const appliesTo = (path: string, applicability: ReviewedLocalBinding["applicability"]) =>

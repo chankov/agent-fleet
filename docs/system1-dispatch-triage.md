@@ -5,8 +5,8 @@
 The offline implementation is available. No live evaluation, human-labelled real
 corpus or production calibration acceptance is claimed. The human has tested and
 accepted the Fleet communication viewer.
-No default provider or consumer setting is changed by installation. This repository
-has separately opted into experimental orchestrator-led triage (see below).
+Provider/consumer settings are human-owned. Existing v1 settings require explicit
+migration before optional orchestrator-led triage can run.
 
 `dispatch_triage` is an optional **orchestrator tool**, not a human slash command
 and not an automatic before-dispatch hook. It never starts an agent, changes tier,
@@ -23,15 +23,15 @@ Credential-like text is refused before inference; absolute paths are replaced wi
 ## Human-owned configuration
 
 The existing selected `system1` feature and `.ai/system1.json` provider readiness
-are necessary. The triage consumer additionally reads `.ai/dispatch-triage.json`
-at session initialization. Missing/invalid configuration is off. Changes require
+are necessary. The triage consumer reads `consumers.dispatchTriage` from the same
+v2 session snapshot; see [unified configuration](system1-config.md). Missing/invalid configuration is off. Changes require
 a new session; there is no model-facing tool to enable it.
 
 Configuration fields:
 
 | Field | Required value |
 | --- | --- |
-| `version` | `1` |
+| document `version` | `2` at root; no consumer wrapper version |
 | `mode` | `off`, `shadow`, or `advisory` |
 | `remoteContextApproved` | Explicit human boolean consent |
 | `maxCalls` | Human-approved positive integer, session logical-call ceiling |
@@ -72,17 +72,13 @@ correlation is inferred merely from matching persona names.
 
 ## Testing the enabled repository experiment
 
-This repository's human-approved `.ai/dispatch-triage.json` enables `advisory`,
-remote-context consent and `orchestratorBeforeDispatch`. Limits: 100 logical
-requests per session, 40 KiB task, 20 KiB per role, 160 KiB total state. Adapter
-physical retries remain bounded separately. No calibration profile was invented;
-results remain `uncalibrated` observations for independent orchestrator judgment.
+Legacy repository configuration is not automatically migrated. Run the explicit
+[local migration](system1-config.md#explicit-migration), review the target modes,
+consent and budgets, then start a new session. v1 gives `migration_required` and
+makes no System 1 calls. No calibration profile is invented by migration.
 
-Start a **new** session from the repository with `just fleet --agents default`
-(the named roster exists here and implies orchestrator mode). The existing selected
-System 1 feature/provider config and `TYPESAFE_API_KEY` in that session's environment
-are required; never paste the key into chat. No environment credential probes are
-performed by the activation change.
+Start a new session with an explicitly selected System 1 feature and the current
+process key. Never paste the key into chat.
 
 Open Fleet, press `1`, then `e` before submitting a task. Ask the orchestrator to
 delegate a read-only code review of `.pi/harnesses/agent-hub/ui/system1-communication.ts`,

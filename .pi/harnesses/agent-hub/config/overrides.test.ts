@@ -23,7 +23,7 @@ language: Bulgarian
 	}
 });
 
-test("watchdog-system1 defaults off, accepts shadow and active, and warns once per parse for an invalid mode", () => {
+test("legacy watchdog-system1 Markdown is ignored; v2 owns runtime configuration", () => {
 	const dir = mkdtempSync(join(tmpdir(), "overrides-watchdog-system1-"));
 	try {
 		mkdirSync(join(dir, ".ai"), { recursive: true });
@@ -31,15 +31,15 @@ test("watchdog-system1 defaults off, accepts shadow and active, and warns once p
 		const invalid = parseAgentTeamOverrides(dir);
 		assert.equal(invalid.watchdogSystem1Mode, "off");
 		assert.equal(invalid.watchdogSetting, "auto");
-		assert.equal(invalid.warnings.filter((warning) => warning.includes("watchdog-system1")).length, 1);
+		assert.equal(invalid.warnings.filter((warning) => warning.includes("watchdog-system1")).length, 0);
 		const again = parseAgentTeamOverrides(dir);
 		again.warnings.push("not from the parser");
-		assert.equal(invalid.warnings.length, 1);
+		assert.equal(invalid.warnings.length, 0);
 		writeFileSync(join(dir, ".ai", "agent-fleet-overrides.md"), `## agent-hub\nwatchdog-system1: ACTIVE\n`);
-		assert.equal(parseAgentTeamOverrides(dir).watchdogSystem1Mode, "active");
+		assert.equal(parseAgentTeamOverrides(dir).watchdogSystem1Mode, "off");
 		writeFileSync(join(dir, ".ai", "agent-fleet-overrides.md"), `## agent-hub\nwatchdog-system1: shadow\n`);
 		const shadow = parseAgentTeamOverrides(dir);
-		assert.equal(shadow.watchdogSystem1Mode, "shadow");
+		assert.equal(shadow.watchdogSystem1Mode, "off");
 		assert.equal(shadow.warnings.length, 0);
 		assert.equal(parseAgentTeamOverrides(mkdtempSync(join(tmpdir(), "overrides-watchdog-system1-default-"))).watchdogSystem1Mode, "off");
 		assert.equal(normalizeWatchdogSystem1Mode(" Shadow ").mode, "shadow");

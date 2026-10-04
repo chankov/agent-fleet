@@ -53,12 +53,16 @@ const rows = (path: string): any[] => existsSync(path) ? readFileSync(path, "utf
 const latest = (entries: any[], type: string) => entries.filter(e => (e.customType ?? e.type) === type).at(-1)?.data;
 const taskRows = (entries: any[]) => entries.filter(e => (e.customType ?? e.type) === "agent-hub-recover-event" && e.data?.kind === "guard" && e.data.event?.type === "task");
 
+function triageDocument(legacy: Record<string, unknown>) {
+ const {version,provider,model,...section}=legacy;
+ return {version:2,mode:"auto",provider:"typesafe",model:"jev-1.13.0",apiKeyEnv:"TYPESAFE_API_KEY",consumers:{taskTriage:section}};
+}
 test("real Pi persists task additions, bound cache and call budget across RPC compaction and saved-session resume", { timeout: 180_000 }, async t => {
  const dir = mkdtempSync(join(tmpdir(), "triage-persisted-"));
  mkdirSync(join(dir, ".ai")); mkdirSync(join(dir, "home")); mkdirSync(join(dir, "agent"));
- writeFileSync(join(dir, ".ai/task-triage.json"), JSON.stringify(config));
+
  writeFileSync(join(dir, ".ai/agent-fleet.json"), JSON.stringify({ features: { system1: true } }));
- writeFileSync(join(dir, ".ai/system1.json"), JSON.stringify({ version: 1, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" }));
+ writeFileSync(join(dir, ".ai/system1.json"), JSON.stringify(triageDocument(config)));
  writeFileSync(join(dir, "agent/settings.json"), JSON.stringify({ compaction: { keepRecentTokens: 1 } }));
  writeFileSync(join(dir, "probe.ts"), probe);
  const processes: Array<() => Promise<void>> = [];

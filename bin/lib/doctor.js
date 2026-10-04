@@ -1,3 +1,5 @@
+import { migrateWatchdogOverride } from './system1-migration.js';
+import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../../.pi/harnesses/lib/system1/config-loader.js";
 // Doctor scan — deterministic preflight extracted from
 // Both `agent-fleet doctor` (CLI) and the
 // Runtime-specific Agent Fleet doctor slash commands call into this so behaviour cannot drift.
@@ -220,25 +222,34 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
 }
 
 export function scanSystem1Readiness({ workspace, env = process.env }) {
-  const desiredPath = join(workspace, ".ai", "agent-fleet.json");
-  let selected = false;
-  if (existsSync(desiredPath)) {
-    try {
-      const desired = JSON.parse(readFileSync(desiredPath, "utf8"));
-      selected = system1SelectedByDesired(desired);
-    } catch {
-      // A malformed desired-state file is handled by the installer lifecycle;
-      // without a trustworthy explicit selection System 1 remains inactive.
+  const selected = readSystem1Selected(workspace);
+  const snapshot = loadSystem1Snapshot(workspace);
+  const config = providerDocument(snapshot);
+  const legacyMarkdown = [];
+  try {
+    const path = join(workspace, '.ai/agent-fleet-overrides.md');
+    const stat = lstatSync(path);
+    if (lstatSync(join(workspace, '.ai')).isDirectory() && stat.isFile() && stat.size <= 1024 * 1024 && migrateWatchdogOverride(readFileSync(path, 'utf8')).mode !== undefined) legacyMarkdown.push({ type: 'system1-legacy', path: '.ai/agent-fleet-overrides.md#agent-hub.watchdog-system1', classification: 'advisory', issue: 'legacy watchdog-system1 is not used by runtime', fix: 'review setup --migrate-system1-config --dry-run' });
+  } catch (error) {
+    if (error.code !== 'ENOENT') legacyMarkdown.push({ type: 'system1-config', path: '.ai/agent-fleet-overrides.md#agent-hub.watchdog-system1', classification: 'advisory', issue: 'legacy override could not be validated for migration', fix: 'review legacy override locally; no automatic changes' });
+  }
+  const legacyPaths = ['.ai/proactive-review.json', '.ai/dispatch-triage.json', '.ai/task-triage.json'].filter(path => {
+    try { return lstatSync(join(workspace, path)).isFile() || lstatSync(join(workspace, path)).isSymbolicLink(); } catch { return false; }
+  });
+  const retainedBackups = [];
+  try {
+    const recovery = join(workspace, '.ai/.agent-fleet-recovery');
+    if (lstatSync(join(workspace, '.ai')).isDirectory() && lstatSync(recovery).isDirectory()) {
+      for (const entry of readdirSync(recovery, { withFileTypes: true }).slice(0, 128)) {
+        if (!entry.isDirectory()) continue;
+        const relative = `.ai/.agent-fleet-recovery/${entry.name}/backup`;
+        try {
+          if (lstatSync(join(recovery, entry.name, '.gitignore')).isFile() && lstatSync(join(workspace, relative)).isDirectory()) retainedBackups.push({ type: 'system1-backup', path: relative, classification: 'advisory', issue: 'protected recovery backup may contain sensitive human configuration; kept after successful migration and ignored by Git', fix: 'retain for operator-led recovery; no automatic deletion' });
+        } catch { /* incomplete recovery belongs to journal diagnostics */ }
+      }
     }
-  }
-  if (!selected) return [];
-
-  const configPath = join(workspace, ".ai", "system1.json");
-  let config;
-  if (existsSync(configPath)) {
-    try { config = JSON.parse(readFileSync(configPath, "utf8")); }
-    catch { config = null; }
-  }
+  } catch { /* no retained backup directory, or unsafe path */ }
+  if (!selected && snapshot.status === 'missing' && !legacyPaths.length && !legacyMarkdown.length && !retainedBackups.length) return [];
   const readiness = resolveSystem1Readiness({ selected, config, env });
   // .env can contain secret values. Report declaration status as unknown rather
   // than reading that file merely to improve an advisory message.
@@ -246,7 +257,8 @@ export function scanSystem1Readiness({ workspace, env = process.env }) {
   const environmentPresent = typeof env.TYPESAFE_API_KEY === "string" && env.TYPESAFE_API_KEY.trim().length > 0;
   const readinessName = readiness.status === "ready" ? "ready" : readiness.reason;
   const detail = {
-    disabled: "configuration mode is off; other fields were not validated",
+    disabled: "remote inference is off; independently valid local proactive capture may remain enabled",
+    migration_required: "v1 requires explicit setup --migrate-system1-config; no inference",
     missing_config: ".ai/system1.json is absent",
     missing_key: "TYPESAFE_API_KEY is not present in the current process environment; .env was not inspected or loaded",
     invalid_config: ".ai/system1.json is invalid",
@@ -264,7 +276,9 @@ export function scanSystem1Readiness({ workspace, env = process.env }) {
     envDeclared,
     environmentPresent,
     apiValidity: "unverified",
-  }];
+    consumers: Object.fromEntries(Object.entries(snapshot.consumers).map(([name, section]) => [name, section.status])),
+  }, ...legacyMarkdown, ...retainedBackups, ...snapshot.errors.map(error => ({ type: "system1-config", path: error.path, classification: "advisory", issue: `${error.path}: ${error.code}`, fix: "review the human-owned .ai/system1.json; no automatic changes" })),
+  ...legacyPaths.map(path => ({ type: 'system1-legacy', path, classification: 'advisory', issue: snapshot.status === 'missing' ? 'consumer-only legacy configuration has no provider document; runtime ignores it, and migration will not choose provider/model' : snapshot.document ? 'stale legacy file is not used by runtime' : 'legacy file requires explicit migration; not used by runtime', fix: snapshot.status === 'missing' ? 'review docs/system1-config.md#consumer-only-legacy-workspaces; manually author v2 with mode: off and reviewed consumer sections; preserve a private backup' : 'review setup --migrate-system1-config --dry-run; conflicts are never deleted automatically' }))];
 }
 
 export function scanTaskTriageReadiness({ workspace, env = process.env }) {
@@ -277,24 +291,19 @@ export function scanTaskTriageReadiness({ workspace, env = process.env }) {
     const stateStat = lstatSync(statePath);
     selection = stateStat.isFile() ? JSON.parse(readFileSync(statePath, "utf8")).taskTriageSelected : "invalid";
   } catch (error) { if (error.code !== "ENOENT") selection = "invalid"; }
-  if (selection === false) return existsSync(join(workspace, ".ai/task-triage.json"))
+  const snapshot = loadSystem1Snapshot(workspace);
+  if (selection === false) return snapshot.document?.consumers.taskTriage
     ? [taskTriageFinding("disabled_by_setup", false)] : [];
   let config;
-  try { config = planTaskTriageConfig(workspace); }
+  try { config = planTaskTriageConfig(workspace, snapshot); }
   catch { config = { status: "invalid", alreadyApproved: false }; }
   if (selection !== true && config.status === "missing") return [];
   if (selection === "invalid" || (selection !== true && selection !== undefined)) return [taskTriageFinding("invalid_selection", false)];
-  let readiness = { missing: "missing_config", invalid: "invalid_config", policy_mismatch: "policy_mismatch",
+  let readiness = { missing: "missing_config", invalid: "invalid_config", policy_mismatch: "policy_mismatch", migration_required: "migration_required",
     off: "disabled", unapproved: "unapproved" }[config.status];
   if (!readiness && config.status === "active") {
-    const providerPath = join(workspace, ".ai/system1.json");
-    let provider;
-    try {
-      if (!lstatSync(providerPath).isFile()) provider = null;
-      else provider = JSON.parse(readFileSync(providerPath, "utf8"));
-    } catch (error) { provider = error.code === "ENOENT" ? undefined : null; }
-    const result = resolveSystem1Readiness({ selected: true, config: provider, env });
-    readiness = ({ disabled: "provider_off", missing_config: "missing_provider", invalid_config: "invalid_provider",
+    const result = resolveSystem1Readiness({ selected: true, config: providerDocument(snapshot), env });
+    readiness = ({ disabled: "provider_off", missing_config: "missing_provider", invalid_config: "invalid_provider", migration_required: "migration_required",
       missing_key: "missing_key" })[result.reason] ?? (result.status === "ready" ? "locally_ready" : "invalid_provider");
   }
   const producers = config.status === "active" ? localStageProducers(workspace) : null;
@@ -333,7 +342,7 @@ function taskTriageFinding(readiness, selected, configured = false, producers = 
   const remoteApproved = configured;
   const missingLocalProducers = producers?.missing ?? [];
   return {
-    type: "task-triage", path: ".ai/task-triage.json", classification: "advisory",
+    type: "task-triage", path: ".ai/system1.json#consumers.taskTriage", classification: "advisory",
     selected, configured, remoteApproved, readiness, apiValidity: "unverified",
     ...(producers ? { stageProducerStatus: producers.status, missingLocalProducers } : {}),
     issue: `Task triage: ${readiness}; API validity is unverified${missingLocalProducers.length ? `; locally missing ${missingLocalProducers.join(", ")}` : ""}`,

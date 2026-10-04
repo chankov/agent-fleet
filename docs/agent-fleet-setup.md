@@ -12,8 +12,8 @@ different readers and different lifetimes, so they are kept separate.
 | `.ai/agent-fleet-transaction.json` | the deterministic lifecycle (`setup`, `doctor --fix`) — crash-recovery journal for in-flight file transactions | Written during apply; recovered or discarded by setup/doctor; removed when the transaction commits or is cleaned up |
 | `.ai/stt.json` *(optional)* | `pi-voice-stt` extension | Every pi session start, when the extension is installed |
 | `.ai/system1.json` *(optional)* | System 1 shared runtime and doctor | When `system1` is selected directly or through `system1-task-triage` |
-| `.ai/task-triage.json` *(optional)* | Hub task-triage consumer and doctor | At Hub session start; missing/off/invalid means no new task-triage inference |
-| `.ai/proactive-review.json` *(optional)* | Hub proactive turn review consumer | At Hub session start; missing means off |
+| `consumers.taskTriage` in `.ai/system1.json` *(optional)* | Hub task-triage consumer and doctor | At Hub session start; missing/off/invalid means no new task-triage inference |
+| `consumers.proactiveReview` in `.ai/system1.json` *(optional)* | Hub proactive turn review consumer | At Hub session start; missing means off |
 
 The `.ai/system1.json` file is human-owned, non-secret provider configuration.
 Selecting the foundation alone prints its required shape. Consented task-triage
@@ -148,11 +148,12 @@ fields and values:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "mode": "auto",
   "provider": "typesafe",
   "model": "jev-1.13.0",
-  "apiKeyEnv": "TYPESAFE_API_KEY"
+  "apiKeyEnv": "TYPESAFE_API_KEY",
+  "consumers": {}
 }
 ```
 
@@ -274,18 +275,24 @@ The exact consumer v1 template is:
 
 ```json
 {
-  "version": 1,
-  "mode": "experimental",
-  "remoteContextApproved": true,
+  "version": 2,
+  "mode": "off",
   "provider": "typesafe",
   "model": "jev-1.13.0",
-  "questionVersion": "task-triage/questions/v1",
-  "policyVersion": "task-triage/policy/v1",
-  "limits": {
-    "maxTaskBytes": 40960,
-    "maxStateBytes": 65536,
-    "maxCallsPerSession": 100,
-    "timeoutMs": 2000
+  "apiKeyEnv": "TYPESAFE_API_KEY",
+  "consumers": {
+    "taskTriage": {
+      "mode": "experimental",
+      "remoteContextApproved": true,
+      "questionVersion": "task-triage/questions/v1",
+      "policyVersion": "task-triage/policy/v1",
+      "limits": {
+        "maxTaskBytes": 40960,
+        "maxStateBytes": 65536,
+        "maxCallsPerSession": 100,
+        "timeoutMs": 2000
+      }
+    }
   }
 }
 ```
@@ -397,7 +404,7 @@ This is a **separate per-repository opt-in**, not a new provider or an installer
 feature flag. The Hub/native consumer uses the existing shared System 1 service
 (`system1` feature, `.ai/system1.json`, caller-owned key) only when selected
 excerpts are explicitly permitted and the service is ready. Its config is
-human-owned `.ai/proactive-review.json`; setup/doctor do not create or activate
+human-owned `consumers.proactiveReview` in `.ai/system1.json`; setup/doctor do not create or activate
 it. Missing config or valid `{"version":1,"mode":"off"}` causes **zero
 proactive capture, inference, and feedback**. Invalid configuration fails closed.
 Nothing here authorizes a live pilot, client repository, ringithub, provider
@@ -496,7 +503,7 @@ That evaluation and final semantic acceptance remain outstanding; findings-only
 label-key access also limits operational miss/true-negative evaluation.
 
 A release installs the capability, **not its activation**. Setup does not create
-`.ai/proactive-review.json`, and preserves an existing human-owned file. The
+`consumers.proactiveReview` in `.ai/system1.json`, and preserves an existing human-owned file. The
 maintainer's active config and repo-specific rule catalog are not release
 artifacts. Each target repository needs its own explicit scope, rules and
 outbound-data consent. Configuration/rules are loaded at session start; start a
@@ -574,7 +581,7 @@ extracts with `tar -xzf <tarball> --strip-components=1 -C <temp>/package`,
 and runs `node <temp>/package/bin/cli.js setup --workspace <temp>/installed
 --preset default --features none --yes` under a scrubbed offline environment.
 It checks the installed 12-file runtime closure and an offline fake-provider Pi
-observer/capture, no auto `.ai/proactive-review.json` or proactive desired-state
+observer/capture, no auto `consumers.proactiveReview` in `.ai/system1.json` or proactive desired-state
 key, preservation of a **test-only HUMAN fixture** across repeat setup and
 `doctor`/`doctor --fix`, and extracted-CLI version/help/readonly doctor under
 Node 18. Doctor may return 0 or findings exit 2. The smoke reuses existing
@@ -1088,3 +1095,7 @@ with **↑/↓**, then use **←/→** to decrease/increase its thinking level
 Changes are session-only and apply on the next dispatch or `spawn_research`,
 not to an already-running request. External coms peers, delegates and anonymous
 research helpers do not support this shortcut.
+
+## Unified System 1 v2 configuration
+
+The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract](system1-config.md) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change.

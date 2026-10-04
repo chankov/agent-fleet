@@ -23,7 +23,7 @@ this page describes the current architecture.
 | **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-client.ts`, `.pi/agent-fleet/scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
 | **System 1 foundation** | Experimental shared structured-judgment service; TypeSafe Jev only, with independent watchdog/dispatch/proactive/task-triage consumer opt-ins | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
 | **System 1 dispatch advice / communication** | Optional off-by-default `dispatch_triage` tool; shared-service memory-only Fleet `1` viewer, independently opt-in; live calibration not yet accepted | `.pi/harnesses/agent-hub/dispatch-triage-*.ts`, `system1-communication-store.ts`, `ui/system1-communication.ts` — [guide](system1-dispatch-triage.md) |
-| **System 1 task triage** | Active uncalibrated opt-in: uncertain predicates add process obligations, never spend/permission authority; session Fleet/audit metadata | `.pi/harnesses/agent-hub/task-triage-*.ts`, human-owned `.ai/task-triage.json` — [config/recovery](agent-fleet-setup.md#task-triage-active-experimental-off-by-default) |
+| **System 1 task triage** | Active uncalibrated opt-in: uncertain predicates add process obligations, never spend/permission authority; session Fleet/audit metadata | `.pi/harnesses/agent-hub/task-triage-*.ts`, human-owned `consumers.taskTriage` in `.ai/system1.json` — [config/recovery](agent-fleet-setup.md#task-triage-active-experimental-off-by-default) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
 
@@ -517,7 +517,7 @@ constitute a live pilot (G1) or active approval (G2). Roll back with
 The Hub's `proactive-*` modules compose a separate, off-by-default consumer of the
 existing shared System 1 library and its provider/key; they do not create another
 provider owner or change watchdog authority. A human-owned per-repository
-`.ai/proactive-review.json` selects `off`, `shadow`, or `advisory` and exact
+`consumers.proactiveReview` in `.ai/system1.json` selects `off`, `shadow`, or `advisory` and exact
 repository-relative include scope. Missing/off means **zero proactive capture,
 inference, and feedback**. Enabled config with `remoteContext: "disabled"` is
 local-only: bounded source/rule capture and reviewed local validators may run,
@@ -579,11 +579,12 @@ separate human-owned `.ai/system1.json` with exactly this version-1 contract:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "mode": "auto",
   "provider": "typesafe",
   "model": "jev-1.13.0",
-  "apiKeyEnv": "TYPESAFE_API_KEY"
+  "apiKeyEnv": "TYPESAFE_API_KEY",
+  "consumers": {}
 }
 ```
 
@@ -827,3 +828,7 @@ The one-time migration record, including the history-filtering commands, lives
 in [MIGRATION-agent-fleet.md](MIGRATION-agent-fleet.md). The product
 requirements that drove the split were a one-off planning document and are no
 longer maintained.
+
+## Unified System 1 v2 configuration
+
+The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract](system1-config.md) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change.

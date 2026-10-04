@@ -1,7 +1,86 @@
 {
-  "version": 1,
+  "version": 2,
   "mode": "auto",
   "provider": "typesafe",
   "model": "jev-1.13.0",
-  "apiKeyEnv": "TYPESAFE_API_KEY"
+  "apiKeyEnv": "TYPESAFE_API_KEY",
+  "consumers": {
+    "watchdog": {
+      "mode": "active"
+    },
+    "proactiveReview": {
+      "mode": "advisory",
+      "remoteContext": "selected-excerpts",
+      "include": [
+        "agents",
+        "bin",
+        "catalog",
+        "codex",
+        "docs",
+        "hermes",
+        "references",
+        "skills",
+        "AGENTS.md",
+        "CHANGELOG.md",
+        "CLAUDE.md",
+        "CONTRIBUTING.md",
+        "LICENSE",
+        "README.md",
+        "install-manifest.json",
+        "justfile",
+        "manifest-meta.json",
+        "package.json"
+      ],
+      "maxEvaluationsPerSession": 100,
+      "localBindings": [
+        {
+          "version": 1,
+          "validator": "new-file-placement",
+          "rule": {
+            "path": ".ai/rules/proactive/README.md",
+            "heading": "Creating the skill",
+            "occurrence": 1,
+            "hash": "c7125c64086eaa668b4151a5c20d631ee032217c6ecfaf1370bad9bd678a9a8a"
+          },
+          "applicability": {
+            "paths": [
+              "SKILL.md"
+            ],
+            "kinds": [
+              "added"
+            ],
+            "basename": "SKILL.md"
+          },
+          "exceptions": {
+            "paths": [],
+            "legacy": true
+          },
+          "placement": {
+            "prefix": "skills"
+          }
+        }
+      ]
+    },
+    "dispatchTriage": {
+      "mode": "advisory",
+      "orchestratorBeforeDispatch": true,
+      "remoteContextApproved": true,
+      "maxCalls": 100,
+      "maxTaskBytes": 40960,
+      "maxRoleBytes": 20480,
+      "maxStateBytes": 163840
+    },
+    "taskTriage": {
+      "mode": "experimental",
+      "remoteContextApproved": true,
+      "questionVersion": "task-triage/questions/v1",
+      "policyVersion": "task-triage/policy/v1",
+      "limits": {
+        "maxTaskBytes": 40960,
+        "maxStateBytes": 65536,
+        "maxCallsPerSession": 100,
+        "timeoutMs": 2000
+      }
+    }
+  }
 }

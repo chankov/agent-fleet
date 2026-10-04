@@ -307,7 +307,7 @@ test("System 1 configuration remains operator-owned while runtime uses the exist
   const config = manifest.items.find((item) => item.id === "companion:system1-config");
   assert.equal(config.consent, "operator");
   assert.equal(config.agents.pi.target, null);
-  assert.ok(config.operatorSteps.some((step) => step.includes(".ai/system1.json") && step.includes("version 1")));
+  assert.ok(config.operatorSteps.some((step) => step.includes(".ai/system1.json") && step.includes("version 2")));
 
   const feature = manifest.features.system1;
   assert.equal(feature.stability, "experimental");

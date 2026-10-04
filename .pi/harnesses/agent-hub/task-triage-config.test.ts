@@ -14,11 +14,11 @@ test("explicit experimental consent and exact versioned limits, missing/off/inva
 test("installed feature deselection disables inference without erasing a human config", t => {
  const ws = mkdtempSync(join(tmpdir(), "triage-selection-")); t.after(() => rmSync(ws, { recursive: true, force: true }));
  mkdirSync(join(ws, ".ai"));
- const configPath = join(ws, ".ai/task-triage.json");
+ const configPath = join(ws, ".ai/system1.json");
  const statePath = join(ws, ".ai/agent-fleet-state.json");
- const bytes = JSON.stringify(config) + "\n";
+ const bytes = JSON.stringify({version:2,mode:"auto",provider:config.provider,model:config.model,apiKeyEnv:"TYPESAFE_API_KEY",consumers:{taskTriage:((({version,provider,model,...section})=>section)(config))}}) + "\n";
  writeFileSync(configPath, bytes);
- assert.equal(loadTaskTriageConfig(ws).status, "active", "legacy/manual config stays supported without installer state");
+ assert.equal(loadTaskTriageConfig(ws).status, "active", "manual v2 config stays supported without installer state");
  writeFileSync(statePath, JSON.stringify({ schemaVersion: 2, taskTriageSelected: true }));
  assert.equal(loadTaskTriageConfig(ws).status, "active");
  writeFileSync(statePath, JSON.stringify({ schemaVersion: 2, taskTriageSelected: false }));

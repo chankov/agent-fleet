@@ -1,5 +1,5 @@
 // transaction.js — durable, crash-recoverable managed workspace commits.
-import { closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, constants, cpSync, existsSync, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { STATE_REL_PATH, LEGACY_RECORD_REL_PATH } from "./state.js";
@@ -10,9 +10,17 @@ export const RECOVERY_REL_PATH = ".ai/.agent-fleet-recovery";
 const DESIRED_REL_PATH = ".ai/agent-fleet.json";
 const OVERRIDES_REL_PATH = ".ai/agent-fleet-overrides.md";
 const STT_REL_PATH = ".ai/stt.json";
-const TASK_TRIAGE_REL_PATH = ".ai/task-triage.json";
-const SYSTEM1_PROVIDER_REL_PATH = ".ai/system1.json";
+const SYSTEM1_REL_PATH = ".ai/system1.json";
 export function journalPath(workspace) { return join(workspace, JOURNAL_REL_PATH); }
+function pathExists(path) {
+  try { lstatSync(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+
+function copySnapshot(source, destination) {
+  // Handle the link object explicitly, including dangling links on Node 25.
+  if (lstatSync(source).isSymbolicLink()) symlinkSync(readlinkSync(source), destination);
+  else cpSync(source, destination, { recursive: true, dereference: false, verbatimSymlinks: true });
+}
 
 function sourceLeaves(path) {
   if (!statSync(path).isDirectory()) return [""];
@@ -43,8 +51,8 @@ export function touchedPaths(plan, manifest) {
   if (plan?.writeDesired) paths.add(ownedRelativePath(plan.workspace, plan.desiredPath ?? DESIRED_REL_PATH));
   if (plan?.overrides?.write) paths.add(ownedRelativePath(plan.workspace, plan.overrides.path ?? OVERRIDES_REL_PATH));
   if (plan?.stt?.write) paths.add(ownedRelativePath(plan.workspace, plan.stt.path ?? STT_REL_PATH));
-  if (plan?.taskTriage?.write) paths.add(ownedRelativePath(plan.workspace, plan.taskTriage.path ?? TASK_TRIAGE_REL_PATH));
-  if (plan?.taskTriageProvider?.write) paths.add(ownedRelativePath(plan.workspace, plan.taskTriageProvider.path ?? SYSTEM1_PROVIDER_REL_PATH));
+  if (plan?.taskTriage?.write) paths.add(ownedRelativePath(plan.workspace, plan.taskTriage.path ?? SYSTEM1_REL_PATH));
+  if (plan?.taskTriageProvider?.write) paths.add(ownedRelativePath(plan.workspace, plan.taskTriageProvider.path ?? SYSTEM1_REL_PATH));
   if (plan?.stt?.env?.missing?.length) paths.add(ownedRelativePath(plan.workspace, plan.stt.env.path));
   const collapseManagedLink = (value) => {
     const rel = ownedRelativePath(plan.workspace, value); const parts = rel.split(/[/\\]/); let cursor = plan.workspace;
@@ -55,8 +63,8 @@ export function touchedPaths(plan, manifest) {
 }
 
 function fingerprint(path) {
-  if (!existsSync(path)) return "absent";
-  const stat = lstatSync(path);
+  let stat;
+  try { stat = lstatSync(path); } catch (error) { if (error.code === 'ENOENT') return 'absent'; throw error; }
   if (stat.isSymbolicLink()) return `link:${readlinkSync(path)}`;
   if (stat.isDirectory()) return `dir:${readdirSync(path).sort().join("\0")}`;
   return `file:${createHash("sha256").update(readFileSync(path)).digest("hex")}:${stat.mode & 0o777}`;
@@ -70,7 +78,7 @@ export function assertPlanFingerprints(plan, manifest) {
   if (!plan.fingerprints) return;
   for (const [rel, expected] of Object.entries(plan.fingerprints)) {
     assertSafeWorkspaceTarget(plan.workspace, rel);
-    if (fingerprint(join(plan.workspace, rel)) !== expected) throw new Error(`workspace changed since preview: ${rel}; re-run setup`);
+    if (fingerprint(join(plan.workspace, rel)) !== expected) throw Object.assign(new Error(`workspace changed since preview: ${rel}; re-run setup`), { exitCode: 3 });
   }
 }
 
@@ -91,40 +99,70 @@ function validateJournal(workspace, value) {
   if (!Array.isArray(value.paths) || !Array.isArray(value.present) || !value.paths.every((x) => typeof x === "string") || !value.present.every((x) => value.paths.includes(x))) throw new Error("transaction journal paths are invalid");
   value.paths = value.paths.map((rel) => ownedRelativePath(workspace, rel, "journal path"));
   value.present = value.present.map((rel) => ownedRelativePath(workspace, rel, "journal present path"));
+  if (value.preserveBackup !== undefined && typeof value.preserveBackup !== 'boolean') throw new Error('transaction journal backup metadata is invalid');
+  if (value.originalModes !== undefined || value.preserveBackup === true) {
+    const modes = value.originalModes;
+    if (!modes || typeof modes !== 'object' || Array.isArray(modes) || Object.keys(modes).length !== value.present.length || !value.present.every(rel => Object.hasOwn(modes, rel)) || Object.entries(modes).some(([rel, mode]) => !value.present.includes(rel) || !Number.isInteger(mode) || mode < 0 || mode > 0o777)) throw new Error('transaction journal original mode metadata is invalid');
+  }
   value.backup = ownedRelativePath(workspace, value.backup, "journal backup");
   if (!value.backup.startsWith(`${RECOVERY_REL_PATH}/`) && value.backup !== RECOVERY_REL_PATH) throw new Error("transaction backup is not installer-owned");
   for (const rel of value.paths) assertSafeWorkspaceTarget(workspace, rel);
   assertSafeWorkspaceTarget(workspace, value.backup, { allowLeafSymlink: false });
   return value;
 }
-function backupTouchedPaths(workspace, paths) {
+function backupTouchedPaths(workspace, paths, protectedBackup = false) {
   const rootRel = join(RECOVERY_REL_PATH, randomUUID());
   const backupRel = join(rootRel, "backup");
   const backup = assertSafeWorkspaceTarget(workspace, backupRel, { allowLeafSymlink: false });
-  mkdirSync(backup, { recursive: true });
+  mkdirSync(backup, { recursive: true, mode: 0o700 });
+  if (protectedBackup) {
+    chmodSync(join(workspace, rootRel), 0o700); chmodSync(backup, 0o700);
+    // Retained human configuration must not be included by a normal git add.
+    writeFileSync(join(workspace, rootRel, '.gitignore'), '*\n', { mode: 0o600 });
+  }
   const present = [];
   for (const rel of paths) {
-    assertSafeWorkspaceTarget(workspace, rel);
+    assertSafeWorkspaceTarget(workspace, rel, { allowLeafSymlink: !protectedBackup });
     const source = join(workspace, rel);
-    if (!existsSync(source)) continue;
+    if (!pathExists(source)) continue;
     const destination = join(backup, rel); mkdirSync(dirname(destination), { recursive: true });
-    cpSync(source, destination, { recursive: true, dereference: false }); present.push(rel);
+    copySnapshot(source, destination);
+    if (protectedBackup) { chmodSync(dirname(destination), 0o700); chmodSync(destination, 0o600); }
+    present.push(rel);
   }
   // Durably materialize every regular backup leaf and the recovery directory metadata.
   const syncTree = (path) => { for (const entry of readdirSync(path, { withFileTypes: true })) { const child = join(path, entry.name); if (entry.isDirectory()) syncTree(child); else if (!entry.isSymbolicLink()) fsyncPath(child); } fsyncPath(path); };
   syncTree(join(workspace, rootRel));
+  fsyncPath(join(workspace, RECOVERY_REL_PATH));
+  fsyncPath(dirname(join(workspace, RECOVERY_REL_PATH)));
   return { backup: backupRel, present, rootRel };
 }
 function restoreTouchedPaths(workspace, journal) {
-  for (const rel of journal.paths) { assertSafeWorkspaceTarget(workspace, rel); rmSync(join(workspace, rel), { recursive: true, force: true }); }
+  // Validate the complete recovery source before removing any current target.
+  for (const rel of journal.present) {
+    const source = assertSafeWorkspaceTarget(workspace, join(journal.backup, rel), { allowLeafSymlink: !journal.originalModes });
+    if (!pathExists(source) || (journal.originalModes && !lstatSync(source).isFile())) throw Object.assign(new Error(`transaction backup is missing or invalid for ${rel}; journal preserved for diagnosis`), { unrecoverable: true });
+  }
+  for (const rel of journal.paths) {
+    const path = assertSafeWorkspaceTarget(workspace, rel);
+    if (pathExists(path) && lstatSync(path).isSymbolicLink()) unlinkSync(path);
+    else rmSync(path, { recursive: true, force: true });
+  }
   for (const rel of journal.present) {
     const source = assertSafeWorkspaceTarget(workspace, join(journal.backup, rel));
-    if (!existsSync(source)) throw Object.assign(new Error(`transaction backup is missing ${rel}; journal preserved for diagnosis`), { unrecoverable: true });
+    if (!pathExists(source)) throw Object.assign(new Error(`transaction backup is missing ${rel}; journal preserved for diagnosis`), { unrecoverable: true });
     // The prior target was removed above. Reject any newly introduced leaf or
     // parent link before copying; a backed-up leaf symlink itself remains a
     // legitimate object because cpSync does not dereference it.
     const destination = assertSafeWorkspaceTarget(workspace, rel, { allowLeafSymlink: false });
-    mkdirSync(dirname(destination), { recursive: true }); cpSync(source, destination, { recursive: true, dereference: false });
+    mkdirSync(dirname(destination), { recursive: true }); copySnapshot(source, destination);
+    if (journal.originalModes?.[rel] !== undefined) {
+      const fd = openSync(destination, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        if (!fstatSync(fd).isFile()) throw new Error('mode restoration requires a regular file');
+        fchmodSync(fd, journal.originalModes[rel]);
+      } finally { closeSync(fd); }
+    }
   }
 }
 function readJournal(workspace) { return validateJournal(workspace, JSON.parse(readFileSync(journalPath(workspace), "utf8"))); }
@@ -141,7 +179,8 @@ export function recoverTransaction(workspace) {
     if (!existsSync(join(workspace, journal.backup))) throw Object.assign(new Error("transaction backup is missing; journal preserved for diagnosis"), { unrecoverable: true });
     restoreTouchedPaths(workspace, journal);
   }
-  rmSync(join(workspace, dirname(journal.backup)), { recursive: true, force: true }); rmSync(path, { force: true });
+  if (!(journal.phase === 'committed' && journal.preserveBackup)) rmSync(join(workspace, dirname(journal.backup)), { recursive: true, force: true });
+  rmSync(path, { force: true });
   return { recovered: journal.phase !== "committed", finalized: journal.phase === "committed", phase: journal.phase };
 }
 /** Explicit diagnostic discard; never called automatically. */
@@ -155,8 +194,9 @@ export function runTransaction({ workspace, plan, manifest, validate = () => {},
   try {
     assertPlanFingerprints(plan ?? { workspace }, manifest);
     const paths = plan ? touchedPaths(plan, manifest) : [];
-    const saved = backupTouchedPaths(workspace, paths);
-    journal = { schemaVersion: 3, phase: "prepared", backup: saved.backup, paths, present: saved.present };
+    const saved = backupTouchedPaths(workspace, paths, Boolean(plan?.preserveBackup));
+    if (plan) plan.backup = saved.backup;
+    journal = { schemaVersion: 3, phase: "prepared", backup: saved.backup, paths, present: saved.present, ...(plan?.preserveBackup ? { preserveBackup: true, originalModes: Object.fromEntries(saved.present.map(rel => [rel, lstatSync(join(workspace, rel)).mode & 0o777])) } : {}) };
     mkdirSync(dirname(journalPath(workspace)), { recursive: true }); durableJson(journalPath(workspace), journal);
     if (failAt === "after-journal") throw new Error("injected transaction interruption");
     journal.phase = "applying"; durableJson(journalPath(workspace), journal);
@@ -164,7 +204,8 @@ export function runTransaction({ workspace, plan, manifest, validate = () => {},
     if (failAt === "after-commit") throw new Error("injected transaction interruption");
     journal.phase = "committed"; durableJson(journalPath(workspace), journal);
     if (failAt === "after-durable-commit") throw Object.assign(new Error("files committed; cleanup incomplete"), { postCommit: true });
-    rmSync(join(workspace, dirname(journal.backup)), { recursive: true, force: true }); rmSync(journalPath(workspace), { force: true });
+    if (!journal.preserveBackup) rmSync(join(workspace, dirname(journal.backup)), { recursive: true, force: true });
+    rmSync(journalPath(workspace), { force: true });
     return result;
   } catch (error) {
     if (journal && journal.phase !== "committed") {

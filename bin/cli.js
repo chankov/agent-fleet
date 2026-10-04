@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { planSystem1Migration, applySystem1Migration } from "./lib/system1-migration.js";
 // agent-fleet — deterministic workspace lifecycle CLI.
 //
 // setup, doctor, and uninstall are complete without a coding agent or model.
@@ -84,6 +85,8 @@ const parsed = (() => {
         "stt-provider": { type: "string" },
         "save-desired": { type: "boolean" },
         "task-triage-consent": { type: "boolean" },
+        "migrate-system1-config": { type: "boolean" },
+        "expect-digest": { type: "string" },
         "repair-config": { type: "boolean" },
         migrate: { type: "boolean" },
         "on-conflict": { type: "string" },
@@ -265,6 +268,18 @@ async function cmdConfigure() {
 
 async function cmdSetup() {
   await mustBeDirectory(workspace, "workspace");
+  if (opts["migrate-system1-config"]) {
+    try {
+      if (!opts["dry-run"] && !opts.yes) fail("System1 migration requires --yes; preview with --migrate-system1-config --dry-run");
+      if (!opts["dry-run"] && !opts["expect-digest"]) fail("System1 migration apply requires --expect-digest from an explicit --dry-run preview");
+      const plan = planSystem1Migration(workspace);
+      const preview = { status: plan.status, digest: plan.digest, target: plan.target, operations: plan.operations.map(({ path, remove }) => ({ path, remove: Boolean(remove) })), fingerprints: plan.fingerprints };
+      if (opts["dry-run"]) { console.log(JSON.stringify({ stage: "preview", ...preview }, null, 2)); return; }
+      const result = applySystem1Migration(plan, { expectDigest: opts["expect-digest"] });
+      console.log(JSON.stringify({ stage: "apply", ...preview, result }, null, 2));
+      return;
+    } catch (error) { fail(error.message, error.exitCode ?? 1); }
+  }
   if (opts["on-conflict"] !== undefined && !["ours", "theirs"].includes(opts["on-conflict"])) {
     fail('--on-conflict must be "ours" or "theirs"');
   }
@@ -1260,6 +1275,8 @@ Options:
   --stt-provider <openai|groq|azure|azure-openai>
                                         Select provider explicitly; non-OpenAI setup requires prepared .ai/stt.json
   --save-desired                       Persist CLI overrides to .ai/agent-fleet.json
+  --migrate-system1-config            Explicit local v1 → v2 migration; preview with --dry-run
+  --expect-digest <digest>             Apply the exact migration preview, together with --yes
   --task-triage-consent                Separately approve experimental remote task context (not implied by --yes)
   --migrate                            Permit non-interactive first migration (with explicit preset/features and --yes)
   --allow-exec                         Run consented runtime commands after the file transaction

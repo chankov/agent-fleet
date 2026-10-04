@@ -105,10 +105,10 @@ test("resumed run starts at turn zero in a distinct parent-assigned attempt", t 
 
 test("native observer uses frozen session config across attempts; fresh session sees edits", t => {
  const { dir, assignment } = fixture(t);
- const configPath = join(dir, ".ai", "proactive-review.json");
+ const configPath = join(dir, ".ai", "system1.json");
  const writeConfig = (mode: "off" | "shadow" | "advisory", include?: string[]) => {
   mkdirSync(join(dir, ".ai"), { recursive: true });
-  writeFileSync(configPath, JSON.stringify({ version: 1, mode, ...(include ? { include } : {}) }));
+  writeFileSync(configPath, JSON.stringify({version:2,mode:"off",provider:"typesafe",model:"jev-1.13.0",apiKeyEnv:"TYPESAFE_API_KEY",consumers:{proactiveReview:{mode,...(include ? {include} : {})}}}));
  };
  const { config: _config, ...identity } = assignment;
  const assigned = (config: ReturnType<typeof loadProactiveConfig>, attempt: string) => sessionObserverAssignment(config, "builder", { ...identity, attempt, directory: join(dir, attempt) });

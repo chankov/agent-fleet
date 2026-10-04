@@ -85,7 +85,7 @@ semantic review.
 
 This is a **separate, per-repository, session-bound** advisory consumer of the
 shared System 1 foundation, not the native watchdog's System 1 shortcut. The
-human-owned `.ai/proactive-review.json` is never created by setup. Missing/off
+human-owned `consumers.proactiveReview` in `.ai/system1.json` is never created by setup. Missing/off
 means zero proactive capture, inference and feedback. Enabled `shadow` or
 `advisory` requires explicit include scope; `remoteContext: "disabled"` is
 local-only (reviewed deterministic validators, no semantic provider check),
@@ -1446,3 +1446,7 @@ clear. `j` navigation is unchanged. The optional `dispatch_triage` tool is for t
 orchestrator, not a human slash command; all dispatch gates remain authoritative.
 See [the guide](../../../docs/system1-dispatch-triage.md) for opt-in configuration,
 privacy boundaries, evaluation commands and outstanding live acceptance.
+
+## Unified System 1 v2 configuration
+
+The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract](../../../docs/system1-config.md) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change.

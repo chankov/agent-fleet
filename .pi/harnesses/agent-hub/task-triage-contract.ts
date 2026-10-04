@@ -1,11 +1,6 @@
 import type { System1Question, System1Result } from "../lib/system1/contracts.ts";
 
-export const TASK_TRIAGE_QUESTION_VERSION = "task-triage/questions/v1";
-export const TASK_TRIAGE_POLICY_VERSION = "task-triage/policy/v1";
-export const TASK_TRIAGE_STATE_VERSION = "task-triage/state/v1";
-export const TASK_TRIAGE_PROVIDER = "typesafe";
-export const TASK_TRIAGE_MODEL = "jev-1.13.0";
-export const TASK_TRIAGE_LIMITS = Object.freeze({ maxTaskBytes: 40 * 1024, maxStateBytes: 64 * 1024, maxCallsPerSession: 100, timeoutMs: 2000 });
+export { TASK_TRIAGE_QUESTION_VERSION, TASK_TRIAGE_POLICY_VERSION, TASK_TRIAGE_STATE_VERSION, TASK_TRIAGE_PROVIDER, TASK_TRIAGE_MODEL, TASK_TRIAGE_LIMITS } from "../lib/system1/config-triage.js";
 export type TriageReason = "security_change" | "wide_change" | "irreversible_execution";
 export type TriageStatus = "applied" | "no_additions" | "invalid_result" | "stale" | "incomplete_input" | "sensitive_input" | "oversized_input" | "skipped" | "unavailable" | "unsupported" | "cancelled";
 export interface TaskTriageAssessment { status: TriageStatus; reasons: TriageReason[]; probabilities?: Readonly<Record<"security_change" | "wide_change" | "irreversible_execution", number>>; diagnostic?: { changeIntent: number; contextSufficient: number }; detail?: string; }

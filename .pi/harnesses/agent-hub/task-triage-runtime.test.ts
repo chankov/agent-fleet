@@ -174,7 +174,7 @@ test("session restore cancels a pending evaluation and retains only durable call
 
 test("watchdog off/disarmed shares the service; active consumer reports unavailable service before and after input", async t => {
  const session = createWatchdogSystem1Session({ configuredMode: "off", watchdogArmed: false, selected: true,
-  config: { version: 1, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" },
+  config: { version: 2, consumers: {}, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" },
   env: {}, service: { async evaluate() { return fixture(); } } as any });
  t.after(() => session.dispose());
  assert.ok(session.sharedService, "watchdog mode/arming does not own shared-service activation");

@@ -223,6 +223,7 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
     const workspace = join(tmpdir(), `agent-fleet-${method}-${process.pid}-${Date.now()}`);
     try {
       mkdirSync(workspace, { recursive: true });
+      writeFileSync(join(workspace, "package.json"), JSON.stringify({type:"module"}));
       writeFileSync(join(workspace, "justfile"), "user-recipe:\n    echo keep\n# >>> agent-fleet:harnesses old\n# <<< agent-fleet:harnesses <<<\n");
       const owned = installClosure(root, workspace, method);
       for (const rel of [...manifest.directories, ...manifest.files]) assert.ok(existsSync(join(workspace, rel)), `${method}: ${rel}`);
@@ -312,6 +313,7 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
 
 test("workflow-only install runs a production policy prompt without the Hub item or source checkout", () => {
   const workspace = mkdtempSync(join(tmpdir(), "af-workflow-only-"));
+  writeFileSync(join(workspace, "package.json"), JSON.stringify({type:"module"}));
   try {
     const generated = buildManifest({ sourceRoot: root, packageVersion: JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version });
     const items = ["companion:workflow-runtime", "companion:pi-harness-lib"];

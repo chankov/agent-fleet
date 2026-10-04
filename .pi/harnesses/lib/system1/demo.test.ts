@@ -9,7 +9,8 @@ import { JEV_MODEL, type JevTransport } from "./jev.ts";
 import { runSystem1Demo } from "./demo.ts";
 
 const validConfig = {
-  version: 1,
+  version: 2,
+  consumers: {},
   mode: "auto",
   provider: "typesafe",
   model: JEV_MODEL,

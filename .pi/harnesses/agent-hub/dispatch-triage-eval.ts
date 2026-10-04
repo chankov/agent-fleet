@@ -1,10 +1,10 @@
+import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../lib/system1/config-loader.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { System1Result, System1Service } from "../lib/system1/contracts.ts";
 import { createSystem1Runtime } from "../lib/system1/service.ts";
-import { system1SelectedByDesired } from "../lib/system1/selection.js";
 import { parseTriageConfig, triageQuestions, TRIAGE_VERSION, type TriageInput, type TriageConfig } from "./dispatch-triage-contract.ts";
 import { buildTriageState } from "./dispatch-triage-state.ts";
 import { triageAdvice } from "./dispatch-triage-policy.ts";
@@ -59,16 +59,17 @@ export async function runTriageEvaluator(argv=process.argv.slice(2)) {
  const value=(key:string)=>{const i=argv.indexOf(key);return i<0?undefined:argv[i+1];};
  if (argv.includes("--help") || !argv.length) { console.log("dispatch-triage-eval --corpus FILE --config FILE [--live --max-calls N --max-ms N --workspace DIR]\nOffline replay by default. Live requires per-example consent and explicit budgets. No dotenv loading."); return; }
  const corpusFile=value("--corpus"),configFile=value("--config");
- if (!corpusFile || !configFile) throw new Error("Explicit --corpus and --config required");
- const corpus=validateCorpus(JSON.parse(readFileSync(corpusFile,"utf8"))),config=parseTriageConfig(JSON.parse(readFileSync(configFile,"utf8")));
+ if (!corpusFile || (!argv.includes("--live") && !configFile)) throw new Error("Explicit --corpus and offline --config required");
+ const workspace=value("--workspace");
+ const snapshot = argv.includes("--live") && workspace ? loadSystem1Snapshot(workspace) : undefined;
+ const corpus=validateCorpus(JSON.parse(readFileSync(corpusFile,"utf8"))),config=argv.includes("--live") ? snapshot?.consumers.dispatchTriage.config as TriageConfig | undefined : parseTriageConfig(JSON.parse(readFileSync(configFile!,"utf8")));
  if (!config) throw new Error("Invalid triage config");
  let service: System1Service | undefined;
  if (argv.includes("--live")) {
-  const workspace=value("--workspace"); if (!workspace) throw new Error("Live requires explicit --workspace");
+  if (!workspace) throw new Error("Live requires explicit --workspace");
   // Consent and budget validation happens before constructing the provider or reading its key.
-  if (!config.remoteContextApproved || corpus.some(e=>!e.remoteApproved) || !Number.isSafeInteger(Number(value("--max-calls"))) || Number(value("--max-calls"))<=0 || !Number.isSafeInteger(Number(value("--max-ms"))) || Number(value("--max-ms"))<=0) throw new Error("Live consent or budgets missing");
-  const desired=JSON.parse(readFileSync(resolve(workspace,".ai/agent-fleet.json"),"utf8"));
-  const runtime=createSystem1Runtime({selected:system1SelectedByDesired(desired),config:JSON.parse(readFileSync(resolve(workspace,".ai/system1.json"),"utf8")),env:process.env});
+  if (config.mode === "off" || !config.remoteContextApproved || corpus.some(e=>!e.remoteApproved) || !Number.isSafeInteger(Number(value("--max-calls"))) || Number(value("--max-calls"))<=0 || !Number.isSafeInteger(Number(value("--max-ms"))) || Number(value("--max-ms"))<=0) throw new Error("Live consent or budgets missing");
+  const runtime=createSystem1Runtime({selected:readSystem1Selected(workspace),config:providerDocument(snapshot!),env:process.env});
   if (runtime.readiness.status!=="ready") throw new Error("System 1 unavailable"); service=runtime.service;
  }
  console.log(JSON.stringify(await evaluateCorpus(corpus,config,{service,maxCalls:Number(value("--max-calls")),maxMs:Number(value("--max-ms"))}),null,2));

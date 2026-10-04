@@ -1,7 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { SYSTEM1_CONFIG_RELATIVE_PATH } from "../lib/system1/config.js";
-import { system1SelectedByDesired } from "../lib/system1/selection.js";
+import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../lib/system1/config-loader.js";
 import type { JsonText, System1Availability, System1Result, System1Service } from "../lib/system1/contracts.ts";
 import { createSystem1Runtime, DEFAULT_SYSTEM1_TIMEOUT_MS } from "../lib/system1/service.ts";
 import type { JevTransport } from "../lib/system1/jev.ts";
@@ -93,6 +90,7 @@ function effectiveMode(configured: WatchdogSystem1Mode, profiles: readonly Accep
 
 export interface ReadWatchdogSystem1SnapshotInput {
 	cwd: string;
+ snapshot?: ReturnType<typeof loadSystem1Snapshot>;
 	configuredMode: WatchdogSystem1Mode;
 	watchdogSetting: string;
 	env?: Record<string, string | undefined>;
@@ -103,36 +101,16 @@ export interface ReadWatchdogSystem1SnapshotInput {
 
 /** Caller-owned reads. Matches doctor selection, including declared feature dependencies. Does not load dotenv. */
 export function readWatchdogSystem1Snapshot(input: ReadWatchdogSystem1SnapshotInput): CreateWatchdogSystem1SessionOptions {
+	const snapshot = input.snapshot ?? loadSystem1Snapshot(input.cwd);
 	return {
-		configuredMode: input.configuredMode,
+		configuredMode: snapshot.consumers.watchdog.config?.mode ?? "off",
 		watchdogArmed: normalizeWatchdogSetting(input.watchdogSetting) !== "off",
-		selected: readFeatureSelected(input.cwd),
-		config: readSystem1Config(input.cwd),
+		selected: readSystem1Selected(input.cwd),
+		config: providerDocument(snapshot),
 		env: input.env ?? {},
 		transport: input.transport,
-		warnings: input.warnings,
+		warnings: [...(input.warnings ?? []), ...snapshot.errors.map((error: { path: string; code: string }) => `${error.path}: ${error.code}`)],
 	};
-}
-
-function readFeatureSelected(cwd: string): boolean {
-	const path = join(cwd, ".ai", "agent-fleet.json");
-	if (!existsSync(path)) return false;
-	try {
-		const desired = JSON.parse(readFileSync(path, "utf8"));
-		return system1SelectedByDesired(desired);
-	} catch {
-		return false;
-	}
-}
-
-function readSystem1Config(cwd: string): unknown {
-	const path = join(cwd, SYSTEM1_CONFIG_RELATIVE_PATH);
-	if (!existsSync(path)) return undefined;
-	try {
-		return JSON.parse(readFileSync(path, "utf8"));
-	} catch {
-		return null;
-	}
 }
 
 export interface CreateWatchdogSystem1SessionOptions {

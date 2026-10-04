@@ -83,7 +83,7 @@ const request = {
 };
 
 test("runtime factory keeps credentials private and skipped paths make no transport calls", async () => {
-  const config = { version: 1, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" } as const;
+  const config = { version: 2, consumers: {}, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" } as const;
   const env = { TYPESAFE_API_KEY: "private-test-value", KEEP: "same" };
   const before = structuredClone(env);
   const ready = createSystem1Runtime({
