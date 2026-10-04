@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,8 +20,9 @@ const validConfig = {
   apiKeyEnv: "TYPESAFE_API_KEY",
 };
 
+// Canonicalize macOS temporary paths; migration intentionally rejects linked roots.
 function workspace(t) {
-  const ws = mkdtempSync(join(tmpdir(), "af-doctor-system1-"));
+  const ws = realpathSync(mkdtempSync(join(tmpdir(), "af-doctor-system1-")));
   t.after(() => rmSync(ws, { recursive: true, force: true }));
   return ws;
 }

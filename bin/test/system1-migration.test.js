@@ -1,12 +1,14 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, statSync } from 'node:fs';
+import { mkdtempSync, realpathSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os'; import { join } from 'node:path';
 import { planSystem1Migration, applySystem1Migration, migrateWatchdogOverride, SYSTEM1_MIGRATION_PATHS } from '../lib/system1-migration.js';
 import { recoverTransaction, journalPath } from '../lib/transaction.js';
 const provider={version:1,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY'};
+// macOS temporary paths can contain system symlinks (/var -> /private/var).
+// Canonicalize test roots without weakening migration path safety.
 function fixture(t) {
- const root=mkdtempSync(join(tmpdir(),'system1-migrate-'));t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(join(root,'.ai'));
+ const root=realpathSync(mkdtempSync(join(tmpdir(),'system1-migrate-')));t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(join(root,'.ai'));
  const put=(path,value)=>writeFileSync(join(root,path),typeof value==='string'?value:JSON.stringify(value));
  put('.ai/system1.json',provider);put('.ai/proactive-review.json',{version:1,mode:'advisory',remoteContext:'selected-excerpts',include:['src/**'],maxEvaluationsPerSession:50});
  put('.ai/dispatch-triage.json',{version:1,mode:'advisory',remoteContextApproved:true,maxCalls:100,maxStateBytes:32000,maxTaskBytes:8000,maxRoleBytes:2000,orchestratorBeforeDispatch:true});
@@ -15,6 +17,13 @@ function fixture(t) {
  return {root,put};
 }
 const bytes=root=>Object.fromEntries(SYSTEM1_MIGRATION_PATHS.map(p=>[p,existsSync(join(root,p))?readFileSync(join(root,p)).toString('base64'):null]));
+test('migration still refuses a linked workspace root without writing', t => {
+ const {root}=fixture(t),before=bytes(root);
+ const alias=join(root,'workspace-link');symlinkSync(root,alias,'dir');
+ assert.throws(()=>planSystem1Migration(alias),/workspace root must not be a symlink/);
+ assert.deepEqual(bytes(root),before);
+ assert.ok(!existsSync(journalPath(root)));
+});
 test('read-only preview, golden preservation, protected durable backup and idempotence',t=>{
  const {root}=fixture(t),before=bytes(root),plan=planSystem1Migration(root);
  assert.deepEqual(bytes(root),before);assert.equal(plan.target.consumers.watchdog.mode,'active');

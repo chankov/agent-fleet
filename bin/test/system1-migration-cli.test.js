@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, realpathSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+// macOS temporary paths can contain system symlinks (/var -> /private/var).
+// Canonicalize test roots without weakening migration path safety.
 function fixture(t) {
- const workspace = mkdtempSync(join(tmpdir(), 'system1-cli-'));
+ const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'system1-cli-')));
  t.after(() => rmSync(workspace, { recursive: true, force: true }));
  mkdirSync(join(workspace, '.ai'));
  const path = join(workspace, '.ai/system1.json');
