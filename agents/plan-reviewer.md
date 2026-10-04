@@ -6,7 +6,7 @@ model: xai/grok-4.7
 models:
   - openai-codex/gpt-6-luna
   - github-copilot/claude-opus-5
-  - openai-codex/gpt-6-sol
+  - openai-codex/gpt-6.1-sol
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
   - incoai/Qwen3.8-27B-Splash

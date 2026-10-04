@@ -7,7 +7,7 @@ writes:
 model: openai-codex/gpt-6-astra
 models:
   - github-copilot/claude-fable-5
-  - openai-codex/gpt-6-sol
+  - openai-codex/gpt-6.1-sol
   - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
@@ -22,7 +22,7 @@ subagents:
     model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   voice-1:
-    model: openai-codex/gpt-6-sol
+    model: openai-codex/gpt-6.1-sol
     thinking: medium
     tools: read,grep,find,ls
   voice-2:

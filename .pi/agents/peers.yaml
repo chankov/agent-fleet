@@ -89,7 +89,7 @@ debug:
 frontend:
   - name: planner
     persona: planner
-    model: openai-codex/gpt-6-sol
+    model: openai-codex/gpt-6.1-sol
   - name: builder
     persona: builder
     model: openai-codex/gpt-6-luna
@@ -102,7 +102,7 @@ frontend:
 security:
   - name: security-auditor
     persona: security-auditor
-    model: openai-codex/gpt-6-sol
+    model: openai-codex/gpt-6.1-sol
   - name: builder
     persona: builder
     model: openai-codex/gpt-6-luna

@@ -2,10 +2,10 @@
 # See docs/agent-fleet-setup.md for defaults, child roles, services and policies.
 mix-max:
   code-reviewer: xai/grok-4.7
-  builder: openai-codex/gpt-6-sol
+  builder: openai-codex/gpt-6.1-sol
   planner: openai-codex/gpt-6-astra
   plan-reviewer: xai/grok-4.7
-  security-auditor: openai-codex/gpt-6-sol
+  security-auditor: openai-codex/gpt-6.1-sol
   test-engineer: xai/grok-4.7
 local-workers:
   version: 2

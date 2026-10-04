@@ -5,7 +5,7 @@ tools: read,write,edit,grep,find,ls
 writes:
   - docs/
   - "**/*.md"
-model: openai-codex/gpt-6-sol
+model: openai-codex/gpt-6.1-sol
 models:
   - openai-codex/gpt-6-luna
   - openai-codex/gpt-5.3-codex-spark

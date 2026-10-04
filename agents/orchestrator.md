@@ -2,7 +2,7 @@
 name: orchestrator
 description: Verification-Contract orchestrator — coordinates small, evidence-gated batches and does not report completion until each stated assertion has named proof.
 kind: orchestrator
-model: openai-codex/gpt-6-sol
+model: openai-codex/gpt-6.1-sol
 models:
   - openai-codex/gpt-6-luna
   - ollama/minimax-m3:cloud

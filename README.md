@@ -222,7 +222,7 @@ Two consequences worth spelling out:
 /af-models fast                                   # move the whole team down a tier
 /af-agent-model builder github-copilot/claude-sonnet-4.6
 /af-agent-models-substitute                         # visually pick a session-wide source → target mapping
-/af-agent-models-substitute openai-codex/gpt-6-sol ollama/glm-5.2:cloud   # same operation, direct form
+/af-agent-models-substitute openai-codex/gpt-6.1-sol ollama/glm-5.2:cloud   # same operation, direct form
 ```
 
 Per-project defaults live in `.ai/agent-fleet-overrides.md` — see [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md).

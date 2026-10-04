@@ -16,7 +16,7 @@ const persona: PersonaDefinition = {
 	systemPrompt: "Research only", file: "agents/researcher.md", writes: [],
 };
 const voices: Voice[] = [
-	{ name: "sol", model: "openai-codex/gpt-6-sol", thinking: "medium" },
+	{ name: "sol", model: "openai-codex/gpt-6.1-sol", thinking: "medium" },
 	{ name: "grok", model: "xai/grok-4.7", thinking: "medium" },
 	{ name: "opus", model: "github-copilot/claude-opus-5", thinking: "medium", integrator: true },
 ];
@@ -70,7 +70,7 @@ test("preflight refuses when a panel model is not visible to a clean-room child"
 	}), error => {
 		assert.equal((error as { exitCode?: number }).exitCode, 3);
 		assert.match((error as Error).message, /not visible to a clean-room child/);
-		assert.match((error as Error).message, /openai-codex\/gpt-6-sol/);
+		assert.match((error as Error).message, /openai-codex\/gpt-6.1-sol/);
 		return true;
 	});
 });

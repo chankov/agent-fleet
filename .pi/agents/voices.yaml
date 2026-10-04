@@ -2,7 +2,7 @@
 # One voice = name + fully-qualified provider/id. At most one integrator per panel.
 default:
   - name: sol
-    model: openai-codex/gpt-6-sol
+    model: openai-codex/gpt-6.1-sol
     thinking: medium
   - name: grok
     model: xai/grok-4.7

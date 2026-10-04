@@ -4,7 +4,7 @@ description: Interactive headful Chrome debugging via Chrome DevTools MCP — li
 model: openai-codex/gpt-6-luna
 models:
   - github-copilot/claude-opus-5
-  - openai-codex/gpt-6-sol
+  - openai-codex/gpt-6.1-sol
   - openai-codex/gpt-6-luna
   - ollama/glm-5.2:cloud
   - incoai/Qwen3.8-27B-Splash

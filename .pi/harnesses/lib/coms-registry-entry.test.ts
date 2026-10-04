@@ -34,10 +34,10 @@ test("the heartbeat carries started_at forward and only moves heartbeat_at", () 
 });
 
 test("the live model wins over the registered one, and absence falls back", () => {
-	const switched = buildLiveRegistryEntry(identity, { now: "t", pid: 1, model: "gpt-6-sol" });
+	const switched = buildLiveRegistryEntry(identity, { now: "t", pid: 1, model: "gpt-6.1-sol" });
 	const unknown = buildLiveRegistryEntry(identity, { now: "t", pid: 1, model: null });
 
-	assert.equal(switched.model, "gpt-6-sol");
+	assert.equal(switched.model, "gpt-6.1-sol");
 	assert.equal(unknown.model, "gpt-6-luna");
 });
 

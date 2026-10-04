@@ -2,7 +2,7 @@
 name: releaser
 description: Release owner — cuts versions and ships; runs the changeset → version-bump → tag flow on request.
 color: #059669
-model: openai-codex/gpt-6-sol
+model: openai-codex/gpt-6.1-sol
 models:
   - openai-codex/gpt-6-luna
   - ollama/glm-5.2:cloud
