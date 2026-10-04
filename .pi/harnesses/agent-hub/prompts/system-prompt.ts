@@ -5,6 +5,7 @@ import { component, type ContextBudgetComponent } from "../../lib/context-budget
 import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger } from "../../lib/context-budget-hub-prompt.ts";
 import type { HubPromptContext } from "./context.ts";
 import {
+	ASK_SYSTEM1_RECOMMENDED_FRAGMENT,
 	ambiguityFragment,
 	askUserFragment,
 	COMPACTION_FRAGMENT,
@@ -66,7 +67,8 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 	const ambiguityRule = ambiguityFragment(askUserAvailable, userLanguage);
 	const languageLines = languageFragment(askUserAvailable, userLanguage);
 	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution);
-	const stableModeSection = fleetActive ? TASK_TRIAGE_FRAGMENT : "";
+	const agenticRecommended = ctx.getActiveTools().includes("ask_system1") && ctx.getAgenticAskMode?.() === "recommended";
+	const stableModeSection = [fleetActive ? TASK_TRIAGE_FRAGMENT : "", agenticRecommended ? ASK_SYSTEM1_RECOMMENDED_FRAGMENT : ""].filter(Boolean).join("\n\n");
 	const artifactRoot = ctx.getArtifactRoot?.();
 	const verificationSection = (verificationActive ? verificationFragment(MAX_OPEN_ASSERTIONS) : "") +
 		(artifactRoot && (verificationActive || fleetActive) ? `\n\nSession artifact root: ${artifactRoot}. Use this absolute root for read/write tools. Handoff paths artifacts/<kind>/... are relative to this root, not the repository. Legacy shared .pi/agent-sessions/artifacts paths belong to other sessions; do not overwrite them.` : "");

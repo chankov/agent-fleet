@@ -93,3 +93,16 @@ test("communication overlay paints an opaque full viewport for empty, populated,
  terminal.rows=2;assertOpaque(12);
  await panel.handleInput("\x1b");await panel.handleInput("\x1b");await pending;panel.dispose();
 });
+
+test('agentic viewer copies only metadata, with an explicit advisory/no-gate label',async()=>{
+ const {createAgenticRuntime}=await import('../agentic-runtime.ts');
+ const {parseAgenticConfig}=await import('../../lib/system1/config-agentic.js');
+ const store=createCommunicationStore();let panel:any;const copied:string[]=[];
+ const ctx:any={ui:{notify(){},custom:(factory:any)=>new Promise<void>(resolve=>{panel=factory({terminal:{rows:30},requestRender(){}},{},{},resolve);})}};
+ const pending=openSystem1Communication(ctx,store,async text=>{copied.push(text);});await panel.handleInput('e');
+ const runtime=createAgenticRuntime({config:parseAgenticConfig({mode:'advisory',remoteContextApproved:true}),sessionId:'s',context:()=> 't',persist(){},observe:(id,status)=>store.finishAgentic(id,status),service:store.wrap({evaluate:async()=>({status:'unavailable',reason:'timeout'})},{provider:'fake',model:'fake'})});
+ await runtime.evaluate({state:'PRIVATE_STATE',questions:[{id:'PRIVATE_ID',type:'predicate',instructions:'PRIVATE_QUESTION'}]});assert.match(panel.render(160).join('\n'),/agenticAsk hub.*unavailable/);
+ await panel.handleInput('\r');assert.match(panel.render(160).join('\n'),/Advisory metadata only/);await panel.handleInput('\r');await panel.handleInput('\x1b[C');await panel.handleInput('\r');
+ assert.equal(JSON.parse(copied[0]).state.questionCount,1);assert.equal(JSON.parse(copied[1]).status,'unavailable');assert.equal(JSON.parse(copied[1]).usage,null);assert.ok(!copied.join('').includes('PRIVATE_'));
+ await panel.handleInput('\x1b');await panel.handleInput('\x1b');await pending;panel.dispose();
+});

@@ -5,6 +5,12 @@
   "model": "jev-1.13.0",
   "apiKeyEnv": "TYPESAFE_API_KEY",
   "consumers": {
+    "agenticAsk": {
+      "mode": "recommended",
+      "remoteContextApproved": true,
+      "include": [".pi/harnesses", "bin", "docs"],
+      "allowToolOutputs": false
+    },
     "watchdog": {
       "mode": "active"
     },

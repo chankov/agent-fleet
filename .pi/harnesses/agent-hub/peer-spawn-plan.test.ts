@@ -124,7 +124,7 @@ test("fake Herdr launch splits the Hub pane, applies cwd/env, types argv, rename
 	});
 
 	assert.deepEqual(calls, [
-		["split", { target_pane_id: "w1:p1", direction: "down", cwd: "/repo", env: { PEER_TOKEN: "secret" }, focus: false }],
+		["split", { target_pane_id: "w1:p1", direction: "down", cwd: "/repo", env: { PEER_TOKEN: "secret", AGENT_FLEET_AGENTIC_CHILD: '1' }, focus: false }],
 		["rename", "w1:p2", "code-reviewer"],
 		["read", "w1:p2", 5],
 		["text", "w1:p2", "just _claude-peer code-reviewer '' '' af"],

@@ -22,7 +22,7 @@ import { collectModelTargets } from "../lib/doctor.js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACK_MAX_BUFFER = 64 * 1024 * 1024;
 const SYSTEM1_RUNTIME = [
-  "config.js", "config-v2.js", "config-proactive.js", "config-triage.js", "config-json.js", "config-loader.js",
+  "config.js", "config-v2.js", "config-agentic.js", "config-proactive.js", "config-triage.js", "config-json.js", "config-loader.js",
   "selection.js",
   "contracts.ts",
   "demo.ts",
@@ -107,6 +107,12 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
       assert.ok(existsSync(join(hubRoot, file)), `packed watchdog runtime missing ${file}`);
       assert.equal(existsSync(join(hubRoot, file.replace(/\.ts$/, ".test.ts"))), false);
     }
+    for (const file of ['agentic-contract.ts','agentic-state.ts','agentic-runtime.ts','agentic-sources.ts','agentic-sources-worker.mjs','agentic-evidence.ts','agentic-hub.ts','tools/ask-system1.ts']) {
+      assert.ok(existsSync(join(hubRoot,file)), `packed D10 runtime missing ${file}`);
+      if (file.endsWith('.ts')) assert.equal(existsSync(join(hubRoot,file.replace(/\.ts$/,'.test.ts'))), false);
+    }
+    assert.ok(existsSync(join(extracted,'.pi/harnesses/lib/safe-source-read.js')));
+    assert.ok(existsSync(join(extracted,'docs/system1-agentic.md')));
     // Node's built-in type stripper refuses TS inside node_modules. Exercise the
     // extracted package's copies at the same non-node_modules path setup installs.
     const installedHarnesses = join(fixture, "installed-workspace", ".pi", "harnesses");
@@ -151,6 +157,30 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     mkdirSync(defaultWs);
     execFileSync(process.execPath, [cli, "setup", "--workspace", defaultWs, "--preset", "default", "--features", "none", "--yes"], { encoding: "utf8" });
     materializeRuntimeDependencies(defaultWs);
+    const agenticSmoke = spawnSync(process.execPath, ['--import', join(root,'bin/test/helpers/system1-no-network.js'), '--experimental-strip-types', '--input-type=module', '-e', `
+      import assert from 'node:assert/strict';
+      import {writeFileSync,mkdirSync} from 'node:fs';
+      const hub=${JSON.stringify(join(defaultWs,'.pi/harnesses/agent-hub'))};
+      const {registerAgenticHub,configureAgenticHub,agenticHubEnabled}=await import(hub+'/agentic-hub.ts');
+      const {loadSystem1Snapshot}=await import(${JSON.stringify(new URL(`file://${join(defaultWs,'.pi/harnesses/lib/system1/config-loader.js')}`).href)});
+      const {normalizeSystem1Config}=await import(${JSON.stringify(new URL(`file://${join(defaultWs,'.pi/harnesses/lib/system1/config-v2.js')}`).href)});
+      let tool,calls=0;const rows=[];
+      const pi={registerTool:t=>tool=t,on(){},appendEntry:(customType,data)=>rows.push({customType,data})};
+      const ctx={cwd:process.cwd(),sessionManager:{getSessionId:()=> 's',getEntries:()=>rows}};
+      registerAgenticHub(pi);assert.equal(tool.parameters.properties.command,undefined);
+      const base={ctx,sessionDir:process.cwd(),taskId:()=> 't'};
+      configureAgenticHub(pi,{...base,snapshot:loadSystem1Snapshot(process.cwd())});assert.equal(agenticHubEnabled(pi),false);
+      assert.equal((await tool.execute('id',{},new AbortController().signal)).details.reason,'consumer_off');
+      const enabledRoot=process.cwd()+'/agentic-smoke';mkdirSync(enabledRoot+'/.ai',{recursive:true});
+      writeFileSync(enabledRoot+'/.ai/agent-fleet.json',JSON.stringify({features:{system1:true}}));ctx.cwd=enabledRoot;base.sessionDir=enabledRoot;
+      mkdirSync(enabledRoot+'/src');writeFileSync(enabledRoot+'/src/app.ts','const fixture = 1;');
+      const snapshot=normalizeSystem1Config({version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{agenticAsk:{mode:'advisory',remoteContextApproved:true,include:['src']}}});
+      configureAgenticHub(pi,{...base,snapshot,service:{evaluate:async request=>{calls++;assert.equal(request.state.sources[0].text,'const fixture = 1;');return {status:'cancelled'};}}});
+      assert.equal(agenticHubEnabled(pi),true);
+      const result=await tool.execute('id',{paths:[{path:'src/app.ts'}],questions:[{id:'q',type:'predicate',instructions:'Clear?'}]},new AbortController().signal);
+      assert.equal(result.details.status,'cancelled',JSON.stringify(result.details));assert.equal(calls,1);
+    `],{cwd:defaultWs,encoding:'utf8',env:{...process.env,AGENT_HUB_AGENT_ID:'',AGENT_FLEET_AGENTIC_CHILD:''}});
+    assert.equal(agenticSmoke.status,0,agenticSmoke.stderr);
     const defaultDesired = JSON.parse(readFileSync(join(defaultWs, ".ai", "agent-fleet.json"), "utf8"));
     assert.notEqual(defaultDesired.features?.system1, true);
     assert.equal(existsSync(join(defaultWs, ".ai", "system1.json")), false);

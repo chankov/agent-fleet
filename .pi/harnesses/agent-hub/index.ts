@@ -1,3 +1,4 @@
+import { registerAgenticHub, configureAgenticHub, agenticHubEnabled, agenticHubRuntime, resetAgenticHub } from './agentic-hub.ts';
 import { loadSystem1Snapshot } from "../lib/system1/config-loader.js";
 import { normalizeSystem1Config } from "../lib/system1/config-v2.js";
 import { registerDispatchTriage } from "./tools/dispatch-triage.ts";
@@ -945,6 +946,7 @@ export default function (pi: ExtensionAPI) {
 	const workModePolicy = createWorkModePolicy({
 		getBaselineTools: () => baselineTools, getRosterSize: () => agentStates.size,
 		getDeterministicToolsEnabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
+		getAgenticAskEnabled: () => agenticHubEnabled(pi),
 		getDispatchTriageEnabled: () => triageRuntime?.available === true,
 		activateFallbackRoster: ctx => {
 			if (!rosterPolicy.activateFirstValidTeam()) return;
@@ -1048,7 +1050,8 @@ export default function (pi: ExtensionAPI) {
   });
   return { taskId: noProgress.taskId(), task, scope, language, domain, candidates, constraints: JSON.stringify({ tier: taskTier, process: { risk: processState.risk, scope: processState.scope }, externalBlocked: externalBlockers.length > 0 && !externalBlockerAcknowledged }), complete: !(externalBlockers.length > 0 && !externalBlockerAcknowledged) };
  }
- registerDispatchTriage(pi, { runtime: () => triageRuntime, input: triageInput, blocked: () => provisionalCapabilityRefusal("fleet") });
+ registerAgenticHub(pi);
+	registerDispatchTriage(pi, { runtime: () => triageRuntime, input: triageInput, blocked: () => provisionalCapabilityRefusal("fleet") });
 
  // Keep the extracted tool surface flat and greppable in this composition root.
 	registerDispatchAgent(pi, toolCtx, { disposition: (id, persona, reason) => triageRuntime?.disposition(id, persona, reason) ?? false, submitted: (id, persona, status) => triageRuntime?.submitted(id, persona, status) });
@@ -2125,6 +2128,7 @@ export default function (pi: ExtensionAPI) {
 
 	const hubPromptCtx: HubPromptContext = {
 		getTriageBeforeDispatch: () => triageRuntime?.orchestratorBeforeDispatch === true,
+		getAgenticAskMode: () => agenticHubRuntime(pi)?.mode ?? "off",
 		getArtifactRoot: () => sessionDir ? artifactsRoot() : null,
 		getCapabilityResolution,
 		getActiveTools: () => pi.getActiveTools(),
@@ -2308,7 +2312,8 @@ export default function (pi: ExtensionAPI) {
 			resetAccessApproval: accessApprovalRouter.reset,
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
-			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null); proactiveHubDeliveries = 0; taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
+			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null);
+			resetAgenticHub(pi); proactiveHubDeliveries = 0; taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
 			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },
@@ -2396,6 +2401,7 @@ export default function (pi: ExtensionAPI) {
 			const triageConfig = (system1Snapshot?.consumers.dispatchTriage.config ?? null) as TriageConfig | null;
    const taskTriageConfig = loadTaskTriageConfig(_ctx.cwd || process.cwd(), system1Snapshot);
    const sharedService = watchdogSystem1?.sharedService;
+			configureAgenticHub(pi, { snapshot: system1Snapshot, service: sharedService, ctx: _ctx, sessionDir, communicationStore, taskId: () => noProgress.taskId() });
    const serviceUnavailableReason = watchdogSystem1?.readiness.status === "ready" ? "unavailable" : watchdogSystem1?.readiness.reason ?? "unavailable";
    taskTriageConfigured = taskTriageConfig.status !== "missing";
    taskTriageConfigStatus = taskTriageConfig.status === "active" ? "active" : taskTriageConfig.status === "invalid" ? "invalid" : "off";

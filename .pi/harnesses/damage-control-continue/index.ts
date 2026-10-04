@@ -40,6 +40,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import {
+	damageControlPathMatches,
 	AGENT_ID_ENV,
 	ASK_ENDPOINT_ENV,
 	EXEMPTIONS_FILE_ENV,
@@ -157,24 +158,6 @@ export default function (pi: ExtensionAPI) {
 		return false;
 	}
 
-	function isPathMatch(targetPath: string, pattern: string, cwd: string): boolean {
-		const resolvedPattern = pattern.startsWith("~") ? path.join(os.homedir(), pattern.slice(1)) : pattern;
-
-		if (resolvedPattern.endsWith("/")) {
-			const absolutePattern = path.isAbsolute(resolvedPattern) ? resolvedPattern : path.resolve(cwd, resolvedPattern);
-			return targetPath.startsWith(absolutePattern);
-		}
-
-		const regexPattern = resolvedPattern
-			.replace(/[.+^${}()|[\]\\]/g, "\\$&")
-			.replace(/\*/g, ".*");
-
-		const regex = new RegExp(`^${regexPattern}$|^${regexPattern}/|/${regexPattern}$|/${regexPattern}/`);
-
-		const relativePath = path.relative(cwd, targetPath);
-
-		return regex.test(targetPath) || regex.test(relativePath) || targetPath.includes(resolvedPattern) || relativePath.includes(resolvedPattern);
-	}
 
 	// An exemption unlocks the exact protected pattern it names, or any target
 	// it would itself match under the same rules the block used.
@@ -182,7 +165,7 @@ export default function (pi: ExtensionAPI) {
 		if (ex.pattern === matchedPattern) return true;
 		if (command && command.includes(ex.pattern)) return true;
 		for (const p of inputPaths) {
-			if (isPathMatch(resolvePath(p, cwd), ex.pattern, cwd)) return true;
+			if (damageControlPathMatches(resolvePath(p, cwd), ex.pattern, cwd)) return true;
 		}
 		return false;
 	}
@@ -311,7 +294,7 @@ export default function (pi: ExtensionAPI) {
 			for (const p of pathsToCheck) {
 				const resolved = resolvePath(p, ctx.cwd);
 				for (const zap of rules.zeroAccessPaths) {
-					if (isPathMatch(resolved, zap, ctx.cwd)) {
+					if (damageControlPathMatches(resolved, zap, ctx.cwd)) {
 						matchedPattern = zap;
 						matchedCategory = "zero_access";
 						return `Access to zero-access path restricted: ${zap}`;
@@ -338,7 +321,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (isToolCallEventType("grep", event) && event.input.glob) {
 			for (const zap of rules.zeroAccessPaths) {
-				if (event.input.glob.includes(zap) || isPathMatch(event.input.glob, zap, ctx.cwd)) {
+				if (event.input.glob.includes(zap) || damageControlPathMatches(event.input.glob, zap, ctx.cwd)) {
 					violationReason = `Glob matches zero-access path: ${zap}`;
 					matchedPattern = zap;
 					matchedCategory = "zero_access";
@@ -351,7 +334,7 @@ export default function (pi: ExtensionAPI) {
 		// above only sees the search root ("."), so check the pattern too, mirroring grep's glob.
 		if (!violationReason && isToolCallEventType("find", event) && event.input.pattern) {
 			for (const zap of rules.zeroAccessPaths) {
-				if (event.input.pattern.includes(zap) || isPathMatch(event.input.pattern, zap, ctx.cwd)) {
+				if (event.input.pattern.includes(zap) || damageControlPathMatches(event.input.pattern, zap, ctx.cwd)) {
 					violationReason = `Find pattern matches zero-access path: ${zap}`;
 					matchedPattern = zap;
 					matchedCategory = "zero_access";
@@ -418,7 +401,7 @@ export default function (pi: ExtensionAPI) {
 				for (const p of inputPaths) {
 					const resolved = resolvePath(p, ctx.cwd);
 					for (const rop of rules.readOnlyPaths) {
-						if (isPathMatch(resolved, rop, ctx.cwd)) {
+						if (damageControlPathMatches(resolved, rop, ctx.cwd)) {
 							violationReason = `Modification of read-only path restricted: ${rop}`;
 							matchedPattern = rop;
 							matchedCategory = "read_only";

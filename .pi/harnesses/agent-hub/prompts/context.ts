@@ -1,5 +1,6 @@
 import type { CapabilityPack, CapabilityResolution } from "../capability-packs.ts";
 import type { WorkMode } from "../work-mode.ts";
+import type { AgenticConfig } from "../agentic-contract.ts";
 
 export interface HubPromptAgent {
 	name: string;
@@ -36,6 +37,7 @@ export interface HubPromptState {
 export interface HubPromptContext {
 	getArtifactRoot?(): string | null;
 	getTriageBeforeDispatch?(): boolean;
+	getAgenticAskMode?(): AgenticConfig["mode"];
 	getCapabilityResolution(): CapabilityResolution;
 	getActiveTools(): readonly string[];
 	getToolCatalogNotice?(): string;

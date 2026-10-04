@@ -6,7 +6,7 @@ export const COMMUNICATION_LIMITS = Object.freeze({ pairs: 200, bytes: 4 * 1024 
 export interface CommunicationPair {
  id: string; consumer: string; owner: string; provider: string; model: string;
  started: number; ended?: number; request: string | null; response: string | null;
- status: string; requestOmitted?: string; responseOmitted?: string;
+ status: string; requestOmitted?: string; responseOmitted?: string; evaluationId?: string; finalStatus?: string;
 }
 const secretKey = /authorization|api.?key|password|passwd|secret|credential|cookie|access.?token|refresh.?token|private.?key/i;
 function redactSecretText(text: string): string {
@@ -36,6 +36,7 @@ export function redactCommunication(value: unknown): unknown {
 }
 function consumerFor(request: EvaluateRequest): string {
  const version = request.questionSetVersion;
+ if (version === 'agentic-ask/v1') return 'agenticAsk';
  if (version === TASK_TRIAGE_QUESTION_VERSION) return "task-triage";
  if (version === "dispatch-triage/v1") return "dispatch-triage";
  if (version === "watchdog-questions/v1") return "watchdog";
@@ -56,6 +57,17 @@ function projectTaskTriageState(state: Record<string, unknown>) {
  }
  return { schema: state.schema, task: state.task, clarifications: state.clarifications,
   paths, constraints: state.constraints, gaps: state.gaps };
+}
+function projectAgenticState(state: Record<string, any>, request: EvaluateRequest) {
+ if (state.schema !== 'agentic-ask/v1' || state.owner !== 'hub' || typeof state.evaluationId !== 'string' || !/^[a-f0-9-]{36}$/.test(state.evaluationId)
+  || !Array.isArray(state.sources) || state.sources.length > 40 || request.questions.length > 16
+  || request.questions.some(q => !['choice','predicate','ordinal'].includes(q.type))) return null;
+ if (state.sources.some(s => !s || !['file','output'].includes(s.kind) || typeof s.text !== 'string' || !Number.isSafeInteger(s.bytes) || s.bytes < 0 || typeof s.complete !== 'boolean')) return null;
+ return { schema: 'agentic-ask/v1', owner: 'hub', questionCount: request.questions.length,
+  questionTypes: request.questions.map(q => q.type), questionBytes: Buffer.byteLength(JSON.stringify(request.questions)),
+  stateBytes: Buffer.byteLength(JSON.stringify(state.state)), sourceCount: state.sources.length,
+  sourceBytes: state.sources.reduce((n:number,s:any) => n + s.bytes, 0), requestBytes: Buffer.byteLength(JSON.stringify({ state, questions:request.questions,questionSetVersion:request.questionSetVersion,timeoutMs:request.timeoutMs })),
+  incompleteSources: state.sources.filter(s => !s.complete).length };
 }
 export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Date.now) {
  let enabled = false, generation = 0, sessionEpoch = 0, evicted = 0;
@@ -85,6 +97,14 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
   subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
   setEnabled(value: boolean) { generation++; enabled = value; pairs.clear(); evicted = 0; emit(); },
   dispose() { sessionEpoch++; generation++; enabled = false; pairs.clear(); evicted = 0; emit(); listeners.clear(); },
+  finishAgentic(evaluationId: string, status: string) {
+   if (!enabled || !['ok','stale','skipped','unavailable','unsupported','cancelled'].includes(status)) return;
+   const pair = [...pairs.values()].find(p => p.consumer === 'agenticAsk' && p.evaluationId === evaluationId);
+   if (!pair) return;
+   pair.status = status; pair.finalStatus = status; pair.ended ??= now();
+   if (pair.request !== null) { try { pair.response = JSON.stringify({ ...(pair.response ? JSON.parse(pair.response) : {usage:null}), status, advisory:true }, null, 2); } catch { pair.response = null; } }
+   trim(); emit();
+  },
   wrap(service: System1Service, identity: { provider: string; model: string }): System1Service {
    const ownerEpoch = sessionEpoch;
    return { async evaluate(request) {
@@ -93,13 +113,13 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
      if (enabled && ownerEpoch === sessionEpoch) {
       id = randomUUID(); const consumer = consumerFor(request);
       const state = request.state as Record<string, unknown>;
-      const owner = consumer === "task-triage" ? "hub" : typeof state?.owner === "string" ? String(redactCommunication(state.owner)) : consumer === "dispatch-triage" ? "hub" : "owner unavailable";
+      const owner = consumer === 'agenticAsk' || consumer === "task-triage" ? "hub" : typeof state?.owner === "string" ? String(redactCommunication(state.owner)) : consumer === "dispatch-triage" ? "hub" : "owner unavailable";
       const keys = consumer === "watchdog" ? ["schema","task","scope","hub_owned_paths","tool_events","signal","counters","coverage"] : consumer === "proactive" ? ["schema","candidates","task","paths","plan","planStatus","snapshotId","status","gaps","units","pairs"] : ["schema","task","scope","language","domain","constraints","candidates"];
       const projected = state && typeof state === "object" && !Array.isArray(state)
-       ? consumer === "task-triage" ? (JSON.stringify(request.questions) === JSON.stringify(TASK_TRIAGE_QUESTIONS) ? projectTaskTriageState(state) : null) : Object.fromEntries(keys.filter(k => Object.hasOwn(state,k)).map(k => [k,state[k]])) : null;
+       ? consumer === 'agenticAsk' ? projectAgenticState(state,request) : consumer === "task-triage" ? (JSON.stringify(request.questions) === JSON.stringify(TASK_TRIAGE_QUESTIONS) ? projectTaskTriageState(state) : null) : Object.fromEntries(keys.filter(k => Object.hasOwn(state,k)).map(k => [k,state[k]])) : null;
       const questions = (consumer === "task-triage" ? TASK_TRIAGE_QUESTIONS : request.questions).map(q => ({ id:q.id,type:q.type,instructions:q.instructions,...(q.type === "choice" ? {options:q.options} : q.type === "ordinal" ? {levels:q.levels} : {criteria:q.criteria}) }));
-      const text = consumer === "not instrumented" || projected === null ? null : payload({ state: projected, questions, questionSetVersion: request.questionSetVersion, timeoutMs: request.timeoutMs, requiredCapabilities: request.requiredCapabilities }, consumer === "task-triage");
-      pairs.set(id, { id, consumer, owner, provider: String(redactCommunication(identity.provider)), model: String(redactCommunication(identity.model)), started: now(), status: "pending", request: text, response: null, ...(text === null ? { requestOmitted: "payload withheld or too large" } : {}) }); trim(); emit();
+      const text = consumer === "not instrumented" || projected === null ? null : payload({ state: projected, ...(consumer === 'agenticAsk' ? {} : { questions }), questionSetVersion: request.questionSetVersion, timeoutMs: request.timeoutMs, requiredCapabilities: request.requiredCapabilities }, consumer === "task-triage");
+      pairs.set(id, { id, consumer, owner, provider: String(redactCommunication(identity.provider)), model: String(redactCommunication(identity.model)), started: now(), ...(consumer === 'agenticAsk' && projected !== null ? { evaluationId:String(state.evaluationId) } : {}), status: "pending", request: text, response: null, ...(text === null ? { requestOmitted: "payload withheld or too large" } : {}) }); trim(); emit();
      }
     } catch { id = undefined; }
     let result: System1Result;
@@ -115,8 +135,10 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
       const safe = result.status === "ok" ? { status: result.status, evaluation: { answers: result.evaluation.answers
        .filter(a => pair.consumer !== "task-triage" || (a.type === "predicate" && TASK_TRIAGE_QUESTIONS.some(q => q.id === a.questionId)))
        .map(a => ({ questionId: a.questionId, type: a.type, ...(a.type === "predicate" ? { probabilityTrue: a.probabilityTrue } : { value: a.value, ...(a.type === "ordinal" ? { levels: a.levels } : {}) }), uncertainty: { provenance: a.uncertainty.provenance, ...(pair.consumer === "task-triage" ? {} : { confidence: a.uncertainty.confidence, distribution: a.uncertainty.distribution }) } })), metadata: { provider: result.evaluation.metadata.provider, requestedModel: result.evaluation.metadata.requestedModel, returnedModel: result.evaluation.metadata.returnedModel, questionSetVersion: result.evaluation.metadata.questionSetVersion, latencyMs: result.evaluation.metadata.latencyMs, attempts: result.evaluation.metadata.attempts, usage: result.evaluation.metadata.usage ? { inputTokens: result.evaluation.metadata.usage.inputTokens, outputTokens: result.evaluation.metadata.usage.outputTokens } : pair.consumer === "task-triage" ? null : undefined } } } : { status: result.status, ...("reason" in result ? { reason: result.reason } : {}), ...("missingCapabilities" in result ? { missingCapabilities: result.missingCapabilities } : {}) };
-      pair.response = pair.consumer === "not instrumented" ? null : payload(safe, pair.consumer === "task-triage");
-      pair.status = result.status; pair.ended = now();
+      const agenticSafe = result.status === 'ok' ? { status:result.status, advisory:true, answerCount:result.evaluation.answers.length, metadata:{ latencyMs:result.evaluation.metadata.latencyMs, attempts:result.evaluation.metadata.attempts, usage:result.evaluation.metadata.usage ? { inputTokens:result.evaluation.metadata.usage.inputTokens, outputTokens:result.evaluation.metadata.usage.outputTokens } : null } } : { status:result.status, advisory:true, usage:null };
+      pair.response = pair.consumer === "not instrumented" || pair.consumer === 'agenticAsk' && pair.request === null ? null : payload(pair.consumer === 'agenticAsk' ? agenticSafe : safe, pair.consumer === "task-triage");
+      pair.status = pair.finalStatus ?? result.status; pair.ended = now();
+      if (pair.finalStatus && pair.response) pair.response = JSON.stringify({ ...JSON.parse(pair.response), status:pair.finalStatus }, null, 2);
       if (pair.response === null) pair.responseOmitted = "payload withheld or too large";
       trim(); emit();
      }

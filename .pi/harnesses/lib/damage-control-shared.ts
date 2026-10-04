@@ -17,6 +17,21 @@ import * as fs from "fs";
 import * as net from "net";
 import * as os from "os";
 import * as path from "path";
+import { parse as parseYaml } from 'yaml';
+import { safeSourceRead } from './safe-source-read.js';
+
+/** Explicit file-access check for consumers outside the named tool hook. Invalid policy fails closed. */
+export function currentFileAccessAllowed(root: string, target: string): boolean {
+ const project = path.join(root, '.pi/damage-control-rules.yaml');
+ const global = path.join(os.homedir(), '.pi/damage-control-rules.yaml');
+ try {
+  const selected = fs.existsSync(project) ? project : fs.existsSync(global) ? global : null;
+  if (!selected) return true;
+  const policy = parseYaml(safeSourceRead(selected === project ? root : os.homedir(), selected, 65536).toString('utf8'));
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy) || (policy.zeroAccessPaths !== undefined && (!Array.isArray(policy.zeroAccessPaths) || policy.zeroAccessPaths.some((p: unknown) => typeof p !== 'string')))) return false;
+  return !(policy.zeroAccessPaths ?? []).some((p: string) => damageControlPathMatches(path.resolve(root, target), p, root));
+ } catch { return false; }
+}
 
 // Env plumbing agent-hub sets on spawned children. spawnPiAgent spreads
 // process.env, so delegate grandchildren inherit these for free.
@@ -194,4 +209,18 @@ export function requestAccessFromHub(
 		sock.on("error", () => settle("error"));
 		sock.on("close", () => settle("error"));
 	});
+}
+
+export function damageControlPathMatches(targetPath: string, pattern: string, cwd: string): boolean {
+	const resolvedPattern = pattern.startsWith("~") ? path.join(os.homedir(), pattern.slice(1)) : pattern;
+	if (resolvedPattern.endsWith("/")) {
+		const absolutePattern = path.isAbsolute(resolvedPattern) ? resolvedPattern : path.resolve(cwd, resolvedPattern);
+		return targetPath.startsWith(absolutePattern);
+	}
+	const regexPattern = resolvedPattern
+		.replace(/[.+^${}()|[\]\\]/g, "\\$&")
+		.replace(/\*/g, ".*");
+	const regex = new RegExp(`^${regexPattern}$|^${regexPattern}/|/${regexPattern}$|/${regexPattern}/`);
+	const relativePath = path.relative(cwd, targetPath);
+	return regex.test(targetPath) || regex.test(relativePath) || targetPath.includes(resolvedPattern) || relativePath.includes(resolvedPattern);
 }

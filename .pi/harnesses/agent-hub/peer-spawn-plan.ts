@@ -85,7 +85,7 @@ export async function launchHubPeerInPane(
 	promptWaitedMs: number;
 	verdict: ReturnType<typeof peerReadyVerdict>;
 }> {
-	const env = options.env ?? {};
+	const env = { ...options.env, AGENT_FLEET_AGENTIC_CHILD: '1' };
 	const { pane } = await options.client.paneSplit({
 		target_pane_id: options.targetPaneId,
 		direction: plan.direction,

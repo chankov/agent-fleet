@@ -1,5 +1,6 @@
 {
   "tools": [
+    "ask_system1",
     "coms_await",
     "coms_get",
     "coms_list",

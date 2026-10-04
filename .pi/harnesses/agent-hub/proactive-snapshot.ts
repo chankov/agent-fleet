@@ -1,6 +1,7 @@
+import { safeSourceRead } from "../lib/safe-source-read.js";
 import { execFileSync, fork } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isCaptureEnabled, PROACTIVE_LIMITS } from "./proactive-config.ts";
@@ -45,31 +46,15 @@ function status(root: string, start: number, now: () => number): Set<string> {
  return paths;
 }
 function read(root: string, path: string, start: number, now: () => number, afterFirstRead?: () => void): Buffer | null {
- remaining(start, now);
  const full = allowed(root, path);
- let fd: number;
- try { fd = openSync(full, constants.O_RDONLY | constants.O_NOFOLLOW); }
- catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
- try {
-  const before = fstatSync(fd);
-  if (!before.isFile() || before.size > PROACTIVE_LIMITS.maxFileBytes) throw new Error("oversized_or_nonfile");
-  const bytes = Buffer.alloc(before.size);
-  let offset = 0;
-  while (offset < bytes.length) { remaining(start, now); const n = readSync(fd, bytes, offset, bytes.length - offset, offset); if (!n) throw new Error("unstable_snapshot"); offset += n; }
-  afterFirstRead?.();
-  const confirm = Buffer.alloc(before.size);
-  let checked = 0;
-  while (checked < confirm.length) { remaining(start, now); const n = readSync(fd, confirm, checked, confirm.length - checked, checked); if (!n) throw new Error("unstable_snapshot"); checked += n; }
-  const after = fstatSync(fd);
-  if (!bytes.equals(confirm)) throw new Error("unstable_snapshot");
-  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.ino !== after.ino || !after.isFile()) throw new Error("unstable_snapshot");
-  const final = lstatSync(full);
-  if (final.isSymbolicLink() || final.ino !== after.ino) throw new Error("unstable_snapshot");
-  if (bytes.includes(0) || !new TextDecoder("utf-8", { fatal: true }).decode(bytes)) { if (bytes.length) throw new Error("binary_or_invalid_utf8"); }
-  remaining(start, now);
-  return bytes;
- } finally { closeSync(fd); }
+ try { return safeSourceRead(root, full, PROACTIVE_LIMITS.maxFileBytes, () => remaining(start, now), afterFirstRead); }
+ catch (error) {
+  if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+  const reason = (error as Error).message;
+  throw new Error(({ source_changed: "unstable_snapshot", state_too_large: "oversized_or_nonfile", source_denied: "binary_or_invalid_utf8" } as Record<string,string>)[reason] ?? reason);
+ }
 }
+
 function excerpt(bytes: Buffer, secrets: readonly string[]): SourceExcerpt {
  let text = bytes.toString("utf8");
  for (const secret of secrets) if (secret) text = text.replaceAll(secret, "[REDACTED]");

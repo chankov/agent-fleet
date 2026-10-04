@@ -1450,3 +1450,7 @@ privacy boundaries, evaluation commands and outstanding live acceptance.
 ## Unified System 1 v2 configuration
 
 The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract](../../../docs/system1-config.md) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change.
+
+## Agentic System 1 advisory tool
+
+`ask_system1` is an opt-in parent-only Hub consumer configured by `consumers.agenticAsk` in the shared `.ai/system1.json`. It batches typed questions over minimal state, selected files/ranges and opted-in recorded bash refs, without executing shell or changing process gates. `recommended` makes it the first route for suitable semantic judgments across all task tiers; `advisory` keeps optional consultation. Default installs remain off. Start a new Hub session after changing the mode. See [configuration, examples, bounds and safe readback](../../../docs/system1-agentic.md).

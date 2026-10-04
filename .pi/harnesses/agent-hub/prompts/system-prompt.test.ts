@@ -59,9 +59,45 @@ function digest(text: string): string {
 	return createHash("sha256").update(text).digest("hex");
 }
 
+test("recommended System 1 policy is first-line across modes and tiers, with bounded fallback", () => {
+	for (const mode of ["operator", "orchestrator"] as const) {
+		for (const tier of ["trivial", "small", "feature", "project"]) {
+			const ctx = fixture({ active: ["core"] });
+			const state = ctx.getPromptState();
+			ctx.getPromptState = () => ({ ...state, taskTier: tier });
+			ctx.getWorkMode = () => mode;
+			ctx.getActiveTools = () => ["ask_system1", "ask_user"];
+			ctx.getAgenticAskMode = () => "recommended";
+			const built = buildHubSystemPrompt(ctx);
+			assert.match(built.systemPrompt, /## Recommended System 1 usage/);
+			assert.match(built.systemPrompt, /call `ask_system1` first/i);
+			assert.match(built.systemPrompt, /trivial and small tasks/);
+			assert.match(built.systemPrompt, /free and fast for routing decisions/);
+			assert.match(built.systemPrompt, /no arbitrary per-task quota/);
+			assert.match(built.systemPrompt, /ordinary reading, research or independent reasoning/);
+			assert.match(built.systemPrompt, /never grants authority or replaces required reading before editing/);
+			assert.equal(built.ledger.reduce((sum, entry) => sum + entry.chars, 0), built.systemPrompt.length);
+		}
+	}
+});
+
+test("recommended instructions track current mode and active tool availability", () => {
+	const ctx = fixture();
+	ctx.getActiveTools = () => ["ask_system1"];
+	for (const mode of ["off", "advisory", "recommended"] as const) {
+		ctx.getAgenticAskMode = () => mode;
+		assert.equal(buildHubSystemPrompt(ctx).systemPrompt.includes("## Recommended System 1 usage"), mode === "recommended");
+	}
+	ctx.getActiveTools = () => [];
+	assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt, /## Recommended System 1 usage/);
+	ctx.getActiveTools = () => ["ask_system1"];
+	delete ctx.getAgenticAskMode;
+	assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt, /## Recommended System 1 usage/);
+});
+
 test("full extracted Hub prompt preserves exact text, ordering, and ledger", () => {
 	const built = buildHubSystemPrompt(fixture());
-	assert.equal(digest(built.systemPrompt), "e3f12f03fac5efd136a2d6183d8b355110d5f5376793848d8796d0e57f6837ca");
+	assert.equal(digest(built.systemPrompt), "0145e3d06038eef854a1c89e703183e9a1a308277923e3f597f8b574fffd1767");
 	assert.match(built.systemPrompt, /Optionally use `dispatch_triage`/);
 	assert.match(built.systemPrompt, /re-dispatch the specialist with a line `USER_ANSWER: <dispatchId> :: <question>`\. Prose alone does not authorize the resume/);
 	assert.doesNotMatch(built.systemPrompt, /with the answer\./);
@@ -98,7 +134,7 @@ test("trusted tool catalog producer and refusal state survive the production pro
 
 test("language and unavailable ask_user branch preserve exact prompt text", () => {
 	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "3b3703b107066a072980007497649ae36414aa665eba6948e16d4fa7a144a179");
+	assert.equal(digest(built.systemPrompt), "9e58ec7c05a2a9f82cde7f3fa6571ae13b6a618896c2dfdc5f05202c16b8bbba");
 	assert.match(built.systemPrompt, /ask_user is NOT available/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);

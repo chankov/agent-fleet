@@ -19,6 +19,7 @@ export interface WorkModePolicyPorts {
 	getAskUserAvailable(): boolean;
 	getDeterministicToolsEnabled?(): boolean;
 	getDispatchTriageEnabled?(): boolean;
+	getAgenticAskEnabled?(): boolean;
 	getIdentityLabel(): string | null;
 	getTaskTier(): string | null;
 	getPendingOperations(): PendingOperation[];
@@ -89,7 +90,7 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 	}
 	function applyWorkModeTools(fromMode: WorkMode = workMode, reason: "refresh" | "mode_switch" = "refresh"): void {
 		const previous = [...(ports.getActiveTools?.() ?? [])];
-		const requested = resolveWorkModeTools({ workMode, baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), deterministicTools: ports.getDeterministicToolsEnabled?.() === true, triageEnabled: ports.getDispatchTriageEnabled?.() === true, capabilityPacks: [...resolution.active, ...resolution.provisional] });
+		const requested = resolveWorkModeTools({ workMode, baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), deterministicTools: ports.getDeterministicToolsEnabled?.() === true, triageEnabled: ports.getDispatchTriageEnabled?.() === true, agenticAskEnabled: ports.getAgenticAskEnabled?.() === true, capabilityPacks: [...resolution.active, ...resolution.provisional] });
 		ports.setActiveTools(requested);
 		ports.recordToolCatalog?.({ fromMode, toMode: workMode, previous, next: [...(ports.getActiveTools?.() ?? requested)], reason });
 	}
