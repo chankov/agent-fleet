@@ -887,9 +887,9 @@ test("local-workers preserves and permits any live dispatcher while keeping work
 	const localId = local.slice(local.indexOf("/") + 1);
 	writeFileSync(probePath, `
 export default function (pi) {
-  for (const provider of ["omlx", "cloud"]) pi.registerProvider(provider, {
+  for (const provider of [${JSON.stringify(local.slice(0, local.indexOf("/")))}, "cloud"]) pi.registerProvider(provider, {
     name: provider, baseUrl: "http://127.0.0.1", apiKey: "test", api: "profile-fixture-api",
-    models: (provider === "omlx" ? [${JSON.stringify(localId)}] : ["root", "other"]).map(id => ({
+    models: (provider === ${JSON.stringify(local.slice(0, local.indexOf("/")))} ? [${JSON.stringify(localId)}] : ["root", "other"]).map(id => ({
       id, name: id, reasoning: true, input: ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024,
     })),
@@ -927,10 +927,11 @@ test("complete local profile switches the live dispatcher and rejects a manual m
 	const allowed = [...new Set((localFull["allowed-models"] ?? []).map(String))].filter((id) => id.includes("/"));
 	assert.ok(dispatcher.includes("/"), "local-full must declare a dispatcher model");
 	const permittedAlt = allowed.find((id) => id !== dispatcher) ?? dispatcher;
-	const registeredIds = [...new Set([...allowed, dispatcher, "omlx/outside-profile"])].map((id) => id.replace(/^[^/]+\//, ""));
+	const provider = dispatcher.slice(0, dispatcher.indexOf("/"));
+	const registeredIds = [...new Set([...allowed, dispatcher, `${provider}/outside-profile`])].map((id) => id.replace(/^[^/]+\//, ""));
 	writeFileSync(probePath, `
 export default function (pi) {
-  pi.registerProvider("omlx", {
+  pi.registerProvider(${JSON.stringify(provider)}, {
     name: "Local profile fixture", baseUrl: "http://127.0.0.1", apiKey: "test", api: "profile-fixture-api",
     models: ${JSON.stringify(registeredIds)}.map(id => ({
       id, name: id, reasoning: true, input: ["text"],
@@ -947,7 +948,7 @@ export default function (pi) {
   }});
 }
 `);
-	const rpc = startRpcProbe(probePath, ["--model", "omlx/outside-profile", "--thinking", "high"]);
+	const rpc = startRpcProbe(probePath, ["--model", `${provider}/outside-profile`, "--thinking", "high"]);
 	try {
 		await rpc.notificationAfter("/af-models local-full", 'Profile "local-full":');
 		const state = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));
@@ -955,11 +956,11 @@ export default function (pi) {
 		assert.equal(state.thinking, "off");
 		assert.equal(state.active.name, "local-full");
 		assert.equal(state.active.profile.fallback, "none");
-		await rpc.request({ type: "set_model", provider: "omlx", modelId: "outside-profile" });
+		await rpc.request({ type: "set_model", provider, modelId: "outside-profile" });
 		const guarded = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));
 		assert.equal(guarded.model, dispatcher, "a manual selection must restore the permitted dispatcher");
 		const altId = permittedAlt.replace(/^[^/]+\//, "");
-		await rpc.request({ type: "set_model", provider: "omlx", modelId: altId });
+		await rpc.request({ type: "set_model", provider, modelId: altId });
 		const permitted = JSON.parse(await rpc.notificationAfter("/probe-model-profile", "PROFILE_STATE:"));
 		assert.equal(permitted.model, permittedAlt);
 	} finally {

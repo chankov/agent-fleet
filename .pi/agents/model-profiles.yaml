@@ -10,7 +10,7 @@ mix-max:
 local-workers:
   version: 2
   defaults:
-    model: &qwenWorkers omlx/Qwen3.6-35B-A3B-4bit
+    model: &qwenWorkers incoai/Qwen3.8-27B-Splash
     thinking: off
   allowed-models:
     - *qwenWorkers
@@ -69,11 +69,11 @@ local-workers:
       model: *qwenWorkers
       integrator: true
 
-# Single-model local profile. Every role and service uses the Qwen3.6 35B model.
+# Single-model local profile. Every role and service uses incoai/Qwen3.8-27B-Splash.
 local-full:
   version: 2
   defaults:
-    model: &qwen36 omlx/Qwen3.6-35B-A3B-4bit
+    model: &qwen36 incoai/Qwen3.8-27B-Splash
     thinking: off
   allowed-models:
     - *qwen36

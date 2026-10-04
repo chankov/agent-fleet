@@ -211,7 +211,7 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 | **GitHub Copilot subscription** | `github-copilot/claude-sonnet-4.6`, `github-copilot/claude-haiku-4.5` | Common override for `builder` / reviewers |
 | **Claude subscription** | a real **Claude Code pane**, bridged in as a first-class coms peer | `plan-reviewer` and `code-reviewer` — cross-model review |
 | **Ollama — cloud *or* local** | `ollama/glm-5.2:cloud`, `ollama/minimax-m3:cloud`, or a model on your own box | Overflow capacity and cost control |
-| **Anything else pi can address** | local MLX / llama.cpp / LM Studio weights; bundled `local-full` and `local-workers` use `omlx/Qwen3.6-35B-A3B-4bit` |
+| **Anything else pi can address** | local MLX / llama.cpp / LM Studio weights; bundled `local-full` and `local-workers` use `incoai/Qwen3.8-27B-Splash` |
 
 Two consequences worth spelling out:
 

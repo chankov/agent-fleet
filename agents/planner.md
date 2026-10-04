@@ -11,7 +11,7 @@ models:
   - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
-  - omlx/Qwen3.6-35B-A3B-4bit
+  - incoai/Qwen3.8-27B-Splash
 thinking: high
 delegate_depth: 1
 subagents:
