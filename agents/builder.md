@@ -6,7 +6,7 @@ model: openai-codex/gpt-6.1-sol
 models:
   - github-copilot/claude-opus-5
   - openai-codex/gpt-6-luna
-  - openai-codex/gpt-5.3-codex-spark
+  - openai-codex/gpt-6-luna
   - ollama/minimax-m3:cloud
   - ollama/kimi-k2.7-code:cloud
   - ollama/glm-5.2:cloud
@@ -16,10 +16,10 @@ thinking: medium
 delegate_depth: 1
 subagents:
   recon:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   verifier:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-6-luna
     tools: read,bash,grep,find,ls
 ---
 You are a builder agent. Implement the requested changes thoroughly. Write clean, minimal code. Follow existing patterns in the codebase. Test your work when possible.

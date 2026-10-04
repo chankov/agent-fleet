@@ -16,7 +16,7 @@ thinking: high
 delegate_depth: 1
 subagents:
   scout:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   rules:
     model: openai-codex/gpt-6-luna

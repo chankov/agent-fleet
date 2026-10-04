@@ -16,7 +16,7 @@ import {
 } from "./team-snapshot.ts";
 
 const PEERS = [
-	{ name: "documenter", persona: "documenter", model: "openai-codex/gpt-5.3-codex-spark" },
+	{ name: "documenter", persona: "documenter", model: "openai-codex/gpt-6-luna" },
 	{ name: "researcher", persona: "researcher" },
 ];
 const PANES = [
@@ -36,7 +36,7 @@ test("buildSnapshot joins peers to session refs via pane labels", () => {
 	assert.deepEqual(snap.peers[0].resume, { kind: "path", value: "/home/u/.pi/sessions/doc.jsonl" });
 	assert.deepEqual(snap.peers[1].resume, { kind: "path", value: "/home/u/.pi/sessions/res.jsonl" });
 	// manifest fields survive
-	assert.equal(snap.peers[0].model, "openai-codex/gpt-5.3-codex-spark");
+	assert.equal(snap.peers[0].model, "openai-codex/gpt-6-luna");
 });
 
 test("buildSnapshot: missing pane or session snapshots as resume:null; hub label", () => {

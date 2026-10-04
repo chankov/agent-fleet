@@ -15,10 +15,10 @@ thinking: low
 delegate_depth: 1
 subagents:
   coverage-scout:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   conventions:
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
 ---
 

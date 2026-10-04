@@ -196,7 +196,7 @@ session-recycle-runs: -1
 test("watchdog keys accept valid values", () => {
   assert.deepEqual(findingsFor(`## agent-hub
 watchdog: auto
-watchdog-judge-model: openai-codex/gpt-5.3-codex-spark
+watchdog-judge-model: openai-codex/gpt-6-luna
 `), []);
 });
 

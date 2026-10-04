@@ -435,26 +435,26 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `.ai/agent-fleet-overrides.md` replace individual sub-roles / the depth budget. An overridden
   role retains its frontmatter model as a one-shot fallback under the same pre-work-only safety
   rule; delegate cards and results show the model that ultimately ran. Six personas ship with
-  declared sub-roles, on a three-tier OpenAI model ladder — `gpt-5.3-codex-spark` for
+  declared sub-roles, on a three-tier OpenAI model ladder — `gpt-6-luna` for
   recon/grep sweeps, `gpt-5.4` for analysis sweeps, the `gpt-5.5` (or opus) parent reserved for
   synthesis and verdicts:
-  - `code-reviewer` — `preflight`+`docs` (spark), `quality`+`perf` (gpt-5.4); its first delegate
+  - `code-reviewer` — `preflight`+`docs` (gpt-6-luna), `quality`+`perf` (gpt-5.4); its first delegate
     call is always `preflight`, which studies the project rules and the files under review and
     returns a summary that drives the rest of the fan-out. Deep security review is not a
     sub-role — it belongs to the separate `security-auditor` persona, which the reviewer
     recommends dispatching when it spots deeper risk.
-  - `planner` — `scout`+`rules` (spark) fan out before the plan is drafted; `risk` (gpt-5.4)
+  - `planner` — `scout`+`rules` (gpt-6-luna) fan out before the plan is drafted; `risk` (gpt-5.4)
     optionally challenges the draft breakdown.
   - `plan-reviewer` — `feasibility` (gpt-5.4) checks plan claims against the actual codebase;
-    `deps` (spark) verifies dependency ordering and file overlap. No preflight — the plan is
+    `deps` (gpt-6-luna) verifies dependency ordering and file overlap. No preflight — the plan is
     the map.
-  - `security-auditor` — solo `recon` (spark) maps the attack surface first, then
-    `input-sweep` (gpt-5.4) and `secrets-sweep` (spark) fan out; exploit reasoning stays with
+  - `security-auditor` — solo `recon` (gpt-6-luna) maps the attack surface first, then
+    `input-sweep` (gpt-5.4) and `secrets-sweep` (gpt-6-luna) fan out; exploit reasoning stays with
     the parent.
-  - `builder` — `recon` (spark) maps call sites before edits; `verifier` (spark, the one
+  - `builder` — `recon` (gpt-6-luna) maps call sites before edits; `verifier` (gpt-6-luna, the one
     `allow_write: true` child) runs the test suite after them. Implementation is never
     delegated.
-  - `test-engineer` — `coverage-scout`+`conventions` (spark) inventory gaps and test patterns;
+  - `test-engineer` — `coverage-scout`+`conventions` (gpt-6-luna) inventory gaps and test patterns;
     test writing is never delegated.
 - **Default damage-control guardrails** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` harness before `agent-hub`, so dispatcher tool calls are checked against

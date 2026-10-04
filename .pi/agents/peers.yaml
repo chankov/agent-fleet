@@ -130,7 +130,7 @@ release:
 info:
   - name: documenter
     persona: documenter
-    model: openai-codex/gpt-5.3-codex-spark
+    model: openai-codex/gpt-6-luna
   - name: code-reviewer
     runner: claude-code
 

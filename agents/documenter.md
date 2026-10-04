@@ -8,7 +8,7 @@ writes:
 model: openai-codex/gpt-6.1-sol
 models:
   - openai-codex/gpt-6-luna
-  - openai-codex/gpt-5.3-codex-spark
+  - openai-codex/gpt-6-luna
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
   - incoai/Qwen3.8-27B-Splash
