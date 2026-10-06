@@ -72,6 +72,33 @@ For A/B, explicitly opt into `allowToolOutputs: true`. Only new completed normal
 
 ## Sources, refusals and readback
 
+### Export scope and `git:tracked`
+
+`consumers.agenticAsk.include` accepts explicit repo-relative file/directory prefixes and the opt-in selector `git:tracked`. Prefixes authorize all descendants, including untracked files. `include: ["git:tracked"]` instead authorizes only paths present in the current repository's Git index (`git ls-files --cached`). New/staged files qualify; untracked/ignored files do not unless explicitly added to the index. Selected content is the **current working-tree file**, not the committed/index blob. A file removed from the index no longer qualifies. Submodule contents are not recursively enumerated.
+
+```json
+"agenticAsk": {
+  "mode": "recommended",
+  "remoteContextApproved": true,
+  "include": ["git:tracked"],
+  "allowToolOutputs": false
+}
+```
+
+This is a deliberate repository-wide export opt-in, not a default. Git tracking does **not** certify that content is non-secret. Existing forbidden-path, credential, local-access, symlink, size, encoding and change guards remain. Tracked `.ai` configuration, credentials and session/runtime stores are still refused. Git membership is checked before source content reads and rechecked for freshness, using literal pathspecs without inherited Git repository/index overrides. A missing/failing Git lookup or a workspace that is not a Git repository root fails closed. Linked Git worktree roots are supported. Mixed selectors/prefixes are a union: adding `"docs"` beside `"git:tracked"` also authorizes untracked files under `docs`.
+
+The selector is implemented only for `agenticAsk`; it does not enable other consumers or capture tool outputs. It is one include entry, not a file enumeration: per-call file/byte/question/session limits remain unchanged. No inference is triggered by configuration changes. Restart the Hub session after changing configuration.
+
+Before a file-backed call, check the approved include scope without exposing credentials. Pass actual repo-relative file paths and selected line ranges in `paths`, **not** `git:tracked`. `include: ["."]`, `include: ["**"]` and absolute paths are not supported.
+
+### Interpreting `source_denied`
+
+`{"status":"unavailable","reason":"source_denied","advisory":true,"sourceSummary":[]}` is a **local input/source guard refusal**, not Jev's answer to the semantic question. The runtime validates input and collects approved sources before calling the provider; no provider judgment is produced for that refused call. An empty summary means collection did not successfully return source summaries; it does not identify which guard fired or prove that no local bytes were read (for example, the credential guard checks content).
+
+Possible causes include a path outside `include`, local damage-control denial, forbidden/symlink/non-text sources, and credential-like input or file content. A selected range does not bypass whole-file safety checks or source-size limits. The `evaluationId` is a correlation identifier, not proof of inference, and `advisory: true` is the tool's authority boundary, not a success flag. Current configuration can explain a new refusal but does not prove the configuration or cause of a historical session, which uses its initialization snapshot.
+
+Do not repeat an unchanged refused call, move/rename the source or paste denied source/output into `state` or `questions` to bypass export policy. Fall back to locally permitted reading/research. A state-only question is valid for independently permitted non-secret facts (for example, interpreting the public status code), but cannot evaluate unseen denied code. Any scope expansion requires a separate explicit human decision and a new Hub session.
+
 Files must pass the **current local damage-control policy**, including `zeroAccessPaths`, before content reads. `include` grants export scope only, never local file-access authority. Symlinks/escapes, non-files, invalid UTF-8, binary data, oversized/changing sources and obvious credentials refuse rather than silently truncate. Source code in dot directories may be explicitly included; credential files, VCS metadata, session stores and runtime data cannot be exported. Pattern checks cannot detect every possible secret; operators remain responsible for selecting non-sensitive data.
 
 Successful results contain `advisory: true`, a correlation `evaluationId`, validated answers/uncertainty, real provider metadata and `sourceSummary` with hashes, refs, selected ranges and coverage. **File/output bodies are not returned by this tool.** A selected range is marked incomplete relative to the full file but is a valid explicit selection. Missing usage is unknown, never zero; no USD prices or claimed savings are calculated.

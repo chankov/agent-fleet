@@ -27,6 +27,7 @@ Each optional section under `consumers` has its own permissions and budgets. Mis
 | `proactiveReview` | `mode: off`, `shadow`, or `advisory`; `remoteContext`, explicit `include`, `maxEvaluationsPerSession`, optional reviewed `localBindings` |
 | `dispatchTriage` | `mode: off`, `shadow`, or `advisory`; explicit `remoteContextApproved`, positive `maxCalls`, `maxStateBytes`, `maxTaskBytes`, `maxRoleBytes`; optional `profile`, `orchestratorBeforeDispatch` |
 | `taskTriage` | `mode: off` or `experimental`; explicit `remoteContextApproved`, pinned `questionVersion`, `policyVersion`, `limits`; inherits root provider/model |
+| `agenticAsk` (D10) | `mode: off`, `advisory`, or `recommended`; independent `remoteContextApproved`, `include` (repo-relative prefixes or explicit `git:tracked` selector), `allowToolOutputs`, `limits`; parent-only typed judgment tool |
 
 The top-level `mode: off` disables remote inference. Independently valid proactive local capture/checks can remain enabled. An off proactive section cannot authorize capture. Neither off nor migration failure/provider unavailability cancels persisted Task Triage process obligations.
 
@@ -48,6 +49,8 @@ Example task section (requires separate human data consent):
 ```
 
 Those task limits are a pinned compatibility contract, not adjustable knobs. Profile thresholds for dispatch remain configurable. No `agenticAsk` section is enabled or accepted by D0; D10 owns its future contract.
+
+For a separately approved Git-tracked-only export scope, set only `consumers.agenticAsk.include` to `["git:tracked"]`. This dynamically checks the current Git index before reading sources and for freshness; selected text is from the working tree. Untracked files do not qualify, and sensitive-path/local-access/source guards still apply even to tracked files. It does not change `fileDiscovery` consent or output capture. Adding directory prefixes alongside the selector also permits their untracked descendants. See [D10 export scope and refusal handling](system1-agentic.md#export-scope-and-gittracked). Restart the Hub after editing.
 
 ## Explicit migration
 

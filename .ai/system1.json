@@ -8,7 +8,7 @@
     "agenticAsk": {
       "mode": "recommended",
       "remoteContextApproved": true,
-      "include": [".pi/harnesses", "bin", "docs"],
+      "include": ["git:tracked"],
       "allowToolOutputs": false
     },
     "watchdog": {

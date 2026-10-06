@@ -74,6 +74,10 @@ test("recommended System 1 policy is first-line across modes and tiers, with bou
 			assert.match(built.systemPrompt, /trivial and small tasks/);
 			assert.match(built.systemPrompt, /free and fast for routing decisions/);
 			assert.match(built.systemPrompt, /no arbitrary per-task quota/);
+			assert.match(built.systemPrompt, /Check approved agenticAsk\.include scope/);
+			assert.match(built.systemPrompt, /git:tracked covers only paths in this repo's current Git index/);
+			assert.match(built.systemPrompt, /source_denied is a local source\/input guard refusal, not a model judgment/);
+			assert.match(built.systemPrompt, /Never bypass export denial by copying denied source\/output into state or questions/);
 			assert.match(built.systemPrompt, /ordinary reading, research or independent reasoning/);
 			assert.match(built.systemPrompt, /never grants authority or replaces required reading before editing/);
 			assert.equal(built.ledger.reduce((sum, entry) => sum + entry.chars, 0), built.systemPrompt.length);

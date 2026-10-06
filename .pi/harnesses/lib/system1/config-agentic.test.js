@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseAgenticConfig,AGENTIC_LIMITS} from './config-agentic.js';
+import {parseAgenticConfig,AGENTIC_LIMITS,GIT_TRACKED_INCLUDE} from './config-agentic.js';
 import {normalizeSystem1Config} from './config-v2.js';
 test('recommended changes usage preference without granting export consent or widening limits',()=>{
  const c=parseAgenticConfig({mode:'recommended'});
@@ -17,6 +17,13 @@ test('agentic defaults never authorize export and bounds only decrease',()=>{
  for(const [k,v] of Object.entries(AGENTIC_LIMITS)) {assert.throws(()=>parseAgenticConfig({mode:'advisory',limits:{[k]:v+1}}));assert.equal(parseAgenticConfig({mode:'advisory',limits:{[k]:1}}).limits[k],1);}
  for(const include of [['../x'],['/x'],['**'],['a\\b']]) assert.throws(()=>parseAgenticConfig({mode:'advisory',include}));
  assert.throws(()=>parseAgenticConfig({mode:'advisory',provider:'evil'}));
+});
+test('git:tracked is an explicit agentic export selector, not implicit consent',()=>{
+ const c=parseAgenticConfig({mode:'recommended',include:[GIT_TRACKED_INCLUDE]});
+ assert.deepEqual(c.include,['git:tracked']);assert.equal(c.remoteContextApproved,false);
+ for(const include of [['git:*'],['git:all'],['git:tracked/'],['.']])assert.throws(()=>parseAgenticConfig({mode:'advisory',include}));
+ const root={version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{agenticAsk:{mode:'recommended',remoteContextApproved:true,include:['git:tracked']}}};
+ assert.equal(normalizeSystem1Config(root).consumers.agenticAsk.status,'ready');
 });
 test('unified schema isolates consent',()=>{
  const root={version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{agenticAsk:{mode:'advisory'}}};

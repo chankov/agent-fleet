@@ -17,7 +17,7 @@ export const ASK_SYSTEM1_PARAMETERS=Type.Object({
 },{additionalProperties:false});
 export function registerAskSystem1(pi:ExtensionAPI,deps:{runtime():AgenticRuntime|null}) {
  pi.registerTool({name:'ask_system1',label:'Ask System 1',parameters:ASK_SYSTEM1_PARAMETERS,
- description:'Advisory semantic batches: classification, relevance, risk, assumptions, clarity, failures. Recommended mode: call first, even for small tasks, before extended reasoning/research. Minimal non-secret state, selected repo paths/ranges, opted-in bash refs. No execution, rights, test/review proof, gate changes or replacement of pre-edit reading. Hash/readback summaries only, no bodies. Parent Hub opt-in required; unavailable/partial evidence refuses, never truncates. Choices require other/unknown.',
+ description:'Advisory semantic batches: classification, relevance, risk, assumptions, clarity, failures. Recommended mode: call first, even for small tasks, before extended reasoning/research. Minimal non-secret state, selected repo paths/ranges within approved include (git:tracked uses the Git index), opted-in bash refs. source_denied is a local guard refusal, not a model answer; never bypass it via state/questions. No execution, rights, test/review proof, gate changes or replacement of pre-edit reading. Hash/readback summaries only, no bodies. Parent Hub opt-in required; unavailable/partial evidence refuses, never truncates. Choices require other/unknown.',
  async execute(_id,params,signal) {
   const result=await deps.runtime()?.evaluate(params,signal)??{status:'skipped',reason:'consumer_off',advisory:true,sourceSummary:[]};
   return {content:[{type:'text',text:JSON.stringify(result)}],details:result};
