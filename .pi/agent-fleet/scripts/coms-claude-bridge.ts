@@ -282,21 +282,7 @@ async function main(): Promise<void> {
 		if (!item) return;
 		const env = item.envelope;
 		try {
-			const reply = await driveClaude(env);
-			await sendEnvelope(env.sender_endpoint, makeResponseEnvelope(id, env.msg_id, reply));
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			if (isReplyPendingError(err)) {
-				// No response envelope: the sender's wait expires as `pending`, and may
-				// await/get again without treating unfinished work as a failed result.
-				console.error(`coms-claude-bridge: ${env.msg_id} remains pending: ${message}`);
-			} else {
-				try {
-					await sendEnvelope(env.sender_endpoint, makeResponseEnvelope(id, env.msg_id, null, message));
-				} catch {
-					console.error(`coms-claude-bridge: could not deliver error for ${env.msg_id}: ${message}`);
-				}
-			}
+   await respondToClaudePrompt(env, id, () => driveClaude(env, drivePorts), sendEnvelope);
 		} finally {
 			queue.done();
 			void reportPresence();
@@ -315,82 +301,17 @@ async function main(): Promise<void> {
 		}
 	}
 
-	async function driveClaude(env: PromptEnvelope): Promise<string> {
-		const sentinelMode = !hookSeen;
-		const hookMtimeBefore = fs.existsSync(hookFile) ? fs.statSync(hookFile).mtimeMs : 0;
-		// The caller's declared deadline wins over the bridge default (clamped).
-		// One absolute deadline covers BOTH idle waiting and the reply; otherwise a
-		// two-minute busy wait silently extends the caller's budget.
-		const effectiveTimeoutMs = resolveReplyTimeoutMs(env.reply_timeout_ms, replyTimeoutMs);
-		const startedAt = Date.now();
-		const replyDeadline = replyDeadlineAt(startedAt, effectiveTimeoutMs);
-
-		// Claude Code must be idle-ish before we type into its input box — but a busy
-		// pane is a wait, not a failure. Throwing here made every mid-turn moment a
-		// hard error and pushed callers into hot-retry loops.
-		const waitDeadline = Math.min(replyDeadline, startedAt + idleWaitBudgetMs(effectiveTimeoutMs));
-		const waitStarted = startedAt;
-		for (let attempt = 0; ; attempt++) {
-			if (await paneStatus() !== "working") break;
-			const remaining = waitDeadline - Date.now();
-			if (remaining <= 0) {
-				throw new Error(
-					`Claude Code in pane ${paneId} is still mid-turn after waiting ` +
-					`${Math.round((Date.now() - waitStarted) / 1000)}s — try again shortly`,
-				);
-			}
-			await new Promise((r) => setTimeout(r, Math.min(idleWaitDelayMs(attempt), remaining)));
-		}
-
-		await herdr.paneSendText(paneId, formatPanePrompt(env, sentinelMode));
-		await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
-		await herdr.paneSendKeys(paneId, ["enter"]);
-
-		// The sender's local await returns `pending` at replyDeadline, but the
-		// bridge keeps watching the already-running turn up to the hard cap so a
-		// late completion can still resolve the original msg_id.
-		const monitorDeadline = replyDeadlineAt(startedAt, REPLY_TIMEOUT_HARD_CAP_MS);
-		let pendingLogged = false;
-		let sawWorking = false;
-		while (Date.now() < monitorDeadline) {
-			await new Promise((r) => setTimeout(r, POLL_MS));
-			if (!pendingLogged && Date.now() >= replyDeadline) {
-				pendingLogged = true;
-				console.error(`coms-claude-bridge: ${env.msg_id} exceeded its reply budget and remains pending`);
-			}
-
-			// primary: Stop hook wrote a new record
-			if (fs.existsSync(hookFile)) {
-				const mtime = fs.statSync(hookFile).mtimeMs;
-				if (mtime > hookMtimeBefore) {
-					const rec = parseHookRecord(fs.readFileSync(hookFile, "utf-8"));
-					if (rec) {
-						hookSeen = true;
-						return rec.text;
-					}
-				}
-			}
-
-			const status = await paneStatus();
-			if (status === "working") sawWorking = true;
-			if (status === "blocked") {
-				throw new Error(
-					`Claude Code in pane ${paneId} is blocked on a permission prompt — a human must approve it in the pane`,
-				);
-			}
-			// fallback: turn ended without a hook record → scrape the sentinel
-			if (sentinelMode && sawWorking && (status === "done" || status === "idle")) {
-				const read = await herdr.paneRead({ pane_id: paneId, source: "recent", lines: 200 });
-				const reply = extractSentinelReply(read.read.text, env.msg_id);
-				if (reply) return reply;
-				// sentinel not visible yet — keep polling until deadline
-			}
-		}
-		throw new ReplyPendingError(
-			`no reply from Claude Code before the ${REPLY_TIMEOUT_HARD_CAP_MS}ms hard monitoring cap (requested ${effectiveTimeoutMs}ms)` +
-				(sentinelMode ? " (Stop hook not installed? see .pi/agent-fleet/hooks/coms-stop-hook.mjs)" : ""),
-		);
-	}
+ const drivePorts: ClaudeDrivePorts = {
+  paneId, replyTimeoutMs, paneStatus,
+  hookSeen: () => hookSeen, markHookSeen: () => { hookSeen = true; },
+  readHook: () => {
+   try { return { mtime: fs.statSync(hookFile).mtimeMs, raw: fs.readFileSync(hookFile, "utf-8") }; }
+   catch { return null; }
+  },
+  readPane: async () => (await herdr.paneRead({ pane_id: paneId, source: "recent", lines: 200 })).read.text,
+  sendText: text => herdr.paneSendText(paneId, text),
+  sendEnter: () => herdr.paneSendKeys(paneId, ["enter"]), log: console.error,
+ };
 
 	// ── shutdown ──
 	let shuttingDown = false;
@@ -406,6 +327,111 @@ async function main(): Promise<void> {
 	process.on("SIGTERM", shutdown);
 	process.on("SIGINT", shutdown);
 }
+
+export interface ClaudeDrivePorts {
+ paneId: string; replyTimeoutMs: number;
+ hookSeen(): boolean; markHookSeen(): void;
+ readHook(): { mtime: number; raw: string } | null;
+ paneStatus(): Promise<string>; readPane(): Promise<string>;
+ sendText(text: string): Promise<unknown>; sendEnter(): Promise<unknown>;
+ now?(): number; sleep?(ms: number): Promise<void>; log?(text: string): void;
+}
+
+// The same emission path is used by the serial production pump and local tests.
+export async function respondToClaudePrompt(env: PromptEnvelope, identity: SenderIdentity,
+ drive: () => Promise<string>, send: typeof sendEnvelope, log: (text: string) => void = console.error): Promise<void> {
+ try { await send(env.sender_endpoint, makeResponseEnvelope(identity, env.msg_id, await drive())); }
+ catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (isReplyPendingError(err)) log(`coms-claude-bridge: ${env.msg_id} remains pending: ${message}`);
+  else { try { await send(env.sender_endpoint, makeResponseEnvelope(identity, env.msg_id, null, message)); }
+   catch { log(`coms-claude-bridge: could not deliver error for ${env.msg_id}: ${message}`); } }
+ }
+}
+
+export async function driveClaude(env: PromptEnvelope, d: ClaudeDrivePorts): Promise<string> {
+ const { paneId, replyTimeoutMs, paneStatus } = d;
+ const now = d.now ?? Date.now;
+ const sleep = d.sleep ?? (async (ms: number) => { await new Promise(r => setTimeout(r, ms)); });
+ const requestBoundary = `<<COMS_REQUEST:${env.msg_id}:${ulid()}>>`;
+		const sentinelMode = !d.hookSeen();
+		// The caller's declared deadline wins over the bridge default (clamped).
+		// One absolute deadline covers BOTH idle waiting and the reply; otherwise a
+		// two-minute busy wait silently extends the caller's budget.
+		const effectiveTimeoutMs = resolveReplyTimeoutMs(env.reply_timeout_ms, replyTimeoutMs);
+		const startedAt = now();
+		const replyDeadline = replyDeadlineAt(startedAt, effectiveTimeoutMs);
+
+		// Claude Code must be idle-ish before we type into its input box — but a busy
+		// pane is a wait, not a failure. Throwing here made every mid-turn moment a
+		// hard error and pushed callers into hot-retry loops.
+		const waitDeadline = Math.min(replyDeadline, startedAt + idleWaitBudgetMs(effectiveTimeoutMs));
+		const waitStarted = startedAt;
+		for (let attempt = 0; ; attempt++) {
+			if (await paneStatus() !== "working") break;
+			const remaining = waitDeadline - now();
+			if (remaining <= 0) {
+				throw new Error(
+					`Claude Code in pane ${paneId} is still mid-turn after waiting ` +
+					`${Math.round((now() - waitStarted) / 1000)}s — try again shortly`,
+				);
+			}
+			await sleep(Math.min(idleWaitDelayMs(attempt), remaining));
+		}
+
+		// Snapshot immediately before submission, not before a potentially long busy wait.
+		const hookMtimeBefore = d.readHook()?.mtime ?? 0;
+		await d.sendText(formatPanePrompt(env, sentinelMode, requestBoundary));
+		await sleep(ENTER_DELAY_MS);
+		await d.sendEnter();
+
+		// The sender's local await returns `pending` at replyDeadline, but the
+		// bridge keeps watching the already-running turn up to the hard cap so a
+		// late completion can still resolve the original msg_id.
+		const monitorDeadline = replyDeadlineAt(startedAt, REPLY_TIMEOUT_HARD_CAP_MS);
+		let pendingLogged = false;
+		let sawWorking = false;
+		while (now() < monitorDeadline) {
+			await sleep(POLL_MS);
+			if (!pendingLogged && now() >= replyDeadline) {
+				pendingLogged = true;
+				d.log?.(`coms-claude-bridge: ${env.msg_id} exceeded its reply budget and remains pending`);
+			}
+
+			// primary: Stop hook wrote a new record
+			const hook = d.readHook();
+			if (hook) {
+				const mtime = hook.mtime;
+				if (mtime > hookMtimeBefore) {
+					const rec = parseHookRecord(hook.raw);
+					if (rec) {
+						d.markHookSeen();
+						return rec.text;
+					}
+				}
+			}
+
+			const status = await paneStatus();
+			if (status === "working") sawWorking = true;
+			if (status === "blocked") {
+				throw new Error(
+					`Claude Code in pane ${paneId} is blocked on a permission prompt — a human must approve it in the pane`,
+				);
+			}
+			// fallback: turn ended without a hook record → scrape the sentinel
+			if (sentinelMode && sawWorking && (status === "done" || status === "idle")) {
+				const text = await d.readPane();
+				const reply = extractSentinelReply(text, env.msg_id, requestBoundary);
+				if (reply) return reply;
+				// sentinel not visible yet — keep polling until deadline
+			}
+		}
+		throw new ReplyPendingError(
+			`no reply from Claude Code before the ${REPLY_TIMEOUT_HARD_CAP_MS}ms hard monitoring cap (requested ${effectiveTimeoutMs}ms)` +
+				(sentinelMode ? " (Stop hook not installed? see .pi/agent-fleet/hooks/coms-stop-hook.mjs)" : ""),
+		);
+	}
+
 
 const isEntry = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isEntry) void main();

@@ -52,18 +52,18 @@ test("parseHookRecord accepts {text}, rejects garbage", () => {
 test("extractSentinelReply pulls the reply between prompt echo and sentinel", () => {
 	const pane = [
 		"❯ [coms message from orchestrator @ /repo] What is the answer?",
-		`End your reply with this exact line so the bridge can capture it: ${completionSentinel("01MSGID")}`,
+		`End your reply with this exact line so the bridge can capture it: ${completionSentinel("01MSGID")} ${boundary}`,
 		"● The answer is 42.",
 		"It always was.",
 		completionSentinel("01MSGID"),
 		"❯",
 	].join("\n");
-	assert.equal(extractSentinelReply(pane, "01MSGID"), "The answer is 42.\nIt always was.");
+	assert.equal(extractSentinelReply(pane, "01MSGID", boundary), "The answer is 42.\nIt always was.");
 	// sentinel absent → null (keep waiting)
 	assert.equal(extractSentinelReply("nothing here", "01MSGID"), null);
 	// TUI rules stripped
-	const framed = `x: ${completionSentinel("01MSGID")}\n━━━━━━\n● reply line\n━━━━━━\n${completionSentinel("01MSGID")}`;
-	assert.equal(extractSentinelReply(framed, "01MSGID"), "reply line");
+	const framed = `x: ${completionSentinel("01MSGID")} ${boundary}\n━━━━━━\n● reply line\n━━━━━━\n${completionSentinel("01MSGID")}`;
+	assert.equal(extractSentinelReply(framed, "01MSGID", boundary), "reply line");
 });
 
 test("Claude peer readiness waits for the Claude process, not the early bridge registration", async () => {
@@ -261,4 +261,31 @@ test("idle-wait budget never eats more than half the reply budget", () => {
 	assert.equal(idleWaitBudgetMs(0), 0);
 	assert.equal(idleWaitBudgetMs(-1), 0);
 	assert.equal(idleWaitBudgetMs(NaN), 0);
+});
+
+const boundary = "<<COMS_REQUEST:01MSGID:fresh>>";
+test("current request provenance rejects prompt echo, stale and foreign markers", () => {
+ const echo = `${formatPanePrompt(ENV, true)} ${boundary}`;
+ assert.equal(extractSentinelReply(echo, ENV.msg_id, boundary), null);
+ assert.equal(extractSentinelReply(`old reply\n${completionSentinel(ENV.msg_id)}`, ENV.msg_id, boundary), null);
+ assert.equal(extractSentinelReply(`${echo}\n● reply\n${completionSentinel('foreign')}`, ENV.msg_id, boundary), null);
+ assert.equal(extractSentinelReply(`${echo}\n● current\nsecond line\n${completionSentinel(ENV.msg_id)}\n❯`, ENV.msg_id, boundary), 'current\nsecond line');
+});
+
+for (const [name, region] of Object.entries({
+ inline: 'instruction <<COMS_DONE:01MSGID>>', quoted: '"<<COMS_DONE:01MSGID>>"',
+ empty: completionSentinel(ENV.msg_id), incomplete: 'reply\n<<COMS_DONE:01MSGID>',
+ foreign: 'reply\n<<COMS_DONE:foreign>>\n<<COMS_DONE:01MSGID>>',
+ duplicate: `${boundary}\nreply\n${completionSentinel(ENV.msg_id)}`,
+})) test(`ambiguous ${name} capture stays pending`, () => {
+ assert.equal(extractSentinelReply(`prompt ${boundary}\n${region}`, ENV.msg_id, boundary), null);
+});
+test('Markdown quoted terminal marker stays pending', () => {
+ assert.equal(extractSentinelReply(`prompt ${boundary}\nexplained\n> ${completionSentinel(ENV.msg_id)}`, ENV.msg_id, boundary), null);
+});
+for (const prefix of ['❯', '●']) test(`${prefix} terminal marker supports current reply and preserves Markdown quote text`, () => {
+ assert.equal(extractSentinelReply(`prompt ${boundary}\n● reply\n> quoted text\n${prefix} ${completionSentinel(ENV.msg_id)}`, ENV.msg_id, boundary), 'reply\n> quoted text');
+});
+test('missing current boundary fails closed even with a terminal marker', () => {
+ assert.equal(extractSentinelReply(`reply\n${completionSentinel(ENV.msg_id)}`, ENV.msg_id), null);
 });

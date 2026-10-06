@@ -1,3 +1,4 @@
+import {appendDiscoveryContext} from './file-discovery/native-context.ts';
 import { fileURLToPath } from "node:url";
 import { isCaptureEnabled } from "./proactive-config.ts";
 import type { ProactiveConfig } from "./proactive-types.ts";
@@ -25,6 +26,7 @@ export function sessionObserverAssignment(config: ProactiveConfig | null | undef
 
 export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: boolean, requestedContract?: Omit<TaskResumeInput, "previous">): Promise<PreparedNativeRun | NativeDispatchResult> {
 	const { deps, state, ctx, task, inputArtifacts, scopeGlobs, personaKey, agentKey, runNumber } = base;
+ const admittedTools=state.def.tools;
 	const model = deps.resolvedModel(state.def)
 		?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
 	const fallbackCandidate = profileFallback(deps.substitutedModel(fallbackModelFor(state.def, model)));
@@ -182,7 +184,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		+ (stageConfirmation ? "\n\nActive exact-action confirmation: this stage run has inspection tools only. Return the full plan/review in your final response; the Hub saves that response as the stage artifact. Do not use bash, write, edit, delegate or remote execution. No stage result authorizes a later effect." : "");
 	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 	const wantThinking = thinkingLevel !== "off";
-	const runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs);
+	let runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs);
 	let writeIsolation: WriteIsolationRequest | undefined;
 	let writeIsolationPolicy;
 	if (assist['write-isolation']) {
@@ -205,6 +207,14 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		delegateEnv = { ...delegateEnv, TMPDIR: tempRoot, TMP: tempRoot, TEMP: tempRoot };
 	}
 	if (base.activeProfileSnapshot) delegateEnv = { ...delegateEnv, [PROFILE_ENV]: JSON.stringify(base.activeProfileSnapshot) };
+
+ const admitted=()=>state.def.tools===admittedTools&&!state.killedByOperator&&!state.restarting&&deps.getAgentState(base.key)===state&&state.dispatchId===base.dispatchId&&deps.getSessionDir()===base.sessionDir&&base.launchIdentity===deps.launchIdentity?.()&&deps.nativeAdmission?.(personaKey)!==false;
+ const admissionRefused=async()=>({...await base.finishRun('Native admission cancelled or changed during discovery preparation; no child started.',143),lifecycle:{launched:false,closeSeen:false}});
+ if(!admitted())return admissionRefused();
+ const discoveryContext=await deps.prepareDiscovery?.({ownerId:base.dispatchId,task:requestedContract?.instructions??task,query:JSON.stringify([requestedContract?.instructions??task,scopeGlobs]),scope:scopeGlobs,tools:effectiveTools.split(',').map(t=>t.trim()),cwd:ctx.cwd||process.cwd()});
+ if(!admitted()||discoveryContext?.current()===false)return admissionRefused();
+ runPrompt=appendDiscoveryContext(runPrompt,discoveryContext);
+ const discoveryAdmitted=()=>admitted()&&discoveryContext?.current()!==false;
 
 	if (state.sessionFile && !sessionRecycled) {
 		const overflow = shouldRecycleBeforeSpawn({
@@ -231,6 +241,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 
 	return {
 		...base,
+  discoveryContext,discoveryAdmitted,
 		model,
 		originalModelFallback,
 		agentWindow,

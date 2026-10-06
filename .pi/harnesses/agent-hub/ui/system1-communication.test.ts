@@ -106,3 +106,14 @@ test('agentic viewer copies only metadata, with an explicit advisory/no-gate lab
  assert.equal(JSON.parse(copied[0]).state.questionCount,1);assert.equal(JSON.parse(copied[1]).status,'unavailable');assert.equal(JSON.parse(copied[1]).usage,null);assert.ok(!copied.join('').includes('PRIVATE_'));
  await panel.handleInput('\x1b');await panel.handleInput('\x1b');await pending;panel.dispose();
 });
+
+test('T11 existing renderer shows D9 coverage/counts/elapsed/attempt and distinct partial/cancelled/skipped; copy metadata only',async()=>{
+ const store=createCommunicationStore();let panel:any;const copied:string[]=[];
+ const ctx:any={ui:{notify(){},custom:(factory:any)=>new Promise<void>(resolve=>{panel=factory({terminal:{rows:50},requestRender(){}},{},{},resolve);})}};
+ const pending=openSystem1Communication(ctx,store,async text=>{copied.push(text);});await panel.handleInput('e');
+ for(const status of ['partial','unavailable','cancelled','skipped'])store.beginDiscovery({owner:'hub',attempt:'a'.repeat(64),trigger:'find',provider:'typesafe',model:'jev-1.13.0'})({status,counts:{discovered:300,evaluated:256,cached:0,failed:0,unscored:44},discoveryComplete:false,evaluationComplete:false,elapsedMs:12,attempts:2,usage:null,query:'PRIVATE_QUERY',body:'PRIVATE_BODY'});
+ const list=panel.render(200).join('\n');for(const status of ['partial','unavailable','cancelled','skipped'])assert.match(list,new RegExp(status));
+ await panel.handleInput('\r');const detail=panel.render(200).join('\n');for(const field of ['Full-list coverage metadata only','discovered','300','evaluationComplete','elapsedMs','attempt','trigger'])assert.ok(detail.includes(field));
+ await panel.handleInput('\r');await panel.handleInput('\x1b[C');await panel.handleInput('\r');assert.equal(copied.length,2);assert.equal(JSON.parse(copied[1]).usage,null);assert.ok(!copied.join('').includes('PRIVATE_'));
+ await panel.handleInput('\x1b');await panel.handleInput('\x1b');await pending;panel.dispose();
+});

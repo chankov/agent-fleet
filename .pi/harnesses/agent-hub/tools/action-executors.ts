@@ -183,7 +183,12 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 	};
 	const executeComsSend: ToolExecutor<ComsSendParams> = async (_id, params) => {
 		const gate = d.processBlock?.() ?? processPreEffectGate(getProcessState(), "child", "");
-		if (gate) return { content: [{ type: "text", text: gate.message }], details: { status: "refused", reason: gate.reason } };
+		if (gate) {
+   const recovery = gate.reason === "process_plan_open"
+    ? " Direct coms_send has no planner persona dispatch contract; peer names and prompt claims cannot supply it. Use dispatch_agent with agent: planner, declared scope and deliverables, and the applicable backend policy. If planner is missing, ask the human to use /af-agents-add planner or /af-agents-team. Inspect an existing message with coms_list/coms_get/coms_await without resending."
+    : "";
+   return { content: [{ type: "text", text: gate.message + recovery }], details: { status: "refused", reason: gate.reason } };
+  }
 		const target = d.resolveTarget(params.target);
 		const profileRefusal = profilePeerGate({ peerModel: target?.model, targetResolved: !!target }); if (profileRefusal) return profileRefusal;
 		const refusal = d.provisionalCapabilityRefusal("peer"); if (refusal) return refusal;

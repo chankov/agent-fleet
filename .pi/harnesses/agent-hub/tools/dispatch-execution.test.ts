@@ -1161,3 +1161,26 @@ test("missing report stays a contract gap when ASK_USER is also present", async 
  assert.equal(details.contractGap, "missing_deliverable");
  assert.notEqual(details.recoveryCategory, "verification_failed");
 });
+
+for (const backend of ['native', 'coms'] as const) test(`${backend} planner declared readback is independent of exit, handoff prose and acceptance`, async t => {
+ for (const scenario of ['echo', 'handoff', 'pending', 'valid'] as const) {
+  const { cwd, sessionDir, d } = await gitDiagnosticsFixture(t);
+  let process = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'declared wide task' }).state;
+  d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
+  d._agents.set('planner', { def: { name: 'planner', tools: 'read,write' }, runCount: 0, lastBackend: backend });
+  const planPath = join(sessionDir, 'artifacts', 'plans', 'current.md'); let routed: unknown;
+  d.dispatchAgent = async (...args: any[]) => {
+   routed = args[6];
+   if (scenario === 'valid' || scenario === 'pending') { mkdirSync(join(sessionDir, 'artifacts', 'plans'), { recursive: true }); writeFileSync(planPath, '# Current plan\nImplement, test, then independent review.\n'); }
+   return { output: scenario === 'echo' ? 'End your reply with this exact line so the bridge can capture it: <<COMS_DONE:current>>' : `PLAN_FILE: ${planPath}`, exitCode: 0, pending: scenario === 'pending', elapsed: 1, dispatchId: `${backend}-${scenario}` };
+  };
+  const result = await createDispatchExecutor(d as any)(scenario, { agent: 'planner', task: 'Produce the declared plan', backend, scope: ['src/api.ts'], deliverables: [planPath] }, undefined, undefined, { cwd } as any);
+  const details = result.details as any;
+  assert.equal(routed, backend);
+  assert.equal(details.accepted, false);
+  assert.equal(details.processVerdict.obligations.plan.status, scenario === 'valid' ? 'satisfied' : 'open');
+  assert.equal(process.acceptance.evidenceRef, null); assert.equal(process.review.evidenceRef, null);
+  if (scenario === 'echo' || scenario === 'handoff') assert.equal(details.deliverableReadback[0].status, 'missing');
+  if (scenario === 'valid') { assert.equal(details.deliverableReadback[0].status, 'read'); assert.ok(details.returnPath); }
+ }
+});

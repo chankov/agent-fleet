@@ -19,6 +19,9 @@ function providerResult(request:ProviderEvaluateRequest):System1Result {
  return {status:'ok',evaluation:{answers,metadata:{provider:'fake',requestedModel:'fake',returnedModel:'fake',questionSetVersion:request.questionSetVersion,latencyMs:1,attempts:1,usage:{inputTokens:15,outputTokens:5}}}};
 }
 test('A/B/C flow through real tool registration and shared validation; advice never satisfies actual process gates',async()=>{
+ // Explicit parent-role fixture; do not inherit the test runner's managed-child identity.
+ const inherited={AGENT_HUB_AGENT_ID:process.env.AGENT_HUB_AGENT_ID,AGENT_FLEET_AGENTIC_CHILD:process.env.AGENT_FLEET_AGENTIC_CHILD};
+ delete process.env.AGENT_HUB_AGENT_ID;delete process.env.AGENT_FLEET_AGENTIC_CHILD;
  const root=mkdtempSync(join(tmpdir(),'ask-scenarios-'));
  try{
  mkdirSync(join(root,'.ai'));writeFileSync(join(root,'.ai/agent-fleet.json'),JSON.stringify({features:{system1:true}}));
@@ -38,7 +41,7 @@ test('A/B/C flow through real tool registration and shared validation; advice ne
  assert.equal(sent.length,3);assert.equal((sent[0].state as any).sources[1].text,'FAIL app.test.ts: expected 41, got 42');assert.equal((sent[0].state as any).sources[1].readbackHandle,undefined);assert.equal((sent[1].state as any).sources[0].text.includes('diff --git'),true);assert.ok((sent[2].state as any).state.includes('Защо'));
  task='t2';configure();assert.equal((await tool.execute('ask',scenarios[2],new AbortController().signal)).details.reason,'budget_exhausted');assert.equal(sent.length,3);assert.equal(histories.filter(r=>r.customType===AGENTIC_COUNTER).at(-1).data.calls,3);
  resetAgenticHub(pi);
- }finally{rmSync(root,{recursive:true,force:true});}
+ }finally{for(const [key,value]of Object.entries(inherited))if(value===undefined)delete process.env[key];else process.env[key]=value;rmSync(root,{recursive:true,force:true});}
 });
 test('mid-read/mid-inference cancellation, deadlines and unavailable service refuse without late success',async()=>{
  const config=parseAgenticConfig({...section,limits:{collectionMs:30,timeoutMs:30,maxCallsPerSession:1}});

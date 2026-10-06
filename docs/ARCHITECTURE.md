@@ -21,9 +21,10 @@ this page describes the current architecture.
 | **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `.pi/agent-fleet/scripts/lib/`) — see [Hermes artifacts](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `.pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `.pi/agent-fleet/scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
 | **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-client.ts`, `.pi/agent-fleet/scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
-| **System 1 foundation** | Experimental shared structured-judgment service; TypeSafe Jev only, with independent watchdog/dispatch/proactive/task-triage consumer opt-ins | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
+| **System 1 foundation** | Experimental shared structured-judgment service; TypeSafe Jev only, with independent watchdog/dispatch/proactive/task-triage/agenticAsk/fileDiscovery consumer opt-ins | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
 | **System 1 dispatch advice / communication** | Optional off-by-default `dispatch_triage` tool; shared-service memory-only Fleet `1` viewer, independently opt-in; live calibration not yet accepted | `.pi/harnesses/agent-hub/dispatch-triage-*.ts`, `system1-communication-store.ts`, `ui/system1-communication.ts` — [guide](system1-dispatch-triage.md) |
 | **System 1 task triage** | Active uncalibrated opt-in: uncertain predicates add process obligations, never spend/permission authority; session Fleet/audit metadata | `.pi/harnesses/agent-hub/task-triage-*.ts`, human-owned `consumers.taskTriage` in `.ai/system1.json` — [config/recovery](agent-fleet-setup.md#task-triage-active-experimental-off-by-default) |
+| **System 1 file discovery (D9)** | Off-by-default automatic full-list file ranking; parent scheduler/cache/durable budget, guarded source export, private UDS broker and per-physical-attempt native/descendant identities; no permission or acceptance authority | `.pi/harnesses/agent-hub/file-discovery/`, `tools/ask-system1-files.ts` — [scope/status/full-list and activation](system1-file-discovery.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
 
@@ -151,6 +152,29 @@ hub (operator by default; orchestrator when selected)
 ```
 
 Composition rule: **the hub (or a slash command) orchestrates; personas do not invoke other personas as peers.** Specialists may only fan out to their configured **sub-agents**. Research helpers write findings to disk; the hub resumes specialists with paths, not raw dumps.
+
+### Automatic file discovery
+
+The independently consented v2 `consumers.fileDiscovery` consumer intercepts eligible
+parent inventory/find/ls/grep results and native research/worker/registered descendant
+discoveries before the next model step. Pre-spawn context is prepared after launch
+gates and rechecked after awaits. One parent runtime owns bounded scheduling,
+durable logical reservations, full-question/current-permission cache identity and
+individual waiter cancellation. The parent reads guarded files; native attempts
+receive private, revocable broker assignments, never the provider key. Sandbox,
+tool/depth/tree caps, task authority and mandatory policy remain unchanged.
+
+All display-permitted candidates retain ranked or explicit unscored rows; >255 is
+not a semantic limit. Managed per-page artifacts preserve total/offset/next/hash and
+normal orchestrator self-read limits. Discovery/evaluation coverage and complete,
+partial, unavailable, cancelled and skipped differ. Exact read/grep evidence is
+not replaced. Fleet communication capture is opt-in and memory-only: D9 includes
+only hashed owner/attempt, trigger, counts/coverage/elapsed and actual-or-unknown
+usage, never source bodies, raw queries, arbitrary paths or tokens. Configuration
+changes require a new session. Offline production lifecycle/package tests prove
+mechanics, not semantic accuracy or final live activation. See the [D9 guide](system1-file-discovery.md)
+for exact triggers, unsupported surfaces, residual limitations and unpublished
+source/local-tarball commands.
 
 ### Research search supervision
 
@@ -290,6 +314,15 @@ retrieval handle. With `bounded-output` off, legacy transport is preserved regar
 entry without traversing it or disclosing its target outside the authorized inventory.
 T5 does not consume `assist.write-isolation`; the separate T6c native launch boundary does.
 
+Invocation preflight for `dispatch_agent` and `spawn_research` validates the original
+shape before normalization. Invalid input reports bounded safe field locations and
+expected/actual types or reasons (`invalid_invocation_shape`), without raw values or
+private payloads; unsafe unknown-key locations are redacted. This is distinct from
+`invocation_persistence_failed`, where valid input could not be durably retained.
+Both refuse before executor launch; persistence refusal releases the in-memory
+reservation even when storage cannot retain failure evidence. Correct the named input
+or storage prerequisite and re-invoke explicitly under unchanged gates and budgets.
+
 Recovery remains the single T1 contract: no automatic retry, queue, model fallback, or new
 numeric allowance. Busy work is refused before execution accounting or history mutation and is
 not recorded as no-progress failure. Runtime-owned preflight refusals (`not_started`,
@@ -406,7 +439,14 @@ work. Confirmed low-risk small work uses the existing T2 minimal acceptance path
 adds a separate review stage, while wide work adds plan and review stages. These obligations
 ratchet within a task, so lowering spend cannot erase them. Completed stage records name an
 artifact and revision but only prove that the stage occurred—not that model-authored review
-is semantically adequate.
+is semantically adequate. Planner dispatch must use the persona-bearing `dispatch_agent`
+contract with declared scope/deliverable and applicable backend policy. Direct `coms_send`
+remains an anonymous child effect even when its target is named planner; an open plan
+obligation refuses it before target resolution/send. Refusal points to planner dispatch
+and human roster recovery; read-only coms inspection remains available. Declared plan
+readback can satisfy plan occurrence, not independent acceptance or review. Exit 0,
+prompt echoes, `PLAN_FILE` prose without the artifact, pending transport and stale-revision
+verification/review cannot substitute for the separate current-evidence gates.
 
 The same code-owned state is consumed by dispatch acceptance in operator and orchestrator
 modes, appended as `agent-hub-process-state`, restored from the session log, and retained

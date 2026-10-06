@@ -1,6 +1,7 @@
 import { runtimeTestFromResult, type RuntimeTestRecord } from "./runtime-test-check.ts";
 import { createToolEventRecorder, type ToolExecutionEvent } from "./tool-protocol.ts";
 import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV, type ActiveModelProfile } from './policy/profile-runtime.ts';
+import { DISCOVERY_CHILD_ENV_KEYS, openDiscoveryAttempt, type DiscoverySpawnRegistration } from './file-discovery/owners.ts';
 import { SYSTEM1_API_KEY_ENV } from "../lib/system1/config.js";
 import { confineNativeChild, type WriteIsolationRequest, type WriteIsolationResult } from "./write-isolation.ts";
 /**
@@ -52,6 +53,8 @@ export interface ToolWatchdogOptions {
 }
 
 export interface SpawnPiAgentOptions {
+ /** Trusted parent registration; a fresh lease is opened for EVERY physical launch. Never an env override. */
+ discoveryRegistration?: DiscoverySpawnRegistration;
  /** Enabled only by native preparation with the runtime observer extension. */
  runtimeTestObserver?: boolean;
  /** Snapshotted at dispatch start; presence prevents a mid-run profile switch changing this launch. */
@@ -149,7 +152,7 @@ export function assertSafeSandboxStdio(stdio: readonly unknown[]): void {
 }
 
 /** Credential names removed from the final native child environment. Parent env is never mutated. */
-export const NATIVE_CHILD_STRIPPED_ENV_KEYS = [SYSTEM1_API_KEY_ENV] as const;
+export const NATIVE_CHILD_STRIPPED_ENV_KEYS = [SYSTEM1_API_KEY_ENV, ...DISCOVERY_CHILD_ENV_KEYS] as const;
 
 /** The sandbox helper may echo env. Never publish that echo on the spawn result. */
 function isolationWithoutEnv<T extends { env?: Record<string, string> }>(isolation: T): Omit<T, "env"> {
@@ -167,7 +170,7 @@ function envRecord(env: NodeJS.ProcessEnv): Record<string, string> {
 	return record;
 }
 
-/** Merge parent + overrides, then drop only the System 1 credential. Overrides cannot put it back. */
+/** Merge parent + overrides, then strip System 1 credentials and inherited D9 assignments. */
 export function nativeChildEnv(
 	base: NodeJS.ProcessEnv = process.env,
 	overrides?: Record<string, string | undefined> | NodeJS.ProcessEnv,
@@ -179,12 +182,14 @@ export function nativeChildEnv(
 			else merged[key] = value;
 		}
 	}
-	for (const key of NATIVE_CHILD_STRIPPED_ENV_KEYS) delete merged[key];
+	for (const key of Object.keys(merged)) if (key.startsWith('AF_D9_') || (NATIVE_CHILD_STRIPPED_ENV_KEYS as readonly string[]).includes(key)) delete merged[key];
 	return merged;
 }
 
+const discoveryProcessRevocations = new WeakMap<ChildProcess, () => void>();
 /** Signal an explicitly owned process group, falling back only for legacy callers. */
 export function killPiTree(proc: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
+ discoveryProcessRevocations.get(proc)?.();
 	const pid = proc.pid;
 	if (pid == null) return;
 	try {
@@ -209,7 +214,7 @@ export function spawnPiAgent(opts: SpawnPiAgentOptions, cbs: SpawnPiAgentCallbac
 	});
 }
 
-function spawnPiAgentUnchecked(
+async function spawnPiAgentUnchecked(
 	opts: SpawnPiAgentOptions,
 	cbs: SpawnPiAgentCallbacks = {},
 ): Promise<SpawnPiAgentResult> {
@@ -227,14 +232,30 @@ function spawnPiAgentUnchecked(
 	if (opts.resume) args.push("-c");
 
 	const generation = opts.physicalAttempt?.generation ?? 1;
-	const attemptSignal = opts.attemptLifecycle?.beforePhysicalSpawn({ generation })?.signal;
+	let attemptSignal: AbortSignal | undefined;
+ let discoveryAttempt: ReturnType<typeof openDiscoveryAttempt> | undefined;
 	let attemptEnded = false;
 	const endAttempt = () => {
 		if (attemptEnded) return;
 		attemptEnded = true;
+  discoveryAttempt?.revoke();
 		opts.attemptLifecycle?.afterPhysicalSpawn({ generation });
 	};
-	if (attemptSignal?.aborted) {
+ try {
+ attemptSignal = opts.attemptLifecycle?.beforePhysicalSpawn({ generation })?.signal;
+ if (!opts.signal?.aborted && !attemptSignal?.aborted && opts.discoveryRegistration) {
+  // Do not let even a parent registration claim tools absent from the physical command.
+  const effectiveTools = opts.tools.split(',').map(t=>t.trim()).filter(t=>opts.discoveryRegistration!.owner.effectiveTools.includes(t));
+  try {
+   discoveryAttempt = openDiscoveryAttempt({...opts.discoveryRegistration,owner:{...opts.discoveryRegistration.owner,effectiveTools,cwd:opts.cwd??process.cwd()}});
+   if(opts.discoveryRegistration.extension)args.push('-e',opts.discoveryRegistration.extension);
+  } catch(error) {
+   // D9 availability is advisory; authoritative launch admission still fails closed.
+   if(error instanceof Error&&error.message==='owner_admission_changed')throw error;
+   opts={...opts,prompt:opts.prompt+'\n\nFile discovery physical attempt: unavailable (registration unavailable). Continue ordinary permitted discovery; original task, scope and gates remain authoritative.'};
+  }
+ }
+	if (opts.signal?.aborted || attemptSignal?.aborted || discoveryAttempt?.signal.aborted) {
 		endAttempt();
 		return Promise.resolve({
 			output: "", stderr: "", exitCode: null, modelUsed: opts.model, toolCallsStarted: 0,
@@ -242,7 +263,7 @@ function spawnPiAgentUnchecked(
 			lifecycle: { launched: false, closeSeen: false },
 		});
 	}
-	const childEnv = nativeChildEnv(process.env, opts.env);
+	const childEnv = {...nativeChildEnv(process.env, opts.env), ...discoveryAttempt?.env};
 	const isolation = opts.writeIsolation ? confineNativeChild({ ...opts.writeIsolation, command: "pi", args, env: envRecord(childEnv) }) : undefined;
 	const publishedIsolation = isolation ? isolationWithoutEnv(isolation) : undefined;
 	if (isolation && !isolation.applied) {
@@ -260,7 +281,7 @@ function spawnPiAgentUnchecked(
 	const turnDeadlineMs = opts.turnDeadlineMs ?? null;
 	// A watchdog or deadline must own its group: group signalling remains valid even
 	// after the pi leader exits while an inherited-stdio descendant is still alive.
-	const ownsGroup = opts.detached === true || watchdog !== undefined || opts.signal !== undefined || attemptSignal !== undefined || turnDeadlineMs != null || cbs.onControl !== undefined;
+	const ownsGroup = opts.detached === true || watchdog !== undefined || opts.signal !== undefined || attemptSignal !== undefined || discoveryAttempt !== undefined || turnDeadlineMs != null || cbs.onControl !== undefined;
 	const watchedTools = new Set(watchdog?.tools ?? WATCHED_TOOLS);
 	const timeoutMs = watchdog?.timeoutMs ?? null;
 	const termGraceMs = watchdog?.termGraceMs ?? DEFAULT_TERM_GRACE_MS;
@@ -268,7 +289,7 @@ function spawnPiAgentUnchecked(
 
 	const textChunks: string[] = [];
 	const stderrChunks: string[] = [];
-	return new Promise((resolve) => {
+	return await new Promise((resolve) => {
 		const stdio: ["pipe", "pipe", "pipe"] = ["pipe", "pipe", "pipe"];
 		if (isolation) assertSafeSandboxStdio(stdio);
 		const proc = spawn(launchCommand, launchArgs, {
@@ -277,6 +298,9 @@ function spawnPiAgentUnchecked(
 			...(opts.cwd ? { cwd: opts.cwd } : {}),
 			...(ownsGroup ? { detached: true } : {}),
 		});
+  discoveryProcessRevocations.set(proc,()=>discoveryAttempt?.revoke());
+  const originalKill=proc.kill.bind(proc);
+  proc.kill=(signal)=>{if(signal!==0)discoveryAttempt?.revoke();return originalKill(signal);};
 		cbs.onProcess?.(proc);
 		proc.stdin?.on("error", () => {});
 		proc.stdin?.end(opts.prompt);
@@ -301,6 +325,7 @@ function spawnPiAgentUnchecked(
 			if (deadlineTimer) clearTimeout(deadlineTimer);
 			opts.signal?.removeEventListener("abort", onAbort);
 			attemptSignal?.removeEventListener("abort", onAbort);
+   discoveryAttempt?.signal.removeEventListener('abort', onAbort);
 			endAttempt();
 		};
 		let assistantError: string | undefined;
@@ -343,6 +368,7 @@ function spawnPiAgentUnchecked(
 			// The first classification wins; later cancellation/exit events keep it.
 			if (termination) return;
 			termination = { reason, confirmed: false, escalated: false, ...(tool ? { tool } : {}) };
+   discoveryAttempt?.revoke(); // fence replies immediately, not after kill/pipe settlement
 			clearCalls();
 			killPiTree(proc, "SIGTERM");
 			termTimer = setTimeout(() => {
@@ -360,6 +386,7 @@ function spawnPiAgentUnchecked(
 		};
 		watchAbort(opts.signal);
 		watchAbort(attemptSignal);
+  watchAbort(discoveryAttempt?.signal);
 		// External classified stop (drift watchdog): same first-classification-wins
 		// cascade as every other termination path; harmless after settle.
 		cbs.onControl?.({ terminate: (reason = "drift_stop") => { if (!settled) terminate(reason); } });
@@ -447,6 +474,7 @@ function spawnPiAgentUnchecked(
 		});
 		proc.stderr!.setEncoding("utf-8");
 		proc.stderr!.on("data", (chunk: string) => stderrChunks.push(chunk));
+  proc.once('exit', () => { discoveryAttempt?.signal.removeEventListener('abort', onAbort); discoveryAttempt?.revoke(); });
 		proc.on("close", (code) => {
 			closeSeen = true;
 			if (buffer.trim()) try { handleEvent(JSON.parse(buffer)); } catch {}
@@ -454,6 +482,7 @@ function spawnPiAgentUnchecked(
 		});
 		proc.on("error", (err) => settle(1, err.message));
 	});
+ } finally { endAttempt(); }
 }
 
 const PROVIDER_FAILURE_RE = /\b(provider unavailable|service unavailable|overloaded|rate limit|too many requests|out of memory|oom|memory limit|resource exhausted|econn(?:reset|refused)|connection (?:reset|refused)|fetch failed|network error|gateway timeout|http\s*5\d\d|\b429\b)\b/i;

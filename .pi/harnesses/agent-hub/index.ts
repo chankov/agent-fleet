@@ -1,3 +1,4 @@
+import { registerDiscoveryHub, configureDiscoveryHub, resetDiscoveryHub, discoveryHubEnabled, discoveryManagedReadbackAllowed, prepareDiscoveryNative } from './file-discovery/hub.ts';
 import { registerAgenticHub, configureAgenticHub, agenticHubEnabled, agenticHubRuntime, resetAgenticHub } from './agentic-hub.ts';
 import { loadSystem1Snapshot } from "../lib/system1/config-loader.js";
 import { normalizeSystem1Config } from "../lib/system1/config-v2.js";
@@ -791,6 +792,9 @@ export default function (pi: ExtensionAPI) {
 	const { dispatchViaComs, runDriftJudge, runReturnExtraction } = dispatchComs;
 
 	const nativeDispatch = createDispatchNative({
+  prepareDiscovery:input=>prepareDiscoveryNative(pi,input),
+  launchIdentity:()=>noProgress.taskToken(),
+  nativeAdmission:persona=>!processBlock()&&!provisionalCapabilityRefusal('fleet')&&!processPreEffectGate(processState,'child',persona)&&!checkTaskBudget('dispatch',{...taskCounters(),dispatches:Math.max(0,taskDispatchCount-1)},currentTaskBudget(),taskActiveElapsedMs(),taskTier)&&!checkTurnBudget('dispatch',{dispatches:Math.max(0,turnDispatchCount-1),research:turnResearchCount},currentBudget(),turnBudgetActiveElapsedMs(),taskTier),
 		getAgentState: key => agentStates.get(key),
 		getProcessState: () => processState,
 		listAgentStates: () => Array.from(agentStates.values()),
@@ -867,6 +871,9 @@ export default function (pi: ExtensionAPI) {
 	// The composition root owns the mutable bindings; the runtime reaches them only
 	// through these explicit ports so later controls can keep stable handles.
 	const researchRuntime = createResearchRuntime<AgentDef>({
+  prepareDiscovery:input=>prepareDiscoveryNative(pi,input),
+  launchIdentity:()=>noProgress.taskToken(),
+  researchAdmission:()=>!processBlock(),
 		getResearchStates: () => researchStates,
 		setResearchStates: value => { researchStates = value; },
 		getNextResearchId: () => nextResearchId,
@@ -947,6 +954,7 @@ export default function (pi: ExtensionAPI) {
 		getBaselineTools: () => baselineTools, getRosterSize: () => agentStates.size,
 		getDeterministicToolsEnabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
 		getAgenticAskEnabled: () => agenticHubEnabled(pi),
+   getFileDiscoveryEnabled: () => discoveryHubEnabled(pi),
 		getDispatchTriageEnabled: () => triageRuntime?.available === true,
 		activateFallbackRoster: ctx => {
 			if (!rosterPolicy.activateFirstValidTeam()) return;
@@ -1051,6 +1059,7 @@ export default function (pi: ExtensionAPI) {
   return { taskId: noProgress.taskId(), task, scope, language, domain, candidates, constraints: JSON.stringify({ tier: taskTier, process: { risk: processState.risk, scope: processState.scope }, externalBlocked: externalBlockers.length > 0 && !externalBlockerAcknowledged }), complete: !(externalBlockers.length > 0 && !externalBlockerAcknowledged) };
  }
  registerAgenticHub(pi);
+ registerDiscoveryHub(pi);
 	registerDispatchTriage(pi, { runtime: () => triageRuntime, input: triageInput, blocked: () => provisionalCapabilityRefusal("fleet") });
 
  // Keep the extracted tool surface flat and greppable in this composition root.
@@ -1088,7 +1097,8 @@ export default function (pi: ExtensionAPI) {
 		enabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
 		readOnly: () => getWorkMode() === "orchestrator",
 		sessionDir: () => sessionDir,
-		remainingSelfReadBytes: () => Math.max(0, 64 * 1024 - orchestratorSelfReadUsed),
+		managedReadbackAllowed: handle => discoveryManagedReadbackAllowed(pi,handle),
+  remainingSelfReadBytes: () => Math.max(0, 64 * 1024 - orchestratorSelfReadUsed),
 		noteSelfReadBytes: bytes => { orchestratorSelfReadUsed += bytes; },
 	});
 
@@ -2313,7 +2323,7 @@ export default function (pi: ExtensionAPI) {
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
 			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null);
-			resetAgenticHub(pi); proactiveHubDeliveries = 0; taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
+			resetAgenticHub(pi); resetDiscoveryHub(pi); proactiveHubDeliveries = 0; taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
 			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },
@@ -2402,6 +2412,7 @@ export default function (pi: ExtensionAPI) {
    const taskTriageConfig = loadTaskTriageConfig(_ctx.cwd || process.cwd(), system1Snapshot);
    const sharedService = watchdogSystem1?.sharedService;
 			configureAgenticHub(pi, { snapshot: system1Snapshot, service: sharedService, ctx: _ctx, sessionDir, communicationStore, taskId: () => noProgress.taskId() });
+   configureDiscoveryHub(pi, { snapshot: system1Snapshot, service: sharedService, ctx: _ctx, sessionDir, communicationStore, taskId: () => noProgress.taskId() });
    const serviceUnavailableReason = watchdogSystem1?.readiness.status === "ready" ? "unavailable" : watchdogSystem1?.readiness.reason ?? "unavailable";
    taskTriageConfigured = taskTriageConfig.status !== "missing";
    taskTriageConfigStatus = taskTriageConfig.status === "active" ? "active" : taskTriageConfig.status === "invalid" ? "invalid" : "off";

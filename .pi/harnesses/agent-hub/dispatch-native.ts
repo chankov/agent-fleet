@@ -119,7 +119,7 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 	};
 
 	return {
-		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, watchdogParam,
+		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, watchdogParam, launchIdentity:deps.launchIdentity?.(),
 		key: normalizeAgentInput(args.agentName),
 		personaKey: state.def.name.toLowerCase(),
 		agentKey, runNumber, histEntry, monitorKey, monitorStart, startTime,

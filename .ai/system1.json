@@ -87,6 +87,15 @@
         "maxCallsPerSession": 100,
         "timeoutMs": 2000
       }
+    },
+    "fileDiscovery": {
+      "mode": "active",
+      "remoteContextApproved": true,
+      "include": [
+        ".pi/harnesses",
+        "bin",
+        "docs"
+      ]
     }
   }
 }

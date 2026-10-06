@@ -156,6 +156,7 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 	}
 	state.driftFence = drift.fence;
 	const spawnOptions: SpawnPiAgentOptions = {
+  discoveryRegistration:run.discoveryContext?.registration?{...run.discoveryContext.registration,admit:run.discoveryAdmitted}:undefined,
         runtimeTestObserver: extensions.some(path => path.endsWith("/runtime-test-check.ts")),
 		model,
 		activeProfileSnapshot: run.activeProfileSnapshot,
@@ -183,6 +184,7 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 	let sessionReset = run.sessionReset;
 	try {
 	const res = await deps.providerSemaphore.run(model, async () => {
+  if(run.discoveryAdmitted?.()===false)return {output:'Native admission changed while queued; no child started.',stderr:'',exitCode:143,modelUsed:model,toolCallsStarted:0,lifecycle:{launched:false,closeSeen:false}};
 		let result = await deps.spawnPiAgentWithModelFallback(spawnOptions, originalModelFallback, callbacks);
 		if (!result.spawnError && isCorruptSessionExit({ code: result.exitCode, output: result.output, stderr: result.stderr })) {
 			const quarantine = forceQuarantineSession(agentSessionFile, deps.getSessionHealthIo());

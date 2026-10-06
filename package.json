@@ -71,6 +71,7 @@
     ".pi/harnesses/*/*/*.ts",
     ".pi/harnesses/lib/system1/*.js",
     ".pi/harnesses/agent-hub/agentic-sources-worker.mjs",
+    ".pi/harnesses/agent-hub/file-discovery/discovery-worker.mjs",
     ".pi/harnesses/lib/system1/selection.js",
     ".pi/harnesses/*/*.js",
     ".pi/harnesses/*/package.json",
@@ -138,7 +139,9 @@
     "docs/codex-session-bridge.md",
     ".pi/harnesses/agent-hub/proactive-snapshot-worker.mjs",
     "!**/task-triage*.user-run.mjs",
-    "docs/system1-config.md"
+    "docs/system1-config.md",
+    "docs/system1-file-discovery.md",
+    "!.pi/harnesses/agent-hub/file-discovery/*.test-support.ts"
   ],
   "engines": {
     "node": ">=18.0.0"
@@ -166,7 +169,8 @@
     "check:manifest": "node bin/build-manifest.js --check",
     "version:changeset": "node bin/force-patch-changesets.js && changeset version && node bin/sync-harness-versions.js && npm install --package-lock-only --ignore-scripts --no-audit --no-fund && node bin/build-manifest.js && node bin/snapshot-version.js",
     "release": "changeset publish",
-    "test:fleet-client": "node --test .pi/agent-fleet/scripts/fleet-codex-client.test.ts .pi/agent-fleet/scripts/fleet-codex-transport.test.ts .pi/agent-fleet/scripts/fleet-codex-questions.test.ts && PYTHONDONTWRITEBYTECODE=1 python3 .pi/agent-fleet/scripts/fleet-codex-read.test.py"
+    "test:fleet-client": "node --test .pi/agent-fleet/scripts/fleet-codex-client.test.ts .pi/agent-fleet/scripts/fleet-codex-transport.test.ts .pi/agent-fleet/scripts/fleet-codex-questions.test.ts && PYTHONDONTWRITEBYTECODE=1 python3 .pi/agent-fleet/scripts/fleet-codex-read.test.py",
+    "test:file-discovery": "node --import ./bin/test/helpers/system1-no-network.js --test --test-concurrency=2 .pi/harnesses/lib/system1/config-file-discovery.test.js .pi/harnesses/lib/system1/config-v2.test.js .pi/harnesses/agent-hub/file-discovery/*.test.ts .pi/harnesses/agent-hub/spawn-system1-env.test.ts .pi/harnesses/agent-hub/system1-communication-store.test.ts .pi/harnesses/agent-hub/ui/system1-communication.test.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.1",

@@ -127,6 +127,9 @@ export interface NativeProviderSemaphore {
 }
 
 export interface NativeDispatchDeps {
+ prepareDiscovery?:import('./file-discovery/native-context.ts').PrepareNativeDiscovery;
+ launchIdentity?():unknown;
+ nativeAdmission?(personaKey:string):boolean;
 	getAgentState(key: string): NativeDispatchState | undefined;
 	getProcessState?(): import("./process-obligations.ts").ProcessObligationState;
 	listAgentStates(): NativeDispatchState[];
@@ -202,6 +205,7 @@ export interface NativeDispatchDeps {
 
 export interface NativeRunBase {
 	readonly sessionDir: string;
+ readonly launchIdentity?:unknown;
 	readonly evidenceDir: string;
 	readonly dispatchId: string;
 	readonly transcriptPath: string;
@@ -226,6 +230,8 @@ export interface NativeRunBase {
 }
 
 export interface PreparedNativeRun extends NativeRunBase {
+ discoveryContext?:import('./file-discovery/native-context.ts').NativeDiscoveryContext|null;
+ discoveryAdmitted?():boolean;
 	model: string;
 	originalModelFallback?: string;
 	agentWindow: { window: number; source: string };

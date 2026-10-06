@@ -98,15 +98,39 @@ function retainedFenceFailure(attempt: FenceAttempt, previous?: Failure): Failur
 		catalogVersion: previous?.dispatchId === attempt.dispatchId ? previous.catalogVersion : undefined,
 	};
 }
-function validInvocation(value: NonNullable<GuardHistory['invocation']>): boolean {
- if (!value || !['dispatch_agent', 'spawn_research'].includes(value.tool) || !value.params || typeof value.params !== 'object' || Array.isArray(value.params)) return false;
+interface InvocationDiagnostic { field: string; expected: string; actual: string; reason?: string; }
+function invocationDiagnostics(value: NonNullable<GuardHistory['invocation']>): InvocationDiagnostic[] {
+ const type = (v: unknown) => v === undefined ? "missing" : v === null ? "null" : Array.isArray(v) ? "array" : typeof v;
+ if (!value || !['dispatch_agent', 'spawn_research'].includes(value.tool)) return [{ field: 'tool', expected: 'dispatch_agent | spawn_research', actual: type(value?.tool) }];
+ if (!value.params || typeof value.params !== 'object' || Array.isArray(value.params)) return [{ field: 'params', expected: 'object', actual: type(value.params) }];
  const params = value.params as unknown as Record<string, unknown>;
  const keys = value.tool === 'dispatch_agent' ? ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','backend','triage_id','triage_reason'] : ['task','persona','model','artifacts','read_scope','goal','expected_result'];
- if (Object.keys(params).some(key => !keys.includes(key)) || typeof params.task !== 'string' || !params.task.trim()) return false;
- if (value.tool === 'dispatch_agent' && (typeof params.agent !== 'string' || !params.agent.trim())) return false;
- // Advisory trace metadata is persisted, never treated as execution authority.
- if (params.triage_reason !== undefined && !['used', 'better_fit', 'changed_scope', 'independent_judgment'].includes(params.triage_reason as string)) return false;
- return Object.entries(params).every(([key, item]) => item === undefined || (['artifacts','scope','deliverables','read_scope'].includes(key) ? Array.isArray(item) && item.every(s => typeof s === 'string') : key === 'watchdog' ? typeof item === 'boolean' : typeof item === 'string'));
+ const diagnostics: InvocationDiagnostic[] = [];
+ const add = (field: string, expected: string, item: unknown, reason?: string) => { if (diagnostics.length < 16) diagnostics.push({ field, expected, actual: type(item), ...(reason ? { reason } : {}) }); };
+ for (const key of ['task', ...(value.tool === 'dispatch_agent' ? ['agent'] : [])]) {
+  if (typeof params[key] !== 'string') add(key, 'nonblank string', params[key]);
+  else if (!(params[key] as string).trim()) add(key, 'nonblank string', params[key], 'blank');
+ }
+ const enums: Record<string, string[]> = { scope_mode: ['existing','create'], backend: ['auto','native','coms'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] };
+ for (const [key, item] of Object.entries(params)) {
+  if (!keys.includes(key)) { add('params.<unknown-key>', 'supported field', item, 'unknown key (redacted)'); continue; }
+  if (item === undefined || key === 'task' || key === 'agent') continue;
+  if (['artifacts','scope','deliverables','read_scope'].includes(key)) {
+   if (!Array.isArray(item)) add(key, 'array of strings', item);
+   else item.forEach((entry, i) => {
+    if (typeof entry !== 'string') add(`${key}[${i}]`, 'string', entry);
+    else if (key === 'read_scope' && (!entry.length || /^(?:\/|[A-Za-z]:)/.test(entry.trim()) || entry.replace(/\\/g, '/').split('/').includes('..'))) add(`${key}[${i}]`, 'repository-relative nonempty string', entry, 'empty or escaping path');
+   });
+  } else if (key === 'watchdog') { if (typeof item !== 'boolean') add(key, 'boolean', item); }
+  else if (typeof item !== 'string') add(key, enums[key]?.join(' | ') ?? 'string', item);
+  else if (enums[key] && !enums[key].includes(item)) add(key, enums[key].join(' | '), item, 'unsupported enum member');
+ }
+ return diagnostics;
+}
+function validInvocation(value: NonNullable<GuardHistory['invocation']>): boolean { return invocationDiagnostics(value).length === 0; }
+function invocationRefusal(reason: string, diagnostics?: InvocationDiagnostic[]) {
+ const note = diagnostics ? `Invalid invocation shape: ${diagnostics.map(d => `${d.field}: expected ${d.expected}, actual ${d.actual}${d.reason ? ` (${d.reason})` : ''}`).join('; ')}. Correct these fields and re-invoke explicitly.` : 'Invocation persistence failed: the valid original contract could not be saved. Restore contract storage before explicitly re-invoking; do not reset or grant a retry.';
+ return { content: [{ type: "text" as const, text: `${note} No process launched and no effects occurred.` }], details: { status: diagnostics ? "invalid_input" : "not_started", reason, ...(diagnostics ? { diagnostics } : {}), recoveryCategory: diagnostics ? "invalid_input" as const : "not_started" as const, exitCode: 1, started: false, notStarted: true, effects: "none" } };
 }
 export function createNoProgressGuard(persist?: (type: string, data: unknown) => void) {
  let recovery = createRecoverState([], event => persist?.(RECOVER_ENTRY, { kind: 'ledger', event }));
@@ -444,6 +468,9 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 ): ToolExecutor<P> {
 	return async (id, params, signal, onUpdate, ctx) => {
 		const cwd = ctx.cwd || process.cwd();
+  const invocation = { tool: kind === 'dispatch' ? 'dispatch_agent' : 'spawn_research', params } as NonNullable<GuardHistory['invocation']>;
+  const diagnostics = invocationDiagnostics(invocation);
+  if (diagnostics.length) return invocationRefusal('invalid_invocation_shape', diagnostics);
 		let research: ResearchContract | null;
         try { research = "agent" in params ? null : normalizeResearchContract(params); }
         catch (error) { return { content: [{ type: "text", text: String(error) }], details: { status: "invalid_input", recoveryCategory: "invalid_input", started: false, exitCode: 1 } }; }
@@ -473,16 +500,17 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 		const userAnswer = "agent" in params ? params.task.match(/^USER_ANSWER:\s*(\S+)\s*::\s*(.+)$/m) : null;
 		if (userAnswer) d.noProgress.recordUserAnswer({ dispatchId: userAnswer[1], question: userAnswer[2].trim(), scope, prose: params.task });
 		const ticket = d.noProgress.begin(key, fingerprint(), executorKey, scope, worktreeRevision(cwd, []));
-        // T2: invalid/unpersisted invocation refuses before launch with an exact reason.
-        // Concurrency, interrupted append, and restore never produce duplicate execution.
+        // Persist before executor launch. False and throwing ports are both no-launch
+        // failures; release the reservation even when storage itself is unavailable.
         if (ticket.allowed && ticket.operationId) {
-            const invocation = { tool: kind === 'dispatch' ? 'dispatch_agent' : 'spawn_research', params: structuredClone(params) } as NonNullable<GuardHistory['invocation']>;
-            if (!validInvocation(invocation)) {
-                const invalidFailure: Failure = { dispatchId: randomUUID(), reason: 'invalid_invocation_shape', category: 'invalid_input' };
-                d.noProgress.finish(ticket, fingerprint(), invalidFailure);
-                return { content: [{ type: "text", text: `Invalid invocation shape: the original contract could not be persisted. Correct the parameters and re-invoke explicitly. No process launched and no effects occurred.` }], details: { status: "invalid_input", reason: "invalid_invocation_shape", recoveryCategory: "invalid_input" as const, exitCode: 1, started: false, notStarted: true, effects: "none" } };
-            }
-            if (!d.noProgress.invocation(ticket.operationId)) d.noProgress.recordInvocation(ticket.operationId, key, invocation);
+         let persisted = false;
+         try { persisted = !!d.noProgress.invocation(ticket.operationId) || d.noProgress.recordInvocation(ticket.operationId, key, invocation); }
+         catch { /* persistence error bodies may contain private payloads */ }
+         if (!persisted) {
+          const failure: Failure = { dispatchId: randomUUID(), reason: 'invocation_persistence_failed', category: 'not_started', noLaunchEstablished: true };
+          try { d.noProgress.finish(ticket, fingerprint(), failure); } catch { /* finish releases in-memory reservations before appending */ }
+          return invocationRefusal('invocation_persistence_failed');
+         }
         }
 		if (!ticket.allowed) {
 			if (ticket.refusal === "busy") {

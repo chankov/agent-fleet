@@ -2,6 +2,9 @@ import test from 'node:test';import assert from 'node:assert/strict';import {mkd
 import {configureAgenticHub,registerAgenticHub,agenticHubEnabled,agenticParentAllowed,resetAgenticHub} from './agentic-hub.ts';import {normalizeSystem1Config} from '../lib/system1/config-v2.js';import {resolveWorkModeTools} from './work-mode.ts';import {createWorkModePolicy} from './policy/work-mode.ts';
 for(const mode of ['advisory','recommended']) test(`${mode}: approved parent catalog survives mode refresh, disabled/child cannot inherit`,async()=>{
  const document={version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{agenticAsk:{mode,remoteContextApproved:true,allowToolOutputs:true}}};
+ // This fixture models a parent Hub, even when the suite runs inside a managed specialist.
+ const inherited={AGENT_HUB_AGENT_ID:process.env.AGENT_HUB_AGENT_ID,AGENT_FLEET_AGENTIC_CHILD:process.env.AGENT_FLEET_AGENTIC_CHILD};
+ delete process.env.AGENT_HUB_AGENT_ID;delete process.env.AGENT_FLEET_AGENTIC_CHILD;
  const root=mkdtempSync(join(tmpdir(),'ask-catalog-'));try{
  mkdirSync(join(root,'.ai'));writeFileSync(join(root,'.ai/agent-fleet.json'),JSON.stringify({features:{system1:true}}));
  const hooks:Record<string,Function[]>={};let tool:any;const entries:any[]=[];
@@ -20,5 +23,5 @@ for(const mode of ['advisory','recommended']) test(`${mode}: approved parent cat
  resetAgenticHub(pi);assert.equal(agenticHubEnabled(pi),false);assert.equal((await tool.execute('ask',{},new AbortController().signal)).details.reason,'consumer_off');
  writeFileSync(join(root,'.ai/agent-fleet.json'),JSON.stringify({features:{system1:false}}));configureAgenticHub(pi,{snapshot:normalizeSystem1Config(document),ctx,sessionDir:root,taskId:()=> 'task'});assert.equal(agenticHubEnabled(pi),false);
  configureAgenticHub(pi,{snapshot:normalizeSystem1Config({...document,consumers:{}}),ctx,sessionDir:root,taskId:()=> 'task'});assert.equal(agenticHubEnabled(pi),false);
- }finally{rmSync(root,{recursive:true,force:true});}
+ }finally{for(const [key,value]of Object.entries(inherited))if(value===undefined)delete process.env[key];else process.env[key]=value;rmSync(root,{recursive:true,force:true});}
 });

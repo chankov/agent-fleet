@@ -130,3 +130,14 @@ test("task-triage observer failure leaves real policy assessment and call budget
  assert.equal(store.snapshot()[0].consumer, "task-triage");
  runtime.dispose();
 });
+
+test('D9 projection rejects untrusted payload fields, IDs, paths and capabilities; statuses and unknown usage distinct', async () => {
+ const store=createCommunicationStore();store.setEnabled(true);
+ for(const status of ['complete','partial','unavailable','cancelled','skipped']){
+  store.beginDiscovery({owner:'/private/OWNER',attempt:'capability=PRIVATE_TOKEN',trigger:'PRIVATE_QUERY',provider:'PRIVATE_PROVIDER',model:'PRIVATE_MODEL'})({status,counts:{evaluated:1,cached:2,failed:3,unscored:4,discovered:10},rows:[{path:'/private/PATH',body:'PRIVATE_BODY'}],query:'PRIVATE_QUERY',usage:{inputTokens:4,outputTokens:2,extra:'PRIVATE_USAGE'},attempts:2,elapsedMs:12,discoveryComplete:false,evaluationComplete:false});
+  const pair=store.snapshot().at(-1)!;assert.equal(pair.status,status);assert.equal(pair.owner,'unknown');assert.equal(JSON.parse(pair.response!).attempts,2);assert.deepEqual(JSON.parse(pair.response!).usage,{inputTokens:4,outputTokens:2});assert.ok(!JSON.stringify(pair).includes('PRIVATE_'));
+ }
+ const end=store.beginDiscovery({owner:'hub',trigger:'find',provider:'typesafe',model:'jev-1.13.0'});end({status:'skipped'});assert.equal(JSON.parse(store.snapshot().at(-1)!.response!).usage,null);
+ const late=store.beginDiscovery({owner:'hub',provider:'typesafe',model:'jev-1.13.0'});store.setEnabled(false);store.setEnabled(true);late({status:'complete'});assert.deepEqual(store.snapshot(),[]);
+ await store.wrap(service,{provider:'typesafe',model:'jev-1.13.0'}).evaluate({...request,questionSetVersion:'file-discovery/questions/v1'});assert.deepEqual(store.snapshot(),[], 'raw per-file service payload is never captured');
+});

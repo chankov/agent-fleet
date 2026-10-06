@@ -25,6 +25,7 @@ const HUB_OWNED_TOOLS = new Set<string>([
 	...CONDITIONAL_TOOLS,
 	"filesystem",
 	"ask_system1",
+	"ask_system1_files",
 ]);
 
 export function parseWorkMode(value: unknown): WorkMode | null {
@@ -162,6 +163,7 @@ export function resolveWorkModeTools(options: {
 	triageEnabled?: boolean;
 	/** Approved parent-only advisory consumer; default off. */
 	agenticAskEnabled?: boolean;
+ fileDiscoveryEnabled?: boolean;
 	/** Active and provisional packs; omitted only for legacy callers. */
 	capabilityPacks?: readonly ("core" | "fleet" | "verification" | "peer" | "workspace" | "compaction")[];
 }): string[] {
@@ -176,6 +178,7 @@ export function resolveWorkModeTools(options: {
 	if (packs.has("workspace") && options.herdrReady) tools.push(...HERDR_TOOLS);
 	if (packs.has("core") && options.askUserAvailable) tools.push("ask_user");
 	if (packs.has("core") && options.agenticAskEnabled === true) tools.push("ask_system1");
+ if (packs.has("core") && options.fileDiscoveryEnabled === true) tools.push("ask_system1_files");
 	if (packs.has("compaction")) tools.push("request_compaction");
 	// Operator inspection stays profile-gated. Orchestrator always gets the same
 	// tool, but snapshot remains refused unless deterministic-tools is on.

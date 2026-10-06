@@ -1166,6 +1166,29 @@ Semantics:
 Missing file = everything native. HOW a peer runs (persona, model, `runner: claude-code`, env) stays
 in `peers.yaml`; this file only decides WHEN the hub prefers a peer over a native spawn.
 
+### Planner recovery and completion evidence
+
+An open plan obligation requires `dispatch_agent` with the planner persona, declared
+scope/deliverable and the applicable backend policy. Direct `coms_send` has no planner
+dispatch contract: a peer named planner, prompt claims, work-mode changes or repeated
+attempts do not bypass the gate. The refusal occurs before target resolution/send and
+preserves handoff tokens. If planner is absent, the human can use `/af-agents-add planner`
+or `/af-agents-team`; do not reset the task, downgrade its tier or invent an alternate lane.
+Read-only `coms_list`, `coms_get` and `coms_await` can inspect an existing pending message
+without resending it.
+
+A current declared plan artifact readback proves plan occurrence only. Exit 0, echoed
+instructions, `PLAN_FILE` text without the declared file, or a pending reply do not close
+that deliverable contract. Plan, acceptance and review remain independent; verification
+and review must cover the current revision. Coms transport cannot produce trusted native
+runtime checks, even when a valid peer reply and declared deliverable are available.
+
+Malformed `dispatch_agent`/`spawn_research` input returns `invalid_invocation_shape` with
+bounded safe field/type diagnostics, separately from `invocation_persistence_failed`
+for valid input whose durable contract could not be stored. Neither launches the executor;
+correct the reported input or storage prerequisite and re-invoke explicitly under existing
+gates. Diagnostics omit raw values/private payloads and redact unsafe unknown-key locations.
+
 ### Handoff
 
 `/af-handoff <peer>` transfers the session to another **main** agent. Following the plan's
@@ -1450,6 +1473,10 @@ privacy boundaries, evaluation commands and outstanding live acceptance.
 ## Unified System 1 v2 configuration
 
 The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract](../../../docs/system1-config.md) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change.
+
+## Automatic System 1 file discovery
+
+D9 `consumers.fileDiscovery` is separately consented and off by default. In both work modes/all tiers it ranks eligible parent inventory/find/ls/grep before delivery, plus initial/current native research/worker and registered nested delegate discoveries. Every display-permitted candidate remains (low/unscored included); large lists use bounded pages and normal read budgets, never top-K. Scope is a hint, not permission; mandatory policy, original failures and launch/acceptance gates survive. Fleet `1` opt-in diagnostics show only hashed identity, trigger/counts/coverage/elapsed and actual-or-unknown usage, not queries/bodies/paths/tokens. Start a new session after config changes. See [D9 scope, full-list/status/privacy limits and source/local-tarball activation instructions](../../../docs/system1-file-discovery.md); published latest is not assumed to contain this checkout's D9.
 
 ## Agentic System 1 advisory tool
 

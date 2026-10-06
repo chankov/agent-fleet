@@ -127,10 +127,11 @@ export function completionSentinel(msgId: string): string {
 export function formatPanePrompt(
 	env: { prompt: string; sender_name: string; sender_cwd: string; msg_id: string },
 	sentinelMode: boolean,
+	requestBoundary?: string,
 ): string {
 	const header = `[coms message from ${env.sender_name} @ ${env.sender_cwd}] `;
 	const sentinelNote = sentinelMode
-		? `\n\nEnd your reply with this exact line so the bridge can capture it: ${completionSentinel(env.msg_id)}`
+		? `\n\nEnd your reply with this exact line so the bridge can capture it: ${completionSentinel(env.msg_id)}${requestBoundary ? ` ${requestBoundary}` : ""}`
 		: "";
 	return `${header}${env.prompt}${sentinelNote}`;
 }
@@ -152,25 +153,22 @@ export function parseHookRecord(raw: string): HookRecord | null {
 	}
 }
 
-// Sentinel-mode fallback: pull the reply out of raw pane text. Takes
-// everything between the last prompt echo (identified by the msg_id-bearing
-// sentinel instruction OR the header line) and the sentinel line, stripped of
-// obvious TUI furniture. Returns null when the sentinel has not appeared.
-export function extractSentinelReply(paneText: string, msgId: string): string | null {
-	const sentinel = completionSentinel(msgId);
-	const at = paneText.lastIndexOf(sentinel);
-	if (at === -1) return null;
-	const before = paneText.slice(0, at);
-	// Cut at the end of the prompt echo: the sentinel instruction line
-	// contains the sentinel too, so use the LAST occurrence before the final
-	// one — that's the echo; the reply follows it.
-	const echoAt = before.lastIndexOf(sentinel);
-	const replyRegion = echoAt !== -1 ? before.slice(echoAt + sentinel.length) : before;
-	const lines = replyRegion
-		.split("\n")
-		.map((l) => l.replace(/^[●❯>\s]+/, "").trimEnd())
-		.filter((l) => l.trim() !== "" && !/^[─━┏┗┃│]+/.test(l));
-	return lines.join("\n").trim() || null;
+// Completion requires the unique boundary submitted for this request, not merely
+// a matching marker in scrollback. Missing/truncated provenance stays pending.
+export function extractSentinelReply(paneText: string, msgId: string, requestBoundary?: string): string | null {
+ if (!requestBoundary) return null;
+ const clean = paneText.replace(/\x1b\[[0-9;]*m/g, "");
+ const boundaryAt = clean.indexOf(requestBoundary);
+ if (boundaryAt < 0 || clean.indexOf(requestBoundary, boundaryAt + requestBoundary.length) >= 0) return null;
+ const region = clean.slice(boundaryAt + requestBoundary.length);
+ // Strip known Claude TUI prefixes, but preserve Markdown quote text (`>`).
+ const lines = region.split("\n").map(l => l.replace(/^[●❯\s]+/, "").trimEnd());
+ const sentinel = completionSentinel(msgId);
+ const end = lines.findIndex(l => l === sentinel);
+ if (end < 0 || lines.slice(end + 1).some(l => l.trim() && !/^[─━┏┗┃│]+/.test(l))) return null;
+ const reply = lines.slice(0, end).filter(l => l.trim() && !/^[─━┏┗┃│]+/.test(l));
+ if (reply.some(l => /<<COMS_(?:DONE|REQUEST):/.test(l)) || !reply.length) return null;
+ return reply.join("\n").trim() || null;
 }
 
 // ━━ Serial prompt queue ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

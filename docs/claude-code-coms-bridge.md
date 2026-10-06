@@ -55,8 +55,11 @@ configuration and merging into it is not something a pi install should decide.
    ```
 
    Without the hook the bridge falls back to asking Claude for a
-   `<<COMS_DONE:msg_id>>` sentinel and scraping the pane — it works, but replies can
-   carry TUI noise (tool-status lines). The hook returns exact text.
+   `<<COMS_DONE:msg_id>>` sentinel and scraping the pane. Fallback extraction requires
+   a unique current-request boundary (message ID plus per-submission nonce), a nonempty
+   reply after that boundary, and an exact terminal current-ID marker. Prompt echoes,
+   stale/foreign markers, missing or ambiguous boundaries and truncated captures do
+   not prove completion. Replies can still carry TUI noise; the hook returns exact text.
 
 2. **Skill:** install `peer-coms` so the bridged session knows it is a peer and how to
    use `coms-cli`. Point Claude Code at it the way you normally load project skills —
@@ -126,8 +129,18 @@ Older releases used the ambiguous name-only path `~/.pi/coms/cli/<name>/`. If th
 - **Blocked panes:** a Claude waiting on a permission prompt returns a readable error
   envelope ("blocked on a permission prompt — a human must approve it") instead of
   hanging until timeout.
-- **Busy panes:** a prompt arriving while Claude is mid-turn errors immediately
-  ("mid-turn — try again shortly") rather than typing into a running turn.
+- **Busy panes:** the bridge waits with bounded backoff before submitting; exhausting
+  that wait returns a mid-turn error without typing the prompt. One absolute reply
+  deadline covers both idle waiting and the reply, rather than extending the budget.
+- **Pending versus completion:** after submission, exceeding the reply budget leaves
+  the original message pending. The bridge watches the same turn up to its hard
+  monitoring cap; a valid late reply resolves the original `msg_id` without resubmission.
+  At the cap it remains pending, not a fabricated successful or no-effects response.
+  Working→idle/done alone is insufficient: fallback also requires current reply provenance.
+- **Hook freshness:** hook mode is latched once observed. The bridge snapshots hook
+  mtime immediately before submission (after any busy wait) and ignores unchanged or
+  malformed records. A newer valid record supports completion, but mtime is not
+  authenticated request identity: unrelated fresh hook traffic remains indistinguishable.
 - **Restarts:** the bridge is bound to the pane id, not the Claude process — restart
   Claude in the pane and the bridge keeps working.
 - **Fleet safety:** the bridge and skill never create or close panes; herdr driving

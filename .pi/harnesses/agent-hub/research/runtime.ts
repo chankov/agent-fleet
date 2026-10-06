@@ -1,3 +1,4 @@
+import type {PrepareNativeDiscovery,ResearchAdmission} from '../file-discovery/native-context.ts';
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import type { ChildProcess } from "child_process";
@@ -86,6 +87,9 @@ export interface ResearchRuntimeStatePorts<TDef extends ResearchAgentDef> {
 }
 
 export interface ResearchRuntimeDeps<TDef extends ResearchAgentDef> extends ResearchRuntimeStatePorts<TDef> {
+ prepareDiscovery?:PrepareNativeDiscovery;
+ launchIdentity?():unknown;
+ researchAdmission?():boolean;
 	hubState: Pick<HubStateContext, "getSessionDir">;
 	budget: Pick<BudgetContext, "currentBudget">;
 	artifacts: Pick<AssertionsArtifactsContext, "appendInputArtifacts">;
@@ -124,7 +128,7 @@ export interface ResearchRuntime<TDef extends ResearchAgentDef = ResearchAgentDe
 	resolveModel(def: TDef, explicit: string | undefined, ctx: ExtensionContext): string;
 	createState(def: TDef, persona: boolean, model: string): ResearchState<TDef>;
 	finalize(state: ResearchState<TDef>, outcome: ResearchFinalizeOutcome): void;
-	spawn(state: ResearchState<TDef>, prompt: string, ctx: ExtensionContext, inputArtifacts?: InputArtifactPreview[], signal?: AbortSignal): Promise<ResearchResult>;
+	spawn(state: ResearchState<TDef>, prompt: string, ctx: ExtensionContext, inputArtifacts?: InputArtifactPreview[], signal?: AbortSignal, admission?:ResearchAdmission): Promise<ResearchResult>;
 }
 
 export function parseResearchHandle(arg: string): number | null {
@@ -190,8 +194,8 @@ export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: Resea
 			return state;
 		},
 		finalize,
-		spawn(state, prompt, ctx, inputArtifacts = [], signal) {
-			return runResearchSpawn(spawnPorts, state, prompt, ctx, inputArtifacts, signal);
+		spawn(state, prompt, ctx, inputArtifacts = [], signal, admission) {
+			return runResearchSpawn(spawnPorts, state, prompt, ctx, inputArtifacts, signal, admission);
 		},
 	};
 }

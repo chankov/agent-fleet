@@ -22,7 +22,7 @@ import { collectModelTargets } from "../lib/doctor.js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACK_MAX_BUFFER = 64 * 1024 * 1024;
 const SYSTEM1_RUNTIME = [
-  "config.js", "config-v2.js", "config-agentic.js", "config-proactive.js", "config-triage.js", "config-json.js", "config-loader.js",
+  "config.js", "config-v2.js", "config-file-discovery.js", "config-agentic.js", "config-proactive.js", "config-triage.js", "config-json.js", "config-loader.js",
   "selection.js",
   "contracts.ts",
   "demo.ts",
@@ -111,6 +111,14 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
       assert.ok(existsSync(join(hubRoot,file)), `packed D10 runtime missing ${file}`);
       if (file.endsWith('.ts')) assert.equal(existsSync(join(hubRoot,file.replace(/\.ts$/,'.test.ts'))), false);
     }
+    for(const file of ['hub.ts','runtime.ts','state.ts','evaluate.ts','sources.ts','results.ts','discovery.ts','adapters.ts','owners.ts','broker.ts','broker-client.ts','child-extension.ts','descendant.ts','native-context.ts']) {
+      assert.ok(existsSync(join(hubRoot,'file-discovery',file)), `packed D9 runtime missing ${file}`);
+      assert.equal(existsSync(join(hubRoot,'file-discovery',file.replace(/\.ts$/,'.test.ts'))),false);
+    }
+    assert.ok(existsSync(join(hubRoot,'file-discovery/discovery-worker.mjs')));
+    assert.equal(existsSync(join(hubRoot,'file-discovery/native-fixture.test-support.ts')),false);
+    assert.ok(existsSync(join(hubRoot,'tools/ask-system1-files.ts')));
+    assert.ok(existsSync(join(extracted,'docs/system1-file-discovery.md')));
     assert.ok(existsSync(join(extracted,'.pi/harnesses/lib/safe-source-read.js')));
     assert.ok(existsSync(join(extracted,'docs/system1-agentic.md')));
     // Node's built-in type stripper refuses TS inside node_modules. Exercise the
@@ -181,6 +189,43 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
       assert.equal(result.details.status,'cancelled',JSON.stringify(result.details));assert.equal(calls,1);
     `],{cwd:defaultWs,encoding:'utf8',env:{...process.env,AGENT_HUB_AGENT_ID:'',AGENT_FLEET_AGENTIC_CHILD:''}});
     assert.equal(agenticSmoke.status,0,agenticSmoke.stderr);
+    // Materialize the actual already-installed pinned Pi prerequisite, including
+    // its local dependency closure; never fetch or substitute a fake Pi package.
+    cpSync(join(root,'node_modules/@earendil-works/pi-coding-agent'),join(defaultWs,'.pi/harnesses/node_modules/@earendil-works/pi-coding-agent'),{recursive:true});
+    const d9Smoke=spawnSync(process.execPath,['--import',join(root,'bin/test/helpers/system1-no-network.js'),'--experimental-strip-types','--input-type=module','-e',`
+      import assert from 'node:assert/strict';
+      import {mkdirSync,writeFileSync} from 'node:fs';
+      const hub=${JSON.stringify(join(defaultWs,'.pi/harnesses/agent-hub'))};
+      const lib=${JSON.stringify(join(defaultWs,'.pi/harnesses/lib/system1'))};
+      const {normalizeSystem1Config}=await import(lib+'/config-v2.js');
+      const {registerDiscoveryHub,configureDiscoveryHub,discoveryHubEnabled,resetDiscoveryHub}=await import(hub+'/file-discovery/hub.ts');
+      const {createDiscoveryRuntime}=await import(hub+'/file-discovery/runtime.ts');
+      const {createDiscoveryOwners,discoveryAssignmentEnv}=await import(hub+'/file-discovery/owners.ts');
+      const {createDiscoveryBroker}=await import(hub+'/file-discovery/broker.ts');
+      const {default:child}=await import(hub+'/file-discovery/child-extension.ts');
+      await import(hub+'/file-discovery/descendant.ts');
+      const {discoverCandidates}=await import(hub+'/file-discovery/discovery.ts');
+      await import(hub+'/file-discovery/sources.ts');
+      const rows=[],pi={registerTool(){},on(){},appendEntry:(customType,data)=>rows.push({customType,data})};
+      const ctx={cwd:process.cwd(),sessionManager:{getSessionId:()=> 's',getEntries:()=>rows}};
+      registerDiscoveryHub(pi);configureDiscoveryHub(pi,{snapshot:normalizeSystem1Config({version:2,mode:'off',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{}}),ctx,sessionDir:process.cwd(),taskId:()=> 't'});assert.equal(discoveryHubEnabled(pi),false);
+      const config=normalizeSystem1Config({version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{fileDiscovery:{mode:'active',remoteContextApproved:true,include:['docs']}}}).consumers.fileDiscovery.config;
+      mkdirSync('docs',{recursive:true});writeFileSync('docs/a.ts','safe installed source');writeFileSync('docs/b.ts','safe installed source');let calls=0;
+      const runtime=createDiscoveryRuntime({root:process.cwd(),sessionId:'s',config,context:()=> 't',persist(){},service:{evaluate:async r=>{calls++;assert.equal(r.state.source.text,'safe installed source');return {status:'ok',evaluation:{answers:r.questions.map(q=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:{value:'implementation'})})),metadata:{}}};}}});
+      // Only test-local startup allowance: production parser/default/max stays 1000ms.
+      const traversalConfig=structuredClone(config);traversalConfig.limits.discoveryMs=15000;
+      const found=await discoverCandidates({root:process.cwd(),config:traversalConfig,directories:['docs'],patterns:['*.ts'],recursive:false,signal:new AbortController().signal,canDiscover:()=>true});
+      assert.equal(found.discoveryComplete,true,JSON.stringify(found));assert.deepEqual(found.paths,['docs/a.ts','docs/b.ts']);
+      const owners=createDiscoveryOwners('s',()=> 't'),broker=await createDiscoveryBroker({root:process.cwd(),runtime,owners});
+      try{
+       const owner=owners.register({taskId:'t',ownerId:'worker',attemptId:'physical',cwd:process.cwd(),task:'installed task',query:'installed query',effectiveTools:['read','find'],readRoots:['docs'],exportRoots:['docs'],canRead:()=>true,canDisplay:()=>true,permissionIdentity:()=> 'p'});
+       Object.assign(process.env,discoveryAssignmentEnv(owners.assignment(owner,broker.endpoint),process.cwd(),['docs']));
+       const hooks={};child({on:(event,fn)=>hooks[event]=fn,registerTool(){throw Error('no extra tools');}});
+       const evidence={toolName:'find',toolCallId:'find',input:{path:'docs'},content:[{type:'text',text:'a.ts\\nb.ts'}],details:{}};
+       const result=await hooks.tool_result(evidence,ctx);assert.deepEqual(result.content[0],evidence.content[0]);assert.equal(result.details.fileDiscovery.rows.length,2);assert.equal(result.details.fileDiscovery.status,'complete');assert.equal(calls,2);hooks.session_shutdown();
+      }finally{runtime.dispose();await broker.close();await resetDiscoveryHub(pi);}
+    `],{cwd:defaultWs,encoding:'utf8',env:{...process.env,AGENT_HUB_AGENT_ID:'',AGENT_FLEET_AGENTIC_CHILD:'',PI_OFFLINE:'1'}});
+    assert.equal(d9Smoke.status,0,d9Smoke.stderr);
     const defaultDesired = JSON.parse(readFileSync(join(defaultWs, ".ai", "agent-fleet.json"), "utf8"));
     assert.notEqual(defaultDesired.features?.system1, true);
     assert.equal(existsSync(join(defaultWs, ".ai", "system1.json")), false);

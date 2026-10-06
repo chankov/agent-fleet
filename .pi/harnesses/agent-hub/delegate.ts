@@ -38,7 +38,8 @@ import { FILESYSTEM_SESSION_DIR_ENV } from "./filesystem-tool.ts";
 import { Type } from "@sinclair/typebox";
 import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
-import { spawnPiAgentWithModelFallback, killPiTree } from "./spawn.ts";
+import { killPiTree } from "./spawn.ts";
+import { spawnDiscoveryDescendant } from "./file-discovery/descendant.ts";
 import { redactSecrets } from "../lib/fleet-transcript-store.ts";
 import { buildProjectDocsProtocol, buildProjectRulesProtocol } from "../lib/context-budget-child-prompt.ts";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
@@ -163,9 +164,14 @@ export default function (pi: ExtensionAPI) {
 	// Fallback cascade: the primary kill path is the process group (the hub
 	// signals the specialist's negative PID), but if only this process is
 	// terminated, forward the signal to any live children.
-	process.on("SIGTERM", () => {
+	const treeController = new AbortController();
+	const cancelTree = () => {
+		treeController.abort();
 		for (const child of liveChildren) killPiTree(child, "SIGTERM");
-	});
+	};
+	process.on("SIGTERM", cancelTree);
+	pi.on?.("session_shutdown", cancelTree);
+	pi.on?.("session_before_switch", cancelTree);
 
 	const redactValue = (value: unknown): unknown => {
 		if (typeof value === "string") return redactSecrets(value);
@@ -250,6 +256,8 @@ export default function (pi: ExtensionAPI) {
 					details: { status: "refused", reason: "tools_unavailable" },
 				};
 			}
+			const signal = _signal ? AbortSignal.any([_signal, treeController.signal]) : treeController.signal;
+			if (signal.aborted) return { content: [{ type: "text" as const, text: "Delegation cancelled before launch." }], details: { status: "cancelled" } };
 			const effectiveTools = tools.effectiveTools;
 			const writeDowngraded = tools.writeDowngraded;
 
@@ -344,7 +352,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				res = await providerSemaphore.run(roleDef.model, () => {
 					queuedMs = Date.now() - startTime;
-					return spawnPiAgentWithModelFallback({
+					return spawnDiscoveryDescendant({
 					model: roleDef.model,
 					tools: childTools,
 					thinking: roleDef.thinking ?? "off",
@@ -362,7 +370,7 @@ export default function (pi: ExtensionAPI) {
 					// Each nested child owns its group. The SIGTERM trap above forwards
 					// parent cancellation so detached children cannot become orphans.
 					detached: true,
-					signal: _signal,
+					signal,
 					// `null` is the explicit `off` override; preserve it rather than
 					// silently restoring the default for terminal children.
 					toolWatchdog: { timeoutMs: config.reconSearchTimeoutMs === undefined ? 120_000 : config.reconSearchTimeoutMs },
@@ -405,6 +413,9 @@ export default function (pi: ExtensionAPI) {
 						// carries `delegate` in its tool list and so reads as non-read-only
 						// here — deliberately: retrying it would re-spawn its grandchildren.
 						midRun: isReadOnlyToolList(childTools),
+					}, {
+						childId, task: instruction, query: JSON.stringify([instruction, brief ?? ""]),
+						admit: () => !signal.aborted && config.roles[roleKey] === roleDef && config.depth > childDepth,
 					});
 				});
 			} finally {

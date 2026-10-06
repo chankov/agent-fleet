@@ -69,6 +69,24 @@ function projectAgenticState(state: Record<string, any>, request: EvaluateReques
   sourceBytes: state.sources.reduce((n:number,s:any) => n + s.bytes, 0), requestBytes: Buffer.byteLength(JSON.stringify({ state, questions:request.questions,questionSetVersion:request.questionSetVersion,timeoutMs:request.timeoutMs })),
   incompleteSources: state.sources.filter(s => !s.complete).length };
 }
+/** D9 accepts only numeric/enumerated metadata, never paths, queries or provider payloads. */
+export interface DiscoveryDiagnostic {
+ owner: string; attempt?: string; trigger?: string; provider: string; model: string;
+}
+function discoveryIdentity(value: unknown, hub = false): string {
+ return hub && value === 'hub' ? 'hub' : typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : 'unknown';
+}
+function discoverySummary(value: any) {
+ const number = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+ const counts = Object.fromEntries(['discovered','evaluated','cached','failed','unscored'].map(k => [k, number(value?.counts?.[k])]));
+ return { status: ['complete','partial','unavailable','cancelled','skipped'].includes(value?.status) ? value.status : 'unavailable',
+  counts, discoveryComplete: typeof value?.discoveryComplete === 'boolean' ? value.discoveryComplete : null,
+  evaluationComplete: typeof value?.evaluationComplete === 'boolean' ? value.evaluationComplete : null,
+  remaining: value?.remaining === 0 ? 0 : 'unknown', elapsedMs: number(value?.elapsedMs),
+  logicalCalls: number(value?.logicalCalls), attempts: number(value?.attempts),
+  usage: value?.usage && number(value.usage.inputTokens) !== null && number(value.usage.outputTokens) !== null
+   ? { inputTokens: value.usage.inputTokens, outputTokens: value.usage.outputTokens } : null };
+}
 export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Date.now) {
  let enabled = false, generation = 0, sessionEpoch = 0, evicted = 0;
  const pairs = new Map<string, CommunicationPair>();
@@ -97,6 +115,26 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
   subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
   setEnabled(value: boolean) { generation++; enabled = value; pairs.clear(); evicted = 0; emit(); },
   dispose() { sessionEpoch++; generation++; enabled = false; pairs.clear(); evicted = 0; emit(); listeners.clear(); },
+  beginDiscovery(input: DiscoveryDiagnostic) {
+   const epoch = generation, ownerEpoch = sessionEpoch;
+   if (!enabled) return (_summary: unknown) => {};
+   const id = randomUUID();
+   const metadata = { owner: discoveryIdentity(input.owner, true), attempt: discoveryIdentity(input.attempt),
+    trigger: ['filesystem','find','ls','grep','explicit','pre_spawn','native'].includes(input.trigger ?? '') ? input.trigger : 'unknown' };
+   // Provider/model are code-owned constants, not transport-controlled labels.
+   pairs.set(id, { id, consumer: 'fileDiscovery', owner: metadata.owner, provider: input.provider === 'typesafe' ? 'typesafe' : 'unknown',
+    model: input.model === 'jev-1.13.0' ? 'jev-1.13.0' : 'unknown', started: now(), status: 'pending',
+    request: JSON.stringify(metadata, null, 2), response: null }); trim(); emit();
+   return (summary: unknown) => {
+    if (!enabled || epoch !== generation || ownerEpoch !== sessionEpoch || !pairs.has(id)) return;
+    try {
+     const projected = discoverySummary(summary), pair = pairs.get(id)!;
+     pair.status = projected.status; pair.ended = now(); pair.response = payload(projected);
+     if (pair.response === null) pair.responseOmitted = 'metadata withheld';
+     trim(); emit();
+    } catch { /* diagnostic observer cannot change discovery */ }
+   };
+  },
   finishAgentic(evaluationId: string, status: string) {
    if (!enabled || !['ok','stale','skipped','unavailable','unsupported','cancelled'].includes(status)) return;
    const pair = [...pairs.values()].find(p => p.consumer === 'agenticAsk' && p.evaluationId === evaluationId);
@@ -108,6 +146,7 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
   wrap(service: System1Service, identity: { provider: string; model: string }): System1Service {
    const ownerEpoch = sessionEpoch;
    return { async evaluate(request) {
+    if (request.questionSetVersion === 'file-discovery/questions/v1') return service.evaluate(request);
     const epoch = generation; let id: string | undefined;
     try {
      if (enabled && ownerEpoch === sessionEpoch) {

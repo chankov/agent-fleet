@@ -1,3 +1,4 @@
+import {appendDiscoveryContext,type ResearchAdmission} from '../file-discovery/native-context.ts';
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beginExecutionEvidence, finishExecutionEvidence } from "../execution-evidence.ts";
@@ -37,9 +38,11 @@ function completeOutput<TDef extends ResearchAgentDef>(state: ResearchState<TDef
 
 export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 	deps: ResearchSpawnPorts<TDef>, state: ResearchState<TDef>, prompt: string, ctx: ExtensionContext,
-	inputArtifacts: InputArtifactPreview[] = [], signal?: AbortSignal,
+	inputArtifacts: InputArtifactPreview[] = [], signal?: AbortSignal, admission?:ResearchAdmission,
 ): Promise<ResearchResult> {
 	const startTime = Date.now();
+ const launchIdentity=deps.launchIdentity?.(), sessionDir=deps.hubState.getSessionDir(), admittedTools=state.def.tools;
+ const admitted=()=>state.def.tools===admittedTools&&!signal?.aborted&&!state.killedByOperator&&deps.getResearchStates().get(state.id)===state&&sessionDir===deps.hubState.getSessionDir()&&launchIdentity===deps.launchIdentity?.()&&deps.researchAdmission?.()!==false&&admission?.admit?.()!==false;
 	let result: ResearchResult | undefined;
 	let diagnostics: object | null = null;
 	let spawnAttempted = false;
@@ -91,10 +94,17 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		const declaredTools = state.def.tools.split(",").map(tool => tool.trim()).filter(Boolean);
 		const deterministicTools = assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
 		const boundedOutputDir = safePathWithin(state.evidenceDir, "bounded-output");
-		const researchTools = deterministicTools && !deps.researchTools.split(",").includes("filesystem") ? `${deps.researchTools},filesystem` : deps.researchTools;
+		const cappedTools=state.def.toolsExplicit===true?deps.researchTools.split(',').filter(t=>declaredTools.includes(t)).join(','):deps.researchTools;
+  const researchTools = deterministicTools && !cappedTools.split(",").includes("filesystem") ? `${cappedTools},filesystem` : cappedTools;
 		const cwd = ctx.cwd || process.cwd();
-		spawnAttempted = true;
-		const res = await deps.providerSemaphore.run(state.model, () => deps.spawnPiAgentWithModelFallback({
+  if(!admitted())return settle('error','error','Research admission cancelled',{output:'Research cancelled or admission changed before manifest; no child started.',exitCode:143,elapsed:Date.now()-startTime,lifecycle:{launched:false,closeSeen:false}});
+  const discovery=await deps.prepareDiscovery?.({ownerId:state.dispatchId,task:prompt,query:prompt,scope:admission?.readScope??[],tools:researchTools.split(','),cwd,signal});
+  if(!admitted()||discovery?.current()===false)return settle('error','error','Research admission changed',{output:'Research cancelled or admission changed after manifest; no child started.',exitCode:143,elapsed:Date.now()-startTime,lifecycle:{launched:false,closeSeen:false}});
+		const res = await deps.providerSemaphore.run(state.model, () => {
+   if(!admitted()||discovery?.current()===false)throw Error('Research admission changed while queued; no child started.');
+   spawnAttempted = true;
+   return deps.spawnPiAgentWithModelFallback({
+   discoveryRegistration:discovery?.registration?{...discovery.registration,admit:()=>admitted()&&discovery.current()}:undefined,
 			model: state.model, tools: researchTools, thinking: thinkingLevel,
 			systemPrompt: deps.nativeResearchSystemPrompt({
 				...(state.persona ? { personaName: state.def.name, personaPath: state.def.file } : {}),
@@ -103,7 +113,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 				docsPaths: deps.getProjectDocsPaths(),
 			}),
 			noSkills: true, noContextFiles: true, sessionFile: sessionPath, resume: false,
-			prompt: deps.artifacts.appendInputArtifacts(prompt, inputArtifacts), cwd: ctx.cwd || process.cwd(),
+			prompt: appendDiscoveryContext(deps.artifacts.appendInputArtifacts(prompt, inputArtifacts),discovery), cwd: ctx.cwd || process.cwd(),
 			extensions: [...safety.extensions, ...(boundedOutput ? [fileURLToPath(new URL("../bounded-output.ts", import.meta.url))] : []), ...(deterministicTools ? [fileURLToPath(new URL("../filesystem-tool.ts", import.meta.url))] : [])],
 			env: { ...deps.guardrailEnv(`research-r${state.id}`), ...(boundedOutput ? { [BOUNDED_OUTPUT_DIR_ENV]: boundedOutputDir } : {}), ...(deterministicTools ? { [FILESYSTEM_SESSION_DIR_ENV]: dirname(dirname(state.evidenceDir)) } : {}) },
 			...(boundedOutput ? { boundedOutputDir } : {}),
@@ -142,7 +152,8 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 					state.contextPct = contextPct(usage, researchWindow.window);
 				}
 			},
-		}, { midRun: isReadOnlyToolList(researchTools) }));
+		}, { midRun: isReadOnlyToolList(researchTools) });
+  });
 
 		diagnostics = { assistantError: res.assistantError ?? null, stderr: res.stderr, spawnError: res.spawnError ?? null, modelUsed: res.modelUsed ?? null, toolCallsStarted: res.toolCallsStarted ?? null, termination: res.termination ?? null, processExitCode: res.exitCode };
 		state.elapsed = Date.now() - startTime;

@@ -9,7 +9,7 @@ import { resolveAssist } from "./assist-profile.ts";
 
 export const FILESYSTEM_SESSION_DIR_ENV = "AGENT_FLEET_FILESYSTEM_SESSION_DIR";
 
-export interface FilesystemToolPorts { enabled(): boolean; sessionDir(): string; readOnly?(): boolean; remainingSelfReadBytes?(): number; noteSelfReadBytes?(bytes: number): void }
+export interface FilesystemToolPorts { enabled(): boolean; sessionDir(): string; readOnly?(): boolean; remainingSelfReadBytes?(): number; noteSelfReadBytes?(bytes: number): void; managedReadbackAllowed?(handle:string):boolean }
 
 function workspacePath(path: string, cwd: string): string {
  const target=resolve(cwd,path), rel=relative(cwd,target);
@@ -103,6 +103,7 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
     }
     case "readback": {
      if(!params.handle) throw new Error("readback requires handle");
+     if(ports.managedReadbackAllowed?.(params.handle)===false)throw new Error('Managed readback is stale or denied');
      if (readOnly) {
       let bound = "";
       try { bound = deterministicHandlePath(params.handle); } catch { /* readback reports an invalid handle */ }

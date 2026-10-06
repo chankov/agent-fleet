@@ -28,6 +28,7 @@ Each optional section under `consumers` has its own permissions and budgets. Mis
 | `dispatchTriage` | `mode: off`, `shadow`, or `advisory`; explicit `remoteContextApproved`, positive `maxCalls`, `maxStateBytes`, `maxTaskBytes`, `maxRoleBytes`; optional `profile`, `orchestratorBeforeDispatch` |
 | `taskTriage` | `mode: off` or `experimental`; explicit `remoteContextApproved`, pinned `questionVersion`, `policyVersion`, `limits`; inherits root provider/model |
 | `agenticAsk` (D10) | `mode: off`, `advisory`, or `recommended`; independent `remoteContextApproved`, `include` (repo-relative prefixes or explicit `git:tracked` selector), `allowToolOutputs`, `limits`; parent-only typed judgment tool |
+| `fileDiscovery` (D9) | `mode: off` or `active`; independent `remoteContextApproved`, nonempty `include` for approved active use, bounded `limits`; automatic full-list ranking |
 
 The top-level `mode: off` disables remote inference. Independently valid proactive local capture/checks can remain enabled. An off proactive section cannot authorize capture. Neither off nor migration failure/provider unavailability cancels persisted Task Triage process obligations.
 
@@ -48,7 +49,25 @@ Example task section (requires separate human data consent):
 }
 ```
 
-Those task limits are a pinned compatibility contract, not adjustable knobs. Profile thresholds for dispatch remain configurable. No `agenticAsk` section is enabled or accepted by D0; D10 owns its future contract.
+Those task limits are a pinned compatibility contract, not adjustable knobs. Profile thresholds for dispatch remain configurable. D10 and D9 are implemented consumers of the same v2 service, not extra providers or config files. Example sections below require separate human consent and workspace-specific roots; this is not activation:
+
+```json
+{
+  "agenticAsk": {
+    "mode": "recommended",
+    "remoteContextApproved": true,
+    "include": [".pi/harnesses", "bin", "docs"],
+    "allowToolOutputs": false
+  },
+  "fileDiscovery": {
+    "mode": "active",
+    "remoteContextApproved": true,
+    "include": [".pi/harnesses", "bin", "docs"]
+  }
+}
+```
+
+Merge these under `consumers`, preserving root settings and all human-owned sections. D10 recommended is model-facing advice for suitable typed questions; it does not activate D9 or grant D9 export consent. D9 uses deterministic discovery/pre-spawn hooks, retains every display-permitted candidate (including low/unscored), and pages large results without raising read budgets. Its complete/partial/unavailable/cancelled/skipped and independent discovery/evaluation coverage are not semantic accuracy guarantees. Start a new session after edits. See [D10](system1-agentic.md) and [D9 triggers, full-list contract, limitations and unpublished source/local-tarball commands](system1-file-discovery.md).
 
 For a separately approved Git-tracked-only export scope, set only `consumers.agenticAsk.include` to `["git:tracked"]`. This dynamically checks the current Git index before reading sources and for freshness; selected text is from the working tree. Untracked files do not qualify, and sensitive-path/local-access/source guards still apply even to tracked files. It does not change `fileDiscovery` consent or output capture. Adding directory prefixes alongside the selector also permits their untracked descendants. See [D10 export scope and refusal handling](system1-agentic.md#export-scope-and-gittracked). Restart the Hub after editing.
 

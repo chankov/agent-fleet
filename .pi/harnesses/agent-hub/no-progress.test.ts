@@ -390,3 +390,96 @@ test('failed guard replay does not replace the current cancellation fence', () =
  assert.equal(guard.begin('other', 'different', 'builder').allowed, false);
  assert.equal(guard.authorize('cancel-1'), true);
 });
+
+test("invalid invocation reports safe field types before executor", async t => {
+ const cwd = mkdtempSync(join(tmpdir(), 'field-diagnostic-'));
+ t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ execFileSync('git', ['init', '-q', cwd]);
+ let calls = 0;
+ const run = withNoProgress({ noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } } as any, 'dispatch', async () => { calls++; return { content: [] }; });
+ const result = await run('one', { agent: 'builder', task: 'secret task', watchdog: 'secret-value' } as any, undefined, undefined, { cwd } as any);
+ assert.deepEqual((result.details as any).diagnostics, [{ field: 'watchdog', expected: 'boolean', actual: 'string' }]);
+ assert.doesNotMatch(JSON.stringify(result), /secret/);
+ assert.equal(calls, 0);
+});
+
+for (const kind of ['dispatch', 'research'] as const) test(`${kind} field diagnostics cover required, arrays, enum and unsafe keys`, async () => {
+ const base = kind === 'dispatch' ? { agent: 'builder', task: 'secret task' } : { task: 'secret task' };
+ const cases: [any, string, string, string][] = [
+  [{ task: undefined }, 'task', 'nonblank string', 'missing'], [{ task: ' ' }, 'task', 'nonblank string', 'string'],
+  [{ artifacts: 'secret' }, 'artifacts', 'array of strings', 'string'], [{ artifacts: [false] }, 'artifacts[0]', 'string', 'boolean'],
+  [{ 'secret\nkey': 1 }, 'params.<unknown-key>', 'supported field', 'number'],
+  ...(kind === 'dispatch' ? [
+   [{ agent: 1 }, 'agent', 'nonblank string', 'number'],
+   [{ scope_mode: 'secret' }, 'scope_mode', 'existing | create', 'string'],
+   [{ backend: 'secret' }, 'backend', 'auto | native | coms', 'string'],
+   [{ triage_reason: 'secret' }, 'triage_reason', 'used | better_fit | changed_scope | independent_judgment', 'string'],
+  ] as [any, string, string, string][] : [[{ read_scope: [false] }, 'read_scope[0]', 'string', 'boolean'], [{ read_scope: ['../secret'] }, 'read_scope[0]', 'repository-relative nonempty string', 'string']] as [any, string, string, string][]),
+ ];
+ for (const [extra, field, expected, actual] of cases) {
+  let calls = 0;
+  const run = withNoProgress({ noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => { throw Error('should not load'); } } } as any, kind, async () => { calls++; return { content: [] }; });
+  const result = await run('one', { ...base, ...extra } as any, undefined, undefined, { cwd: '/fake' } as any);
+  assert.equal(calls, 0); assert.doesNotMatch(JSON.stringify(result), /secret/);
+  assert.deepEqual((result.details as any).diagnostics.map(({ field, expected, actual }: any) => ({ field, expected, actual })), [{ field, expected, actual }]);
+ }
+});
+
+for (const mode of ['false', 'throw'] as const) test(`recordInvocation ${mode} releases reservation before launch and permits corrected explicit call`, async t => {
+ const cwd = mkdtempSync(join(tmpdir(), 'persistence-failure-')); t.after(() => rmSync(cwd, { recursive: true, force: true })); execFileSync('git', ['init', '-q', cwd]);
+ const guard = createNoProgressGuard(); const save = guard.recordInvocation;
+ guard.recordInvocation = () => { if (mode === 'throw') throw Error('secret storage error'); return false; };
+ let calls = 0;
+ const run = withNoProgress({ noProgress: guard, artifacts: { loadInputArtifacts: () => [] } } as any, 'dispatch', async () => { calls++; return { content: [], details: { status: 'completed' } }; });
+ const params = { agent: 'builder', task: 'inspect' };
+ const failed = await run('one', params, undefined, undefined, { cwd } as any);
+ assert.equal((failed.details as any).reason, 'invocation_persistence_failed'); assert.equal((failed.details as any).started, false);
+ assert.equal(calls, 0); assert.doesNotMatch(JSON.stringify(failed), /secret/);
+ guard.recordInvocation = save;
+ const next = await run('two', params, undefined, undefined, { cwd } as any);
+ assert.equal((next.details as any).status, 'completed'); assert.equal(calls, 1);
+});
+
+test('registered tool schemas retain runtime optional fields and provider compatible enums', async () => {
+ const { registerHooks } = await import('node:module');
+ const tuiPackage = import.meta.resolve('@earendil-works/pi-tui');
+ const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
+  return specifier === '@mariozechner/pi-tui' ? { url: tuiPackage, shortCircuit: true } : nextResolve(specifier, context);
+ } });
+ const { registerDispatchAgent } = await import('./tools/dispatch-agent.ts');
+ const { registerSpawnResearch } = await import('./tools/spawn-research.ts');
+ const tools: any[] = []; const pi: any = { registerTool: (tool: any) => tools.push(tool) };
+ registerDispatchAgent(pi, {} as any); registerSpawnResearch(pi, {} as any);
+ assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','backend','triage_id','triage_reason'].sort());
+ assert.deepEqual(Object.keys(tools[1].parameters.properties).sort(), ['task','persona','model','artifacts','read_scope','goal','expected_result'].sort());
+ assert.doesNotMatch(JSON.stringify(tools.map(t => t.parameters)), /\(\?[=!<]/);
+ for (const tool of tools) {
+  const kind = tool.name === 'dispatch_agent' ? 'dispatch' : 'research';
+  const params = kind === 'dispatch' ? { agent: 'builder', task: 'inspect', artifacts: [], scope: [], deliverables: [], scope_mode: 'create', watchdog: false, review_reason: '', backend: 'native', triage_id: 'id', triage_reason: 'better_fit' } : { task: 'inspect', persona: 'researcher', model: 'model', artifacts: [], read_scope: ['src'], goal: 'find', expected_result: 'evidence' };
+  let calls = 0;
+  const run = withNoProgress({ noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } } as any, kind, async () => { calls++; return { content: [] }; });
+  await run('one', params as any, undefined, undefined, { cwd: process.cwd() } as any);
+  assert.equal(calls, 1);
+ }
+ hooks.deregister();
+});
+
+test('actual invocation storage exception is safe no-launch history, never indeterminate', async t => {
+ const cwd = mkdtempSync(join(tmpdir(), 'storage-failure-')); t.after(() => rmSync(cwd, { recursive: true, force: true })); execFileSync('git', ['init', '-q', cwd]);
+ let fail = true; const rows: any[] = [];
+ const guard = createNoProgressGuard((_type, data: any) => {
+  if (fail && data.event?.type === 'invocation') throw Error('secret storage body');
+  rows.push(data);
+ });
+ let launches = 0;
+ const run = withNoProgress({ noProgress: guard, artifacts: { loadInputArtifacts: () => [] } } as any, 'dispatch', async () => { launches++; return { content: [], details: { status: 'completed' } }; });
+ const params = { agent: 'builder', task: 'inspect' };
+ const result = await run('one', params, undefined, undefined, { cwd } as any);
+ assert.equal((result.details as any).reason, 'invocation_persistence_failed'); assert.equal(launches, 0);
+ const failure = rows.find(row => row.kind === 'guard' && row.event?.type === 'failure').event.failure;
+ assert.equal(failure.category, 'not_started'); assert.equal(failure.noLaunchEstablished, true);
+ const op = guard.byDispatch(failure.dispatchId)!;
+ assert.equal(op.attempts.at(-1)?.category, 'not_started');
+ assert.equal(guard.isIdle(op.executor), true);
+ fail = false; await run('two', params, undefined, undefined, { cwd } as any); assert.equal(launches, 1);
+});
