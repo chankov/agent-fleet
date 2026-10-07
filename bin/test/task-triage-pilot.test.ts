@@ -9,7 +9,7 @@ import { runPilot } from '../task-triage-pilot.ts';
 import { createPilotBudget } from '../lib/task-triage-pilot-budget.ts';
 import { TASK_TRIAGE_QUESTIONS } from '../../.pi/harnesses/agent-hub/task-triage-contract.ts';
 
-const corpusRoot = new URL('../../docs/plans/jev/3/pilot/', import.meta.url);
+const corpusRoot = new URL('./fixtures/task-triage-pilot/', import.meta.url);
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 function fixture(t: any) {
  const dir = mkdtempSync(join(tmpdir(), 'pilot-runner-'));

@@ -10,6 +10,6 @@ export const ASK_SYSTEM1_FILES_PARAMETERS=Type.Object({
 },{additionalProperties:false});
 export function registerAskSystem1Files(pi:ExtensionAPI,deps:{execute(params:unknown,signal:AbortSignal|undefined):Promise<unknown>}){
  pi.registerTool({name:'ask_system1_files',label:'Rank files with System 1',parameters:ASK_SYSTEM1_FILES_PARAMETERS,
- description:'Parent-only approved many-file judgments for the current task, using paths/patterns/directories. Always includes relevance and role, optionally up to 14 typed custom questions. Returns all scored/unscored rows, or bounded managed pages via filesystem readback. Never grants rights, replaces exact reading or proves correctness. Automatic discovery ranking does not require calling this tool.',
+ description:'Parent-only approved file judgments via paths/patterns/directories: relevance, role and up to 14 custom questions. All scored/unscored rows remain available via filesystem pages. Never grants rights, replaces reading or proves correctness. Discovery auto-ranking needs no call.',
  async execute(_id,params,signal){const result=await deps.execute(params,signal);return {content:[{type:'text',text:JSON.stringify(result)}],details:result};}});
 }

@@ -14,6 +14,7 @@ test("F-17 a missing named test is not a pass when a sibling exists", () => {
   const present = join(dir, "present.test.js");
   const missing = join(dir, "missing.test.js");
   const helper = fileURLToPath(new URL("./helpers/assert-named-tests.js", import.meta.url));
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
   writeFileSync(present, "import test from 'node:test'; test('present ran', () => {});\n");
   assert.deepEqual(missingNamedTests([present, missing]), [missing]);
   const blocked = spawnSync(process.execPath, [helper, present, missing], { encoding: "utf8" });

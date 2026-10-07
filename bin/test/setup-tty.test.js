@@ -176,7 +176,7 @@ test("real TTY Full + all needs separate task-context consent before final exact
     assert.equal(desired.preset, "full");
     assert.ok(Object.values(desired.features).every(Boolean), "snapshot stores each currently available feature explicitly");
     assert.match(result.stdout, /Selected features:.*chatgpt-client \(experimental\)/);
-    assert.equal(JSON.parse(readFileSync(join(ws, ".ai/task-triage.json"), "utf8")).remoteContextApproved, true);
+    assert.equal(JSON.parse(readFileSync(join(ws, ".ai/system1.json"), "utf8")).consumers.taskTriage.remoteContextApproved, true);
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

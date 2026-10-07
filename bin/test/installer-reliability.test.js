@@ -121,7 +121,7 @@ test("lock, pending journal, fingerprints and symlink parents fail closed", () =
 
   const changed = ws(); const plan = buildReconcilePlan({ workspace: changed, sourceRoot: root, packageVersion: manifest.packageVersion, manifest, preset: "default", features: "none", yes: true });
   plan.fingerprints = capturePlanFingerprints(plan, manifest); mkdirSync(join(changed, ".ai")); writeFileSync(join(changed, ".ai/agent-fleet.json"), "intervening");
-  const applied = applyPlan({ plan, manifest }); assert.equal(applied.exitCode, 1); assert.match(applied.failure.detail, /changed since preview/);
+  const applied = applyPlan({ plan, manifest }); assert.equal(applied.exitCode, 3); assert.match(applied.failure.detail, /changed since preview/);
 
   const outside = ws(), linked = ws(); writeFileSync(join(outside, "sentinel"), "outside"); symlinkSync(outside, join(linked, ".ai"), "dir");
   result = run(linked, "setup", "--preset", "default", "--features", "none", "--yes");

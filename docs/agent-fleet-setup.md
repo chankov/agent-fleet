@@ -271,7 +271,7 @@ readiness. After persisting your selection, use `just fleet deps` or run setup
 with `--allow-exec --yes` and no replacement feature flags to retain that selection.
 Supply the key through the caller environment before launching Hub.
 
-The exact consumer v1 template is:
+The exact unified v2 template (with the service initially off) is:
 
 ```json
 {

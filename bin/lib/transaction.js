@@ -57,7 +57,7 @@ export function touchedPaths(plan, manifest) {
   if (plan?.stt?.env?.missing?.length) paths.add(ownedRelativePath(plan.workspace, plan.stt.env.path));
   const collapseManagedLink = (value) => {
     const rel = ownedRelativePath(plan.workspace, value); const parts = rel.split(/[/\\]/); let cursor = plan.workspace;
-    for (let i = 0; i < parts.length - 1; i++) { cursor = join(cursor, parts[i]); if (existsSync(cursor) && lstatSync(cursor).isSymbolicLink()) return parts.slice(0, i + 1).join("/"); }
+    for (let i = 0; i < parts.length - 1; i++) { cursor = join(cursor, parts[i]); try { if (lstatSync(cursor).isSymbolicLink()) return parts.slice(0, i + 1).join("/"); } catch (error) { if (error.code !== "ENOENT") throw error; } }
     return rel;
   };
   return [...new Set([...paths].map(collapseManagedLink))].sort();

@@ -12,7 +12,8 @@ test("task-triage documented config and complete off form pass the production va
  assert.ok(section);
  const json = section.match(/```json\n([\s\S]*?)\n```/)?.[1];
  assert.ok(json);
- const config = JSON.parse(json), parsed = parseTaskTriageConfig(config);
+ const document = JSON.parse(json);
+ const config = { version: 1, ...document.consumers.taskTriage, provider: document.provider, model: document.model }, parsed = parseTaskTriageConfig(config);
  assert.equal(parsed.status, "active");
  assert.equal(parseTaskTriageConfig({ ...config, mode: "off", remoteContextApproved: false }).status, "off");
  assert.deepEqual(config.limits, { maxTaskBytes: 40960, maxStateBytes: 65536, maxCallsPerSession: 100, timeoutMs: 2000 });

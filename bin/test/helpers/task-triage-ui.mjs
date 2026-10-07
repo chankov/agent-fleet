@@ -15,7 +15,7 @@ export function prepareTriageUiCase(scene, { ambient = process.env } = {}) {
  try {
   for (const dir of [".ai", "home", "agent"]) mkdirSync(join(workspace, dir), { mode: 0o700 });
   writeFileSync(join(workspace, ".ai/agent-fleet.json"), JSON.stringify({ features: { system1: true } }), { mode: 0o600 });
-  writeFileSync(join(workspace, ".ai/system1.json"), JSON.stringify({ version: 1, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY" }), { mode: 0o600 });
+  writeFileSync(join(workspace, ".ai/system1.json"), JSON.stringify({ version: 2, mode: "auto", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY", consumers: { taskTriage: { mode: "experimental", remoteContextApproved: true, questionVersion: "task-triage/questions/v1", policyVersion: "task-triage/policy/v1", limits: { maxTaskBytes: 40960, maxStateBytes: 65536, maxCallsPerSession: 100, timeoutMs: 2000 } } } }), { mode: 0o600 });
   writeFileSync(join(workspace, ".ai/task-triage.json"), JSON.stringify({ version: 1, mode: "experimental", remoteContextApproved: true,
    provider: "typesafe", model: "jev-1.13.0", questionVersion: "task-triage/questions/v1", policyVersion: "task-triage/policy/v1",
    limits: { maxTaskBytes: 40960, maxStateBytes: 65536, maxCallsPerSession: 100, timeoutMs: 2000 } }), { mode: 0o600 });

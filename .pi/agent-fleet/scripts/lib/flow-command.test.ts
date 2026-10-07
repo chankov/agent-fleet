@@ -51,6 +51,7 @@ test("generated workflow modules are reachable through the flow dispatcher with 
 	const workflowsDir = join(cwd, ".pi", "agent-fleet", "scripts", "workflows");
 	try {
 		mkdirSync(workflowsDir, { recursive: true });
+		writeFileSync(join(cwd, "package.json"), JSON.stringify({ type: "module" }));
 		writeFileSync(join(workflowsDir, "wf-plan-build-review.ts"), `export async function planBuildReviewWorkflow(run, input) {
 			await run.phase({ name: "generated", kind: "code", owner: "test", description: "Prove generated registry reachability" }, () => undefined);
 			return run.finish({ accepted: input.dryRun });

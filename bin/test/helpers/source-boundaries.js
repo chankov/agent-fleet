@@ -22,7 +22,9 @@ export function relativeSpecifiers(source, file) {
     if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) add(node.moduleReference.expression);
     if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) add(node.argument.literal);
     if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === "require"))) add(node.arguments[0]);
-    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "URL") add(node.arguments?.[0]);
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "URL"
+      && node.arguments?.[1] && ts.isPropertyAccessExpression(node.arguments[1]) && node.arguments[1].name.text === "url"
+      && ts.isMetaProperty(node.arguments[1].expression)) add(node.arguments?.[0]);
     ts.forEachChild(node, visit);
   }
   visit(ast);

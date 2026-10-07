@@ -1,6 +1,7 @@
 {
   "tools": [
     "ask_system1",
+    "ask_system1_files",
     "coms_await",
     "coms_get",
     "coms_list",
