@@ -670,6 +670,9 @@ test("real native executor finishDispatch times workflows compiler and demotes o
  const repo = mkdtempSync(join(tmpdir(), "finish-hook-repo-")); t.after(() => rmSync(repo, { recursive: true, force: true }));
  const workflowDir = join(repo, ".pi/agent-fleet/scripts/workflows"); mkdirSync(join(repo, ".pi/agent-fleet/scripts"), { recursive: true });
  cpSync(join(sourceRepo, ".pi/agent-fleet/scripts/workflows"), workflowDir, { recursive: true });
+ // Workflows resolve shared policy roots relative to their installed runtime tree.
+ const harnessLibDir = join(repo, ".pi/harnesses/lib"); mkdirSync(harnessLibDir, { recursive: true });
+ cpSync(join(sourceRepo, ".pi/harnesses/lib/policy-roots.ts"), join(harnessLibDir, "policy-roots.ts"));
  cpSync(join(sourceRepo, "package.json"), join(repo, "package.json"));
  symlinkSync(join(sourceRepo, "node_modules"), join(repo, "node_modules"), "dir");
  execFileSync("git", ["init", "-q"], { cwd: repo }); execFileSync("git", ["add", "."], { cwd: repo }); execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], { cwd: repo });
