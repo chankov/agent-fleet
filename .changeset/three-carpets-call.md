@@ -2,4 +2,4 @@
 "@chankov/agent-fleet": patch
 ---
 
-outside repo support
+fix: support System 1 parent workspaces
