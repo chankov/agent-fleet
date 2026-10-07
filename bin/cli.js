@@ -441,7 +441,7 @@ async function cmdDoctor() {
     catch (err) { fail(`cannot recover pending transaction: ${err.message}`); }
   }
 
-  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1", "task-triage"]);
+  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1", "system1-binding", "task-triage"]);
   // These findings affect launch readiness and the doctor exit code, but npm
   // execution remains behind its dedicated explicit-consent commands.
   const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies", "manifest-tool"]);

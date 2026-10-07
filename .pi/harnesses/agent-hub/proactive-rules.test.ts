@@ -44,6 +44,30 @@ test("external rules keep legacy paths, root-aware identities and bounded canoni
  assert.match(swapped.gaps.join(),/root_changed/);
 });
 
+test("nested configured rule roots retain logical and physical identities and refuse collisions", t => {
+ const base = mkdtempSync(join(tmpdir(), "nested-rules-"));
+ t.after(() => rmSync(base, { recursive: true, force: true }));
+ const roots = ["rin-docs/.ai/rules"], rules = join(base, roots[0]!);
+ mkdirSync(join(rules, "docs"), { recursive: true });
+ writeFileSync(join(rules, "README.md"), "# Index\n[policy](docs/maintenance.md)\n");
+ writeFileSync(join(rules, "docs/maintenance.md"), "# Policy\nReviewed.\n");
+ symlinkSync(base, join(rules, "escape"));
+ const table = resolvePolicyRoots(base, { rulesDirs: roots });
+ const catalog = discoverRules(base, roots, table);
+ const source = catalog.files.find(f => f.path === ".ai/rules/docs/maintenance.md")!;
+ assert.ok(source, JSON.stringify(catalog.files));
+ assert.equal(source.rootId, table.roots[1]!.id);
+ assert.equal(source.physicalPath, realpathSync(join(rules, "docs/maintenance.md")));
+ assert.match(catalog.gaps.join(), /unsafe_path.*escape/);
+ mkdirSync(join(base, "other/.ai/rules/docs"), { recursive: true });
+ writeFileSync(join(base, "other/.ai/rules/docs/maintenance.md"), "# Policy\nReviewed.\n");
+ const duplicateRoots = [...roots, "other/.ai/rules"];
+ const duplicates = discoverRules(base, duplicateRoots, resolvePolicyRoots(base, { rulesDirs: duplicateRoots }));
+ assert.equal(duplicates.files.filter(f => f.path === source.path).length, 2);
+ assert.ok(duplicates.files.filter(f => f.path === source.path).every(f => f.bindingAmbiguous));
+ assert.match(duplicates.gaps.join(), /ambiguous_binding/);
+});
+
 test("external rules remain discoverable through a symlinked workspace parent", t => {
  const base = mkdtempSync(join(tmpdir(), "alias-policy-"));
  t.after(() => rmSync(base, { recursive: true, force: true }));

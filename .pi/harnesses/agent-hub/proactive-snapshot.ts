@@ -74,6 +74,7 @@ export interface TurnBaseline {
  readonly gaps: readonly string[];
  readonly startedAt: number;
  readonly external?: ExternalBaseline;
+ readonly independentWorkspace?: boolean;
 }
 const code = (e: unknown): string => {
  const message = (e as Error)?.message;
@@ -103,9 +104,17 @@ export function beginTurnCore(input: { root: string; config: ProactiveConfig; tu
    dirty.set(path, bytes); retained += bytes?.length ?? 0; count++;
   } catch (e) { gaps.push(code(e)); }
  }
- const external = input.policyRoots ? captureExternal({roots:input.policyRoots,include:input.config.include,maxFiles:PROACTIVE_LIMITS.maxUnits-count,maxBytes:PROACTIVE_LIMITS.maxRetainedBytes-retained,check:()=>{remaining(startedAt,now);}}) : undefined;
+ const external = input.policyRoots ? captureExternal({roots:input.policyRoots,include:input.config.include,maxFiles:PROACTIVE_LIMITS.maxUnits-count,maxBytes:PROACTIVE_LIMITS.maxRetainedBytes-retained,check:()=>{remaining(startedAt,now);},includeWorkspace:!head,knownPaths:input.knownTargets}) : undefined;
  if (external) gaps.push(...external.gaps);
- return { root: input.root, head, dirty, initialPaths, config: input.config, turnId: input.turnId, context: structuredClone(input.context), gaps, startedAt, ...(external ? {external} : {}) };
+ // A non-Git parent is supported only when every local include has independent history.
+ // Missing/unsupported scopes keep the original Git gap; no synthetic clean baseline.
+ const independentWorkspace = !head && !!external && input.config.include.some(path => !path.startsWith("../")) && input.config.include.filter(path => !path.startsWith("../")).every(path =>
+  [...external.gitHeads.keys()].some(scope => path === scope || path.startsWith(scope + "/")));
+ if (independentWorkspace) {
+  const index = gaps.indexOf("git_unavailable");
+  if (index >= 0) gaps.splice(index, 1);
+ }
+ return { independentWorkspace, root: input.root, head, dirty, initialPaths, config: input.config, turnId: input.turnId, context: structuredClone(input.context), gaps, startedAt, ...(external ? {external} : {}) };
 }
 export function finishTurnCore(baseline: TurnBaseline | null, input: { assistantText?: string; knownTargets?: readonly string[]; secrets?: readonly string[]; overlap?: boolean; now?: () => number; afterFirstRead?: () => void } = {}): TurnSnapshot | null {
  if (!baseline) return null;
@@ -113,15 +122,16 @@ export function finishTurnCore(baseline: TurnBaseline | null, input: { assistant
  const gaps = [...baseline.gaps];
  let current: Set<string>;
  try {
-  current = status(baseline.root, started, now);
-  if (git(baseline.root, ["rev-parse", "HEAD"], started, now).toString("utf8").trim() !== baseline.head) gaps.push("head_changed");
+  current = baseline.independentWorkspace ? new Set() : status(baseline.root, started, now);
+  if (!baseline.independentWorkspace && git(baseline.root, ["rev-parse", "HEAD"], started, now).toString("utf8").trim() !== baseline.head) gaps.push("head_changed");
  } catch (e) { current = new Set(); gaps.push((e as Error).message === "capture_timeout" ? "capture_timeout" : "git_unavailable"); }
  if (input.overlap) gaps.push("concurrent_writer_attribution_uncertain");
  const paths = [...new Set([...baseline.initialPaths, ...current, ...baseline.dirty.keys(), ...(input.knownTargets ?? [])])].sort();
  const units: TurnUnit[] = [];
+ const observedPaths = new Set(paths);
  let retained = 0, omitted = 0;
  const secrets = input.secrets ?? [];
- for (const path of paths) {
+ for (const path of baseline.independentWorkspace ? [] : paths) {
   if (!checkScope([path], baseline.config.include).inScope.length) continue;
   if (now() - started >= PROACTIVE_LIMITS.captureMs) { gaps.push("capture_timeout"); omitted++; continue; }
   if (units.length >= PROACTIVE_LIMITS.maxUnits) { omitted++; continue; }
@@ -152,18 +162,21 @@ export function finishTurnCore(baseline: TurnBaseline | null, input: { assistant
  }
  if (baseline.external) {
   const before = baseline.external;
-  const after = captureExternal({roots:before.roots,include:baseline.config.include,maxFiles:PROACTIVE_LIMITS.maxUnits,maxBytes:PROACTIVE_LIMITS.maxRetainedBytes,check:()=>{remaining(started,now);}});
+  const after = captureExternal({roots:before.roots,include:baseline.config.include,maxFiles:PROACTIVE_LIMITS.maxUnits-units.length,maxBytes:PROACTIVE_LIMITS.maxRetainedBytes-retained,check:()=>{remaining(started,now);},includeWorkspace:!baseline.head,knownPaths:[...before.files.keys(),...before.headFiles.keys(),...(input.knownTargets ?? [])]});
   gaps.push(...after.gaps);
-  if (JSON.stringify([...before.gitHeads]) !== JSON.stringify([...after.gitHeads])) gaps.push("external_head_changed");
+  const headsChanged = JSON.stringify([...before.gitHeads]) !== JSON.stringify([...after.gitHeads]);
+  if (headsChanged) gaps.push("external_head_changed");
   const unavailable = (g: string) => !["external_history_unavailable","external_prior_edits_not_reviewed"].includes(g);
-  const incomplete = before.gaps.some(unavailable) || after.gaps.some(unavailable);
+  const incomplete = headsChanged || before.gaps.some(unavailable) || after.gaps.some(unavailable);
   const externalPaths = [...new Set([...before.files.keys(),...after.files.keys(),...before.headFiles.keys(),...after.headFiles.keys()])].sort();
   for (const path of externalPaths) {
+   observedPaths.add(path);
    const independentlyTracked = [...before.gitHeads.keys()].some(scope => {
     const normalized = scope.endsWith("/**") ? scope.slice(0,-3) : scope;
     return path===normalized || path.startsWith(normalized+"/");
    });
-   const priorBytes = independentlyTracked ? before.headFiles.get(path) : before.files.get(path), nextBytes = after.files.get(path);
+   const priorBytes = independentlyTracked ? before.headFiles.get(path) ?? (baseline.independentWorkspace ? after.headFiles.get(path) : undefined) : before.files.get(path), nextBytes = after.files.get(path);
+   if (priorBytes === undefined && nextBytes === undefined) continue;
    if (priorBytes?.equals(nextBytes ?? Buffer.alloc(0)) && nextBytes !== undefined) continue;
    if (incomplete) { gaps.push("external_evidence_unavailable"); omitted++; continue; }
    const prior = priorBytes === undefined ? undefined : excerpt(priorBytes,secrets);
@@ -189,7 +202,7 @@ export function finishTurnCore(baseline: TurnBaseline | null, input: { assistant
  if (context.plan) Object.freeze(context.plan);
  for (const rule of context.rules) Object.freeze(rule);
  Object.freeze(context.rules); Object.freeze(context.exceptions); Object.freeze(context);
- return Object.freeze({ snapshotId, turnId: baseline.turnId, head: baseline.head, context, planStatus: baseline.context.plan ? "bound" : "task_only", status: statusValue, gaps: Object.freeze(gaps), units: Object.freeze(units), observedPaths: paths.length, coverage: Object.freeze({ retainedUnits: units.length, omittedPaths: omitted, retainedBytes: retained }) });
+ return Object.freeze({ snapshotId, turnId: baseline.turnId, head: baseline.head, context, planStatus: baseline.context.plan ? "bound" : "task_only", status: statusValue, gaps: Object.freeze(gaps), units: Object.freeze(units), observedPaths: observedPaths.size, coverage: Object.freeze({ retainedUnits: units.length, omittedPaths: omitted, retainedBytes: retained }) });
 }
 /** Immutable in-memory readback: never opens the source path. */
 export function readSnapshotUnit(snapshot: TurnSnapshot, snapshotId: string, unitId: string, contentHash: string): string | null {

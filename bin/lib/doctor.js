@@ -1,3 +1,6 @@
+import { normalizeSystem1Config } from '../../.pi/harnesses/lib/system1/config-v2.js';
+import { policyRootValidationContext } from '../../.pi/harnesses/lib/policy-roots.js';
+import { loadReviewedPolicyRoots, proactiveBindingDiagnostics } from './system1-policy-context.js';
 import { migrateWatchdogOverride } from './system1-migration.js';
 import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../../.pi/harnesses/lib/system1/config-loader.js";
 // Doctor scan — deterministic preflight extracted from
@@ -223,7 +226,9 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
 
 export function scanSystem1Readiness({ workspace, env = process.env }) {
   const selected = readSystem1Selected(workspace);
-  const snapshot = loadSystem1Snapshot(workspace);
+  const loaded = loadSystem1Snapshot(workspace);
+  const policyRoots = loadReviewedPolicyRoots(workspace);
+  const snapshot = loaded.document ? normalizeSystem1Config(loaded.document, policyRootValidationContext(policyRoots)) : loaded;
   const config = providerDocument(snapshot);
   const legacyMarkdown = [];
   try {
@@ -276,8 +281,9 @@ export function scanSystem1Readiness({ workspace, env = process.env }) {
     envDeclared,
     environmentPresent,
     apiValidity: "unverified",
+    consumerEvidence: "unverified",
     consumers: Object.fromEntries(Object.entries(snapshot.consumers).map(([name, section]) => [name, section.status])),
-  }, ...legacyMarkdown, ...retainedBackups, ...snapshot.errors.map(error => ({ type: "system1-config", path: error.path, classification: "advisory", issue: `${error.path}: ${error.code}`, fix: "review the human-owned .ai/system1.json; no automatic changes" })),
+  }, ...proactiveBindingDiagnostics(snapshot, policyRoots), ...legacyMarkdown, ...retainedBackups, ...snapshot.errors.map(error => ({ type: "system1-config", path: error.path, classification: "advisory", issue: `${error.path}: ${error.code}`, fix: "review the human-owned .ai/system1.json; no automatic changes" })),
   ...legacyPaths.map(path => ({ type: 'system1-legacy', path, classification: 'advisory', issue: snapshot.status === 'missing' ? 'consumer-only legacy configuration has no provider document; runtime ignores it, and migration will not choose provider/model' : snapshot.document ? 'stale legacy file is not used by runtime' : 'legacy file requires explicit migration; not used by runtime', fix: snapshot.status === 'missing' ? 'review docs/system1-config.md#consumer-only-legacy-workspaces; manually author v2 with mode: off and reviewed consumer sections; preserve a private backup' : 'review setup --migrate-system1-config --dry-run; conflicts are never deleted automatically' }))];
 }
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,6 +88,50 @@ test("System 1 doctor readiness distinguishes absent, off, invalid, missing-key,
       assert.match(findings[0].issue, /remote inference is off/);
     }
   }
+});
+
+test('doctor contextual validation separates ready provider from stale or ambiguous nested binding evidence', t => {
+ const ws = workspace(t); selectSystem1(ws);
+ const docs = join(ws, 'rin-docs'); mkdirSync(join(docs, '.ai/rules/docs'), { recursive: true });
+ const bytes = '# Links\nUse relative Markdown links.\n';
+ const logical = '.ai/rules/docs/maintenance.md';
+ writeFileSync(join(docs, logical), bytes);
+ writeFileSync(join(docs, '.ai/rules/README.md'), '# Index\n[links](docs/maintenance.md)\n');
+ writeFileSync(join(ws, '.ai/agent-fleet-overrides.md'), '## agent-hub\nrules: rin-docs/.ai/rules\ndocs: rin-docs\n');
+ const binding = { version: 1, validator: 'relative-markdown-links', rule: { path: logical, heading: 'Links', occurrence: 1, hash: createHash('sha256').update(bytes).digest('hex') }, applicability: { paths: ['rin-docs/**'], kinds: ['added', 'modified'] }, exceptions: { paths: [], legacy: false } };
+ writeConfig(ws, { ...validConfig, consumers: { proactiveReview: { mode: 'shadow', include: ['ringithub/src/**', 'rin-docs/**'], localBindings: [binding] } } });
+ const scan = () => scanSystem1Readiness({ workspace: ws, env: { TYPESAFE_API_KEY: 'fixture-only' } });
+ let findings = scan();
+ assert.equal(findings[0].readiness, 'ready');
+ assert.equal(findings[0].consumerEvidence, 'unverified');
+ assert.equal(findings.some(f => f.type === 'system1-binding'), false);
+ writeFileSync(join(docs, logical), bytes + 'Changed.\n');
+ findings = scan();
+ assert.equal(findings[0].readiness, 'ready');
+ assert.ok(findings.some(f => f.type === 'system1-binding' && f.issue.includes('unverified_binding')));
+ const report = spawnSync(process.execPath, [cli, 'doctor', '--workspace', ws, '--json'], { encoding: 'utf8', env: { ...process.env, PI_OFFLINE: '1', TYPESAFE_API_KEY: 'fixture-only' } });
+ assert.equal(report.status, 0, report.stderr + report.stdout);
+ const cliFindings = JSON.parse(report.stdout).findings;
+ assert.equal(cliFindings.find(f => f.type === 'system1').consumerEvidence, 'unverified');
+ assert.ok(cliFindings.some(f => f.type === 'system1-binding' && f.issue.includes('unverified_binding')));
+ assert.ok(!report.stdout.includes('fixture-only'));
+ mkdirSync(join(ws, '.ai/rules/docs'), { recursive: true });
+ writeFileSync(join(ws, logical), bytes);
+ assert.ok(scan().some(f => f.type === 'system1-binding' && f.issue.includes('ambiguous_binding')));
+ // Contextual sibling consent works from the application repo, not from a child's cwd.
+ const app = join(ws, 'ringithub'); selectSystem1(app);
+ writeFileSync(join(app, '.ai/agent-fleet-overrides.md'), '## Agent-Team\ndocs: ../rin-docs\n');
+ writeConfig(app, { ...validConfig, consumers: { proactiveReview: { mode: 'shadow', include: ['../rin-docs'] } } });
+ assert.equal(scanSystem1Readiness({ workspace: app, env: {} })[0].consumers.proactiveReview, 'ready');
+ writeFileSync(join(app, '.ai/agent-fleet-overrides.md'), '## agent-hub\ndocs: ../rin-docs/README.md\n');
+ assert.equal(scanSystem1Readiness({ workspace: app, env: {} })[0].consumers.proactiveReview, 'invalid');
+ rmSync(join(ws, '.ai/system1.json')); symlinkSync('../rin-docs/provider.json', join(ws, '.ai/system1.json'));
+ writeFileSync(join(docs, 'provider.json'), JSON.stringify(validConfig));
+ assert.equal(scan()[0].readiness, 'invalid_config');
+ rmSync(join(ws, '.ai/agent-fleet.json')); symlinkSync('../rin-docs/selection.json', join(ws, '.ai/agent-fleet.json'));
+ writeFileSync(join(docs, 'selection.json'), JSON.stringify({ schemaVersion: 1, preset: 'default', features: { system1: true } }));
+ writeConfig(ws); // Still a symlink: loader must refuse it regardless of target bytes.
+ assert.equal(scan()[0].readiness, 'disabled');
 });
 
 test("System 1 doctor recognizes selection through the experimental task-triage feature dependency", t => {

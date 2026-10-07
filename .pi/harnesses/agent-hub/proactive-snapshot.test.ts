@@ -2,11 +2,13 @@ import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, unlinkSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, unlinkSync, rmSync, readdirSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseProactiveConfig } from "./proactive-config.ts";
+import { externalChangedPaths, identifyExternalGit } from "./proactive-external-git.ts";
+import { loadProactiveConfig, parseProactiveConfig } from "./proactive-config.ts";
+import { loadSystem1Snapshot, readSystem1Selected } from "../lib/system1/config-loader.js";
 import { resolvePolicyRoots } from "../lib/policy-roots.ts";
 import { beginTurn, beginTurnCore, finishTurn, finishTurnCore, readSnapshotUnit } from "./proactive-snapshot.ts";
 
@@ -28,6 +30,138 @@ function fixture(t: Pick<TestContext, "after">) {
  writeFileSync(join(root, ".gitignore"), "docs/ignored.md\n");
  git(root, "add", "."); git(root, "commit", "-qm", "initial"); return root;
 }
+test("independent Git status enumerates only explicitly consented scopes", t => {
+ const root = fixture(t);
+ writeFileSync(join(root, "src/dirty.ts"), "approved edit\n");
+ writeFileSync(join(root, "docs/private.md"), "unapproved edit\n");
+ const source = identifyExternalGit(root, join(root, ".."), () => {})!;
+ const paths = externalChangedPaths(source, () => {}, [join(root, "src/dirty.ts")]);
+ assert.deepEqual(paths, [join(root, "src/dirty.ts")]);
+});
+
+test("independent Git status never refreshes the source repository index", t => {
+ const root = fixture(t), source = identifyExternalGit(root, join(root, ".."), () => {})!;
+ const before = readFileSync(join(root, ".git/index"));
+ writeFileSync(join(root, "src/clean.ts"), "clean\n");
+ utimesSync(join(root, "src/clean.ts"), new Date(0), new Date(0));
+ externalChangedPaths(source, () => {}, [join(root, "src")]);
+ assert.deepEqual(readFileSync(join(root, ".git/index")), before);
+});
+
+test("non-Git parent captures only consented scopes in two nested repositories against their own HEAD", async t => {
+ const root = temporaryDirectory(t, "parent-workspace-");
+ const app = join(root, "ringithub"), docs = join(root, "rin-docs");
+ for (const repo of [app, docs]) {
+  mkdirSync(repo);
+  git(repo, "init", "-q"); git(repo, "config", "user.email", "snapshot@example.test"); git(repo, "config", "user.name", "Test");
+  mkdirSync(join(repo, "allowed"));
+  writeFileSync(join(repo, "allowed/edit.md"), "committed PRIVATE\n");
+  writeFileSync(join(repo, "allowed/deleted.md"), "deleted HEAD\n");
+  writeFileSync(join(repo, "private.md"), "UNGRANTED_SENTINEL\n");
+  git(repo, "add", "."); git(repo, "commit", "-qm", "initial");
+  writeFileSync(join(repo, "allowed/edit.md"), "pre-session\n");
+  unlinkSync(join(repo, "allowed/deleted.md"));
+  writeFileSync(join(repo, "allowed/prior.md"), "pre-session addition\n");
+  writeFileSync(join(repo, "allowed/.env"), "SECRET_SENTINEL\n");
+  mkdirSync(join(repo, "allowed/node_modules"));
+  writeFileSync(join(repo, "allowed/node_modules/generated.md"), "GENERATED_SENTINEL\n");
+ }
+ mkdirSync(join(root, ".ai"));
+ writeFileSync(join(root, ".ai/system1.json"), JSON.stringify({ version: 2, mode: "off", provider: "typesafe", model: "jev-1.13.0", apiKeyEnv: "TYPESAFE_API_KEY", consumers: { proactiveReview: { mode: "shadow", include: ["ringithub/allowed/**", "rin-docs/allowed", "rin-docs/allowed/edit.md"] } } }));
+ writeFileSync(join(root, ".ai/agent-fleet.json"), JSON.stringify({ schemaVersion: 1, preset: "default", features: { system1: true } }));
+ const roots = resolvePolicyRoots(root, { docsPaths: ["rin-docs/allowed", "rin-docs/allowed/edit.md"] });
+ assert.equal(readSystem1Selected(root), true);
+ const cfg = loadProactiveConfig(root, loadSystem1Snapshot(root), roots);
+ const baseline = await beginTurn({ root, config: cfg, context, turnId: "parent", policyRoots: roots });
+ for (const repo of [app, docs]) {
+  writeFileSync(join(repo, "allowed/edit.md"), "session PRIVATE\n");
+  writeFileSync(join(repo, "allowed/new.md"), "session addition\n");
+ }
+ const result = await finishTurn(baseline, { secrets: ["PRIVATE"] });
+ assert.equal(result?.status, "complete", JSON.stringify(result?.gaps));
+ assert.equal(result?.units.length, 8);
+ assert.ok(result?.observedPaths! >= result?.units.length!);
+ assert.equal(new Set(result?.units.map(u => u.path)).size, 8);
+ for (const prefix of ["ringithub", "rin-docs"]) {
+  assert.equal(result?.units.find(u => u.path === `${prefix}/allowed/edit.md`)?.before?.text, "committed [REDACTED]\n");
+  assert.equal(result?.units.find(u => u.path === `${prefix}/allowed/edit.md`)?.after?.text, "session [REDACTED]\n");
+  assert.equal(result?.units.find(u => u.path === `${prefix}/allowed/deleted.md`)?.kind, "deleted");
+  assert.equal(result?.units.find(u => u.path === `${prefix}/allowed/prior.md`)?.kind, "added");
+  assert.ok(result?.units.filter(u => u.path.startsWith(prefix + "/")).every(u => !!u.sourceRootId));
+ }
+ assert.ok(!JSON.stringify(result).includes("SENTINEL"));
+ const docsOnly = parseProactiveConfig({ version: 1, mode: "shadow", include: ["rin-docs/allowed"] }, roots);
+ const limited = finishTurnCore(beginTurnCore({ root, config: docsOnly, context, turnId: "docs-only", policyRoots: roots }));
+ assert.ok(limited?.units.every(u => u.path.startsWith("rin-docs/")));
+ git(app, "commit", "--allow-empty", "-qm", "new HEAD");
+ assert.ok(finishTurnCore(baseline)?.gaps.includes("external_head_changed"));
+});
+
+test("parent Git capture budgets changed evidence, not the entire clean nested checkout", t => {
+ const root = temporaryDirectory(t, "parent-large-clean-"), repo = join(root, "ringithub");
+ mkdirSync(repo); git(repo, "init", "-q"); git(repo, "config", "user.email", "snapshot@example.test"); git(repo, "config", "user.name", "Test");
+ mkdirSync(join(repo, "src"));
+ for (let i = 0; i < 40; i++) writeFileSync(join(repo, `src/file-${i}.ts`), "clean\n");
+ git(repo, "add", "."); git(repo, "commit", "-qm", "initial");
+ writeFileSync(join(repo, "src/file-1.ts"), "pre-session\n");
+ const roots = resolvePolicyRoots(root, {});
+ const cfg = parseProactiveConfig({ version: 1, mode: "shadow", include: ["ringithub/src/**"] }, roots);
+ const baseline = beginTurnCore({ root, config: cfg, context, turnId: "large-clean", policyRoots: roots });
+ writeFileSync(join(repo, "src/file-2.ts"), "session edit\n");
+ const result = finishTurnCore(baseline);
+ assert.equal(result?.status, "complete", JSON.stringify(result?.gaps));
+ assert.equal(result?.units.length, 2);
+ assert.ok(result?.units.every(u => u.before?.text === "clean\n"));
+ // Reverted dirty files must not be misreported as deletions.
+ writeFileSync(join(repo, "src/file-1.ts"), "clean\n");
+ const reverted = finishTurnCore(baseline);
+ assert.equal(reverted?.units.length, 1);
+ assert.equal(reverted?.units[0]?.path, "ringithub/src/file-2.ts");
+ unlinkSync(join(repo, "src/file-3.ts"));
+ const exact = parseProactiveConfig({ version: 1, mode: "shadow", include: ["ringithub/src/file-3.ts"] }, roots);
+ const deleted = finishTurnCore(beginTurnCore({ root, config: exact, context, turnId: "exact-deleted", policyRoots: roots }));
+ assert.equal(deleted?.status, "complete", JSON.stringify(deleted?.gaps));
+ assert.equal(deleted?.units[0]?.kind, "deleted");
+ assert.equal(deleted?.units[0]?.before?.text, "clean\n");
+});
+
+test("parent capture keeps missing history, unbounded scopes, budgets and escaping sources incomplete", t => {
+ const root = temporaryDirectory(t, "parent-gaps-"), repo = join(root, "ringithub");
+ mkdirSync(repo); git(repo, "init", "-q"); git(repo, "config", "user.email", "snapshot@example.test"); git(repo, "config", "user.name", "Test");
+ mkdirSync(join(repo, "src"));
+ writeFileSync(join(repo, "src/edit.ts"), "HEAD\n");
+ git(repo, "add", "."); git(repo, "commit", "-qm", "initial");
+ const roots = resolvePolicyRoots(root, {});
+ const capture = (include: string[]) => {
+  const cfg = parseProactiveConfig({ version: 1, mode: "shadow", include }, roots);
+  return finishTurnCore(beginTurnCore({ root, config: cfg, context, turnId: "gaps", policyRoots: roots }));
+ };
+ writeFileSync(join(repo, "src/edit.ts"), "changed\n");
+ const glob = capture(["ringithub/src/*.ts"]);
+ assert.equal(glob?.status, "complete", JSON.stringify(glob?.gaps));
+ assert.equal(glob?.units[0]?.path, "ringithub/src/edit.ts");
+ mkdirSync(join(root, "unversioned")); writeFileSync(join(root, "unversioned/doc.md"), "no history\n");
+ const missing = capture(["ringithub/src/**", "unversioned/**"]);
+ assert.equal(missing?.status, "partial");
+ assert.ok(missing?.gaps.includes("external_history_unavailable"));
+ assert.equal(capture(["**/*.ts"])?.status, "partial");
+ symlinkSync(join(repo, "src"), join(root, "alias"));
+ const alias = capture(["alias/**"]);
+ assert.equal(alias?.status, "partial");
+ assert.equal(alias?.units.length, 0);
+ symlinkSync(join(root, "unversioned/doc.md"), join(repo, "src/escape.ts"));
+ const escaped = capture(["ringithub/src/**"]);
+ assert.equal(escaped?.status, "partial");
+ assert.ok(escaped?.gaps.includes("external_evidence_unavailable"));
+ assert.ok(!escaped?.units.some(u => u.path.endsWith("escape.ts")));
+ unlinkSync(join(repo, "src/escape.ts"));
+ for (let i = 0; i < 21; i++) writeFileSync(join(repo, `src/new-${i}.ts`), "added\n");
+ const bounded = capture(["ringithub/src/**"]);
+ assert.equal(bounded?.status, "partial");
+ assert.ok(bounded?.gaps.includes("external_capture_limit"));
+ assert.ok(bounded?.units.length! <= 20);
+});
+
 test("external non-Git content captures session edits only, with consent, redaction and immutable evidence", async t => {
  const root=fixture(t), docs=temporaryDirectory(t,"external-docs-");
  writeFileSync(join(docs,"README.md"),"before PRIVATE\n");
@@ -107,7 +241,7 @@ test("external HEAD budgets and tracked symlinks fail closed without importing o
  const external=relative(root,docs).split(sep).join("/"), roots=resolvePolicyRoots(root,{docsPaths:[external]});
  const cfg=parseProactiveConfig({version:1,mode:"shadow",include:[external]},roots);
  const baseline=beginTurnCore({root,config:cfg,context,turnId:"head-limit",policyRoots:roots});
- assert.ok(baseline?.gaps.includes("external_evidence_unavailable"));
+ assert.ok(baseline?.gaps.includes("external_capture_limit"));
  assert.equal(finishTurnCore(baseline)?.status,"partial");
  unlinkSync(join(docs,"large.md"));symlinkSync(join(root,"src/dirty.ts"),join(docs,"linked.md"));
  git(docs,"add",".");git(docs,"commit","-qm","symlink HEAD");

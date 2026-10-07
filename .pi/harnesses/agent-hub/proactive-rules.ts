@@ -40,7 +40,7 @@ export function discoverRules(repo: string, roots: readonly string[], policyRoot
   try { rootReal = grant ? authorizePolicyPath(policyRoots!,grant.lexicalPath,"inventory").path : realpathSync(resolve(repoReal, root)); }
   catch (error) { gaps.push(grant ? `${error instanceof Error ? error.message : "unsafe_root"}:${root}` : `missing_root:${root}`); continue; }
   if ((!grant && !inside(repoReal, rootReal)) || !statSync(rootReal).isDirectory()) { gaps.push(`unsafe_root:${root}`); continue; }
-  const sourcePath = (p: string) => external ? `.ai/rules/${relative(rootReal,p).split(sep).join("/")}` : relativePath(p);
+  const sourcePath = (p: string) => grant ? `.ai/rules/${relative(rootReal,p).split(sep).join("/")}` : relativePath(p);
   const queue: string[] = [];
   const enqueue = (p: string) => { if (!queued.has(p)) { queued.add(p); queue.push(p); } };
   const safe = (p: string): string | null => {
@@ -127,7 +127,7 @@ export function discoverRules(repo: string, roots: readonly string[], policyRoot
     }
    }
    const source: BoundReference = { path, hash: digest, revision: digest,
-    ...(external ? { rootId: grant!.id, physicalPath: real } : {}), ...(bindingAmbiguous ? { bindingAmbiguous: true } : {}) };
+    ...(grant ? { rootId: grant.id, physicalPath: real } : {}), ...(bindingAmbiguous ? { bindingAmbiguous: true } : {}) };
    files.push(source);
    const lines = text.split(/(?<=\n)/), starts: number[] = [], headings: { index: number; level: number; title: string; occurrence: number }[] = [];
    const occurrences = new Map<string, number>();
@@ -152,7 +152,7 @@ export function discoverRules(repo: string, roots: readonly string[], policyRoot
      const next = headings.find(y => y.index > x.index && y.level > x.level);
      return text.slice(starts[x.index], next ? starts[next.index] : text.length);
     }).join("\n");
-    const label = `${external ? `${grant!.id}:` : ""}${path}#${h.title}@${h.occurrence}`;
+    const label = `${grant ? `${grant.id}:` : ""}${path}#${h.title}@${h.occurrence}`;
     const kind = /default/i.test(path + " " + h.title) ? "default" : /shared/i.test(path + " " + h.title) ? "shared" : /conditional|when|if\b/i.test(h.title) ? "conditional" : "reference";
     sections.push({ id: `${label}:${hash(own)}`, source, heading: h.title, occurrence: h.occurrence, text: own, context, kind });
    }

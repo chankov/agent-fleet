@@ -1,4 +1,7 @@
 import { test } from "node:test";
+import { execFileSync } from "node:child_process";
+import { resolvePolicyRoots } from "../lib/policy-roots.ts";
+import { parseProactiveConfig } from "./proactive-config.ts";
 import { strict as assert } from "node:assert";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -116,6 +119,40 @@ test("production composition carries external policy refs into Hub and native sn
  assert.equal(context.rules[0]!.physicalPath,realpathSync(join(rules,"README.md")));
  assert.ok(context.rules[0]!.rootId);
  assert.equal(runtime.used,0);
+ capture.reset();
+});
+
+test("parent production capture composes nested Git evidence with pinned nested rules without a provider", async t => {
+ const root = mkdtempSync(join(tmpdir(), "parent-compose-"));
+ t.after(() => rmSync(root, { recursive: true, force: true }));
+ for (const name of ["ringithub", "rin-docs"]) {
+  const repo = join(root, name);
+  mkdirSync(repo);
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args]);
+  git("init", "-q"); git("config", "user.email", "test@example.test"); git("config", "user.name", "Test");
+  writeFileSync(join(repo, "README.md"), "# Initial\n");
+  git("add", "."); git("commit", "-qm", "initial");
+ }
+ const rules = "rin-docs/.ai/rules", logical = ".ai/rules/docs/maintenance.md";
+ mkdirSync(join(root, rules, "docs"), { recursive: true });
+ const rule = "# Links\nRelative links required.\n";
+ writeFileSync(join(root, rules, "README.md"), "# Index\n[links](docs/maintenance.md)\n");
+ writeFileSync(join(root, "rin-docs", logical), rule);
+ const roots = resolvePolicyRoots(root, { rulesDirs: [rules], docsPaths: ["rin-docs"] });
+ const cfg = parseProactiveConfig({ version: 1, mode: "shadow", include: ["ringithub/**", "rin-docs/**"], localBindings: [{ version: 1, validator: "relative-markdown-links", rule: { path: logical, heading: "Links", occurrence: 1, hash: hash(rule) }, applicability: { paths: ["rin-docs/**"], kinds: ["added", "modified"] }, exceptions: { paths: [], legacy: false } }] }, roots);
+ const capture = createHubCapture({ root: () => root, task: () => "Update documentation", policyRoots: () => roots });
+ const runtime = composeHubProactive({ config: cfg, root, sessionDir: join(root, "session"), rulesRoots: [rules], policyRoots: roots, capture });
+ capture.start(0);
+ await capture.capture;
+ writeFileSync(join(root, "rin-docs/README.md"), "[bad](/absolute.md)\n");
+ writeFileSync(join(root, "ringithub/README.md"), "# Changed application\n");
+ capture.end(0, "");
+ await capture.capture;
+ assert.equal(runtime.records.length, 1);
+ assert.equal(runtime.records[0]!.status, "not_checked");
+ assert.equal(runtime.records[0]!.assessment?.findings.length, 1);
+ assert.equal(runtime.records[0]!.assessment?.findings[0]!.locator.path, "rin-docs/README.md");
+ assert.equal(runtime.used, 0);
  capture.reset();
 });
 

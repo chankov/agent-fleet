@@ -54,6 +54,28 @@ test("relocated unchanged legacy binding stays pinned; edits, occurrences and du
  assert.match(assessed.gaps.join(),/ambiguous_binding/);
 });
 
+test("parent workspace nested rules bind matching pins and refuse changed pins", t => {
+ const base = mkdtempSync(join(tmpdir(), "parent-binding-"));
+ t.after(() => rmSync(base, { recursive: true, force: true }));
+ const roots = ["rin-docs/.ai/rules"], logical = ".ai/rules/docs/docs-maintenance.md";
+ const physical = join(base, "rin-docs", logical);
+ mkdirSync(join(base, "rin-docs/.ai/rules/docs"), { recursive: true });
+ const bytes = "# Links\nUse relative Markdown links.\n";
+ writeFileSync(join(base, "rin-docs/.ai/rules/README.md"), "# Index\n[links](docs/docs-maintenance.md)\n");
+ writeFileSync(physical, bytes);
+ const table = resolvePolicyRoots(base, { rulesDirs: roots });
+ const binding = parseLocalBindings([{ ...link, rule: { path: logical, heading: "Links", occurrence: 1, hash: hash(bytes) }, applicability: { paths: ["rin-docs/**"], kinds: ["added", "modified"] } }]);
+ const assess = () => {
+  const catalog = discoverRules(base, roots, table);
+  const snap = snapshot([{ path: "rin-docs/new.md", kind: "added", text: "[bad](/absolute.md)\n" }]);
+  return assessLocal({ ...snap, context: { ...snap.context, rules: catalog.files } }, catalog.sections, binding);
+ };
+ assert.equal(assess().findings.length, 1);
+ writeFileSync(physical, bytes + "Changed policy.\n");
+ assert.equal(assess().findings.length, 0);
+ assert.match(assess().gaps.join(), /unverified_binding/);
+});
+
 test("Markdown escapes are accepted only into admitted external roots; external units retain root and include consent", t => {
  const base=mkdtempSync(join(tmpdir(),"external-links-"));
  t.after(()=>rmSync(base,{recursive:true,force:true}));

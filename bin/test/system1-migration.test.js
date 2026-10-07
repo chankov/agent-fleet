@@ -1,6 +1,6 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, statSync } from 'node:fs';
+import { mkdtempSync, realpathSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os'; import { join } from 'node:path';
 import { planSystem1Migration, applySystem1Migration, migrateWatchdogOverride, SYSTEM1_MIGRATION_PATHS } from '../lib/system1-migration.js';
 import { recoverTransaction, journalPath } from '../lib/transaction.js';
@@ -17,6 +17,57 @@ function fixture(t) {
  return {root,put};
 }
 const bytes=root=>Object.fromEntries(SYSTEM1_MIGRATION_PATHS.map(p=>[p,existsSync(join(root,p))?readFileSync(join(root,p)).toString('base64'):null]));
+test('contextual external includes migrate and unchanged v2 previews as no-op without relaxing grants', t => {
+ const { root, put } = fixture(t);
+ const docs = join(root, 'rin-docs'); mkdirSync(docs);
+ writeFileSync(join(docs, 'README.md'), '# Docs\n');
+ put('.ai/agent-fleet-overrides.md', '## agent-hub\nrules: rin-docs\ndocs: rin-docs\n');
+ // A nested application checkout uses the same explicit sibling grant as Hub.
+ const app = join(root, 'ringithub'); mkdirSync(join(app, '.ai'), { recursive: true });
+ writeFileSync(join(app, '.ai/agent-fleet-overrides.md'), '## Agent-Team\ndocs: ../rin-docs\n');
+ const v2 = { ...provider, version: 2, consumers: { proactiveReview: { mode: 'advisory', remoteContext: 'selected-excerpts', include: ['src/**', '../rin-docs'] } } };
+ writeFileSync(join(app, '.ai/system1.json'), JSON.stringify(v2));
+ const before = readFileSync(join(app, '.ai/system1.json'), 'utf8');
+ const noop = planSystem1Migration(app);
+ assert.equal(noop.status, 'noop'); assert.deepEqual(noop.target, v2);
+ assert.equal(applySystem1Migration(noop).status, 'noop');
+ assert.equal(readFileSync(join(app, '.ai/system1.json'), 'utf8'), before);
+ writeFileSync(join(app, '.ai/system1.json'), JSON.stringify(provider));
+ writeFileSync(join(app, '.ai/proactive-review.json'), JSON.stringify({ version: 1, ...v2.consumers.proactiveReview }));
+ assert.equal(applySystem1Migration(planSystem1Migration(app)).status, 'migrated');
+ assert.equal(planSystem1Migration(app).status, 'noop');
+ writeFileSync(join(app, '.ai/agent-fleet-overrides.md'), '## agent-hub\ndocs: ../rin-docs/README.md\n');
+ assert.throws(() => planSystem1Migration(app), /Invalid v2/);
+});
+
+test('contextual migration no-op refuses changed canonical grants after preview', t => {
+ const { root, put } = fixture(t);
+ for (const path of SYSTEM1_MIGRATION_PATHS.slice(1, 4)) rmSync(join(root, path));
+ mkdirSync(join(root, 'docs-one')); mkdirSync(join(root, 'docs-two'));
+ symlinkSync('docs-one', join(root, 'docs-alias'));
+ const app = join(root, 'app'); mkdirSync(join(app, '.ai'), { recursive: true });
+ writeFileSync(join(app, '.ai/agent-fleet-overrides.md'), '## agent-hub\ndocs: ../docs-alias\n');
+ writeFileSync(join(app, '.ai/system1.json'), JSON.stringify({ ...provider, version: 2, consumers: { proactiveReview: { mode: 'shadow', include: ['../docs-alias'] } } }));
+ const plan = planSystem1Migration(app), before = readFileSync(join(app, '.ai/system1.json'), 'utf8');
+ unlinkSync(join(root, 'docs-alias')); symlinkSync('docs-two', join(root, 'docs-alias'));
+ assert.throws(() => applySystem1Migration(plan), /policy sources changed/);
+ assert.notEqual(planSystem1Migration(app).digest, plan.digest);
+ assert.equal(readFileSync(join(app, '.ai/system1.json'), 'utf8'), before);
+});
+
+test('parent-owned real v2 configs are no-op; linked configs remain refused', t => {
+ const { root, put } = fixture(t);
+ for (const path of SYSTEM1_MIGRATION_PATHS.slice(1, 4)) rmSync(join(root, path));
+ mkdirSync(join(root, 'rin-docs'));
+ put('.ai/agent-fleet-overrides.md', '## agent-hub\ndocs: rin-docs\n');
+ const v2 = { ...provider, version: 2, consumers: { proactiveReview: { mode: 'shadow', include: ['ringithub/src/**', 'rin-docs/**'] } } };
+ put('.ai/system1.json', v2);
+ assert.equal(planSystem1Migration(root).status, 'noop');
+ writeFileSync(join(root, 'provider.json'), JSON.stringify(v2));
+ rmSync(join(root, '.ai/system1.json')); symlinkSync('../provider.json', join(root, '.ai/system1.json'));
+ assert.throws(() => planSystem1Migration(root), /symlink/);
+});
+
 test('migration still refuses a linked workspace root without writing', t => {
  const {root}=fixture(t),before=bytes(root);
  const alias=join(root,'workspace-link');symlinkSync(root,alias,'dir');

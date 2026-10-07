@@ -1,6 +1,8 @@
 import { closeSync, constants, fsyncSync, lstatSync, openSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
+import { reviewedPolicyRoots } from './system1-policy-context.js';
+import { policyRootValidationContext } from '../../.pi/harnesses/lib/policy-roots.js';
 import { normalizeSystem1Config } from '../../.pi/harnesses/lib/system1/config-v2.js';
 import { parseConfigJson } from '../../.pi/harnesses/lib/system1/config-json.js';
 import { assertSafeWorkspaceTarget, assertWorkspaceRootSafe } from './workspace-safety.js';
@@ -13,7 +15,7 @@ function canonical(value) {
   return value;
 }
 export function migrationPreviewDigest(plan) {
-  return createHash('sha256').update(JSON.stringify(canonical({ workspace: plan.workspace, status: plan.status, target: plan.target, operations: plan.operations, fingerprints: plan.fingerprints }))).digest('hex');
+  return createHash('sha256').update(JSON.stringify(canonical({ workspace: plan.workspace, status: plan.status, target: plan.target, operations: plan.operations, fingerprints: plan.fingerprints, policyRoots: plan.policyRoots }))).digest('hex');
 }
 function finalizePlan(plan) {
   plan.fingerprints = capturePlanFingerprints(plan, { items: [] });
@@ -54,12 +56,14 @@ export function planSystem1Migration(workspace) {
   const provider = parseConfigJson(providerText);
   if (!provider || typeof provider !== 'object' || Array.isArray(provider)) throw migrationError('Invalid provider document');
   const override = migrateWatchdogOverride(input['.ai/agent-fleet-overrides.md']);
+  const policyRoots = reviewedPolicyRoots(workspace, input['.ai/agent-fleet-overrides.md']);
+  const context = policyRootValidationContext(policyRoots);
   const legacyPaths = SYSTEM1_MIGRATION_PATHS.slice(1,4).filter(path => input[path] !== undefined);
   if (provider.version === 2) {
-    const snapshot = normalizeSystem1Config(provider);
+    const snapshot = normalizeSystem1Config(provider, context);
     if (snapshot.errors.length) throw new Error(`Invalid v2: ${JSON.stringify(snapshot.errors)}`);
     if (legacyPaths.length || override.mode !== undefined) throw migrationError('v2 plus legacy configuration: explicit conflict resolution required; nothing deleted', 3);
-    return finalizePlan({ workspace, verb:'configure', actions:[{files:SYSTEM1_MIGRATION_PATHS.map(path=>({path}))}], operations:[], status:'noop', target:provider });
+    return finalizePlan({ workspace, verb:'configure', actions:[{files:SYSTEM1_MIGRATION_PATHS.map(path=>({path}))}], operations:[], status:'noop', target:provider, policyRoots });
   }
   if (provider.version !== 1 || Object.keys(provider).length !== 5 || !['version','mode','provider','model','apiKeyEnv'].every(k=>Object.hasOwn(provider,k))) throw new Error('Invalid v1 provider schema');
   const target = { ...provider, version:2, consumers:{} };
@@ -75,19 +79,24 @@ export function planSystem1Migration(workspace) {
     }
     target.consumers[name] = section;
   }
-  const snapshot = normalizeSystem1Config(target);
+  const snapshot = normalizeSystem1Config(target, context);
   if (snapshot.errors.length || !['off','ready'].includes(snapshot.status)) throw new Error(`Invalid migration inputs: ${JSON.stringify(snapshot.errors)}`);
   const operations = [{path:'.ai/system1.json',text:JSON.stringify(target,null,2)+'\n'}, ...legacyPaths.map(path=>({path,remove:true}))];
   if (override.mode !== undefined) operations.push({path:'.ai/agent-fleet-overrides.md',text:override.text});
-  const plan = { workspace, verb:'configure', actions:[{files:SYSTEM1_MIGRATION_PATHS.map(path=>({path}))}], operations, target, status:'migration', preserveBackup:true };
+  const plan = { workspace, verb:'configure', actions:[{files:SYSTEM1_MIGRATION_PATHS.map(path=>({path}))}], operations, target, policyRoots, status:'migration', preserveBackup:true };
   return finalizePlan(plan);
 }
 export function applySystem1Migration(plan, { failAt = null, lockHeld = false, expectDigest = plan.digest } = {}) {
   if (expectDigest !== plan.digest || plan.digest !== migrationPreviewDigest(plan)) throw migrationError('System1 migration preview digest mismatch; inputs or target changed. Run --dry-run again and use its --expect-digest.', 3);
-  if (plan.status === 'noop') { assertPlanFingerprints(plan, { items: [] }); return {status:'noop'}; }
+  const context = policyRootValidationContext(plan.policyRoots);
+  if (plan.status === 'noop') {
+    assertPlanFingerprints(plan, { items: [] });
+    if (normalizeSystem1Config(plan.target, context).errors.length) throw new Error('Invalid migration target; policy sources changed since preview');
+    return {status:'noop'};
+  }
   return runTransaction({workspace:plan.workspace,plan,manifest:{items:[]},lockHeld,
     failAt: ['after-journal','after-commit','after-durable-commit'].includes(failAt) ? failAt : null,
-    validate:()=> { if (normalizeSystem1Config(plan.target).errors.length) throw new Error('Invalid migration target'); },
+    validate:()=> { if (normalizeSystem1Config(plan.target, context).errors.length) throw new Error('Invalid migration target'); },
     commit:()=> {
       for (const [index, operation] of plan.operations.entries()) {
         const path = assertSafeWorkspaceTarget(plan.workspace,operation.path,{allowLeafSymlink:false});
@@ -100,7 +109,7 @@ export function applySystem1Migration(plan, { failAt = null, lockHeld = false, e
         if (failAt === `operation-${index}`) throw new Error('injected migration interruption');
       }
       const saved = parseConfigJson(readInput(plan.workspace,'.ai/system1.json'));
-      if (normalizeSystem1Config(saved).errors.length) throw new Error('Written migration target invalid');
+      if (normalizeSystem1Config(saved, context).errors.length) throw new Error('Written migration target invalid');
       return {status:'migrated', backup:plan.backup, paths:plan.operations.map(o=>o.path)};
     }
   });

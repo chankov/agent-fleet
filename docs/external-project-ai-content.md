@@ -17,9 +17,25 @@ Paths resolve from the checkout, not from a nested child cwd. Each worktree reso
 
 ## System 1 policy and evidence
 
-Existing `.ai/rules/...` bindings resolve through configured rules roots without changing the binding strings. Multiple candidates, including an old local copy plus an external copy, are ambiguous. Relocation never repins changed content: hash and heading occurrence still have to match.
+Existing `.ai/rules/...` bindings resolve through configured rules roots without changing the binding strings, whether those roots are nested inside the workspace or outside it. Discovery retains the canonical physical path and root identity alongside that logical binding. Multiple candidates, including an old local copy plus an external copy, are ambiguous. Relocation never repins changed content: hash and heading occurrence still have to match.
 
 `proactiveReview.include` is separate capture consent. External entries require an admitted content root; a read grant alone does not enable provider capture. Capture retains its redaction, byte/file/time limits and consumer mode. Independent external Git worktrees provide their own HEAD evidence, including earlier dirty modifications, deletions and untracked additions. Without Git, bounded turn snapshots can show only changes since capture; `external_history_unavailable` reports the earlier-history gap. Missing evidence and changed HEAD remain gaps, never a clean review.
+
+### Non-Git parent workspaces
+
+A workspace may contain independent application and docs repositories, for example `ringithub/` and `rin-docs/`. Keep the existing runtime installation; configure paths relative to the parent:
+
+```markdown
+## agent-hub
+rules: rin-docs/.ai/rules
+docs: rin-docs
+```
+
+Explicit proactive includes such as `ringithub/RIN.API/**` and `rin-docs/**` select the capture scopes. A docs grant does not select application content. When the parent has no Git HEAD, bounded capture checks only those approved scopes for independent Git history; it does not recursively search for repositories. Each source is compared with its own HEAD, including pre-session modifications, additions and deletions. Git status inventory is restricted to approved scopes and optional Git locks are disabled, so capture cannot refresh the source repository index. Changed paths are selected within each scope, so clean files do not exhaust evidence budgets; known targets and baseline paths retain coverage for deletions and reverts. Overlapping includes are deduplicated, and shared time/byte/unit budgets remain in force. Globs need a concrete directory prefix; workspace-wide globs cannot trigger a parent inventory. Missing history, root changes, changed HEAD and incomplete capture remain coverage gaps. Ordinary single-repository capture is unchanged.
+
+The parent must own real `.ai/system1.json` and `.ai/agent-fleet.json` files. Symlinks to child JSON configs remain refused. Ordinary setup does not copy or convert those configs, and launching from the parent does not make them Git-tracked: choose persistence/versioning explicitly. Adapt includes and local-binding applicability to parent-relative paths, preserving provider, approvals, modes, budgets and pins. A stale rule hash still requires separate operator review; neither relocation nor doctor repins it.
+
+`setup --migrate-system1-config --dry-run` and doctor validate external includes using the configured policy roots. Already-v2 valid input previews as a no-op; exact-file grants do not authorize a directory include. Migration preserves preview digest, concurrency and no-symlink checks, including canonical grant identity. Doctor distinguishes locally ready provider configuration from **unverified consumer evidence** and reports missing, stale or ambiguous rule pins without performing a turn capture or calling a provider. A ready provider or matching static pin is not a successful proactive review.
 
 File-discovery has narrower workspace-only export/include permissions. External policy read grants do not enable remote file-discovery ranking.
 

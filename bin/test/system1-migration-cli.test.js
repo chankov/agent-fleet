@@ -36,6 +36,27 @@ test('public migration preview/apply is local, explicit and idempotent', t => {
  const noop = JSON.parse(run('--dry-run').stdout);
  assert.equal(JSON.parse(run('--yes', '--expect-digest', noop.digest).stdout).result.status, 'noop');
 });
+test('public unchanged v2 migration uses sibling policy grants and never writes parent configs', t => {
+ const { workspace, path, run } = fixture(t);
+ const docs = join(workspace, 'rin-docs'); mkdirSync(docs);
+ writeFileSync(join(docs, 'README.md'), '# Docs\n');
+ const app = join(workspace, 'ringithub'); mkdirSync(join(app, '.ai'), { recursive: true });
+ const v2 = { version: 2, mode: 'off', provider: 'typesafe', model: 'jev-1.13.0', apiKeyEnv: 'TYPESAFE_API_KEY', consumers: { proactiveReview: { mode: 'advisory', include: ['../rin-docs'] } } };
+ const config = join(app, '.ai/system1.json'); writeFileSync(config, JSON.stringify(v2));
+ const overrides = join(app, '.ai/agent-fleet-overrides.md'); writeFileSync(overrides, '## agent-hub\ndocs: ../rin-docs\n');
+ const cli = fileURLToPath(new URL('../cli.js', import.meta.url));
+ const preview = spawnSync(process.execPath, [cli, 'setup', '--workspace', app, '--migrate-system1-config', '--dry-run', '--json'], { encoding: 'utf8', env: { PI_OFFLINE: '1' } });
+ assert.equal(preview.status, 0, preview.stderr);
+ assert.equal(JSON.parse(preview.stdout).status, 'noop');
+ assert.deepEqual(JSON.parse(preview.stdout).target, v2);
+ assert.equal(readFileSync(config, 'utf8'), JSON.stringify(v2));
+ assert.equal(run('--dry-run').status, 0);
+ assert.equal(JSON.parse(readFileSync(path, 'utf8')).version, 1);
+ writeFileSync(overrides, '## agent-hub\ndocs: ../rin-docs/README.md\n');
+ const refused = spawnSync(process.execPath, [cli, 'setup', '--workspace', app, '--migrate-system1-config', '--dry-run'], { encoding: 'utf8', env: { PI_OFFLINE: '1' } });
+ assert.equal(refused.status, 1); assert.match(refused.stderr, /Invalid v2/);
+});
+
 test('digest refuses even formatting-only edits between separate preview/apply runs', t => {
  const { workspace, path, before, run } = fixture(t);
  const preview = JSON.parse(run('--dry-run').stdout);
