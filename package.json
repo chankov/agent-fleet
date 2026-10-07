@@ -175,14 +175,18 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.1",
+    "@sinclair/typebox": "^0.34.49",
     "@types/node": "22.15.3",
+    "typebox": "^1.1.33",
     "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "@sinclair/typebox": "*",
+    "typebox": "*"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@sinclair/typebox": "^0.34.49",
     "pi-ask-user": "^0.14.0",
-    "typebox": "^1.1.33",
     "yaml": "^2.9.0"
   },
   "bundledDependencies": [

@@ -311,6 +311,16 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
   assert.equal([...paths].some((path) => path.startsWith(".pi/harnesses/lib/system1/") && /\.test\.(js|ts)$/.test(path)), false, "system1 tests must not be published");
 });
 
+test("host-provided TypeBox packages are peers, not runtime dependencies", () => {
+  const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  for (const name of ["@sinclair/typebox", "typebox"]) {
+    assert.equal(manifest.dependencies?.[name], undefined, `${name} must use Pi's host-provided module`);
+    assert.equal(manifest.peerDependencies?.[name], "*");
+    assert.ok(manifest.devDependencies?.[name], `${name} must remain available for local tests and typechecking`);
+    assert.equal(manifest.bundledDependencies.includes(name), false);
+  }
+});
+
 test("workflow-only install runs a production policy prompt without the Hub item or source checkout", () => {
   const workspace = mkdtempSync(join(tmpdir(), "af-workflow-only-"));
   writeFileSync(join(workspace, "package.json"), JSON.stringify({type:"module"}));
@@ -485,6 +495,10 @@ test("published package hoists extension runtime dependencies for symlink instal
   const extensionPkg = JSON.parse(readFileSync(join(root, ".pi", "extensions", "package.json"), "utf8"));
 
   for (const [name, version] of Object.entries(extensionPkg.dependencies)) {
+    if (["@sinclair/typebox", "typebox"].includes(name)) {
+      assert.equal(pkg.peerDependencies?.[name], "*", `${name} is provided by Pi`);
+      continue;
+    }
     assert.equal(
       pkg.dependencies?.[name],
       version,
