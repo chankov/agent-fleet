@@ -26,12 +26,14 @@ export interface ExternalBaseline {
 export function captureExternal(input: { roots: PolicyRootTable; include: readonly string[]; maxFiles: number; maxBytes: number; check(): void; includeWorkspace?: boolean; knownPaths?: readonly string[] }): ExternalBaseline {
  const files = new Map<string,Buffer>(), identities = new Map<string,string>(), gitHeads = new Map<string,string>(), headFiles = new Map<string,Buffer>(), gaps: string[] = [];
  let bytes = 0, entries = 0;
+ // Logical identities use the same lexical checkout as the grants, even through an alias.
+ const workspaceLexical = input.roots.roots.find(root => root.role === "workspace")?.lexicalPath ?? input.roots.workspace;
  const visited = new Set<string>(), changedByRepository = new Map<string, string[]>();
  const read = (path: string) => {
   input.check();
   const admitted = authorizePolicyPath(input.roots,path);
   const lexical = resolve(admitted.root.lexicalPath,relative(admitted.root.canonicalPath,admitted.path));
-  const logical = relative(input.roots.workspace,lexical).split(sep).join("/");
+  const logical = relative(workspaceLexical,lexical).split(sep).join("/");
   if (!checkScope([logical], input.include).inScope.length || files.has(logical)) return;
   if (!headFiles.has(logical) && new Set([...files.keys(), ...headFiles.keys()]).size >= input.maxFiles) { gaps.push("external_capture_limit"); return; }
   const content = safeSourceRead(admitted.root.kind === "file" ? dirname(admitted.path) : admitted.root.canonicalPath,admitted.path,PROACTIVE_LIMITS.maxFileBytes,input.check);

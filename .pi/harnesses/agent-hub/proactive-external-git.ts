@@ -42,6 +42,7 @@ export function externalChangedPaths(source: ExternalGitScope, check: () => void
 /** Only HEAD blobs below the admitted scope. Never read checkout extraction deletions or sibling content. */
 export function readExternalHead(input: { git: ExternalGitScope; scope: string; grant: PolicyRoot; roots: PolicyRootTable; maxFiles: number; maxBytes: number; check(): void; include?: readonly string[]; existing?: ReadonlyMap<string, Buffer>; paths?: readonly string[] }): Map<string,Buffer> {
  const result=new Map<string,Buffer>();
+ const workspaceLexical = input.roots.roots.find(root => root.role === "workspace")?.lexicalPath ?? input.roots.workspace;
  const scopeRelative=relative(input.git.root,input.scope).split(sep).join("/");
  if (scopeRelative===".." || scopeRelative.startsWith("../") || isAbsolute(scopeRelative)) throw new Error("external_git_scope");
  if (input.paths?.length === 0) return result;
@@ -68,7 +69,7 @@ export function readExternalHead(input: { git: ExternalGitScope; scope: string; 
    if (input.grant.kind==="directory" && (isAbsolute(grantRel)||grantRel===".."||grantRel.startsWith(`..${sep}`))) throw new Error("external_git_escape");
   }
   const lexical=resolve(input.grant.lexicalPath,relative(input.grant.canonicalPath,path));
-  const logical=relative(input.roots.workspace,lexical).split(sep).join("/");
+  const logical=relative(workspaceLexical,lexical).split(sep).join("/");
   if ((input.include && !checkScope([logical],input.include).inScope.length) || input.existing?.has(logical)) continue;
   if (result.size>=input.maxFiles) throw new Error("external_capture_limit");
   const content=git(input.git.root,["cat-file","blob",match[2]!],input.check,PROACTIVE_LIMITS.maxFileBytes+1);

@@ -97,6 +97,27 @@ test("non-Git parent captures only consented scopes in two nested repositories a
  assert.ok(finishTurnCore(baseline)?.gaps.includes("external_head_changed"));
 });
 
+test("symlinked parent workspace retains logical nested Git evidence paths", async t => {
+ const base = temporaryDirectory(t, "parent-alias-"), physical = join(base, "physical"), root = join(base, "alias");
+ mkdirSync(physical); symlinkSync(physical, root, "dir");
+ for (const name of ["ringithub", "rin-docs"]) {
+  const repo = join(physical, name);
+  mkdirSync(repo); git(repo, "init", "-q"); git(repo, "config", "user.email", "snapshot@example.test"); git(repo, "config", "user.name", "Test");
+  writeFileSync(join(repo, "README.md"), "committed\n");
+  git(repo, "add", "."); git(repo, "commit", "-qm", "initial");
+ }
+ const roots = resolvePolicyRoots(root, { docsPaths: ["rin-docs"] });
+ const cfg = parseProactiveConfig({ version: 1, mode: "shadow", include: ["ringithub/**", "rin-docs/**"] }, roots);
+ const baseline = await beginTurn({ root, config: cfg, context, turnId: "parent-alias", policyRoots: roots });
+ for (const name of ["ringithub", "rin-docs"]) writeFileSync(join(root, name, "README.md"), "changed\n");
+ const result = await finishTurn(baseline);
+ assert.equal(result?.status, "complete", JSON.stringify(result?.gaps));
+ assert.deepEqual(result?.units.map(u => u.path).sort(), ["rin-docs/README.md", "ringithub/README.md"]);
+ assert.ok(result?.units.every(u => u.before?.text === "committed\n" && u.after?.text === "changed\n"));
+ assert.equal(result?.units.find(u => u.path === "ringithub/README.md")?.sourceRootId, "workspace");
+ assert.equal(result?.units.find(u => u.path === "rin-docs/README.md")?.sourceRootId, roots.roots[1]!.id);
+});
+
 test("parent Git capture budgets changed evidence, not the entire clean nested checkout", t => {
  const root = temporaryDirectory(t, "parent-large-clean-"), repo = join(root, "ringithub");
  mkdirSync(repo); git(repo, "init", "-q"); git(repo, "config", "user.email", "snapshot@example.test"); git(repo, "config", "user.name", "Test");
