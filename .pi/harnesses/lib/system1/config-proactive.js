@@ -32,7 +32,18 @@ function includePath(value) {
     const segments = value.split("/");
     return segments.every(s => !!s && s !== ".." && s !== "." && !s.startsWith(".")) && !segments.some(s => /^(node_modules|vendor|dist|build|coverage|\.git|\.pi)$/i.test(s)) && (segments.length > 1 || !value.includes("*"));
 }
-export function parseProactiveConfig(value) {
+function externalIncludePath(value, context) {
+    if (typeof value !== 'string' || !value.startsWith('../') || value.length > 256 || value.includes('\\') || value.includes('\0') || /[{}!\[\]?]/.test(value)) return false;
+    const segments = value.split('/');
+    let prefix = 0;
+    while (segments[prefix] === '..') prefix++;
+    const tail = segments.slice(prefix);
+    if (!tail.length || tail.some(s => !s || s === '.' || s === '..' || s.startsWith('.') || /^(?:node_modules|vendor|dist|build|coverage|artifacts|sessions?|transcripts?|credentials?(?:\..*)?|secrets?(?:\..*)?|id_(?:rsa|ed25519)|.*\.(?:pem|key|p12|pfx|sqlite|db|lock))$/i.test(s))) return false;
+    // Only a terminal subtree wildcard is contextually authorizable; no glob-prefix widening.
+    if (tail.some((s,i) => s.includes('*') && (s !== '**' || i !== tail.length - 1)) || tail[0] === '**') return false;
+    return context?.externalIncludeAllowed?.(value) === true;
+}
+export function parseProactiveConfig(value, context) {
     if (typeof value !== "object" || value === null || Array.isArray(value))
         throw new Error("Invalid proactive review config");
     const v = value;
@@ -40,7 +51,7 @@ export function parseProactiveConfig(value) {
         throw new Error("Unsupported proactive review config");
     if (v.remoteContext !== undefined && v.remoteContext !== "disabled" && v.remoteContext !== "selected-excerpts")
         throw new Error("Invalid remoteContext");
-    if (v.include !== undefined && (!Array.isArray(v.include) || v.include.length > 32 || !v.include.every(includePath) || new Set(v.include).size !== v.include.length))
+    if (v.include !== undefined && (!Array.isArray(v.include) || v.include.length > 32 || !v.include.every(path => includePath(path) || externalIncludePath(path, context)) || new Set(v.include).size !== v.include.length))
         throw new Error("Invalid include scope");
     const bindings = v.localBindings === undefined ? undefined : parseLocalBindings(v.localBindings);
     const budget = v.maxEvaluationsPerSession ?? DEFAULT_BUDGET;

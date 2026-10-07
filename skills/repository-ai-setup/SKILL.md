@@ -53,6 +53,24 @@ up, review, or extend a repository's AI rules from the Fleet catalogue.
    A rule inferred only from code frequency or consistency is a proposal with
    cited evidence — never normative — until the user explicitly accepts it.
 
+## External content destinations
+
+Keep overrides, provenance and lifecycle state in the checkout's real `.ai/`.
+Read `rules:`/`docs:` grants do not authorize writes. For an explicitly reviewed
+external generation destination, pass `contentDestination: { root,
+acceptedDecision, evidence }` to the provenance API and retain logical `.ai/...`
+change paths. The destination must be an existing real directory separate from
+the checkout. Supply the same reviewed destination for classification and later
+apply; adoption/conflicts and per-content hashes remain mandatory. Content and
+the local sidecar roll back together under the local lifecycle lock/journal.
+
+Configure external read references separately through the existing configure
+CLI. Exact-file docs grants never expand to parents; child references resolve
+before spawning. Native command/skill registration needs local adapters or
+explicit Pi paths, not a read grant. External System 1 capture needs separate
+include consent, and non-Git history gaps must remain visible. See
+`../../docs/external-project-ai-content.md` for the complete layout contract.
+
 ## The workflow
 
 Run these phases in order. The detail for each step lives in

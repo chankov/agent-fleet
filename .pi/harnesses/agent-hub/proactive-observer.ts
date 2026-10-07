@@ -21,6 +21,7 @@ export interface ObserverAssignment {
  attempt: string;
  config: ProactiveConfig;
  context: TaskContext;
+ policyRoots?: import("../lib/policy-roots.ts").PolicyRootTable;
 }
 export interface ObserverManifest {
  producer: "agent-fleet.proactive-observer/v1";
@@ -70,7 +71,7 @@ export function createProactiveObserver(pi: Pick<ExtensionAPI, "on">, assignment
   if (!Number.isSafeInteger(i) || i < 0 || seen.has(i) || active?.turnIndex === i) return;
   if (active) { record(active.turnIndex, "incomplete", "aborted"); seen.add(active.turnIndex); }
   active = { turnIndex: i, baseline: null };
-  try { active.baseline = await beginTurn({ root: assignment.root, config: assignment.config, turnId: identity(i), context: assignment.context }); }
+  try { active.baseline = await beginTurn({ root: assignment.root, config: assignment.config, turnId: identity(i), context: assignment.context, policyRoots:assignment.policyRoots }); }
   catch { /* finish records not_checked, never claims a snapshot */ }
  }));
  pi.on("turn_end", (event: TurnEndEvent) => enqueue(async () => {

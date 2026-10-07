@@ -11,6 +11,11 @@ lifecycle commands.
 - [What reconcile does to each file](#what-reconcile-does-to-each-file) — **read this before your first update**
 - [Doctor and uninstall](#doctor-and-uninstall)
 
+Project content can live outside the checkout while configuration and lifecycle
+state remain local. See [External project AI content](external-project-ai-content.md)
+for read grants, separate reviewed generation destinations, native adapters and
+System 1 evidence boundaries.
+
 ## First install
 
 Run the package command from the target repository. There is no `just fleet`

@@ -70,11 +70,14 @@ function fileState(path: string, allowedRoot?: string) {
  if (!existsSync(checked) || !statSync(checked).isFile()) throw new Error(`Not a regular file: ${path}`);
  return { path: checked, ...hashAndSize(checked) };
 }
-function directoryState(root: string) {
+function directoryState(root: string, authorizePath?: (path: string) => void) {
  const checked = checkedExisting(root, root);
  if (!statSync(checked).isDirectory()) throw new Error(`Not a directory: ${root}`);
  const rootReal = realpathSync(checked);
- const entries = readdirSync(checked, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).map(entry => {
+ const entries = readdirSync(checked, { withFileTypes: true }).filter(entry => {
+  if (!authorizePath) return true;
+  try { authorizePath(join(checked, entry.name)); return true; } catch { return false; }
+ }).sort((a, b) => a.name.localeCompare(b.name)).map(entry => {
   const path = join(checked, entry.name), lst = lstatSync(path);
   if (lst.isSymbolicLink()) {
    try {
@@ -90,9 +93,9 @@ function directoryState(root: string) {
 function utf8Preview(bytes: Buffer, chars = PREVIEW_CHARS): string {
  return [...bytes.toString("utf8")].slice(0, chars).join("");
 }
-export function inventory(input: { root: string; handle?: string; pageSize?: number; boundedOutput?: boolean; followSymlinkEscape?: boolean }) {
+export function inventory(input: { root: string; handle?: string; pageSize?: number; boundedOutput?: boolean; followSymlinkEscape?: boolean; authorizePath?: (path: string) => void }) {
  if (input.followSymlinkEscape) throw new Error("Symlink escape following is forbidden");
- const state = directoryState(input.root);
+ const state = directoryState(input.root, input.authorizePath);
  let offset = 0;
  if (input.handle) {
   const handle = decode(input.handle);

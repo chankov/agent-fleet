@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { registerHooks } from "node:module";
 import { join } from "node:path";
 import { CONTENT_REPLY_BYTES } from "./deterministic-fs.ts";
-import { registerFilesystemTool } from "./filesystem-tool.ts";
+import { registerFilesystemTool, filesystemPolicyRootsFromEnv, FILESYSTEM_POLICY_ROOTS_ENV } from "./filesystem-tool.ts";
+import { resolvePolicyRoots } from "../lib/policy-roots.ts";
+import { decodeDeterministicHandle } from "../lib/deterministic-handle-path.ts";
 
 registerHooks({resolve(specifier,context,nextResolve){if(specifier==="@mariozechner/pi-coding-agent")return{url:"data:text/javascript,export const isToolCallEventType=(name,event)=>event.toolName===name;",shortCircuit:true};return nextResolve(specifier,context);}});
 const damageControl = (await import("../damage-control-continue/index.ts")).default;
@@ -15,6 +17,97 @@ import { resolveDelegateTools } from "./helpers.ts";
 
 const temp = () => mkdtempSync(join(tmpdir(), "fleet-filesystem-tool-"));
 const invoke = async (tool: any, params: any, cwd: string) => tool.execute("call", params, new AbortController().signal, () => {}, { cwd });
+
+test("external grants support bounded reads with root-bound handles and confined snapshots", async t => {
+ const base=temp(), tools:any[]=[];
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const root=join(base,"code"), docs=join(base,"docs"), session=join(root,".pi/session");
+ mkdirSync(session,{recursive:true}); mkdirSync(docs);
+ const file=join(docs,"README.md"); writeFileSync(file,"external content");
+ writeFileSync(join(docs,".env"),"private"); mkdirSync(join(docs,"dist"));
+ symlinkSync(root,join(docs,"escape"));
+ let table=resolvePolicyRoots(root,{docsPaths:["../docs"]});
+ registerFilesystemTool({registerTool:(tool:any)=>tools.push(tool)} as any,{enabled:()=>true,sessionDir:()=>session,policyRoots:()=>table});
+ const tool=tools[0];
+ assert.equal((await invoke(tool,{operation:"stat",path:"../docs/README.md"},root)).details.result.bytes,16);
+ const listed=(await invoke(tool,{operation:"inventory",path:"../docs"},root)).details.result;
+ assert.deepEqual(listed.entries.map((e:any)=>e.name),["README.md"]);
+ writeFileSync(join(docs,"second.md"),"second");
+ const page=(await invoke(tool,{operation:"inventory",path:"../docs",page_size:1},root)).details.result;
+ assert.equal(decodeDeterministicHandle(page.nextHandle).rootId,table.roots[1]!.id);
+ const next=(await invoke(tool,{operation:"inventory",path:"../docs",handle:page.nextHandle,page_size:1},root)).details.result;
+ assert.equal(next.entries[0].name,"second.md");
+ writeFileSync(join(docs,"third.md"),"third");
+ await assert.rejects(()=>invoke(tool,{operation:"inventory",path:"../docs",handle:page.nextHandle},root),/Stale inventory/);
+ const first=(await invoke(tool,{operation:"excerpt",path:"../docs/README.md",max_bytes:4},root)).details.result;
+ assert.equal(first.content,"exte");
+ assert.equal((decodeDeterministicHandle(first.nextHandle) as any).rootId,table.roots[1]!.id);
+ assert.equal((await invoke(tool,{operation:"readback",handle:first.nextHandle,max_bytes:4},root)).details.result.content,"rnal");
+ await assert.rejects(()=>invoke(tool,{operation:"stat",path:".."},root),/ungranted/);
+ await assert.rejects(()=>invoke(tool,{operation:"excerpt",path:"../other/file"},root),/ungranted/);
+ await assert.rejects(()=>invoke(tool,{operation:"excerpt",path:"../docs/.env"},root),/denied/);
+ await assert.rejects(()=>invoke(tool,{operation:"inventory",path:"../docs/escape"},root),/escape/);
+ await assert.rejects(()=>invoke(tool,{operation:"snapshot",path:"../docs/README.md",origin:"file"},root),/workspace/);
+ assert.equal(existsSync(join(session,"artifacts")),false);
+ table=resolvePolicyRoots(root,{docsPaths:["../docs/README.md"]});
+ await assert.rejects(()=>invoke(tool,{operation:"readback",handle:first.nextHandle},root),/root|grant/);
+ await assert.rejects(()=>invoke(tool,{operation:"inventory",path:"../docs"},root),/ungranted/);
+ await assert.rejects(()=>invoke(tool,{operation:"excerpt",path:"../docs/second.md"},root),/ungranted/);
+ await assert.rejects(()=>invoke(tool,{operation:"inventory",path:file},root),/directory/);
+ writeFileSync(file,"changed");
+ const current=(await invoke(tool,{operation:"excerpt",path:"../docs/README.md"},root)).details.result;
+ writeFileSync(file,"changed again");
+ await assert.rejects(()=>invoke(tool,{operation:"readback",handle:current.onDiskHandle},root),/Stale/);
+});
+
+test("external handles reauthorize symlink roots, reject forgery and retain session boundaries", async t => {
+ const base=temp(), tools:any[]=[];
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const root=join(base,"code"), docs=join(base,"docs"), session=join(root,".pi/session"), otherSession=join(base,"other-session");
+ mkdirSync(session,{recursive:true}); mkdirSync(join(root,"nested")); mkdirSync(otherSession); mkdirSync(docs);
+ writeFileSync(join(docs,"README.md"),"external");
+ symlinkSync(docs,join(base,"alias"));
+ const table=resolvePolicyRoots(root,{docsPaths:["../alias"]});
+ registerFilesystemTool({registerTool:(tool:any)=>tools.push(tool)} as any,{enabled:()=>true,sessionDir:()=>session,policyRoots:()=>table});
+ const tool=tools[0], nested=join(root,"nested");
+ const first=(await invoke(tool,{operation:"excerpt",path:"../alias/README.md"},nested)).details.result;
+ assert.equal(first.path,join(docs,"README.md"));
+ const stripped=decodeDeterministicHandle(first.onDiskHandle); delete stripped.rootId;
+ await assert.rejects(()=>invoke(tool,{operation:"readback",handle:`t5:${Buffer.from(JSON.stringify(stripped)).toString("base64url")}`},root),/root grant/);
+ writeFileSync(join(otherSession,"note.md"),"other session");
+ const foreign=`t5:${Buffer.from(JSON.stringify({v:1,kind:"file",path:join(otherSession,"note.md"),hash:createHash("sha256").update("other session").digest("hex"),offset:0})).toString("base64url")}`;
+ await assert.rejects(()=>invoke(tool,{operation:"readback",handle:foreign},root),/ungranted/);
+ unlinkSync(join(base,"alias")); symlinkSync(root,join(base,"alias"));
+ await assert.rejects(()=>invoke(tool,{operation:"readback",handle:first.onDiskHandle},root),/root_changed/);
+});
+
+test("external readback retains orchestrator byte ceilings and managed-readback veto", async t => {
+ const base=temp(), tools:any[]=[];
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const root=join(base,"code"), docs=join(base,"docs"), session=join(root,"session");
+ mkdirSync(session,{recursive:true}); mkdirSync(docs);
+ const file=join(docs,"large.md"); writeFileSync(file,Buffer.alloc(CONTENT_REPLY_BYTES+1,97));
+ let readOnly=false, allowed=true, remaining=1000;
+ registerFilesystemTool({registerTool:(tool:any)=>tools.push(tool)} as any,{enabled:()=>!readOnly,readOnly:()=>readOnly,sessionDir:()=>session,policyRoots:()=>resolvePolicyRoots(root,{docsPaths:["../docs"]}),managedReadbackAllowed:()=>allowed,remainingSelfReadBytes:()=>remaining,noteSelfReadBytes:bytes=>{remaining-=bytes;}});
+ const first=(await invoke(tools[0],{operation:"excerpt",path:file,max_bytes:10},root)).details.result;
+ readOnly=true;
+ assert.equal((await invoke(tools[0],{operation:"readback",handle:first.nextHandle},root)).details.result.reason,"too_large");
+ assert.equal((await invoke(tools[0],{operation:"excerpt",path:file},root)).details.result.content,null);
+ allowed=false;
+ await assert.rejects(()=>invoke(tools[0],{operation:"readback",handle:first.nextHandle},root),/stale or denied/);
+ allowed=true; writeFileSync(file,"small"); remaining=0;
+ assert.equal((await invoke(tools[0],{operation:"excerpt",path:file},root)).details.result.reason,"too_large");
+});
+
+test("standalone child filesystem receives root table without widening malformed grants", t => {
+ const base=temp();t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const root=join(base,"code"),docs=join(base,"docs");mkdirSync(root);mkdirSync(docs);
+ const table=resolvePolicyRoots(root,{docsPaths:["../docs"]});
+ const loaded=filesystemPolicyRootsFromEnv({[FILESYSTEM_POLICY_ROOTS_ENV]:JSON.stringify(table)});
+ assert.equal(loaded?.workspace,root);assert.equal(loaded?.roots[1]?.canonicalPath,docs);
+ assert.throws(()=>filesystemPolicyRootsFromEnv({[FILESYSTEM_POLICY_ROOTS_ENV]:"{}"}),/Invalid/);
+ assert.throws(()=>filesystemPolicyRootsFromEnv({[FILESYSTEM_POLICY_ROOTS_ENV]:JSON.stringify({...table,roots:[{...table.roots[1],canonicalPath:base}]})}),/Invalid/);
+});
 
 test("T5 effective surface follows deterministic-tools for operator and is read-only-visible for orchestrator", () => {
  const base={baselineTools:["read","filesystem"],comsReady:false,herdrReady:false,askUserAvailable:false,capabilityPacks:["core"] as const};

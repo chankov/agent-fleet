@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, fstatSync, openSync, opendirSync, readSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { BoundReference, RuleSection } from "./proactive-types.ts";
+import { authorizePolicyPath, resolveRuleBinding, type PolicyRootTable } from "../lib/policy-roots.ts";
 
 export const RULE_CATALOG_LIMITS = Object.freeze({ files: 64, bytes: 256 * 1024 });
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -20,24 +21,36 @@ export interface RuleCatalog {
  readonly version: string;
 }
 
-/** Local catalog only. Never interprets Markdown as commands or authority. */
-export function discoverRules(repo: string, roots: readonly string[]): RuleCatalog {
+/** Bounded local policy sources, including explicitly granted external roots. Never executes rule prose. */
+export function discoverRules(repo: string, roots: readonly string[], policyRoots?: PolicyRootTable): RuleCatalog {
  const sections: CatalogSection[] = [], files: BoundReference[] = [], gaps: string[] = [];
  let bytesRead = 0;
  const seen = new Set<string>(), queued = new Set<string>();
- const repoReal = realpathSync(repo);
+ const repoReal = policyRoots?.workspace ?? realpathSync(repo);
  const inside = (base: string, target: string) => target === base || target.startsWith(base + sep);
  const relativePath = (p: string) => relative(repoReal, p).split(sep).join("/");
  for (const root of roots) {
-  if (!root || isAbsolute(root) || root.split(/[\\/]/).some(s => !s || s === ".." || s === "." || denied.test(s))) { gaps.push("invalid_root"); continue; }
+  const grant = policyRoots?.roots.find(r => r.role === "rules" && r.lexicalPath === resolve(repoReal, root));
+  const external = !!grant && !inside(repoReal, grant.canonicalPath);
+  if (!root || isAbsolute(root) || (!grant && root.split(/[\\/]/).some(s => !s || s === ".." || s === "." || denied.test(s)))) { gaps.push(policyRoots ? `ungranted_root:${root}` : "invalid_root"); continue; }
   let rootReal: string;
-  try { rootReal = realpathSync(resolve(repoReal, root)); } catch { gaps.push(`missing_root:${root}`); continue; }
-  if (!inside(repoReal, rootReal) || !statSync(rootReal).isDirectory()) { gaps.push(`unsafe_root:${root}`); continue; }
+  try { rootReal = grant ? authorizePolicyPath(policyRoots!,grant.lexicalPath,"inventory").path : realpathSync(resolve(repoReal, root)); }
+  catch (error) { gaps.push(grant ? `${error instanceof Error ? error.message : "unsafe_root"}:${root}` : `missing_root:${root}`); continue; }
+  if ((!grant && !inside(repoReal, rootReal)) || !statSync(rootReal).isDirectory()) { gaps.push(`unsafe_root:${root}`); continue; }
+  const sourcePath = (p: string) => external ? `.ai/rules/${relative(rootReal,p).split(sep).join("/")}` : relativePath(p);
   const queue: string[] = [];
   const enqueue = (p: string) => { if (!queued.has(p)) { queued.add(p); queue.push(p); } };
   const safe = (p: string): string | null => {
    if (!inside(rootReal, p) || relative(rootReal, p).split(sep).some(s => denied.test(s))) return null;
-   try { const real = realpathSync(p); return inside(rootReal, real) && inside(repoReal, real) ? real : null; } catch { return null; }
+   try {
+    const real = realpathSync(p);
+    if (!inside(rootReal,real) || (!external && !inside(repoReal,real))) return null;
+    if (grant) {
+     const admitted = authorizePolicyPath(policyRoots!,p);
+     if (admitted.path !== real || relative(rootReal,real).split(sep).some(s => denied.test(s))) return null;
+    }
+    return real;
+   } catch { return null; }
   };
   const walk = (dir: string) => {
    // Bound the directory traversal too; symlink cycles cannot grow the queue indefinitely.
@@ -86,20 +99,32 @@ export function discoverRules(repo: string, roots: readonly string[]): RuleCatal
    try {
     const fd = openSync(p, "r");
     try {
-     const size = fstatSync(fd).size;
+     const opened = fstatSync(fd), size = opened.size;
+     if (safe(p) !== real || !opened.isFile()) { gaps.push(`unstable_file:${sourcePath(p)}`); seen.add(real); continue; }
      if (size > RULE_CATALOG_LIMITS.bytes - bytesRead) { gaps.push(`byte_budget:${relativePath(p)}`); seen.add(real); continue; }
      const buffer = Buffer.alloc(size + 1);
      let count = 0, n: number;
      while (count < buffer.length && (n = readSync(fd, buffer, count, buffer.length - count, count)) > 0) count += n;
      if (count !== size) { gaps.push(`unstable_file:${relativePath(p)}`); seen.add(real); continue; }
+     const current = statSync(p);
+     if (safe(p) !== real || current.dev !== opened.dev || current.ino !== opened.ino || current.size !== size || current.mtimeMs !== opened.mtimeMs) { gaps.push(`unstable_file:${sourcePath(p)}`); seen.add(real); continue; }
      text = buffer.subarray(0, count).toString("utf8");
      if (!Buffer.from(text).equals(buffer.subarray(0, count))) { gaps.push(`invalid_encoding:${relativePath(p)}`); seen.add(real); continue; }
      bytesRead += count;
     } finally { closeSync(fd); }
    } catch { gaps.push(`unreadable_file:${relativePath(p)}`); seen.add(real); continue; }
    seen.add(real);
-   const path = relativePath(p), digest = hash(text);
-   const source: BoundReference = { path, hash: digest, revision: digest };
+   const path = sourcePath(p), digest = hash(text);
+   let bindingAmbiguous = false;
+   if (policyRoots && path.startsWith(".ai/rules/")) {
+    try { resolveRuleBinding(policyRoots,path); }
+    catch (error) {
+     gaps.push(error instanceof Error ? error.message : String(error));
+     bindingAmbiguous = true;
+    }
+   }
+   const source: BoundReference = { path, hash: digest, revision: digest,
+    ...(external ? { rootId: grant!.id, physicalPath: real } : {}), ...(bindingAmbiguous ? { bindingAmbiguous: true } : {}) };
    files.push(source);
    const lines = text.split(/(?<=\n)/), starts: number[] = [], headings: { index: number; level: number; title: string; occurrence: number }[] = [];
    const occurrences = new Map<string, number>();
@@ -124,7 +149,7 @@ export function discoverRules(repo: string, roots: readonly string[]): RuleCatal
      const next = headings.find(y => y.index > x.index && y.level > x.level);
      return text.slice(starts[x.index], next ? starts[next.index] : text.length);
     }).join("\n");
-    const label = `${path}#${h.title}@${h.occurrence}`;
+    const label = `${external ? `${grant!.id}:` : ""}${path}#${h.title}@${h.occurrence}`;
     const kind = /default/i.test(path + " " + h.title) ? "default" : /shared/i.test(path + " " + h.title) ? "shared" : /conditional|when|if\b/i.test(h.title) ? "conditional" : "reference";
     sections.push({ id: `${label}:${hash(own)}`, source, heading: h.title, occurrence: h.occurrence, text: own, context, kind });
    }

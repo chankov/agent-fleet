@@ -2,6 +2,7 @@
 import { chmodSync, closeSync, constants, cpSync, existsSync, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
+import { externalContentTarget, validateContentDestination } from "./external-content.js";
 import { STATE_REL_PATH, LEGACY_RECORD_REL_PATH } from "./state.js";
 import { acquireWorkspaceLock, assertSafeWorkspaceTarget, ownedRelativePath } from "./workspace-safety.js";
 
@@ -108,6 +109,14 @@ function validateJournal(workspace, value) {
   if (!value.backup.startsWith(`${RECOVERY_REL_PATH}/`) && value.backup !== RECOVERY_REL_PATH) throw new Error("transaction backup is not installer-owned");
   for (const rel of value.paths) assertSafeWorkspaceTarget(workspace, rel);
   assertSafeWorkspaceTarget(workspace, value.backup, { allowLeafSymlink: false });
+  if (value.external !== undefined) {
+    if (!Array.isArray(value.external) || value.external.length > 128) throw new Error("invalid external recovery targets");
+    for (const item of value.external) {
+      externalContentTarget(workspace,item.destination,item.path);
+      if (!/^external\/\d+$/.test(item.backup) || ![true,false].includes(item.present)) throw new Error("invalid external backup");
+      assertSafeWorkspaceTarget(workspace,join(value.backup,item.backup),{allowLeafSymlink:false});
+    }
+  }
   return value;
 }
 function backupTouchedPaths(workspace, paths, protectedBackup = false) {
@@ -139,9 +148,21 @@ function backupTouchedPaths(workspace, paths, protectedBackup = false) {
 }
 function restoreTouchedPaths(workspace, journal) {
   // Validate the complete recovery source before removing any current target.
+  for (const item of journal.external ?? []) {
+    externalContentTarget(workspace,item.destination,item.path);
+    if (item.present) {
+      const backup=assertSafeWorkspaceTarget(workspace,join(journal.backup,item.backup),{allowLeafSymlink:false});
+      if (!pathExists(backup) || !lstatSync(backup).isFile()) throw new Error("external recovery backup missing or unsafe");
+    }
+  }
   for (const rel of journal.present) {
     const source = assertSafeWorkspaceTarget(workspace, join(journal.backup, rel), { allowLeafSymlink: !journal.originalModes });
     if (!pathExists(source) || (journal.originalModes && !lstatSync(source).isFile())) throw Object.assign(new Error(`transaction backup is missing or invalid for ${rel}; journal preserved for diagnosis`), { unrecoverable: true });
+  }
+  for (const item of journal.external ?? []) {
+    const target=externalContentTarget(workspace,item.destination,item.path);
+    if (item.present) { mkdirSync(dirname(target),{recursive:true}); copySnapshot(join(workspace,journal.backup,item.backup),target); }
+    else rmSync(target,{force:true});
   }
   for (const rel of journal.paths) {
     const path = assertSafeWorkspaceTarget(workspace, rel);
@@ -192,11 +213,21 @@ export function runTransaction({ workspace, plan, manifest, validate = () => {},
   const lock = lockHeld ? null : acquireWorkspaceLock(workspace, plan?.verb ?? "transaction");
   let journal;
   try {
+    validate(); // Recheck reviewed bytes after acquiring the local lifecycle lock.
+    for (const item of plan?.externalContent ?? []) externalContentTarget(workspace,item.destination,item.path);
     assertPlanFingerprints(plan ?? { workspace }, manifest);
     const paths = plan ? touchedPaths(plan, manifest) : [];
     const saved = backupTouchedPaths(workspace, paths, Boolean(plan?.preserveBackup));
     if (plan) plan.backup = saved.backup;
-    journal = { schemaVersion: 3, phase: "prepared", backup: saved.backup, paths, present: saved.present, ...(plan?.preserveBackup ? { preserveBackup: true, originalModes: Object.fromEntries(saved.present.map(rel => [rel, lstatSync(join(workspace, rel)).mode & 0o777])) } : {}) };
+    const external=[];
+    for (const [index,item] of (plan?.externalContent ?? []).entries()) {
+      const destination=validateContentDestination(workspace,item.destination);
+      const target=externalContentTarget(workspace,destination,item.path), backup=`external/${index}`, present=pathExists(target);
+      if (present) { const savedPath=join(workspace,saved.backup,backup);mkdirSync(dirname(savedPath),{recursive:true,mode:0o700});copySnapshot(target,savedPath);fsyncPath(savedPath);fsyncPath(dirname(savedPath)); }
+      external.push({destination,path:item.path,backup,present});
+    }
+    if (external.length) fsyncPath(join(workspace,saved.backup));
+    journal = { ...(external.length ? {external} : {}), schemaVersion: 3, phase: "prepared", backup: saved.backup, paths, present: saved.present, ...(plan?.preserveBackup ? { preserveBackup: true, originalModes: Object.fromEntries(saved.present.map(rel => [rel, lstatSync(join(workspace, rel)).mode & 0o777])) } : {}) };
     mkdirSync(dirname(journalPath(workspace)), { recursive: true }); durableJson(journalPath(workspace), journal);
     if (failAt === "after-journal") throw new Error("injected transaction interruption");
     journal.phase = "applying"; durableJson(journalPath(workspace), journal);

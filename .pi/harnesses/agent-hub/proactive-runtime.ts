@@ -4,6 +4,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { System1Service } from "../lib/system1/contracts.ts";
 import { createProactiveEvaluator } from "./proactive-evaluate.ts";
 import { discoverRules } from "./proactive-rules.ts";
+import type { PolicyRootTable } from "../lib/policy-roots.ts";
 import { selectRules } from "./proactive-selection.ts";
 import type { BoundReference } from "./proactive-types.ts";
 import { PROACTIVE_LIMITS } from "./proactive-config.ts";
@@ -24,6 +25,7 @@ export interface ReviewJob { readonly owner: string; readonly attempt: string; r
 export interface ReviewRuntimeOptions {
  config: LocalProactiveConfig;
  localSections?: readonly CatalogSection[];
+ policyRoots?: PolicyRootTable;
  evaluate?: ((job: ReviewJob) => Promise<void | import("./proactive-evaluate.ts").ProactiveAssessment>) & { readonly budgeted?: true }; // P6 accounts actual calls; legacy callbacks count one job.
  onRecord?: (record: ReviewRecord) => void;
  onChange?: () => void;
@@ -89,7 +91,7 @@ export function createProactiveRuntime(options: ReviewRuntimeOptions) {
   if (!active && pending.length) {
    const entry = pending.shift()!;
    active = entry;
-   const local = options.config.localBindings?.length ? assessLocal(entry.snapshot, options.localSections ?? [], options.config.localBindings, options.config.include) : undefined;
+   const local = options.config.localBindings?.length ? assessLocal(entry.snapshot, options.localSections ?? [], options.config.localBindings, options.config.include, options.policyRoots) : undefined;
    const localAssessment = (): ProactiveAssessment | undefined => local ? { status: "not_checked", drift: { task: "not_checked", plan: "not_checked" }, rules: [], findings: local.findings, gaps: local.gaps, evaluations: [] } : undefined;
    if (used >= options.config.maxEvaluationsPerSession && !local) { close(entry, "session_budget"); active = undefined; drain(); return; }
    const key = ownerKey(entry.owner, entry.attempt);
@@ -150,7 +152,7 @@ export function createProactiveRuntime(options: ReviewRuntimeOptions) {
 }
 /** Hub hook ports share the same generation fence as session reset and evidence-dir binding. */
 export function createHubCapture(options: {
- root: () => string; task: () => string | undefined; plan?: () => string | undefined;
+ root: () => string; task: () => string | undefined; plan?: () => string | undefined; policyRoots?: () => PolicyRootTable | undefined;
  begin?: typeof beginTurn; finish?: typeof finishTurn;
 }) {
  let generation = 0, session = "", config: ProactiveConfig | null = null;
@@ -173,7 +175,7 @@ export function createHubCapture(options: {
    bound.set(turnId, { task, ...(plan ? { plan } : {}) });
    if (bound.size > 32) bound.delete(bound.keys().next().value!);
    let value: TurnBaseline | null = null;
-   try { value = await (options.begin ?? beginTurn)({ root: options.root(), config: settings, turnId, context: { task: { path: "hub-task", revision: digest(task), hash: digest(task) }, ...(plan ? { plan: { path: "hub-plan", revision: digest(plan), hash: digest(plan) } } : {}), rules, exceptions: [] } }); }
+   try { value = await (options.begin ?? beginTurn)({ root: options.root(), config: settings, turnId, policyRoots:options.policyRoots?.(), context: { task: { path: "hub-task", revision: digest(task), hash: digest(task) }, ...(plan ? { plan: { path: "hub-plan", revision: digest(plan), hash: digest(plan) } } : {}), rules, exceptions: [] } }); }
    catch { /* recorded by end */ }
    if (current === generation && identity === session) baseline = { index, value };
   }).catch(() => { if (current === generation && identity === session && runtime) {
@@ -244,10 +246,10 @@ export function createHubCapture(options: {
 }
 /** Compose from the already-selected session service and approved roots; no config or provider activation. */
 export function composeHubProactive(input: {
- config: LocalProactiveConfig; root: string; sessionDir: string; rulesRoots: readonly string[];
+ config: LocalProactiveConfig; root: string; sessionDir: string; rulesRoots: readonly string[]; policyRoots?: PolicyRootTable;
  service?: System1Service; capture: ReturnType<typeof createHubCapture>; onChange?: () => void;
 }) {
- const catalog = input.rulesRoots.length ? discoverRules(input.root, input.rulesRoots) : null;
+ const catalog = input.rulesRoots.length ? discoverRules(input.root, input.rulesRoots, input.policyRoots) : null;
  const sections = catalog?.sections ?? [];
  const refs = catalog?.files ?? [];
  // Selection stays local and is keyed to the captured task revision and authored paths.
@@ -264,7 +266,7 @@ export function composeHubProactive(input: {
    taskText: content?.task, planText: content?.plan, catalogSections: sections })(job);
  }, { budgeted: true as const }) : undefined;
  const feedback = createProactiveFeedback(input.root, join(directory, "proactive-inbox"), input.config.mode);
- const runtime = createProactiveRuntime({ config: input.config, localSections: sections, evaluate, feedback,
+ const runtime = createProactiveRuntime({ config: input.config, localSections: sections, policyRoots:input.policyRoots, evaluate, feedback,
   findingsDirectory: join(directory, "proactive-findings"), activityDirectory: join(directory, "proactive-activity"), onChange: input.onChange });
  input.capture.initialize(input.config, runtime, refs);
  input.capture.bindSession(input.sessionDir);

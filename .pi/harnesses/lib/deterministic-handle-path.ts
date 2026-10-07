@@ -4,6 +4,7 @@ export type DeterministicFilesystemHandle = {
 	path: string;
 	hash: string;
 	offset: number;
+	rootId?: string;
 };
 
 export function decodeDeterministicHandle(value: string): DeterministicFilesystemHandle {
@@ -11,6 +12,7 @@ export function decodeDeterministicHandle(value: string): DeterministicFilesyste
 		if (!value.startsWith("t5:")) throw new Error();
 		const parsed = JSON.parse(Buffer.from(value.slice(3), "base64url").toString("utf8"));
 		if (parsed?.v !== 1 || !["file", "inventory"].includes(parsed.kind) || typeof parsed.path !== "string" || typeof parsed.hash !== "string" || !Number.isSafeInteger(parsed.offset) || parsed.offset < 0) throw new Error();
+		if (parsed.rootId !== undefined && (typeof parsed.rootId !== "string" || !parsed.rootId)) throw new Error();
 		return parsed;
 	} catch {
 		throw new Error("Invalid deterministic filesystem handle");

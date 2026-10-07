@@ -28,7 +28,7 @@ import { hasExplicitDispatcher, isCompleteProfile, dispatcherSelection, type Mod
 import { createProfileActivation } from './policy/profile-activation.ts';
 import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerGate } from './policy/profile-runtime.ts';
 import { resolveAssist } from './assist-profile.ts';
-import { registerFilesystemTool } from './filesystem-tool.ts';
+import { registerFilesystemTool, FILESYSTEM_POLICY_ROOTS_ENV } from './filesystem-tool.ts';
 /** Agent Hub composition root: constructs mutable state, contexts, registrars, and ordered lifecycle ports. */
 
 import type { AgentDef, AgentState, ResearchState } from "./types.ts";
@@ -501,7 +501,7 @@ export default function (pi: ExtensionAPI) {
 	let proactiveHubDeliveries = 0;
 	const proactiveReportInput = () => proactiveRuntime ? { records: proactiveRuntime.records, history: proactiveRuntime.findings.history, current: proactiveRuntime.findings.current, activity: proactiveRuntime.activity.live(), feedback: { hubDelivered: proactiveHubDeliveries, nativeDelivered: null } } : undefined;
 	let hubTaskText: string | undefined;
-	const hubCapture = createHubCapture({ root: () => currentCtx?.cwd || process.cwd(), task: () => hubTaskText });
+	const hubCapture = createHubCapture({ root: () => currentCtx?.cwd || process.cwd(), task: () => hubTaskText, policyRoots:()=>sessionOverrides?.policyRoots });
 	let watchdogActivity: WatchdogActivity | null = null;
 	const watchdogAgentOverrides = new Map<string, "on" | "off">();
 	// ── Per-turn cost report (/af-hub-report) ──
@@ -830,6 +830,7 @@ export default function (pi: ExtensionAPI) {
 		getProactiveRuntime: () => proactiveRuntime,
 		getProactiveConfig: () => proactiveConfig,
 		getProactiveCapture: () => proactiveRuntime ? hubCapture : null,
+		getPolicyRoots: () => sessionOverrides?.policyRoots,
 		getWorkMode: () => getWorkMode(),
 		providerSemaphore,
 		executionHistory,
@@ -862,6 +863,7 @@ export default function (pi: ExtensionAPI) {
 	// same root-owned exemptions and coms escalation endpoint.
 	function guardrailEnv(agentId: string): Record<string, string> {
 		const env: Record<string, string> = { [AGENT_ID_ENV]: agentId };
+		if (sessionOverrides?.policyRoots) env[FILESYSTEM_POLICY_ROOTS_ENV]=JSON.stringify(sessionOverrides.policyRoots);
 		if (exemptionsFile) env[EXEMPTIONS_FILE_ENV] = exemptionsFile;
 		if (comsReady && identity) env[ASK_ENDPOINT_ENV] = identity.endpoint;
 		return env;
@@ -1097,6 +1099,7 @@ export default function (pi: ExtensionAPI) {
 		enabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
 		readOnly: () => getWorkMode() === "orchestrator",
 		sessionDir: () => sessionDir,
+		policyRoots: () => sessionOverrides?.policyRoots,
 		managedReadbackAllowed: handle => discoveryManagedReadbackAllowed(pi,handle),
   remainingSelfReadBytes: () => Math.max(0, 64 * 1024 - orchestratorSelfReadUsed),
 		noteSelfReadBytes: bytes => { orchestratorSelfReadUsed += bytes; },
@@ -2369,6 +2372,10 @@ export default function (pi: ExtensionAPI) {
 		loadAgents: (_ctx) => {
 			// Allocate a fresh namespace; shared legacy files belong to prior/live sessions.
 			sessionOverrides = parseAgentTeamOverrides(_ctx.cwd);
+			try {
+				const config = loadProactiveConfig(_ctx.cwd,system1Snapshot,sessionOverrides.policyRoots);
+				proactiveConfig = isCaptureEnabled(config) ? config : null;
+			} catch { proactiveConfig = null; /* invalid consent fails closed */ }
 			runHistoryKeep = sessionOverrides.runHistoryKeep;
 
 			loadAgents(_ctx.cwd);
@@ -2444,7 +2451,7 @@ export default function (pi: ExtensionAPI) {
 			});
 			if (proactiveConfig && sessionDir) {
 				try { proactiveRuntime = composeHubProactive({ config: proactiveConfig, root: _ctx.cwd, sessionDir,
-					rulesRoots: projectRulesDirs, service: watchdogSystem1?.sharedService, capture: hubCapture, onChange: updateWidget }); }
+					rulesRoots: sessionOverrides.rulesDirs, policyRoots: sessionOverrides.policyRoots, service: watchdogSystem1?.sharedService, capture: hubCapture, onChange: updateWidget }); }
 				catch { proactiveRuntime = null; proactiveConfig = null; } // unavailable composition never reports reviewed
 			}
 		},

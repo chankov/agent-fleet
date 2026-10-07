@@ -14,7 +14,10 @@ export interface ProactiveConfig {
  readonly include: readonly string[];
  readonly maxEvaluationsPerSession: number;
 }
-export interface BoundReference { readonly path: string; readonly revision: string; readonly hash: string }
+export interface BoundReference {
+ readonly path: string; readonly revision: string; readonly hash: string;
+ readonly rootId?: string; readonly physicalPath?: string; readonly bindingAmbiguous?: boolean;
+}
 export interface TaskContext {
  readonly task: BoundReference;
  readonly plan?: BoundReference;
@@ -38,6 +41,7 @@ export interface TurnUnit {
  readonly after?: SourceExcerpt;
  readonly attribution: Attribution;
  readonly previousPath?: string;
+ readonly sourceRootId?: string;
 }
 export interface TurnSnapshot {
  readonly snapshotId: string;

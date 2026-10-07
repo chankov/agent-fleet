@@ -246,8 +246,8 @@ async function cmdConfigure() {
   for (const key of ["rules", "docs"]) {
     if (opts[key] === undefined) continue;
     const paths = opts[key].split(",").map((path) => path.trim());
-    if (paths.some((path) => !path || path.startsWith("/") || /[\r\n:#]/.test(path) || path.includes("\\") || path.split("/").some((part) => part === ".." || part === "." || !part)))
-      fail(`--${key} requires comma-separated workspace-relative paths`);
+    if (paths.some((path) => !path || path.startsWith("/") || /[\r\n:#]/.test(path) || path.includes("\\") || path.split("/").some((part,index,parts) => part === "." || !part || (part === ".." && parts.slice(0,index).some(prior => prior !== "..")))))
+      fail(`--${key} requires comma-separated checkout-relative paths without internal traversal`);
     requested[key] = [...new Set(paths)];
     for (const path of requested[key]) if (!existsSync(join(workspace, path))) console.error(`Warning: configured ${key} path does not exist: ${path}`);
   }

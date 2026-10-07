@@ -1,3 +1,5 @@
+import { captureExternal, type ExternalBaseline } from "./proactive-external.ts";
+import type { PolicyRootTable } from "../lib/policy-roots.ts";
 import { safeSourceRead } from "../lib/safe-source-read.js";
 import { execFileSync, fork } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -71,18 +73,20 @@ export interface TurnBaseline {
  readonly context: TaskContext;
  readonly gaps: readonly string[];
  readonly startedAt: number;
+ readonly external?: ExternalBaseline;
 }
 const code = (e: unknown): string => {
  const message = (e as Error)?.message;
  return typeof message === "string" && ["capture_timeout", "forbidden_path", "escape", "symlink", "oversized_or_nonfile", "unstable_snapshot", "binary_or_invalid_utf8", "missing_baseline", "oversized_baseline"].includes(message) ? message : "read_unavailable";
 };
 /** Worker-only synchronous core. Never call on the agent's event loop. */
-export function beginTurnCore(input: { root: string; config: ProactiveConfig; turnId: string; context: TaskContext; knownTargets?: readonly string[]; now?: () => number }): TurnBaseline | null {
+export function beginTurnCore(input: { root: string; config: ProactiveConfig; turnId: string; context: TaskContext; knownTargets?: readonly string[]; now?: () => number; policyRoots?: PolicyRootTable }): TurnBaseline | null {
  if (!isCaptureEnabled(input.config)) return null;
  const now = input.now ?? Date.now, startedAt = now();
  let head = "";
  let initialPaths = new Set<string>();
  const dirty = new Map<string, Buffer | null>(), gaps: string[] = [];
+ if (!input.policyRoots && input.config.include.some(path => path.startsWith("../"))) gaps.push("external_evidence_unavailable");
  try {
   head = git(input.root, ["rev-parse", "HEAD"], startedAt, now).toString("utf8").trim();
   initialPaths = status(input.root, startedAt, now);
@@ -99,7 +103,9 @@ export function beginTurnCore(input: { root: string; config: ProactiveConfig; tu
    dirty.set(path, bytes); retained += bytes?.length ?? 0; count++;
   } catch (e) { gaps.push(code(e)); }
  }
- return { root: input.root, head, dirty, initialPaths, config: input.config, turnId: input.turnId, context: structuredClone(input.context), gaps, startedAt };
+ const external = input.policyRoots ? captureExternal({roots:input.policyRoots,include:input.config.include,maxFiles:PROACTIVE_LIMITS.maxUnits-count,maxBytes:PROACTIVE_LIMITS.maxRetainedBytes-retained,check:()=>{remaining(startedAt,now);}}) : undefined;
+ if (external) gaps.push(...external.gaps);
+ return { root: input.root, head, dirty, initialPaths, config: input.config, turnId: input.turnId, context: structuredClone(input.context), gaps, startedAt, ...(external ? {external} : {}) };
 }
 export function finishTurnCore(baseline: TurnBaseline | null, input: { assistantText?: string; knownTargets?: readonly string[]; secrets?: readonly string[]; overlap?: boolean; now?: () => number; afterFirstRead?: () => void } = {}): TurnSnapshot | null {
  if (!baseline) return null;
@@ -143,6 +149,30 @@ export function finishTurnCore(baseline: TurnBaseline | null, input: { assistant
    const unit: TurnUnit = Object.freeze({ id: hash(`${baseline.turnId}:${path}`), path, kind: before == null ? "added" : after == null ? "deleted" : "modified", before: prior, after: next, attribution: "uncertain" });
    units.push(unit); retained += size;
   } catch (e) { gaps.push(code(e)); omitted++; }
+ }
+ if (baseline.external) {
+  const before = baseline.external;
+  const after = captureExternal({roots:before.roots,include:baseline.config.include,maxFiles:PROACTIVE_LIMITS.maxUnits,maxBytes:PROACTIVE_LIMITS.maxRetainedBytes,check:()=>{remaining(started,now);}});
+  gaps.push(...after.gaps);
+  if (JSON.stringify([...before.gitHeads]) !== JSON.stringify([...after.gitHeads])) gaps.push("external_head_changed");
+  const unavailable = (g: string) => !["external_history_unavailable","external_prior_edits_not_reviewed"].includes(g);
+  const incomplete = before.gaps.some(unavailable) || after.gaps.some(unavailable);
+  const externalPaths = [...new Set([...before.files.keys(),...after.files.keys(),...before.headFiles.keys(),...after.headFiles.keys()])].sort();
+  for (const path of externalPaths) {
+   const independentlyTracked = [...before.gitHeads.keys()].some(scope => {
+    const normalized = scope.endsWith("/**") ? scope.slice(0,-3) : scope;
+    return path===normalized || path.startsWith(normalized+"/");
+   });
+   const priorBytes = independentlyTracked ? before.headFiles.get(path) : before.files.get(path), nextBytes = after.files.get(path);
+   if (priorBytes?.equals(nextBytes ?? Buffer.alloc(0)) && nextBytes !== undefined) continue;
+   if (incomplete) { gaps.push("external_evidence_unavailable"); omitted++; continue; }
+   const prior = priorBytes === undefined ? undefined : excerpt(priorBytes,secrets);
+   const next = nextBytes === undefined ? undefined : excerpt(nextBytes,secrets);
+   const size = Buffer.byteLength(prior?.text ?? "") + Buffer.byteLength(next?.text ?? "");
+   if (units.length >= PROACTIVE_LIMITS.maxUnits || retained+size > PROACTIVE_LIMITS.maxRetainedBytes) { omitted++; continue; }
+   units.push(Object.freeze({id:hash(`${baseline.turnId}:${path}`),path,kind:priorBytes===undefined ? "added" : nextBytes===undefined ? "deleted" : "modified",before:prior,after:next,attribution:"uncertain",sourceRootId:before.identities.get(path) ?? after.identities.get(path)}));
+   retained += size;
+  }
  }
  if (omitted) gaps.push(`omitted_paths:${omitted}`);
  if (baseline.config.remoteContext === "selected-excerpts" && input.assistantText) {

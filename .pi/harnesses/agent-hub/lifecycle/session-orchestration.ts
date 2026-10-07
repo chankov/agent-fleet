@@ -1,3 +1,4 @@
+import { resolvePolicyReferences } from "../../lib/policy-roots.ts";
 import { validateProfile, type ModelProfiles } from '../config/model-profiles.ts';
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -70,9 +71,9 @@ export function applySessionOverrides<TDef extends AgentDef>(ctx: ExtensionConte
 	ports.resetTaskWindow();
 	ports.updateModeStatus();
 	if (overrides.warnings.length) ctx.ui.notify(`agent-fleet-overrides warnings:\n${overrides.warnings.join("\n")}`, "warning");
-	ports.setProjectRules(overrides.rulesDirs);
+	ports.setProjectRules(overrides.policyRoots ? resolvePolicyReferences(overrides.policyRoots,overrides.rulesDirs,"rules") : overrides.rulesDirs);
 	for (const dir of overrides.rulesDirs) if (!existsSync(join(ctx.cwd, dir))) ctx.ui.notify(`agent-fleet-overrides: rules folder "${dir}" not found in ${ctx.cwd}`, "warning");
-	ports.setProjectDocs(overrides.docsPaths);
+	ports.setProjectDocs(overrides.policyRoots ? resolvePolicyReferences(overrides.policyRoots,overrides.docsPaths,"docs") : overrides.docsPaths);
 	for (const entry of overrides.docsPaths) if (!existsSync(join(ctx.cwd, entry))) ctx.ui.notify(`agent-fleet-overrides: docs entry point "${entry}" not found in ${ctx.cwd}`, "warning");
 
 	ports.resetModelPolicy();

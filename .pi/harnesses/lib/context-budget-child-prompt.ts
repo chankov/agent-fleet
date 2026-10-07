@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import { DELEGATE_TREE_SPAWN_BUDGET } from "../agent-hub/helpers.ts";
 import { externalBlockedProtocol } from "../agent-hub/external-blocker.js";
 
@@ -83,7 +84,7 @@ export function buildProjectRulesProtocol(paths: readonly string[]): string {
 	return `
 
 ## Project rules
-This project keeps its own rules in: ${paths.join(", ")} (repo-relative).
+This project keeps its own rules in: ${paths.join(", ")} (${paths.some(isAbsolute) ? "absolute external references; local references are repo-relative" : "repo-relative"}).
 Rules are HOW constraints — read the ones relevant to your task and comply with them.
 Read a listed file directly. Resolve them index-first when they are folders: if one has a
 top-level README.md or index.md, read that first and follow its loading manifest
@@ -100,7 +101,7 @@ export function buildProjectDocsProtocol(paths: readonly string[]): string {
 
 ## Project docs
 This project's canonical documentation entry points are: ${paths.join(", ")}
-(repo-relative). Docs carry WHAT/WHY context — architecture, standards, decisions.
+(${paths.some(isAbsolute) ? "absolute external references; local references are repo-relative" : "repo-relative"}). Docs carry WHAT/WHY context — architecture, standards, decisions.
 They orient you; they are not compliance rules. Read a listed file directly. For a
 listed folder, start from its README.md or index.md and follow only links relevant
 to the task rather than bulk-reading doc trees. If your work changes something the

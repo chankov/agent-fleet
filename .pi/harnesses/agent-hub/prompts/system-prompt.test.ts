@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DEFAULT_OVERRIDES, parseAgentTeamOverrides } from "../config/overrides.ts";
 import { applySessionOverrides } from "../lifecycle/session-orchestration.ts";
 import type { CapabilityPack, CapabilityResolution } from "../capability-packs.ts";
@@ -171,6 +174,18 @@ test("configured policy renders index-first for root operator and orchestrator p
 			assert.doesNotMatch(built.systemPrompt, /reference-only|UNRELATED_ARCHIVE_SENTINEL/);
 		}
 	} finally { project.cleanup(); }
+});
+
+test("fresh Hub session applies canonical external refs before composing root and child policy", t => {
+ const base=mkdtempSync(join(tmpdir(),"hub-external-session-"));t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const cwd=join(base,"code"),docs=join(base,"docs");mkdirSync(join(cwd,".ai"),{recursive:true});mkdirSync(join(docs,"rules"),{recursive:true});writeFileSync(join(docs,"README.md"),"docs");
+ writeFileSync(join(cwd,".ai/agent-fleet-overrides.md"),"## agent-hub\nrules: ../docs/rules\ndocs: ../docs/README.md\n");
+ let rules:string[]=[],references:string[]=[];
+ applySessionOverrides({cwd,ui:{notify(){}}} as any,parseAgentTeamOverrides(cwd),{
+ setLanguage(){},setReconTimeout(){},setBudgetOverrides(){},setWatchdog(){},resetTurnCounts(){},resetTaskWindow(){},updateModeStatus(){},setProjectRules:value=>{rules=value;},setProjectDocs:value=>{references=value;},resetModelPolicy(){},getAgentDefs:()=>[],getModelProfiles:()=>({}),deleteModelProfile(){},allowedModels:()=>[],getDispatchPolicyWarnings:()=>[],setResearchPersonas(){} });
+ assert.deepEqual(rules,[join(docs,"rules")]);assert.deepEqual(references,[join(docs,"README.md")]);
+ const built=buildHubSystemPrompt(fixture({rulesProtocol:buildProjectRulesProtocol(rules),docsProtocol:buildProjectDocsProtocol(references)}));
+ assert.ok(built.systemPrompt.includes(join(docs,"rules")));assert.match(built.systemPrompt,/absolute external references/);
 });
 
 test("missing rules and docs paths warn and continue during session override application", () => {

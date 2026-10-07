@@ -21,7 +21,7 @@ const fields = {
   agenticAsk: ['mode', 'remoteContextApproved', 'include', 'allowToolOutputs', 'limits'],
   fileDiscovery: ['mode', 'remoteContextApproved', 'include', 'limits'],
 };
-export function normalizeSystem1Config(value) {
+export function normalizeSystem1Config(value, context) {
   const errors = [];
   const error = (path, code = 'invalid_value') => errors.push({ path, code });
   const empty = status => deepFreeze({ status, errors, consumers: Object.fromEntries(CONSUMERS.map(name => [name, { status: 'off' }])) });
@@ -81,7 +81,7 @@ export function normalizeSystem1Config(value) {
         config = section;
       } else if (name === 'fileDiscovery') config = parseFileDiscoveryConfig(section);
       else if (name === 'agenticAsk') config = parseAgenticConfig(section);
-      else if (name === 'proactiveReview') config = parseProactiveConfig({ version: 1, ...section });
+      else if (name === 'proactiveReview') config = parseProactiveConfig({ version: 1, ...section }, context);
       else if (name === 'dispatchTriage') {
         if (section.profile && Object.keys(section.profile).some(k => !['version','approved','evidence','provider','model','languages','domains','minConfidence','minMargin','securityThreshold','destructiveThreshold'].includes(k))) {
           for (const key of Object.keys(section.profile)) if (!['version','approved','evidence','provider','model','languages','domains','minConfidence','minMargin','securityThreshold','destructiveThreshold'].includes(key)) error(`${path}.profile.${key}`, 'unknown_field');

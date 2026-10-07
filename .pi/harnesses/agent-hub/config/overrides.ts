@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolvePolicyRoots, type PolicyRootTable } from "../../lib/policy-roots.ts";
 import { clampDelegateDepth, MAX_DELEGATE_DEPTH } from "../helpers.ts";
 import { DEFAULT_RUN_HISTORY_KEEP, normalizeRunHistoryKeep } from "../run-namespace.js";
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, normalizeWatchdogSetting } from "../drift-watchdog.js";
@@ -25,6 +26,7 @@ export interface AgentTeamOverrides {
 	personaDelegateDepth: Record<string, number>;
 	rulesDirs: string[];
 	docsPaths: string[];
+	policyRoots?: PolicyRootTable;
 	reconSearchTimeoutMs: number | null;
 	budgetOverrides: { maxDispatches?: number | null; maxResearch?: number | null; wallMs?: number | null; agentTurnMs?: number | null; recycleRuns?: number | null };
 	watchdogSetting: string;
@@ -64,11 +66,19 @@ function parseSubagentOverride(value: string): { model: string; tools?: string; 
 	return result;
 }
 
+function resolveOverridesPolicy(cwd: string, overrides: AgentTeamOverrides): AgentTeamOverrides {
+	overrides.policyRoots = resolvePolicyRoots(cwd, overrides);
+	for (const diagnostic of overrides.policyRoots.diagnostics) {
+		overrides.warnings.push(`policy roots: ${diagnostic.message} — check rules/docs paths relative to the checkout; grants do not authorize writes or remote capture`);
+	}
+	return overrides;
+}
+
 export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 	const file = join(cwd, ".ai", "agent-fleet-overrides.md");
-	if (!existsSync(file)) return freshOverrides();
+	if (!existsSync(file)) return resolveOverridesPolicy(cwd, freshOverrides());
 	let raw: string;
-	try { raw = readFileSync(file, "utf-8"); } catch { return freshOverrides(); }
+	try { raw = readFileSync(file, "utf-8"); } catch { return resolveOverridesPolicy(cwd, freshOverrides()); }
 	const result = freshOverrides();
 	let inSection = false;
 	for (const rawLine of raw.split("\n")) {
@@ -151,5 +161,5 @@ export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			}
 		}
 	}
-	return result;
+	return resolveOverridesPolicy(cwd, result);
 }

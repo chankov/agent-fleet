@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, renameSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { discoverRules } from "./proactive-rules.ts";
+import { resolvePolicyRoots } from "../lib/policy-roots.ts";
 import { assessLocal, parseLocalBindings } from "./proactive-local.ts";
 import { createProactiveRuntime } from "./proactive-runtime.ts";
 import { parseProactiveConfig } from "./proactive-config.ts";
@@ -17,6 +22,59 @@ function snapshot(units: { path: string; kind: "added" | "modified"; text: strin
  return { snapshotId: "snap", turnId: "session:hub:direct:1", head: "head", status: "complete", gaps: [], context: { task: { path: "task", revision: "x", hash: "x" }, rules: [{ ...source, hash: ruleHash }], exceptions: [] }, planStatus: "task_only", observedPaths: units.length, coverage: { retainedUnits: units.length, retainedBytes: 0, omittedPaths: 0 }, units: units.map((u, i) => ({ id: u.id ?? `u${i}`, path: u.path, kind: u.kind, attribution: "observed_only", after: { hash: hash(u.text), offset: 0, endOffset: Buffer.byteLength(u.text), startLine: 1, endLine: u.text.split("\n").length, text: u.text, truncated: false } })) };
 }
 const bindings = parseLocalBindings([link, placement]);
+test("relocated unchanged legacy binding stays pinned; edits, occurrences and duplicate sources fail closed", t => {
+ const base=mkdtempSync(join(tmpdir(),"relocated-binding-"));
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const repo=join(base,"code"), docs=join(base,"docs"), local=join(repo,".ai/rules");
+ mkdirSync(join(local,"docs"),{recursive:true}); mkdirSync(docs);
+ const bytes="# Links\nFirst.\n# Links\nSecond.\n", logical=".ai/rules/docs/maintenance.md";
+ writeFileSync(join(repo,logical),bytes);
+ const binding=parseLocalBindings([{...link,rule:{path:logical,heading:"Links",occurrence:2,hash:hash(bytes)}}]);
+ const snap=(refs: TurnSnapshot["context"]["rules"]):TurnSnapshot=>({...snapshot([{path:"docs/new.md",kind:"added",text:"[bad](/absolute.md)\n"}]),context:{...snapshot([]).context,rules:refs}});
+ const before=discoverRules(repo,[".ai/rules"]);
+ assert.equal(assessLocal(snap(before.files),before.sections,binding).findings.length,1);
+ renameSync(local,join(docs,"rules"));
+ const table=resolvePolicyRoots(repo,{rulesDirs:["../docs/rules"]});
+ const relocated=discoverRules(repo,["../docs/rules"],table);
+ assert.equal(assessLocal(snap(relocated.files),relocated.sections,binding).findings.length,1);
+ const unboundRefs=relocated.files.map(({rootId,physicalPath,...ref})=>ref);
+ assert.match(assessLocal(snap(unboundRefs),relocated.sections,binding).gaps.join(),/unverified_binding/);
+ const wrongOccurrence=parseLocalBindings([{...binding[0]!,rule:{...binding[0]!.rule,occurrence:3}}]);
+ assert.match(assessLocal(snap(relocated.files),relocated.sections,wrongOccurrence).gaps.join(),/unverified_binding/);
+ writeFileSync(join(docs,"rules/docs/maintenance.md"),bytes+"Edited.\n");
+ const changed=discoverRules(repo,["../docs/rules"],table);
+ assert.equal(assessLocal(snap(changed.files),changed.sections,binding).findings.length,0);
+ assert.match(assessLocal(snap(changed.files),changed.sections,binding).gaps.join(),/unverified_binding/);
+ writeFileSync(join(docs,"rules/docs/maintenance.md"),bytes);
+ mkdirSync(join(repo,".ai/rules/docs"),{recursive:true});
+ writeFileSync(join(repo,logical),bytes);
+ const ambiguous=discoverRules(repo,["../docs/rules"],table);
+ const assessed=assessLocal(snap(ambiguous.files),ambiguous.sections,binding);
+ assert.equal(assessed.findings.length,0);
+ assert.match(assessed.gaps.join(),/ambiguous_binding/);
+});
+
+test("Markdown escapes are accepted only into admitted external roots; external units retain root and include consent", t => {
+ const base=mkdtempSync(join(tmpdir(),"external-links-"));
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const repo=join(base,"code"), docs=join(base,"rin-docs");
+ mkdirSync(join(repo,"docs"),{recursive:true});mkdirSync(docs);
+ writeFileSync(join(docs,"README.md"),"target");writeFileSync(join(docs,"other.md"),"ungranted");
+ const roots=resolvePolicyRoots(repo,{docsPaths:["../rin-docs/README.md"]});
+ const text="[ok](../../rin-docs/README.md) [bad](../../rin-docs/other.md)\n";
+ const result=assessLocal(snapshot([{path:"docs/new.md",kind:"added",text}]),[section],bindings,undefined,roots);
+ assert.equal(result.findings.length,1);
+ const directoryRoots=resolvePolicyRoots(repo,{docsPaths:["../rin-docs"]});
+ const externalPath="../rin-docs/new.md";
+ const externalBinding=parseLocalBindings([{...link,applicability:{paths:["new.md"],kinds:["added"]}}]);
+ const snap={...snapshot([{path:externalPath,kind:"added",text:"[bad](../../ungranted.md)\n"}]),units:snapshot([{path:externalPath,kind:"added",text:"[bad](../../ungranted.md)\n"}]).units.map(u=>({...u,sourceRootId:directoryRoots.roots[1]!.id}))};
+ const check=assessLocal(snap,[section],externalBinding,["../rin-docs"],directoryRoots);
+ assert.equal(check.findings.length,1);
+ assert.equal(check.findings[0]!.locator.path,externalPath);
+ assert.equal(assessLocal(snap,[section],externalBinding,["docs/**"],directoryRoots).findings.length,0);
+ assert.equal(assessLocal({...snap,units:snap.units.map(({sourceRootId,...u})=>u)},[section],externalBinding,["../rin-docs"],directoryRoots).findings.length,0);
+});
+
 test("explicit v1 reviewed schema refuses commands, regex, malformed placement and off activation", () => {
  for (const invalid of [{ ...link, command: "echo secret" }, { ...link, version: 2 }, { ...link, applicability: { paths: ["../docs/**"], kinds: ["added"] } }, { ...placement, placement: { prefix: "/tmp" } }, { ...placement, applicability: { paths: ["src/**"], kinds: ["modified"] } }, { ...link, rule: { ...rule, hash: "changed" } }]) assert.throws(() => parseLocalBindings([invalid]));
  assert.throws(() => parseProactiveConfig({ version: 1, mode: "off", localBindings: [link] }));

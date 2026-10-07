@@ -6,6 +6,16 @@ import test from "node:test";
 import { parseAgentTeamOverrides } from "../../../../../.pi/harnesses/agent-hub/config/overrides.ts";
 import { readProjectPolicy, resolveProjectPolicy } from "./project-policy.ts";
 
+test("workflow external references are resolved against checkout before child spawn", t => {
+ const base=mkdtempSync(join(tmpdir(),"workflow-external-policy-"));
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const cwd=join(base,"code"), docs=join(base,"docs");
+ mkdirSync(join(cwd,".ai"),{recursive:true});mkdirSync(join(docs,"rules"),{recursive:true});
+ writeFileSync(join(docs,"README.md"),"external docs");
+ writeFileSync(join(cwd,".ai/agent-fleet-overrides.md"),"## agent-hub\nrules: ../docs/rules\ndocs: ../docs/README.md\n");
+ assert.deepEqual(resolveProjectPolicy(cwd),{rulesPaths:[join(docs,"rules")],docsPaths:[join(docs,"README.md")]});
+});
+
 test("workflow policy reader matches Hub sections, commas, last value, and preserves explicit paths", () => {
  const cwd = mkdtempSync(join(tmpdir(), "workflow-policy-parity-"));
  try {

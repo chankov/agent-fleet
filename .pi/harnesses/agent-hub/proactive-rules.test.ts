@@ -1,14 +1,67 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, unlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverRules } from "./proactive-rules.ts";
+import { resolvePolicyRoots } from "../lib/policy-roots.ts";
 function fixture(run: (root: string, rules: string) => void) {
  const root = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "rules-p3-")), rules = join(root, ".ai/rules");
  mkdirSync(rules, { recursive: true });
  try { run(root, rules); } finally { rmSync(root, { recursive: true, force: true }); }
 }
+test("external rules keep legacy paths, root-aware identities and bounded canonical traversal", t => {
+ const base=mkdtempSync(join(tmpdir(),"external-rules-"));
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const repo=join(base,"code"), rules=join(base,"docs/.ai/rules");
+ mkdirSync(repo); mkdirSync(join(rules,"docs"),{recursive:true});
+ writeFileSync(join(rules,"README.md"),"# Index\n[policy](docs/maintenance.md)\n");
+ writeFileSync(join(rules,"docs/maintenance.md"),"# Policy\nFirst occurrence.\n# Policy\nSecond occurrence.\n");
+ symlinkSync(repo,join(rules,"escape"));
+ const roots=["../docs/.ai/rules"], table=resolvePolicyRoots(repo,{rulesDirs:roots});
+ const cat=discoverRules(repo,roots,table);
+ assert.equal(cat.files.length,2);
+ const rule=cat.sections.find(s=>s.heading==="Policy" && s.occurrence===2)!;
+ assert.equal(rule.source.path,".ai/rules/docs/maintenance.md");
+ assert.equal(rule.source.physicalPath,join(rules,"docs/maintenance.md"));
+ assert.equal(rule.source.rootId,table.roots[1]!.id);
+ assert.match(rule.text,/Second occurrence/);
+ assert.match(cat.gaps.join(),/unsafe_path.*escape/);
+ assert.equal(cat.files.some(f=>f.path.includes("..")),false);
+ const denied=discoverRules(repo,["../other"],table);
+ assert.equal(denied.files.length,0);
+ assert.match(denied.gaps.join(),/ungranted_root/);
+ writeFileSync(join(rules,"docs/large.md"),"x".repeat(256*1024));
+ const bounded=discoverRules(repo,roots,table);
+ assert.ok(bounded.bytesRead<=256*1024);
+ assert.match(bounded.gaps.join(),/byte_budget/);
+ symlinkSync(join(base,"docs/.ai/rules"),join(base,"alias-rules"));
+ const aliases=resolvePolicyRoots(repo,{rulesDirs:["../alias-rules"]});
+ assert.equal(discoverRules(repo,["../alias-rules"],aliases).files.length,2);
+ unlinkSync(join(base,"alias-rules")); symlinkSync(repo,join(base,"alias-rules"));
+ const swapped=discoverRules(repo,["../alias-rules"],aliases);
+ assert.equal(swapped.files.length,0);
+ assert.match(swapped.gaps.join(),/root_changed/);
+});
+
+test("duplicate external logical paths retain separate sources and diagnose local collisions", t => {
+ const base=mkdtempSync(join(tmpdir(),"ambiguous-rules-"));
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const repo=join(base,"code"), one=join(base,"one"), two=join(base,"two");
+ for(const dir of [repo,one,two]) mkdirSync(dir);
+ for(const dir of [one,two]) writeFileSync(join(dir,"README.md"),"# Policy\nSame bytes.\n");
+ const roots=["../one","../two"], table=resolvePolicyRoots(repo,{rulesDirs:roots});
+ const cat=discoverRules(repo,roots,table);
+ assert.equal(cat.files.length,2);
+ assert.equal(new Set(cat.sections.map(s=>s.id)).size,2);
+ assert.ok(cat.files.every(f=>f.path===".ai/rules/README.md" && f.bindingAmbiguous));
+ assert.match(cat.gaps.join(),/ambiguous_binding/);
+ mkdirSync(join(repo,".ai/rules"),{recursive:true});
+ writeFileSync(join(repo,".ai/rules/README.md"),"# Local\n");
+ const collision=discoverRules(repo,["../one"],resolvePolicyRoots(repo,{rulesDirs:["../one"]}));
+ assert.equal(collision.files[0]?.bindingAmbiguous,true);
+});
+
 test("index, bundle, defaults, conditions, nested exceptions and references keep exact source identity", () => fixture((root, dir) => {
  writeFileSync(join(dir, "README.md"), "# Index\nDefault: [base](base.md). Bundle: [frontend](frontend.md).\n");
  writeFileSync(join(dir, "base.md"), "# Shared\nshould, not must.\n");

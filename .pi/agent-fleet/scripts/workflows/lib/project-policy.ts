@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolvePolicyReferences, resolvePolicyRoots } from "../../../../harnesses/lib/policy-roots.ts";
 
 /** Workflow-side reader of the Hub's `## agent-hub` / `## agent-team` rules and docs contract. */
 export function readProjectPolicy(cwd: string): { rulesPaths: string[]; docsPaths: string[] } {
@@ -30,5 +31,6 @@ export function resolveProjectPolicy(cwd: string, options: { rulesPaths?: string
 	const docsPaths = [...new Set([...configured.docsPaths, ...(options.docsPaths ?? [])])];
 	for (const path of rulesPaths) if (!existsSync(join(cwd, path))) warn(`agent-fleet-overrides: rules folder "${path}" not found in ${cwd}`);
 	for (const path of docsPaths) if (!existsSync(join(cwd, path))) warn(`agent-fleet-overrides: docs entry point "${path}" not found in ${cwd}`);
-	return { rulesPaths, docsPaths };
+	const roots=resolvePolicyRoots(cwd,{rulesDirs:rulesPaths,docsPaths});
+	return { rulesPaths:resolvePolicyReferences(roots,rulesPaths,"rules"), docsPaths:resolvePolicyReferences(roots,docsPaths,"docs") };
 }

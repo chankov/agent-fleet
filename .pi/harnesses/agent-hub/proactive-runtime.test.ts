@@ -101,6 +101,24 @@ test("production composition binds task bytes and refs to one discovered snapsho
  assert.equal(statSync(join(sessionDir, "artifacts", "proactive-activity")).mode & 0o077, 0);
  capture.reset();
 });
+test("production composition carries external policy refs into Hub and native snapshots without capture consent", async t => {
+ const { resolvePolicyRoots } = await import("../lib/policy-roots.ts");
+ const base=mkdtempSync(join(tmpdir(),"proactive-external-compose-"));
+ t.after(()=>rmSync(base,{recursive:true,force:true}));
+ const root=join(base,"code"), rules=join(base,"docs/rules"), sessionDir=join(root,"session");
+ mkdirSync(sessionDir,{recursive:true}); mkdirSync(rules,{recursive:true});
+ writeFileSync(join(rules,"README.md"),"# Rule\nPolicy only.\n");
+ const capture=createHubCapture({root:()=>root,task:()=>"task"});
+ const runtime=composeHubProactive({config,root,sessionDir,rulesRoots:["../docs/rules"],policyRoots:resolvePolicyRoots(root,{rulesDirs:["../docs/rules"]}),capture});
+ const context=capture.nativeContext(sessionDir,"builder","run-1","task")!;
+ assert.equal(context.rules.length,1);
+ assert.equal(context.rules[0]!.path,".ai/rules/README.md");
+ assert.equal(context.rules[0]!.physicalPath,join(rules,"README.md"));
+ assert.ok(context.rules[0]!.rootId);
+ assert.equal(runtime.used,0);
+ capture.reset();
+});
+
 test("composition without consent, service, approved roots or task never infers or reviews", async () => {
  const root = mkdtempSync(join(tmpdir(), "proactive-compose-off-")); const sessionDir = join(root, "session"); mkdirSync(sessionDir);
  let calls = 0; const service = { evaluate: async () => { calls++; throw new Error("unexpected"); } } as unknown as System1Service;

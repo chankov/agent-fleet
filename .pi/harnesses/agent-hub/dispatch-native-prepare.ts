@@ -115,7 +115,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		const root = ctx.cwd || process.cwd();
 		const directory = safePathWithin(base.evidenceDir, "proactive-turns");
 		const context = deps.getProactiveCapture?.()?.nativeContext(base.sessionDir, agentKey, base.dispatchId, task);
-		if (context) proactiveAssignment = sessionObserverAssignment(config, personaKey, { root, directory, session: base.sessionDir, owner: agentKey, attempt: base.dispatchId, context });
+		if (context) proactiveAssignment = sessionObserverAssignment(config, personaKey, { root, directory, session: base.sessionDir, owner: agentKey, attempt: base.dispatchId, context, policyRoots:deps.getPolicyRoots?.() });
 		if (proactiveAssignment) extensions.push(fileURLToPath(new URL("./proactive-observer.ts", import.meta.url)));
 	}
  const assist = base.assistSnapshot;

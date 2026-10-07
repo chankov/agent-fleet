@@ -4,9 +4,10 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, unlinkSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseProactiveConfig } from "./proactive-config.ts";
+import { resolvePolicyRoots } from "../lib/policy-roots.ts";
 import { beginTurn, beginTurnCore, finishTurn, finishTurnCore, readSnapshotUnit } from "./proactive-snapshot.ts";
 
 const config = parseProactiveConfig({ version: 1, mode: "shadow", include: ["src/**", "docs/**"] });
@@ -27,6 +28,129 @@ function fixture(t: Pick<TestContext, "after">) {
  writeFileSync(join(root, ".gitignore"), "docs/ignored.md\n");
  git(root, "add", "."); git(root, "commit", "-qm", "initial"); return root;
 }
+test("external non-Git content captures session edits only, with consent, redaction and immutable evidence", async t => {
+ const root=fixture(t), docs=temporaryDirectory(t,"external-docs-");
+ writeFileSync(join(docs,"README.md"),"before PRIVATE\n");
+ writeFileSync(join(docs,".env"),"DO_NOT_CAPTURE");
+ symlinkSync(root,join(docs,"escape"));
+ const external=relative(root,docs).split(sep).join("/");
+ const roots=resolvePolicyRoots(root,{docsPaths:[external]});
+ const cfg=parseProactiveConfig({version:1,mode:"shadow",include:["docs/**",external]},roots);
+ const baseline=await beginTurn({root,config:cfg,context,turnId:"external",policyRoots:roots});
+ writeFileSync(join(docs,"README.md"),"after PRIVATE\n"); writeFileSync(join(docs,"new.md"),"new\n");
+ const result=await finishTurn(baseline,{secrets:["PRIVATE"]});
+ const unit=result?.units.find(u=>u.path===`${external}/README.md`)!;
+ assert.equal(unit.before?.text,"before [REDACTED]\n");
+ assert.equal(unit.after?.text,"after [REDACTED]\n");
+ assert.equal(unit.sourceRootId,roots.roots[1]!.id);
+ assert.equal(result?.units.find(u=>u.path===`${external}/new.md`)?.kind,"added");
+ assert.ok(result?.gaps.includes("external_history_unavailable"));
+ assert.ok(!JSON.stringify(result).includes("DO_NOT_CAPTURE"));
+ assert.ok(!result?.units.some(u=>u.path.includes("escape")));
+ assert.ok(!result?.gaps.includes("external_evidence_unavailable"));
+ writeFileSync(join(docs,"README.md"),"later\n");
+ assert.equal(readSnapshotUnit(result!,result!.snapshotId,unit.id,unit.after!.hash),"after [REDACTED]\n");
+});
+
+test("external independent Git worktree reviews dirty baseline, session edits and deletions without checkout extraction", async t => {
+ const root=fixture(t), docs=temporaryDirectory(t,"external-docs-git-");
+ git(docs,"init","-q"); git(docs,"config","user.email","snapshot@example.test"); git(docs,"config","user.name","Test");
+ writeFileSync(join(docs,"README.md"),"committed\n");writeFileSync(join(docs,"gone.md"),"remove\n");
+ git(docs,"add",".");git(docs,"commit","-qm","docs");
+ writeFileSync(join(docs,"README.md"),"dirty before\n");
+ const external=relative(root,docs).split(sep).join("/"), roots=resolvePolicyRoots(root,{docsPaths:[external]});
+ const cfg=parseProactiveConfig({version:1,mode:"shadow",include:[external]},roots);
+ const baseline=beginTurnCore({root,config:cfg,context,turnId:"external-git",policyRoots:roots});
+ writeFileSync(join(docs,"README.md"),"after\n");unlinkSync(join(docs,"gone.md"));
+ const result=finishTurnCore(baseline);
+ assert.equal(result?.status,"complete",JSON.stringify(result?.gaps));
+ assert.ok(!result?.gaps.includes("external_prior_edits_not_reviewed"));
+ assert.equal(result?.units.find(u=>u.path===`${external}/README.md`)?.before?.text,"committed\n");
+ assert.equal(result?.units.find(u=>u.path===`${external}/gone.md`)?.kind,"deleted");
+ assert.ok(result?.units.every(u=>u.sourceRootId===roots.roots[1]!.id));
+});
+
+test("external Git history includes pre-session edits and deletions but never ungranted siblings", async t => {
+ const root=fixture(t), docs=temporaryDirectory(t,"external-history-");
+ git(docs,"init","-q");git(docs,"config","user.email","snapshot@example.test");git(docs,"config","user.name","Test");
+ mkdirSync(join(docs,"allowed"));
+ writeFileSync(join(docs,"allowed/edit.md"),"HEAD before\n");
+ writeFileSync(join(docs,"allowed/deleted.md"),"HEAD deleted\n");
+ writeFileSync(join(docs,"private.md"),"PRIVATE_HEAD_SENTINEL\n");
+ git(docs,"add",".");git(docs,"commit","-qm","initial external");
+ writeFileSync(join(docs,"allowed/edit.md"),"prior edit\n");unlinkSync(join(docs,"allowed/deleted.md"));
+ writeFileSync(join(docs,"allowed/untracked.md"),"prior untracked\n");
+ writeFileSync(join(docs,"private.md"),"PRIVATE_AFTER_SENTINEL\n");
+ const external=relative(root,docs).split(sep).join("/"), include=`${external}/allowed`;
+ const roots=resolvePolicyRoots(root,{docsPaths:[include]});
+ const cfg=parseProactiveConfig({version:1,mode:"shadow",include:[include]},roots);
+ const baseline=await beginTurn({root,config:cfg,context,turnId:"prior-history",policyRoots:roots});
+ const result=await finishTurn(baseline);
+ assert.equal(result?.status,"complete",JSON.stringify(result?.gaps));
+ assert.equal(result?.units.find(u=>u.path===`${include}/edit.md`)?.before?.text,"HEAD before\n");
+ assert.equal(result?.units.find(u=>u.path===`${include}/edit.md`)?.after?.text,"prior edit\n");
+ assert.equal(result?.units.find(u=>u.path===`${include}/deleted.md`)?.kind,"deleted");
+ assert.equal(result?.units.find(u=>u.path===`${include}/untracked.md`)?.kind,"added");
+ assert.equal(result?.units.find(u=>u.path===`${include}/untracked.md`)?.after?.text,"prior untracked\n");
+ assert.ok(!JSON.stringify(result).includes("PRIVATE_"));
+ git(docs,"add",".");git(docs,"commit","-qm","changed external HEAD");
+ const changed=finishTurnCore(baseline);
+ assert.ok(changed?.gaps.includes("external_head_changed"));
+ assert.equal(changed?.status,"partial");
+});
+
+test("external HEAD budgets and tracked symlinks fail closed without importing outside bytes", t => {
+ const root=fixture(t), docs=temporaryDirectory(t,"external-head-safety-");
+ git(docs,"init","-q");git(docs,"config","user.email","snapshot@example.test");git(docs,"config","user.name","Test");
+ writeFileSync(join(docs,"large.md"),"x".repeat(64*1024+1));
+ git(docs,"add",".");git(docs,"commit","-qm","oversized HEAD");
+ const external=relative(root,docs).split(sep).join("/"), roots=resolvePolicyRoots(root,{docsPaths:[external]});
+ const cfg=parseProactiveConfig({version:1,mode:"shadow",include:[external]},roots);
+ const baseline=beginTurnCore({root,config:cfg,context,turnId:"head-limit",policyRoots:roots});
+ assert.ok(baseline?.gaps.includes("external_evidence_unavailable"));
+ assert.equal(finishTurnCore(baseline)?.status,"partial");
+ unlinkSync(join(docs,"large.md"));symlinkSync(join(root,"src/dirty.ts"),join(docs,"linked.md"));
+ git(docs,"add",".");git(docs,"commit","-qm","symlink HEAD");
+ const unsafe=beginTurnCore({root,config:cfg,context,turnId:"head-link",policyRoots:roots});
+ assert.ok(unsafe?.gaps.includes("external_evidence_unavailable"));
+ assert.equal(unsafe?.external?.headFiles.size,0);
+});
+
+test("external snapshot exact-file consent never captures neighbors and missing roots report gaps", async t => {
+ const root=fixture(t), docs=temporaryDirectory(t,"external-exact-");
+ writeFileSync(join(docs,"README.md"),"before\n");writeFileSync(join(docs,"neighbor.md"),"NEIGHBOR_SENTINEL");
+ const external=relative(root,docs).split(sep).join("/"), path=`${external}/README.md`;
+ const roots=resolvePolicyRoots(root,{docsPaths:[path]});
+ const cfg=parseProactiveConfig({version:1,mode:"shadow",include:[path]},roots);
+ const baseline=beginTurnCore({root,config:cfg,context,turnId:"external-file",policyRoots:roots});
+ writeFileSync(join(docs,"README.md"),"changed\n");
+ const result=finishTurnCore(baseline);
+ assert.equal(result?.units.length,1);
+ assert.ok(!JSON.stringify(baseline).includes("NEIGHBOR_SENTINEL"));
+ rmSync(docs,{recursive:true,force:true});
+ const missing=finishTurnCore(baseline);
+ assert.equal(missing?.status,"partial");
+ assert.ok(missing?.gaps.includes("external_evidence_unavailable"));
+});
+
+test("external capture limits cannot turn omitted files or root replacement into complete evidence", t => {
+ const root=fixture(t), docs=temporaryDirectory(t,"external-limits-");
+ const external=relative(root,docs).split(sep).join("/"), roots=resolvePolicyRoots(root,{docsPaths:[external]});
+ const cfg=parseProactiveConfig({version:1,mode:"shadow",include:[external]},roots);
+ for(let i=0;i<22;i++) writeFileSync(join(docs,`${String(i).padStart(2,"0")}.md`),"before\n");
+ const baseline=beginTurnCore({root,config:cfg,context,turnId:"external-limit",policyRoots:roots});
+ assert.ok(baseline?.external?.files.size!<=20);
+ assert.ok(baseline?.gaps.includes("external_capture_limit"));
+ writeFileSync(join(docs,"21.md"),"after\n");
+ const result=finishTurnCore(baseline);
+ assert.equal(result?.status,"partial");
+ assert.ok(result?.units.length!<=20);
+ rmSync(docs,{recursive:true,force:true});symlinkSync(root,docs);
+ const swapped=finishTurnCore(baseline);
+ assert.ok(swapped?.gaps.includes("external_evidence_unavailable"));
+ assert.equal(swapped?.units.length,0);
+});
+
 test("missing/off does not inspect source, git or text", async () => {
  const off = parseProactiveConfig({ version: 1, mode: "off" });
  assert.equal(await beginTurn({ root: "/nonexistent", config: off, context, turnId: "1" }), null);

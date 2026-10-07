@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname, join } from "node:path";
 import { hashFile, hashText } from "./state.js";
 import { runTransaction } from "./transaction.js";
+import { externalContentTarget, validateContentDestination } from "./external-content.js";
 import { assertSafeWorkspaceTarget } from "./workspace-safety.js";
 
 export const AI_STATE_REL_PATH = ".ai/agent-fleet-ai-state.json";
@@ -14,7 +15,8 @@ const ROOTS = ["rules", "commands", "agent-prompts"];
 const HEX = /^[a-f0-9]{64}$/;
 const own = (value) => Object.hasOwn(value, "origin") && ["template", "repo-derived"].includes(value.origin);
 
-export function projectPath(workspace, path) {
+export function projectPath(workspace, path, contentDestination) {
+  if (contentDestination) return externalContentTarget(workspace,contentDestination,path);
   if (typeof path !== "string" || path.includes("\\") || path.startsWith("/") || path.split("/").includes("..") ||
       !ROOTS.some((root) => path.startsWith(`.ai/${root}/`) && path.length > root.length + 5)) throw new Error(`invalid project AI path: ${path}`);
   return assertSafeWorkspaceTarget(workspace, path, { allowLeafSymlink: false });
@@ -30,7 +32,7 @@ export function requirePackageCatalogue(packageRoot) {
 }
 
 function validEntry(workspace, path, entry) {
-  projectPath(workspace, path);
+  projectPath(workspace, path, entry?.contentDestination);
   if (!entry || !own(entry) || !HEX.test(entry.appliedHash) || !Array.isArray(entry.evidence) ||
       !entry.evidence.every((x) => typeof x === "string" && x.length > 0) ||
       typeof entry.acceptedDecision !== "string" || !entry.acceptedDecision.trim() ||
@@ -54,16 +56,19 @@ export function readProjectProvenance(workspace) {
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /** source: template identity/version/hash, or {origin:'repo-derived'}; inputs are relevant generation inputs. */
-export function classifyProjectFile({ workspace, path, source, evidence, acceptedDecision, inputs = {}, knownTemplate = true, snapshotAvailable = false }) {
-  const target = projectPath(workspace, path);
+export function classifyProjectFile({ workspace, path, source, evidence, acceptedDecision, inputs = {}, knownTemplate = true, snapshotAvailable = false, contentDestination }) {
   const record = readProjectProvenance(workspace);
+  const previousDestination=record.state?.entries[path]?.contentDestination;
+  if (previousDestination && !contentDestination) throw new Error("external content destination must be explicitly supplied");
+  const destination=contentDestination ? validateContentDestination(workspace,contentDestination) : undefined;
+  const target = projectPath(workspace, path, destination);
   if (record.status !== "valid") return { status: "unknown", reason: record.status };
   const previous = record.state.entries[path];
   if (!previous) return { status: "unknown", reason: "unrecorded" };
   if (!existsSync(target) || !lstatSync(target).isFile()) return { status: "deleted" };
   if (previous.origin === "template" && !knownTemplate) return { status: "unknown", reason: "unknown-template" };
   const local = hashFile(target) !== previous.appliedHash;
-  const changed = !source || previous.origin !== source.origin ||
+  const changed = !same(previous.contentDestination,destination) || !source || previous.origin !== source.origin ||
     (source.origin === "template" && ["templateId", "sourceVersion", "sourceHash"].some((key) => source[key] !== previous[key])) ||
     !same(previous.evidence, evidence) || previous.acceptedDecision !== acceptedDecision || !same(previous.inputs ?? {}, inputs);
   return { status: local ? (changed ? "conflict" : "local-edit") : (changed ? "source-update" : "unchanged"),
@@ -71,7 +76,8 @@ export function classifyProjectFile({ workspace, path, source, evidence, accepte
 }
 
 /** Only an already reviewed, accepted change may be written. Generator is not invoked for an unchanged rerun. */
-export function applyAcceptedProjectFiles({ workspace, changes, generateContent, failAt = null }) {
+export function applyAcceptedProjectFiles({ workspace, changes, generateContent, failAt = null, contentDestination }) {
+  const destination=contentDestination ? validateContentDestination(workspace,contentDestination) : undefined;
   if (!Array.isArray(changes) || !changes.length) return { changed: false };
   const record = readProjectProvenance(workspace);
   if (record.status === "corrupt") throw new Error("provenance is corrupt; repair before apply");
@@ -82,14 +88,14 @@ export function applyAcceptedProjectFiles({ workspace, changes, generateContent,
   const sidecarHash = hashFile(sidecar);
   for (const change of changes) {
     const { path, source, evidence, acceptedDecision, inputs = {}, accepted = false, requestChange = false } = change;
-    projectPath(workspace, path);
+    projectPath(workspace, path, destination);
     if (seen.has(path)) throw new Error(`duplicate project AI path: ${path}`);
     seen.add(path);
-    const entry = { origin: source?.origin, ...(source?.origin === "template" ? {
+    const entry = { ...(destination ? {contentDestination:destination} : {}), origin: source?.origin, ...(source?.origin === "template" ? {
       templateId: source.templateId, sourceVersion: source.sourceVersion, sourceHash: source.sourceHash,
     } : {}), evidence, acceptedDecision, inputs, appliedHash: "0".repeat(64) };
     if (!validEntry(workspace, path, entry)) throw new Error(`invalid provenance entry: ${path}`);
-    const classification = classifyProjectFile({ workspace, path, source, evidence, acceptedDecision, inputs, knownTemplate: change.knownTemplate });
+    const classification = classifyProjectFile({ workspace, path, source, evidence, acceptedDecision, inputs, knownTemplate: change.knownTemplate, contentDestination:destination });
     if (classification.status === "unchanged" && !requestChange) continue;
     if (!accepted) throw new Error(`${path}: ${classification.status}; explicit acceptance required`);
     if (!["unchanged", "source-update"].includes(classification.status) && !change.adopt && !change.reconciled)
@@ -98,17 +104,17 @@ export function applyAcceptedProjectFiles({ workspace, changes, generateContent,
     const bytes = change.content === undefined ? generateContent?.(change) : change.content;
     if (typeof bytes !== "string" && !Buffer.isBuffer(bytes)) throw new Error(`missing accepted content: ${path}`);
     entry.appliedHash = hashText(bytes);
-    prepared.push({ path, bytes, entry, priorHash: hashFile(projectPath(workspace, path)) });
+    prepared.push({ path, bytes, entry, priorHash: hashFile(projectPath(workspace, path, destination)) });
   }
   if (!prepared.length) return { changed: false };
-  const plan = { workspace, verb: "configure", actions: [{ files: prepared.map(({ path }) => ({ path })).concat({ path: AI_STATE_REL_PATH }) }] };
+  const plan = { workspace, verb: "configure", ...(destination ? {externalContent:prepared.map(({path})=>({path,destination}))} : {}), actions: [{ files: (destination ? [] : prepared.map(({ path }) => ({ path }))).concat({ path: AI_STATE_REL_PATH }) }] };
   return runTransaction({ workspace, plan, manifest: { items: [] }, failAt, validate: () => {
-    if (hashFile(sidecar) !== sidecarHash || prepared.some(({ path, priorHash }) => hashFile(projectPath(workspace, path)) !== priorHash))
+    if (hashFile(sidecar) !== sidecarHash || prepared.some(({ path, priorHash }) => hashFile(projectPath(workspace, path, destination)) !== priorHash))
       throw new Error("project AI files changed since review; re-run setup");
   }, commit: () => {
     const entries = { ...state.entries };
     for (const { path, bytes, entry } of prepared) {
-      const target = projectPath(workspace, path);
+      const target = projectPath(workspace, path, destination);
       mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, bytes);
       if (hashFile(target) !== entry.appliedHash) throw new Error(`readback mismatch: ${path}`);
       entries[path] = entry;

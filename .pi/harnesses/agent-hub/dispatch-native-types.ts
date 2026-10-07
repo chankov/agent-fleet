@@ -162,6 +162,7 @@ export interface NativeDispatchDeps {
 	getProactiveRuntime?(): ReturnType<typeof import("./proactive-runtime.ts").createProactiveRuntime> | null;
 	getProactiveConfig?(): ProactiveConfig | null;
 	getProactiveCapture?(): ReturnType<typeof import("./proactive-runtime.ts").createHubCapture> | null;
+	getPolicyRoots?(): import("../lib/policy-roots.ts").PolicyRootTable | undefined;
 	getWorkMode(): any;
 	providerSemaphore: NativeProviderSemaphore;
 	executionHistory: Pick<ExecutionHistoryStore, "start" | "end">;
