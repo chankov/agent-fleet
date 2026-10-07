@@ -1,0 +1,10 @@
+{
+  "name": "agent-fleet-pi-harnesses-runtime-deps",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0",
+    "pi-ask-user": "^0.14.0",
+    "yaml": "^2.8.0"
+  }
+}
