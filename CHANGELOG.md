@@ -1,5 +1,11 @@
 # Agent Fleet changelog
 
+## 2.0.19
+
+### Patch Changes
+
+- 4fc3647: fix: support System 1 parent workspaces
+
 ## 2.0.18
 
 ### Patch Changes
