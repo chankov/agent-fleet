@@ -44,6 +44,22 @@ test("external rules keep legacy paths, root-aware identities and bounded canoni
  assert.match(swapped.gaps.join(),/root_changed/);
 });
 
+test("external rules remain discoverable through a symlinked workspace parent", t => {
+ const base = mkdtempSync(join(tmpdir(), "alias-policy-"));
+ t.after(() => rmSync(base, { recursive: true, force: true }));
+ const physical = join(base, "physical"), alias = join(base, "alias");
+ mkdirSync(join(physical, "code"), { recursive: true });
+ mkdirSync(join(physical, "rules"));
+ writeFileSync(join(physical, "rules/README.md"), "# Policy\nGranted external rule.\n");
+ symlinkSync(physical, alias, "dir");
+ const repo = join(alias, "code"), roots = ["../rules"];
+ const table = resolvePolicyRoots(repo, { rulesDirs: roots });
+ const catalog = discoverRules(repo, roots, table);
+ assert.equal(catalog.files.length, 1, JSON.stringify(catalog.gaps));
+ assert.equal(catalog.files[0]!.rootId, table.roots[1]!.id);
+ assert.equal(catalog.files[0]!.physicalPath, join(physical, "rules/README.md"));
+});
+
 test("duplicate external logical paths retain separate sources and diagnose local collisions", t => {
  const base=mkdtempSync(join(tmpdir(),"ambiguous-rules-"));
  t.after(()=>rmSync(base,{recursive:true,force:true}));
