@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -113,7 +113,7 @@ test("production composition carries external policy refs into Hub and native sn
  const context=capture.nativeContext(sessionDir,"builder","run-1","task")!;
  assert.equal(context.rules.length,1);
  assert.equal(context.rules[0]!.path,".ai/rules/README.md");
- assert.equal(context.rules[0]!.physicalPath,join(rules,"README.md"));
+ assert.equal(context.rules[0]!.physicalPath,realpathSync(join(rules,"README.md")));
  assert.ok(context.rules[0]!.rootId);
  assert.equal(runtime.used,0);
  capture.reset();

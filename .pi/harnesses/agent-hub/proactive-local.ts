@@ -44,7 +44,7 @@ export function assessLocal(snapshot: TurnSnapshot, sections: readonly CatalogSe
     if (!roots || !unit.sourceRootId || !included || !matches(unit.path,included)) continue;
     const root = roots.roots.find(r=>r.id===unit.sourceRootId);
     if (!root) continue;
-    policyPath = root.kind === "file" ? posix.basename(unit.path) : relative(root.lexicalPath,resolve(roots.workspace,unit.path)).split("\\").join("/");
+    policyPath = root.kind === "file" ? posix.basename(unit.path) : relative(root.canonicalPath,resolve(roots.workspace,unit.path)).split("\\").join("/");
     if (!safePath(policyPath)) continue;
    }
    if (!b.applicability.kinds.includes(unit.kind as "added" | "modified") || !safePath(policyPath) || (included && !matches(unit.path, included)) || !appliesTo(policyPath, b.applicability) || matches(policyPath, b.exceptions.paths) || (b.exceptions.legacy && unit.kind !== "added")) continue;

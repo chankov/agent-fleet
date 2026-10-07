@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, unlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, unlinkSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverRules } from "./proactive-rules.ts";
@@ -23,7 +23,7 @@ test("external rules keep legacy paths, root-aware identities and bounded canoni
  assert.equal(cat.files.length,2);
  const rule=cat.sections.find(s=>s.heading==="Policy" && s.occurrence===2)!;
  assert.equal(rule.source.path,".ai/rules/docs/maintenance.md");
- assert.equal(rule.source.physicalPath,join(rules,"docs/maintenance.md"));
+ assert.equal(rule.source.physicalPath,realpathSync(join(rules,"docs/maintenance.md")));
  assert.equal(rule.source.rootId,table.roots[1]!.id);
  assert.match(rule.text,/Second occurrence/);
  assert.match(cat.gaps.join(),/unsafe_path.*escape/);
@@ -57,7 +57,7 @@ test("external rules remain discoverable through a symlinked workspace parent", 
  const catalog = discoverRules(repo, roots, table);
  assert.equal(catalog.files.length, 1, JSON.stringify(catalog.gaps));
  assert.equal(catalog.files[0]!.rootId, table.roots[1]!.id);
- assert.equal(catalog.files[0]!.physicalPath, join(physical, "rules/README.md"));
+ assert.equal(catalog.files[0]!.physicalPath, realpathSync(join(physical, "rules/README.md")));
 });
 
 test("duplicate external logical paths retain separate sources and diagnose local collisions", t => {
