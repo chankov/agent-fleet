@@ -1,0 +1,6 @@
+{
+  "name": "agent-fleet-pi-btw",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}
