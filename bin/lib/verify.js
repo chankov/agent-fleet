@@ -9,7 +9,7 @@
 //
 // See plans/deterministic-installer-manifest-spec.md §4.1 for the state table.
 
-import { readInstallationState } from '../../.pi/harnesses/lib/installation-owner.js';
+import { readInstallationState, RETIRED_INSTALLATION_OWNER_MESSAGE } from '../../.pi/harnesses/lib/installation-state.js';
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -101,10 +101,11 @@ export async function runVerify({
   const stateSource = state ? "state-file" : legacy ? "legacy-record" : "none";
 
   const findings = [];
-  if (installation.status === 'invalid' || (installation.explicitOwner && installation.status === 'missing')) findings.push({
-    type: installation.reason === 'unsupported_state_schema' ? 'state-schema' : 'installation-owner',
-    path: installation.statePath ?? STATE_REL_PATH, issue: `invalid installation evidence: ${installation.reason}`,
-    fix: `inspect the installation at ${installation.ownerRoot ?? workspace}; no state was adopted`,
+  if (installation.status === 'invalid') findings.push({
+    type: installation.reason === 'unsupported_state_schema' ? 'state-schema' : 'installation-state',
+    path: installation.statePath ?? STATE_REL_PATH,
+    issue: installation.reason === 'installation_owner_removed' ? RETIRED_INSTALLATION_OWNER_MESSAGE : `invalid installation evidence: ${installation.reason}`,
+    fix: `inspect the installation at ${installation.workspaceRoot ?? workspace}; no state was adopted`,
   });
   const baseRoot = resolveBaseRoot(sourceRoot, recordedVersion);
   const baseAvailable = Boolean(baseRoot);

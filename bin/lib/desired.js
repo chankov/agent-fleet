@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { validateInstallationOwner } from "../../.pi/harnesses/lib/installation-owner.js";
+import { rejectInstallationOwner } from "../../.pi/harnesses/lib/installation-state.js";
 import { featureNames, normalizeFeatureSet, retiredFeatureError } from "./features.js";
 
 export const DESIRED_SCHEMA_VERSION = 1;
@@ -18,6 +18,7 @@ export function defaultDesired(manifest) {
 
 export function validateDesired(value, manifest) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("desired config must be an object");
+  rejectInstallationOwner(value);
   if (value.schemaVersion !== DESIRED_SCHEMA_VERSION) throw new Error(`desired schemaVersion must be ${DESIRED_SCHEMA_VERSION}`);
   if (!manifest.presets?.[value.preset]) throw new Error(`unknown preset "${value.preset}"`);
   if (!value.features || typeof value.features !== "object" || Array.isArray(value.features)) throw new Error("desired features must be an object");
@@ -29,7 +30,6 @@ export function validateDesired(value, manifest) {
   return {
     schemaVersion: DESIRED_SCHEMA_VERSION,
     preset: value.preset,
-    ...(Object.hasOwn(value, 'installationOwner') ? { installationOwner: validateInstallationOwner(value.installationOwner) } : {}),
     features: Object.fromEntries(featureNames(manifest).map((name) => [name, value.features[name] ?? false])),
   };
 }

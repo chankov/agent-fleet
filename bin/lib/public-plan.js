@@ -1,4 +1,3 @@
-import { readInstallationState } from '../../.pi/harnesses/lib/installation-owner.js';
 // Explicit public serialization boundary: write buffers never cross stdout/stderr.
 const SECRET_BEARING_KEYS = new Set(["text", "original", "replacement", "before", "after", "backup"]);
 export const PUBLIC_PLAN_SCHEMA_VERSION = 1;
@@ -11,10 +10,7 @@ function safe(value, key = "") {
     const cleaned = safe(item, name); return cleaned === undefined ? [] : [[name, cleaned]];
   }));
 }
-export function publicPlan(plan, stage = "preview") {
-  const { state, ...installation } = readInstallationState(plan.workspace);
-  return { ...safe(plan), installation, publicSchemaVersion: PUBLIC_PLAN_SCHEMA_VERSION, stage };
-}
+export function publicPlan(plan, stage = "preview") { return { ...safe(plan), publicSchemaVersion: PUBLIC_PLAN_SCHEMA_VERSION, stage }; }
 export function publicResult(result, stage = "apply") { return { ...safe(result), publicSchemaVersion: PUBLIC_PLAN_SCHEMA_VERSION, stage }; }
 export function publicRepairPreview(proposal) {
   return { publicSchemaVersion: PUBLIC_PLAN_SCHEMA_VERSION, stage: "config-repair-preview", configRepair: { path: proposal.path, removed: proposal.removed, requiresApproval: true, nextStep: "Run setup interactively, or setup --yes --repair-config. No mutation was applied." } };

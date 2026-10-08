@@ -162,26 +162,17 @@ test("task-triage doctor distinguishes section consent, provider and selection",
  assert.equal(scan().readiness,"disabled_by_setup");
 });
 
-test('doctor resolves explicit owner selection with provenance and no parent fallback', t => {
- const ws = workspace(t), owner = join(ws, 'child');
- mkdirSync(join(ws, '.ai')); mkdirSync(join(owner, '.ai'), { recursive: true }); mkdirSync(join(owner, '.pi/agents/personas'), { recursive: true });
- symlinkSync(join(owner, '.pi'), join(ws, '.pi'));
- for (const role of ['planner', 'code-reviewer']) writeFileSync(join(owner, `.pi/agents/personas/${role}.md`), `---\nname: ${role}\n---\n`);
+test('doctor refuses retired owner selection even with valid local and child ledgers', t => {
+ const ws = workspace(t);
+ mkdirSync(join(ws, '.ai')); mkdirSync(join(ws, 'child/.ai'), { recursive: true });
  writeFileSync(join(ws, '.ai/agent-fleet.json'), '{"installationOwner":"child"}');
  writeConfig(ws, { ...validConfig, consumers: { taskTriage: taskSection } });
- const state = join(owner, '.ai/agent-fleet-state.json');
- const scan = () => scanTaskTriageReadiness({ workspace: ws, env: { TYPESAFE_API_KEY: 'offline-only' } })[0];
- assert.equal(scan().readiness, 'invalid_selection');
- writeFileSync(state, '{"schemaVersion":2,"taskTriageSelected":true}');
- writeFileSync(join(ws, '.ai/agent-fleet-state.json'), '{stale');
- assert.equal(scan().readiness, 'locally_ready');
- assert.equal(scan().installation.status, 'shared');
- assert.equal(scan().installation.statePath, state);
- assert.equal(scan().installation.localStatePresent, true);
- assert.equal(JSON.stringify(scan()).includes('taskTriageSelected'), false);
- writeFileSync(state, '{"schemaVersion":2,"taskTriageSelected":false}');
- assert.equal(scan().readiness, 'disabled_by_setup');
- writeFileSync(state, '{'); assert.equal(scan().readiness, 'invalid_selection');
+ writeFileSync(join(ws, 'child/.ai/agent-fleet-state.json'), '{"schemaVersion":2,"taskTriageSelected":true}');
+ writeFileSync(join(ws, '.ai/agent-fleet-state.json'), '{"schemaVersion":2,"taskTriageSelected":true}');
+ const scan = scanTaskTriageReadiness({ workspace: ws, env: { TYPESAFE_API_KEY: 'offline-only' } })[0];
+ assert.equal(scan.readiness, 'invalid_selection');
+ assert.equal(scan.installation, undefined);
+ assert.equal(JSON.stringify(scan).includes('offline-only'), false);
 });
 
 test("runDoctor keeps task-triage advisory read-only and never prints credential values", async t => {

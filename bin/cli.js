@@ -30,7 +30,7 @@ import { purgeHumanConfig } from "./lib/purge.js";
 import { capturePlanFingerprints, recoverTransaction, journalPath, transactionRecovery } from "./lib/transaction.js";
 import { acquireWorkspaceLock, breakWorkspaceLock } from "./lib/workspace-safety.js";
 import { publicPlan, publicResult } from "./lib/public-plan.js";
-import { assertInstallationOwner, readInstallationState } from '../.pi/harnesses/lib/installation-owner.js';
+import { assertLocalInstallation, readInstallationState } from '../.pi/harnesses/lib/installation-state.js';
 import { readState, readLegacyRecord, isAgentFleetCheckout, STATE_REL_PATH } from "./lib/state.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
@@ -119,9 +119,7 @@ let repairPlanNote = null;
 let activeLock = null;
 process.once("exit", () => activeLock?.release());
 function lockMutation(operation, { allowPending = false } = {}) {
-  if (operation !== 'configure') {
-    try { assertInstallationOwner(workspace, operation); } catch (error) { fail(error.message); }
-  }
+  try { assertLocalInstallation(workspace, operation); } catch (error) { fail(error.message); }
   // Acquire first so a live transaction is reported as a lock conflict rather
   // than being mistaken for abandoned recovery state.
   try { activeLock = acquireWorkspaceLock(workspace, operation); } catch (error) { fail(error.message, error.exitCode ?? 4); }
@@ -130,7 +128,7 @@ function lockMutation(operation, { allowPending = false } = {}) {
 }
 
 if (!opts.help && !opts['dry-run'] && (['setup', 'init', 'install', 'upgrade', 'uninstall', 'update'].includes(sub) || (sub === 'doctor' && opts.fix))) {
-  try { assertInstallationOwner(workspace, sub); } catch (error) { fail(error.message); }
+  try { assertLocalInstallation(workspace, sub); } catch (error) { fail(error.message); }
 }
 
 if (opts.help) {
@@ -449,7 +447,7 @@ async function cmdDoctor() {
     catch (err) { fail(`cannot recover pending transaction: ${err.message}`); }
   }
 
-  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1", "system1-binding", "task-triage", "installation-owner"]);
+  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1", "system1-binding", "task-triage"]);
   // These findings affect launch readiness and the doctor exit code, but npm
   // execution remains behind its dedicated explicit-consent commands.
   const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies", "manifest-tool"]);

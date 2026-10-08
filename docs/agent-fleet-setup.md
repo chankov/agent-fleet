@@ -31,34 +31,6 @@ Keep them split: the overrides file is loaded into context constantly, so it
 must stay minimal; the install record is read only by the CLI, so it can be
 large.
 
-## Shared installation ownership
-
-The optional `installationOwner` field in the workspace's real `.ai/agent-fleet.json`
-names a normalized relative directory such as `"ringithub"`. Without it, the
-workspace owns its installation as before. With it, the named child's real
-`.ai/agent-fleet-state.json` is the only authoritative ledger: installed version,
-ownership/hash records and setup selection vetoes come from that owner. The
-owner and caller must resolve `.pi` to the same canonical runtime directory.
-Owner directories, `.ai` and state must not be symlinks; owner chains, traversal,
-unrelated runtimes and invalid/missing owner evidence fail closed.
-
-The calling workspace still owns its real System 1 document, desired consent,
-rules/docs references and overrides. Sharing installation state never grants
-remote capture approval. A manual local consumer without installation state
-retains its selection semantics; an explicit missing owner does not get that
-fallback. State is read afresh at session/read boundaries, so an owner upgrade
-requires no ledger synchronization.
-
-Previews and read-only doctor expose canonical provenance. A local state copy
-is ignored and diagnosed as potentially divergent, never adopted or deleted.
-`setup`/upgrade, `uninstall`, state writes, `doctor --fix` and transaction recovery
-through a non-owner refuse before mutation, including lock acquisition and
-forced recovery. Invoke the same command with `--workspace <owner>`; writes are
-not redirected and consented paths are not reinterpreted. Configuration-only
-`configure --rules/--docs` remains workspace-local, including its recovery
-backups. See [supported parent layout](external-project-ai-content.md#explicit-shared-installation-owner)
-for the JSON example, restrictions and recovery instructions.
-
 ## Unified Fleet runtime configuration
 
 A Pi workspace has one public runtime entry point. Bare Fleet loads Fleet Core

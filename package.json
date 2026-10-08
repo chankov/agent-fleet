@@ -70,7 +70,7 @@
     ".pi/harnesses/*/*.ts",
     ".pi/harnesses/*/*/*.ts",
     ".pi/harnesses/lib/system1/*.js",
-    ".pi/harnesses/lib/installation-owner.js",
+    ".pi/harnesses/lib/installation-state.js",
     ".pi/harnesses/lib/safe-source-read.js",
     ".pi/harnesses/agent-hub/agentic-sources-worker.mjs",
     ".pi/harnesses/agent-hub/file-discovery/discovery-worker.mjs",
