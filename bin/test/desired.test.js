@@ -33,6 +33,17 @@ test("CLI overrides are ephemeral over existing desired state unless explicitly 
   assert.equal(resolveDesiredState({ workspace: dir, manifest, features: "none", saveDesired: true }).writeDesired, true);
 });
 
+test("installation owner survives normalization, previews and serialization", () => {
+  const dir = workspace();
+  mkdirSync(join(dir, '.ai'));
+  writeFileSync(join(dir, '.ai/agent-fleet.json'), JSON.stringify({ schemaVersion: 1, preset: 'default', features: {}, installationOwner: 'child' }));
+  const result = resolveDesiredState({ workspace: dir, manifest, features: 'none', dryRun: true });
+  assert.equal(result.desired.installationOwner, 'child');
+  assert.equal(JSON.parse(renderDesired(result.desired)).installationOwner, 'child');
+  writeFileSync(join(dir, '.ai/agent-fleet.json'), JSON.stringify({ schemaVersion: 1, preset: 'default', features: {}, installationOwner: '../child' }));
+  assert.throws(() => resolveDesiredState({ workspace: dir, manifest }), /installationOwner/);
+});
+
 test("unknown desired presets and features fail instead of being ignored", () => {
   assert.throws(() => resolveDesiredState({ workspace: workspace(), manifest, preset: "unknown" }), /unknown preset/);
   assert.throws(() => resolveDesiredState({ workspace: workspace(), manifest, features: "unknown" }), /unknown feature/);

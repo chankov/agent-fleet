@@ -9,6 +9,7 @@
 //
 // See plans/deterministic-installer-manifest-spec.md §4.1 for the state table.
 
+import { readInstallationState } from '../../.pi/harnesses/lib/installation-owner.js';
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -16,7 +17,6 @@ import { itemsForAgent } from "./manifest.js";
 import { extractRegion, leafPaths, getPath, canonicalJson } from "./merge-forms.js";
 import { runDoctor } from "./doctor.js";
 import {
-  readState,
   readLegacyRecord,
   hashFile,
   hashText,
@@ -93,13 +93,19 @@ export async function runVerify({
   platform = process.platform,
   includeDoctor = true,
 }) {
-  const state = readState(workspace);
+  const installation = readInstallationState(workspace);
+  const state = installation.state ?? null;
   const legacy = readLegacyRecord(workspace);
   const resolvedAgent = agent ?? state?.agent ?? legacy?.agent ?? null;
   const recordedVersion = state?.packageVersion ?? legacy?.version ?? null;
   const stateSource = state ? "state-file" : legacy ? "legacy-record" : "none";
 
   const findings = [];
+  if (installation.status === 'invalid' || (installation.explicitOwner && installation.status === 'missing')) findings.push({
+    type: installation.reason === 'unsupported_state_schema' ? 'state-schema' : 'installation-owner',
+    path: installation.statePath ?? STATE_REL_PATH, issue: `invalid installation evidence: ${installation.reason}`,
+    fix: `inspect the installation at ${installation.ownerRoot ?? workspace}; no state was adopted`,
+  });
   const baseRoot = resolveBaseRoot(sourceRoot, recordedVersion);
   const baseAvailable = Boolean(baseRoot);
 

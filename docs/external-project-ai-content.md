@@ -1,6 +1,6 @@
 # External project AI content
 
-Fleet lifecycle state stays in the checkout's real local `.ai/` directory. Project rules and documentation can be read from separately configured directories; these read grants never authorize writes, command execution, native resource registration, or remote capture.
+Fleet lifecycle state stays in the installation owner's real `.ai/` directory (the current checkout by default). Project rules and documentation can be read from separately configured directories; these read grants never authorize writes, command execution, native resource registration, or remote capture.
 
 ## Read grants
 
@@ -38,6 +38,35 @@ The parent must own real `.ai/system1.json` and `.ai/agent-fleet.json` files. Sy
 `setup --migrate-system1-config --dry-run` and doctor validate external includes using the configured policy roots. Already-v2 valid input previews as a no-op; exact-file grants do not authorize a directory include. Migration preserves preview digest, concurrency and no-symlink checks, including canonical grant identity. Doctor distinguishes locally ready provider configuration from **unverified consumer evidence** and reports missing, stale or ambiguous rule pins without performing a turn capture or calling a provider. A ready provider or matching static pin is not a successful proactive review.
 
 File-discovery has narrower workspace-only export/include permissions. External policy read grants do not enable remote file-discovery ranking.
+
+## Explicit shared installation owner
+
+A parent workspace can share a child's existing runtime and single installation ledger by setting a real, parent-owned `.ai/agent-fleet.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "preset": "default",
+  "features": { "system1-task-triage": true },
+  "installationOwner": "ringithub"
+}
+```
+
+`installationOwner` is an optional concrete normalized relative directory; omit it for the ordinary local installation. The named owner must be a real directory with a real `.ai` and regular `.ai/agent-fleet-state.json`. Both workspaces' canonical `.pi` directories must be identical (for example, the parent `.pi` links to `ringithub/.pi`). Ownership is never inferred from Git layout or read grants. Traversal, owner/state symlinks, owner chains/cycles, unrelated runtimes, malformed/unsupported/oversized state and replacement during reads are refused. Human JSON loading retains its no-symlink restrictions.
+
+The owner ledger alone supplies installed version, ownership hashes and setup selection vetoes. It is re-read at the next session/read boundary after an owner upgrade; there is no second ledger or cross-session cache. The parent's real System 1 document, desired feature consent and human overrides remain parent-owned and parent-relative. Owner selection cannot grant remote context approval; a false task-triage selection still vetoes an approved parent consumer. An explicitly configured owner with missing/invalid state fails closed, unlike a manual local configuration with no installation state.
+
+Read-only previews and doctor report canonical owner/state provenance without exporting the state payload. Doctor reports an existing parent state copy as ignored and potentially divergent: it is never fallback evidence, selected by timestamps, deleted or adopted automatically. Back up and remove any temporary copy only as a separately reviewed operator action.
+
+Run `setup`/upgrade, `uninstall`, `doctor --fix` and interrupted-transaction recovery **at the owner**, for example:
+
+```bash
+agent-fleet setup --workspace ./ringithub --dry-run
+agent-fleet doctor --workspace ./ringithub
+# Review before applying setup or doctor --fix at that same owner.
+```
+
+Mutating lifecycle calls through the parent refuse before locks, journals, backups, runtime files or ledgers are changed—even with `--force`. There is no silent redirection. If owner evidence is missing, repair the declared layout and inspect/recover the journal from the owner; do not copy state to the parent or recover the owner's journal through the alias. Parent `configure --rules/--docs` remains local and uses its own recovery directory without changing the owner ledger.
 
 ## Native commands and skills
 

@@ -44,6 +44,7 @@ import { join, resolve, dirname, basename, relative, isAbsolute, sep, delimiter 
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { validateOverrides } from "./validate-overrides.js";
+import { readInstallationState, assertInstallationOwner } from "../../.pi/harnesses/lib/installation-owner.js";
 import { readState, STATE_REL_PATH } from "./state.js";
 import { runtimeDependencyFindings } from "../../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
 import { resolveSystem1Readiness } from "../../.pi/harnesses/lib/system1/config.js";
@@ -97,6 +98,7 @@ const YAML_REFS = [
  * @returns {Array|object}         Findings array (apply=false) or {repaired,deleted,skipped} (apply=true)
  */
 export async function runDoctor({ workspace, sourceRoot, apply = false, checkVisibility, checkDependencies, env = process.env } = {}) {
+  if (apply) assertInstallationOwner(workspace, 'doctor --fix');
   const findings = [];
 
   // 1. Broken symlinks in install-target directories.
@@ -189,6 +191,12 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
   findings.push(...scanSystem1Readiness({ workspace, env }));
   findings.push(...scanTaskTriageReadiness({ workspace, env }));
 
+  const { state: ownerState, ...installation } = readInstallationState(workspace);
+  if (installation.explicitOwner) findings.push({
+    type: 'installation-owner', path: installation.statePath, classification: 'advisory', installation,
+    issue: installation.status === 'shared' ? `installation state belongs to ${installation.ownerRoot}${installation.localStatePresent ? '; local state copy is ignored and may diverge' : ''}` : `invalid/missing owner evidence: ${installation.reason}`,
+    fix: `run installation lifecycle operations at ${installation.ownerRoot}; configuration-only configure remains local`,
+  });
   if (!apply) return findings;
 
   // ── Apply ──────────────────────────────────────────────────────────────
@@ -291,20 +299,18 @@ export function scanTaskTriageReadiness({ workspace, env = process.env }) {
   const aiPath = join(workspace, ".ai");
   try { if (!lstatSync(aiPath).isDirectory()) return [taskTriageFinding("invalid_selection", false)]; }
   catch (error) { if (error.code === "ENOENT") return []; return [taskTriageFinding("invalid_selection", false)]; }
-  const statePath = join(aiPath, "agent-fleet-state.json");
-  let selection;
-  try {
-    const stateStat = lstatSync(statePath);
-    selection = stateStat.isFile() ? JSON.parse(readFileSync(statePath, "utf8")).taskTriageSelected : "invalid";
-  } catch (error) { if (error.code !== "ENOENT") selection = "invalid"; }
+  const { state, ...installation } = readInstallationState(workspace);
+  const finding = (...args) => ({ ...taskTriageFinding(...args), installation });
+  if (installation.status === 'invalid' || (installation.explicitOwner && installation.status === 'missing')) return [finding('invalid_selection', false)];
+  const selection = state?.taskTriageSelected;
   const snapshot = loadSystem1Snapshot(workspace);
   if (selection === false) return snapshot.document?.consumers.taskTriage
-    ? [taskTriageFinding("disabled_by_setup", false)] : [];
+    ? [finding("disabled_by_setup", false)] : [];
   let config;
   try { config = planTaskTriageConfig(workspace, snapshot); }
   catch { config = { status: "invalid", alreadyApproved: false }; }
   if (selection !== true && config.status === "missing") return [];
-  if (selection === "invalid" || (selection !== true && selection !== undefined)) return [taskTriageFinding("invalid_selection", false)];
+  if (selection === "invalid" || (selection !== true && selection !== undefined)) return [finding("invalid_selection", false)];
   let readiness = { missing: "missing_config", invalid: "invalid_config", policy_mismatch: "policy_mismatch", migration_required: "migration_required",
     off: "disabled", unapproved: "unapproved" }[config.status];
   if (!readiness && config.status === "active") {
@@ -314,7 +320,7 @@ export function scanTaskTriageReadiness({ workspace, env = process.env }) {
   }
   const producers = config.status === "active" ? localStageProducers(workspace) : null;
   if (readiness === "locally_ready" && producers?.status === "missing") readiness = "missing_local_producer";
-  return [taskTriageFinding(readiness ?? "invalid_config", selection === true || config.alreadyApproved,
+  return [finding(readiness ?? "invalid_config", selection === true || config.alreadyApproved,
     config.status === "active", producers)];
 }
 
@@ -761,7 +767,7 @@ export function scanPiPackageOwnership({ workspace, sourceRoot, home = homedir()
   const promptsEnabled = resourceTypeEnabled(located.entry.filters.prompts);
   if (!skillsEnabled && !promptsEnabled) return [];
 
-  const state = readState(workspace);
+  const state = readInstallationState(workspace).state;
   if (!state) return [];
   const copied = listCopiedSkillAndPromptNames(state);
 

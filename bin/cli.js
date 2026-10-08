@@ -30,6 +30,7 @@ import { purgeHumanConfig } from "./lib/purge.js";
 import { capturePlanFingerprints, recoverTransaction, journalPath, transactionRecovery } from "./lib/transaction.js";
 import { acquireWorkspaceLock, breakWorkspaceLock } from "./lib/workspace-safety.js";
 import { publicPlan, publicResult } from "./lib/public-plan.js";
+import { assertInstallationOwner, readInstallationState } from '../.pi/harnesses/lib/installation-owner.js';
 import { readState, readLegacyRecord, isAgentFleetCheckout, STATE_REL_PATH } from "./lib/state.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
@@ -118,11 +119,18 @@ let repairPlanNote = null;
 let activeLock = null;
 process.once("exit", () => activeLock?.release());
 function lockMutation(operation, { allowPending = false } = {}) {
+  if (operation !== 'configure') {
+    try { assertInstallationOwner(workspace, operation); } catch (error) { fail(error.message); }
+  }
   // Acquire first so a live transaction is reported as a lock conflict rather
   // than being mistaken for abandoned recovery state.
   try { activeLock = acquireWorkspaceLock(workspace, operation); } catch (error) { fail(error.message, error.exitCode ?? 4); }
   const recovery = transactionRecovery(workspace);
   if (recovery.pending && !allowPending) fail(`pending transaction journal exists${recovery.error ? ` (${recovery.error})` : ""}; run agent-fleet doctor --fix before replanning`);
+}
+
+if (!opts.help && !opts['dry-run'] && (['setup', 'init', 'install', 'upgrade', 'uninstall', 'update'].includes(sub) || (sub === 'doctor' && opts.fix))) {
+  try { assertInstallationOwner(workspace, sub); } catch (error) { fail(error.message); }
 }
 
 if (opts.help) {
@@ -441,7 +449,7 @@ async function cmdDoctor() {
     catch (err) { fail(`cannot recover pending transaction: ${err.message}`); }
   }
 
-  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1", "system1-binding", "task-triage"]);
+  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1", "system1-binding", "task-triage", "installation-owner"]);
   // These findings affect launch readiness and the doctor exit code, but npm
   // execution remains behind its dedicated explicit-consent commands.
   const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies", "manifest-tool"]);
@@ -450,7 +458,8 @@ async function cmdDoctor() {
   const manifest = loadManifest(pkgRoot);
   const plan = buildRepairPlan();
   const repairs = plan?.actions ?? [];
-  const preflight = manifestPreflight({ workspace, sourceRoot: pkgRoot, manifest });
+  const installation = readInstallationState(workspace);
+  const preflight = manifestPreflight({ workspace, sourceRoot: pkgRoot, manifest, state: installation.state ?? null });
 
   // The two scans overlap on a broken link that the state file also records.
   // The engine's repair wins — it rebuilds the item in the exact form the
@@ -477,7 +486,7 @@ async function cmdDoctor() {
     f.type !== "unrecoverable-transaction"
   );
   const advisory = findings.length - fixable.length - manual.length;
-  const pendingRuntime = readState(workspace)?.runtimeRepairs ?? [];
+  const pendingRuntime = installation.state?.runtimeRepairs ?? [];
   const repairRoot = (repair) => {
     const index = repair?.args?.indexOf("--prefix") ?? -1;
     const value = index >= 0 ? repair.args[index + 1] : null;

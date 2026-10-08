@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseTaskTriageConfig, loadTaskTriageConfig } from "./task-triage-config.ts";
@@ -11,6 +11,28 @@ test("explicit experimental consent and exact versioned limits, missing/off/inva
  for (const x of [{ ...config, limits: { ...config.limits, timeoutMs: 2001 } }, { ...config, model: "other" }, { ...config, policyVersion: "other" }, { ...config, approved: true }, { ...config, mode: "shadow" }, { ...config, mode: "off" }]) assert.equal(parseTaskTriageConfig(x).status, "invalid");
  assert.equal(loadTaskTriageConfig("/nonexistent/task-triage-root").status, "missing");
 });
+test('parent consumes only owner selection and retains its own consent', t => {
+ const ws = mkdtempSync(join(tmpdir(), 'triage-owner-')); t.after(() => rmSync(ws, { recursive: true, force: true }));
+ const owner = join(ws, 'child'); mkdirSync(join(ws, '.ai')); mkdirSync(join(owner, '.ai'), { recursive: true });
+ mkdirSync(join(owner, '.pi')); symlinkSync(join(owner, '.pi'), join(ws, '.pi'));
+ writeFileSync(join(ws, '.ai/agent-fleet.json'), '{"installationOwner":"child"}');
+ const { version, provider, model, ...section } = config;
+ const document = { version: 2, mode: 'auto', provider, model, apiKeyEnv: 'TYPESAFE_API_KEY', consumers: { taskTriage: section } };
+ writeFileSync(join(ws, '.ai/system1.json'), JSON.stringify(document));
+ const state = join(owner, '.ai/agent-fleet-state.json');
+ assert.equal(loadTaskTriageConfig(ws).status, 'invalid');
+ writeFileSync(state, '{"schemaVersion":2,"taskTriageSelected":true}');
+ writeFileSync(join(ws, '.ai/agent-fleet-state.json'), '{"schemaVersion":2,"taskTriageSelected":false}');
+ assert.equal(loadTaskTriageConfig(ws).status, 'active');
+ writeFileSync(state, '{"schemaVersion":2,"taskTriageSelected":false}');
+ assert.equal(loadTaskTriageConfig(ws).status, 'off');
+ writeFileSync(state, '{"schemaVersion":2,"taskTriageSelected":true}');
+ writeFileSync(join(ws, '.ai/system1.json'), JSON.stringify({ ...document, consumers: { taskTriage: { ...section, remoteContextApproved: false } } }));
+ assert.equal(loadTaskTriageConfig(ws).status, 'off');
+ writeFileSync(state, '{');
+ assert.equal(loadTaskTriageConfig(ws).status, 'invalid');
+});
+
 test("installed feature deselection disables inference without erasing a human config", t => {
  const ws = mkdtempSync(join(tmpdir(), "triage-selection-")); t.after(() => rmSync(ws, { recursive: true, force: true }));
  mkdirSync(join(ws, ".ai"));

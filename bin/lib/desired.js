@@ -2,6 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { validateInstallationOwner } from "../../.pi/harnesses/lib/installation-owner.js";
 import { featureNames, normalizeFeatureSet, retiredFeatureError } from "./features.js";
 
 export const DESIRED_SCHEMA_VERSION = 1;
@@ -28,6 +29,7 @@ export function validateDesired(value, manifest) {
   return {
     schemaVersion: DESIRED_SCHEMA_VERSION,
     preset: value.preset,
+    ...(Object.hasOwn(value, 'installationOwner') ? { installationOwner: validateInstallationOwner(value.installationOwner) } : {}),
     features: Object.fromEntries(featureNames(manifest).map((name) => [name, value.features[name] ?? false])),
   };
 }

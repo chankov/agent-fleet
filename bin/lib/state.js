@@ -14,6 +14,7 @@
 // The human-readable `.ai/agent-fleet-setup.md` is rendered FROM this file and
 // is never parsed back, so the two cannot disagree.
 
+import { readInstallationState, assertInstallationOwner } from '../../.pi/harnesses/lib/installation-owner.js';
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -34,13 +35,14 @@ const SKIP_FILE_NAMES = new Set([".DS_Store"]);
 
 /** @returns {object|null} parsed state, or null when the workspace has none. */
 export function readState(workspace) {
-  const path = join(workspace, STATE_REL_PATH);
-  if (!existsSync(path)) return null;
-  try { return JSON.parse(readFileSync(path, "utf8")); }
-  catch (err) { throw new Error(`${STATE_REL_PATH} is unreadable: ${err.message}`); }
+  const result = readInstallationState(workspace);
+  if (result.status === 'missing' && !result.explicitOwner) return null;
+  if (result.status === 'local' || result.status === 'shared') return result.state;
+  throw new Error(`${STATE_REL_PATH} is unreadable: ${result.reason}${result.reason === 'source_denied' ? ' (symlink or nonregular path refused)' : ''}; owner: ${result.ownerRoot ?? workspace}`);
 }
 
 export function writeState(workspace, state) {
+  assertInstallationOwner(workspace, 'state write');
   const path = join(workspace, STATE_REL_PATH);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(orderState(state), null, 2) + "\n", "utf8");

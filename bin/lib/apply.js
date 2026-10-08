@@ -37,6 +37,8 @@ import {
   STATE_SCHEMA_VERSION,
 } from "./state.js";
 
+import { assertInstallationOwner } from '../../.pi/harnesses/lib/installation-owner.js';
+
 export const APPLY_SCHEMA_VERSION = 1;
 
 /** Configure owns only the requested overrides diff; never updates install state. */
@@ -70,6 +72,7 @@ export function runTrustedExec({ workspace, spec, output, timeoutMs = EXEC_TIMEO
 
 /** Retry only action IDs still authorized by the trusted current manifest. */
 export function retryRuntimeRepairs({ workspace, manifest, output = console.log }) {
+  assertInstallationOwner(workspace, 'runtime repair');
   const state = readState(workspace);
   const pending = state?.runtimeRepairs ?? [];
   if (pending.length === 0) return { attempted: 0, remaining: [] };
@@ -97,6 +100,7 @@ export function retryRuntimeRepairs({ workspace, manifest, output = console.log 
  */
 export function applyPlan({ plan, manifest, allowExec = false, now = () => new Date().toISOString(), output = console.log, failAt = null, lockHeld = false }) {
   const validate = () => {
+    assertInstallationOwner(plan.workspace, plan.verb);
     if (plan.migrationBlocked) throw Object.assign(new Error(plan.migrationError), { exitCode: 1 });
     if (plan.snapshotMetadataError) throw Object.assign(new Error(plan.snapshotMetadataError), { exitCode: 1 });
     if ((plan.conflicts ?? []).length) throw Object.assign(new Error("unresolved conflicts"), { exitCode: 3 });

@@ -12,6 +12,8 @@ const DESIRED_REL_PATH = ".ai/agent-fleet.json";
 const OVERRIDES_REL_PATH = ".ai/agent-fleet-overrides.md";
 const STT_REL_PATH = ".ai/stt.json";
 const SYSTEM1_REL_PATH = ".ai/system1.json";
+import { assertInstallationOwner } from '../../.pi/harnesses/lib/installation-owner.js';
+
 export function journalPath(workspace) { return join(workspace, JOURNAL_REL_PATH); }
 function pathExists(path) {
   try { lstatSync(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
@@ -193,6 +195,7 @@ export function transactionRecovery(workspace) {
   catch (error) { return { pending: true, recoverable: false, error: error.message }; }
 }
 export function recoverTransaction(workspace) {
+  assertInstallationOwner(workspace, 'transaction recovery');
   const path = journalPath(workspace); if (!existsSync(path)) return false;
   let journal;
   try { journal = readJournal(workspace); } catch (error) { throw Object.assign(new Error(`transaction journal is unreadable: ${error.message}; preserved for diagnosis`), { unrecoverable: true }); }
@@ -205,9 +208,13 @@ export function recoverTransaction(workspace) {
   return { recovered: journal.phase !== "committed", finalized: journal.phase === "committed", phase: journal.phase };
 }
 /** Explicit diagnostic discard; never called automatically. */
-export function discardUnrecoverableTransaction(workspace) { rmSync(journalPath(workspace), { force: true }); }
+export function discardUnrecoverableTransaction(workspace) { assertInstallationOwner(workspace, 'transaction discard'); rmSync(journalPath(workspace), { force: true }); }
 
 export function runTransaction({ workspace, plan, manifest, validate = () => {}, commit, failAt = null, lockHeld = false }) {
+  const configurationOnly = plan?.verb === 'configure' && plan.actions?.length === 0
+    && !plan.writeDesired && !plan.externalContent?.length && !plan.system1Migration;
+  assertPlanFingerprints(plan ?? { workspace }, manifest);
+  if (!configurationOnly) assertInstallationOwner(workspace, plan?.verb ?? 'transaction');
   validate();
   if (existsSync(journalPath(workspace))) throw new Error("pending transaction journal exists; run doctor --fix before replanning");
   const lock = lockHeld ? null : acquireWorkspaceLock(workspace, plan?.verb ?? "transaction");
