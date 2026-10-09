@@ -30,3 +30,14 @@ test('D9 defaults and every bound and invalid scope strictly validated',()=>{
  }
  for(const section of [{mode:'active',provider:'new'},{mode:'active',limits:{unknown:1}},{mode:'active',remoteContextApproved:'true'},...['../src','/src','src/**','src\\x','src//x'].map(p=>({mode:'active',include:[p]}))]) assert.throws(()=>parseFileDiscoveryConfig(section));
 });
+test('D8 nested opt-in preserves root and consumer readiness, consent and include boundaries',()=>{
+ assert.deepEqual(parseFileDiscoveryConfig({mode:'off'}).semanticReads,{mode:'off'});
+ for(const semanticReads of [null,{},[],{mode:'bad'},{mode:'active',include:['other']}])assert.throws(()=>parseFileDiscoveryConfig({mode:'active',semanticReads}));
+ for(const mode of ['off','active']){
+  const section={mode:'active',remoteContextApproved:true,include:['src'],semanticReads:{mode}};
+  const snapshot=normalizeSystem1Config({...root,consumers:{fileDiscovery:section}});assert.equal(snapshot.consumers.fileDiscovery.status,'ready');assert.equal(snapshot.consumers.fileDiscovery.config.semanticReads.mode,mode);
+  assert.equal(normalizeSystem1Config({...root,mode:'off',consumers:{fileDiscovery:section}}).status,'off');
+  assert.equal(normalizeSystem1Config({...root,consumers:{fileDiscovery:{...section,remoteContextApproved:false}}}).consumers.fileDiscovery.status,'off');
+  assert.equal(normalizeSystem1Config({...root,consumers:{fileDiscovery:{...section,include:[]}}}).consumers.fileDiscovery.status,'invalid');
+ }
+});

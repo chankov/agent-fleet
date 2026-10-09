@@ -18,8 +18,9 @@ export function nativeFixture(t:any,count=3,pageBytes=32768,limits={},extras:any
  const hooks:Record<string,Function[]>={},entries:any[]=[];let taskId='task',calls=0;
  const pi:any={registerTool(){},on:(e:string,f:Function)=>(hooks[e]??=[]).push(f),appendEntry:(customType:string,data:any)=>entries.push({type:'custom',customType,data})};
  const ctx:any={cwd:root,model:{provider:'fake',id:'model'},ui:{notify(){}},sessionManager:{getSessionId:()=> 'session',getEntries:()=>entries}};
- const snapshot=structuredClone(normalizeSystem1Config({version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{fileDiscovery:{mode:'active',remoteContextApproved:true,include:['docs'],limits:{resultPageBytes:pageBytes,...limits}}}}));snapshot.consumers.fileDiscovery.config.limits.discoveryMs=15000;
- const service={async evaluate(r:any){calls++;return {status:'ok',evaluation:{answers:r.questions.map((q:any)=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:{value:'implementation'})})),metadata:{}}} as any;}};
+ const snapshot=structuredClone(normalizeSystem1Config({version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{fileDiscovery:{mode:'active',remoteContextApproved:true,include:['docs'],semanticReads:{mode:extras.semantic?'active':'off'},limits:{resultPageBytes:pageBytes,...limits}}}}));snapshot.consumers.fileDiscovery.config.limits.discoveryMs=15000;
+ if(extras.semantic)writeFileSync(join(root,'.ai/system1.json'),JSON.stringify(snapshot.document));
+ const service={async evaluate(r:any){calls++;return {status:'ok',evaluation:{answers:r.questions.map((q:any)=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:{value:Object.keys(q.options)[0]})})),metadata:{}}} as any;}};
  registerDiscoveryHub(pi);configureDiscoveryHub(pi,{snapshot,service,ctx,sessionDir:session,taskId:()=>taskId,...(extras.store?{communicationStore:extras.store}:{})});entries.push({type:'message',message:{role:'user',content:'parent rounding'}});
  const guard=pathToFileURL(resolve('bin/test/helpers/system1-no-network.js')).href;
  writeFileSync(join(root,'pi'),`#!/usr/bin/env node
@@ -49,14 +50,16 @@ function until<T>(promise:Promise<T>,ms=5000):Promise<T>{
  return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('barrier timeout')),ms);promise.then(value=>{clearTimeout(timer);resolve(value);},error=>{clearTimeout(timer);reject(error);});});
 }
 /** Isolated child process so production child-extension env cannot race other tests. */
-export async function createChildHookHarness(t:any,brokerLimits:Record<string,number>={}){
+export async function createChildHookHarness(t:any,brokerLimits:Record<string,number>={},semantic=false){
  const root=mkdtempSync(join(tmpdir(),'d9-child-hook-'));mkdirSync(join(root,'docs'));
  for(const name of ['a.ts','b.ts'])writeFileSync(join(root,'docs',name),'safe child bytes');
+ const childConfig={mode:'active',remoteContextApproved:true,include:['docs'],semanticReads:{mode:semantic?'active':'off'}};
+ if(semantic){mkdirSync(join(root,'.ai'));writeFileSync(join(root,'.ai/agent-fleet.json'),JSON.stringify({features:{system1:true}}));writeFileSync(join(root,'.ai/system1.json'),JSON.stringify({version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{fileDiscovery:childConfig}}));}
  const store=createCommunicationStore();store.setEnabled(true);let entered!:()=>void;let ready=new Promise<void>(r=>entered=r);let scheduled=0,fired=0,calls=0,ranks=0;
  const results:any[]=[],waiters:Array<(value:any)=>void>=[];let releaseEval:(value:any)=>void=()=>{};
  const evaluation=new Promise<any>(resolve=>{releaseEval=resolve;});
  const clock={setTimeout:((fn:any)=>{scheduled++;return scheduled;}) as any,clearTimeout:((()=>{}) as any)};
- const runtime=createDiscoveryRuntime({root,sessionId:'session',config:parseFileDiscoveryConfig({mode:'active',remoteContextApproved:true,include:['docs']}),service:{evaluate(){calls++;entered();return evaluation;}},context:()=>'task',persist(){},observe:m=>store.beginDiscovery(m),clock});
+ const runtime=createDiscoveryRuntime({root,sessionId:'session',config:parseFileDiscoveryConfig(childConfig),service:{evaluate(){calls++;entered();return evaluation;}},context:()=>'task',persist(){},observe:m=>store.beginDiscovery(m),clock});
  const realRank=runtime.rank.bind(runtime);runtime.rank=async(job:any)=>{const result=await realRank(job);ranks++;const waiter=waiters.shift();if(waiter)waiter(result);else results.push(result);return result;};
  const owners=createDiscoveryOwners('session',()=>'task');const broker=await createDiscoveryBroker({root,runtime,owners,limits:brokerLimits});
  const lease=owners.register({taskId:'task',ownerId:'worker',attemptId:'attempt',cwd:root,task:'child rounding',query:'docs',effectiveTools:['find','read'],readRoots:['docs'],exportRoots:['docs'],canRead:()=>true,canDisplay:()=>true,permissionIdentity:()=>'v1'});
@@ -70,10 +73,10 @@ globalThis.setTimeout=function(fn,ms,...args){
  if(process.env.SHORTEN_CLIENT_TIMER==='1'&&ms===20000&&stack.includes('broker-client.ts')){clientTimerShortened++;return realSetTimeout(fn,Number(process.env.CLIENT_TIMER_MS||400),...args);}
  return realSetTimeout(fn,ms,...args);
 };
-const originalEnd=Socket.prototype.end;let injected=0;const fault=process.env.FAULT||'';
+const originalEnd=Socket.prototype.end;let injected=0,terminalAt=0,terminalElapsedMs=0;const fault=process.env.FAULT||'';
 if(process.env.COUNT_TERMINAL==='1'||fault)Socket.prototype.end=function(chunk,...args){
  if(typeof chunk==='string'&&chunk.includes('"type":"rank_deadline"')){
-  injected++;
+  injected++;terminalAt=Date.now();
   if(fault==='epipe'){this.destroy(Object.assign(new Error('injected terminal write failure'),{code:'EPIPE'}));return this;}
   if(fault==='end'){this.destroy();return this;}
   if(fault==='silent')return this;
@@ -84,13 +87,13 @@ const mod=await import(pathToFileURL(process.env.EXTENSION).href);const hooks={}
 mod.default({on:(e,f)=>(hooks[e]??=[]).push((...a)=>{events.push(e);return f(...a);}),registerTool(){throw Error('D9 must not add tools');}});
 const event=JSON.parse(process.env.EVENT);const pending=hooks.tool_result[0](event,{cwd:process.env.ROOT});
 if(process.env.MODE==='switch'||process.env.MODE==='shutdown'){const name=process.env.MODE==='switch'?'session_before_switch':'session_shutdown';let buf='';process.stdin.on('data',c=>{buf+=c;if(buf.includes('abort'))for(const fn of hooks[name]??[])fn();});}
-const result=await pending;const advice=result?.details?.fileDiscovery;
-process.stdout.write(JSON.stringify({status:advice?.status,reason:advice?.reason??null,events,original:result?.content?.[0],extra:result?.content?.[1]?.text??null,injected,clientTimerShortened,fault})+'\\n');
+const result=await pending;terminalElapsedMs=terminalAt?Date.now()-terminalAt:0;const advice=result?.details?.fileDiscovery;
+process.stdout.write(JSON.stringify({status:advice?.status,reason:advice?.reason??null,events,original:result?.content?.[0],extra:result?.content?.[1]?.text??null,injected,terminalElapsedMs,clientTimerShortened,fault})+'\\n');
 `);
  t.after(async()=>{for(const child of children)child.kill('SIGKILL');runtime.dispose();await broker.close();rmSync(root,{recursive:true,force:true});});
  return {store,lease,owners,calls:()=>calls,ranks:()=>ranks,clock:()=>({scheduled,fired}),entered:()=>ready,releaseEval,nextRank(){if(results.length)return Promise.resolve(results.shift());return new Promise(resolve=>waiters.push(resolve));},async runHook(mode:'deadline'|'switch'|'shutdown'|'client-deadline'|'client-epipe'|'client-end'|'client-cleanup'){
   const clientTimer=mode.startsWith('client-');const fault=mode==='client-epipe'?'epipe':mode==='client-end'?'end':mode==='client-cleanup'?'silent':'';
-  const child=spawn(process.execPath,['--import',resolve('bin/test/helpers/system1-no-network.js'),script],{cwd:root,stdio:['pipe','pipe','pipe'],env:{...discoveryAssignmentEnv(assignment,root,['docs']),MODE:mode==='switch'||mode==='shutdown'?mode:'deadline',SHORTEN_CLIENT_TIMER:clientTimer?'1':'',CLIENT_TIMER_MS:'400',FAULT:fault,COUNT_TERMINAL:clientTimer?'1':'',ROOT:root,EXTENSION:resolve('.pi/harnesses/agent-hub/file-discovery/child-extension.ts'),EVENT:JSON.stringify({toolName:'find',input:{path:'docs',pattern:'*.ts'},toolCallId:'child-deadline',content:[{type:'text',text:'a.ts\nb.ts'}],details:{}})}});
+  const child=spawn(process.execPath,['--import',resolve('bin/test/helpers/system1-no-network.js'),script],{cwd:root,stdio:['pipe','pipe','pipe'],env:{...discoveryAssignmentEnv(assignment,root,['docs']),MODE:mode==='switch'||mode==='shutdown'?mode:'deadline',SHORTEN_CLIENT_TIMER:clientTimer?'1':'',CLIENT_TIMER_MS:'1000',FAULT:fault,COUNT_TERMINAL:clientTimer?'1':'',ROOT:root,EXTENSION:resolve('.pi/harnesses/agent-hub/file-discovery/child-extension.ts'),EVENT:JSON.stringify(semantic?{toolName:'filesystem',input:{operation:'stat',path:'docs/a.ts'},toolCallId:'child-stat',content:[{type:'text',text:'EXACT STAT'}],details:{result:{path:join(root,'docs/a.ts'),type:'file',bytes:16,limitBytes:65536,selfRead:true}}}:{toolName:'find',input:{path:'docs',pattern:'*.ts'},toolCallId:'child-deadline',content:[{type:'text',text:'a.ts\nb.ts'}],details:{}})}});
   children.add(child);let out='',err='';child.stdout.on('data',c=>out+=c);child.stderr.on('data',c=>err+=c);
   const exited=new Promise<number|null>(resolve=>child.once('exit',code=>resolve(code)));
   if(mode==='deadline'||mode.startsWith('client-'))child.stdin.end();else {const marker=await Promise.race([ready.then(()=>'entered'),exited.then(()=>'exit')]);if(marker!=='entered')throw Error('hook exited before service entry '+err+out);child.stdin.write('abort\n');child.stdin.end();}

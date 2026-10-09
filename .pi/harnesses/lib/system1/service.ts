@@ -104,7 +104,7 @@ function validUncertainty(answer: System1Answer): boolean {
   return uncertainty.confidence === undefined || isProbability(uncertainty.confidence);
 }
 
-function validateAnswer(answer: unknown, question: System1Question): answer is System1Answer {
+export function validateAnswer(answer: unknown, question: System1Question): answer is System1Answer {
   if (!isRecord(answer) || answer.questionId !== question.id || answer.type !== question.type) return false;
   if (!validUncertainty(answer as unknown as System1Answer)) return false;
 

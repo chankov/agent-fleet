@@ -117,3 +117,9 @@ test('T11 existing renderer shows D9 coverage/counts/elapsed/attempt and distinc
  await panel.handleInput('\r');await panel.handleInput('\x1b[C');await panel.handleInput('\r');assert.equal(copied.length,2);assert.equal(JSON.parse(copied[1]).usage,null);assert.ok(!copied.join('').includes('PRIVATE_'));
  await panel.handleInput('\x1b');await panel.handleInput('\x1b');await pending;panel.dispose();
 });
+test('D8 renderer input remains metadata only for foreground stat and orientation versions',async()=>{
+ const store=createCommunicationStore();store.setEnabled(true);
+ await store.wrap({evaluate:async()=>({status:'unavailable',reason:'network'})},{provider:'typesafe',model:'jev-1.13.0'}).evaluate({state:'BODY_CANARY',questions:[{id:'x',type:'predicate',instructions:'QUESTION_CANARY'}],questionSetVersion:'file-discovery/orientation/v1'});
+ store.beginDiscovery({owner:'hub',trigger:'stat',provider:'typesafe',model:'jev-1.13.0'})({status:'unavailable',reason:'deadline',answers:'ANSWER_CANARY',elapsedMs:2000,usage:null});
+ assert.equal(store.snapshot().length,1);assert.equal(JSON.stringify(store.snapshot()).includes('CANARY'),false);assert.equal(JSON.parse(store.snapshot()[0].response!).reason,'deadline');
+});

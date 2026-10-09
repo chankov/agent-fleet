@@ -90,3 +90,9 @@ test('malformed Jev uncertainty stays unscored after transport and a provider mi
  assert.deepEqual(await evaluateFile({...base,service:createSystem1Service({provider:incomplete})}),{status:'unscored',reason:'invalid_response'});
  assert.equal(calls,1);
 });
+test('D8 custom-service malformed and unknown answers cannot become typed evidence',async()=>{
+ const valid=fakeService();const standard=await evaluateFile({...base,service:valid.service});assert.equal(standard.status,'scored');if(standard.status!=='scored')return;
+ for(const answer of [{questionId:'claim',type:'choice',value:'unsupported',uncertainty:{provenance:'provider'}},{questionId:'claim',type:'choice',value:'unknown',uncertainty:{provenance:'untrusted'}},{questionId:'claim',type:'choice',value:'unknown',uncertainty:{provenance:'provider',confidence:2}}]){
+  const result=await evaluateFile({...base,customQuestions:[{id:'claim',type:'choice',instructions:'Evidence?',options:{supports:null,unknown:null}}],service:{evaluate:async()=>({status:'ok',evaluation:{answers:[...standard.answers,answer],metadata:{}}}) as any}});assert.deepEqual(result,{status:'unscored',reason:'invalid_response'});
+ }
+});

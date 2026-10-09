@@ -52,3 +52,10 @@ test('T8 production child extension session cancellation during awaited broker d
  const result=hooks.tool_result({toolName:'find',input:{path:'docs'},toolCallId:'cancel',content:[{type:'text',text:'file-0.ts\nfile-1.ts'}],details:{}},f.ctx);
  await ready;hooks.session_before_switch();release();const cancelled=await result;assert.equal(cancelled.details.fileDiscovery.status,'cancelled');assert.equal(cancelled.details.fileDiscovery.rows,undefined);assert.equal(cancelled.content[0].text,'file-0.ts\nfile-1.ts');
 });
+test('D8 research singleton and multi-file native manifests deliver typed orientation before model with baseline launch policy intact',async t=>{
+ for(const count of [1,3]){
+  const f=nativeFixture(t,count,32768,{},{semantic:true}),r=research(f);
+  const result=await r.runtime.spawn(r.state,'own orientation query',f.ctx,[],undefined,{readScope:f.paths});assert.equal(result.exitCode,0);
+  for(const row of f.rows()){assert.ok(row.keyAbsent&&row.modelStepAfterAdvice);assert.equal(row.advice.rows.length,count);assert.ok(row.advice.rows.every((v:any)=>v.answers.length===5));assert.match(row.prompt,/d8_orientation_related_v1/);assert.equal(row.tools,'read,find');}
+ }
+});

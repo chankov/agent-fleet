@@ -4,10 +4,11 @@ import {join,resolve,relative,isAbsolute} from 'node:path';
 import {createServer,type Socket} from 'node:net';
 import {TextDecoder} from 'node:util';
 import {DISCOVERY_DEADLINE,isDiscoveryDeadline,type DiscoveryRuntime} from './runtime.ts';
+import {FOREGROUND_MS} from './semantic-profiles.ts';
 import type {DiscoveryResult} from './results.ts';
 import type {DiscoveryOwners,OwnerLease} from './owners.ts';
 export const BROKER_LIMITS=Object.freeze({frameBytes:65536,responseBytes:65536,connections:16,partialFrameMs:1000,requestMs:20000,maxCandidates:1024});
-export interface RankDiscoveryRequest {type:'rank_discovery';capability:string;sessionId:string;taskId:string;ownerId:string;attemptId:string;queryHash:string;requestId:string;paths:string[];discovery:{complete:boolean;reason?:string}}
+export interface RankDiscoveryRequest {type:'rank_discovery';capability:string;sessionId:string;taskId:string;ownerId:string;attemptId:string;queryHash:string;requestId:string;paths:string[];foreground?:boolean;discovery:{complete:boolean;reason?:string}}
 export interface RankDeadlineRequest extends Omit<RankDiscoveryRequest,'type'|'paths'|'discovery'> {type:'rank_deadline'}
 const requestIdentity=['capability','sessionId','taskId','ownerId','attemptId','queryHash','requestId'] as const;
 function validRankDeadline(value:any,request:RankDiscoveryRequest):value is RankDeadlineRequest {
@@ -25,7 +26,7 @@ function validControlRequest(value:any):value is DescendantRequest|RevokeDiscove
 }
 export function validBrokerRequest(value:any):value is RankDiscoveryRequest {
  const record=(v:any)=>v&&typeof v==='object'&&!Array.isArray(v);
- return record(value)&&Object.keys(value).every(k=>['type','capability','sessionId','taskId','ownerId','attemptId','queryHash','requestId','paths','discovery'].includes(k))&&value.type==='rank_discovery'&&typeof value.capability==='string'&&/^[0-9a-f]{64}$/.test(value.capability)&&typeof value.queryHash==='string'&&/^[0-9a-f]{64}$/.test(value.queryHash)&&['sessionId','taskId','ownerId','attemptId','requestId'].every(k=>typeof value[k]==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(value[k]))&&Array.isArray(value.paths)&&value.paths.length<=BROKER_LIMITS.maxCandidates&&value.paths.every((p:any)=>typeof p==='string'&&p.length<=1024&&p.length>0&&!/[\\\x00-\x1f\x7f]/.test(p)&&!p.startsWith('/')&&p.split('/').every((s:string)=>s&&s!=='.'&&s!=='..'))&&record(value.discovery)&&Object.keys(value.discovery).every(k=>['complete','reason'].includes(k))&&typeof value.discovery.complete==='boolean'&&(value.discovery.reason===undefined||['candidate_limit','deadline','truncated','unavailable'].includes(value.discovery.reason));
+ return record(value)&&Object.keys(value).every(k=>['type','capability','sessionId','taskId','ownerId','attemptId','queryHash','requestId','paths','discovery','foreground'].includes(k))&&value.type==='rank_discovery'&&(value.foreground===undefined||typeof value.foreground==='boolean')&&typeof value.capability==='string'&&/^[0-9a-f]{64}$/.test(value.capability)&&typeof value.queryHash==='string'&&/^[0-9a-f]{64}$/.test(value.queryHash)&&['sessionId','taskId','ownerId','attemptId','requestId'].every(k=>typeof value[k]==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(value[k]))&&Array.isArray(value.paths)&&value.paths.length<=BROKER_LIMITS.maxCandidates&&value.paths.every((p:any)=>typeof p==='string'&&p.length<=1024&&p.length>0&&!/[\\\x00-\x1f\x7f]/.test(p)&&!p.startsWith('/')&&p.split('/').every((s:string)=>s&&s!=='.'&&s!=='..'))&&record(value.discovery)&&Object.keys(value.discovery).every(k=>['complete','reason'].includes(k))&&typeof value.discovery.complete==='boolean'&&(value.discovery.reason===undefined||['candidate_limit','deadline','truncated','unavailable'].includes(value.discovery.reason));
 }
 export async function createDiscoveryBroker(options:{root:string;runtime:DiscoveryRuntime;owners:DiscoveryOwners;publish?(result:DiscoveryResult,lease:OwnerLease):unknown;limits?:Partial<Record<keyof typeof BROKER_LIMITS,number>>}) {
  if(process.platform==='win32')throw Error('unsupported_platform');
@@ -74,6 +75,8 @@ export async function createDiscoveryBroker(options:{root:string;runtime:Discove
    }
    // Registry supplies query/cwd/effective permissions. Reject unknown/cross-scope identities BEFORE any source collection, including cache hits.
    const paths=[...new Set(request.paths)];
+   const foreground=request.foreground===true&&paths.length===1&&options.runtime.semanticEnabled;
+   if(request.foreground&&!foreground){reply({ok:false,error:'consumer_off'});return;}
    if(paths.some(p=>!options.owners.allows(owner,p,false))){reply({ok:false,error:'source_denied'});return;}
    const canonical=paths.map(p=>relative(root,resolve(owner.cwd,p)).split('\\').join('/'));
    if(canonical.some(p=>isAbsolute(p)||p==='..'||p.startsWith('../')||!p)){reply({ok:false,error:'source_denied'});return;}
@@ -82,10 +85,10 @@ export async function createDiscoveryBroker(options:{root:string;runtime:Discove
    revoke=()=>{if(!controller.signal.aborted){abort();reply({ok:false,error:'revoked'});}};owner.signal.addEventListener('abort',revoke,{once:true});if(owner.signal.aborted)revoke();
    if(controller.signal.aborted)return;
    rankRequest=request;
-   requestTimer=setTimeout(()=>{if(!controller.signal.aborted){abort(DISCOVERY_DEADLINE);reply({ok:false,error:'deadline'});}},limits.requestMs);
+   requestTimer=setTimeout(()=>{if(!controller.signal.aborted){abort(DISCOVERY_DEADLINE);reply({ok:false,error:'deadline'});}},foreground?Math.min(FOREGROUND_MS,limits.requestMs):limits.requestMs);
    // A child's immutable bound query survives same-task Hub followups. Authority
    // and permission checks still fence every job before reads and after awaits.
-   void options.runtime.rank({owner:owner.ownerId,attempt:owner.attemptId,trigger:'native',task:owner.task,query:owner.query,context:()=>options.owners.current(owner)?owner.taskId+':'+owner.queryHash:'revoked',paths:canonical,discoveryComplete:request.discovery.complete,signal:controller.signal,permissionIdentity:permission,canDisplay:p=>options.owners.allows(owner,fromWorkspace(p),false),canRead:p=>options.owners.allows(owner,fromWorkspace(p),true)}).then(result=>{
+   void options.runtime.rank({owner:owner.ownerId,attempt:owner.attemptId,trigger:'native',foreground,task:owner.task,query:owner.query,context:()=>options.owners.current(owner)?owner.taskId+':'+owner.queryHash:'revoked',paths:canonical,discoveryComplete:request.discovery.complete,signal:controller.signal,permissionIdentity:permission,canDisplay:p=>options.owners.allows(owner,fromWorkspace(p),false),canRead:p=>options.owners.allows(owner,fromWorkspace(p),true)}).then(result=>{
     if(controller.signal.aborted){reply({ok:false,error:isDiscoveryDeadline(controller.signal.reason)?'deadline':'revoked'});return;}
     if(!options.owners.current(owner)){reply({ok:false,error:'revoked'});return;}
     reply({ok:true,result:options.publish?.(result,owner)??result});

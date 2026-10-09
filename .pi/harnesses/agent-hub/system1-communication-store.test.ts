@@ -141,3 +141,12 @@ test('D9 projection rejects untrusted payload fields, IDs, paths and capabilitie
  const late=store.beginDiscovery({owner:'hub',provider:'typesafe',model:'jev-1.13.0'});store.setEnabled(false);store.setEnabled(true);late({status:'complete'});assert.deepEqual(store.snapshot(),[]);
  await store.wrap(service,{provider:'typesafe',model:'jev-1.13.0'}).evaluate({...request,questionSetVersion:'file-discovery/questions/v1'});assert.deepEqual(store.snapshot(),[], 'raw per-file service payload is never captured');
 });
+test('D8 all question/profile versions bypass raw capture and metadata projection excludes payload canaries',async()=>{
+ const store=createCommunicationStore();store.setEnabled(true);let calls=0;
+ const wrapped=store.wrap({evaluate:async()=>{calls++;return {status:'unavailable',reason:'network'};}},{provider:'typesafe',model:'jev-1.13.0'});
+ for(const questionSetVersion of ['file-discovery/orientation/v1','file-discovery/questions/v2','file-discovery/future/v99'])await wrapped.evaluate({state:{source:{path:'PATH_CANARY',text:'BODY_CANARY'}},questions:[{id:'id',type:'predicate',instructions:'QUESTION_CANARY'}],questionSetVersion});
+ assert.equal(calls,3);assert.deepEqual(store.snapshot(),[]);
+ store.beginDiscovery({owner:'hub',trigger:'stat',provider:'typesafe',model:'jev-1.13.0'})({status:'unavailable',reason:'deadline',elapsedMs:2000,answers:'ANSWER_CANARY',questions:'QUESTION_CANARY',path:'PATH_CANARY',capabilities:'CAPABILITY_CANARY'});
+ const pair=store.snapshot()[0];assert.equal(JSON.parse(pair.request!).trigger,'stat');assert.equal(JSON.parse(pair.response!).reason,'deadline');assert.equal(JSON.stringify(pair).includes('CANARY'),false);
+ store.beginDiscovery({owner:'hub',trigger:'stat',provider:'typesafe',model:'jev-1.13.0'})({status:'skipped',reason:'REASON_CANARY'});assert.equal(JSON.parse(store.snapshot()[1].response!).reason,null);
+});

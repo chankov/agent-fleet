@@ -3,22 +3,23 @@ import {mkdirSync,realpathSync,writeFileSync,lstatSync} from 'node:fs';
 import {join} from 'node:path';
 import {safeSourceRead} from '../../lib/safe-source-read.js';
 import {sourceHash} from '../agentic-sources.ts';
-import {POLICY_VERSION,QUESTION_VERSION} from './evaluate.ts';
-export interface ResultRow {path:string;status:'scored'|'cached'|'unscored';hash?:string;relevance?:number;role?:string;reason?:string;uncertainty?:{provenance:string;confidence?:number}}
+import {POLICY_VERSION,QUESTION_VERSION,projectAnswer} from './evaluate.ts';
+import type {System1Answer} from '../../lib/system1/contracts.ts';
+export interface ResultRow {path:string;status:'scored'|'cached'|'unscored';hash?:string;relevance?:number;role?:string;reason?:string;answers?:System1Answer[];uncertainty?:{provenance:string;confidence?:number}}
 export interface PageLocator {path:string;hash:string;resultId:string;pageIndex:number;handle?:string}
-export interface ResultIdentity {taskHash:string;queryHash:string;model:string}
+export interface ResultIdentity {taskHash:string;queryHash:string;model:string;questionVersion?:string;semanticReason?:string}
 export function sortRows(rows:readonly ResultRow[]):ResultRow[] {
  return [...rows].sort((a,b)=>((b.status==='unscored'?-1:b.relevance??-1)-(a.status==='unscored'?-1:a.relevance??-1))||(a.path<b.path?-1:a.path>b.path?1:0));
 }
 export function resultCounts(rows:readonly ResultRow[]){return {discovered:rows.length,evaluated:rows.filter(r=>r.status==='scored').length,cached:rows.filter(r=>r.status==='cached').length,failed:rows.filter(r=>r.status==='unscored'&&r.reason!=='not_evaluated').length,unscored:rows.filter(r=>r.status==='unscored').length};}
 export function createResult(options:{rows:readonly ResultRow[];identity:ResultIdentity;discoveryComplete:boolean;evaluationComplete?:boolean;cancelled?:boolean;hidden?:number}){
- // Explicit allowlist: caller objects, answers, source bodies and raw tasks never survive projection.
- const rows=sortRows(options.rows.map(r=>({path:r.path,status:r.status,...(r.hash?{hash:r.hash}:{}),...(r.status==='unscored'?{reason:r.reason??'not_evaluated'}:{relevance:r.relevance,role:r.role,...(r.uncertainty?{uncertainty:{provenance:r.uncertainty.provenance,confidence:r.uncertainty.confidence}}:{})})})));
+ // Explicit allowlist: typed answers survive; source bodies, raw tasks and extras do not.
+ const rows=sortRows(options.rows.map(r=>({path:r.path,status:r.status,...(r.hash?{hash:r.hash}:{}),...(r.status==='unscored'?{reason:r.reason??'not_evaluated'}:{relevance:r.relevance,role:r.role,...(r.answers?.length?{answers:r.answers.map(projectAnswer)}:{}),...(r.uncertainty?{uncertainty:{provenance:r.uncertainty.provenance,confidence:r.uncertainty.confidence}}:{})})})));
  if(new Set(rows.map(r=>r.path)).size!==rows.length)throw Error('duplicate_identity');
  const counts=resultCounts(rows),evaluationComplete=options.evaluationComplete??counts.unscored===0;
  const skipped=rows.length>0&&rows.every(r=>r.status==='unscored'&&['consumer_off','not_approved'].includes(r.reason??''));
  const status=options.cancelled?'cancelled':skipped?'skipped':!counts.evaluated&&!counts.cached&&counts.failed?'unavailable':options.discoveryComplete&&evaluationComplete?'complete':'partial';
- return {resultId:randomUUID(),taskHash:options.identity.taskHash,queryHash:options.identity.queryHash,model:options.identity.model,policyVersion:POLICY_VERSION,questionVersion:QUESTION_VERSION,status,discoveryComplete:options.discoveryComplete,evaluationComplete,remaining:options.discoveryComplete?0:'unknown',hidden:options.hidden??0,counts,rows};
+ return {resultId:randomUUID(),taskHash:options.identity.taskHash,queryHash:options.identity.queryHash,model:options.identity.model,policyVersion:POLICY_VERSION,questionVersion:options.identity.questionVersion??QUESTION_VERSION,...(options.identity.semanticReason?{semanticReason:options.identity.semanticReason}:{}),status,discoveryComplete:options.discoveryComplete,evaluationComplete,remaining:options.discoveryComplete?0:'unknown',hidden:options.hidden??0,counts,rows};
 }
 export type DiscoveryResult=ReturnType<typeof createResult>;
 // Each managed page is a separate file under a fresh runtime-owned directory. Only the first locator is returned.

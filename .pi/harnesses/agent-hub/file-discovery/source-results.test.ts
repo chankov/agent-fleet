@@ -101,3 +101,18 @@ test('N5 consumer off and unapproved only rows report skipped; failures and canc
  assert.equal(createResult({rows:[{path:'docs/a',status:'unscored',reason:'network'}],identity,discoveryComplete:true}).status,'unavailable');
  assert.equal(createResult({rows:[{path:'docs/a',status:'unscored',reason:'consumer_off'}],identity,discoveryComplete:true,cancelled:true}).status,'cancelled');
 });
+test('D8 typed custom answers retain unknown, uncertainty and source identity inline and across bounded pages without provider extras',async()=>{
+ const root=fixture();try{
+  for(let i=0;i<12;i++)writeFileSync(join(root,'docs',String(i)),'BODY_CANARY');
+  const question={id:'claim',type:'choice',instructions:'Evidence?',options:{supports:null,contradicts:null,insufficient:null,other:null}};
+  const custom:System1Service={evaluate:async r=>{const result=await service.evaluate(r);if(result.status!=='ok')return result;result.evaluation.answers.push({questionId:'claim',type:'choice',value:'insufficient',uncertainty:{provenance:'provider',confidence:0.2,distribution:{supports:0,contradicts:0,insufficient:1,other:0},body:'EXTRA_CANARY'},body:'EXTRA_CANARY'} as any);return result;}};
+  const ranked=await rankCandidates({root,config,paths:Array.from({length:12},(_,i)=>'docs/'+i),task:'claim',signal:signal(),canDisplay:()=>true,service:custom,customQuestions:[question]});
+  const result=createResult({...ranked,identity:{taskHash:sourceHash('claim'),queryHash:sourceHash('query'),model:'fake'},discoveryComplete:true});
+  assert.equal(result.rows[0].hash,sourceHash('BODY_CANARY'));assert.equal(result.rows[0].answers?.find(a=>a.questionId==='claim')?.type,'choice');
+  assert.equal((result.rows[0].answers?.find(a=>a.questionId==='claim') as any).value,'insufficient');
+  assert.equal(JSON.stringify(result).includes('CANARY'),false);
+  let next:any=writeResultPages(root,result,3000),rows:any[]=[],pages=0;while(next){const page=readResultPage(root,next,3000);rows.push(...page.rows);next=page.next;pages++;}
+  assert.ok(pages>1);assert.deepEqual(rows,result.rows);
+  const denied=createResult({rows:[{...ranked.rows[0],status:'unscored',reason:'denied'}],identity:result,discoveryComplete:true});assert.equal('answers' in denied.rows[0],false);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

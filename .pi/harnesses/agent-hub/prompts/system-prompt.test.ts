@@ -217,3 +217,9 @@ test("enabled orchestrator advice precedes dispatch without granting execution a
  ctx.getTriageBeforeDispatch=()=>true;ctx.getWorkMode=()=>"operator";assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/);
  ctx.getWorkMode=()=>"orchestrator";ctx.getActiveTools=()=>["dispatch_agent"];assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/);
 });
+test('D8 delivered orientation is reused without replacing exact evidence, explicit claim/risk or off/unavailable fallback',()=>{
+ const ctx=fixture({active:['core']});ctx.getActiveTools=()=>['ask_system1_files'];
+ const prompt=buildHubSystemPrompt(ctx).systemPrompt;
+ for(const text of ['Use current delivered typed answers','not a free-form summary','Explicit proposition/risk','Unknown, insufficient, partial or stale','pre-edit reads remain mandatory','Off/unavailable continues via ordinary tools'])assert.ok(prompt.includes(text));
+ ctx.getActiveTools=()=>[];assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/When D8 semanticReads is active/);
+});

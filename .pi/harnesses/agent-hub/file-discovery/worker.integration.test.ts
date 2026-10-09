@@ -94,7 +94,7 @@ test('registered production child hook maps undelivered terminal EPIPE, end/clos
  for(const mode of ['client-epipe','client-end','client-cleanup'] as const){
   const harness=await createChildHookHarness(t,{requestMs:8000});const started=Date.now();const pending=harness.runHook(mode);
   assert.equal(await Promise.race([harness.entered().then(()=>'entered'),pending.then(()=>'early')]),'entered',mode);
-  const result=await until(pending,8000);elapsed[mode]=Date.now()-started;childEvidence(result);
+  const result=await until(pending,8000);elapsed[mode]=result.advice.terminalElapsedMs;childEvidence(result);
   assert.equal(result.advice.injected,1,mode);assert.equal(result.advice.clientTimerShortened,1,mode);assert.equal(result.advice.fault,mode.slice('client-'.length)==='cleanup'?'silent':mode.slice('client-'.length),mode);
   assert.equal(result.advice.status,'unavailable',mode);assert.equal(result.advice.reason,'channel_unavailable',mode);assert.notEqual(result.advice.reason,'deadline',mode);
   const ranked=await until(harness.nextRank());assert.equal(ranked.status,'cancelled',mode);assert.ok(ranked.rows.every((row:any)=>row.reason==='cancelled'&&row.status!=='scored'),mode);
@@ -102,7 +102,8 @@ test('registered production child hook maps undelivered terminal EPIPE, end/clos
   assert.equal(harness.clock().fired,0,mode);assert.equal(harness.lease.signal.aborted,false,mode);assert.equal(harness.lease.attemptSignal.aborted,false,mode);assert.equal(harness.owners.size,1,mode);
   assert.ok(!JSON.stringify(harness.store.snapshot()).includes('safe child bytes'));assert.ok(!JSON.stringify(ranked).includes('safe child bytes'));assert.ok(!JSON.stringify(harness.store.snapshot()).includes(harness.lease.capability));
  }
- assert.ok(elapsed['client-cleanup']>=elapsed['client-epipe']+700,'cleanup '+elapsed['client-cleanup']+' vs epipe '+elapsed['client-epipe']);
+ // Compare the ACK phase itself, not separate subprocess startup times.
+ assert.ok(elapsed['client-cleanup']>=700,'cleanup phase '+elapsed['client-cleanup']);
  assert.ok(elapsed['client-cleanup']<6000,'cleanup must be the 1000ms ACK bound, not the broker timer');
 });
 test('late provider success cannot overwrite a failed child-hook terminal delivery or its cancelled observation',async t=>{
@@ -113,4 +114,10 @@ test('late provider success cannot overwrite a failed child-hook terminal delive
  const before=JSON.stringify(harness.store.snapshot());harness.releaseEval(lateSuccess());await new Promise(r=>setTimeout(r,80));
  assert.equal(JSON.stringify(harness.store.snapshot()),before);assert.equal(ranked.status,'cancelled');assert.ok(ranked.rows.every((row:any)=>row.reason==='cancelled'&&row.status!=='scored'));
  assert.equal(result.advice.reason,'channel_unavailable');assert.equal(harness.ranks(),1);assert.equal(harness.lease.signal.aborted,false);assert.equal(harness.lease.attemptSignal.aborted,false);
+});
+test('D8 native single-file worker receives orientation before its first model step across primary/fallback attempts',async t=>{
+ const f=nativeFixture(t,1,32768,{},{semantic:true}),w=worker(f);
+ const result=await w.native.dispatchAgent('builder','edit rounding with runtime proof',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0);
+ const rows=f.rows();assert.equal(rows.length,2);for(const row of rows){assert.ok(row.modelStepAfterAdvice&&row.keyAbsent);assert.equal(row.advice.rows[0].answers.length,5);assert.match(row.prompt,/d8_orientation_exact_v1/);assert.match(row.systemPrompt,/Read the persona source/);}
+ assert.notEqual(rows[0].attempt,rows[1].attempt);assert.equal(f.channel().owners.size,0);
 });

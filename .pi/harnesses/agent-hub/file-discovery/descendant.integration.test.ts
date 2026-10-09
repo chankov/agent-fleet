@@ -9,8 +9,8 @@ import {sourceHash} from '../agentic-sources.ts';
 import {rankDiscovery,registerDescendant,revokeDiscoveryAttempt} from './broker-client.ts';
 import {nativeFixture} from './native-fixture.test-support.ts';
 
-function chain(t:any,mode='normal',count=3) {
- const f=nativeFixture(t,count,count>255?12000:32768,count>255?{maxEvaluationsPerJob:1}:{}),delegate=resolve('.pi/harnesses/agent-hub/delegate.ts');
+function chain(t:any,mode='normal',count=3,semantic=false) {
+ const f=nativeFixture(t,count,count>255?12000:32768,count>255?{maxEvaluationsPerJob:1}:{},{semantic}),delegate=resolve('.pi/harnesses/agent-hub/delegate.ts');
  const state:any={def:{name:'builder',description:'builder',tools:'read,find',toolsExplicit:true,systemPrompt:'MANDATORY POLICY',file:'agents/builder.md',subagents:{recon:{model:'fake/primary',fallbackModel:'fake/model',tools:'read,find'},finder:{model:'fake/model',tools:'find'}},delegateDepth:1},status:'idle',task:'',toolCount:0,messageCount:0,elapsed:0,lastWork:'',contextPct:0,contextTokens:0,sessionFile:null,runCount:0,runsSinceFresh:0,timeline:[]};
  const deps:any={getAgentState:()=>state,listAgentStates:()=>[state],getSessionDir:()=>f.session,getDispatchPolicy:()=>({default:'native',grace_s:0,substitutions:{}}),isComsReady:()=>false,getIdentity:()=>null,peersInScope:()=>[],wasComsMissNotified:()=>false,markComsMissNotified(){},startMonitorChild(){},finalizeMonitorChild(){},registerMonitorWaitOnly(){},registerMonitorProcess(){},appendMonitorOutput(){},getContextWindow:()=>100000,currentBudget:()=>({delegation:true,agentTurnMs:20000}),bumpRecycle(){},bumpDriftStop(){},getSessionHealthIo:()=>({existsSync,readFileSync,renameSync}),getSafetyHarnessPath:()=> 'safety',getDelegateExtensionPath:()=>delegate,getReconSearchTimeoutMs:()=>1000,getProjectDocsPaths:()=>['docs/ARCHITECTURE.md'],getUserLanguage:()=> 'English',getWatchdogSetting:()=> 'off',getWatchdogAgentOverride(){},getWorkMode:()=> 'operator',providerSemaphore:{run:async(_m:string,fn:any)=>fn()},executionHistory:{start:()=>({}),end(){}},displayName:(s:string)=>s,shortModel:(s:string)=>s,resolvedModel:()=> 'fake/model',resolvedThinking:()=> 'off',resolveThinkingLevel:()=> 'off',resolvedSubagentModel:(_d:any,_r:any,c:any)=>c.model,substitutedModel:(m:any)=>m,modelWindowLookup:()=>()=>undefined,specialistProjectPolicyPaths:()=>['AGENTS.md'],guardrailEnv:()=>({...f.env,CHAIN_MODE:mode}),appendInputArtifacts:(p:string)=>p+'\nORIGINAL EVIDENCE',appendDeclaredScope:(p:string,s:string[])=>p+'\nDECLARED_SCOPE '+s.join(','),flushTimelineStore(){},appendTimelineText(){},appendTimelineEvent(){},createTranscriptStore:()=>({append(){}}),updateWidget(){},startDelegationWatch(){},dispatchViaComs:async()=>null,runDriftJudge:async()=>null,notifyProviderQueue(){},spawnPiAgentWithModelFallback,prepareDiscovery:f.prepare};
  const guard=pathToFileURL(resolve('bin/test/helpers/system1-no-network.js')).href;
@@ -125,4 +125,12 @@ test('T12 >255 automatic actual worker and nested delegate lifecycle keeps full-
  const ranked=f.rows().filter((r:any)=>r.worker||r.tools==='read,find');assert.equal(ranked.length,3);
  for(const row of ranked){assert.ok(row.registered&&row.extensionBeforeModel&&row.keyAbsent);assert.equal(row.advice.total,300);assert.equal(row.pageRows,300);assert.ok(row.readPages>2);assert.equal(row.advice.status,'partial');assert.equal(row.advice.counts.unscored,299);assert.equal(row.advice.discoveryComplete,true);}
  assert.equal(f.calls(),2);assert.equal(f.channel()!.owners.size,0);
+});
+test('D8 allowed native descendant singleton and multi orientation arrive before model without credentials or broader tools',async t=>{
+ for(const count of [1,3]){
+  const f=chain(t,'normal',count,true);const result=await f.native.dispatchAgent('builder','own worker query',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
+  const children=f.rows().filter((r:any)=>r.worker===false&&r.tools==='read,find');assert.equal(children.length,2);
+  for(const row of children){assert.ok(row.keyAbsent&&row.extensionBeforeModel);assert.equal(row.advice.rows.length,count);assert.ok(row.advice.rows.every((v:any)=>v.answers.length===5));assert.match(row.prompt,/d8_orientation_runtime_v1/);}
+  assert.equal(f.channel()!.owners.size,0);
+ }
 });

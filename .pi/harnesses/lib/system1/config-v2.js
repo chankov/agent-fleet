@@ -19,7 +19,7 @@ const fields = {
   dispatchTriage: ['mode', 'remoteContextApproved', 'maxCalls', 'maxStateBytes', 'maxTaskBytes', 'maxRoleBytes', 'profile', 'orchestratorBeforeDispatch'],
   taskTriage: ['mode', 'remoteContextApproved', 'questionVersion', 'policyVersion', 'limits'],
   agenticAsk: ['mode', 'remoteContextApproved', 'include', 'allowToolOutputs', 'limits'],
-  fileDiscovery: ['mode', 'remoteContextApproved', 'include', 'limits'],
+  fileDiscovery: ['mode', 'remoteContextApproved', 'include', 'limits', 'semanticReads'],
 };
 export function normalizeSystem1Config(value, context) {
   const errors = [];
@@ -97,7 +97,7 @@ export function normalizeSystem1Config(value, context) {
       const status = config.mode === 'off' || (['taskTriage', 'agenticAsk', 'fileDiscovery'].includes(name) && !config.remoteContextApproved) ? 'off' : 'ready';
       consumers[name] = { status, config };
     } catch (failure) {
-      const field = { 'Invalid include scope':'include', 'Explicit include scope required':'include', 'Invalid remoteContext':'remoteContext', 'Invalid session budget':'maxEvaluationsPerSession', 'Invalid local bindings':'localBindings', 'Invalid local binding schema':'localBindings', 'Invalid local binding values':'localBindings' }[failure.message];
+      const field = { 'Invalid semanticReads section':'semanticReads', 'Invalid include scope':'include', 'Explicit include scope required':'include', 'Invalid remoteContext':'remoteContext', 'Invalid session budget':'maxEvaluationsPerSession', 'Invalid local bindings':'localBindings', 'Invalid local binding schema':'localBindings', 'Invalid local binding values':'localBindings' }[failure.message];
       if (errors.length === before) error(field ? `${path}.${field}` : path, 'invalid_section');
       consumers[name] = { status: 'invalid' };
     }

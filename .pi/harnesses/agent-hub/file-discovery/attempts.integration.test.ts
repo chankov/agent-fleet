@@ -105,3 +105,8 @@ test('T12 C3N3 registration/assignment unavailable degrades normal physical laun
  }
  const f=fixture(t);f.switchTask();const denied=await spawnPiAgent({...f.opts,model:'fake/fallback'});assert.equal(denied.lifecycle?.launched,false);assert.match(denied.spawnError??'',/owner_admission_changed/);
 });
+test('D8 real child stat hook and authenticated IPC have a total foreground deadline without revoking a healthy attempt',async t=>{
+ const {createChildHookHarness}=await import('./native-fixture.test-support.ts');
+ const harness=await createChildHookHarness(t,{},true);const started=Date.now();const result=await harness.runHook('deadline');
+ assert.equal(result.code,0,result.err);assert.equal(result.advice.status,'unavailable');assert.equal(result.advice.reason,'deadline');assert.deepEqual(result.advice.original,{type:'text',text:'EXACT STAT'});assert.ok(Date.now()-started<3200);assert.equal(harness.calls(),1);assert.equal(harness.lease.attemptSignal.aborted,false);
+});

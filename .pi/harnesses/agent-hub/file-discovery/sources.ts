@@ -49,7 +49,7 @@ export async function rankCandidates(options:{root:string;config:FileDiscoveryCo
    evaluations++;
    const result=options.evaluate?await options.evaluate(source):await evaluateFile({...options,source});
    if(result.status==='scored'){
-    row.status='cached' in result&&result.cached?'cached':'scored';delete row.reason;row.relevance=result.relevance;row.role=result.role;
+    row.status='cached' in result&&result.cached?'cached':'scored';delete row.reason;row.relevance=result.relevance;row.role=result.role;row.answers=result.answers;
     const answer=result.answers.find(a=>a.questionId==='d9_relevance');
     if(answer)row.uncertainty={provenance:answer.uncertainty.provenance,confidence:answer.uncertainty.confidence};
    }else row.reason=result.reason;
@@ -60,7 +60,7 @@ export async function rankCandidates(options:{root:string;config:FileDiscoveryCo
   if(!options.canDisplay(full)){hidden++;return false;}
   // Later evaluations can revoke an earlier row's read/export permission.
   if((row.status!=='unscored'||row.hash)&&(!exportPathAllowed(row.path,options.config.include)||!(options.canRead??(path=>currentFileAccessAllowed(options.root,path)))(full))){
-   for(const key of ['hash','relevance','role','uncertainty'] as const)delete row[key];
+   for(const key of ['hash','relevance','role','uncertainty','answers'] as const)delete row[key];
    row.status='unscored';row.reason='denied';
   }
   return true;

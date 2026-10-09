@@ -59,3 +59,17 @@ test('N2 strict traversal adapter counts forbidden and out-of-include regular fi
   assert.deepEqual(adapted.paths,['docs/sub/b.ts']);assert.equal(adapted.excluded,2);assert.equal(adapted.discoveryComplete,true);assert.equal(JSON.stringify(adapted).includes('key.pem'),false);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+test('D8 strict stat adapter rejects errors, directories, unknown shapes, denied scopes and managed artifacts',()=>{
+ const root=fixture();try{
+  const path=join(root,'docs/a.ts'),value={path,type:'file',bytes:26,limitBytes:65536,selfRead:true},options={tool:'filesystem',args:{operation:'stat',path:'docs/a.ts'},result:{details:{result:value}},root,cwd:root,include:['docs']};
+  assert.deepEqual(adaptDiscovery(options).paths,['docs/a.ts']);
+  assert.equal(adaptDiscovery({...options,result:{...options.result,isError:true}}).reason,'tool_error');
+  assert.equal(adaptDiscovery({...options,result:{details:{result:{...value,type:'directory'}}}}).reason,'not_file');
+  assert.equal(adaptDiscovery({...options,result:{details:{result:{...value,path:root,bytes:-1}}}}).reason,'unknown_shape');
+  assert.deepEqual(adaptDiscovery({...options,include:['docs/sub']}).paths,[]);
+  const managed='docs/file-discovery-00000000-0000-0000-0000-000000000000';mkdirSync(join(root,managed));writeFileSync(join(root,managed,'page-0.json'),'{}');
+  assert.deepEqual(adaptDiscovery({...options,args:{operation:'stat',path:managed+'/page-0.json'},result:{details:{result:{...value,path:join(root,managed,'page-0.json')}}}}).paths,[]);
+  mkdirSync(join(root,'.pi/pages'),{recursive:true});writeFileSync(join(root,'.pi/pages/page-0.json'),'{}');
+  assert.deepEqual(adaptDiscovery({...options,args:{operation:'stat',path:'.pi/pages/page-0.json'},result:{details:{result:{...value,path:join(root,'.pi/pages/page-0.json')}}}}).paths,[]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

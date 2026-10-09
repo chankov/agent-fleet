@@ -79,7 +79,7 @@ test('precise skip and failure keep original candidates; bounded-output chaining
 });
 test('explicit paths/patterns/custom-only questions use same engine, reserved IDs/caps reject, off and child catalog never inherit',async t=>{
  const f=setup(t);const custom={id:'risk',type:'predicate',instructions:'Risk?'};
- const ranked=await f.execute('ask_system1_files',{paths:['docs/file-0.ts','docs/file-1.ts'],questions:[custom]});assert.equal(ranked.details.rows.length,2);assert.equal(ranked.details.rows[0].role,'implementation');assert.equal(ranked.details.rows[0].relevance,0);
+ const ranked=await f.execute('ask_system1_files',{paths:['docs/file-0.ts','docs/file-1.ts'],questions:[custom]});assert.equal(ranked.details.rows.length,2);assert.equal(ranked.details.rows[0].role,'implementation');assert.equal(ranked.details.rows[0].relevance,0);assert.deepEqual(ranked.details.rows[0].answers.find((a:any)=>a.questionId==='risk'),{questionId:'risk',type:'predicate',probabilityTrue:0.5,uncertainty:{provenance:'provider'}});
  const patterns=await f.execute('ask_system1_files',{directories:['docs'],patterns:['*.ts'],questions:[custom]});assert.equal(patterns.details.rows.length,3);
  const calls=f.calls();for(const questions of [[{...custom,id:'d9_relevance'}],Array(15).fill(custom),[{id:'bad',type:'choice',instructions:'pick',options:{yes:null,no:null}}]])assert.equal((await f.execute('ask_system1_files',{paths:['docs/file-0.ts'],questions})).details.reason,'invalid_input');assert.equal(f.calls(),calls);
  assert.equal((await f.execute('ask_system1_files',{paths:['docs/file-0.ts'],command:'bad'})).details.reason,'invalid_input');
@@ -285,4 +285,23 @@ test('late provider success cannot overwrite a failed Hub-store terminal deliver
  const before=JSON.stringify(cell.f.store.snapshot());cell.hub.release(lateSuccess());await new Promise(r=>setTimeout(r,80));
  assert.equal(JSON.stringify(cell.f.store.snapshot()),before);assert.equal(cell.ranked.status,'cancelled');assert.ok(cell.ranked.rows.every((row:any)=>row.reason==='cancelled'&&row.status!=='scored'));
  assert.equal(cell.client.error,'channel_unavailable');assertHealthy(cell.hub.lease,cell.hub.channel,cell.ranked,cell.f.store);
+});
+test('D8 production parent stat/singleton/multi hooks automatically deliver orientation, exact evidence and bounded timeout without gating raw reads',async t=>{
+ const f=setup(t);const snapshot=structuredClone(f.snapshot);snapshot.consumers.fileDiscovery.config.semanticReads={mode:'active'};
+ configureDiscoveryHub(f.pi,{snapshot,service:f.service,ctx:f.ctx,sessionDir:f.session,taskId:()=> 'task'});
+ const input={operation:'stat',path:'docs/file-0.ts'},original=await f.execute('filesystem',input);
+ const ranked=await f.toolResult('filesystem',input,original,'stat');assert.deepEqual(ranked.content[0],original.content[0]);assert.equal(ranked.details.fileDiscovery.rows[0].answers.length,5);assert.equal(f.calls(),1);
+ await f.toolResult('filesystem',input,original,'stat');assert.equal(f.calls(),1);
+ const singleton=await f.toolResult('find',{path:'docs'},{content:[{type:'text',text:'file-1.ts'}]},'singleton');assert.equal(singleton.details.fileDiscovery.rows[0].answers.length,5);
+ const multi=await f.toolResult('find',{path:'docs'},{content:[{type:'text',text:'file-0.ts\nfile-1.ts'}]},'multi');assert.equal(multi.details.fileDiscovery.rows[0].answers.length,5);
+ const dir=await f.execute('filesystem',{operation:'stat',path:'docs'});const before=f.calls();assert.equal((await f.toolResult('filesystem',{operation:'stat',path:'docs'},dir,'dir')).details.fileDiscovery.reason,'not_file');assert.equal(f.calls(),before);
+ for(const operation of ['read','excerpt','readback'])assert.equal(await f.toolResult('filesystem',{operation},original,operation),undefined);
+ configureDiscoveryHub(f.pi,{snapshot,service:{evaluate:()=>new Promise(()=>{})},ctx:f.ctx,sessionDir:f.session,taskId:()=> 'task'});
+ const started=Date.now();const expired=await f.toolResult('filesystem',input,original,'expired');assert.equal(expired.details.fileDiscovery.rows[0].reason,'deadline');assert.ok(Date.now()-started<2400);assert.deepEqual(expired.content[0],original.content[0]);
+});
+test('D8 managed pages refuse typed answers after the scored source changes, not only page hash changes',async t=>{
+ const f=setup(t,{resultPageBytes:2600},3);const snapshot=structuredClone(f.snapshot);snapshot.consumers.fileDiscovery.config.semanticReads={mode:'active'};
+ configureDiscoveryHub(f.pi,{snapshot,service:f.service,ctx:f.ctx,sessionDir:f.session,taskId:()=> 'task'});
+ const ranked=await f.execute('ask_system1_files',{paths:['docs/file-0.ts','docs/file-1.ts','docs/file-2.ts']});const handle=ranked.details.first.handle;assert.equal(discoveryManagedReadbackAllowed(f.pi,handle),true);
+ writeFileSync(join(f.root,'docs/file-0.ts'),'changed evidence');assert.equal(discoveryManagedReadbackAllowed(f.pi,handle),false);
 });

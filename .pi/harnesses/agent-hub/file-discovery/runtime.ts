@@ -3,6 +3,7 @@ import {realpathSync,statSync} from 'node:fs';
 import type {System1Service} from '../../lib/system1/contracts.ts';
 import {sourceHash} from '../agentic-sources.ts';
 import {composeQuestions,evaluateFile,POLICY_VERSION,type FileDiscoveryConfig,type FileEvaluation,type ReadySource} from './evaluate.ts';
+import {semanticQuestions,FOREGROUND_MS} from './semantic-profiles.ts';
 import {rankCandidates} from './sources.ts';
 import {createResult} from './results.ts';
 import {createDiscoveryBudget,type DiscoveryCounter} from './state.ts';
@@ -17,7 +18,7 @@ export type DiscoveryDeadlineCause=typeof DISCOVERY_DEADLINE;
 export function isDiscoveryDeadline(reason:unknown):reason is DiscoveryDeadlineCause {return reason===DISCOVERY_DEADLINE;}
 type Score=FileEvaluation & {cached?:boolean};
 type Work={owner:string;key:string;controller:AbortController;waiters:Set<symbol>;run():Promise<Score>;resolve(value:Score):void;promise:Promise<Score>};
-export interface DiscoveryJob {owner:string;attempt?:string;trigger?:string;task:string;query:string;paths:readonly string[];discoveryComplete:boolean;hidden?:number;signal?:AbortSignal;context?():string;customQuestions?:unknown;canDisplay(path:string):boolean;canRead(path:string):boolean;permissionIdentity():string}
+export interface DiscoveryJob {owner:string;attempt?:string;trigger?:string;task:string;query:string;paths:readonly string[];discoveryComplete:boolean;hidden?:number;signal?:AbortSignal;foreground?:boolean;deadlineAt?:number;context?():string;customQuestions?:unknown;canDisplay(path:string):boolean;canRead(path:string):boolean;permissionIdentity():string}
 export function createDiscoveryRuntime(options:{root:string;sessionId:string;config:FileDiscoveryConfig;service?:System1Service;provider?:string;model?:string;context():string;persist(s:DiscoveryCounter):void;restored?:DiscoveryCounter|null;observe?(metadata:DiscoveryDiagnostic):(summary:unknown)=>void;clock?:{setTimeout:typeof setTimeout;clearTimeout:typeof clearTimeout}}) {
  const config=options.config,root=realpathSync(options.root),stat=statSync(root),workspace=[root,stat.dev,stat.ino];
  const budget=createDiscoveryBudget(options.sessionId,options.persist,options.restored),lifetime=new AbortController();
@@ -37,7 +38,7 @@ export function createDiscoveryRuntime(options:{root:string;sessionId:string;con
    const cancelled=new Promise<Score>(resolve=>{onAbort=()=>resolve(unscored('cancelled'));work.controller.signal.addEventListener('abort',onAbort,{once:true});});
    void Promise.race([work.run(),cancelled]).catch(()=>unscored('unavailable')).then(result=>{
     if(work.controller.signal.aborted||lifetime.signal.aborted)result=unscored('cancelled');
-    if(result.status==='scored'){cache.set(work.key,result);while(cache.size>config.limits.maxCacheEntries)cache.delete(cache.keys().next().value!);}
+    if(result.status==='scored'||config.semanticReads.mode==='active'&&result.status==='unscored'&&!['cancelled','changed','deadline'].includes(result.reason)){cache.set(work.key,result);while(cache.size>config.limits.maxCacheEntries)cache.delete(cache.keys().next().value!);}
     work.resolve(result);
    }).finally(()=>{work.controller.signal.removeEventListener('abort',onAbort);active--;if(inflight.get(work.key)===work)inflight.delete(work.key);pump();});
   }
@@ -45,8 +46,8 @@ export function createDiscoveryRuntime(options:{root:string;sessionId:string;con
  const score=async(job:DiscoveryJob,source:ReadySource,signal:AbortSignal,context:string,permission:string,metrics:{logicalCalls:number;attempts:number|null;usage:{inputTokens:number;outputTokens:number}|null}):Promise<Score>=>{
   const current=async()=>!signal.aborted&&(job.context??options.context)()===context&&job.permissionIdentity()===permission&&await source.current(signal);
   if(!await current())return unscored(signal.aborted?'cancelled':'changed');
-  const questions=composeQuestions(job.customQuestions);if(!questions)return unscored('invalid_input');
-  const key=canonicalHash({workspace,context,path:source.path,hash:source.hash,task:job.task,query:job.query,questions,policy:POLICY_VERSION,provider:options.provider??'typesafe',model:options.model??'jev-1.13.0',permission,include:config.include});
+  const pack=semanticQuestions(config,job.customQuestions),questions=composeQuestions(pack.questions);if(!pack.questions||!questions)return unscored('invalid_input');
+  const key=canonicalHash({workspace,context,path:source.path,hash:source.hash,task:job.task,query:job.query,questions,questionVersion:pack.version,policy:POLICY_VERSION,provider:options.provider??'typesafe',model:options.model??'jev-1.13.0',permission,include:config.include});
   const hit=cache.get(key);if(hit)return await current()?{...structuredClone(hit),cached:true}:unscored('changed');
   let work=inflight.get(key);
   if(!work){
@@ -72,7 +73,7 @@ export function createDiscoveryRuntime(options:{root:string;sessionId:string;con
      if(result.status==='unavailable'&&result.reason==='auth')authStopped=true;
      return result;
     }};
-    try{const result=await evaluateFile({config,service,source:{...source,current:()=>source.current(controller.signal)},task:job.task,customQuestions:job.customQuestions,signal:controller.signal});
+    try{const result=await evaluateFile({config,service,source:{...source,current:()=>source.current(controller.signal)},task:job.task,customQuestions:pack.questions,questionVersion:pack.version,signal:controller.signal});
      return (job.context??options.context)()===context&&job.permissionIdentity()===permission?result:unscored('changed');}
     catch(error){return unscored(error instanceof Error?error.message:'unavailable');}
    }};
@@ -83,7 +84,9 @@ export function createDiscoveryRuntime(options:{root:string;sessionId:string;con
    let done=false;
    const finish=async(value:Score)=>{
     if(done)return;done=true;signal.removeEventListener('abort',abort);shared.waiters.delete(waiter);
-    if(!shared.waiters.size){shared.controller.abort();if(inflight.get(key)===shared)inflight.delete(key);}
+    if(!shared.waiters.size){
+     if(config.semanticReads.mode==='active'&&isDiscoveryDeadline(signal.reason)&&(job.context??options.context)()===context&&job.permissionIdentity()===permission){cache.set(key,unscored('deadline'));while(cache.size>config.limits.maxCacheEntries)cache.delete(cache.keys().next().value!);}
+     shared.controller.abort();if(inflight.get(key)===shared)inflight.delete(key);}
     resolve(signal.aborted?unscored('cancelled'):await current()?structuredClone(value):unscored('changed'));
    };
    const abort=()=>{void finish(unscored('cancelled'));};signal.addEventListener('abort',abort,{once:true});
@@ -91,24 +94,31 @@ export function createDiscoveryRuntime(options:{root:string;sessionId:string;con
   });
  };
  const dispose=()=>{lifetime.abort();for(const job of jobs.keys())job.abort();for(const work of inflight.values()){work.controller.abort();work.resolve(unscored('cancelled'));}queues.clear();owners.length=0;cache.clear();inflight.clear();};
- return {get enabled(){return config.mode==='active'&&config.remoteContextApproved&&!lifetime.signal.aborted;},get calls(){return budget.calls;},dispose,syncContext(){for(const [job,{context,current}] of jobs)if(context!==current())job.abort();},
+ return {get semanticEnabled(){return config.semanticReads.mode==='active';},get enabled(){return config.mode==='active'&&config.remoteContextApproved&&!lifetime.signal.aborted;},get calls(){return budget.calls;},dispose,syncContext(){for(const [job,{context,current}] of jobs)if(context!==current())job.abort();},
  async rank(job:DiscoveryJob){
   const started=Date.now(),metrics={logicalCalls:0,attempts:0 as number|null,usage:{inputTokens:0,outputTokens:0} as {inputTokens:number;outputTokens:number}|null};
   let finish:((summary:unknown)=>void)|undefined;
   try{finish=options.observe?.({owner:job.owner==='hub'?'hub':sourceHash(job.owner),attempt:job.attempt?sourceHash(job.attempt):undefined,trigger:job.trigger,provider:options.provider??'typesafe',model:options.model??'jev-1.13.0'});}catch{/* observer only */}
   const report=(result:ReturnType<typeof createResult>)=>{try{finish?.({...result,elapsedMs:Date.now()-started,...metrics,attempts:metrics.logicalCalls?metrics.attempts:null,usage:metrics.logicalCalls?metrics.usage:null});}catch{/* observer only */}return result;};
+  const pack=semanticQuestions(config,job.customQuestions);
   const current=job.context??options.context,context=current(),permission=job.permissionIdentity(),controller=new AbortController();
-  const identity={taskHash:sourceHash(job.task),queryHash:sourceHash(job.query),model:options.model??'jev-1.13.0'};
+  const identity={taskHash:sourceHash(job.task),queryHash:sourceHash(job.query),questionVersion:pack.version,semanticReason:config.semanticReads.mode==='active'?pack.reason:undefined,model:options.model??'jev-1.13.0'};
   const refused=(reason:string)=>report(createResult({identity,discoveryComplete:job.discoveryComplete,rows:job.paths.filter(p=>job.canDisplay(root+'/'+p)).map(path=>({path,status:'unscored',reason})),cancelled:reason==='cancelled'}));
   if(lifetime.signal.aborted)return refused('cancelled');
   if(job.signal?.aborted)return refused(isDiscoveryDeadline(job.signal.reason)?'deadline':'cancelled');
+  if(job.foreground&&job.deadlineAt!==undefined&&Date.now()>=job.deadlineAt)return refused('deadline');
+  if(!job.task.trim())return refused('missing_task');
   if(jobs.size>=config.limits.maxQueuedJobs+config.limits.concurrency)return refused('queue_full');
-  if(!composeQuestions(job.customQuestions))return refused('invalid_input');
+  if(!pack.questions||!composeQuestions(pack.questions))return refused('invalid_input');
   jobs.set(controller,{context,current});const abort=()=>controller.abort(job.signal?.reason);job.signal?.addEventListener('abort',abort,{once:true});
   if(job.signal?.aborted)abort();
-  const timer=clock.setTimeout(()=>controller.abort(DISCOVERY_DEADLINE),config.limits.jobTimeoutMs);
+  const timer=clock.setTimeout(()=>controller.abort(DISCOVERY_DEADLINE),job.foreground?Math.max(1,Math.min(FOREGROUND_MS,config.limits.jobTimeoutMs,(job.deadlineAt??Date.now()+FOREGROUND_MS)-Date.now())):config.limits.jobTimeoutMs);
   try{
-   const ranked=await rankCandidates({root,config,paths:job.paths,task:job.task,customQuestions:job.customQuestions,hidden:job.hidden,service:options.service??{evaluate:async()=>({status:'unavailable',reason:'invalid_config'})},signal:controller.signal,canDisplay:job.canDisplay,canRead:job.canRead,evaluate:source=>score(job,source,controller.signal,context,permission,metrics)});
+   const ranking=rankCandidates({root,config,paths:job.paths,task:job.task,customQuestions:job.customQuestions,hidden:job.hidden,service:options.service??{evaluate:async()=>({status:'unavailable',reason:'invalid_config'})},signal:controller.signal,canDisplay:job.canDisplay,canRead:job.canRead,evaluate:source=>score(job,source,controller.signal,context,permission,metrics)});
+   // Source checks and queue waits count too; abort-ignoring dependencies cannot hold the caller.
+   let stop!:()=>void;
+   const stopped=new Promise<Awaited<typeof ranking>>(resolve=>{stop=()=>resolve({rows:job.paths.filter(p=>job.canDisplay(root+'/'+p)).map(path=>({path,status:'unscored' as const,reason:isDiscoveryDeadline(controller.signal.reason)?'deadline':'cancelled'})),hidden:job.hidden??0});controller.signal.addEventListener('abort',stop,{once:true});if(controller.signal.aborted)stop();});
+   const ranked=await (job.foreground?Promise.race([ranking,stopped]):ranking);controller.signal.removeEventListener('abort',stop);
    if(current()!==context||job.permissionIdentity()!==permission)return refused('changed');
    const deadline=controller.signal.aborted&&isDiscoveryDeadline(controller.signal.reason);
    if(deadline)for(const row of ranked.rows)if(row.status==='unscored'&&row.reason==='cancelled')row.reason='deadline';

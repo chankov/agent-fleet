@@ -111,7 +111,7 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
       assert.ok(existsSync(join(hubRoot,file)), `packed D10 runtime missing ${file}`);
       if (file.endsWith('.ts')) assert.equal(existsSync(join(hubRoot,file.replace(/\.ts$/,'.test.ts'))), false);
     }
-    for(const file of ['hub.ts','runtime.ts','state.ts','evaluate.ts','sources.ts','results.ts','discovery.ts','adapters.ts','owners.ts','broker.ts','broker-client.ts','child-extension.ts','descendant.ts','native-context.ts']) {
+    for(const file of ['hub.ts','runtime.ts','state.ts','evaluate.ts','sources.ts','results.ts','discovery.ts','adapters.ts','owners.ts','broker.ts','broker-client.ts','child-extension.ts','descendant.ts','native-context.ts','semantic-profiles.ts']) {
       assert.ok(existsSync(join(hubRoot,'file-discovery',file)), `packed D9 runtime missing ${file}`);
       assert.equal(existsSync(join(hubRoot,'file-discovery',file.replace(/\.ts$/,'.test.ts'))),false);
     }
@@ -209,9 +209,9 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
       const rows=[],pi={registerTool(){},on(){},appendEntry:(customType,data)=>rows.push({customType,data})};
       const ctx={cwd:process.cwd(),sessionManager:{getSessionId:()=> 's',getEntries:()=>rows}};
       registerDiscoveryHub(pi);configureDiscoveryHub(pi,{snapshot:normalizeSystem1Config({version:2,mode:'off',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{}}),ctx,sessionDir:process.cwd(),taskId:()=> 't'});assert.equal(discoveryHubEnabled(pi),false);
-      const config=normalizeSystem1Config({version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{fileDiscovery:{mode:'active',remoteContextApproved:true,include:['docs']}}}).consumers.fileDiscovery.config;
+      const config=normalizeSystem1Config({version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{fileDiscovery:{mode:'active',remoteContextApproved:true,include:['docs'],semanticReads:{mode:'active'}}}}).consumers.fileDiscovery.config;
       mkdirSync('docs',{recursive:true});writeFileSync('docs/a.ts','safe installed source');writeFileSync('docs/b.ts','safe installed source');let calls=0;
-      const runtime=createDiscoveryRuntime({root:process.cwd(),sessionId:'s',config,context:()=> 't',persist(){},service:{evaluate:async r=>{calls++;assert.equal(r.state.source.text,'safe installed source');return {status:'ok',evaluation:{answers:r.questions.map(q=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:{value:'implementation'})})),metadata:{}}};}}});
+      const runtime=createDiscoveryRuntime({root:process.cwd(),sessionId:'s',config,context:()=> 't',persist(){},service:{evaluate:async r=>{calls++;assert.equal(r.state.source.text,'safe installed source');return {status:'ok',evaluation:{answers:r.questions.map(q=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:{value:Object.keys(q.options)[0]})})),metadata:{}}};}}});
       // Only test-local startup allowance: production parser/default/max stays 1000ms.
       const traversalConfig=structuredClone(config);traversalConfig.limits.discoveryMs=15000;
       const found=await discoverCandidates({root:process.cwd(),config:traversalConfig,directories:['docs'],patterns:['*.ts'],recursive:false,signal:new AbortController().signal,canDiscover:()=>true});
@@ -222,7 +222,8 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
        Object.assign(process.env,discoveryAssignmentEnv(owners.assignment(owner,broker.endpoint),process.cwd(),['docs']));
        const hooks={};child({on:(event,fn)=>hooks[event]=fn,registerTool(){throw Error('no extra tools');}});
        const evidence={toolName:'find',toolCallId:'find',input:{path:'docs'},content:[{type:'text',text:'a.ts\\nb.ts'}],details:{}};
-       const result=await hooks.tool_result(evidence,ctx);assert.deepEqual(result.content[0],evidence.content[0]);assert.equal(result.details.fileDiscovery.rows.length,2);assert.equal(result.details.fileDiscovery.status,'complete');assert.equal(calls,2);hooks.session_shutdown();
+       const result=await hooks.tool_result(evidence,ctx);assert.deepEqual(result.content[0],evidence.content[0]);assert.equal(result.details.fileDiscovery.rows.length,2);assert.equal(result.details.fileDiscovery.status,'complete');assert.equal(calls,2);assert.equal(result.details.fileDiscovery.rows[0].answers.length,5);
+       const stat=await runtime.rank({owner:'hub',foreground:true,task:'installed task',query:'installed stat',paths:['docs/a.ts'],discoveryComplete:true,canRead:()=>true,canDisplay:()=>true,permissionIdentity:()=> 'p'});assert.equal(stat.rows[0].answers.length,5);assert.equal(stat.questionVersion,'file-discovery/orientation/v1');hooks.session_shutdown();
       }finally{runtime.dispose();await broker.close();await resetDiscoveryHub(pi);}
     `],{cwd:defaultWs,encoding:'utf8',env:{...process.env,AGENT_HUB_AGENT_ID:'',AGENT_FLEET_AGENTIC_CHILD:'',PI_OFFLINE:'1'}});
     assert.equal(d9Smoke.status,0,d9Smoke.stderr);

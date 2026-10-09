@@ -95,7 +95,10 @@
         ".pi/harnesses",
         "bin",
         "docs"
-      ]
+      ],
+      "semanticReads": {
+        "mode": "active"
+      }
     }
   }
 }

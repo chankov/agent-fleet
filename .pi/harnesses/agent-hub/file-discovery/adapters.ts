@@ -8,7 +8,7 @@ const refused=(reason:string):CandidateSet=>({paths:[],discoveryComplete:false,r
 export function canonicalCandidate(root:string,path:string,include:readonly string[]):string|undefined {
  try{
   const full=checkedSourcePath(root,resolve(root,path)),rel=relative(realpathSync(root),full).split('\\').join('/');
-  if(!lstatSync(full).isFile()||!exportPathAllowed(rel,include))return;
+  if(/(?:^|\/)file-discovery-[0-9a-f-]{36}\/page-\d+\.json$/.test(rel)||!lstatSync(full).isFile()||!exportPathAllowed(rel,include))return;
   return rel;
  }catch{return;}
 }
@@ -30,8 +30,14 @@ export function adaptDiscovery(options:{tool:string;args:Record<string,unknown>;
  let complete=true,excluded=0;const candidates:string[]=[];
  const add=(path:string)=>{const candidate=canonicalCandidate(root,path,include);if(candidate)candidates.push(candidate);else {try{if(lstatSync(checkedSourcePath(root,path)).isFile())excluded++;}catch{}}};
  if(tool==='filesystem'){
-  if(args.operation!=='inventory')return refused('unsupported_operation');
   const value=result?.details?.result;
+  if(args.operation==='stat'){
+   if(!value||value.path!==search||!['file','directory','other'].includes(value.type)||typeof value.selfRead!=='boolean'||!Number.isSafeInteger(value.limitBytes))return refused('unknown_shape');
+   if(value.type!=='file')return refused('not_file');
+   if(!Number.isSafeInteger(value.bytes)||value.bytes<0)return refused('unknown_shape');
+   add(search);return {paths:[...new Set(candidates)],discoveryComplete:true,remaining:0,excluded};
+  }
+  if(args.operation!=='inventory')return refused('unsupported_operation');
   if(!value||value.root!==search||!Array.isArray(value.entries)||typeof value.truncated!=='boolean'||!Number.isSafeInteger(value.totalEntries))return refused('unknown_shape');
   complete=!value.truncated;
   for(const entry of value.entries){

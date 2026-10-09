@@ -80,6 +80,7 @@ function discoverySummary(value: any) {
  const number = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
  const counts = Object.fromEntries(['discovered','evaluated','cached','failed','unscored'].map(k => [k, number(value?.counts?.[k])]));
  return { status: ['complete','partial','unavailable','cancelled','skipped'].includes(value?.status) ? value.status : 'unavailable',
+  reason: (()=>{const reasons=['deadline','cancelled','changed','denied','oversized','unavailable','auth','network','queue_full','question_slots','semantic_off','missing_task','consumer_off','not_approved','timeout','budget_exhausted','channel_unavailable','invalid_response'];const reason=value?.reason??value?.semanticReason??(Array.isArray(value?.rows)?value.rows.find((r:any)=>r.status==='unscored')?.reason:undefined);return reasons.includes(reason)?reason:null;})(),
   counts, discoveryComplete: typeof value?.discoveryComplete === 'boolean' ? value.discoveryComplete : null,
   evaluationComplete: typeof value?.evaluationComplete === 'boolean' ? value.evaluationComplete : null,
   remaining: value?.remaining === 0 ? 0 : 'unknown', elapsedMs: number(value?.elapsedMs),
@@ -120,7 +121,7 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
    if (!enabled) return (_summary: unknown) => {};
    const id = randomUUID();
    const metadata = { owner: discoveryIdentity(input.owner, true), attempt: discoveryIdentity(input.attempt),
-    trigger: ['filesystem','find','ls','grep','explicit','pre_spawn','native'].includes(input.trigger ?? '') ? input.trigger : 'unknown' };
+    trigger: ['filesystem','stat','find','ls','grep','explicit','pre_spawn','native'].includes(input.trigger ?? '') ? input.trigger : 'unknown' };
    // Provider/model are code-owned constants, not transport-controlled labels.
    pairs.set(id, { id, consumer: 'fileDiscovery', owner: metadata.owner, provider: input.provider === 'typesafe' ? 'typesafe' : 'unknown',
     model: input.model === 'jev-1.13.0' ? 'jev-1.13.0' : 'unknown', started: now(), status: 'pending',
@@ -146,7 +147,7 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
   wrap(service: System1Service, identity: { provider: string; model: string }): System1Service {
    const ownerEpoch = sessionEpoch;
    return { async evaluate(request) {
-    if (request.questionSetVersion === 'file-discovery/questions/v1') return service.evaluate(request);
+    if (request.questionSetVersion.startsWith('file-discovery/')) return service.evaluate(request);
     const epoch = generation; let id: string | undefined;
     try {
      if (enabled && ownerEpoch === sessionEpoch) {

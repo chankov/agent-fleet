@@ -9,7 +9,8 @@ import {decodeDeterministicHandle} from '../../lib/deterministic-handle-path.ts'
 import {currentFileAccessAllowed} from '../../lib/damage-control-shared.ts';
 import {exportPathAllowed} from '../agentic-sources.ts';
 import {registerAskSystem1Files} from '../tools/ask-system1-files.ts';
-import {adaptDiscovery} from './adapters.ts';
+import {adaptDiscovery,canonicalCandidate} from './adapters.ts';
+import {FOREGROUND_MS} from './semantic-profiles.ts';
 import {discoverCandidates} from './discovery.ts';
 import {composeQuestions} from './evaluate.ts';
 import {createDiscoveryOwners,type DiscoveryOwners} from './owners.ts';
@@ -63,13 +64,13 @@ export function discoveryManagedReadbackAllowed(pi:ExtensionAPI,handle:string):b
   const match=/\/file-discovery-([0-9a-f-]{36})\/page-(\d+)\.json$/.exec(decoded.path);
   if(!match||!discoveryHubEnabled(pi)||session.results.get(match[1])!==session.context()||decoded.offset!==0)return false;
   const page=readResultPage(root,{path:decoded.path,hash:decoded.hash,resultId:match[1],pageIndex:Number(match[2])},session.config.limits.resultPageBytes);
-  return page.taskHash===sourceHash(session.task())&&page.rows.every((row:any)=>canRead(session,resolve(session.root,row.path))&&(row.status==='unscored'||exportPathAllowed(row.path,session.config.include)));
+  return page.taskHash===sourceHash(session.task())&&page.rows.every((row:any)=>canRead(session,resolve(session.root,row.path))&&(row.status==='unscored'||exportPathAllowed(row.path,session.config.include)&&row.hash===sourceHash(safeSourceRead(session.root,resolve(session.root,row.path),session.config.limits.maxFileBytes))));
  }catch{return false;}
 }
-async function rank(session:Session,paths:string[],query:string,complete:boolean,signal?:AbortSignal,customQuestions?:unknown,hidden?:number,trigger?:string){
+async function rank(session:Session,paths:string[],query:string,complete:boolean,signal?:AbortSignal,customQuestions?:unknown,hidden?:number,trigger?:string,foreground=false,deadlineAt?:number){
  session.candidates={context:session.context(),paths:paths.slice(0,session.config.limits.maxCandidates),complete:complete&&paths.length<=session.config.limits.maxCandidates};
  const permissionIdentity=()=>JSON.stringify(paths.map(path=>canRead(session,resolve(session.root,path))));
- return session.runtime.rank({owner:'hub',trigger,task:session.task(),query,paths,discoveryComplete:complete,signal,customQuestions,hidden,canRead:path=>canRead(session,path),canDisplay:path=>canRead(session,path),permissionIdentity});
+ return session.runtime.rank({owner:'hub',trigger,foreground,deadlineAt,task:session.task(),query,paths,discoveryComplete:complete,signal,customQuestions,hidden,canRead:path=>canRead(session,path),canDisplay:path=>canRead(session,path),permissionIdentity});
 }
 export function registerDiscoveryHub(pi:ExtensionAPI){
  registerAskSystem1Files(pi,{async execute(raw,signal){
@@ -86,10 +87,13 @@ export function registerDiscoveryHub(pi:ExtensionAPI){
  }});
  pi.on('tool_result',async(event,ctx)=>{
   if(!['filesystem','find','ls','grep'].includes(event.toolName))return;
-  if(event.toolName==='filesystem'&&(event.input as any)?.operation!=='inventory')return;
+  if(event.toolName==='filesystem'&&!['inventory','stat'].includes((event.input as any)?.operation))return;
   const session=sessions.get(pi);
   // Off/unconfigured is inert: do not capture evidence or rewrite tool results.
   if(!session||!discoveryHubEnabled(pi))return;
+  const statEvent=event.toolName==='filesystem'&&(event.input as any)?.operation==='stat';
+  if(statEvent&&session.config.semanticReads.mode!=='active')return;
+  const deadlineAt=Date.now()+FOREGROUND_MS;
   const original={content:event.content,details:event.details};
   const reply=(advice:any)=>{if(advice.status==='skipped')session.observe?.(event.toolName,'skipped');return ({content:[...event.content,{type:'text' as const,text:'File discovery advice: '+JSON.stringify(advice)}],details:{...(event.details&&typeof event.details==='object'?event.details:{}),fileDiscovery:advice}});};
   const key=JSON.stringify([session.context(),event.toolCallId,sourceHash(JSON.stringify(original))]);
@@ -105,8 +109,8 @@ export function registerDiscoveryHub(pi:ExtensionAPI){
    }
    const candidates=adaptDiscovery({tool:event.toolName,args:event.input as any,result,cwd:ctx.cwd,root:session.root,include:session.config.include});
    if(candidates.reason&&candidates.paths.length===0)return reply({status:'skipped',reason:candidates.reason});
-   if(candidates.paths.length<2)return reply({status:'skipped',reason:'fewer_than_two_candidates',discoveryComplete:candidates.discoveryComplete});
-   const ranked=await rank(session,candidates.paths,JSON.stringify([event.toolName,event.input]),candidates.discoveryComplete,undefined,undefined,candidates.hidden,event.toolName);
+   if(!candidates.paths.length||candidates.paths.length<2&&session.config.semanticReads.mode!=='active')return reply({status:'skipped',reason:'fewer_than_two_candidates',discoveryComplete:candidates.discoveryComplete});
+   const ranked=await rank(session,candidates.paths,JSON.stringify([event.toolName,event.input]),candidates.discoveryComplete,undefined,undefined,candidates.hidden,statEvent?'stat':event.toolName,candidates.paths.length===1&&session.config.semanticReads.mode==='active',deadlineAt);
    if(context!==session.context()||!discoveryHubEnabled(pi))return reply({status:'cancelled',reason:'stale_task'});
    try{return reply(deliver(session,ranked));}catch{return reply({status:'unavailable',reason:'page_unavailable',counts:ranked.counts});}
   })();session.events.set(key,operation);while(session.events.size>2048)session.events.delete(session.events.keys().next().value!);
@@ -128,16 +132,21 @@ function deliverNative(session:Session,result:DiscoveryResult,lease?:OwnerLease)
 /** Called only after launch admission/artifact gates; scope hints never grant read/export. */
 export async function prepareDiscoveryNative(pi:ExtensionAPI,input:NativeDiscoveryInput):Promise<NativeDiscoveryContext|null> {
  const session=sessions.get(pi);if(!session||!discoveryHubEnabled(pi))return null;
- const context=session.context(),taskId=session.taskId();
+ const context=session.context(),taskId=session.taskId(),deadlineAt=Date.now()+FOREGROUND_MS;
+ const singleHint=session.config.semanticReads.mode==='active'&&input.scope.length===1&&!/[*?\[{]/.test(input.scope[0])?canonicalCandidate(session.root,resolve(input.cwd,input.scope[0]),session.config.include):undefined;
  const current=()=>sessions.get(pi)===session&&discoveryHubEnabled(pi)&&context===session.context()&&taskId===session.taskId()&&!input.signal?.aborted;
  if(!current())return {manifest:{status:'cancelled'},current};
  const canReadOwner=(path:string)=>input.tools.some(t=>t==='read'||t==='filesystem')&&canRead(session,path);
  const owner={taskId,ownerId:input.ownerId,cwd:input.cwd,task:input.task,query:input.query,effectiveTools:input.tools,readRoots:session.config.include,exportRoots:session.config.include,canRead:canReadOwner,canDisplay:(p:string)=>canRead(session,p),permissionIdentity:()=>JSON.stringify([input.tools,session.config.include,session.taskId()])};
  if(!input.tools.some(t=>t==='read'||t==='filesystem'))return {manifest:{status:'skipped',reason:'owner_read_not_permitted'},current};
- const broker=await session.broker;if(!current())return {manifest:{status:'cancelled'},current};
+ let broker:DiscoveryBroker|null;
+ if(singleHint){let timer:ReturnType<typeof setTimeout>|undefined;try{broker=await Promise.race([session.broker,new Promise<null>(resolve=>{timer=setTimeout(()=>resolve(null),Math.max(1,deadlineAt-Date.now()));})]);}finally{clearTimeout(timer);}}
+ else broker=await session.broker;
+ if(!current())return {manifest:{status:'cancelled'},current};
  if(!broker)return {manifest:{status:'unavailable',reason:'channel_unavailable',fallback:'Continue ordinary permitted discovery.'},current};
  let paths:string[]=[],complete=true;
- if(!input.scope.length&&session.candidates?.context===context){paths=session.candidates.paths;complete=session.candidates.complete;}
+ if(singleHint){paths=[singleHint];}
+ else if(!input.scope.length&&session.candidates?.context===context){paths=session.candidates.paths;complete=session.candidates.complete;}
  else {
   const explicit:string[]=[],directories:string[]=[],patterns:string[]=[];
   for(const hint of input.scope){if(/[*?\[{]/.test(hint))patterns.push(hint);else {try{if(lstatSync(resolve(input.cwd,hint)).isDirectory())directories.push(hint);else explicit.push(hint);}catch{explicit.push(hint);}}}
@@ -145,7 +154,7 @@ export async function prepareDiscoveryNative(pi:ExtensionAPI,input:NativeDiscove
   paths=discovery.paths;complete=discovery.discoveryComplete;
  }
  if(!current())return {manifest:{status:'cancelled'},current};
- const result=await session.runtime.rank({owner:input.ownerId,trigger:'pre_spawn',task:input.task,query:input.query,context:()=>session.taskId()+':'+sourceHash(input.query),paths,discoveryComplete:complete,signal:input.signal,permissionIdentity:()=>JSON.stringify([owner.effectiveTools,owner.readRoots,owner.exportRoots,owner.permissionIdentity(),paths.map(p=>exportPathAllowed(p,owner.readRoots)&&exportPathAllowed(p,owner.exportRoots)&&owner.canDisplay(resolve(input.cwd,p))&&canReadOwner(resolve(input.cwd,p)))]),canRead:canReadOwner,canDisplay:owner.canDisplay});
+ const result=await session.runtime.rank({owner:input.ownerId,trigger:'pre_spawn',foreground:session.config.semanticReads.mode==='active'&&paths.length===1,deadlineAt,task:input.task,query:input.query,context:()=>session.taskId()+':'+sourceHash(input.query),paths,discoveryComplete:complete,signal:input.signal,permissionIdentity:()=>JSON.stringify([owner.effectiveTools,owner.readRoots,owner.exportRoots,owner.permissionIdentity(),paths.map(p=>exportPathAllowed(p,owner.readRoots)&&exportPathAllowed(p,owner.exportRoots)&&owner.canDisplay(resolve(input.cwd,p))&&canReadOwner(resolve(input.cwd,p)))]),canRead:canReadOwner,canDisplay:owner.canDisplay});
  if(!current())return {manifest:{status:'cancelled'},current};
  let manifest:unknown;try{manifest=deliverNative(session,result);}catch{manifest={status:'unavailable',reason:'page_unavailable',counts:result.counts};}
  return {manifest,current,registration:{owners:session.owners,endpoint:broker.endpoint,owner:{...owner,initialPaths:paths.map(p=>relative(input.cwd,resolve(session.root,p)).split('\\').join('/')),discoveryComplete:complete},extension:fileURLToPath(new URL('./child-extension.ts',import.meta.url))}};

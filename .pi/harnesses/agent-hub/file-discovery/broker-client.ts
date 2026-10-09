@@ -2,9 +2,10 @@ import {createConnection} from 'node:net';
 import {randomUUID} from 'node:crypto';
 import {TextDecoder} from 'node:util';
 import type {DiscoveryAssignment} from './owners.ts';
+import {FOREGROUND_MS} from './semantic-profiles.ts';
 import {BROKER_LIMITS,type BrokerReply} from './broker.ts';
-export function rankDiscovery(assignment:DiscoveryAssignment,input:{paths:readonly string[];discovery:{complete:boolean;reason?:string}},signal?:AbortSignal,timeoutMs:number=BROKER_LIMITS.requestMs):Promise<BrokerReply> {
- return discoveryRequest(assignment,{type:'rank_discovery',paths:input.paths,discovery:input.discovery},signal,timeoutMs);
+export function rankDiscovery(assignment:DiscoveryAssignment,input:{paths:readonly string[];foreground?:boolean;discovery:{complete:boolean;reason?:string}},signal?:AbortSignal,timeoutMs:number=BROKER_LIMITS.requestMs):Promise<BrokerReply> {
+ return discoveryRequest(assignment,{type:'rank_discovery',paths:input.paths,discovery:input.discovery,...(input.foreground?{foreground:true}:{})},signal,input.foreground?Math.min(timeoutMs,FOREGROUND_MS):timeoutMs);
 }
 export function registerDescendant(assignment:DiscoveryAssignment,input:{childId:string;task:string;query:string;tools:readonly string[]},signal?:AbortSignal):Promise<BrokerReply> {
  return discoveryRequest(assignment,{type:'register_descendant',...input},signal);
@@ -26,13 +27,18 @@ async function discoveryRequest(assignment:DiscoveryAssignment,payload:Record<st
   let cleanupTimer:ReturnType<typeof setTimeout>|undefined;
   const settle=(result:BrokerReply)=>{if(done)return;done=true;clearTimeout(timer);clearTimeout(cleanupTimer);signal?.removeEventListener('abort',abort);resolve(result);};
   const finish=(result:BrokerReply)=>{if(done)return;settle(result);socket.destroy();};
-  const abort=()=>{if(!awaitingDeadline)finish({ok:false,error:'cancelled'});};
+  const abort=()=>{if(payload.foreground===true||!awaitingDeadline)finish({ok:false,error:'cancelled'});};
   const timer=setTimeout(()=>{
    if(!terminal){finish({ok:false,error:'deadline'});return;}
    if(!connected||socket.destroyed||!socket.writable){finish({ok:false,error:'channel_unavailable'});return;}
    // The local deadline wins over later caller abort, but delivery needs the
    // broker's reply on this request connection after it latches the typed cause.
    awaitingDeadline=true;
+   if(payload.foreground===true){
+    // Caller deadline includes IPC/ACK cleanup. Latch the cause, then detach locally.
+    try{socket.end(terminal);}catch{/* channel is already unavailable */}
+    settle({ok:false,error:'deadline'});setTimeout(()=>socket.destroy(),BROKER_LIMITS.partialFrameMs).unref();return;
+   }
    cleanupTimer=setTimeout(()=>finish({ok:false,error:'channel_unavailable'}),BROKER_LIMITS.partialFrameMs);
    try{socket.end(terminal);}catch{finish({ok:false,error:'channel_unavailable'});}
   },timeoutMs);

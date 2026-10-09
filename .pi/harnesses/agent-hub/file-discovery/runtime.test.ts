@@ -9,7 +9,7 @@ import {createDiscoveryRuntime,canonicalHash,DISCOVERY_DEADLINE} from './runtime
 import {FILE_DISCOVERY_LIMITS} from '../../lib/system1/config-file-discovery.js';
 import {DISCOVERY_COUNTER,restoreDiscoveryCounter} from './state.ts';
 const delay=(ms=20)=>new Promise(r=>setTimeout(r,ms));
-const answer=(r:any):any=>({status:'ok',evaluation:{answers:r.questions.map((q:any)=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:q.type==='choice'?{value:'implementation'}:{probabilityTrue:0.5})})),metadata:{}}});
+const answer=(r:any):any=>({status:'ok',evaluation:{answers:r.questions.map((q:any)=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:q.type==='choice'?{value:Object.keys(q.options)[0]}:{probabilityTrue:0.5})})),metadata:{}}});
 function fixture(t:any,service:any,limits={}){
  const root=mkdtempSync(join(tmpdir(),'d9-runtime-'));mkdirSync(join(root,'docs'));for(const p of ['a','b','c'])writeFileSync(join(root,'docs',p),'same safe bytes');
  let context='task',permission='read-export-v1',read=true;const entries:any[]=[];
@@ -178,4 +178,31 @@ test('one deadline waiter and one explicit abort leave an independent shared wai
  const alone=f.runtime.rank(f.job('last',['docs/b'],{signal:last.signal}));
  assert.equal(await Promise.race([again.then(()=>'entered'),alone.then(()=>'early')]),'entered');
  last.abort();assert.equal((await alone).status,'cancelled');assert.ok(aborts>=1);release();await delay(20);assert.equal(calls,2);
+});
+test('D8 foreground uses a total 2000ms deadline and shares orientation work with a healthy D9 waiter',async t=>{
+ const root=mkdtempSync(join(tmpdir(),'d8-total-'));mkdirSync(join(root,'docs'));writeFileSync(join(root,'docs/a'),'safe');
+ let fire!:()=>void,timerMs=0,release=()=>{},calls=0,aborts=0;
+ const config=parseFileDiscoveryConfig({mode:'active',remoteContextApproved:true,include:['docs'],semanticReads:{mode:'active'}});
+ const timers:Function[]=[];const clock={setTimeout:((fn:any,ms:number)=>{timers.push(fn);if(ms===2000){fire=fn;timerMs=ms;}return timers.length;}) as any,clearTimeout:(()=>{}) as any};
+ const runtime=createDiscoveryRuntime({root,sessionId:'s',config,clock,context:()=> 't',persist(){},service:{evaluate(r){calls++;assert.equal(r.questions.length,5);assert.equal(r.questionSetVersion,'file-discovery/orientation/v1');r.signal!.addEventListener('abort',()=>aborts++);return new Promise(resolve=>release=()=>resolve(answer(r)));}}});
+ t.after(()=>{runtime.dispose();rmSync(root,{recursive:true,force:true});});
+ const job=(foreground:boolean)=>({owner:'hub',task:'task',query:'query',paths:['docs/a'],discoveryComplete:true,foreground,canRead:()=>true,canDisplay:()=>true,permissionIdentity:()=> 'p'});
+ const healthy=runtime.rank(job(false));while(!calls)await delay();const bounded=runtime.rank(job(true));await delay(150);assert.equal(timerMs,2000);fire();
+ const expired=await bounded;assert.equal(expired.rows[0].reason,'deadline');assert.equal(aborts,0);release();assert.equal((await healthy).rows[0].answers?.length,5);assert.equal(calls,1);
+ assert.equal((await runtime.rank(job(true))).rows[0].status,'cached');assert.equal(calls,1);
+});
+test('D8 unchanged failure is cached with source/task/query/permissions, while an elapsed foreground budget never starts inference',async t=>{
+ const f=fixture(t,{evaluate:async()=>({status:'unavailable',reason:'network'})});
+ const config=parseFileDiscoveryConfig({mode:'active',remoteContextApproved:true,include:['docs'],semanticReads:{mode:'active'}});let calls=0;
+ const runtime=createDiscoveryRuntime({root:f.root,sessionId:'s2',config,context:()=> 't',persist(){},service:{evaluate:async()=>{calls++;return {status:'unavailable',reason:'network'};}}});t.after(()=>runtime.dispose());
+ const job=f.job('hub',['docs/a'],{foreground:true});await runtime.rank(job);await runtime.rank(job);assert.equal(calls,1);
+ const expired=await runtime.rank({...job,query:'new',deadlineAt:Date.now()-1});assert.equal(expired.rows[0].reason,'deadline');assert.equal(calls,1);
+ await runtime.rank({...job,query:'new'});assert.equal(calls,2);
+});
+test('D8 foreground deadline is not retried unchanged, but user cancellation still wins and missing task never reads',async t=>{
+ const f=fixture(t,{evaluate:async()=>({status:'cancelled'})}),config=parseFileDiscoveryConfig({mode:'active',remoteContextApproved:true,include:['docs'],semanticReads:{mode:'active'}});let calls=0,fire!:()=>void;
+ const runtime=createDiscoveryRuntime({root:f.root,sessionId:'s3',config,context:()=> 't',persist(){},clock:{setTimeout:((fn:any)=>{fire=fn;return 1;}) as any,clearTimeout:(()=>{}) as any},service:{evaluate:()=>{calls++;return new Promise(()=>{});}}});t.after(()=>runtime.dispose());
+ const job=f.job('hub',['docs/a'],{foreground:true});const pending=runtime.rank(job);while(!calls)await delay();fire();assert.equal((await pending).rows[0].reason,'deadline');assert.equal((await runtime.rank(job)).rows[0].reason,'deadline');assert.equal(calls,1);
+ assert.equal((await runtime.rank({...job,signal:AbortSignal.abort(),deadlineAt:0})).status,'cancelled');
+ const missing=await runtime.rank({...job,task:'',canRead:()=>{throw Error('must not read');}});assert.equal(missing.rows[0].reason,'missing_task');assert.equal(calls,1);
 });

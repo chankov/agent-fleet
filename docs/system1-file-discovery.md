@@ -1,4 +1,4 @@
-# System 1 file discovery (D9)
+# System 1 file discovery and semantic orientation (D9/D8)
 
 D9 is an opt-in **automatic file ranker**, not a shortlist or an execution gate.
 This checkout implements the runtime; published `@latest` is not evidence that
@@ -79,6 +79,18 @@ bounds give explicit skipped/unavailable/partial reasons. Off hooks are inert.
 Arbitrary bash, external tools and coms/Claude peers are **not** covered.
 `read`, excerpts and grep matches/line numbers remain original evidence.
 
+## Automatic semantic reads (D8)
+
+D8 is a nested opt-in within the same D9 consumer. Add `"semanticReads": {"mode":"active"}` to the approved `fileDiscovery` section; missing/off keeps baseline D9. It inherits D9 selection, root/consumer activation, consent, approved include, permissions, scheduler/cache and durable budgets. It does not inherit D10 `git:tracked` scope. No new tool, child provider key or runtime config file is introduced.
+
+With a known task, active D8 evaluates an eligible singleton discovery, successful repo-file `filesystem stat`, and single-file native pre-spawn scope after launch admission. Multi-file jobs merge orientation into the same per-file request as relevance/role. Directory/unknown/error results, managed result pages and raw read/excerpt/readback do not trigger inference. Parent hooks apply in both modes/all tiers; native specialists, research and allowed descendants use the existing authenticated broker. External/coms/Claude peers and arbitrary bash remain unsupported.
+
+The versioned `file-discovery/orientation/v1` pack asks whether related files, an exact local read and runtime evidence are needed. It provides typed choices including `unknown`, not summaries or invented completion/risk judgments. Explicit proposition and risk questions remain available through existing typed tools. Up to 14 custom questions remain supported; when orientation cannot fit, explicit questions are retained and `semanticReason: question_slots` explains the skipped pack. Orientation IDs are reserved while active. Delivered answers retain question identity, uncertainty and the row source hash; `questionVersion` identifies the pack and discovery/evaluation coverage remains explicit. Provider extras and source bodies are not result fields.
+
+A foreground singleton job has a **2000 ms total additional-work deadline**, including source collection, queue and inference; IPC foreground delivery does not wait an additional ACK-cleanup interval. A deadline cancels only its waiter, not another owner sharing that request, and does not kill a healthy child. Baseline D9 multi-file request/job limits remain unchanged. Original successful stat/discovery evidence is retained on failure. Use current answers before repeating semantic work; unknown/partial/insufficient, mandatory evidence, exact facts and pre-edit reads continue through ordinary permitted tools. No new approval is required solely because semantic inference is unavailable; export denial never authorizes copying refused sources into another request. No semantic answer satisfies an acceptance gate.
+
+D8 and all future `file-discovery/` question/profile versions bypass raw communication capture. The viewer receives only enum trigger/status/reason, counts, coverage, elapsed and actual-or-unknown usage, never paths/questions/answers/bodies/capabilities. Local fake-service/no-network tests prove mechanics and delivery, not accuracy or token/time savings.
+
 ## Full-list semantics
 
 D9 requires the `distribution` capability, not global `provider_confidence`.
@@ -100,7 +112,7 @@ traversal has `remaining: "unknown"`; cancellation reaches the real native
 process. Normal failure preserves original discovery and ordinary permitted reads;
 user cancellation does not start fallback work.
 Broker/client request expiry and runtime job expiry are deadlines, not user
-cancellation. A client rank deadline is confirmed only by the broker's deadline
+cancellation. For baseline non-foreground D9, a client rank deadline is confirmed only by the broker's deadline
 reply on the same authenticated request connection after its typed cause is
 latched; terminal delivery failure or no acknowledgement within the existing
 1000 ms cleanup bound yields `channel_unavailable`, not a guessed deadline.
@@ -108,7 +120,7 @@ For a confirmed deadline, no successful rows yields `unavailable`; some successf
 `partial`. Cancellation-derived unscored rows become `deadline`, while successful
 rows and existing denial/size reasons remain. Genuine caller/task/session abort
 remains `cancelled`. An advisory deadline does not kill a healthy owner or physical
-attempt. Job/request budgets remain 20000 ms and discovery remains 1000 ms;
+attempt. Baseline multi-file job/request budgets remain 20000 ms and discovery remains 1000 ms;
 approved export/read policy is unchanged.
 
 Large results use separately bounded managed pages with result identity, total,

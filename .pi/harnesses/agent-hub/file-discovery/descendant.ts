@@ -3,6 +3,8 @@ import {fileURLToPath} from 'node:url';
 import {spawnPiAgent,spawnPiAgentWithModelFallback,type SpawnPiAgentOptions,type SpawnPiAgentCallbacks,type ModelFallbackOptions,type SpawnPiAgentResult} from '../spawn.ts';
 import {profileFallback,readActiveProfile} from '../policy/profile-runtime.ts';
 import {discoveryAssignmentFromEnv,type DiscoveryAssignment,type DiscoverySpawnRegistration} from './owners.ts';
+import {loadSystem1Snapshot,readSystem1Selected} from '../../lib/system1/config-loader.js';
+import {FOREGROUND_MS} from './semantic-profiles.ts';
 import {registerDescendant,rankDiscovery,revokeDiscoveryAttempt} from './broker-client.ts';
 
 /** Called only by delegate.ts after its synchronous role/depth/tree/tool reservation.
@@ -11,6 +13,8 @@ import {registerDescendant,rankDiscovery,revokeDiscoveryAttempt} from './broker-
  */
 export async function spawnDiscoveryDescendant(opts:SpawnPiAgentOptions,fallbackModel:string|undefined,cbs:SpawnPiAgentCallbacks,fallbackOptions:ModelFallbackOptions,input:{childId:string;task:string;query:string;admit():boolean}):Promise<SpawnPiAgentResult> {
  const parent=discoveryAssignmentFromEnv();
+ const root=process.env.AF_D9_ROOT,configSnapshot=root?loadSystem1Snapshot(root):undefined;
+ const semantic=!!root&&configSnapshot?.status==='ready'&&readSystem1Selected(root)&&configSnapshot.consumers.fileDiscovery.status==='ready'&&configSnapshot.consumers.fileDiscovery.config.semanticReads.mode==='active';
  if(!parent)return spawnPiAgentWithModelFallback(opts,fallbackModel,cbs,fallbackOptions);
  try{fallbackModel=profileFallback(fallbackModel,readActiveProfile()??readActiveProfile(opts.env));}
  catch(error){return {output:'',stderr:String(error),exitCode:1,spawnError:String(error),modelUsed:opts.model,toolCallsStarted:0,lifecycle:{launched:false,closeSeen:false}};}
@@ -33,7 +37,7 @@ export async function spawnDiscoveryDescendant(opts:SpawnPiAgentOptions,fallback
      assignment=candidate;
      if(controller.signal.aborted||!input.admit())abort();
      else {
-      const initial=await rankDiscovery(assignment,{paths:result.initialPaths??[],discovery:{complete:result.discoveryComplete}},controller.signal);
+      const initial=await rankDiscovery(assignment,{paths:result.initialPaths??[],foreground:semantic&&result.initialPaths?.length===1,discovery:{complete:result.discoveryComplete}},controller.signal,semantic&&result.initialPaths?.length===1?FOREGROUND_MS:undefined);
       manifest=initial.ok?initial.result:{status:'unavailable',reason:initial.error,fallback:'Continue ordinary permitted discovery.'};
       if(controller.signal.aborted||!input.admit())abort();
       else registration={endpoint:assignment.endpoint,owner:{taskId:assignment.taskId,ownerId:assignment.ownerId,cwd:result.cwd,task:input.task,query:input.query,effectiveTools:opts.tools.split(','),readRoots:result.readRoots,exportRoots:result.exportRoots,canRead:()=>false,canDisplay:()=>false,permissionIdentity:()=>''},extension:fileURLToPath(new URL('./child-extension.ts',import.meta.url)),remoteAttempt:{assignment,signal:controller.signal,revoke}};
