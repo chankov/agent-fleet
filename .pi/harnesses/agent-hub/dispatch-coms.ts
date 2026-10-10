@@ -153,7 +153,7 @@ ${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSess
 	if (outcome.error !== "timeout") deps.deletePendingReply(msgId);
 
 	const after = deps.resolveTarget(peer.name);
-	if (after?.context_used_pct !== undefined) state.contextPct = after.context_used_pct;
+	if (after?.context_used_pct != null) state.contextPct = after.context_used_pct;
 	if (abandoned) {
 		return {
 			output: `Dispatch to coms peer "${peer.name}" was abandoned by the operator. The peer may still be working in its own pane — do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,

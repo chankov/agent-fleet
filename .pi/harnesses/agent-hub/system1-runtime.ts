@@ -16,6 +16,8 @@ import {
 	type WatchdogStateV1,
 } from "./drift-system1.ts";
 
+let contextConsumer: {service:System1Service;config:any;epoch:object} | undefined;
+export function getContextCompactionService() { return contextConsumer; }
 export const WATCHDOG_SYSTEM1_MODES = ["off", "shadow", "active"] as const;
 export type WatchdogSystem1Mode = (typeof WATCHDOG_SYSTEM1_MODES)[number];
 export const DEFAULT_WATCHDOG_SYSTEM1_MODE: WatchdogSystem1Mode = "off";
@@ -104,6 +106,7 @@ export function readWatchdogSystem1Snapshot(input: ReadWatchdogSystem1SnapshotIn
 	const snapshot = input.snapshot ?? loadSystem1Snapshot(input.cwd);
 	return {
 		configuredMode: snapshot.consumers.watchdog.config?.mode ?? "off",
+  contextCompactionConfig: snapshot.consumers.contextCompaction?.status === "ready" ? snapshot.consumers.contextCompaction.config : undefined,
 		watchdogArmed: normalizeWatchdogSetting(input.watchdogSetting) !== "off",
 		selected: readSystem1Selected(input.cwd),
 		config: providerDocument(snapshot),
@@ -114,6 +117,7 @@ export function readWatchdogSystem1Snapshot(input: ReadWatchdogSystem1SnapshotIn
 }
 
 export interface CreateWatchdogSystem1SessionOptions {
+ contextCompactionConfig?: unknown;
 	configuredMode: WatchdogSystem1Mode;
 	watchdogArmed: boolean;
 	selected: boolean;
@@ -138,6 +142,8 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 			transport: options.transport,
 		});
 	const service = options.wrapService ? options.wrapService(runtime.service) : runtime.service;
+ const contextEpoch={};
+ contextConsumer=options.selected && runtime.readiness.status==="ready" && options.contextCompactionConfig ? {service,config:options.contextCompactionConfig,epoch:contextEpoch} : undefined;
 	const configuredMode = options.configuredMode;
 	// Only a profile matching this session's immutable provider/model and policy can open active.
 	// An unrelated shipped profile must not turn configured active into effective active.
@@ -193,6 +199,7 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 			disposed = true;
 			session.disposed = true;
 			controller.abort();
+   if(contextConsumer?.epoch===contextEpoch) contextConsumer=undefined;
 		},
 	};
 	return session;

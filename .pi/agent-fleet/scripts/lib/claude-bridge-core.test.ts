@@ -179,7 +179,8 @@ test("the bridge entry carries the fields the fleet panel reads", () => {
 	assert.equal(entry.version, 1);
 	// Not observable from outside a Claude pane — must still be present, and 0,
 	// so the card and the herdr annotation agree.
-	assert.equal(entry.context_used_pct, 0);
+	assert.equal(entry.context_used_pct, null);
+ assert.equal(entry.context_measurement,'unknown');
 });
 
 test("runner: claude-code peers build a _claude-peer command; misuse rejected", () => {

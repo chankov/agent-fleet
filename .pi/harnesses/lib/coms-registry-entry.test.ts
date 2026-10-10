@@ -58,9 +58,11 @@ test("context and queue are non-negative integers whatever arrives", () => {
 
 	assert.equal(entry.context_used_pct, 13);
 	assert.equal(entry.queue_depth, 3);
-	assert.equal(missing.context_used_pct, 0);
+	assert.equal(missing.context_used_pct, null);
+ assert.equal(missing.context_measurement,"unknown");
+ const zero=buildLiveRegistryEntry(identity,{now:"t",pid:1,contextUsedPct:0});assert.equal(zero.context_used_pct,0);assert.equal(zero.context_measurement,"measured");
 	assert.equal(missing.queue_depth, 0);
-	assert.equal(nonsense.context_used_pct, 0);
+	assert.equal(nonsense.context_used_pct, null);
 	assert.equal(nonsense.queue_depth, 0, "a negative queue is a bug upstream, not a value to publish");
 });
 
@@ -69,6 +71,7 @@ test("every field a reader relies on is present, including on a self-heal write"
 
 	assert.deepEqual(Object.keys(entry).sort(), [
 		"color",
+  "context_measurement",
 		"context_used_pct",
 		"cwd",
 		"endpoint",

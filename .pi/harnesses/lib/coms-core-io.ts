@@ -57,7 +57,8 @@ export interface AgentCard {
 	purpose: string;
 	model: string;
 	color: string;
-	context_used_pct: number;
+	context_used_pct: number | null;
+ context_measurement?: "measured" | "unknown";
 	queue_depth: number;
 	pane_id?: string | null;
 	status?: PeerStatus;

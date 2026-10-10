@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { CONTEXT_COMPACTION_QUESTION_VERSION, contextRequestMetadata, contextResponseMetadata } from "./context-compaction.ts";
 import type { EvaluateRequest, System1Result, System1Service } from "../lib/system1/contracts.ts";
 import { TASK_TRIAGE_QUESTIONS, TASK_TRIAGE_QUESTION_VERSION, TASK_TRIAGE_STATE_VERSION } from "./task-triage-contract.ts";
 
@@ -147,6 +148,20 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
   wrap(service: System1Service, identity: { provider: string; model: string }): System1Service {
    const ownerEpoch = sessionEpoch;
    return { async evaluate(request) {
+    if(request.questionSetVersion===CONTEXT_COMPACTION_QUESTION_VERSION) {
+     const epoch=generation;let id:string|undefined;
+     if(enabled && ownerEpoch===sessionEpoch) {
+      id=randomUUID();pairs.set(id,{id,consumer:"contextCompaction",owner:"runtime",provider:identity.provider==="typesafe"?"typesafe":"unknown",model:identity.model==="jev-1.13.0"?"jev-1.13.0":"unknown",started:now(),status:"pending",request:JSON.stringify(contextRequestMetadata(request)),response:null});trim();emit();
+     }
+     try {
+      const result=await service.evaluate(request);
+      if(id && enabled && epoch===generation && ownerEpoch===sessionEpoch && pairs.has(id)) {const metadata=contextResponseMetadata(result);Object.assign(pairs.get(id)!,{response:JSON.stringify(metadata),status:metadata.status,ended:now()});trim();emit();}
+      return result;
+     } catch(error) {
+      if(id && enabled && epoch===generation && ownerEpoch===sessionEpoch && pairs.has(id)) {Object.assign(pairs.get(id)!,{status:"unavailable",ended:now(),response:JSON.stringify({version:1,status:"unavailable",decisions:{}})});emit();}
+      throw error;
+     }
+    }
     if (request.questionSetVersion.startsWith('file-discovery/')) return service.evaluate(request);
     const epoch = generation; let id: string | undefined;
     try {

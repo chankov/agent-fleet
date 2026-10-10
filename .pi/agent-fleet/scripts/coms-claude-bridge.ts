@@ -132,9 +132,8 @@ export function bridgeRegistryEntry(
 	return buildLiveRegistryEntry(identity, {
 		now: live.now,
 		pid: live.pid,
-		// context_used_pct is not observable from outside a Claude pane; 0 is what
-		// the agent card and the herdr annotation carry too, so they all agree.
-		contextUsedPct: 0,
+		// External context is not observable. Unknown is not a measured zero.
+		contextUsedPct: null,
 		queueDepth: live.queueDepth,
 	});
 }
@@ -227,7 +226,8 @@ async function main(): Promise<void> {
 					purpose,
 					model: "claude-code",
 					color: COLOR,
-					context_used_pct: 0,
+					context_used_pct: null,
+     context_measurement: 'unknown',
 					queue_depth: queue.depth,
 					pane_id: paneId,
 					status: peerStatus(),
@@ -261,7 +261,7 @@ async function main(): Promise<void> {
 	async function reportPresence(): Promise<void> {
 		// context_used_pct is not observable from outside a Claude pane; 0 is
 		// what the agent card carries too, so the sidebar and the card agree.
-		await presence.annotate({ name: uniqueName, project, contextUsedPct: 0, queueDepth: queue.depth });
+		await presence.annotate({ name: uniqueName, project, contextUsedPct: null, queueDepth: queue.depth });
 	}
 	const keepalive = setInterval(() => {
 		try {

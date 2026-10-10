@@ -24,6 +24,8 @@ export interface ActionExecutorDeps {
 	hubState: HubStateContext;
 	provisionalCapabilityRefusal(pack: "fleet" | "peer"): Refusal;
 	getTaskTier(): string | null;
+	/** Current accepted user input only; never a model reason or restored transcript. */
+	getAcceptedUserInput?(): string | undefined;
 	setTaskTier(value: string): void;
 	getTaskTierAssumed(): boolean;
 	setTaskTierAssumed(value: boolean): void;
@@ -77,6 +79,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 			tierAssumed: d.getTaskTierAssumed(),
 			revision: (() => { try { return d.currentRevision(ctx); } catch { return "unavailable"; } })(),
 			process: getProcessState(),
+			acceptedUserInput: new_task ? d.getAcceptedUserInput?.() ?? "" : "",
 		};
 		if (new_task && !(typeof reason === "string" && reason.trim())) return { content: [{ type: "text", text: "A genuine new task requires a non-empty reason." }], details: { status: "error", reason: "new_task_reason_required" } };
 		if (!new_task) { const refusal = d.provisionalCapabilityRefusal("fleet"); if (refusal) return refusal; }
@@ -109,7 +112,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		if (new_task) {
 			const resetAt = Date.now();
 			const prior = d.budget.taskResetSnapshot(resetAt);
-			const resetTaskWindow = () => d.budget.resetTaskWindow(null, resetAt);
+			const resetTaskWindow = () => d.budget.resetTaskWindow(null, resetAt, true, snapshot.acceptedUserInput);
 			if (reservedNewTaskId && d.adoptReservedTaskId) d.adoptReservedTaskId(reservedNewTaskId, resetTaskWindow);
 			else resetTaskWindow();
 			if (reservedNewTaskId) consumeReservedTaskId(reservedNewTaskId);

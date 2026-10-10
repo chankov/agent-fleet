@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createWorkModePolicy } from "./work-mode.ts";
+import { createContextPressureLifecycle, createContextPressureRootState } from "../lifecycle/context-pressure.ts";
 
 function fixture(rosterSize = 1, fallbackRosterSize = 0, pendingOperations: any[] = []) {
 	let activeTools: string[] = []; const entries: [string, unknown][] = []; const catalogChanges: any[] = []; let replayed = 0; let fallbackAttempts = 0;
@@ -76,6 +77,22 @@ test("pending operation leases survive a mode switch without restoring direct wr
 	assert.ok(f.tools().includes("dispatch_agent"));
 	assert.ok(!f.tools().includes("write"));
 	assert.ok(!f.tools().includes("bash"));
+});
+
+test("low-pressure lifecycle refresh keeps explicit compaction until a different user request", () => {
+ const f=fixture();const root=createContextPressureRootState();
+ const ctx:any={hasUI:false,model:{contextWindow:64000},getContextUsage:()=>({tokens:1000,contextWindow:64000,percent:1.5625}),ui:{setStatus(){},notify(){}},isIdle:()=>true};
+ const lifecycle=createContextPressureLifecycle({getState:()=>root,setPressure:p=>{root.pressure=p;},getCurrentContext:()=>ctx,appendEntry(){},sendUserMessage(){},resolveCapabilities:f.policy.resolveIncomingCapabilities,applyWorkMode:f.policy.applyWorkModeTools,modelWorkBlocked:()=>false});
+ lifecycle.input({source:"interactive",text:"Read README, then use request_compaction."},ctx);
+ assert.ok(f.tools().includes("request_compaction"));
+ lifecycle.messageEnd({message:{role:"toolResult",content:[]}},ctx);
+ lifecycle.turnEnd(ctx);
+ assert.ok(f.tools().includes("request_compaction"));
+ assert.equal(f.policy.getCapabilityResolution().reasons.compaction,"explicit-compaction");
+ assert.ok(!f.policy.getCapabilityResolution().nextTaskPacks.includes("compaction"));
+ lifecycle.input({source:"interactive",text:"Explain the parser."},ctx);
+ lifecycle.turnEnd(ctx);
+ assert.ok(!f.tools().includes("request_compaction"));
 });
 
 test("assessment refresh retains only current explicit compaction, not a permanent task pack", () => {

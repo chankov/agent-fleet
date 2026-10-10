@@ -125,7 +125,7 @@ test("context collector remains metadata-only and peer windows are never fabrica
 	assert.match(childPrompt, /Resolved delegate role protocol/);
 	assert.match(contextUiSource, /projectionParts: parts, attribution: "projected"/);
 	assert.match(contextUiSource, /attribution: "unavailable"/);
-	assert.match(contextUiSource, /percent: peer\.context_used_pct/);
+	assert.match(contextUiSource, /percent: peer\.context_measurement === "measured" \? peer\.context_used_pct/);
 	assert.match(source, /getAllTools: \(\) => typeof pi\.getAllTools/);
 	assert.match(source, /getCommands: \(\) => typeof pi\.getCommands/);
 });

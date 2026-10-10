@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import { spawnPiAgent, spawnPiAgentWithModelFallback } from '../../../.pi/harnesses/agent-hub/spawn.ts';
 
+function withoutContextAdapter(args) {return args.filter((arg,index)=>!arg.endsWith('/context-continuity-child.ts') && !(arg==='-e' && args[index+1]?.endsWith('/context-continuity-child.ts')));}
 function createFakePi(tmp, capturePath) {
   const fakePiPath = join(tmp, 'pi');
   writeFileSync(fakePiPath, `#!/usr/bin/env node
@@ -107,7 +108,7 @@ test('spawnPiAgent sends the prompt through stdin instead of an unsupported -- s
     assert.equal(capture.stdin, prompt);
     assert.ok(!capture.argv.includes('--'), 'pi does not accept a standalone -- option separator');
     assert.ok(!capture.argv.includes(prompt), 'prompt should not be passed as an argv option/positional');
-    assert.deepEqual(capture.argv, ['--mode', 'json', '-p', '--no-extensions', '-e', 'damage-control.ts', '-e', 'delegate.ts', '--model', 'fake/model', '--tools', 'read,grep', '--thinking', 'off', '--append-system-prompt', 'fake system', '--session', join(tmp, 'session.jsonl'), '-c']);
+    assert.deepEqual(withoutContextAdapter(capture.argv), ['--mode', 'json', '-p', '--no-extensions', '-e', 'damage-control.ts', '-e', 'delegate.ts', '--model', 'fake/model', '--tools', 'read,grep', '--thinking', 'off', '--append-system-prompt', 'fake system', '--session', join(tmp, 'session.jsonl'), '-c']);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
@@ -128,7 +129,7 @@ test('spawnPiAgent emits a replacement research policy without inherited skills 
     });
     assert.equal(result.exitCode, 0);
     const capture = JSON.parse(readFileSync(capturePath, 'utf8'));
-    assert.deepEqual(capture.argv, ['--mode', 'json', '-p', '--no-extensions', '--no-skills', '--no-context-files', '-e', 'damage-control.ts', '--model', 'fake/model', '--tools', 'read,grep,find,ls', '--thinking', 'off', '--system-prompt', replacement, '--session', join(tmp, 'session.jsonl'), '-c']);
+    assert.deepEqual(withoutContextAdapter(capture.argv), ['--mode', 'json', '-p', '--no-extensions', '--no-skills', '--no-context-files', '-e', 'damage-control.ts', '--model', 'fake/model', '--tools', 'read,grep,find,ls', '--thinking', 'off', '--system-prompt', replacement, '--session', join(tmp, 'session.jsonl'), '-c']);
     assert.ok(!capture.argv.includes('--append-system-prompt'));
     assert.ok(!capture.argv.includes('edit'));
     assert.ok(!capture.argv.includes('write'));

@@ -61,7 +61,7 @@ export interface BudgetStatePorts {
 	clearTurnDispatchFingerprints(): void;
 	clearTaskCapabilities(): void;
 	clearExternalBlockers(): void;
-	resolveIncomingCapabilities(): void;
+	resolveIncomingCapabilities(acceptedUserInput?: string): void;
 	applyWorkModeTools(): void;
 	getTurnReport(): TurnReport;
 	setStatus(key: string, value: string): void;
@@ -80,7 +80,7 @@ export interface BudgetContext {
 	renewTurnBudgetWindow(now?: number): void;
 	continueTaskBudgetWindow(now?: number): void;
 	closeTurnActiveTime(now?: number): void;
-	resetTaskWindow(label?: string | null, now?: number, persistTaskIdentity?: boolean): void;
+	resetTaskWindow(label?: string | null, now?: number, persistTaskIdentity?: boolean, acceptedUserInput?: string): void;
 	hubAuditIdentity(ctx?: ExtensionContext): ReturnType<typeof buildHubAuditIdentity>;
 	hubLocationSuffix(ctx?: ExtensionContext): string;
 	taskResetSnapshot(now?: number): { tier: string | null; dispatches: number; research: number; reviewRounds: number; activeMs: number };
@@ -152,7 +152,7 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 			renewTurnBudgetWindow(now);
 		},
 		closeTurnActiveTime(now = Date.now()) { state.setTaskClock(closeTaskClock(state.getTaskClock(), now)); },
-		resetTaskWindow(label = null, now = Date.now(), persistTaskIdentity = true) {
+		resetTaskWindow(label = null, now = Date.now(), persistTaskIdentity = true, acceptedUserInput = "") {
 			state.setTaskDispatchCount(0);
 			state.setTaskResearchCount(0);
 			state.setTaskClock(resetTaskClock(state.getTaskClock(), now));
@@ -167,7 +167,9 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 			state.clearTaskCapabilities();
 			state.clearExternalBlockers();
 			state.clearTurnDispatchFingerprints();
-			state.resolveIncomingCapabilities();
+			// Authorized task changes may rebind the current user request after old
+			// packs/confirmations were cleared. Startup/resume supplies no input.
+			state.resolveIncomingCapabilities(acceptedUserInput);
 			state.applyWorkModeTools();
 			updateModeStatus();
 		},

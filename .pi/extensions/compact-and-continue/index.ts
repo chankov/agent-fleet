@@ -1,5 +1,6 @@
 import type { CompactionResult, ExtensionAPI, ExtensionContext } from '@mariozechner/pi-coding-agent';
 import { Type } from 'typebox';
+import { managedCompaction } from '../../harnesses/agent-hub/context-continuity-registry.ts';
 
 const DEFAULT_COMPACTION_INSTRUCTIONS = 'Preserve task goal, completed work, changed/read files, decisions, blockers, and next steps.';
 
@@ -97,8 +98,13 @@ export default function compactAndContinueExtension(pi: ExtensionAPI) {
 			const reason = params.reason?.trim() || 'The current instructions requested immediate context compaction.';
 			const continuationPrompt = params.continuationPrompt?.trim() || undefined;
 
-			pendingCompactions.push({ customInstructions, reason, continuationPrompt });
+   const managed=managedCompaction(ctx.sessionManager);
+   if(managed) managed.request({instructions:`Reason: ${reason}\n${customInstructions}`,nextStep:continuationPrompt});
+   else pendingCompactions.push({ customInstructions, reason, continuationPrompt });
 			ctx.ui.notify(
+    managed ? (continuationPrompt
+      ? 'Explicit compaction queued. If Pi has no compactable history, it will be skipped and the authorized plan will continue.'
+      : 'Explicit compaction queued. If Pi has no compactable history, it will be reported as skipped.') :
 				continuationPrompt
 					? 'Compaction queued after the current turn. The summarized remaining plan will continue after compaction.'
 					: 'Compaction queued after the current turn.',
@@ -108,7 +114,9 @@ export default function compactAndContinueExtension(pi: ExtensionAPI) {
 			return {
 				content: [{
 					type: 'text',
-					text: continuationPrompt
+					text: managed
+      ? (continuationPrompt ? 'Explicit compaction queued. After compaction, or an honest no-history skip, the authorized plan will continue.' : 'Explicit compaction queued. A session with no compactable history will be reported as skipped.')
+      : continuationPrompt
 						? 'Compaction queued. It will run after this agent turn finishes, then the summarized remaining plan will continue.'
 						: 'Compaction queued. It will run after this agent turn finishes.',
 				}],

@@ -402,7 +402,7 @@ export default function (pi: ExtensionAPI) {
 					},
 					onUsage: (usage, source) => {
 						if (source === "message_end") {
-							emit({ t: "usage", id: childId, input: usage.input || 0, output: usage.output || 0 });
+							emit({ t: "usage", id: childId, input: usage.input ?? null, output: usage.output ?? null, cacheRead:usage.cacheRead??null,cacheWrite:usage.cacheWrite??null,contextWindow:usage.contextWindow??null });
 						}
 					},
 					}, {

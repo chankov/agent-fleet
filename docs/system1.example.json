@@ -1,0 +1,90 @@
+{
+  "version": 2,
+  "mode": "off",
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "apiKeyEnv": "TYPESAFE_API_KEY",
+  "consumers": {
+    "watchdog": {
+      "mode": "off"
+    },
+    "proactiveReview": {
+      "mode": "off",
+      "remoteContext": "disabled",
+      "include": [],
+      "maxEvaluationsPerSession": 0,
+      "localBindings": []
+    },
+    "dispatchTriage": {
+      "mode": "off",
+      "remoteContextApproved": false,
+      "maxCalls": 20,
+      "maxStateBytes": 20000,
+      "maxTaskBytes": 10000,
+      "maxRoleBytes": 5000,
+      "orchestratorBeforeDispatch": false
+    },
+    "taskTriage": {
+      "mode": "off",
+      "remoteContextApproved": false,
+      "questionVersion": "task-triage/questions/v1",
+      "policyVersion": "task-triage/policy/v1",
+      "limits": {
+        "maxTaskBytes": 40960,
+        "maxStateBytes": 65536,
+        "maxCallsPerSession": 100,
+        "timeoutMs": 2000
+      }
+    },
+    "agenticAsk": {
+      "mode": "off",
+      "remoteContextApproved": false,
+      "include": ["docs", "bin", ".pi/harnesses"],
+      "allowToolOutputs": false,
+      "limits": {
+        "maxFiles": 20,
+        "maxQuestions": 16,
+        "maxStateBytes": 8192,
+        "maxQuestionsBytes": 16384,
+        "maxSourceBytes": 65536,
+        "maxRequestBytes": 131072,
+        "maxCallsPerSession": 100,
+        "timeoutMs": 2000,
+        "collectionMs": 1000,
+        "maxHandles": 20,
+        "maxRetainedBytes": 1048576
+      }
+    },
+    "fileDiscovery": {
+      "mode": "off",
+      "remoteContextApproved": false,
+      "include": ["docs", "bin", ".pi/harnesses"],
+      "semanticReads": {
+        "mode": "off"
+      },
+      "limits": {
+        "concurrency": 8,
+        "maxQueuedJobs": 32,
+        "maxCandidates": 1024,
+        "maxEvaluationsPerJob": 256,
+        "maxCallsPerSession": 10000,
+        "maxFileBytes": 65536,
+        "maxRequestBytes": 131072,
+        "maxSourceBytesPerJob": 16777216,
+        "discoveryMs": 1000,
+        "jobTimeoutMs": 20000,
+        "resultPageBytes": 32768,
+        "maxCacheEntries": 2048
+      }
+    },
+    "contextCompaction": {
+      "mode": "off",
+      "remoteContextApproved": false,
+      "earlyOpportunityPercent": 60,
+      "limits": {
+        "timeoutMs": 1000,
+        "maxStateBytes": 8192
+      }
+    }
+  }
+}

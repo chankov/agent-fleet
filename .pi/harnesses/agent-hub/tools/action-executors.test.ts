@@ -211,6 +211,14 @@ test("new-task reset clears prior acceptance assertions with the task window", a
  assert.equal((result.details as any).risk, "unknown", "legacy new task defaults to unknown, never false low");
 });
 
+test("authorized new-task reset forwards accepted input, never model reason, for capability rebind", async () => {
+ let args:unknown[]=[];
+ const input="Read README then request_compaction; CURRENT_USER_INPUT";
+ const deps=comsDeps({getTaskTier:()=>"small",getProcessState:()=>createProcessState(),getAcceptedUserInput:()=>input,confirmTaskSupersession:async()=>true,artifacts:{persistAssertions(){}},budget:{taskResetSnapshot:()=>({}),resetTaskWindow:(...values:unknown[])=>{args=values;},appendTaskResetEntry(){},currentBudget:()=>({maxDispatches:1,maxResearch:1}),currentTaskBudget:()=>({maxDispatches:1,maxResearch:1}),updateModeStatus(){}}});
+ const result=await createActionExecutors(deps as any).executeSetTaskTier("new",{tier:"small",risk:"low",scope:"read-only",new_task:true,reason:"different work; MODEL_REASON"} as any,undefined,undefined,{} as any);
+ assert.equal((result.details as any).status,"ok");assert.equal(args[3],input);assert.equal(args[0],null);assert.equal(args[2],true);
+});
+
 test("new task with open obligations fails closed without one-use operator grant", async () => {
  const actions = createActionExecutors(comsDeps({ budget: { currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} } }) as any);
  const result = await actions.executeSetTaskTier("n", { tier: "small", new_task: true, reason: "different work" } as any, undefined, undefined, {} as any);

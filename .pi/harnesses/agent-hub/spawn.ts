@@ -1,3 +1,8 @@
+import { createContextContinuityBroker } from './context-continuity-broker.ts';
+import { openContextOwner, revokeContextOwner } from './context-continuity-owners.ts';
+import { CONTEXT_CHANNEL_ENV, parseContextChannel } from './context-continuity-client.ts';
+import { fileURLToPath } from 'node:url';
+let contextBroker: ReturnType<typeof createContextContinuityBroker> | undefined;
 import { runtimeTestFromResult, type RuntimeTestRecord } from "./runtime-test-check.ts";
 import { createToolEventRecorder, type ToolExecutionEvent } from "./tool-protocol.ts";
 import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV, type ActiveModelProfile } from './policy/profile-runtime.ts';
@@ -182,7 +187,7 @@ export function nativeChildEnv(
 			else merged[key] = value;
 		}
 	}
-	for (const key of Object.keys(merged)) if (key.startsWith('AF_D9_') || (NATIVE_CHILD_STRIPPED_ENV_KEYS as readonly string[]).includes(key)) delete merged[key];
+	for (const key of Object.keys(merged)) if (key.startsWith('AF_D9_') || key.startsWith('AF_D7_') || (NATIVE_CHILD_STRIPPED_ENV_KEYS as readonly string[]).includes(key)) delete merged[key];
 	return merged;
 }
 
@@ -234,11 +239,14 @@ async function spawnPiAgentUnchecked(
 	const generation = opts.physicalAttempt?.generation ?? 1;
 	let attemptSignal: AbortSignal | undefined;
  let discoveryAttempt: ReturnType<typeof openDiscoveryAttempt> | undefined;
+ let contextOwner: ReturnType<typeof openContextOwner> | undefined;
+ let contextAssignment: string | undefined;
 	let attemptEnded = false;
 	const endAttempt = () => {
 		if (attemptEnded) return;
 		attemptEnded = true;
   discoveryAttempt?.revoke();
+  if(contextOwner) revokeContextOwner(contextOwner.attempt);
 		opts.attemptLifecycle?.afterPhysicalSpawn({ generation });
 	};
  try {
@@ -263,7 +271,18 @@ async function spawnPiAgentUnchecked(
 			lifecycle: { launched: false, closeSeen: false },
 		});
 	}
-	const childEnv = {...nativeChildEnv(process.env, opts.env), ...discoveryAttempt?.env};
+ args.push('-e',fileURLToPath(new URL('./context-continuity-child.ts',import.meta.url)));
+ try {
+  contextBroker ??= createContextContinuityBroker();
+  const broker=await contextBroker;
+  const parent=parseContextChannel(process.env[CONTEXT_CHANNEL_ENV]);
+  contextOwner=openContextOwner(opts.sessionFile,parent?.owner??null);
+  contextAssignment=JSON.stringify(broker.assignment(contextOwner));
+ } catch { contextBroker=undefined; } // Local child deterministic recovery does not depend on semantic inference.
+ if(opts.signal?.aborted || attemptSignal?.aborted || discoveryAttempt?.signal.aborted) {
+  endAttempt();return {output:"",stderr:"",exitCode:null,modelUsed:opts.model,toolCallsStarted:0,termination:{reason:"cancelled",confirmed:false,escalated:false},lifecycle:{launched:false,closeSeen:false}};
+ }
+	const childEnv = {...nativeChildEnv(process.env, opts.env), ...discoveryAttempt?.env,...(contextAssignment?{[CONTEXT_CHANNEL_ENV]:contextAssignment}:{})};
 	const isolation = opts.writeIsolation ? confineNativeChild({ ...opts.writeIsolation, command: "pi", args, env: envRecord(childEnv) }) : undefined;
 	const publishedIsolation = isolation ? isolationWithoutEnv(isolation) : undefined;
 	if (isolation && !isolation.applied) {
@@ -298,9 +317,9 @@ async function spawnPiAgentUnchecked(
 			...(opts.cwd ? { cwd: opts.cwd } : {}),
 			...(ownsGroup ? { detached: true } : {}),
 		});
-  discoveryProcessRevocations.set(proc,()=>discoveryAttempt?.revoke());
+  discoveryProcessRevocations.set(proc,()=>{discoveryAttempt?.revoke();if(contextOwner)revokeContextOwner(contextOwner.attempt);});
   const originalKill=proc.kill.bind(proc);
-  proc.kill=(signal)=>{if(signal!==0)discoveryAttempt?.revoke();return originalKill(signal);};
+  proc.kill=(signal)=>{if(signal!==0){discoveryAttempt?.revoke();if(contextOwner)revokeContextOwner(contextOwner.attempt);}return originalKill(signal);};
 		cbs.onProcess?.(proc);
 		proc.stdin?.on("error", () => {});
 		proc.stdin?.end(opts.prompt);
@@ -329,6 +348,7 @@ async function spawnPiAgentUnchecked(
 			endAttempt();
 		};
 		let assistantError: string | undefined;
+  let recoveryAbortEpisode: number | undefined;
 		let toolCallsStarted = 0;
  const runtimeTests: RuntimeTestRecord[] = [];
  const runtimeTestStarts = new Map<string, string>();
@@ -409,6 +429,7 @@ async function spawnPiAgentUnchecked(
 			}).filter(Boolean).join("\n");
 		};
 		const handleEvent = (event: any) => {
+   if(event.type==='message_end' && event.message?.role==='assistant' && event.message.stopReason==='stop' && recoveryAbortEpisode!==undefined && contextOwner?.status.phase==='continued' && contextOwner.status.episode===recoveryAbortEpisode+1) {assistantError=undefined;recoveryAbortEpisode=undefined;}
 			if (event.type === "message_update") {
 				const delta = event.assistantMessageEvent;
 				if (delta?.type === "text_delta") { textChunks.push(delta.delta || ""); cbs.onTextDelta?.(delta.delta || ""); }
@@ -455,6 +476,7 @@ async function spawnPiAgentUnchecked(
 			} else if (event.type === "message_end") {
 				if (event.message?.role === "assistant"
 					&& (event.message.stopReason === "error" || event.message.stopReason === "aborted")) {
+     recoveryAbortEpisode=(event.message.stopReason==='aborted' || event.message.errorMessage==='This operation was aborted') && contextOwner?.status.phase==='pending' ? contextOwner.status.episode : undefined;
 					assistantError = String(event.message.errorMessage
 						|| (event.message.stopReason === "aborted" ? "assistant model request aborted" : "assistant model run failed"));
 				}

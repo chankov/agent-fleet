@@ -63,7 +63,7 @@ export interface PeerPresence {
 	// it; always pass it when you have it — without it, two projects running a
 	// peer of the same name are indistinguishable to any watcher.
 	project?: string | null;
-	contextUsedPct: number;
+	contextUsedPct: number | null;
 	queueDepth: number;
 }
 
@@ -73,7 +73,7 @@ export interface PeerPresence {
 export function peerTokens(presence: PeerPresence): Record<string, string> {
 	const tokens: Record<string, string> = {
 		coms: presence.name,
-		ctx: `${Math.round(presence.contextUsedPct)}%`,
+		ctx: presence.contextUsedPct === null ? "unknown" : `${Math.round(presence.contextUsedPct)}%`,
 		q: `q${presence.queueDepth}`,
 	};
 	if (presence.project) tokens.proj = presence.project;
@@ -82,8 +82,8 @@ export function peerTokens(presence: PeerPresence): Record<string, string> {
 
 // Legacy dialect: `<name> <pct>% q<depth>` truncated to the 32-char server cap,
 // name first. The project does not fit and is therefore not carried.
-export function formatPeerStatus(name: string, contextUsedPct: number, queueDepth: number): string {
-	const s = `${name} ${Math.round(contextUsedPct)}% q${queueDepth}`;
+export function formatPeerStatus(name: string, contextUsedPct: number | null, queueDepth: number): string {
+	const s = `${name} ${contextUsedPct === null ? "unknown" : `${Math.round(contextUsedPct)}%`} q${queueDepth}`;
 	return s.length <= CUSTOM_STATUS_MAX ? s : s.slice(0, CUSTOM_STATUS_MAX);
 }
 

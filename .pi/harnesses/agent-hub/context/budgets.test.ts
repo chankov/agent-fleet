@@ -6,8 +6,9 @@ import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
 import { createProcessState, evaluateProcessObligations, latestProcessState, processAuditRecord } from "../process-obligations.ts";
 import { createExecutionHistoryStore } from "../ui/history-store.ts";
 import { createBudgetContext, freshTurnReport } from "./budgets.ts";
+import { createWorkModePolicy } from "../policy/work-mode.ts";
 
-function fixture(onReset?: (persistTaskIdentity?: boolean) => void) {
+function fixture(onReset?: (persistTaskIdentity?: boolean) => void, policy?: ReturnType<typeof createWorkModePolicy>) {
 	const values: any = {
 		turnDispatch: 3, turnResearch: 2, turnWait: 50, pending: { kind: "task", reason: "cap" },
 		taskContinuation: 4, turnContinuation: 1, taskDispatch: 7, taskResearch: 5,
@@ -35,9 +36,9 @@ function fixture(onReset?: (persistTaskIdentity?: boolean) => void) {
 		getTaskTier: () => values.tier, setTaskTier: value => { values.tier = value; events.push("tier"); },
 		getTaskTierAssumed: () => values.assumed, setTaskTierAssumed: value => { values.assumed = value; events.push("assumed"); },
 		clearTurnDispatchFingerprints: () => events.push("fingerprints"),
-		clearTaskCapabilities: () => events.push("capabilities"),
+		clearTaskCapabilities: () => { events.push("capabilities"); policy?.resetCapabilities(); },
 		clearExternalBlockers: () => events.push("blockers"),
-		resolveIncomingCapabilities: () => events.push("resolve-capabilities"),
+		resolveIncomingCapabilities: (input = "") => { events.push("resolve-capabilities"); policy?.resolveIncomingCapabilities(input, true); },
 		applyWorkModeTools: () => events.push("work-mode-tools"),
 		getTurnReport: () => values.report,
 		setStatus: () => events.push("status"),
@@ -98,6 +99,22 @@ test("new-task reset preserves the capability, blocker, and status side-effect o
 	assert.ok(events.indexOf("unknown-tool-reset") > events.indexOf("progress-reset"));
 	const ordered = ["capabilities", "blockers", "fingerprints", "resolve-capabilities", "work-mode-tools", "status"];
 	assert.deepEqual(events.filter(event => ordered.includes(event)), ordered);
+});
+
+test("authorized new-task reset rebinds only current input, clears prior confirmations, and startup never replays it", () => {
+ const persisted:unknown[]=[];
+ const policy=createWorkModePolicy({getBaselineTools:()=>["read"],getRosterSize:()=>0,activateFallbackRoster(){},getActiveTeamName:()=>"",getComsReady:()=>false,getHerdrReady:()=>false,getAskUserAvailable:()=>true,getIdentityLabel:()=>null,getTaskTier:()=>"small",getPendingOperations:()=>[],getContextState:()=>"normal",setActiveTools(){},persist:(_type,data)=>persisted.push(data),replayDeferredInputs(){},watchdogArmed:()=>false});
+ const {context}=fixture(undefined,policy);
+ policy.resolveIncomingCapabilities("someone else to handle this");policy.setCapabilityConfirmation("fleet","promoted");policy.refreshCapabilities();
+ assert.ok(policy.getCapabilityResolution().active.includes("fleet"));
+ const current="PRIVATE_CURRENT_INPUT: read README then request_compaction";
+ context.resetTaskWindow(null,300,true,current);
+ assert.ok(policy.getCapabilityResolution().active.includes("compaction"));
+ assert.ok(!policy.getCapabilityResolution().active.includes("fleet"));
+ assert.equal(policy.getCapabilityConfirmation().fleet,undefined);
+ assert.ok(!JSON.stringify(persisted).includes("PRIVATE_CURRENT_INPUT"));
+ context.resetTaskWindow(null,400,false);
+ assert.ok(!policy.getCapabilityResolution().active.includes("compaction"));
 });
 
 test("orchestrator turn floor is visible without inflating the task envelope", () => {

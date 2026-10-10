@@ -167,7 +167,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			liveSessions.add(entry.session_id);
 			const next = {
 				name: entry.name, purpose: entry.purpose, model: entry.model, color: entry.color,
-				context_used_pct: entry.context_used_pct ?? 0, queue_depth: entry.queue_depth ?? 0, staleCount: 0,
+				context_used_pct: entry.context_measurement === "measured" ? entry.context_used_pct ?? null : null, context_measurement:entry.context_measurement??"unknown", queue_depth: entry.queue_depth ?? 0, staleCount: 0,
 			};
 			const previous = peerCards.get(entry.session_id);
 			if (!previous || JSON.stringify(previous) !== JSON.stringify(next)) {
@@ -237,7 +237,8 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			purpose: identity?.purpose ?? "",
 			model: ctx?.model?.id ?? identity?.model ?? "unknown",
 			color: identity?.color ?? "#36F9F6",
-			context_used_pct: Math.round(ctx?.getContextUsage()?.percent ?? 0),
+			context_used_pct: ctx?.getContextUsage()?.percent ?? null,
+   context_measurement: ctx?.getContextUsage()?.percent == null ? "unknown" : "measured",
 			queue_depth: inboundQueue.size,
 			pane_id: herdrPaneId() ?? null,
 			status: turnState === "working" || inboundQueue.size > 0 ? "working" : "idle",

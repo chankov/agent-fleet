@@ -23,7 +23,7 @@ export interface ToolCatalogCompactionInput {
 	counterSnapshot(): UnknownToolCounterSnapshot;
 	retainCounter(): void;
 	establishToolStateChange(previousCatalogVersion: string, nextCatalogVersion: string, evidenceRef: string): number;
-	settle(): void;
+	settle(restored?: boolean): void;
 	onError?(error: unknown): void;
 }
 
@@ -46,6 +46,7 @@ export function createToolCatalogRuntime(initial: ToolCatalogSnapshot) {
 		endTurn() { activeTurnCatalog = null; },
 		catalogForMessage() { return activeTurnCatalog ?? currentCatalog; },
 		compact(input: ToolCatalogCompactionInput): { snapshot: ToolCatalogSnapshot; delta: ToolCatalogDelta } | null {
+   let restoredSuccessfully=false;
 			try {
 				const restored = restoreToolCatalogAfterCompaction(currentCatalog);
 				const result = reconcile({ fromMode: restored.mode, toMode: input.mode, previous: restored.tools, next: input.getEffectiveTools() });
@@ -53,13 +54,14 @@ export function createToolCatalogRuntime(initial: ToolCatalogSnapshot) {
 				input.persist(TOOL_CATALOG_ENTRY_TYPE, { snapshot: result.snapshot, delta: result.delta, reason: 'compaction_restore' });
 				input.persist(UNKNOWN_TOOL_COUNTER_ENTRY_TYPE, { snapshot: input.counterSnapshot(), reason: 'compaction_restore' });
 				if (result.delta.evidence.changed) input.establishToolStateChange(result.delta.evidence.previousCatalogVersion, result.delta.evidence.catalogVersion, evidenceRef);
+    restoredSuccessfully=true;
 				return result;
 			} catch (error) {
 				input.onError?.(error);
 				return null;
 			} finally {
 				input.retainCounter();
-				input.settle();
+				input.settle(restoredSuccessfully);
 			}
 		},
 	};

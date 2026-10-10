@@ -1,3 +1,4 @@
+import { contextOwners } from "../context-continuity-owners.ts";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { ModelPolicy } from "../policy/models.ts";
@@ -28,7 +29,7 @@ export interface ContextBudgetDeps<TDef extends DetailAgentDef, TAgent extends D
 	getResearch(): ReadonlyMap<number, TResearch>;
 	getAllDefs(): readonly TDef[];
 	getResearchPersonas(): readonly TDef[];
-	getPeers(): Iterable<{ name: string; model?: string; context_used_pct?: number }>;
+	getPeers(): Iterable<{ name: string; model?: string; context_used_pct?: number | null; context_measurement?: "measured" | "unknown" }>;
 	modelPolicy: ModelPolicy<TDef>;
 	displayName(name: string): string;
 	getProjectDocsPaths(): readonly string[];
@@ -62,8 +63,9 @@ export function createContextBudgetUi<TDef extends DetailAgentDef, TAgent extend
 		const local = deps.getAllDefs().filter(def => def.kind !== "research").map(def => { const state = agents.get(def.name.toLowerCase()), model = deps.modelPolicy.resolvedModel(state?.def as TDef ?? def) ?? ""; return { id: `specialist/${def.name}`, label: deps.displayName(def.name), plane: "specialist" as const, model, window: windowFor(model), tokens: state?.contextTokens, projectionParts: projection(def) }; });
 		const research = deps.getResearchPersonas().map(def => { const active = Array.from(researchStates.values()).find(state => state.def.name === def.name), model = active?.model ?? deps.modelPolicy.resolvedModel(def) ?? ""; return { id: `research/${def.name}`, label: deps.displayName(def.name), plane: "research" as const, model, window: windowFor(model), tokens: active?.contextTokens, projectionParts: projection(def, true), attribution: "projected" as const }; });
 		const delegates = Array.from(agents.values()).flatMap(state => Array.from(state.delegations?.values() ?? []).map(child => { const role = Object.entries(state.def.subagents ?? {}).find(([name]) => name.toLowerCase() === child.role.toLowerCase()); const parts = role ? delegateStandingParts({ toolChars: toolSchemaChars(child.tools || role[1].tools || state.def.tools), basePromptChars: baseChars, roleNames: [role[0]] }) : undefined; return parts ? { id: `delegate/${child.id}`, label: child.role, plane: "delegate" as const, model: child.model, window: windowFor(child.model), tokens: child.tokens, projectionParts: parts, attribution: "projected" as const } : { id: `delegate/${child.id}`, label: child.role, plane: "delegate" as const, model: child.model, window: windowFor(child.model), tokens: child.tokens, attribution: "unavailable" as const }; }));
-		const peers = Array.from(deps.getPeers()).map(peer => ({ id: `peer/${peer.name}`, label: peer.name, plane: "peer" as const, model: peer.model, window: windowFor(peer.model ?? ""), percent: peer.context_used_pct, projectionChars: 0, attribution: "unavailable" as const }));
-		return [...local, ...research, ...delegates, ...peers];
+		const peers = Array.from(deps.getPeers()).map(peer => ({ id: `peer/${peer.name}`, label: peer.name, plane: "peer" as const, model: peer.model, window: windowFor(peer.model ?? ""), percent: peer.context_measurement === "measured" ? peer.context_used_pct ?? undefined : undefined, projectionChars: 0, attribution: "unavailable" as const }));
+		const managed=contextOwners().map(owner=>({id:`context/${owner.attempt}`,label:`${owner.owner.slice(0,8)} · ${owner.status.phase} · episode ${owner.status.episode}`,plane:"delegate" as const,window:owner.status.window??undefined,tokens:owner.status.tokens??undefined,projectionChars:0,attribution:"unavailable" as const}));
+  return [...local, ...research, ...delegates, ...peers,...managed];
 	}
 
 	async function openContextBudget(ctx: ContextBudgetUiContext): Promise<void> {

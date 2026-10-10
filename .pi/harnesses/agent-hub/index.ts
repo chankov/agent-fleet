@@ -159,6 +159,7 @@ import { createPoolPresentation } from "./ui/pool.ts";
 import { registerInputShortcuts } from "./input/shortcuts.ts";
 import { createCompletionPresentation } from "./input/completions.ts";
 import { createResearchControls } from "./research/controls.ts";
+import { currentPiRuntimeVersion } from "./context-continuity-compat.ts";
 import { createContextPressureLifecycle, createContextPressureRootState } from "./lifecycle/context-pressure.ts";
 import { createTurnLifecycleHandlers, registerTurnPresence } from "./lifecycle/turn-handlers.ts";
 import { createMonitorSession } from "./lifecycle/monitor-session.ts";
@@ -211,7 +212,7 @@ function resolveTaskTriageTestTransport(): JevTransport | undefined {
 	const guard = `--import=${fileURLToPath(new URL("../../../bin/test/helpers/system1-no-network.js", import.meta.url))}`;
 	if (!profile || process.env.PI_OFFLINE !== "1" || !process.env.NODE_OPTIONS?.split(/\s+/).includes(guard)) return undefined;
 	const hot = profile === "security" ? "security_change" : profile === "wide" ? "wide_change" : profile === "irreversible" ? "irreversible_execution" : null;
-	if (!hot && profile !== "plain" && profile !== "timeout") return undefined;
+	if (!hot && profile !== "plain" && profile !== "timeout" && profile !== "context-safe") return undefined;
 	const instanceId = ++taskTriageFakeInstances;
 	return async request => {
 		const wire = JSON.parse(request.body.toString("utf8"));
@@ -226,7 +227,14 @@ function resolveTaskTriageTestTransport(): JevTransport | undefined {
 			});
 		}
 		return { status: 200, headers: {}, body: JSON.stringify({ model: TASK_TRIAGE_MODEL,
-			answers: Object.fromEntries(Object.keys(wire.questions).map(id => [id, { type: "noul", noul: id === hot ? 0.95 : 0.05 }])),
+			answers: Object.fromEntries(Object.keys(wire.questions).map(id => {
+    if(profile === "context-safe" && (id === "boundary" || id === "retention")) {
+     const choice=id === "boundary"?"safe":"active_step";
+     const keys=id === "boundary"?["safe","unsafe","unknown"]:["standard","active_step","decisions","unknown"];
+     return [id,{type:"choice",choice,confidence:0.95,probabilities:Object.fromEntries(keys.map(key=>[key,key===choice?0.95:0.05/(keys.length-1)]))}];
+    }
+    return [id,{type:"noul",noul:id === hot?0.95:0.05}];
+   })),
 			usage: { input_tokens: 1, output_tokens: 1 },
 		}) };
 	};
@@ -551,7 +559,7 @@ export default function (pi: ExtensionAPI) {
 		clearTurnDispatchFingerprints: () => turnDispatchFingerprints.clear(),
 		clearTaskCapabilities: () => workModePolicy.resetCapabilities(),
 		clearExternalBlockers: () => { externalBlockers = []; externalBlockerAcknowledged = false; externalBlockerRefusedOnce = false; },
-		resolveIncomingCapabilities: () => { resolveIncomingCapabilities("", true); }, applyWorkModeTools: () => { applyWorkModeTools(); },
+		resolveIncomingCapabilities: (acceptedUserInput = "") => { resolveIncomingCapabilities(acceptedUserInput, true); }, applyWorkModeTools: () => { applyWorkModeTools(); },
 		getTurnReport: () => turnReport,
 		setStatus: (key, value) => { widgetCtx?.ui?.setStatus(key, value); },
 		getAuditContext: () => ({ cwd: identity?.cwd ?? currentCtx?.cwd, sessionId: identity?.session_id, project: identity?.project }),
@@ -1010,6 +1018,7 @@ export default function (pi: ExtensionAPI) {
 		},
 		actions: {
 			budget: budgetCtx, artifacts: assertionsArtifactsCtx, hubState: hubStateCtx,
+   getAcceptedUserInput: () => hubTaskText,
 			provisionalCapabilityRefusal,
 			getTaskTier: () => taskTier, setTaskTier: value => { taskTier = value; },
 			getTaskTierAssumed: () => taskTierAssumed, setTaskTierAssumed: value => { taskTierAssumed = value; },
@@ -2250,6 +2259,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	const pressureLifecycle = createContextPressureLifecycle({
+  continuity: { pi, runtimeVersion: currentPiRuntimeVersion(), taskIdentity: (() => { let token: object | undefined, revision=0; return () => { const next=noProgress.taskToken(); if(next!==token){token=next;revision++;} return {task:noProgress.taskId(),revision}; }; })() },
 		getState: () => pressureRootState,
 		setPressure: value => { contextPressureState = value; pressureRootState.pressure = value; },
 		getCurrentContext: () => currentCtx,
@@ -2296,7 +2306,7 @@ export default function (pi: ExtensionAPI) {
 			persist: (type, data) => pi.appendEntry(type, data), counterSnapshot: () => unknownToolCounter.snapshot(),
 			retainCounter: () => unknownToolCounter.noteCompaction(),
 			establishToolStateChange: (previous, next, evidenceRef) => noProgress.establishToolStateChange(previous, next, evidenceRef),
-			settle: () => pressureLifecycle.sessionCompact(),
+			settle: restored => pressureLifecycle.sessionCompact(restored),
 			onError: error => { try { pi.appendEntry("agent-hub-tool-catalog-error", { reason: "compaction_restore", error: error instanceof Error ? error.message : String(error) }); } catch {} },
 		});
 		if (result) latestToolCatalogDelta = result.delta;

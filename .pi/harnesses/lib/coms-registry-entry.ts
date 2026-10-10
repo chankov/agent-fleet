@@ -30,7 +30,8 @@ export interface ComsRegistryEntry {
 	version: number;
 	// Live status snapshot — refreshed every keepalive tick. Optional so
 	// entries written before the heartbeat carried them still parse cleanly.
-	context_used_pct?: number;
+	context_used_pct?: number | null;
+ context_measurement?: "measured" | "unknown";
 	queue_depth?: number;
 	heartbeat_at?: string;
 }
@@ -87,7 +88,8 @@ export function buildLiveRegistryEntry(identity: ComsIdentity, live: LiveSnapsho
 		started_at: identity.started_at,
 		explicit: identity.explicit,
 		version: 1,
-		context_used_pct: count(live.contextUsedPct),
+		context_used_pct: typeof live.contextUsedPct === "number" && Number.isFinite(live.contextUsedPct) && live.contextUsedPct >= 0 ? Math.round(live.contextUsedPct) : null,
+  context_measurement: typeof live.contextUsedPct === "number" && Number.isFinite(live.contextUsedPct) && live.contextUsedPct >= 0 ? "measured" : "unknown",
 		queue_depth: count(live.queueDepth),
 		heartbeat_at: live.now,
 	};
