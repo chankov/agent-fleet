@@ -26,7 +26,7 @@ export interface GridUIContext {
 
 export function createGridUI(deps: GridUIContext) {
 	const clock = deps.now ?? Date.now;
-	const schedule = deps.setTimeout ?? setTimeout;
+	const schedule = deps.setTimeout ?? ((fn:()=>void,ms:number)=>setTimeout(fn,ms));
 	const cancel = deps.clearTimeout ?? clearTimeout;
 	let owner: GridWidgetContext | null = null, widgetInstalled = false, editorInstallation: ReturnType<typeof installFleetEditor> | undefined;
 	let tui: any, state: FleetStripState = initialFleetStripState(), suspended = 0, timer: ReturnType<typeof setTimeout> | undefined, disposed = false, lastDisplayKey = "", lastRows: FleetRow[] = [], lastProactive: ProactiveSessionView | undefined, snapshotNow = 0, epoch = 0;

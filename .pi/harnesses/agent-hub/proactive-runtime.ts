@@ -43,7 +43,7 @@ function paths(snapshot: TurnSnapshot): string[] { return [...new Set(snapshot.u
 interface Entry { owner: string; attempt: string; snapshot: TurnSnapshot; queued: number; controller: AbortController; carry: string[]; jobId: string; evaluationIds: string[]; closed: boolean }
 export function createProactiveRuntime(options: ReviewRuntimeOptions) {
  const now = options.now ?? Date.now;
- const setTimer = options.setTimer ?? setTimeout;
+ const setTimer = options.setTimer ?? ((fn:()=>void,ms:number)=>setTimeout(fn,ms));
  const clearTimer = options.clearTimer ?? clearTimeout;
  const enabled = options.config.mode !== "off";
  const pending: Entry[] = [];

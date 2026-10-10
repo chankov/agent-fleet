@@ -6,7 +6,8 @@ const {createLsToolDefinition}=await import(new URL('./core/tools/ls.js',entry).
 const {createGrepToolDefinition}=await import(new URL('./core/tools/grep.js',entry).href);
 function fixture(){const root=mkdtempSync(join(tmpdir(),'d9-adapters-'));mkdirSync(join(root,'docs/sub'),{recursive:true});writeFileSync(join(root,'docs/a.ts'),'first\nneedle\nthird\n');writeFileSync(join(root,'docs/sub/b.ts'),'needle');return root;}
 const sig=new AbortController().signal;
-test('actual pinned Pi 0.84.2 find and ls schemas: search root, directories, limits and exact notices',async()=>{
+test('actual pinned Pi 1.1.0 find and ls schemas: search root, directories, limits and exact notices',async()=>{
+ assert.equal(PINNED_PI_VERSION,'1.1.0');
  assert.equal(JSON.parse(readFileSync(new URL('../package.json',entry),'utf8')).version,PINNED_PI_VERSION);
  const root=fixture();try{
   const args={path:'docs',pattern:'**',limit:100};const run=await runPiFind({cwd:root,args,signal:sig});assert.equal(run.ok,true,JSON.stringify(run));if(!run.ok)return;

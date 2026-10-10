@@ -71,7 +71,7 @@ test("feedback reads through a root alias but rejects symlinked files", t => {
 });
 
 test("offline local Pi counts two naturally occurring calls and no second call; hostile inbox stays data", t => {
- assert.match(spawnSync(pi, ["--version"], { encoding: "utf8" }).stdout, /0\.84\.2/);
+ assert.match(spawnSync(pi, ["--version"], { encoding: "utf8" }).stdout, /^1\.1\.0\s*$/);
  for (const variant of ["two", "one", "shadow", "mismatch", "stale", "malicious"] as const) {
   const { dir, assignment, inbox } = fixture(t);
   if (variant === "shadow") assignment.config = parseProactiveConfig({ version: 1, mode: "shadow", include: ["sample.md"] });
@@ -107,7 +107,7 @@ export default function(pi) {
   // B7: whitelisted child env only; never inherit developer provider keys.
   // AGENT_HUB_PROACTIVE_OBSERVER assignment travels via extension flag, not env.
   const env = { PATH: process.env.PATH!, HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "agent"), PI_OFFLINE: "1", TMPDIR: dir, NODE_OPTIONS: `--import=${join(repo, "bin/test/helpers/system1-no-network.js")}`, AGENT_HUB_PROACTIVE_OBSERVER: JSON.stringify(assignment) };
-  const result = spawnSync(pi, ["--mode", "print", "--no-session", "--no-extensions", "-e", provider, "-e", observer, "--model", "feedback-fixture/m", "prompt"], { cwd: dir, env, encoding: "utf8", timeout: 20000 });
+  const result = spawnSync(pi, ["--mode", "json", "-p", "--no-session", "--no-extensions", "-e", provider, "-e", observer, "--model", "feedback-fixture/m", "prompt"], { cwd: dir, env, encoding: "utf8", timeout: 20000 });
   assert.equal(result.status, 0, `${variant}: ${result.error?.message ?? ""} ${result.stderr} ${result.stdout}`);
   const calls = JSON.parse(readFileSync(join(dir, "calls.json"), "utf8")) as { call: number; context: string }[];
   assert.equal(calls.length, variant === "one" ? 1 : 2, variant);

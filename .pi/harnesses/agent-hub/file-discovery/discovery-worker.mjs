@@ -2,7 +2,7 @@
 import {readFileSync} from 'node:fs';
 const entry=import.meta.resolve('@earendil-works/pi-coding-agent');
 const pkg=JSON.parse(readFileSync(new URL('../package.json',entry),'utf8'));
-if(pkg.version!=='0.84.2')throw Error('unsupported_pi_version');
+if(pkg.version!=='1.1.0')throw Error('unsupported_pi_version');
 const {createFindToolDefinition}=await import(new URL('./core/tools/find.js',entry));
 const {createLsToolDefinition}=await import(new URL('./core/tools/ls.js',entry));
 let input='';for await(const chunk of process.stdin){input+=chunk;if(Buffer.byteLength(input)>32768)throw Error('request_too_large');}

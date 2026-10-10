@@ -98,7 +98,7 @@ export async function createDiscoveryBroker(options:{root:string;runtime:Discove
    bytes+=chunk.length;if(bytes>limits.frameBytes){rejectFrame();return;}
    // The combined rank + optional terminal input retains the original byte cap.
    if(handled&&!buffer.length){clearTimeout(timer);timer=setTimeout(rejectFrame,limits.partialFrameMs);}
-   buffer=Buffer.concat([buffer,chunk]);const newline=buffer.indexOf(10);if(newline<0)return;
+   buffer=Buffer.concat([buffer,typeof chunk==='string'?Buffer.from(chunk):chunk]);const newline=buffer.indexOf(10);if(newline<0)return;
    let value:unknown;try{value=decode(buffer.subarray(0,newline));}catch{if(handled)rejectFrame();else reply({ok:false,error:'malformed_request'});return;}
    buffer=buffer.subarray(newline+1);
    if(handled){if(buffer.length)rejectFrame();else terminal(value);return;}

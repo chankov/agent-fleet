@@ -75,7 +75,7 @@ test('P13b real installer setup installs all12 proactive runtime files, creates 
  assert.equal(sha16(readFileSync(humanPath)),before,'doctor --fix is non-destructive to human fixture');
 });
 
-test('P13b real installed observer/capture subprocess smoke on INSTALLED paths; repo-local Pi0.84.2 offline',{timeout:180000},t=>{
+test('P13b real installed observer/capture subprocess smoke on INSTALLED paths; repo-local Pi1.1.0 offline',{timeout:180000},t=>{
  const dir=mkdtempSync(join(tmpdir(),'proactive-smoke-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
  const {extracted}=packAndExtract(dir);
  const ws=join(dir,'installed');
@@ -97,7 +97,7 @@ test('P13b real installed observer/capture subprocess smoke on INSTALLED paths; 
  const provider=join(dir,'provider.ts');
  writeFileSync(provider,`import {createAssistantMessageEventStream} from '@earendil-works/pi-ai';
  export default function(pi){pi.registerProvider('installed-fixture',{name:'offline',baseUrl:'http://127.0.0.1',apiKey:'fixture',api:'installed-fixture-api',models:[{id:'m',name:'m',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:10000,maxTokens:100}],streamSimple(model){const stream=createAssistantMessageEventStream();queueMicrotask(()=>{const msg={role:'assistant',content:[{type:'text',text:'installed captured text'}],api:model.api,provider:model.provider,model:model.id,usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:'stop',timestamp:Date.now()};stream.push({type:'start',partial:msg});stream.push({type:'text_start',contentIndex:0,partial:msg});stream.push({type:'text_delta',contentIndex:0,delta:'installed captured text',partial:msg});stream.push({type:'text_end',contentIndex:0,content:'installed captured text',partial:msg});stream.push({type:'done',reason:'stop',message:msg});stream.end();});return stream;}});}`);
- const pi=join(repo,'node_modules/.bin/pi');assert.match(spawnSync(pi,['--version'],{encoding:'utf8'}).stdout,/^0\.84\.2/);
+ const pi=join(repo,'node_modules/.bin/pi');assert.match(spawnSync(pi,['--version'],{encoding:'utf8'}).stdout,/^1\.1\.0\s*$/);
  const assignment={root:ws,directory:join(ws,'attempt'),session:'installed',owner:'builder',attempt:'one',config:{version:1,mode:'shadow',remoteContext:'selected-excerpts',include:['sample.md'],maxEvaluationsPerSession:1},context:{task:{path:'task',revision:'fixture',hash:'a'.repeat(64)},rules:[],exceptions:[]}};
  const home=join(dir,'home');mkdirSync(home,{recursive:true});
  const env=scrubbedEnv({PATH:process.env.PATH,HOME:home,PI_CODING_AGENT_DIR:join(ws,'agent'),PI_OFFLINE:'1',TMPDIR:dir,NODE_OPTIONS:`--import=${join(repo,'bin/test/helpers/system1-no-network.js')}`,AGENT_HUB_PROACTIVE_OBSERVER:JSON.stringify(assignment)});

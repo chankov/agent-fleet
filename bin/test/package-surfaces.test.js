@@ -559,10 +559,10 @@ test("active runtime lockfiles stay above audited vulnerable version floors", ()
     harnesses: JSON.parse(readFileSync(join(root, ".pi", "harnesses", "package-lock.json"), "utf8")),
   };
   const floors = [
-    ["root", "node_modules/@earendil-works/pi-coding-agent", "0.84.2"],
-    ["root", "node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion", "5.0.9"],
-    ["root", "node_modules/@earendil-works/pi-coding-agent/node_modules/undici", "8.9.0"],
-    ["root", "node_modules/@earendil-works/pi-coding-agent/node_modules/protobufjs", "7.6.5"],
+    ["root", "node_modules/@earendil-works/pi-coding-agent", "1.1.0"],
+    ["root", "node_modules/brace-expansion", "5.0.9"],
+    ["root", "node_modules/undici", "8.9.0"],
+    ["root", "node_modules/protobufjs", "7.6.5"],
     ["root", "node_modules/fast-uri", "3.1.5"],
     ["root", "node_modules/ip-address", "10.5.0"],
     ["root", "node_modules/hono", "4.12.34"],
@@ -576,9 +576,9 @@ test("active runtime lockfiles stay above audited vulnerable version floors", ()
     ["extensions", "node_modules/@hono/node-server", "1.19.15"],
     ["extensions", "node_modules/body-parser", "2.3.0"],
     ["extensions", "node_modules/qs", "6.15.2"],
-    ["harnesses", "node_modules/@earendil-works/pi-coding-agent", "0.84.2"],
-    ["harnesses", "node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion", "5.0.9"],
-    ["harnesses", "node_modules/@earendil-works/pi-coding-agent/node_modules/undici", "8.9.0"],
+    ["harnesses", "node_modules/@earendil-works/pi-coding-agent", "1.1.0"],
+    ["harnesses", "node_modules/brace-expansion", "5.0.9"],
+    ["harnesses", "node_modules/undici", "8.9.0"],
   ];
   const parts = (version) => version.split(".").map((part) => Number.parseInt(part, 10));
   const atLeast = (actual, floor) => {

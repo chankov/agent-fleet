@@ -2,7 +2,7 @@ import {basename,dirname,isAbsolute,relative,resolve} from 'node:path';
 import {lstatSync,readdirSync,realpathSync} from 'node:fs';
 import {checkedSourcePath} from '../../lib/safe-source-read.js';
 import {exportPathAllowed} from '../agentic-sources.ts';
-export const PINNED_PI_VERSION='0.84.2';
+export const PINNED_PI_VERSION='1.1.0';
 export interface CandidateSet {paths:string[];discoveryComplete:boolean;remaining:0|'unknown';reason?:string;hidden?:number;excluded?:number}
 const refused=(reason:string):CandidateSet=>({paths:[],discoveryComplete:false,remaining:'unknown',reason});
 export function canonicalCandidate(root:string,path:string,include:readonly string[]):string|undefined {

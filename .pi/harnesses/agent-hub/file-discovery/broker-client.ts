@@ -49,7 +49,7 @@ async function discoveryRequest(assignment:DiscoveryAssignment,payload:Record<st
   socket.on('data',chunk=>{
    if(done)return;
    if(buffer.length+chunk.length>BROKER_LIMITS.responseBytes){finish({ok:false,error:'response_too_large'});return;}
-   buffer=Buffer.concat([buffer,chunk]);const newline=buffer.indexOf(10);if(newline<0)return;
+   buffer=Buffer.concat([buffer,typeof chunk==='string'?Buffer.from(chunk):chunk]);const newline=buffer.indexOf(10);if(newline<0)return;
    try{
     if(newline!==buffer.length-1)throw Error();
     const reply=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(buffer.subarray(0,newline)));
