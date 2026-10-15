@@ -1,11 +1,13 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 
-import { checkScope, diffAgainst, reviewableChangedPaths, snapshotWorktree } from "./scope-gate.js";
+import { checkScope, diffAgainst, reviewableChangedPaths, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
 
 function git(args, cwd) {
 	return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
@@ -23,8 +25,8 @@ after(() => {
 	for (const dir of allocatedDirectories) assert.equal(existsSync(dir), false, `Leaked test directory: ${dir}`);
 });
 
-function repo(t) {
-	const dir = temporaryDirectory(t, "scope-gate-");
+function repo(t, dir = temporaryDirectory(t, "scope-gate-")) {
+	mkdirSync(dir, { recursive: true });
 	git(["init"], dir);
 	git(["config", "user.email", "scope@example.test"], dir);
 	git(["config", "user.name", "Scope Gate"], dir);
@@ -135,4 +137,110 @@ test("dirty-to-clean restoration and filenames containing newlines are reported"
  writeFileSync(join(dir, "src/tracked.ts"), "initial\n");
  writeFileSync(join(dir, "new\nfile.ts"), "after\n");
  assert.deepEqual(diffAgainst(snapshot, dir).paths, ["new\nfile.ts", "src/tracked.ts"]);
+});
+
+test("nested Git observes only declared scopes and retains separate repository HEADs", t => {
+ const parent = temporaryDirectory(t, "nested-scope-");
+ const app = repo(t, join(parent, "ringithub")), docs = repo(t, join(parent, "rin-docs"));
+ const scopes = ["ringithub/src", "rin-docs/src/tracked.ts"];
+ const before = snapshotWorktree(parent, scopes), revision = worktreeRevision(parent, scopes);
+ assert.equal(before.skipped, false);
+ assert.deepEqual(before.repositories.map(r => r.prefix), ["rin-docs", "ringithub"]);
+ for (const r of before.repositories) assert.equal(r.head, git(["rev-parse", "HEAD"], join(parent, r.prefix)).trim());
+ writeFileSync(join(app, "src/tracked.ts"), "changed\n");
+ writeFileSync(join(app, "outside.ts"), "outside declared scope\n");
+ writeFileSync(join(docs, "src/not-declared.ts"), "outside declared file\n");
+ mkdirSync(join(parent, ".pi/agent-sessions/sessions/current"), { recursive: true });
+ writeFileSync(join(parent, ".pi/agent-sessions/sessions/current/session.json"), "{}");
+ const diff = diffAgainst(before, parent);
+ assert.equal(diff.skipped, false);
+ assert.deepEqual(diff.paths, ["ringithub/src/tracked.ts"]);
+ assert.deepEqual(diff.gaps, []);
+ assert.notEqual(worktreeRevision(parent, scopes), revision);
+ assert.equal(snapshotWorktree(parent).skipped, true, "no scope never scans nested checkouts");
+ assert.equal(worktreeRevision(parent), "unavailable");
+});
+
+test("nested Git reports per-scope gaps while retaining observed changes from other roots", t => {
+ const parent = temporaryDirectory(t, "nested-gaps-");
+ const app = repo(t, join(parent, "ringithub"));
+ mkdirSync(join(parent, "loose"));
+ const scopes = ["ringithub/src", "loose/missing.txt"];
+ const before = snapshotWorktree(parent, scopes);
+ assert.equal(before.skipped, false);
+ assert.deepEqual(before.gaps.map(g => g.scope), ["loose/missing.txt"]);
+ writeFileSync(join(app, "src/tracked.ts"), "changed\n");
+ const diff = diffAgainst(before, parent);
+ assert.equal(diff.skipped, false);
+ assert.deepEqual(diff.paths, ["ringithub/src/tracked.ts"]);
+ assert.deepEqual(diff.gaps.map(g => g.scope), ["loose/missing.txt"]);
+ assert.equal(worktreeRevision(parent, scopes), "unavailable", "partial coverage is never a complete revision");
+});
+
+test("nested Git scopes cannot discover outside repositories or unanchored siblings", t => {
+ const parent = temporaryDirectory(t, "nested-boundary-"), outside = repo(t);
+ repo(t, join(parent, "unselected"));
+ symlinkSync(outside, join(parent, "external"), "dir");
+ const scopes = [outside, "../escape", "external/src", "**/*.ts"];
+ const snapshot = snapshotWorktree(parent, scopes);
+ assert.equal(snapshot.skipped, true);
+ assert.deepEqual(snapshot.repositories, []);
+ assert.deepEqual(snapshot.gaps.map(g => g.scope), scopes);
+ assert.equal(snapshotWorktree(join(outside, "src"), ["tracked.ts"]).nested, undefined, "existing single-repo behavior stays intact");
+});
+
+test("nested Git glob scopes detect repeated dirty changes and missing files", t => {
+ const parent = temporaryDirectory(t, "nested-dirty-"), app = repo(t, join(parent, "app"));
+ const scopes = ["app/src/**/*.ts"];
+ writeFileSync(join(app, "src/tracked.ts"), "before\n");
+ writeFileSync(join(app, "src/ignore.txt"), "before\n");
+ const before = snapshotWorktree(parent, scopes);
+ assert.equal(before.skipped, false);
+ writeFileSync(join(app, "src/tracked.ts"), "after!\n");
+ writeFileSync(join(app, "src/ignore.txt"), "after!\n");
+ assert.deepEqual(diffAgainst(before, parent).paths, ["app/src/tracked.ts"]);
+ const dirty = snapshotWorktree(parent, scopes);
+ writeFileSync(join(app, "src/tracked.ts"), "initial\n");
+ assert.deepEqual(diffAgainst(dirty, parent).paths, ["app/src/tracked.ts"]);
+ const clean = snapshotWorktree(parent, scopes);
+ rmSync(join(app, "src/tracked.ts"));
+ assert.deepEqual(diffAgainst(clean, parent).paths, ["app/src/tracked.ts"]);
+});
+
+test("nested Git HEAD changes invalidate only their repository observation", t => {
+ const parent = temporaryDirectory(t, "nested-head-"), app = repo(t, join(parent, "app")), docs = repo(t, join(parent, "docs"));
+ const before = snapshotWorktree(parent, ["app/src", "docs/src"]);
+ git(["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "new head"], app);
+ writeFileSync(join(docs, "src/tracked.ts"), "changed\n");
+ const diff = diffAgainst(before, parent);
+ assert.equal(diff.skipped, false);
+ assert.deepEqual(diff.paths, ["docs/src/tracked.ts"]);
+ assert.deepEqual(diff.gaps.map(g => g.scope), ["app/src"]);
+});
+
+test("nested Git root scopes exclude session outputs and do not scan sibling repositories", t => {
+ const parent = temporaryDirectory(t, "nested-root-"), app = repo(t, join(parent, "app"));
+ const sibling = repo(t, join(parent, "unselected"));
+ const before = snapshotWorktree(parent, ["app"]), revision = worktreeRevision(parent, ["app"]);
+ assert.equal(before.skipped, false);
+ mkdirSync(join(app, ".pi/agent-sessions/current"), { recursive: true });
+ writeFileSync(join(app, ".pi/agent-sessions/current/report.md"), "runtime output\n");
+ writeFileSync(join(sibling, "src/tracked.ts"), "unselected edit\n");
+ assert.equal(worktreeRevision(parent, ["app"]), revision);
+ writeFileSync(join(app, "src/new.ts"), "declared repository edit\n");
+ assert.deepEqual(diffAgainst(before, parent).paths, ["app/src/new.ts"]);
+});
+
+test("nested Git observes metadata without reading file contents, including literal workspace brackets", t => {
+ const parent = temporaryDirectory(t, "nested-[workspace]-"), app = repo(t, join(parent, "app"));
+ writeFileSync(join(app, "src/tracked.ts"), "dirty before\n");
+ const originalRead = fs.readFileSync;
+ fs.readFileSync = () => { throw new Error("Nested observation must not read file contents"); };
+ syncBuiltinESMExports();
+ try {
+  const before = snapshotWorktree(parent, ["app\\src\\**\\*.ts"]);
+  assert.equal(before.skipped, false);
+  writeFileSync(join(app, "src/tracked.ts"), "dirty after\n");
+  assert.deepEqual(diffAgainst(before, parent).paths, ["app/src/tracked.ts"]);
+ } finally { fs.readFileSync = originalRead; syncBuiltinESMExports(); }
 });

@@ -9,7 +9,11 @@ import { chooseReviewerRerun } from "./rerun-policy.ts";
 function sensitiveWorkSignals(task: string): { secret: boolean; cloud: boolean } {
 	const object = "(?:secrets?|credentials?|cloud|aws)";
 	const objects = `${object}(?:\\s*(?:,|or|and)\\s*${object})*`;
-	const prohibition = new RegExp(`^(?:do not (?:read|access|expose|use|modify|rotate|perform) ${objects}(?: operations)?|no ${objects}(?: operations)?)$`, "i");
+	// A closed list of prohibited operations, not arbitrary prose after "no".
+	const operation = `(?:${object}(?:\\s+(?:operations|calls|writes))?|deploy|sql(?:\\s+execution)?|commits|localserve|version bumps|package downloads)`;
+	const operations = `${operation}(?:\\s*(?:/|,|or|and)\\s*${operation})*`;
+	const gerund = "(?:reading|accessing|exposing|using|modifying|rotating|printing|copying)";
+	const prohibition = new RegExp(`^(?:do not (?:read|access|expose|use|modify|rotate|perform) ${objects}(?: operations)?|no ${operations}|without ${gerund}(?:\\s+(?:or|and)\\s+${gerund})* ${objects})$`, "i");
 	const remaining = task.split(/[;.\n]/).filter(clause => {
 		const directive = clause.trim().replace(/^(?:[-*]|\d+[)])\s+/, "").replace(/!+$/, "").trim();
 		return !prohibition.test(directive);

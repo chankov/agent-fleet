@@ -479,6 +479,23 @@ readback can satisfy plan occurrence, not independent acceptance or review. Exit
 prompt echoes, `PLAN_FILE` prose without the artifact, pending transport and stale-revision
 verification/review cannot substitute for the separate current-evidence gates.
 
+Builder admission uses the bound plan evidence without treating explicit sensitive-work
+prohibitions as positive requests. The refusal and handoff paths share a closed prohibition
+grammar, including operation lists and `without printing or copying credentials`.
+Positive or ambiguous sensitive requests still require Planner admission; general route
+classification and the independent process gates retain their existing rules.
+
+Dispatch observation preserves the existing snapshot when the session cwd is a Git
+worktree. For a non-Git parent it resolves only the literal anchors of declared scopes to
+their nearest nested Git roots, rejects roots outside the workspace, and runs path-bounded
+status there without recursive discovery or file-content capture. Each repository retains
+its HEAD and file metadata separately. Deltas and compiler diagnostics are reported with
+workspace-relative paths; compiler discovery runs at the owning repository. Missing roots
+and changed HEADs create scope-specific gaps while other roots remain observable. Partial
+observation or unavailable compiler coverage cannot establish acceptance through a passing
+sibling repository. Runtime session outputs are excluded from nested observation. These
+are local source guarantees, not evidence that an installed workspace copy was upgraded.
+
 The same code-owned state is consumed by dispatch acceptance in operator and orchestrator
 modes, appended as `agent-hub-process-state`, restored from the session log, and retained
 through compaction and mode changes. Only `set_task_tier(new_task: true)` creates fresh

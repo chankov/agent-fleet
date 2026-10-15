@@ -1137,6 +1137,80 @@ function planningGateDeps(bound = true) {
 }
 
 for (const task of [
+ "no cloud/deploy/SQL/commits",
+ "without printing or copying credentials",
+ "No localserve/version bumps, package downloads, cloud calls, SQL execution or secrets writes",
+ "- NO CLOUD/DEPLOY/SQL/COMMITS!\n* Without printing or copying credentials.",
+]) test(`post-plan-admission: bound wide/high plan admits explicit prohibitions: ${task}`, async () => {
+ const d = planningGateDeps(); let runs = 0;
+ d.dispatchAgent = async () => { runs++; return { output: "local work complete", exitCode: 0, elapsed: 1 }; };
+ const result = await createDispatchExecutor(d as any)("build", { agent: "builder", task }, undefined, undefined, { cwd: tmpdir() } as any);
+ assert.equal(runs, 1);
+ assert.equal((result.details as any).exitCode, 0);
+ assert.equal(d.state.getProcessState().review.evidenceRef, null);
+ assert.equal(d.state.getProcessState().acceptance.evidenceRef, null);
+ const handoff = activeOrchestrationHandoff({ agent: "builder", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk: "low", scopeBreadth: "narrow", sharedCode: false });
+ assert.deepEqual(handoff.route.stages, ["builder", "reviewer"]);
+});
+
+test("post-plan-admission: affirmative ambiguous and missing-plan work remains gated", () => {
+ for (const bound of [true, false]) for (const task of [
+  "rotate the cloud credential", "Do not expose credentials; rotate the cloud credential",
+  "no cloud/deploy, then read credentials", "without not copying credentials",
+  "No need to avoid AWS", "No cloud calls unless needed", "Small change: rotate the cloud credential",
+ ]) {
+  const d = planningGateDeps(bound);
+  assert.equal((prepareDispatch(d as any, { agent: "builder", task }, { cwd: tmpdir() } as any) as any).details.status, "planner_required", task);
+ }
+ const d = planningGateDeps(false);
+ assert.equal((prepareDispatch(d as any, { agent: "builder", task: "no cloud/deploy/SQL/commits" }, { cwd: tmpdir() } as any) as any).details.status, "planner_required");
+});
+
+for (const scenario of ["complete", "gap", "compiler-failure", "compiler-skipped", "compiler-incomplete", "late-edit"] as const) test(`post-plan-admission: nested dispatch observes and compiles each declared repository: ${scenario}`, async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t, false);
+ for (const name of ["app", "docs"]) {
+  const root = join(cwd, name); mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src/api.ts"), "export const value = 1;\n");
+  execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+  execFileSync("git", ["add", "."], { cwd: root, stdio: "ignore" });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "fixture"], { cwd: root, stdio: "ignore" });
+ }
+ const scopes = ["app/src", "docs/src", ...(scenario === "gap" ? ["loose/file.ts"] : [])];
+ if (scenario === "gap") { mkdirSync(join(cwd, "loose")); writeFileSync(join(cwd, "loose/file.ts"), "non-Git scope\n"); }
+ const calls: any[] = [];
+ d.diagnoseChangedTypeScript = async (paths: readonly string[], options: any) => {
+  calls.push({ paths: [...paths], cwd: options.cwd });
+  if (scenario === "compiler-failure" && options.cwd === join(cwd, "app")) throw Error("fixture compiler unavailable");
+  if (scenario === "compiler-skipped" && options.cwd === join(cwd, "app")) return { status: "skipped", changedFiles: [...paths], attribution: "no_observed_overlap", projects: [], uncoveredFiles: [...paths], reason: "No compiler project" };
+  if (scenario === "late-edit") writeFileSync(join(cwd, "app/src/api.ts"), "later unchecked change\n");
+  return { status: scenario === "compiler-incomplete" && options.cwd === join(cwd, "app") ? "incomplete" : "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ project: join(options.cwd, "tsconfig.json"), status: "passed", exitCode: 0, argv: ["node", "tsc"], stdout: "", stderr: "", diagnostics: [{ file: "src/api.ts", code: 1, message: "fixture path" }], changedFiles: [...paths] }] } as any;
+ };
+ d.dispatchAgent = async () => {
+  for (const name of ["app", "docs"]) writeFileSync(join(cwd, name, "src/api.ts"), "export const value = 2;\n");
+  return { output: "local changes complete", exitCode: 0, elapsed: 1, dispatchId: `nested-${scenario}` };
+ };
+ const result = await createDispatchExecutor(d as any)("nested", { agent: "builder", task: "Implement local changes", scope: scopes }, undefined, undefined, { cwd } as any);
+ const details = result.details as any;
+ assert.deepEqual(calls, [{ paths: ["src/api.ts"], cwd: join(cwd, "app") }, { paths: ["src/api.ts"], cwd: join(cwd, "docs") }]);
+ assert.deepEqual(details.changeResult.paths, ["app/src/api.ts", "docs/src/api.ts"]);
+ assert.equal(details.scopeViolations.skipped, undefined);
+ assert.equal(details.scopeViolations.repositories.length, 2);
+ assert.equal(details.scopeViolations.gaps.length, scenario === "gap" ? 1 : 0);
+ assert.equal(details.compilerDiagnostics.status, scenario === "gap" || scenario.startsWith("compiler-") ? "incomplete" : "completed");
+ assert.equal(details.accepted, scenario === "complete");
+ if (scenario === "complete") {
+  assert.deepEqual(details.compilerDiagnostics.changedFiles, ["app/src/api.ts", "docs/src/api.ts"]);
+  assert.deepEqual(details.compilerDiagnostics.projects.map((p: any) => p.diagnostics[0].file), ["app/src/api.ts", "docs/src/api.ts"]);
+  assert.match(details.taskIdentity.revision.after, /^[a-f0-9]{64}$/);
+ }
+ if (scenario === "gap") {
+  assert.equal(details.changeResult.attribution, "uncertain");
+  assert.match(result.content[0].text, /loose\/file.ts/);
+ }
+ if (scenario === "late-edit") assert.equal(details.verificationResult.status, "stale");
+});
+
+for (const task of [
  "Do not read secrets or credentials; no cloud or AWS operations",
  "DO NOT READ SECRETS OR CREDENTIALS; NO CLOUD OR AWS OPERATIONS!",
  "- Do not read secrets or credentials.\n* No cloud or AWS operations.",

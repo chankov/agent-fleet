@@ -3,6 +3,7 @@ import { buildRuntimeResult, minimalChangeRequirement, preflightDeliverables, re
 import { normalizeResearchContract, withNoProgress, canonicalExecutor, type NoProgressGuard } from "../no-progress.ts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { blockingFindingCap, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, isReviewPersona, remainingTaskResearch, reviewBudgetClause, reviewRoundCap } from "../run-budget.js";
 import { countReviewFindings, findingBudgetNotice } from "../review-findings.js";
@@ -77,7 +78,7 @@ export interface DispatchExecutorDeps {
 interface PreparedDispatch { taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; autoResearchTaskCapped: boolean; }
 interface Tracking { writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
-interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; concurrentWritableOverlap: boolean; }
+interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
 
 export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
 	const s = d.state;
@@ -207,7 +208,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
 		permissions: agentState?.def.tools ?? "",
 	};
-	return { taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: worktreeRevision(ctx.cwd || process.cwd(), []), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
+	return { taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: worktreeRevision(ctx.cwd || process.cwd(), [], scopeGlobs), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
@@ -217,7 +218,7 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
 		if (tracking.concurrentAtStart) s.setWritableOverlapCounter(s.getWritableOverlapCounter() + 1);
 		s.setActiveWritableDispatches(s.getActiveWritableDispatches() + 1);
-		tracking.snapshot = snapshotWorktree(ctx.cwd || process.cwd());
+		tracking.snapshot = snapshotWorktree(ctx.cwd || process.cwd(), prepared.scopeGlobs);
 	}
 	return tracking;
 }
@@ -249,19 +250,48 @@ function observeWorktree(d: DispatchExecutorDeps, tracking: Tracking, ctx: Exten
 	if (!tracking.snapshot) return null;
 	const diff = diffAgainst(tracking.snapshot, ctx.cwd || process.cwd());
 	const concurrentWritableOverlap = tracking.concurrentAtStart || d.state.getWritableOverlapCounter() !== tracking.overlapBaseline;
-	return diff.skipped
-		? { skipped: true, reason: diff.reason, paths: [], concurrentWritableOverlap }
-		: { skipped: false, paths: diff.paths, concurrentWritableOverlap };
+	return { ...diff, concurrentWritableOverlap };
 }
 
 function scopeResult(p: PreparedDispatch, observation: WorktreeObservation | null): any {
 	if (!observation || p.scopeGlobs.length === 0) return null;
-	if (observation.skipped) return { skipped: true, reason: observation.reason, declaredScope: p.scopeGlobs, concurrentWritableOverlap: observation.concurrentWritableOverlap };
-	return { ...checkScope(observation.paths, p.scopeGlobs), changedPaths: observation.paths, declaredScope: p.scopeGlobs, concurrentWritableOverlap: observation.concurrentWritableOverlap };
+	if (observation.skipped) return { skipped: true, reason: observation.reason, gaps: observation.gaps, declaredScope: p.scopeGlobs, concurrentWritableOverlap: observation.concurrentWritableOverlap };
+	return { ...checkScope(observation.paths, p.scopeGlobs), changedPaths: observation.paths, declaredScope: p.scopeGlobs, concurrentWritableOverlap: observation.concurrentWritableOverlap, gaps: observation.gaps, repositories: observation.repositories };
 }
 
 function incompleteObservation(reason: string, overlap: boolean): DiagnosticsResult {
 	return { status: "incomplete", reason, changedFiles: [], attribution: overlap ? "uncertain" : "no_observed_overlap", projects: [], uncoveredFiles: [] };
+}
+
+/** Compiler discovery starts at each observed repository, never at a non-Git parent. */
+async function diagnoseObservation(d: DispatchExecutorDeps, observation: WorktreeObservation, cwd: string, cacheLane: string, runId: string): Promise<DiagnosticsResult> {
+	const diagnose = d.diagnoseChangedTypeScript ?? diagnoseChangedTypeScript;
+	const options = { cwd, attribution: observation.concurrentWritableOverlap ? "uncertain" as const : "no_observed_overlap" as const, cacheLane, runId };
+	if (!observation.repositories) return diagnose(observation.paths, options);
+	const results: DiagnosticsResult[] = [];
+	for (const repo of observation.repositories) {
+		const paths = observation.paths.filter(path => path.startsWith(`${repo.prefix}/`)).map(path => path.slice(repo.prefix.length + 1));
+		if (!paths.some(path => /\.(?:ts|tsx|mts|cts)$/i.test(path))) continue;
+		const workspacePath = (path: string) => isAbsolute(path) ? path : `${repo.prefix}/${path}`;
+		const unavailable = (reason: string): DiagnosticsResult => ({
+			...incompleteObservation(reason, observation.concurrentWritableOverlap), changedFiles: paths.map(workspacePath), uncoveredFiles: paths.map(workspacePath),
+			projects: [{ project: repo.root, status: "unavailable", reason, exitCode: null, argv: [], stdout: "", stderr: "", diagnostics: [] }],
+		});
+		try {
+			const result = await diagnose(paths, { ...options, cwd: repo.root });
+			results.push({ ...result, changedFiles: result.changedFiles.map(workspacePath), uncoveredFiles: result.uncoveredFiles?.map(workspacePath), projects: result.projects.map(project => ({
+				...project, project: workspacePath(project.project), changedFiles: project.changedFiles?.map(workspacePath),
+				diagnostics: project.diagnostics.map(diagnostic => ({ ...diagnostic, ...(diagnostic.file ? { file: workspacePath(diagnostic.file) } : {}) })),
+			})) });
+			// A passing sibling project cannot cover a repository whose compiler
+			// verification was incomplete. Retain the unavailable check explicitly.
+			if (result.status !== "completed" || result.uncoveredFiles?.length) results.push(unavailable(`${repo.prefix}: ${result.reason ?? "Compiler coverage incomplete"}`));
+		} catch (error) { results.push(unavailable(`Compiler observation failed for ${repo.prefix}: ${String(error)}`)); }
+	}
+	const reasons = [...(observation.gaps ?? []).map(gap => `${gap.scope}: ${gap.reason}`), ...results.filter(result => result.status === "incomplete").map(result => result.reason ?? "Compiler observation incomplete")];
+	return { status: reasons.length ? "incomplete" : results.some(result => result.status === "completed") ? "completed" : "skipped",
+		reason: reasons.length ? reasons.join("; ") : undefined, attribution: options.attribution,
+		changedFiles: [...new Set(results.flatMap(result => result.changedFiles))], projects: results.flatMap(result => result.projects), uncoveredFiles: [...new Set(results.flatMap(result => result.uncoveredFiles ?? []))] };
 }
 
 async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, run: RunData, tracking: Tracking, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<ToolExecutionResult> {
@@ -288,18 +318,13 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 
 	// The one shared post-run delta feeds both scope reporting and compiler selection.
 	let compilerDiagnostics: DiagnosticsResult | null = null; let compilerEvidencePath: string | null = null; let compilerEvidenceError: string | null = null;
-	const compilerInspectedRevision = worktreeRevision(cwd, []);
+	const compilerInspectedRevision = worktreeRevision(cwd, [], p.scopeGlobs);
 	const eligibleForCompiler = disposition.delivered && tracking.writable && backendUsed === "native" && sameTaskNow();
 	if (eligibleForCompiler && observation?.skipped) {
 		compilerDiagnostics = incompleteObservation(`worktree observation unavailable: ${observation.reason ?? "unknown reason"}`, observation.concurrentWritableOverlap);
-	} else if (eligibleForCompiler && observation && observation.paths.some(path => /\.(?:ts|tsx|mts|cts)$/i.test(path))) {
+	} else if (eligibleForCompiler && observation && (observation.gaps?.length || observation.paths.some(path => /\.(?:ts|tsx|mts|cts)$/i.test(path)))) {
 		try {
-			compilerDiagnostics = await (d.diagnoseChangedTypeScript ?? diagnoseChangedTypeScript)(observation.paths, {
-				cwd,
-				attribution: observation.concurrentWritableOverlap ? "uncertain" : "no_observed_overlap",
-				cacheLane: key,
-				runId: result.dispatchId ?? randomUUID(),
-			});
+			compilerDiagnostics = await diagnoseObservation(d, observation, cwd, key, result.dispatchId ?? randomUUID());
 		} catch (error) {
 			compilerDiagnostics = incompleteObservation(`compiler diagnostics failed safely: ${String(error)}`, observation.concurrentWritableOverlap);
 		}
@@ -344,12 +369,12 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		}
 	}
 	const executionStatus = disposition.pending ? "pending" : disposition.delivered ? "completed" : "failed";
-	const afterRevision = worktreeRevision(cwd, []);
+	const afterRevision = worktreeRevision(cwd, [], p.scopeGlobs);
 	const changes = !tracking.writable || !observation
 		? { status: "unknown" as const, paths: [] as string[], attribution: "not_observed" as const }
 		: observation.skipped
 			? { status: "unknown" as const, paths: [] as string[], attribution: "not_observed" as const }
-			: { status: observation.paths.length ? "changed" as const : "unchanged" as const, paths: observation.paths, attribution: observation.concurrentWritableOverlap ? "uncertain" as const : "certain" as const };
+			: { status: observation.paths.length ? "changed" as const : "unchanged" as const, paths: observation.paths, attribution: observation.concurrentWritableOverlap || observation.gaps?.length ? "uncertain" as const : "certain" as const };
 	const checks: VerificationCheckInput[] = (compilerDiagnostics?.projects ?? []).map(project => ({
 		producer: "runtime", kind: "compilation", taskId: p.taskId, command: [...(project.argv ?? [])], exitCode: project.exitCode,
 		inspectedRevision: compilerInspectedRevision, evidenceRef: compilerEvidencePath ?? "",
@@ -555,6 +580,13 @@ export function createResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<Sp
 }
 
 function hasWriteCapability(tools: string): boolean { const set = new Set(String(tools || "").split(",").map(x => x.trim()).filter(Boolean)); return ["write", "edit", "bash"].some(x => set.has(x)); }
-function scopeNoticeText(v: any): string { if (!v) return ""; if (v.skipped) return `\n\n⚠ Scope gate skipped: ${v.reason || "not a git worktree"}.`; if (!v.outOfScope?.length) return ""; const overlap = v.concurrentWritableOverlap ? " Concurrent writable dispatches overlapped this run, so attribution is approximate." : ""; return `\n\n⚠ Scope advisory: changed outside declared scope: ${v.outOfScope.join(", ")}. Review these paths and decide whether to accept them or explicitly order cleanup; the hub did not revert anything.${overlap}`; }
+function scopeNoticeText(v: any): string {
+ if (!v) return "";
+ const gaps = v.gaps?.length ? `\n\n⚠ Git observation gaps: ${v.gaps.map((gap: { scope: string; reason: string }) => `${gap.scope}: ${gap.reason}`).join("; ")}. Other observed scopes remain available; coverage is incomplete.` : "";
+ if (v.skipped) return `\n\n⚠ Scope gate skipped: ${v.reason || "not a git worktree"}.${gaps}`;
+ if (!v.outOfScope?.length) return gaps;
+ const overlap = v.concurrentWritableOverlap ? " Concurrent writable dispatches overlapped this run, so attribution is approximate." : "";
+ return `${gaps}\n\n⚠ Scope advisory: changed outside declared scope: ${v.outOfScope.join(", ")}. Review these paths and decide whether to accept them or explicitly order cleanup; the hub did not revert anything.${overlap}`;
+}
 function structuredReturnDigest(parsed: any): string { if (!parsed) return ""; const lines = ["Structured return (parsed):"]; for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) { const entries = parsed[key] || []; if (!entries.length) continue; lines.push(`${key}:`); for (const entry of entries) { const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : ""; const reason = entry.reason ? ` — reason: ${entry.reason}` : ""; const note = entry.note || (entry.evidence ? "" : "(no note)"); lines.push(`- ${entry.id}${note ? `: ${note}` : ""}${evidence}${reason}`); } } for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) { const entries = parsed[key] || []; if (entries.length) lines.push(`${key}: ${entries.slice(0, 5).join("; ")}${entries.length > 5 ? " …" : ""}`); } return lines.join("\n"); }
 function contractNoticeText(notices: any[]): string { if (!notices?.length) return ""; const lines = ["⚠ Structured return contract notices:"]; const missing = notices.filter(n => n.type === "missing").map(n => n.id); const noStructured = notices.find(n => n.type === "no_structured_return"); if (noStructured) lines.push(`- no_structured_return: no parseable structured return for dispatched assertions ${(noStructured.ids || []).join(", ")} — treat all as unproven; full output is on disk.`); if (missing.length) lines.push(`- missing: return does not cover ${missing.join(", ")} — treat as unproven.`); for (const n of notices.filter(n => n.type === "proven_without_evidence")) lines.push(`- proven_without_evidence: ${n.id} claimed proven without named evidence — demoted to unproven.`); for (const n of notices.filter(n => n.type === "compiler_diagnostics")) lines.push(`- compiler_diagnostics: ${n.id} was claimed proven but a completed compiler check found an error in an observed changed file — demoted to unproven with original evidence retained.`); return lines.join("\n"); }

@@ -1,17 +1,78 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readlinkSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-export function snapshotWorktree(cwd) {
+export function snapshotWorktree(cwd, scopes = []) {
  const status = gitStatus(cwd);
- if (status.skipped) return { skipped: true, reason: status.reason, paths: new Set() };
+ if (status.skipped) return scopes.length ? snapshotNestedWorktrees(cwd, scopes) : { skipped: true, reason: status.reason, paths: new Set() };
  try {
   const fingerprints = new Map(status.paths.map(path => [path, fileFingerprint(cwd, path)]));
   let head = "";
   try { head = execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch {}
   return { skipped: false, paths: new Set(status.paths), fingerprints, head };
  } catch (error) { return { skipped: true, reason: String(error), paths: new Set() }; }
+}
+
+function within(root, path) {
+ const rel = relative(root, path);
+ return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
+}
+
+// Resolve only the literal anchor of a declared scope. Never enumerate children
+// to find repositories, and never accept Git's discovery above the workspace.
+function scopeRepository(cwd, scope) {
+ const workspace = realpathSync(cwd), absolute = resolve(workspace, normalizePath(scope));
+ if (!within(workspace, absolute)) throw new Error("Scope is outside the workspace");
+ const declared = relative(workspace, absolute), wildcard = declared.search(/[*?]/);
+ let anchor = wildcard < 0 ? absolute : resolve(workspace, dirname(declared.slice(0, wildcard) + "anchor"));
+ while (within(workspace, anchor)) {
+  try {
+   const stat = lstatSync(anchor);
+   if (stat.isDirectory() || stat.isSymbolicLink()) break;
+  } catch (error) { if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error; }
+  if (anchor === workspace) break;
+  anchor = dirname(anchor);
+ }
+ const physical = realpathSync(anchor);
+ if (!within(workspace, physical)) throw new Error("Scope anchor is outside the workspace");
+ const root = realpathSync(execFileSync("git", ["-C", physical, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim());
+ if (root === workspace || !within(workspace, root) || !within(root, absolute)) throw new Error("No declared repository inside the workspace");
+ return { root, prefix: relative(workspace, root).replace(/\\/g, "/"), localScope: relative(root, absolute).replace(/\\/g, "/") || "." };
+}
+
+// Nested observation records metadata only, without capturing file contents.
+// ctime also detects same-size writes or a dirty file restored to clean status.
+function metadataFingerprint(cwd, path) {
+ try {
+  const stat = lstatSync(join(cwd, path), { bigint: true });
+  return [stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs, stat.ino].join(":");
+ } catch (error) { if (error.code === "ENOENT") return "missing"; throw error; }
+}
+
+function snapshotNestedWorktrees(cwd, scopes) {
+ const groups = new Map(), gaps = [], repositories = [];
+ for (const scope of scopes) {
+  try {
+   const found = scopeRepository(cwd, scope);
+   if (!groups.has(found.root)) groups.set(found.root, { ...found, scopes: [], localScopes: [] });
+   groups.get(found.root).scopes.push(scope);
+   groups.get(found.root).localScopes.push(found.localScope);
+  } catch (error) { gaps.push({ scope, reason: String(error) }); }
+ }
+ for (const group of [...groups.values()].sort((a, b) => a.prefix.localeCompare(b.prefix))) {
+  try {
+   const status = gitStatus(group.root, group.localScopes);
+   if (status.skipped) throw new Error(status.reason);
+   const head = execFileSync("git", ["-C", group.root, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+   const paths = status.paths.filter(path => !isSessionOutput(path) && group.localScopes.some(scope => scope === "." || matchesScope(path, scope)));
+   repositories.push({ ...group, head, paths: new Set(paths), fingerprints: new Map(paths.map(path => [path, metadataFingerprint(group.root, path)])) });
+  } catch (error) { for (const scope of group.scopes) gaps.push({ scope, reason: String(error) }); }
+ }
+ const fingerprints = new Map(repositories.flatMap(repo => [...repo.fingerprints].map(([path, value]) => [`${repo.prefix}/${path}`, value])));
+ return { nested: true, scopes: [...scopes], repositories, gaps, skipped: repositories.length === 0,
+  reason: gaps.length ? "Declared scopes have incomplete Git observation" : undefined,
+  paths: new Set(fingerprints.keys()), fingerprints, head: JSON.stringify(repositories.map(repo => [repo.prefix, repo.head])) };
 }
 
 function fileFingerprint(cwd, path) {
@@ -23,17 +84,34 @@ function fileFingerprint(cwd, path) {
 }
 
 export function diffAgainst(snapshot, cwd) {
+ if (snapshot?.nested) {
+  const current = snapshotNestedWorktrees(cwd, snapshot.scopes), gaps = [...current.gaps], paths = [];
+  for (const repo of snapshot.repositories) {
+   const after = current.repositories.find(r => r.root === repo.root);
+   if (!after || repo.head !== after.head) {
+    for (const scope of repo.scopes) if (!gaps.some(g => g.scope === scope)) gaps.push({ scope, reason: "Repository disappeared or HEAD changed during observation" });
+    continue;
+   }
+   try { paths.push(...changedPaths(repo, after, path => metadataFingerprint(repo.root, path)).map(path => `${repo.prefix}/${path}`)); }
+   catch (error) { for (const scope of repo.scopes) gaps.push({ scope, reason: String(error) }); }
+  }
+  for (const repo of current.repositories) if (!snapshot.repositories.some(r => r.root === repo.root)) {
+   for (const scope of repo.scopes) gaps.push({ scope, reason: "Repository was not observed before execution" });
+  }
+  return { skipped: snapshot.skipped || current.skipped, reason: gaps.length ? "Declared scopes have incomplete Git observation" : undefined, paths: uniqueSorted(paths), gaps, repositories: current.repositories.map(({ root, prefix, head, scopes }) => ({ root, prefix, head, scopes })) };
+ }
  const current = snapshotWorktree(cwd);
  if (snapshot?.skipped || current.skipped || snapshot?.head !== current.head) {
   return { skipped: true, reason: snapshot?.reason || current.reason || "HEAD changed during observation; content attribution is incomplete", paths: [] };
  }
  try {
-  const paths = [...new Set([...snapshot.paths, ...current.paths])].filter(path => {
-   const before = snapshot.fingerprints.get(path);
-   return before === undefined || before !== (current.fingerprints.get(path) ?? fileFingerprint(cwd, path));
-  }).sort();
+  const paths = changedPaths(snapshot, current, path => fileFingerprint(cwd, path));
   return { skipped: false, paths };
  } catch (error) { return { skipped: true, reason: String(error), paths: [] }; }
+}
+
+function changedPaths(before, after, fingerprint) {
+ return [...new Set([...before.paths, ...after.paths])].filter(path => before.fingerprints.get(path) === undefined || before.fingerprints.get(path) !== (after.fingerprints.get(path) ?? fingerprint(path))).sort();
 }
 
 const isSessionOutput = path => path.startsWith(".pi/agent-sessions/");
@@ -58,10 +136,10 @@ export function reviewableChangedPaths(paths, cwd, sessionDir, scopes = [], deli
 }
 
 /** Runtime outputs are not input progress. Callers add explicitly supplied evidence separately. */
-export function worktreeRevision(cwd, scopes = []) {
- const snapshot = snapshotWorktree(cwd);
- if (snapshot.skipped) return "unavailable";
- const entries = [...snapshot.fingerprints].filter(([path]) => !isSessionOutput(path) && (!scopes.length || checkScope([path], scopes).inScope.length)).sort(([a], [b]) => a.localeCompare(b));
+export function worktreeRevision(cwd, scopes = [], declaredScopes = scopes) {
+ const snapshot = snapshotWorktree(cwd, declaredScopes);
+ if (snapshot.skipped || snapshot.gaps?.length) return "unavailable";
+ const entries = [...snapshot.fingerprints].filter(([path]) => !isSessionOutput(path) && (snapshot.nested || !scopes.length || checkScope([path], scopes).inScope.length)).sort(([a], [b]) => a.localeCompare(b));
  return createHash("sha256").update(JSON.stringify([snapshot.head, entries])).digest("hex");
 }
 
@@ -78,9 +156,10 @@ export function checkScope(changedPaths, scopeGlobs) {
 	return { inScope: uniqueSorted(inScope), outOfScope: uniqueSorted(outOfScope) };
 }
 
-function gitStatus(cwd) {
+function gitStatus(cwd, scopes = []) {
 	try {
-		const output = execFileSync("git", ["-C", cwd, "status", "--porcelain", "-z", "--untracked-files=all"], {
+		const pathspecs = scopes.map(scope => scope === "." ? ":(top,glob)**" : `:(top,${hasGlob(scope) ? "glob" : "literal"})${scope}`);
+		const output = execFileSync("git", ["-C", cwd, "status", "--porcelain", "-z", "--untracked-files=all", ...(pathspecs.length ? ["--", ...pathspecs] : [])], {
 			encoding: "utf-8",
 			stdio: ["ignore", "pipe", "pipe"],
 		});
