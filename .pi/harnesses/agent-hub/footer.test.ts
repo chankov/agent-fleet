@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { composeFleetFooterHint, composeHubFooterLeft, renderHubFooterLeft } from "./footer.ts";
+import { HARNESS_VERSION } from "./version.ts";
 
 // The literal OSC 8 sequence the footer must emit — spelled out rather than
 // rebuilt from linkify(), so a change to the link format fails here.
@@ -37,4 +38,13 @@ test("hub footer dims the prepended version and model metadata", () => {
 		`<dim> ${LINKED} v1.2.3 · gpt-5.5 (xh)</dim>`,
 	);
 	assert.deepEqual(calls, [["dim", ` ${LINKED} v1.2.3 · gpt-5.5 (xh)`]]);
+});
+
+test("provider-qualified footer preserves model segments, thinking, version link and dim styling", () => {
+	const version = HARNESS_VERSION ?? "unknown";
+	for (const model of ["openai-codex/gpt-6.1-sol", "openrouter/anthropic/claude-sonnet-4.5"]) {
+		assert.equal(composeHubFooterLeft(version, model, " (med)"), `${LINKED} v${version} · ${model} (med)`);
+		assert.equal(renderHubFooterLeft({ fg: (color, text) => `<${color}>${text}</${color}>` }, version, model, " (med)"), `<dim> ${LINKED} v${version} · ${model} (med)</dim>`);
+		assert.equal(composeHubFooterLeft(version, model, ""), `${LINKED} v${version} · ${model}`);
+	}
 });

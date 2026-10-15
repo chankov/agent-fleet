@@ -2595,7 +2595,7 @@ export default function (pi: ExtensionAPI) {
 			_ctx.ui.setFooter(createSessionFooter({
 				ctx: _ctx,
 				version: HARNESS_VERSION ?? "unknown",
-				getModel: () => _ctx.model?.id || "no-model",
+				getModel: () => _ctx.model ? `${_ctx.model.provider}/${_ctx.model.id}` : "no-model",
 				getThinkingLevel: () => pi.getThinkingLevel?.() ?? undefined,
 				thinkingSuffix,
 				getHint: () => composeFleetFooterHint(compactWorkMode(getWorkMode())),
