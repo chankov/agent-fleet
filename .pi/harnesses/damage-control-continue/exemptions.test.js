@@ -336,3 +336,33 @@ test("version status persists while continue safety status changes", async () =>
 	assert.equal(continued.state.statuses.get(versionKey), version);
 	assert.match(continued.state.statuses.get("damage-control"), /Damage-Control \(continue\): \d+ Rules$/);
 });
+test('continue: policy change during baseline dialog invalidates old Allow once before semantic guard',async()=>{
+ const cwd=fixtureCwd(),{pi,handlers}=fakePi();continueExt(pi);let entered,finish;const ready=new Promise(r=>entered=r);
+ const {ctx}=fakeCtx(cwd,{hasUI:true,select:async()=>{entered();return new Promise(r=>finish=r);}});
+ for(const h of handlers.session_start)await h({type:'session_start'},ctx);
+ const event={type:'tool_call',toolName:'bash',toolCallId:'baseline-wait',input:{command:'cat .env'}},pending=handlers.tool_call[0](event,ctx);
+ await ready;
+ writeFileSync(join(cwd,'.pi','damage-control-rules.yaml'),RULES_YAML.replace("pattern: '\\brm\\s+-[rRf]'","pattern: '\\bcat\\b'"));
+ for(const h of handlers.session_start)await h({type:'session_start'},ctx);
+ finish('Allow once');assert.equal((await pending).block,true);
+ assert.equal((await handlers.tool_call[0](event,ctx)).block,true);rmSync(cwd,{recursive:true,force:true});
+});
+// User-authorized synthetic protected-path data only; no protected file is read or written.
+for(const outcome of ['not-severe','unavailable','throw','held'])test(`continue: real exemption revocation during D6 ${outcome} blocks old and fresh calls`,async()=>{
+ const {createDamageGuard}=await import('./system1-guard.ts');
+ const {createDamageState}=await import('../agent-hub/damage-guard-state.ts');
+ const {parseDamageGuardConfig}=await import('../lib/system1/config-damage-guard.js');
+ const {registerDamageGuard}=await import('../lib/damage-guard-port.ts');
+ const cwd=fixtureCwd();let entered,finish,fail;const ready=new Promise(r=>entered=r);
+ const guard=createDamageGuard({root:cwd,config:parseDamageGuardConfig({mode:'active',remoteScopes:{commands:true},include:['docs']}),state:createDamageState(()=>{}),binding:()=>({taskId:'task',inputRevision:'rev',owner:'hub',attempt:'attempt'}),canRead:()=>true,approve:async()=>true,service:{evaluate:async()=>{entered();return new Promise((resolve,reject)=>{finish=resolve;fail=reject;});}}});
+ const revoke=registerDamageGuard(guard);
+ try{
+  const h=await boot(continueExt,cwd);await h.commands['af-allow'].handler('.env turn',h.ctx);
+  const event={type:'tool_call',toolName:'bash',toolCallId:'revoked-exemption',input:{command:'cat .env'}},pending=h.toolCall(event);
+  await ready;await h.commands['af-revoke'].handler('.env',h.ctx);
+  if(outcome==='throw')fail(Error('offline provider failure'));
+  else if(outcome==='unavailable')finish({status:'unavailable',reason:'network'});
+  else finish({status:'ok',evaluation:{answers:[{questionId:'effect',type:'choice',value:outcome==='held'?'severe':'not_severe',uncertainty:{provenance:'provider'}},{questionId:'evidence',type:'choice',value:'sufficient',uncertainty:{provenance:'provider'}}],metadata:{provider:'typesafe',requestedModel:'jev-1.13.0',returnedModel:'jev-1.13.0',questionSetVersion:'damage-guard/v1',latencyMs:1,attempts:1}}});
+  assert.equal((await pending).block,true);assert.equal((await h.toolCall({...event,toolCallId:'fresh'})).block,true);
+ }finally{guard.dispose();revoke();rmSync(cwd,{recursive:true,force:true});}
+});

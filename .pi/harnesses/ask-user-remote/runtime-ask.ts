@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import {sharedApprovalWait} from '../agent-hub/approval-wait.ts';
 
 export interface RuntimeQuestion {
 	question: string;
@@ -56,6 +57,11 @@ export function registerRuntimeAsk(bus: RuntimeAskBus, execute: ExecuteAsk): () 
 
 /** Missing wrapper falls back to an explicit local dialog, never to model prose. */
 export async function requestRuntimeAsk(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal?: AbortSignal): Promise<unknown> {
+ validateSingleDecision(id,params);
+ const result=await sharedApprovalWait.run(waitSignal=>requestRuntimeAskUnqueued(bus,id,params,ctx,waitSignal),signal);
+ return result??correlateResult(id,{details:{cancelled:true}});
+}
+async function requestRuntimeAskUnqueued(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal?: AbortSignal): Promise<unknown> {
 	validateSingleDecision(id, params);
 	if (signal?.aborted) return correlateResult(id, { details: { cancelled: true } });
 	const request: Request = { id, params, ctx, signal };

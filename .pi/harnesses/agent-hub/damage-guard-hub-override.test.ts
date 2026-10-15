@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createDamageHubSession} from './damage-guard-hub.ts';
+import {normalizeSystem1Config} from '../lib/system1/config-v2.js';
+const document={version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{damageGuard:{mode:'active',remoteScopes:{commands:true},include:['docs']}}};
+const severe=()=>({status:'ok' as const,evaluation:{answers:[{questionId:'effect',type:'choice' as const,value:'severe',uncertainty:{provenance:'provider' as const}},{questionId:'evidence',type:'choice' as const,value:'sufficient',uncertainty:{provenance:'provider' as const}}],metadata:{provider:'typesafe',requestedModel:'jev-1.13.0',returnedModel:'jev-1.13.0',questionSetVersion:'damage-guard/v1',latencyMs:1,attempts:1}}});
+const event={toolName:'bash',toolCallId:'first',input:{command:'echo hello'}},ctx={cwd:process.cwd(),revalidateBaseline:()=>true};
+test('human arming permits only one fresh exact dialog; off, replay and resume retain the denial',async()=>{
+ const rows:any[]=[],append=(customType:string,data:unknown)=>rows.push({customType,data});let asks=0;
+ const options={root:process.cwd(),taskId:()=> 'task',append,entries:()=>rows,canRead:()=>true,selected:true};
+ const initial=createDamageHubSession({...options,snapshot:normalizeSystem1Config(document),service:{evaluate:async()=>severe()},ask:async id=>({details:{runtimeAsk:{requestId:id},response:{kind:'selection',selections:['Deny']}}})});
+ initial.accept('input');assert.equal((await initial.call(event,ctx)).block,true);initial.dispose();
+ const resumed=createDamageHubSession({...options,snapshot:normalizeSystem1Config({...document,mode:'off'}),ask:async id=>{asks++;return {details:{runtimeAsk:{requestId:id},response:{kind:'selection',selections:['Allow once']}}};}});
+ assert.equal((await resumed.call({...event,toolCallId:'retry'},ctx)).block,true);assert.equal(asks,0);
+ assert.equal(resumed.armOverride('retry'),true);
+ assert.equal((await resumed.call({...event,toolCallId:'retry'},ctx)).block,false);assert.equal(asks,1);
+ assert.equal((await resumed.call({...event,toolCallId:'third'},ctx)).block,true);assert.equal(asks,1);
+ assert.equal(resumed.armOverride('third'),true);resumed.accept('input');assert.equal((await resumed.call({...event,toolCallId:'fourth'},ctx)).block,true);assert.equal(asks,1);resumed.dispose();
+ const again=createDamageHubSession({...options,snapshot:normalizeSystem1Config({...document,mode:'off'}),ask:async()=>{throw Error('unarmed must not ask');}});
+ assert.equal((await again.call({...event,toolCallId:'after-resume'},ctx)).block,true);again.dispose();
+});
+test('a failed deny write is backed by a durable pre-dialog fence across off resume',async()=>{
+ const rows:any[]=[],append=(customType:string,data:any)=>{if(data.decision==='deny')throw Error('offline disk fixture');rows.push({customType,data});};
+ const options={root:process.cwd(),taskId:()=> 'task',append,entries:()=>rows,canRead:()=>true,selected:true};
+ const initial=createDamageHubSession({...options,snapshot:normalizeSystem1Config(document),service:{evaluate:async()=>severe()},ask:async id=>({details:{runtimeAsk:{requestId:id},response:{kind:'selection',selections:['Deny']}}})});
+ initial.accept('input');assert.equal((await initial.call(event,ctx)).block,true);assert.ok(rows.some(row=>row.data.decision==='hold'));initial.dispose();
+ let asks=0;const resumed=createDamageHubSession({...options,snapshot:normalizeSystem1Config({...document,mode:'off'}),ask:async()=>{asks++;throw Error('no matching human permission');}});
+ assert.equal((await resumed.call({...event,toolCallId:'retry'},ctx)).block,true);assert.equal(asks,0);
+ assert.equal(resumed.armOverride('retry'),true);assert.equal((await resumed.call({...event,toolCallId:'fresh'},ctx)).block,true);assert.equal(asks,1);resumed.dispose();
+});

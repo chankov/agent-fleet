@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DAMAGE_GUARD_VERSION, damageRequestMetadata, damageResponseMetadata } from './damage-guard-contract.ts';
 import { CONTEXT_COMPACTION_QUESTION_VERSION, contextRequestMetadata, contextResponseMetadata } from "./context-compaction.ts";
 import type { EvaluateRequest, System1Result, System1Service } from "../lib/system1/contracts.ts";
 import { TASK_TRIAGE_QUESTIONS, TASK_TRIAGE_QUESTION_VERSION, TASK_TRIAGE_STATE_VERSION } from "./task-triage-contract.ts";
@@ -148,6 +149,16 @@ export function createCommunicationStore(limits = COMMUNICATION_LIMITS, now = Da
   wrap(service: System1Service, identity: { provider: string; model: string }): System1Service {
    const ownerEpoch = sessionEpoch;
    return { async evaluate(request) {
+    if(request.questionSetVersion===DAMAGE_GUARD_VERSION) {
+     const epoch=generation;let id:string|undefined;
+     if(enabled && ownerEpoch===sessionEpoch) {
+      const metadata=damageRequestMetadata(request);id=randomUUID();
+      pairs.set(id,{id,consumer:'damageGuard',owner:metadata.owner,provider:identity.provider==='typesafe'?'typesafe':'unknown',model:identity.model==='jev-1.13.0'?'jev-1.13.0':'unknown',started:now(),status:'pending',request:JSON.stringify(metadata),response:null});trim();emit();
+     }
+     const finish=(metadata:ReturnType<typeof damageResponseMetadata>)=>{if(id&&enabled&&epoch===generation&&ownerEpoch===sessionEpoch&&pairs.has(id)){Object.assign(pairs.get(id)!,{response:JSON.stringify(metadata),status:metadata.status,ended:now()});trim();emit();}};
+     try {const result=await service.evaluate(request);finish(damageResponseMetadata(result,damageRequestMetadata(request).scope));return result;}
+     catch(error){finish(damageResponseMetadata({status:'unavailable',reason:'network'}));throw error;}
+    }
     if(request.questionSetVersion===CONTEXT_COMPACTION_QUESTION_VERSION) {
      const epoch=generation;let id:string|undefined;
      if(enabled && ownerEpoch===sessionEpoch) {

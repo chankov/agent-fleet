@@ -156,6 +156,11 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 	}
 	state.driftFence = drift.fence;
 	const spawnOptions: SpawnPiAgentOptions = {
+  damageRegistration:run.damageRegistration?{
+   tools:run.damageRegistration.tools,
+   validate:()=>run.nativeAdmitted(),
+   open:physical=>run.damageRegistration!.open(physical),
+  }:undefined,
   discoveryRegistration:run.discoveryContext?.registration?{...run.discoveryContext.registration,admit:run.discoveryAdmitted}:undefined,
         runtimeTestObserver: extensions.some(path => path.endsWith("/runtime-test-check.ts")),
 		model,
@@ -169,10 +174,17 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		sessionFile: agentSessionFile,
 		resume: run.resumeAllowed,
 		prompt: runPrompt,
-		cwd: ctx.cwd || process.cwd(),
+		cwd: run.admittedCwd,
 		extensions,
 		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}) },
-		attemptLifecycle: drift.attemptLifecycle,
+		attemptLifecycle: {
+   ...drift.attemptLifecycle,
+   beforePhysicalSpawn: info=>{
+    const attempt=drift.attemptLifecycle.beforePhysicalSpawn(info);
+    if(!run.nativeAdmitted())throw Error('native_physical_admission_changed');
+    return attempt;
+   },
+  },
 		...(delegateEnv?.AGENT_FLEET_BOUNDED_OUTPUT_DIR ? { boundedOutputDir: delegateEnv.AGENT_FLEET_BOUNDED_OUTPUT_DIR } : {}),
 		detached: true,
 		...(RESEARCHER_PERSONAS.has(personaKey) ? { toolWatchdog: { timeoutMs: deps.getReconSearchTimeoutMs() } } : {}),
@@ -184,7 +196,7 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 	let sessionReset = run.sessionReset;
 	try {
 	const res = await deps.providerSemaphore.run(model, async () => {
-  if(run.discoveryAdmitted?.()===false)return {output:'Native admission changed while queued; no child started.',stderr:'',exitCode:143,modelUsed:model,toolCallsStarted:0,lifecycle:{launched:false,closeSeen:false}};
+  if(!run.nativeAdmitted())return {output:'Native admission changed while queued; no child started.',stderr:'',exitCode:143,modelUsed:model,toolCallsStarted:0,lifecycle:{launched:false,closeSeen:false}};
 		let result = await deps.spawnPiAgentWithModelFallback(spawnOptions, originalModelFallback, callbacks);
 		if (!result.spawnError && isCorruptSessionExit({ code: result.exitCode, output: result.output, stderr: result.stderr })) {
 			const quarantine = forceQuarantineSession(agentSessionFile, deps.getSessionHealthIo());
@@ -197,6 +209,10 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 				quarantined: quarantine.quarantined,
 				retried: quarantine.ok,
 			};
+			if (quarantine.ok && !run.nativeAdmitted()) {
+    sessionReset.retried=false;
+    return {output:'Native admission changed before clean retry; no child started.',stderr:'',exitCode:143,modelUsed:model,toolCallsStarted:0,lifecycle:{launched:false,closeSeen:false}};
+   }
 			if (quarantine.ok) {
 				ctx.ui.notify(`${deps.displayName(state.def.name)}: pi rejected the session file — quarantined, retrying once from a clean session`, "warning");
 				result = await deps.spawnPiAgentWithModelFallback({ ...spawnOptions, resume: false }, originalModelFallback, callbacks);

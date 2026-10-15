@@ -30,6 +30,7 @@ const line = JSON.stringify({
   otherPresent: process.env.${OTHER} != null,
   extraPresent: process.env.${EXTRA} != null,
   model,
+  d6Absent: !Object.keys(process.env).some(key => key.startsWith('AF_D6')),
 });
 if (report) fs.writeFileSync(report, line);
 if (process.env.ENV_REPORT_LOG) fs.appendFileSync(process.env.ENV_REPORT_LOG, line + '\\n');
@@ -91,6 +92,25 @@ test("A4 final merged env drops only TYPESAFE_API_KEY and does not mutate the pa
 		restoreEnv(previous);
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+test("F4 inherited and override AF_D6 assignments are stripped without parent mutation", async () => {
+ const dir = mkdtempSync(join(tmpdir(), 'd6-env-'));
+ const previous = process.env.AF_D6_ASSIGNMENT;
+ process.env.AF_D6_ASSIGNMENT = 'forged-parent';
+ try {
+  writeFakePi(dir);
+  const base = { AF_D6_ASSIGNMENT: 'forged', AF_D6_UNKNOWN: 'forged', AF_D60: 'forged', AF_D7_UNKNOWN: 'forged', AF_D9_UNKNOWN: 'forged', TYPESAFE_API_KEY: 'forged', KEEP: 'yes' };
+  const merged = nativeChildEnv(base, { AF_D6_OVERRIDE: 'forged' });
+  assert.deepEqual(merged, { KEEP: 'yes' });
+  assert.equal(base.AF_D6_ASSIGNMENT === 'forged', true);
+  const child = await launch(dir, { env: { AF_D6_ASSIGNMENT: 'forged-override', AF_D6_UNKNOWN: 'forged' } });
+  assert.equal(child.body.d6Absent, true);
+  assert.equal(process.env.AF_D6_ASSIGNMENT === 'forged-parent', true);
+ } finally {
+  if (previous === undefined) delete process.env.AF_D6_ASSIGNMENT; else process.env.AF_D6_ASSIGNMENT = previous;
+  rmSync(dir, { recursive: true, force: true });
+ }
 });
 
 test("MI-9 published write isolation does not carry the merged child env", async () => {

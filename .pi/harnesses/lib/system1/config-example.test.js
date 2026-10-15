@@ -19,6 +19,7 @@ test('published System1 example covers every schema consumer and is inert withou
  assert.deepEqual(example.consumers.taskTriage.limits,TASK_TRIAGE_LIMITS);
  for(const name of ['dispatchTriage','taskTriage','agenticAsk','fileDiscovery','contextCompaction'])assert.equal(example.consumers[name].remoteContextApproved,false);
  assert.equal(example.consumers.fileDiscovery.semanticReads.mode,'off');
+ assert.deepEqual(example.consumers.damageGuard.remoteScopes,{commands:false,edits:false,results:false});
  const walk=value=>{if(!value || typeof value!=='object')return;for(const [key,item] of Object.entries(value)){assert.ok(!/^(?:apiKey|token|password|secret|credential|approved|evidence)$/i.test(key),key);walk(item);}};
  walk(example);
 });
@@ -32,6 +33,7 @@ test('documented opt-in edits validate without fabricating dispatch profiles or 
  Object.assign(example.consumers.agenticAsk,{mode:'recommended',remoteContextApproved:true});
  Object.assign(example.consumers.fileDiscovery,{mode:'active',remoteContextApproved:true});example.consumers.fileDiscovery.semanticReads.mode='active';
  Object.assign(example.consumers.contextCompaction,{mode:'automatic',remoteContextApproved:true});
+ Object.assign(example.consumers.damageGuard,{mode:'active',remoteScopes:{commands:true,edits:true,results:true}});
  const normalized=normalizeSystem1Config(example);assert.deepEqual(normalized.errors,[]);assert.equal(normalized.status,'ready');
  for(const name of CONSUMERS)assert.equal(normalized.consumers[name].status,'ready',name);
 });

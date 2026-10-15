@@ -41,8 +41,22 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 	inputArtifacts: InputArtifactPreview[] = [], signal?: AbortSignal, admission?:ResearchAdmission,
 ): Promise<ResearchResult> {
 	const startTime = Date.now();
- const launchIdentity=deps.launchIdentity?.(), sessionDir=deps.hubState.getSessionDir(), admittedTools=state.def.tools;
- const admitted=()=>state.def.tools===admittedTools&&!signal?.aborted&&!state.killedByOperator&&deps.getResearchStates().get(state.id)===state&&sessionDir===deps.hubState.getSessionDir()&&launchIdentity===deps.launchIdentity?.()&&deps.researchAdmission?.()!==false&&admission?.admit?.()!==false;
+ const launchIdentity = deps.launchIdentity?.(), sessionDir = deps.hubState.getSessionDir();
+ const ownerId = state.dispatchId, sessionPath = state.sessionPath, cwd = ctx.cwd || process.cwd();
+ const admittedTools = state.def.tools, toolsExplicit = state.def.toolsExplicit, toolCap = deps.researchTools;
+ const readScope = Object.freeze([...(admission?.readScope ?? [])]);
+ const admitted = () => {
+  try {
+   const currentScope = admission?.readScope ?? [];
+   return state.dispatchId === ownerId && state.sessionPath === sessionPath &&
+    (ctx.cwd || process.cwd()) === cwd && state.def.tools === admittedTools &&
+    state.def.toolsExplicit === toolsExplicit && deps.researchTools === toolCap &&
+    currentScope.length === readScope.length && currentScope.every((path, i) => path === readScope[i]) &&
+    !signal?.aborted && !state.killedByOperator && deps.getResearchStates().get(state.id) === state &&
+    sessionDir === deps.hubState.getSessionDir() && launchIdentity === deps.launchIdentity?.() &&
+    deps.researchAdmission?.() !== false && admission?.admit?.() !== false;
+  } catch { return false; }
+ };
 	let result: ResearchResult | undefined;
 	let diagnostics: object | null = null;
 	let spawnAttempted = false;
@@ -53,7 +67,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		state.elapsed = settled.elapsed;
 		deps.finalize(state, { status, historyStatus, lastWork });
 		deps.flushTimelineStore(state);
-		result = finishExecutionEvidence(state.evidenceDir, { ...settled, dispatchId: state.dispatchId, transcriptPath, sessionPath: state.sessionPath, diagnostics });
+		result = finishExecutionEvidence(state.evidenceDir, { ...settled, dispatchId: ownerId, transcriptPath, sessionPath: state.sessionPath, diagnostics });
 		return result;
 	};
 
@@ -61,6 +75,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 	beginExecutionEvidence(dirname(dirname(state.evidenceDir)), state.dispatchId, { task: prompt, agent: state.def.name, modelRequested: state.model }, inputArtifacts);
 		if (!state.histEntry) state.histEntry = deps.executionHistory.start("research", `Research r${state.id}`);
 
+  if (!admitted()) return settle('error', 'error', 'Research admission cancelled', { output: 'Research cancelled or admission changed; no child started.', exitCode: 143, elapsed: 0, lifecycle: { launched: false, closeSeen: false } });
 		const safety = deps.requireSafetyHarness(deps.getSafetyHarnessPath());
 		// T3: safety refusal never launched a process — distinct from spawn failure and timeout.
 		if (!safety.ok) return settle("error", "error", safety.error, { output: safety.error, exitCode: 1, elapsed: 0, lifecycle: { launched: false, closeSeen: false } });
@@ -71,7 +86,6 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		state.messageCount = 0;
 		state.elapsed = 0;
 		state.lastWork = "";
-		state.killedByOperator = false;
 		deps.flushTimelineStore(state);
 		state.timeline = [];
 		state.transcriptStore = deps.createTranscriptStore(transcriptPath);
@@ -82,7 +96,6 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 		}, 1000);
 		const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 		const wantThinking = thinkingLevel !== "off";
-		const sessionPath = state.sessionPath;
 		const researchWindow = resolveContextWindow(state.model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
 		const fallbackCandidate = profileFallback(deps.substitutedModel(deps.fallbackModelFor(state.def, state.model)));
 		const fallback = fallbackCandidate === state.model ? undefined : fallbackCandidate;
@@ -91,20 +104,34 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 
 		const assist = resolveAssist(readActiveProfile()?.profile.assist);
 		const boundedOutput = assist['bounded-output'];
-		const declaredTools = state.def.tools.split(",").map(tool => tool.trim()).filter(Boolean);
-		const deterministicTools = assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
+		const declaredTools = admittedTools.split(",").map(tool => tool.trim()).filter(Boolean);
+		const deterministicTools = assist['deterministic-tools'] && (toolsExplicit !== true || declaredTools.includes("filesystem"));
 		const boundedOutputDir = safePathWithin(state.evidenceDir, "bounded-output");
-		const cappedTools=state.def.toolsExplicit===true?deps.researchTools.split(',').filter(t=>declaredTools.includes(t)).join(','):deps.researchTools;
+		const cappedTools=toolsExplicit===true?toolCap.split(',').filter(t=>declaredTools.includes(t)).join(','):toolCap;
   const researchTools = deterministicTools && !cappedTools.split(",").includes("filesystem") ? `${cappedTools},filesystem` : cappedTools;
-		const cwd = ctx.cwd || process.cwd();
+  const tools = Object.freeze(researchTools.split(',').filter(Boolean));
   if(!admitted())return settle('error','error','Research admission cancelled',{output:'Research cancelled or admission changed before manifest; no child started.',exitCode:143,elapsed:Date.now()-startTime,lifecycle:{launched:false,closeSeen:false}});
-  const discovery=await deps.prepareDiscovery?.({ownerId:state.dispatchId,task:prompt,query:prompt,scope:admission?.readScope??[],tools:researchTools.split(','),cwd,signal});
-  if(!admitted()||discovery?.current()===false)return settle('error','error','Research admission changed',{output:'Research cancelled or admission changed after manifest; no child started.',exitCode:143,elapsed:Date.now()-startTime,lifecycle:{launched:false,closeSeen:false}});
+  const discovery=await deps.prepareDiscovery?.(Object.freeze({ownerId,task:prompt,query:prompt,scope:readScope,tools,cwd,signal}));
+  const discoveryAdmitted = () => {
+   try { return admitted() && discovery?.current() !== false; } catch { return false; }
+  };
+  if (!discoveryAdmitted()) throw Error('Research admission changed after manifest; no child started.');
+  const damage = await deps.prepareDamageGuard?.(Object.freeze({ ownerId, cwd, tools, readScope, signal, admit: discoveryAdmitted }));
+  const launchAdmitted = () => {
+   try { return discoveryAdmitted() && (!damage || damage.validate() === true); } catch { return false; }
+  };
+  if (!launchAdmitted()) throw Error('Research admission changed after damage preparation; no child started.');
 		const res = await deps.providerSemaphore.run(state.model, () => {
-   if(!admitted()||discovery?.current()===false)throw Error('Research admission changed while queued; no child started.');
+   if(!launchAdmitted())throw Error('Research admission changed while queued; no child started.');
    spawnAttempted = true;
    return deps.spawnPiAgentWithModelFallback({
-   discoveryRegistration:discovery?.registration?{...discovery.registration,admit:()=>admitted()&&discovery.current()}:undefined,
+   discoveryRegistration:discovery?.registration?{...discovery.registration,admit:launchAdmitted}:undefined,
+   damageRegistration: damage ? { tools: damage.tools, validate: launchAdmitted, open: physical => damage.open(physical) } : undefined,
+   // Read-only launches do not open D6 leases, so every physical attempt needs its own fence.
+   attemptLifecycle: {
+    beforePhysicalSpawn() { if (!launchAdmitted()) throw Error('Research physical admission changed; no child started.'); },
+    afterPhysicalSpawn() {},
+   },
 			model: state.model, tools: researchTools, thinking: thinkingLevel,
 			systemPrompt: deps.nativeResearchSystemPrompt({
 				...(state.persona ? { personaName: state.def.name, personaPath: state.def.file } : {}),
@@ -113,7 +140,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 				docsPaths: deps.getProjectDocsPaths(),
 			}),
 			noSkills: true, noContextFiles: true, sessionFile: sessionPath, resume: false,
-			prompt: appendDiscoveryContext(deps.artifacts.appendInputArtifacts(prompt, inputArtifacts),discovery), cwd: ctx.cwd || process.cwd(),
+			prompt: appendDiscoveryContext(deps.artifacts.appendInputArtifacts(prompt, inputArtifacts),discovery), cwd,
 			extensions: [...safety.extensions, ...(boundedOutput ? [fileURLToPath(new URL("../bounded-output.ts", import.meta.url))] : []), ...(deterministicTools ? [fileURLToPath(new URL("../filesystem-tool.ts", import.meta.url))] : [])],
 			env: { ...deps.guardrailEnv(`research-r${state.id}`), ...(boundedOutput ? { [BOUNDED_OUTPUT_DIR_ENV]: boundedOutputDir } : {}), ...(deterministicTools ? { [FILESYSTEM_SESSION_DIR_ENV]: dirname(dirname(state.evidenceDir)) } : {}) },
 			...(boundedOutput ? { boundedOutputDir } : {}),

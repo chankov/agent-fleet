@@ -6,10 +6,14 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { createDispatchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt, validateDispatchAgent } from "./dispatch-execution.ts";
-import { applyProcessClassification, createProcessState, noteProcessStage, processPreEffectGate, evaluateProcessObligations } from "../process-obligations.ts";
-import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
+import { applyProcessClassification, createProcessState, noteProcessStage, processPreEffectGate, evaluateProcessObligations, processAuditRecord, latestProcessState, normalizeProcessState } from "../process-obligations.ts";
+import { adoptTaskTriageState, applyTaskTriageAdditions } from "../task-triage-obligations.ts";
+import { createActionExecutors } from "./action-executors.ts";
+import { createTaskTriageRuntime } from "../task-triage-runtime.ts";
+import { TASK_TRIAGE_QUESTIONS, TASK_TRIAGE_QUESTION_VERSION } from "../task-triage-contract.ts";
 import { worktreeRevision } from "../scope-gate.js";
 import { extractAskUserQuestions } from "../presentation.ts";
+import { activeOrchestrationHandoff } from "../orchestration-activation.ts";
 
 function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?: number; tools?: string } = {}) {
 	let turn = overrides.turn ?? 0;
@@ -1123,6 +1127,89 @@ test("T11 unknown risk still allows research and still refuses changed-task acce
  assert.equal((changed.details as any).processVerdict.obligations.risk.status, "open");
 });
 
+function planningGateDeps(bound = true) {
+ const d = prepareDeps({ agents: ["planner", "builder"] });
+ let state = applyProcessClassification(createProcessState(), { scope: "wide", risk: "high", reason: "planning gate regression" }).state;
+ if (bound) state = noteProcessStage(state, "plan", { evidenceRef: "plan:bound", revision: "input" });
+ d.state.getProcessState = () => state;
+ d.state.setProcessState = (value: any) => { state = value; };
+ return d;
+}
+
+for (const task of [
+ "Do not read secrets or credentials; no cloud or AWS operations",
+ "DO NOT READ SECRETS OR CREDENTIALS; NO CLOUD OR AWS OPERATIONS!",
+ "- Do not read secrets or credentials.\n* No cloud or AWS operations.",
+ "Implement the local routing repair",
+]) test(`planning-gate: bound wide/high plan permits negative-only or plain task: ${task}`, async () => {
+ const d = planningGateDeps(); let runs = 0;
+ d.dispatchAgent = async () => { runs++; return { output: "local work complete", exitCode: 0, elapsed: 1 }; };
+ const result = await createDispatchExecutor(d as any)("build", { agent: "builder", task }, undefined, undefined, { cwd: tmpdir() } as any);
+ assert.equal(runs, 1);
+ assert.equal((result.details as any).exitCode, 0);
+ assert.notEqual((result.details as any).status, "planner_required");
+});
+
+for (const task of [
+ "Read secrets", "Rotate the credential", "Perform cloud operations", "Use AWS",
+ "Small change: read secrets",
+ "Do not expose credentials; rotate the cloud credential",
+ "Do not read secrets and rotate the cloud credential",
+ "No cloud operations, read credentials instead",
+ "Do not avoid reading secrets", "Not no cloud operations", "No need to avoid AWS",
+ "Do not read secrets unless needed", "Avoid credentials", "No secrets?",
+]) test(`planning-gate: affirmative or ambiguous sensitive intent retains planner: ${task}`, () => {
+ for (const classification of ["bound-high", "small-low"] as const) {
+  const d = classification === "bound-high" ? planningGateDeps() : prepareDeps();
+  if (classification === "small-low") d.state.setProcessState(noteProcessStage(d.state.getProcessState(), "plan", { evidenceRef: "plan:bound", revision: "input" }));
+  const result = prepareDispatch(d as any, { agent: "builder", task }, { cwd: tmpdir() } as any) as any;
+  assert.equal(result.details.status, "planner_required", classification);
+  assert.equal(d._task(), 0);
+ }
+});
+
+test("planning-gate: negative directives do not waive missing plan or open process obligations", () => {
+ for (const highRisk of [true, false]) {
+  const d = planningGateDeps(false);
+  if (!highRisk) d.state.setProcessState(applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" }));
+  const result = prepareDispatch(d as any, { agent: "builder", task: "Do not read secrets; no AWS operations" }, { cwd: tmpdir() } as any) as any;
+  assert.equal(result.details.status, highRisk ? "planner_required" : "process_plan_open");
+  assert.equal(d._task(), 0);
+ }
+});
+
+test("planning-gate: handoff shares conservative signals without weakening general route policy", () => {
+ const handoff = (task: string, risk: "low" | "high" = "low", scopeBreadth: "narrow" | "wide" = "narrow") => activeOrchestrationHandoff({ agent: "builder", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk, scopeBreadth, sharedCode: false });
+ assert.deepEqual(handoff("Do not read secrets or credentials; no cloud or AWS operations").route.stages, ["builder", "reviewer"]);
+ for (const task of ["Read secrets", "Do not expose credentials; rotate the cloud credential", "Do not avoid secrets", "No cloud operations and use AWS"]) assert.equal(handoff(task).route.stages[0], "planner");
+ assert.equal(handoff("Do not read secrets", "high", "wide").route.stages[0], "planner");
+});
+
+test("planning-gate: real planner readback binds only a delivered plan before builder", async t => {
+ for (const scenario of ["delivered", "missing", "refused"] as const) {
+  const cwd = mkdtempSync(join(tmpdir(), "planning-gate-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const d = planningGateDeps(false); d.state.getSessionDir = () => cwd;
+  d.artifacts.writeRunArtifact = () => { const path = join(cwd, "return.md"); writeFileSync(path, "retained child response"); return path; };
+  const planPath = join(cwd, "plan.md"); let runs = 0;
+  d.dispatchAgent = async () => {
+   runs++;
+   if (scenario === "delivered") writeFileSync(planPath, "Plan: repair local routing, test, independently review.");
+   return { output: scenario === "refused" ? "Plan pending.\nrequires_user_decision: [Grant plan permission]" : "Plan: repair local routing, test, independently review.", exitCode: 0, elapsed: 1 };
+  };
+  const execute = createDispatchExecutor(d as any);
+  const result = await execute("plan", { agent: "planner", task: "Produce local repair plan", deliverables: [planPath] }, undefined, undefined, { cwd } as any);
+  assert.equal((result.details as any).accepted, false, "plan does not accept the task");
+  assert.equal(d.state.getProcessState().review.evidenceRef, null);
+  assert.equal(d.state.getProcessState().acceptance.evidenceRef, null);
+  if (scenario === "delivered") {
+   assert.equal((result.details as any).deliverableReadback[0].status, "read");
+   assert.equal(d.state.getProcessState().plan.evidenceRef, (result.details as any).returnPath);
+  } else assert.equal(d.state.getProcessState().plan.evidenceRef, null);
+  await execute("build", { agent: "builder", task: "Do not read secrets or credentials; no cloud or AWS operations" }, undefined, undefined, { cwd } as any);
+  assert.equal(runs, scenario === "delivered" ? 2 : 1);
+ }
+});
+
 test("high-risk work without an approved plan cannot skip the planner", async () => {
  const d = prepareDeps({ agents: ["builder"] });
  let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive" }).state;
@@ -1185,5 +1272,98 @@ for (const backend of ['native', 'coms'] as const) test(`${backend} planner decl
   assert.equal(process.acceptance.evidenceRef, null); assert.equal(process.review.evidenceRef, null);
   if (scenario === 'echo' || scenario === 'handoff') assert.equal(details.deliverableReadback[0].status, 'missing');
   if (scenario === 'valid') { assert.equal(details.deliverableReadback[0].status, 'read'); assert.ok(details.returnPath); }
+ }
+});
+
+// Production setter/adoption/runtime wiring with append-only fake journals; no Git fixtures.
+function successorFixture(root: string, serviceOverride?: any) {
+ let taskId = "predecessor", tier = "feature", pendingTransition = false, denied = false, failWrite = 0, writes = 0;
+ let state = applyProcessClassification(createProcessState(), { risk: "high", scope: "read-only", reason: "D6" }).state;
+ let assertions: any[] = [{ id: "D6", status: "open" }];
+ const assertionArchive: any[] = [], entries: any[] = [], counters: any[] = [];
+ let physical = 0;
+ const result = () => ({ status: "ok", evaluation: { answers: TASK_TRIAGE_QUESTIONS.map(q => ({ questionId: q.id, type: "predicate", probabilityTrue: q.id === "wide_change" ? .99 : .01, uncertainty: { provenance: "provider" } })), metadata: { provider: "typesafe", requestedModel: "jev-1.13.0", returnedModel: "jev-1.13.0", questionSetVersion: TASK_TRIAGE_QUESTION_VERSION, latencyMs: 1, attempts: 1 } } });
+ const runtime = createTaskTriageRuntime({ root, service: { evaluate: async (request: any) => { physical++; return serviceOverride ? serviceOverride(request, result) : result(); } } as any, persist: s => counters.push(structuredClone(s)) });
+ const persist = (s: any) => { if (++writes === failWrite) throw Error("disk full"); entries.push({ customType: "agent-hub-process-state", data: processAuditRecord(s, evaluateProcessObligations(s, { writable: true, budgetTier: tier })) }); };
+ const budget = { taskResetSnapshot: () => ({}), resetTaskWindow() {}, appendTaskResetEntry() {}, currentBudget: () => ({}), currentTaskBudget: () => ({}), updateModeStatus() {} };
+ const tools = createActionExecutors({ budget, artifacts: { persistAssertions() {} }, hubState: {}, provisionalCapabilityRefusal: () => null,
+  getTaskTier: () => tier, setTaskTier: (v: string) => { tier = v; }, getTaskTierAssumed: () => false, setTaskTierAssumed() {}, getProcessState: () => state,
+  adoptTaskTriage: async (id: string, newTask: boolean, expandedScope?: string) => { const s = await adoptTaskTriageState({ runtime, taskId: id, newTask, expandedScope, pendingTransition, state, persist, onPostCommitFailure() {} }); pendingTransition = false; return s; },
+  setProcessState: (s: any) => { state = s; }, persistProcessState: persist, getTaskDispatchCount: () => 0, getTaskResearchCount: () => 0, getTurnReport: () => ({}), getAssertions: () => assertions, setAssertions: (v: any[]) => { assertionArchive.push(structuredClone(assertions)); assertions = v; },
+  currentTaskId: () => taskId, currentRevision: () => "rev", confirmTaskSupersession: async () => !denied,
+  adoptReservedTaskId: (id: string, reset: () => void) => { taskId = id; reset(); },
+ } as any);
+ return { runtime, entries, counters, assertionArchive, result, get state() { return state; }, get taskId() { return taskId; }, get assertions() { return assertions; }, get physical() { return physical; },
+  pending: () => { pendingTransition = true; }, deny: () => { denied = true; }, fail: (n: number) => { failWrite = writes + n; },
+  seed: async () => { runtime.input("Change many modules", "interactive"); runtime.scope("wide"); const c = await runtime.evaluate(taskId); assert.ok(c); state = applyTaskTriageAdditions(state, c.assessment, { taskId, evaluationId: c.evaluationId, inputRevision: c.revision }); persist(state); assert.equal(processPreEffectGate(state, "write")?.reason, "process_plan_open"); },
+  set: (new_task = true) => tools.executeSetTaskTier("set", { tier: "feature", risk: "high", scope: "read-only", reason: "Different read-only task", new_task }, undefined, undefined, {} as any),
+  hook: async () => { const c = await runtime.evaluate(taskId); if (c) state = applyTaskTriageAdditions(state, c.assessment, { taskId, evaluationId: c.evaluationId, inputRevision: c.revision }); },
+ };
+}
+
+test("planning-gate: authorized successor retires consumed assessment and next-hook replay, archives D6", async t => {
+ const root = mkdtempSync(join(tmpdir(), "successor-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+ const f = successorFixture(root); await f.seed(); const archived = structuredClone(f.entries[0]);
+ const r = await f.set(); assert.equal(r.details?.status, "ok"); assert.notEqual(f.taskId, "predecessor");
+ assert.equal(processPreEffectGate(f.state, "write"), null); assert.deepEqual(f.state.additions, []); assert.equal(f.state.plan.evidenceRef, null);
+ assert.equal(f.state.review.evidenceRef, null); assert.equal(f.state.acceptance.evidenceRef, null);
+ assert.equal(evaluateProcessObligations(f.state, { writable: true, budgetTier: "feature" }).obligations.review.status, "open");
+ assert.deepEqual(latestProcessState(f.entries), normalizeProcessState(f.state)); assert.deepEqual(f.entries[0], archived); assert.equal(archived.data.state.additions[0].status, "active");
+ assert.deepEqual(f.assertionArchive, [[{ id: "D6", status: "open" }]]);
+ assert.equal(f.runtime.current, null); assert.equal(f.runtime.inputRevision, undefined); await f.hook();
+ assert.equal(processPreEffectGate(f.state, "write"), null); assert.equal(f.physical, 1); assert.equal(f.runtime.calls, 1);
+ // Explicit fresh input may legitimately reuse the durable cache, not stale ownership/scope.
+ f.runtime.input("Change many modules", "interactive"); f.pending(); await f.set();
+ assert.equal(processPreEffectGate(f.state, "write")?.reason, "process_plan_open"); assert.equal(f.physical, 2);
+ f.runtime.input("Change many modules", "interactive"); f.pending(); await f.set();
+ assert.equal(f.physical, 2, "explicit fresh input reuses the successor-scope cache");
+ assert.ok(f.state.additions?.every(a => a.taskId === f.taskId));
+});
+
+test("planning-gate: denied and failed successor persistence leave predecessor binding ledger and gate intact", async t => {
+ const root = mkdtempSync(join(tmpdir(), "successor-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+ for (const mode of ["denied", "failed"] as const) {
+  const f = successorFixture(root); await f.seed(); const c = f.runtime.current, before = structuredClone(f.entries);
+  if (mode === "denied") f.deny(); else f.fail(1);
+  const r = await f.set(); assert.equal(r.details?.status, "refused"); assert.equal(f.taskId, "predecessor"); assert.equal(f.runtime.current, c);
+  assert.deepEqual(f.entries, before); assert.deepEqual(f.assertions, [{ id: "D6", status: "open" }]);
+  await f.hook(); assert.equal(processPreEffectGate(f.state, "write")?.reason, "process_plan_open"); assert.equal(f.physical, 1);
+ }
+});
+
+test("planning-gate: fresh successor input is bound to reserved identity and same-task contraction keeps obligations", async t => {
+ const root = mkdtempSync(join(tmpdir(), "successor-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+ const f = successorFixture(root); await f.seed(); const old = structuredClone(f.entries[0]);
+ f.runtime.input("New wide successor work", "interactive"); f.pending(); assert.equal((await f.set()).details?.status, "ok");
+ assert.ok(f.state.additions?.length); assert.ok(f.state.additions?.every(a => a.taskId === f.taskId && a.inputRevision === f.runtime.inputRevision));
+ assert.equal(f.runtime.current?.taskId, f.taskId); assert.equal(processPreEffectGate(f.state, "write")?.reason, "process_plan_open"); assert.deepEqual(f.entries[0], old);
+ const bound = structuredClone(f.state.additions); await f.set(false); await f.hook(); assert.deepEqual(f.state.additions, bound); assert.equal(f.physical, 2);
+});
+
+test("planning-gate: successor fences late predecessor completion and cancelled fresh binding cannot commit", async t => {
+ const root = mkdtempSync(join(tmpdir(), "successor-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+ let finish!: (value: any) => void;
+ const f = successorFixture(root, () => new Promise(resolve => { finish = resolve; }));
+ f.runtime.input("Old inflight work", "interactive"); const flight = f.runtime.evaluate("predecessor");
+ assert.equal((await f.set()).details?.status, "ok"); const state = structuredClone(f.state), journal = structuredClone(f.entries), counters = structuredClone(f.counters);
+ finish(f.result()); assert.equal(await flight, null); await f.hook(); assert.deepEqual(f.state, state); assert.deepEqual(f.entries, journal); assert.deepEqual(f.counters, counters); assert.equal(f.runtime.current, null);
+ f.runtime.input("Fresh inflight work", "interactive"); f.pending(); const transition = f.set();
+ await new Promise(resolve => setImmediate(resolve)); f.runtime.invalidate();
+ assert.equal((await transition).details?.status, "refused"); assert.deepEqual(f.state, state); assert.deepEqual(latestProcessState(f.entries), normalizeProcessState(state));
+ finish(f.result());
+});
+
+test("planning-gate: failed fresh successor append never commits staged runtime ownership", async t => {
+ const root = mkdtempSync(join(tmpdir(), "successor-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+ for (const failedWrite of [1, 2]) {
+  const f = successorFixture(root); await f.seed();
+  f.runtime.input("Fresh wide input awaiting adoption", "interactive");
+  const current = await f.runtime.evaluate("predecessor"); f.pending();
+  const state = structuredClone(f.state), before = structuredClone(f.entries), revision = f.runtime.inputRevision;
+  f.fail(failedWrite); assert.equal((await f.set()).details?.status, "refused");
+  assert.equal(f.taskId, "predecessor"); assert.equal(f.runtime.current, current); assert.equal(f.runtime.inputRevision, revision);
+  assert.deepEqual(f.state, state); assert.deepEqual(latestProcessState(f.entries), latestProcessState(before));
+  assert.deepEqual(f.assertions, [{ id: "D6", status: "open" }]); assert.equal(processPreEffectGate(f.state, "write")?.reason, "process_plan_open");
+  assert.deepEqual(f.entries[0], before[0]);
  }
 });

@@ -4,6 +4,19 @@ import { recordRoutingObservation } from "./routing-observation.ts";
 import { closeReview } from "./review-closure.ts";
 import { chooseReviewerRerun } from "./rerun-policy.ts";
 
+// Only recognize a closed, sensitive-object prohibition grammar. Unknown wording
+// remains sensitive; never erase an entire mixed sentence or affirmative clause.
+function sensitiveWorkSignals(task: string): { secret: boolean; cloud: boolean } {
+	const object = "(?:secrets?|credentials?|cloud|aws)";
+	const objects = `${object}(?:\\s*(?:,|or|and)\\s*${object})*`;
+	const prohibition = new RegExp(`^(?:do not (?:read|access|expose|use|modify|rotate|perform) ${objects}(?: operations)?|no ${objects}(?: operations)?)$`, "i");
+	const remaining = task.split(/[;.\n]/).filter(clause => {
+		const directive = clause.trim().replace(/^(?:[-*]|\d+[)])\s+/, "").replace(/!+$/, "").trim();
+		return !prohibition.test(directive);
+	}).join(";");
+	return { secret: /secret|credential/i.test(remaining), cloud: /\b(cloud|aws)\b/i.test(remaining) };
+}
+
 export function activeOrchestrationHandoff(input: {
 	agent: string;
 	task: string;
@@ -29,7 +42,7 @@ export function activeOrchestrationHandoff(input: {
 		approvedPlan: input.approvedPlan,
 		unresolvedForks: input.questions,
 		selfDeclaredSmall: /small/i.test(input.task),
-	}, { secret: /secret|credential/i.test(input.task), cloud: /\b(cloud|aws)\b/i.test(input.task) });
+	}, sensitiveWorkSignals(input.task));
 	const manifest = buildEvidenceManifest({
 		revision: input.revision || "unknown",
 		scope: input.scope,
@@ -72,8 +85,7 @@ const REVIEWERS = new Set(["code-reviewer", "plan-reviewer", "security-auditor"]
 
 export function plannerRequiredRefusal(task: string, agent: string, state?: { scope?: string; risk?: string; plan?: { evidenceRef?: string | null } }): string | null {
 	if (agent === "planner" || REVIEWERS.has(agent)) return null;
-	const secret = /secret|credential/i.test(task);
-	const cloud = /\b(cloud|aws)\b/i.test(task);
+	const { secret, cloud } = sensitiveWorkSignals(task);
 	const approvedPlan = !!state?.plan?.evidenceRef;
 	const highWithoutPlan = state?.risk === "high" && !approvedPlan;
 	if (!secret && !cloud && !highWithoutPlan) return null;

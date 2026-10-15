@@ -5,7 +5,9 @@ System 1 runtime settings live only in the human-owned `.ai/system1.json` v2 doc
 ## Safe starting configuration
 
 [system1.example.json](system1.example.json) is a valid, commented-in-this-guide
-reference for **all seven currently supported consumer sections**, including D7.
+reference for System 1 settings. The v2 schema now supports **eight root
+consumers**, including D7 and D6; the inert D6 fragment below documents that
+section separately without changing the example file.
 It is inert: root and consumer modes are `off`, remote consent is false/disabled,
 and no key value is included. Runtime reads `.ai/system1.json`, **not** this example.
 The example is shipped as documentation; it is not installed as active consent.
@@ -57,6 +59,7 @@ Each optional section under `consumers` has its own permissions and budgets. Mis
 | `taskTriage` | `mode: off` or `experimental`; explicit `remoteContextApproved`, pinned `questionVersion`, `policyVersion`, `limits`; inherits root provider/model |
 | `agenticAsk` (D10) | `mode: off`, `advisory`, or `recommended`; independent `remoteContextApproved`, `include` (repo-relative prefixes or explicit `git:tracked` selector), `allowToolOutputs`, `limits`; parent-only typed judgment tool |
 | `fileDiscovery` (D9/D8) | `mode: off` or `active`; independent `remoteContextApproved`, nonempty `include` for approved active use, bounded `limits`; optional `semanticReads: {mode: off | active}` (default off); automatic full-list ranking and opt-in orientation |
+| `damageGuard` (D6) | `mode: off` or `active`; independent boolean `remoteScopes.commands/edits/results`, explicit `include`, bounded `limits`; optional semantic checks over mandatory baseline, not permission authority |
 | `contextCompaction` (D7) | `mode: off` or `automatic`; independent `remoteContextApproved`, `earlyOpportunityPercent` (default 60, below 80), `limits.timeoutMs` (maximum/default 1000), `limits.maxStateBytes` (maximum/default 8192); automatic early-boundary advice, not a compact tool |
 
 The top-level `mode: off` disables remote inference. Independently valid proactive local capture/checks can remain enabled. An off proactive section cannot authorize capture. Neither off nor migration failure/provider unavailability cancels persisted Task Triage process obligations.
@@ -185,8 +188,31 @@ root-service forwarding to nested/workflow processes remain incomplete: do not
 claim full semantic assistance for every descendant merely because the shared
 native pressure adapter is loaded. See [D7 scope, diagnostics, evidence and current
 limits](system1-context-continuity.md). External peers do not gain remote compact
-control. There is currently no `damageGuard`/D6 consumer in the v2 schema; do not
-add proposed plan-only fields to the example.
+control.
+
+### D6 independent off-by-default section
+
+D6 is implemented in the current worktree but remains incomplete/unaccepted.
+This inert fragment describes its section under `consumers`; it is not an
+activation/copy/install instruction:
+
+```json
+{"damageGuard":{"mode":"off","remoteScopes":{"commands":false,"edits":false,"results":false},"include":[]}}
+```
+
+There is no D6 `remoteContextApproved` field and no inherited D8/D9/D10 consent.
+Missing scopes grant nothing. Missing/off/invalid/root-off/unavailable-key means
+no new D6 inference, not removal of durable denial/hold/recovery fences.
+`include` is an explicit export scope; `git:tracked` is a selector example, not
+blanket filesystem approval or active consent. Limits default/max out at 16 KiB
+payload, 64 KiB IPC frame, one 2 s collection/IPC/inference deadline, 5 s technical
+backoff and a separate 10 min human wait. The parser accepts smaller positive
+safe integers; broker/client also impose fixed transport bounds. There is no
+financial quota or upward-limit configuration. See the [D6 guide](system1-damage-guard.md)
+for actual native coverage, standalone/coms limits, durable deny and dialog-only
+override, original→D6→D8 structured output, SDK 1.1.0 evidence and open gates.
+D6 is not activated by the feature instructions or other consumer examples above;
+F12 packaging, independent review and final acceptance remain open.
 
 ## Explicit migration
 

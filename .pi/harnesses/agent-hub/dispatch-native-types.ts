@@ -126,7 +126,26 @@ export interface NativeProviderSemaphore {
 	run<T>(model: string, fn: () => Promise<T>): Promise<T>;
 }
 
+export interface NativeDamageContract {
+ readonly taskId: string;
+ readonly instructions: string;
+ readonly scope: readonly string[];
+ readonly deliverables: readonly string[];
+ readonly artifacts: readonly string[];
+ readonly permissions: readonly string[];
+}
+
+/** Parent-only admission input; model and environment are not authority. */
+export interface NativeDamagePreparation {
+ readonly ownerId: string;
+ readonly cwd: string;
+ readonly tools: readonly string[];
+ readonly contract: NativeDamageContract;
+ admit(): boolean;
+}
+
 export interface NativeDispatchDeps {
+ prepareDamageGuard?(input: NativeDamagePreparation): import('./damage-guard-owners.ts').DamageSpawnRegistration | null | undefined | Promise<import('./damage-guard-owners.ts').DamageSpawnRegistration | null | undefined>;
  prepareDiscovery?:import('./file-discovery/native-context.ts').PrepareNativeDiscovery;
  launchIdentity?():unknown;
  nativeAdmission?(personaKey:string):boolean;
@@ -231,6 +250,9 @@ export interface NativeRunBase {
 }
 
 export interface PreparedNativeRun extends NativeRunBase {
+ admittedCwd: string;
+ nativeAdmitted(): boolean;
+ damageRegistration?: import('./damage-guard-owners.ts').DamageSpawnRegistration | null;
  discoveryContext?:import('./file-discovery/native-context.ts').NativeDiscoveryContext|null;
  discoveryAdmitted?():boolean;
 	model: string;

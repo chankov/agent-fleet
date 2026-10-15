@@ -16,6 +16,31 @@ fails closed, but the turn continues so the agent can report the block or take a
 safe alternative. Protected-path calls may proceed only through the explicit
 approval/exemption paths below; inherently dangerous command patterns never can.
 
+## Optional assigned D6 semantic layer
+
+The baseline above is mandatory and independent of optional System 1 D6.
+Parent Hub owns the shared service, durable task/input decisions and approval
+coordinator. Native specialists, read-only research helpers and nested delegates
+receive independent, revocable physical-attempt assignments bounded by effective
+tools, independently of D9. Pre-call D6 checks cover baseline-allowed bash/write/edit;
+research retains read-only authority and supported result screening only.
+Standalone Damage-Control without a trusted assignment retains baseline, not a
+hidden provider. Coms peers are not covered by native D6 registration.
+
+D6 defaults off with separate commands/edits/results export scopes. Only valid
+severe AND sufficient yields a hold/warning; unknown/partial is not clearance or
+a speculative hold. Off/outage does not erase durable denial or restore grants.
+`/af-damage-override [actionId]` arms one new dialog for a current matching blocked
+action (latest eligible action if omitted); it does not execute, clear denial,
+retry or grant path access. `/af-allow` changes only baseline path exemptions;
+it cannot waive semantic denial or a hard command deny. A held effect still
+requires matching one-use human consent and post-wait baseline revalidation.
+
+See the [D6 guide](../../../docs/system1-damage-guard.md) for fixed deadlines,
+durable recovery, supported result sources and original→D6→D8 visible structured
+API. Production wiring/local SDK 1.1.0 evidence is not independent acceptance:
+D6, A1–A8, packaging and final regression/review remain open.
+
 ## Version footer and provenance
 
 This persistent-UI harness shows `agent fleet v<version>` below the prompt. It shares one common-key
@@ -86,6 +111,7 @@ refuses guarded child dispatch rather than launching an unprotected process.
 - `/af-allow <pattern> [turn|session]` — exempt a protected path pattern
 - `/af-allowed` — list active exemptions
 - `/af-revoke <pattern>` — remove an exemption
+- `/af-damage-override [actionId]` — Hub-owned D6 dialog re-arm only, not execution or a path exemption
 
 Blocking itself runs passively on the `tool_call` event.
 

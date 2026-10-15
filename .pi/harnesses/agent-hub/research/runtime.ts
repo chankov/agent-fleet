@@ -1,4 +1,17 @@
 import type {PrepareNativeDiscovery,ResearchAdmission} from '../file-discovery/native-context.ts';
+import type { DamageSpawnRegistration } from '../damage-guard-owners.ts';
+
+/** Parent-only preparation: canonical task/input authority stays with the parent. */
+export interface ResearchDamagePreparationInput {
+ readonly ownerId: string;
+ readonly cwd: string;
+ readonly tools: readonly string[];
+ readonly readScope: readonly string[];
+ readonly signal?: AbortSignal;
+ readonly admit: () => boolean;
+}
+export type PrepareResearchDamageGuard = (input: ResearchDamagePreparationInput) =>
+ DamageSpawnRegistration | null | undefined | Promise<DamageSpawnRegistration | null | undefined>;
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import type { ChildProcess } from "child_process";
@@ -88,6 +101,7 @@ export interface ResearchRuntimeStatePorts<TDef extends ResearchAgentDef> {
 
 export interface ResearchRuntimeDeps<TDef extends ResearchAgentDef> extends ResearchRuntimeStatePorts<TDef> {
  prepareDiscovery?:PrepareNativeDiscovery;
+ prepareDamageGuard?: PrepareResearchDamageGuard;
  launchIdentity?():unknown;
  researchAdmission?():boolean;
 	hubState: Pick<HubStateContext, "getSessionDir">;

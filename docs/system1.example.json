@@ -77,6 +77,18 @@
         "maxCacheEntries": 2048
       }
     },
+ >   "damageGuard": {
+      "mode": "off",
+      "remoteScopes": { "commands": false, "edits": false, "results": false },
+      "include": ["git:tracked"],
+      "limits": {
+        "maxPayloadBytes": 16384,
+        "hookTimeoutMs": 2000,
+        "maxFrameBytes": 65536,
+        "outageBackoffMs": 5000,
+        "approvalTimeoutMs": 600000
+      }
+    },
     "contextCompaction": {
       "mode": "off",
       "remoteContextApproved": false,

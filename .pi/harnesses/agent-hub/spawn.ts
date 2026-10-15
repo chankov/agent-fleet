@@ -7,6 +7,8 @@ import { runtimeTestFromResult, type RuntimeTestRecord } from "./runtime-test-ch
 import { createToolEventRecorder, type ToolExecutionEvent } from "./tool-protocol.ts";
 import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV, type ActiveModelProfile } from './policy/profile-runtime.ts';
 import { DISCOVERY_CHILD_ENV_KEYS, openDiscoveryAttempt, type DiscoverySpawnRegistration } from './file-discovery/owners.ts';
+import { realpathSync } from 'node:fs';
+import { damageAssignmentEnv, type DamagePhysicalLease, type DamageSpawnRegistration } from './damage-guard-owners.ts';
 import { SYSTEM1_API_KEY_ENV } from "../lib/system1/config.js";
 import { confineNativeChild, type WriteIsolationRequest, type WriteIsolationResult } from "./write-isolation.ts";
 /**
@@ -60,6 +62,8 @@ export interface ToolWatchdogOptions {
 export interface SpawnPiAgentOptions {
  /** Trusted parent registration; a fresh lease is opened for EVERY physical launch. Never an env override. */
  discoveryRegistration?: DiscoverySpawnRegistration;
+ /** Independent trusted D6 factory; never inherited or coupled to D9 readiness. */
+ damageRegistration?: DamageSpawnRegistration;
  /** Enabled only by native preparation with the runtime observer extension. */
  runtimeTestObserver?: boolean;
  /** Snapshotted at dispatch start; presence prevents a mid-run profile switch changing this launch. */
@@ -187,7 +191,7 @@ export function nativeChildEnv(
 			else merged[key] = value;
 		}
 	}
-	for (const key of Object.keys(merged)) if (key.startsWith('AF_D9_') || key.startsWith('AF_D7_') || (NATIVE_CHILD_STRIPPED_ENV_KEYS as readonly string[]).includes(key)) delete merged[key];
+	for (const key of Object.keys(merged)) if (key.startsWith('AF_D6') || key.startsWith('AF_D9_') || key.startsWith('AF_D7_') || (NATIVE_CHILD_STRIPPED_ENV_KEYS as readonly string[]).includes(key)) delete merged[key];
 	return merged;
 }
 
@@ -239,18 +243,48 @@ async function spawnPiAgentUnchecked(
 	const generation = opts.physicalAttempt?.generation ?? 1;
 	let attemptSignal: AbortSignal | undefined;
  let discoveryAttempt: ReturnType<typeof openDiscoveryAttempt> | undefined;
+ let damageLease: DamagePhysicalLease | undefined;
+ let damageEnv: Record<string,string> | undefined;
+ let damageRevoked = false;
+ const revokeDamage = () => {
+  if (damageRevoked || !damageLease) return;
+  damageRevoked = true; // Revocation can synchronously abort and re-enter kill.
+  damageLease.revoke();
+ };
+ const damageTools = opts.tools.split(',').map(t=>t.trim()).filter((t,i,all)=>['bash','write','edit','read','filesystem'].includes(t) && opts.damageRegistration?.tools.includes(t) && all.indexOf(t)===i);
+ const damageAssigned = damageTools.length > 0;
+ const checkDamage = () => {
+  if (!damageAssigned) return;
+  let valid = false;
+  try {
+   valid = opts.damageRegistration!.validate() === true && (!damageLease || (!damageRevoked && !damageLease.identity.signal.aborted && damageLease.validate() === true));
+  } catch { /* Lost authority is terminal, not optional inference unavailability. */ }
+  if (!valid) { revokeDamage(); throw Error('damage_physical_authority_unavailable'); }
+ };
  let contextOwner: ReturnType<typeof openContextOwner> | undefined;
  let contextAssignment: string | undefined;
 	let attemptEnded = false;
 	const endAttempt = () => {
 		if (attemptEnded) return;
 		attemptEnded = true;
+  revokeDamage();
   discoveryAttempt?.revoke();
   if(contextOwner) revokeContextOwner(contextOwner.attempt);
 		opts.attemptLifecycle?.afterPhysicalSpawn({ generation });
 	};
  try {
  attemptSignal = opts.attemptLifecycle?.beforePhysicalSpawn({ generation })?.signal;
+ if (!opts.signal?.aborted && !attemptSignal?.aborted && damageAssigned) {
+  checkDamage();
+  const cwd = realpathSync(opts.cwd ?? process.cwd());
+  try { damageLease = await opts.damageRegistration!.open({tools:damageTools,cwd}); }
+  catch { throw Error('damage_physical_registration_unavailable'); }
+  try {
+   if (!damageLease || typeof damageLease.revoke !== 'function' || typeof damageLease.validate !== 'function' || !damageLease.identity?.signal || !damageLease.identity.attempt || !damageLease.identity.owner || damageLease.identity.cwd !== cwd || damageLease.identity.tools.length !== damageTools.length || damageTools.some(t=>!damageLease!.identity.tools.includes(t))) throw Error();
+   damageEnv = damageAssignmentEnv(damageLease.assignment);
+  } catch { throw Error('damage_physical_lease_invalid'); }
+  checkDamage();
+ }
  if (!opts.signal?.aborted && !attemptSignal?.aborted && opts.discoveryRegistration) {
   // Do not let even a parent registration claim tools absent from the physical command.
   const effectiveTools = opts.tools.split(',').map(t=>t.trim()).filter(t=>opts.discoveryRegistration!.owner.effectiveTools.includes(t));
@@ -263,7 +297,7 @@ async function spawnPiAgentUnchecked(
    opts={...opts,prompt:opts.prompt+'\n\nFile discovery physical attempt: unavailable (registration unavailable). Continue ordinary permitted discovery; original task, scope and gates remain authoritative.'};
   }
  }
-	if (opts.signal?.aborted || attemptSignal?.aborted || discoveryAttempt?.signal.aborted) {
+	if (opts.signal?.aborted || attemptSignal?.aborted || discoveryAttempt?.signal.aborted || damageLease?.identity?.signal?.aborted) {
 		endAttempt();
 		return Promise.resolve({
 			output: "", stderr: "", exitCode: null, modelUsed: opts.model, toolCallsStarted: 0,
@@ -271,6 +305,7 @@ async function spawnPiAgentUnchecked(
 			lifecycle: { launched: false, closeSeen: false },
 		});
 	}
+ checkDamage();
  args.push('-e',fileURLToPath(new URL('./context-continuity-child.ts',import.meta.url)));
  try {
   contextBroker ??= createContextContinuityBroker();
@@ -279,10 +314,11 @@ async function spawnPiAgentUnchecked(
   contextOwner=openContextOwner(opts.sessionFile,parent?.owner??null);
   contextAssignment=JSON.stringify(broker.assignment(contextOwner));
  } catch { contextBroker=undefined; } // Local child deterministic recovery does not depend on semantic inference.
- if(opts.signal?.aborted || attemptSignal?.aborted || discoveryAttempt?.signal.aborted) {
+ if(opts.signal?.aborted || attemptSignal?.aborted || discoveryAttempt?.signal.aborted || damageLease?.identity?.signal?.aborted) {
   endAttempt();return {output:"",stderr:"",exitCode:null,modelUsed:opts.model,toolCallsStarted:0,termination:{reason:"cancelled",confirmed:false,escalated:false},lifecycle:{launched:false,closeSeen:false}};
  }
-	const childEnv = {...nativeChildEnv(process.env, opts.env), ...discoveryAttempt?.env,...(contextAssignment?{[CONTEXT_CHANNEL_ENV]:contextAssignment}:{})};
+ checkDamage();
+	const childEnv = {...nativeChildEnv(process.env, opts.env), ...discoveryAttempt?.env,...damageEnv,...(contextAssignment?{[CONTEXT_CHANNEL_ENV]:contextAssignment}:{})};
 	const isolation = opts.writeIsolation ? confineNativeChild({ ...opts.writeIsolation, command: "pi", args, env: envRecord(childEnv) }) : undefined;
 	const publishedIsolation = isolation ? isolationWithoutEnv(isolation) : undefined;
 	if (isolation && !isolation.applied) {
@@ -300,7 +336,7 @@ async function spawnPiAgentUnchecked(
 	const turnDeadlineMs = opts.turnDeadlineMs ?? null;
 	// A watchdog or deadline must own its group: group signalling remains valid even
 	// after the pi leader exits while an inherited-stdio descendant is still alive.
-	const ownsGroup = opts.detached === true || watchdog !== undefined || opts.signal !== undefined || attemptSignal !== undefined || discoveryAttempt !== undefined || turnDeadlineMs != null || cbs.onControl !== undefined;
+	const ownsGroup = opts.detached === true || watchdog !== undefined || opts.signal !== undefined || attemptSignal !== undefined || discoveryAttempt !== undefined || damageLease !== undefined || turnDeadlineMs != null || cbs.onControl !== undefined;
 	const watchedTools = new Set(watchdog?.tools ?? WATCHED_TOOLS);
 	const timeoutMs = watchdog?.timeoutMs ?? null;
 	const termGraceMs = watchdog?.termGraceMs ?? DEFAULT_TERM_GRACE_MS;
@@ -311,16 +347,18 @@ async function spawnPiAgentUnchecked(
 	return await new Promise((resolve) => {
 		const stdio: ["pipe", "pipe", "pipe"] = ["pipe", "pipe", "pipe"];
 		if (isolation) assertSafeSandboxStdio(stdio);
+  checkDamage();
+  if (opts.signal?.aborted || attemptSignal?.aborted || discoveryAttempt?.signal.aborted || damageLease?.identity.signal.aborted) throw Error('physical_launch_aborted');
 		const proc = spawn(launchCommand, launchArgs, {
 			stdio,
 			env: childEnv,
 			...(opts.cwd ? { cwd: opts.cwd } : {}),
 			...(ownsGroup ? { detached: true } : {}),
 		});
-  discoveryProcessRevocations.set(proc,()=>{discoveryAttempt?.revoke();if(contextOwner)revokeContextOwner(contextOwner.attempt);});
+  discoveryProcessRevocations.set(proc,()=>{revokeDamage();discoveryAttempt?.revoke();if(contextOwner)revokeContextOwner(contextOwner.attempt);});
   const originalKill=proc.kill.bind(proc);
-  proc.kill=(signal)=>{if(signal!==0){discoveryAttempt?.revoke();if(contextOwner)revokeContextOwner(contextOwner.attempt);}return originalKill(signal);};
-		cbs.onProcess?.(proc);
+  proc.kill=(signal)=>{if(signal!==0){revokeDamage();discoveryAttempt?.revoke();if(contextOwner)revokeContextOwner(contextOwner.attempt);}return originalKill(signal);};
+
 		proc.stdin?.on("error", () => {});
 		proc.stdin?.end(opts.prompt);
 
@@ -345,6 +383,7 @@ async function spawnPiAgentUnchecked(
 			opts.signal?.removeEventListener("abort", onAbort);
 			attemptSignal?.removeEventListener("abort", onAbort);
    discoveryAttempt?.signal.removeEventListener('abort', onAbort);
+   damageLease?.identity?.signal?.removeEventListener('abort', onAbort);
 			endAttempt();
 		};
 		let assistantError: string | undefined;
@@ -388,6 +427,7 @@ async function spawnPiAgentUnchecked(
 			// The first classification wins; later cancellation/exit events keep it.
 			if (termination) return;
 			termination = { reason, confirmed: false, escalated: false, ...(tool ? { tool } : {}) };
+   revokeDamage();
    discoveryAttempt?.revoke(); // fence replies immediately, not after kill/pipe settlement
 			clearCalls();
 			killPiTree(proc, "SIGTERM");
@@ -407,9 +447,10 @@ async function spawnPiAgentUnchecked(
 		watchAbort(opts.signal);
 		watchAbort(attemptSignal);
   watchAbort(discoveryAttempt?.signal);
+  watchAbort(damageLease?.identity.signal);
 		// External classified stop (drift watchdog): same first-classification-wins
 		// cascade as every other termination path; harmless after settle.
-		cbs.onControl?.({ terminate: (reason = "drift_stop") => { if (!settled) terminate(reason); } });
+
 		if (turnDeadlineMs != null) {
 			deadlineTimer = setTimeout(() => terminate("turn_timeout"), turnDeadlineMs);
 		}
@@ -496,13 +537,14 @@ async function spawnPiAgentUnchecked(
 		});
 		proc.stderr!.setEncoding("utf-8");
 		proc.stderr!.on("data", (chunk: string) => stderrChunks.push(chunk));
-  proc.once('exit', () => { discoveryAttempt?.signal.removeEventListener('abort', onAbort); discoveryAttempt?.revoke(); });
+  proc.once('exit', () => { discoveryAttempt?.signal.removeEventListener('abort', onAbort); damageLease?.identity.signal.removeEventListener('abort', onAbort); revokeDamage(); discoveryAttempt?.revoke(); });
 		proc.on("close", (code) => {
 			closeSeen = true;
 			if (buffer.trim()) try { handleEvent(JSON.parse(buffer)); } catch {}
 			settle(code);
 		});
 		proc.on("error", (err) => settle(1, err.message));
+  try { cbs.onProcess?.(proc); cbs.onControl?.({ terminate: (reason = 'drift_stop') => { if (!settled) terminate(reason); } }); } catch { terminate('cancelled'); }
 	});
  } finally { endAttempt(); }
 }

@@ -1,4 +1,5 @@
 import { registerDiscoveryHub, configureDiscoveryHub, resetDiscoveryHub, discoveryHubEnabled, discoveryManagedReadbackAllowed, prepareDiscoveryNative } from './file-discovery/hub.ts';
+import { registerDamageGuardHub, configureDamageGuardHub, resetDamageGuardHub, acceptDamageGuardInput, prepareDamageGuardNative } from './damage-guard-hub.ts';
 import { registerAgenticHub, configureAgenticHub, agenticHubEnabled, agenticHubRuntime, resetAgenticHub } from './agentic-hub.ts';
 import { loadSystem1Snapshot } from "../lib/system1/config-loader.js";
 import { normalizeSystem1Config } from "../lib/system1/config-v2.js";
@@ -800,6 +801,7 @@ export default function (pi: ExtensionAPI) {
 	const { dispatchViaComs, runDriftJudge, runReturnExtraction } = dispatchComs;
 
 	const nativeDispatch = createDispatchNative({
+  prepareDamageGuard:input=>prepareDamageGuardNative(pi,input),
   prepareDiscovery:input=>prepareDiscoveryNative(pi,input),
   launchIdentity:()=>noProgress.taskToken(),
   nativeAdmission:persona=>!processBlock()&&!provisionalCapabilityRefusal('fleet')&&!processPreEffectGate(processState,'child',persona)&&!checkTaskBudget('dispatch',{...taskCounters(),dispatches:Math.max(0,taskDispatchCount-1)},currentTaskBudget(),taskActiveElapsedMs(),taskTier)&&!checkTurnBudget('dispatch',{dispatches:Math.max(0,turnDispatchCount-1),research:turnResearchCount},currentBudget(),turnBudgetActiveElapsedMs(),taskTier),
@@ -881,6 +883,7 @@ export default function (pi: ExtensionAPI) {
 	// The composition root owns the mutable bindings; the runtime reaches them only
 	// through these explicit ports so later controls can keep stable handles.
 	const researchRuntime = createResearchRuntime<AgentDef>({
+  prepareDamageGuard:input=>prepareDamageGuardNative(pi,input),
   prepareDiscovery:input=>prepareDiscoveryNative(pi,input),
   launchIdentity:()=>noProgress.taskToken(),
   researchAdmission:()=>!processBlock(),
@@ -1069,6 +1072,7 @@ export default function (pi: ExtensionAPI) {
   });
   return { taskId: noProgress.taskId(), task, scope, language, domain, candidates, constraints: JSON.stringify({ tier: taskTier, process: { risk: processState.risk, scope: processState.scope }, externalBlocked: externalBlockers.length > 0 && !externalBlockerAcknowledged }), complete: !(externalBlockers.length > 0 && !externalBlockerAcknowledged) };
  }
+ registerDamageGuardHub(pi);
  registerAgenticHub(pi);
  registerDiscoveryHub(pi);
 	registerDispatchTriage(pi, { runtime: () => triageRuntime, input: triageInput, blocked: () => provisionalCapabilityRefusal("fleet") });
@@ -2271,6 +2275,7 @@ export default function (pi: ExtensionAPI) {
 			if ((source === "extension" && !replayed) || !text.trim()) return;
 			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) { pendingTaskTransition = true; transitionDiversions = 0; transitionHintDelivered = false; transitionBatchRefused = false; try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: true }); } catch { processPersistenceBlocked = true; } }
 			hubTaskText = text;
+            try { noProgress.persistTaskIdentity(); acceptDamageGuardInput(pi, text); } catch { processPersistenceBlocked = true; }
 			taskTriage?.input(text, "interactive");
 		},
 	});
@@ -2329,7 +2334,7 @@ export default function (pi: ExtensionAPI) {
 		queueDepth: () => inboundQueue.size,
 	});
 	registerSessionOrchestration(pi, {
-		resetSession: (_ctx) => resetHubSession(_ctx, {
+		resetSession: async (_ctx) => { await resetDamageGuardHub(pi); resetHubSession(_ctx, {
 			registerVersion: registerVersionStatus, resetPressure: pressureLifecycle.reset,
 			clearRosterRecovery: workModePolicy.clearRosterRecovery, captureBaselineTools: () => { baselineTools = pi.getActiveTools(); },
 			resetAccessApproval: accessApprovalRouter.reset,
@@ -2341,7 +2346,7 @@ export default function (pi: ExtensionAPI) {
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },
 			resolveSafety: cwd => Boolean(safetyHarnessPath = resolveSafetyHarness(cwd)), resolveDelegate: cwd => { delegateExtPath = resolveDelegateExtension(cwd); },
-		}),
+		}); },
 		restartMonitor: _ctx => monitorSession.restart(_ctx),
 		initializeComs: async (_ctx) => {
 			// ── Embedded coms init ──
@@ -2465,7 +2470,7 @@ export default function (pi: ExtensionAPI) {
 				catch { proactiveRuntime = null; proactiveConfig = null; } // unavailable composition never reports reviewed
 			}
 		},
-		restoreRoster: (_ctx) => {
+		restoreRoster: async (_ctx) => {
 			// Explicit CLI selection wins; otherwise restore only the canonical team name
 			// and re-resolve it against current teams.yaml/persona files. An explicit
 			// Operator work mode suppresses an ambient persisted roster unless --agent-team
@@ -2486,6 +2491,7 @@ export default function (pi: ExtensionAPI) {
             const savedTaskIds = new Set(processState.additions?.map(addition => addition.taskId));
             noProgress.restore(sessionEntries, savedTaskIds.size === 1 ? [...savedTaskIds][0] : undefined);
             if (processTaskIdentityConflicts(processState, noProgress.taskId())) processPersistenceBlocked = true;
+              await configureDamageGuardHub(pi, { snapshot: system1Snapshot, service: watchdogSystem1?.sharedService, ctx: _ctx, taskId: () => noProgress.taskId(), childAuthority: { taskToken: () => noProgress.taskToken(), admit: () => !processBlock() } });
             if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
              try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "restore", processPersistenceBlocked, savedTaskIdCount: savedTaskIds.size, taskIdMatchesAddition: savedTaskIds.size === 1 && savedTaskIds.has(noProgress.taskId()), consumerPresent: !!taskTriage, calls: taskTriage?.calls ?? null, consumerStatus: taskTriage?.status.status ?? null }) + "\n"); } catch { /* diagnostic only */ }
             }
@@ -2599,7 +2605,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	}, {
 		finishEvidence: () => { if (sessionDir) closeEvidenceSession(sessionDir); },
-		shutdownComs: () => { unregisterQuestions(); return coms.shutdown(); }, shutdownMonitor: () => monitorSession.shutdown(),
+		shutdownComs: async () => { await resetDamageGuardHub(pi); unregisterQuestions(); await coms.shutdown(); }, shutdownMonitor: () => monitorSession.shutdown(),
 		removeExemptions: () => {
 			if (!exemptionsFile) return;
 			try { fs.unlinkSync(exemptionsFile); } catch {}

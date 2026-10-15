@@ -27,6 +27,8 @@ export function sessionObserverAssignment(config: ProactiveConfig | null | undef
 export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: boolean, requestedContract?: Omit<TaskResumeInput, "previous">): Promise<PreparedNativeRun | NativeDispatchResult> {
 	const { deps, state, ctx, task, inputArtifacts, scopeGlobs, personaKey, agentKey, runNumber } = base;
  const admittedTools=state.def.tools;
+ const admittedCwd=ctx.cwd||process.cwd();
+ const payloadSnapshot=JSON.stringify([task,scopeGlobs,inputArtifacts]);
 	const model = deps.resolvedModel(state.def)
 		?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
 	const fallbackCandidate = profileFallback(deps.substitutedModel(fallbackModelFor(state.def, model)));
@@ -43,6 +45,18 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		permissions: requestedContract?.permissions ?? state.def.tools,
 		previous: state.resumeContract,
 	});
+ const contractOf=(value: typeof resumeContract)=>Object.freeze({
+  taskId:value.taskId,instructions:value.instructions,
+  scope:Object.freeze([...value.scope]),deliverables:Object.freeze([...value.deliverables]),
+  artifacts:Object.freeze([...value.artifacts]),permissions:Object.freeze([...value.permissions]),
+ });
+ const admittedContract=contractOf(resumeContract);
+ const contractSnapshot=JSON.stringify(admittedContract);
+ const currentContract=()=>contractOf(bindResume({
+  taskId:requestedContract?.taskId??task,instructions:requestedContract?.instructions??task,
+  scope:requestedContract?.scope??scopeGlobs,deliverables:requestedContract?.deliverables,
+  artifacts:requestedContract?.artifacts??inputArtifacts.map(a=>a.path),permissions:requestedContract?.permissions??state.def.tools,
+ }));
 	let resumeAllowed = resumeContract.resumeAllowed && !!state.sessionFile && existsSync(state.sessionFile);
 	if (resumeAllowed) copyFileSync(state.sessionFile!, agentSessionFile);
 	else if (state.sessionFile) {
@@ -208,13 +222,21 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	}
 	if (base.activeProfileSnapshot) delegateEnv = { ...delegateEnv, [PROFILE_ENV]: JSON.stringify(base.activeProfileSnapshot) };
 
- const admitted=()=>state.def.tools===admittedTools&&!state.killedByOperator&&!state.restarting&&deps.getAgentState(base.key)===state&&state.dispatchId===base.dispatchId&&deps.getSessionDir()===base.sessionDir&&base.launchIdentity===deps.launchIdentity?.()&&deps.nativeAdmission?.(personaKey)!==false;
- const admissionRefused=async()=>({...await base.finishRun('Native admission cancelled or changed during discovery preparation; no child started.',143),lifecycle:{launched:false,closeSeen:false}});
+ const admitted=()=>{
+  try{return state.def.tools===admittedTools&&!state.killedByOperator&&!state.restarting&&deps.getAgentState(base.key)===state&&state.dispatchId===base.dispatchId&&deps.getSessionDir()===base.sessionDir&&base.launchIdentity===deps.launchIdentity?.()&&deps.nativeAdmission?.(personaKey)!==false
+   &&(ctx.cwd||process.cwd())===admittedCwd&&state.task===task&&JSON.stringify([base.task,scopeGlobs,inputArtifacts])===payloadSnapshot&&JSON.stringify(currentContract())===contractSnapshot;
+  }catch{return false;}
+ };
+ const admissionRefused=async()=>({...await base.finishRun('Native admission cancelled or changed during preparation; no child started.',143),lifecycle:{launched:false,closeSeen:false}});
+ const effectiveToolSnapshot=Object.freeze(effectiveTools.split(',').map(t=>t.trim()).filter(Boolean));
  if(!admitted())return admissionRefused();
- const discoveryContext=await deps.prepareDiscovery?.({ownerId:base.dispatchId,task:requestedContract?.instructions??task,query:JSON.stringify([requestedContract?.instructions??task,scopeGlobs]),scope:scopeGlobs,tools:effectiveTools.split(',').map(t=>t.trim()),cwd:ctx.cwd||process.cwd()});
- if(!admitted()||discoveryContext?.current()===false)return admissionRefused();
+ const discoveryContext=await deps.prepareDiscovery?.({ownerId:base.dispatchId,task:requestedContract?.instructions??task,query:JSON.stringify([requestedContract?.instructions??task,scopeGlobs]),scope:[...scopeGlobs],tools:[...effectiveToolSnapshot],cwd:admittedCwd});
+ const discoveryAdmitted=()=>{try{return admitted()&&discoveryContext?.current()!==false;}catch{return false;}};
+ if(!discoveryAdmitted())return admissionRefused();
  runPrompt=appendDiscoveryContext(runPrompt,discoveryContext);
- const discoveryAdmitted=()=>admitted()&&discoveryContext?.current()!==false;
+ const damageRegistration=await deps.prepareDamageGuard?.(Object.freeze({ownerId:base.dispatchId,cwd:admittedCwd,tools:effectiveToolSnapshot,contract:admittedContract,admit:discoveryAdmitted}));
+ const nativeAdmitted=()=>{try{return discoveryAdmitted()&&(!damageRegistration||damageRegistration.validate()===true);}catch{return false;}};
+ if(!nativeAdmitted())return admissionRefused();
 
 	if (state.sessionFile && !sessionRecycled) {
 		const overflow = shouldRecycleBeforeSpawn({
@@ -241,7 +263,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 
 	return {
 		...base,
-  discoveryContext,discoveryAdmitted,
+  discoveryContext,discoveryAdmitted,damageRegistration,nativeAdmitted,admittedCwd,
 		model,
 		originalModelFallback,
 		agentWindow,

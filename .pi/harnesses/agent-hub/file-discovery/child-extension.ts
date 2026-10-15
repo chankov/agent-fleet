@@ -1,5 +1,7 @@
 import type {ExtensionAPI} from '@mariozechner/pi-coding-agent';
 import {safeSourceRead} from '../../lib/safe-source-read.js';
+import {damageCaptureState,originalDamageResult} from '../../lib/damage-result-evidence.ts';
+import {damageResultView} from '../../lib/damage-result-view.ts';
 import {sourceHash} from '../agentic-sources.ts';
 import {adaptDiscovery} from './adapters.ts';
 import {loadSystem1Snapshot,readSystem1Selected} from '../../lib/system1/config-loader.js';
@@ -22,13 +24,15 @@ export default function registerDiscoveryChild(pi:ExtensionAPI):void {
   if(!['find','ls','grep','filesystem'].includes(event.toolName)||event.toolName==='filesystem'&&!['inventory','stat'].includes((event.input as any)?.operation))return;
   const deadlineAt=Date.now()+FOREGROUND_MS;
   const statEvent=event.toolName==='filesystem'&&(event.input as any)?.operation==='stat';if(statEvent&&!semantic)return;
-  const reply=(advice:unknown)=>({content:[...event.content,{type:'text' as const,text:'File discovery advice: '+JSON.stringify(advice)}],details:{...(event.details&&typeof event.details==='object'?event.details:{}),fileDiscovery:advice}});
+  const reply=(advice:unknown)=>damageResultView({...event,details:event.details===undefined?{fileDiscovery:advice}:event.details&&typeof event.details==='object'&&!Array.isArray(event.details)&&!Object.hasOwn(event.details,'fileDiscovery')?{...event.details,fileDiscovery:advice}:event.details},'File discovery advice: '+JSON.stringify(advice),advice,'fileDiscovery');
   if(controller.signal.aborted)return reply({status:'cancelled'});
-  const key=JSON.stringify([event.toolCallId,event.toolName,event.input,sourceHash(JSON.stringify(event.content))]);if(pending.has(key))return pending.get(key);
+  if(damageCaptureState(event)!=='captured')return reply({status:'skipped',reason:'original_capture_unavailable'});
+  const evidence=originalDamageResult(event);if(!evidence)return reply({status:'skipped',reason:'original_capture_unavailable'});
+  const key=JSON.stringify([evidence.toolCallId,evidence.toolName,evidence.input,sourceHash(JSON.stringify([evidence.content,evidence.details,evidence.structuredContent]))]);if(pending.has(key))return pending.get(key);
   const work=(async()=>{
-   let result:any=event;const bounded=(event.details as any)?.boundedOutput;
-   if(bounded){try{const body=safeSourceRead(root,bounded.contentPath,262144);if(sourceHash(body)!==bounded.sha256)throw Error();const {boundedOutput:_b,...details}=event.details as any;result={...event,content:[{type:'text',text:body.toString('utf8')}],details};}catch{return reply({status:'skipped',reason:'bounded_evidence_unavailable'});}}
-   const candidates=adaptDiscovery({tool:event.toolName,args:event.input as any,result,cwd:ctx.cwd,root,include});
+   let result:any=evidence;const bounded=(evidence.details as any)?.boundedOutput;
+   if(bounded){try{const body=safeSourceRead(root,bounded.contentPath,262144);if(sourceHash(body)!==bounded.sha256)throw Error();const {boundedOutput:_b,...details}=evidence.details as any;result={...evidence,content:[{type:'text',text:body.toString('utf8')}],details};}catch{return reply({status:'skipped',reason:'bounded_evidence_unavailable'});}}
+   const candidates=adaptDiscovery({tool:evidence.toolName,args:evidence.input as any,result,cwd:ctx.cwd,root,include});
    if(!candidates.paths.length||candidates.paths.length<2&&!semantic)return reply({status:'skipped',reason:candidates.reason??'fewer_than_two_candidates',discoveryComplete:candidates.discoveryComplete});
    const response=await rankDiscovery(assignment,{paths:candidates.paths,foreground:semantic&&candidates.paths.length===1,discovery:{complete:candidates.discoveryComplete,...(!candidates.discoveryComplete?{reason:'truncated'}:{})}},controller.signal,semantic&&candidates.paths.length===1?Math.max(1,deadlineAt-Date.now()):undefined);
    if(controller.signal.aborted)return reply({status:'cancelled'});

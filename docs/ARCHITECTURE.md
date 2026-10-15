@@ -21,10 +21,11 @@ this page describes the current architecture.
 | **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `.pi/agent-fleet/scripts/lib/`) — see [Hermes artifacts](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `.pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `.pi/agent-fleet/scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
 | **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-client.ts`, `.pi/agent-fleet/scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
-| **System 1 foundation** | Experimental shared structured-judgment service; TypeSafe Jev only, with independent watchdog/dispatch/proactive/task-triage/agenticAsk/fileDiscovery consumer opt-ins | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
+| **System 1 foundation** | Experimental shared structured-judgment service; TypeSafe Jev only, with independent watchdog/dispatch/proactive/task-triage/agenticAsk/fileDiscovery/contextCompaction/damageGuard consumer opt-ins | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
 | **System 1 dispatch advice / communication** | Optional off-by-default `dispatch_triage` tool; shared-service memory-only Fleet `1` viewer, independently opt-in; live calibration not yet accepted | `.pi/harnesses/agent-hub/dispatch-triage-*.ts`, `system1-communication-store.ts`, `ui/system1-communication.ts` — [guide](system1-dispatch-triage.md) |
 | **System 1 task triage** | Active uncalibrated opt-in: uncertain predicates add process obligations, never spend/permission authority; session Fleet/audit metadata | `.pi/harnesses/agent-hub/task-triage-*.ts`, human-owned `consumers.taskTriage` in `.ai/system1.json` — [config/recovery](agent-fleet-setup.md#task-triage-active-experimental-off-by-default) |
 | **System 1 file discovery (D9)** | Off-by-default automatic full-list file ranking; parent scheduler/cache/durable budget, guarded source export, private UDS broker and per-physical-attempt native/descendant identities; no permission or acceptance authority | `.pi/harnesses/agent-hub/file-discovery/`, `tools/ask-system1-files.ts` — [scope/status/full-list and activation](system1-file-discovery.md) |
+| **System 1 damage guard (D6)** | Off-by-default independent commands/edits/results scopes over mandatory Damage-Control baseline; parent-owned durable decisions, approval and native capability transport; production wiring exists, acceptance remains open | `.pi/harnesses/agent-hub/damage-guard-*.ts`, `damage-control-continue/system1-*.ts`, `result-screen.ts` — [contract and limits](system1-damage-guard.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
 
@@ -175,6 +176,36 @@ changes require a new session. Offline production lifecycle/package tests prove
 mechanics, not semantic accuracy or final live activation. See the [D9 guide](system1-file-discovery.md)
 for exact triggers, unsupported surfaces, residual limitations and unpublished
 source/local-tarball commands.
+
+### Optional semantic damage guard
+
+D6's parent Hub owns the shared service, task/accepted-input revision, durable
+hold/denial state and shared approval coordinator. Baseline-allowed bash/write/edit
+receive scoped pre-call assessment; only valid severe AND sufficient can hold an
+exact action. Native specialists, research helpers and nested delegates have
+independent physical-spawn registration, fresh/revocable assignments (including
+fallback), stripped inherited assignments and no child provider credentials.
+This is independent of D9 consent and cannot expand effective tools, admission,
+OS isolation, budgets or baseline authority. Research stays read-only with
+supported result screening; standalone Damage-Control without trusted assignment
+has baseline only, and coms peers have no native D6 registration coverage.
+
+Missing/off/invalid/root-off/unavailable-key means no new D6 inference, not
+removal of durable fences. `/af-damage-override [actionId]` only re-arms a matching
+human dialog, never executes, retries, clears denial or grants path access.
+One-use semantic consent still requires current baseline authority after waiting.
+Original→D6→D8 composition keeps frozen non-aliased original evidence separate
+from appended visible advice; structured `damageGuard` and `fileDiscovery`
+views preserve originals or envelope collisions. Failed capture is a gap and
+warning absence never establishes trust. See the [D6 guide](system1-damage-guard.md)
+for bounded provenance-checked result sources, exact structured API and deadlines.
+
+Production wiring exists in the current worktree; named F10 no-network checks
+record SDK/codemode 1.1.0 on Node v25.2.1, not universal compatibility. In that
+SDK, non-structured error rejection exposes the original first block, not coverage
+text (the nested outcome retains coverage/error). D6 remains incomplete/unaccepted:
+A1–A8, independent review/final testing, F12 packaging and F13 final acceptance
+remain open. Documentation and module presence do not close those gates.
 
 ### Research search supervision
 
@@ -734,6 +765,7 @@ agent-hub/
 ├── runtime-test-check.ts     # code-owned native bash observer for trusted runtime checks
 ├── tool-protocol.ts          # T3 event/readback correlation and shared diagnostic schema
 ├── recovery-contract.ts      # shared typed failure/recovery policy
+├── damage-guard-*.ts         # D6 parent state, approval, ownership and broker (acceptance open)
 ├── policy/                   # model, roster, capability, and work-mode decisions
 ├── research/                 # helper runtime, spawn transitions, and controls
 ├── ui/                       # grid, dashboard, detail, context, pool, zoom, and history

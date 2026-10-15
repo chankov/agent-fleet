@@ -1,3 +1,4 @@
+import {sharedApprovalWait} from './approval-wait.ts';
 import {
 	accessDecisionChoices,
 	accessRequestCacheKey,
@@ -12,7 +13,7 @@ type ApprovalContext = {
 	hasUI: boolean;
 	ui: {
 		notify(message: string, level?: string): void;
-		select(title: string, options: string[], settings: { timeout: number }): Promise<string | undefined>;
+		select(title: string, options: string[], settings: { timeout: number; signal?: AbortSignal }): Promise<string | undefined>;
 	};
 };
 
@@ -29,7 +30,7 @@ type AccessApprovalDeps = {
 };
 
 export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
-	let askQueue: Promise<unknown> = Promise.resolve();
+	const askQueue = sharedApprovalWait;
 	let generation = 0;
 	const denyCache = new Set<string>();
 	const pending = new Map<string, Promise<AccessDecisionChoice>>();
@@ -58,7 +59,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 		const existing = pending.get(cacheKey);
 		if (existing) return existing;
 
-		const ask = askQueue.then(async (): Promise<AccessDecisionChoice> => {
+		const ask = askQueue.run(async (waitSignal): Promise<AccessDecisionChoice> => {
 			if (requestGeneration !== generation) return "deny";
 			const ctx = deps.getContext();
 			if (!ctx?.hasUI) return "deny";
@@ -79,7 +80,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 				const choice = await ctx.ui.select(
 					`🛡️ ${agent} requests access: ${pattern}`,
 					options,
-					{ timeout: 600_000 },
+					{ timeout: 600_000, signal: waitSignal },
 				);
 				if (requestGeneration !== generation) return "deny";
 				const selected = allowed.find((decision) => labels.get(decision) === choice) ?? "deny";
@@ -88,9 +89,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 			} catch {
 				return "deny";
 			}
-		});
-
-		askQueue = ask.catch(() => {});
+		}).then(value=>value??'deny' as AccessDecisionChoice);
 		pending.set(cacheKey, ask);
 		void ask.finally(() => pending.delete(cacheKey));
 		return ask;
@@ -127,7 +126,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 		},
 		reset() {
 			generation++;
-			askQueue = Promise.resolve();
+			askQueue.reset();
 			denyCache.clear();
 			pending.clear();
 		},

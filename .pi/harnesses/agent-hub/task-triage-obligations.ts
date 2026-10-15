@@ -42,6 +42,23 @@ export async function adoptTaskTriageState(options: {
 }): Promise<ProcessObligationState> {
  const { runtime, taskId, expandedScope, pendingTransition, persist } = options;
  const base = options.newTask ? createProcessState() : options.state;
+ if (options.newTask) {
+  // Consumed predecessor input is not successor input. Keep its ownership and
+  // journal intact until the fresh candidate is durably appended.
+  let bound = null;
+  if (pendingTransition && runtime) {
+   persist(options.state);
+   bound = await runtime.bindInput(taskId, true);
+   if (!bound) throw new Error("pending input was not evaluated");
+  }
+  const next = bound ? applyTaskTriageAdditions(base, bound.assessment, { taskId, evaluationId: bound.evaluationId, inputRevision: bound.revision }) : base;
+  try { persist(next); } catch (error) {
+   if (bound) options.onPostCommitFailure();
+   throw error;
+  }
+  runtime?.retirePredecessor(bound);
+  return next;
+ }
  // Before binding, persist only the *current* obligations. A refused new-task
  // transition must leave the journal safe to restore even if binding is cancelled.
  const needsBinding = !!(pendingTransition && runtime && !runtime.current);

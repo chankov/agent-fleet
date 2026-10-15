@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import {createOneUseAuthority,type OneUseAuthority} from './action-authorization.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { RuntimeQuestion } from "../ask-user-remote/runtime-ask.ts";
 import { waiveTaskTriageAddition, type EvaluationBinding } from "./task-triage-obligations.ts";
@@ -7,15 +8,14 @@ import { isAbsolute } from "node:path";
 import { containsCommunicationSecret } from "./system1-communication-store.ts";
 
 const grantBrand: unique symbol = Symbol("trusted triage grant");
-export type ActionGrant = { readonly [grantBrand]: true };
+export type ActionGrant = OneUseAuthority;
 export type WaiverGrant = { readonly [grantBrand]: true };
-const actionGrants = new WeakMap<object, string>();
+const actionGrants = createOneUseAuthority();
 const waiverGrants = new WeakMap<object, string>();
 const actionKey = (a: ActionContract) => JSON.stringify([a.taskId, a.inputRevision, a.actionId, a.operation, a.target, a.cwd ?? null]);
 const waiverKey = (b: EvaluationBinding & { additionId: string; reason: string }) => JSON.stringify([b.taskId, b.inputRevision, b.evaluationId, b.additionId, b.reason]);
 export function consumeActionGrant(grant: ActionGrant | undefined, contract: ActionContract): boolean {
- if (!grant || typeof grant !== "object" || actionGrants.get(grant) !== actionKey(contract)) return false;
- actionGrants.delete(grant); return true;
+ return actionGrants.consume(grant,actionKey(contract));
 }
 export function consumeWaiverGrant(grant: WaiverGrant | undefined, binding: EvaluationBinding & { additionId: string; reason: string }): boolean {
  if (!grant || typeof grant !== "object" || waiverGrants.get(grant) !== waiverKey(binding)) return false;
@@ -43,7 +43,7 @@ export const ACTION_PRESENTATION_MAX_BYTES = 8192;
 const unsafeActionText = (v: string) => containsCommunicationSecret(v) || /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(v)
  || /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(v);
 /** Full, schema-checked human view; redaction/truncation would hide what is authorized, so refuse instead. */
-function actionPresentation(action: ActionContract, presentation?: ActionPresentation): string | null {
+export function actionPresentation(action: ActionContract, presentation?: ActionPresentation): string | null {
  if (!presentation || typeof presentation.cwd !== "string" || !isAbsolute(presentation.cwd) || presentation.cwd !== action.cwd
   || unsafeActionText(presentation.cwd) || presentation.cwd.length > 2048) return null;
  const input = presentation.input;
@@ -104,7 +104,7 @@ export async function confirmTaskTriageAction(action: ActionContract, ports: Tri
  if (!stillCurrent()) return null;
  try { if (!persistOneUse(contract)) return null; } catch { return null; }
  if (!stillCurrent()) return null;
- const grant = Object.freeze({ [grantBrand]: true as const }); actionGrants.set(grant, key); return grant;
+ return actionGrants.issue(key);
 }
 export async function confirmTaskTriageWaiver(state: ProcessObligationState, binding: EvaluationBinding & { additionId: string; reason: string }, ports: TriageHumanPorts, ctx: ExtensionContext, signal?: AbortSignal): Promise<ProcessObligationState | null> {
  if (binding.taskId !== ports.taskId() || binding.inputRevision !== ports.inputRevision() || !binding.reason?.trim() || binding.reason.length > 512 || !state.additions?.some(a => a.id === binding.additionId && a.evaluationId === binding.evaluationId && a.taskId === binding.taskId && a.inputRevision === binding.inputRevision && a.status === "active")) return null;

@@ -47,16 +47,20 @@ export function createTaskTriageRuntime(options: { service?: System1Service; ser
   restore(entries: readonly unknown[]) { stop(); pending = null; current = null; scope = null; snapshot = restoreTaskTriageCounter(entries); },
   dispose: stop,
   adopt(taskId: string) { if (current) current = { ...current, taskId }; return current; },
-  /** Reuse the already evaluated input; otherwise wait for the newest pending revision. */
-  async bindInput(taskId: string) { return current ?? await this.evaluate(taskId); },
+  /** Successor candidates do not replace committed ownership before process persistence. */
+  async bindInput(taskId: string, successor = false) { return successor ? await this.evaluate(taskId, true) : current ?? await this.evaluate(taskId); },
+  retirePredecessor(bound: TaskTriageCurrent | null = null) {
+   stop(); scope = null; current = bound;
+   if (!bound) pending = null;
+  },
   scope(value: string) { if (scope === value) return false; scope = value; stop(); current = null; return true; },
   invalidate() { stop(); current = null; },
-  async evaluate(taskId: string): Promise<TaskTriageCurrent | null> {
-   if (!pending || !taskId) return current;
-   const input = pending, generation = epoch;
-   const built = buildTaskTriageState({ task: input.text, constraints: scope ? [`Declared process scope: ${scope}`] : [] }, options.root);
-   const fingerprint = built.ok ? built.fingerprint : input.revision + (scope ?? "");
-   if (current?.fingerprint === fingerprint && current.taskId === taskId) return current;
+  async evaluate(taskId: string, successor = false): Promise<TaskTriageCurrent | null> {
+   if (!pending || !taskId) return successor ? null : current;
+   const input = pending, generation = epoch, evaluationScope = successor ? null : scope;
+   const built = buildTaskTriageState({ task: input.text, constraints: evaluationScope ? [`Declared process scope: ${evaluationScope}`] : [] }, options.root);
+   const fingerprint = built.ok ? built.fingerprint : input.revision + (evaluationScope ?? "");
+   if (!successor && current?.fingerprint === fingerprint && current.taskId === taskId) return current;
    if (flight?.fingerprint === fingerprint && flight.taskId === taskId && flight.generation === generation) return flight.promise;
    const evaluationId = randomUUID(), identity = { taskId, evaluationId, inputRevision: input.revision };
    let observed = false, observationClosed = false, providerResult: System1Result | undefined;
@@ -82,8 +86,9 @@ export function createTaskTriageRuntime(options: { service?: System1Service; ser
    const record = (assessment: TaskTriageAssessment) => {
     beginObservation(false); finishObservation(assessment);
     if (epoch !== generation || pending?.revision !== input.revision) return null;
-    current = { fingerprint, taskId, assessment, evaluationId, revision: input.revision };
-    return current;
+    const bound = { fingerprint, taskId, assessment, evaluationId, revision: input.revision };
+    if (!successor) current = bound;
+    return bound;
    };
    if (!built.ok) return record({ status: built.reason, reasons: [] });
    const service = options.service;

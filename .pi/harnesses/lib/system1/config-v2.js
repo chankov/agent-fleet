@@ -5,7 +5,8 @@ import { parseTriageConfig, parseTaskTriageConfig, TASK_TRIAGE_LIMITS } from './
 import { parseAgenticConfig } from './config-agentic.js';
 import { parseFileDiscoveryConfig } from './config-file-discovery.js';
 import { parseContextCompactionConfig } from './config-context-compaction.js';
-export const CONSUMERS = Object.freeze(['watchdog', 'proactiveReview', 'dispatchTriage', 'taskTriage', 'agenticAsk', 'fileDiscovery', 'contextCompaction']);
+import { parseDamageGuardConfig } from './config-damage-guard.js';
+export const CONSUMERS = Object.freeze(['watchdog', 'proactiveReview', 'dispatchTriage', 'taskTriage', 'agenticAsk', 'fileDiscovery', 'contextCompaction', 'damageGuard']);
 export function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const item of Object.values(value)) deepFreeze(item);
@@ -22,6 +23,7 @@ const fields = {
   agenticAsk: ['mode', 'remoteContextApproved', 'include', 'allowToolOutputs', 'limits'],
   fileDiscovery: ['mode', 'remoteContextApproved', 'include', 'limits', 'semanticReads'],
   contextCompaction: ['mode','remoteContextApproved','earlyOpportunityPercent','limits'],
+  damageGuard: ['mode','remoteScopes','include','limits'],
 };
 export function normalizeSystem1Config(value, context) {
   const errors = [];
@@ -81,7 +83,8 @@ export function normalizeSystem1Config(value, context) {
       if (name === 'watchdog') {
         if (!['off', 'shadow', 'active'].includes(section.mode)) { error(`${path}.mode`); throw new Error(); }
         config = section;
-      } else if (name === 'contextCompaction') config = parseContextCompactionConfig(section);
+      } else if (name === 'damageGuard') config = parseDamageGuardConfig(section);
+      else if (name === 'contextCompaction') config = parseContextCompactionConfig(section);
       else if (name === 'fileDiscovery') config = parseFileDiscoveryConfig(section);
       else if (name === 'agenticAsk') config = parseAgenticConfig(section);
       else if (name === 'proactiveReview') config = parseProactiveConfig({ version: 1, ...section }, context);
@@ -97,7 +100,7 @@ export function normalizeSystem1Config(value, context) {
         if (parsed.status === 'invalid') throw new Error();
         config = { version: 1, provider: value.provider, model: value.model, ...section };
       }
-      const status = config.mode === 'off' || (['taskTriage', 'agenticAsk', 'fileDiscovery', 'contextCompaction'].includes(name) && !config.remoteContextApproved) ? 'off' : 'ready';
+      const status = config.mode === 'off' || (name === 'damageGuard' && !Object.values(config.remoteScopes).some(Boolean)) || (['taskTriage', 'agenticAsk', 'fileDiscovery', 'contextCompaction'].includes(name) && !config.remoteContextApproved) ? 'off' : 'ready';
       consumers[name] = { status, config };
     } catch (failure) {
       const field = { 'Invalid semanticReads section':'semanticReads', 'Invalid include scope':'include', 'Explicit include scope required':'include', 'Invalid remoteContext':'remoteContext', 'Invalid session budget':'maxEvaluationsPerSession', 'Invalid local bindings':'localBindings', 'Invalid local binding schema':'localBindings', 'Invalid local binding values':'localBindings' }[failure.message];

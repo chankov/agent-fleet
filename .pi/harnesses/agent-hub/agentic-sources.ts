@@ -20,7 +20,7 @@ export function exportPathAllowed(path:string,include:readonly string[],gitTrack
  return include.some(p=>{if(p===GIT_TRACKED_INCLUDE)return gitTracked;const prefix=p.replace(/\/$/,'');return path===prefix||path.startsWith(prefix+'/');});
 }
 const runGit=promisify(execFile);
-async function trackedPaths(root:string,paths:string[],signal:AbortSignal,deadlineMs:number):Promise<Set<string>> {
+export async function trackedPaths(root:string,paths:string[],signal:AbortSignal,deadlineMs:number):Promise<Set<string>> {
  // Never inherit Git repository/index overrides from the Hub process. Literal
  // pathspecs avoid treating file names as options or wildcard/magic expressions.
  const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('GIT_')));

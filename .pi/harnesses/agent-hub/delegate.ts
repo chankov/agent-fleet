@@ -39,7 +39,7 @@ import { Type } from "@sinclair/typebox";
 import { appendFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ChildProcess } from "child_process";
 import { killPiTree } from "./spawn.ts";
-import { spawnDiscoveryDescendant } from "./file-discovery/descendant.ts";
+import { spawnDamageDescendant } from "./damage-guard-descendant.ts";
 import { redactSecrets } from "../lib/fleet-transcript-store.ts";
 import { buildProjectDocsProtocol, buildProjectRulesProtocol } from "../lib/context-budget-child-prompt.ts";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
@@ -352,7 +352,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				res = await providerSemaphore.run(roleDef.model, () => {
 					queuedMs = Date.now() - startTime;
-					return spawnDiscoveryDescendant({
+					return spawnDamageDescendant({
 					model: roleDef.model,
 					tools: childTools,
 					thinking: roleDef.thinking ?? "off",
@@ -361,7 +361,7 @@ export default function (pi: ExtensionAPI) {
 					prompt,
 					extensions: childExtensions,
 					env: {
-						...(childConfig ? { AGENT_HUB_DELEGATE_CONFIG: JSON.stringify(childConfig) } : {}),
+						AGENT_HUB_DELEGATE_CONFIG: childConfig ? JSON.stringify(childConfig) : "",
 						...(boundedOutputDir ? { [BOUNDED_OUTPUT_DIR_ENV]: boundedOutputDir } : {}),
 						...(config.deterministicTools && config.filesystemSessionDir ? { [FILESYSTEM_SESSION_DIR_ENV]: config.filesystemSessionDir } : {}),
 					},

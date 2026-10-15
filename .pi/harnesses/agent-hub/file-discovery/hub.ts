@@ -1,4 +1,6 @@
 import type {CommunicationStore} from '../system1-communication-store.ts';
+import {originalDamageResult} from '../../lib/damage-result-evidence.ts';
+import {damageResultView} from '../../lib/damage-result-view.ts';
 import {mkdirSync,lstatSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import type {NativeDiscoveryInput,NativeDiscoveryContext} from './native-context.ts';
@@ -94,17 +96,23 @@ export function registerDiscoveryHub(pi:ExtensionAPI){
   const statEvent=event.toolName==='filesystem'&&(event.input as any)?.operation==='stat';
   if(statEvent&&session.config.semanticReads.mode!=='active')return;
   const deadlineAt=Date.now()+FOREGROUND_MS;
-  const original={content:event.content,details:event.details};
-  const reply=(advice:any)=>{if(advice.status==='skipped')session.observe?.(event.toolName,'skipped');return ({content:[...event.content,{type:'text' as const,text:'File discovery advice: '+JSON.stringify(advice)}],details:{...(event.details&&typeof event.details==='object'?event.details:{}),fileDiscovery:advice}});};
+  const evidence=originalDamageResult(event);
+  const reply=(advice:any)=>{
+   if(advice.status==='skipped')session.observe?.(event.toolName,'skipped');
+   const details=event.details===undefined?{fileDiscovery:advice}:event.details&&typeof event.details==='object'&&!Array.isArray(event.details)&&!Object.hasOwn(event.details,'fileDiscovery')?{...event.details,fileDiscovery:advice}:event.details;
+   return damageResultView({...event,details},'File discovery advice: '+JSON.stringify(advice),advice,'fileDiscovery');
+  };
+  if(!evidence)return reply({status:'skipped',reason:'original_capture_unavailable'});
+  const original={content:evidence.content,details:evidence.details,isError:evidence.isError,structuredContent:evidence.structuredContent};
   const key=JSON.stringify([session.context(),event.toolCallId,sourceHash(JSON.stringify(original))]);
   if(session.events.has(key))return session.events.get(key) as any;
   const context=session.context();
   const operation=(async()=>{
    if(!session.task().trim())return reply({status:'skipped',reason:'missing_task'});
-   let result:any=event;
-   const bounded=(event.details as any)?.boundedOutput;
+   let result:any=evidence;
+   const bounded=(evidence.details as any)?.boundedOutput;
    if(bounded){
-    try{const body=safeSourceRead(session.sessionDir,bounded.contentPath,262144);if(sourceHash(body)!==bounded.sha256)throw Error();const {boundedOutput:_bounded,...details}=event.details as any;result={...event,content:[{type:'text',text:body.toString('utf8')}],details};}
+    try{const body=safeSourceRead(session.sessionDir,bounded.contentPath,262144);if(sourceHash(body)!==bounded.sha256)throw Error();const {boundedOutput:_bounded,...details}=evidence.details as any;result={...evidence,content:[{type:'text',text:body.toString('utf8')}],details};}
     catch{return reply({status:'skipped',reason:'bounded_evidence_unavailable'});}
    }
    const candidates=adaptDiscovery({tool:event.toolName,args:event.input as any,result,cwd:ctx.cwd,root:session.root,include:session.config.include});

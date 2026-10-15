@@ -57,6 +57,10 @@ import {
 import { registerVersionStatus } from "./version.ts";
 import { scheduleFleetUpdateCheck } from "../lib/update-check.ts";
 import { deterministicHandlePath } from "../lib/deterministic-handle-path.ts";
+import {sharedApprovalWait} from '../lib/approval-wait.ts';
+import {assessDamageCall} from '../lib/damage-guard-port.ts';
+import type {createDamageChild} from './system1-child.ts';
+ import {captureDamageResult} from '../lib/damage-result-evidence.ts';
 
 interface Rule {
 	pattern: string;
@@ -98,7 +102,16 @@ function continueFeedback(toolName: string, violationReason: string, invocation:
 	].join("\n");
 }
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} = {}) {
+	let baselineEpoch=0;
+	let child: ReturnType<typeof createDamageChild> | undefined;
+	pi.on('tool_result', event => {
+		captureDamageResult(event);
+		return child?.result(event);
+	});
+	const disposeChild = () => { baselineEpoch++; child?.dispose(); child=undefined; };
+	// The SDK emits shutdown for committed switch/quit, not cancelled before-switch.
+	pi.on("session_shutdown", async () => { disposeChild(); });
 	let rules: Rules = {
 		bashToolPatterns: [],
 		zeroAccessPaths: [],
@@ -246,12 +259,14 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async () => {
+		baselineEpoch++;
 		turnExemptions.length = 0;
 		deniedThisTurn.clear();
 		escalationsThisTurn = 0;
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+        disposeChild();
 		registerVersionStatus(ctx);
 		// Non-blocking: never delay rule loading or session start for a registry fetch.
 		scheduleFleetUpdateCheck(ctx);
@@ -279,9 +294,28 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		ctx.ui.setStatus("damage-control", statusText());
+		if(dependencies.assignment!==undefined){
+			const epoch=baselineEpoch;
+			const {createDamageChild}=await import('./system1-child.ts');
+			if(epoch===baselineEpoch)child=createDamageChild(dependencies.assignment);
+		}
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
+  // Capture loaded policy before baseline dialogs, not after the user waits.
+  const policySnapshot=JSON.stringify(rules),epoch=baselineEpoch;
+  const exactCall=JSON.stringify(event),cwd=ctx.cwd;
+  const semanticAllow=async()=>{
+   const unchanged=()=>epoch===baselineEpoch&&policySnapshot===JSON.stringify(rules)&&exactCall===JSON.stringify(event)&&cwd===ctx.cwd;
+   const blocked={block:true,reason:'Damage-Control: baseline authority changed; re-authorize the call.'};
+   if(!unchanged())return blocked;
+   const snapshot=JSON.stringify([rules,activeExemptions()]);
+   const revalidateBaseline=()=>unchanged()&&snapshot===JSON.stringify([rules,activeExemptions()]);
+   const result=await assessDamageCall(event,{cwd,revalidateBaseline});
+   // Local authority is checked after the asynchronous parent approval, never
+   // serialized as evidence and never replaced by the semantic grant.
+   return revalidateBaseline()?result:blocked;
+  };
 		let violationReason: string | null = null;
 		let shouldAsk = false;
 		// The protected pattern that matched, set only for the path categories —
@@ -413,7 +447,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		if (!violationReason) {
-			return { block: false };
+			return semanticAllow();
 		}
 
 		const command = isToolCallEventType("bash", event) ? event.input.command : null;
@@ -425,7 +459,7 @@ export default function (pi: ExtensionAPI) {
 			if (exempted) {
 				pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "exempted", pattern: exempted.pattern, scope: exempted.scope });
 				ctx.ui.notify(`🛡️ Damage-Control: ${event.toolName} allowed by exemption ${exempted.pattern} (${exempted.scope})`, "warning");
-				return { block: false };
+				return semanticAllow();
 			}
 
 			if (!deniedThisTurn.has(matchedPattern)) {
@@ -439,19 +473,19 @@ export default function (pi: ExtensionAPI) {
 					const choices = matchedCategory === "no_delete"
 						? [KEEP, ONCE]
 						: [KEEP, ONCE, TURN, SESSION];
-					const choice = await ctx.ui.select(
+					const choice = await sharedApprovalWait.run(signal=>ctx.ui.select(
 						`🛡️ Blocked: ${event.toolName} — ${violationReason}`,
 						choices,
-						{ timeout: PROMPT_TIMEOUT_MS },
-					);
+						{ timeout: PROMPT_TIMEOUT_MS, signal },
+					));
 					if (choice === ONCE) {
 						pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "allowed_once", pattern: matchedPattern });
-						return { block: false };
+						return semanticAllow();
 					}
 					if (choice === TURN || choice === SESSION) {
 						grantExemption(matchedPattern, choice === TURN ? "turn" : "session", "prompt");
 						ctx.ui.setStatus("damage-control", statusText());
-						return { block: false };
+						return semanticAllow();
 					}
 					const note = choice === KEEP
 						? `The user reviewed this call and kept the block in place.`
@@ -484,14 +518,14 @@ export default function (pi: ExtensionAPI) {
 					const decision = await requestAccessFromHub(endpoint, req);
 					if (decision === "allow_once") {
 						pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "allowed_once", pattern: matchedPattern, via: "escalation" });
-						return { block: false };
+						return semanticAllow();
 					}
 					if (decision === "allow_agent" || decision === "allow_all") {
 						// The hub persisted the grant to the shared file; keep a memory
 						// copy too so this run doesn't depend on re-reading it.
 						sessionExemptions.push({ pattern: matchedPattern, scope: "session", grantedVia: "escalation", grantedAt: new Date().toISOString() });
 						pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: decision === "allow_all" ? "allowed_all_agents" : "allowed_this_agent", pattern: matchedPattern, via: "escalation" });
-						return { block: false };
+						return semanticAllow();
 					}
 					deniedThisTurn.add(matchedPattern);
 					const note = decision === "deny"
@@ -506,11 +540,11 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		if (shouldAsk) {
-			const confirmed = await ctx.ui.confirm(
+			const confirmed = await sharedApprovalWait.run(signal=>ctx.ui.confirm(
 				"🛡️ Damage-Control Confirmation",
 				`Dangerous command detected: ${violationReason}\n\nCommand: ${invocation}\n\nDo you want to proceed?`,
-				{ timeout: 30000 },
-			);
+				{ timeout: 30000, signal },
+			));
 
 			if (!confirmed) {
 				ctx.ui.setStatus("damage-control", `⚠️ Last Violation Blocked: ${violationReason.slice(0, 30)}...`);
@@ -518,7 +552,7 @@ export default function (pi: ExtensionAPI) {
 				return { block: true, reason: continueFeedback(event.toolName, `${violationReason} (user denied)`, invocation) };
 			} else {
 				pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "confirmed_by_user" });
-				return { block: false };
+				return semanticAllow();
 			}
 		} else {
 			const note = matchedPattern
