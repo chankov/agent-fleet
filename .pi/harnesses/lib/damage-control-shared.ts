@@ -109,6 +109,9 @@ export function removeExemptionFromFile(filePath: string | undefined, pattern: s
  * so the hub's isValidEnvelope accepts it.
  */
 export interface AccessRequest {
+	/** Diagnostic correlation only; these fields never authorize access. */
+	toolCallId?: string;
+	traceOwner?: string;
 	type: "access_request";
 	msg_id: string;
 	sender_session: string;

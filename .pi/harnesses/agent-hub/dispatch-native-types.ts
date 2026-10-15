@@ -145,6 +145,7 @@ export interface NativeDamagePreparation {
 }
 
 export interface NativeDispatchDeps {
+	traceNative?(owner: string, actor: string): ReturnType<typeof import("./execution-trace.ts").createNativeExecutionTrace>;
  prepareDamageGuard?(input: NativeDamagePreparation): import('./damage-guard-owners.ts').DamageSpawnRegistration | null | undefined | Promise<import('./damage-guard-owners.ts').DamageSpawnRegistration | null | undefined>;
  prepareDiscovery?:import('./file-discovery/native-context.ts').PrepareNativeDiscovery;
  launchIdentity?():unknown;
@@ -224,6 +225,7 @@ export interface NativeDispatchDeps {
 }
 
 export interface NativeRunBase {
+	trace?: ReturnType<typeof import("./execution-trace.ts").createNativeExecutionTrace>;
 	readonly sessionDir: string;
  readonly launchIdentity?:unknown;
 	readonly evidenceDir: string;

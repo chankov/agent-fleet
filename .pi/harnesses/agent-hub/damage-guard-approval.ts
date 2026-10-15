@@ -7,7 +7,7 @@ import {decideIdenticalDialog,identicalDialogKey} from '../lib/identical-dialog.
 const key=(a:DamageAction)=>JSON.stringify([a.taskId,a.inputRevision,a.actionId,a.owner,a.attempt,a.operation,a.target,a.cwd]);
 export type DamageApprovalProof=Readonly<{allowed:boolean;denialEpoch:number;overrideDenied:boolean}>;
 export type DamageApprovalResult={status:'allowed';grant:OneUseAuthority}|{status:'denied'|'expired'|'cancelled'|'unpresentable'|'persistence_failed'};
-export function createDamageApproval(deps:{state:ReturnType<typeof createDamageState>;current():DamageAction;baseline():boolean;ask(id:string,question:RuntimeQuestion,signal:AbortSignal):Promise<unknown>;timeoutMs?:number}){
+export function createDamageApproval(deps:{state:ReturnType<typeof createDamageState>;current():DamageAction;baseline():boolean;ask(id:string,question:RuntimeQuestion,signal:AbortSignal,action?:DamageAction):Promise<unknown>;timeoutMs?:number}){
  const authority=createOneUseAuthority();
  const generations=new Map<string,number>(),issued=new WeakMap<object,{binding:string;generation:number;denialEpoch:number;overrideDenied:boolean}>(),pending=new Map<string,Promise<DamageApprovalResult>>();
  const current=(a:DamageAction,signal?:AbortSignal)=>!signal?.aborted&&key(a)===key(deps.current())&&deps.baseline();
@@ -41,7 +41,7 @@ export function createDamageApproval(deps:{state:ReturnType<typeof createDamageS
      const question:RuntimeQuestion={question:'Approve this exact Damage-Control action once?',context:`Task: ${snapshot.taskId}\nRevision: ${snapshot.inputRevision}\nOwner: ${snapshot.owner}\n${detail}`,options:['Allow once','Deny'],allowMultiple:false,allowFreeform:false,allowComment:false};
      const dialogKey=identicalDialogKey(['damage',snapshot.taskId,snapshot.inputRevision,snapshot.owner,snapshot.operation,snapshot.target,snapshot.cwd,question.question,question.options,detail]);
      const decision=await decideIdenticalDialog(dialogKey,async()=>{
-      const response=await deps.ask(id,question,controller.signal) as {isError?:boolean;details?:{cancelled?:boolean;runtimeAsk?:{requestId?:string};response?:{kind?:string;selections?:unknown[]}}};
+      const response=await deps.ask(id,question,controller.signal,snapshot) as {isError?:boolean;details?:{cancelled?:boolean;runtimeAsk?:{requestId?:string};response?:{kind?:string;selections?:unknown[]}}};
       if(!current(snapshot,waitSignal)||key(action)!==binding||controller.signal.aborted)return 'cancel';
       const row=response?.details,choice=row?.response?.selections?.[0];
       if(response?.isError||row?.cancelled||row?.runtimeAsk?.requestId!==id||row.response?.kind!=='selection'||row.response.selections?.length!==1)return 'cancel';

@@ -94,6 +94,8 @@ import { registerAgentsRestart } from "./commands/agents-restart.ts";
 import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { showSessionAudit } from "./session-audit.ts";
+import { createExecutionTrace, createNativeExecutionTrace, registerExecutionTrace, EXECUTION_TRACE_ENTRY } from "./execution-trace.ts";
+import { beginRuntimeTrace } from "../lib/execution-trace.ts";
 import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
 import { createProcessState, normalizeProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionToolDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
@@ -298,6 +300,7 @@ export default function (pi: ExtensionAPI) {
 	// AGENT_HUB_EXEMPTIONS_FILE env plumbing.
 	let exemptionsFile: string | null = null;
 	const accessApprovalRouter = createAccessApprovalRouter({
+		traceBus: pi.events,
 		getContext: () => currentCtx,
 		getExemptionsFile: () => exemptionsFile,
 		appendLog: (entry) => { try { pi.appendEntry("damage-control-log", entry); } catch { /* best-effort */ } },
@@ -527,6 +530,11 @@ export default function (pi: ExtensionAPI) {
 	let delegatedTokens = 0;
 
 	const noProgress = createNoProgressGuard((type, data) => pi.appendEntry(type, data));
+	const executionTrace = createExecutionTrace({
+		identity: () => ({ taskId: noProgress.taskId(), inputRevision: hubTaskText ?? "" }),
+		persist: row => pi.appendEntry(EXECUTION_TRACE_ENTRY, row),
+	});
+	registerExecutionTrace(pi, executionTrace);
 	const taskTriageMetadata = () => {
 		const current = taskTriage?.current;
 		return { taskId: noProgress.taskId(), inputRevision: taskTriage?.inputRevision, configuredStatus: taskTriageConfigStatus,
@@ -807,6 +815,7 @@ export default function (pi: ExtensionAPI) {
 	registerOperatorWatchdog(pi, { setting: () => watchdogSetting, taskId: () => noProgress.taskId(), task: () => hubTaskText, runDriftJudge: (input, ctx) => runDriftJudge(input as unknown as DriftJudgeInput, ctx as ExtensionContext) });
 
 	const nativeDispatch = createDispatchNative({
+		traceNative: (owner, actor) => createNativeExecutionTrace(executionTrace, owner, actor),
   prepareDamageGuard:input=>prepareDamageGuardNative(pi,input),
   prepareDiscovery:input=>prepareDiscoveryNative(pi,input),
   launchIdentity:()=>noProgress.taskToken(),
@@ -1201,7 +1210,7 @@ export default function (pi: ExtensionAPI) {
 			const input = proactiveReportInput();
 			await showSessionAudit(ctx, sessionDir, input && { ...input, labels: commandProactiveLabels(sessionDir, args) }, {
 				...taskTriageMetadata(), activity: taskTriageActivity?.live(),
-			});
+			}, executionTrace.snapshot());
 		},
 		handleRetry: async (args, ctx) => {
             const dispatchId = args?.trim();
@@ -2104,6 +2113,9 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event: any, ctx) => {
 		const toolName = String(event.toolName || "").toLowerCase();
 		const block = processBlock();
+		const gate = ["bash", "edit", "write"].includes(toolName) ? processPreEffectGate(processState, "write") : null;
+		const finishPolicy = beginRuntimeTrace(pi.events, { kind: "policy", id: `process:${event.toolCallId}`, parentId: String(event.toolCallId), source: "process", tool: toolName, rule: block?.reason ?? gate?.reason ?? "no_process_hold", reason: block?.reason ?? gate?.reason });
+		try {
 		// set_task_tier binds the fence. ask_user is the human supersession path. Every other tool is a diversion.
 		// The first assistant step may emit several tools together. Refuse that whole step without aborting,
 		// so the model can still call set_task_tier. Abort only a later step that ignores the hint; terminate
@@ -2113,15 +2125,15 @@ export default function (pi: ExtensionAPI) {
 			transitionDiversions = decision.nextCount;
 			transitionBatchRefused = true;
 			if (decision.terminate) ctx?.abort?.();
+			finishPolicy({ status: "blocked" });
 			return { block: true, terminate: decision.terminate, reason: decision.reason };
 		}
 		if (!["bash", "edit", "write"].includes(toolName)) return;
-		const gate = processPreEffectGate(processState, "write");
 		if (!gate) return;
-		if (gate.reason !== "action_confirmation_unsupported") return { block: true, reason: gate.message };
+		if (gate.reason !== "action_confirmation_unsupported") { finishPolicy({ status: "blocked" }); return { block: true, reason: gate.message }; }
 		const bound = taskTriage?.current;
 		// Pi's tool_call contract provides the exact call id and input; absent fields cannot be bound.
-		if (!bound || bound.taskId !== noProgress.taskId() || !event.toolCallId || !event.input || !ctx) return { block: true, reason: gate.message };
+		if (!bound || bound.taskId !== noProgress.taskId() || !event.toolCallId || !event.input || !ctx) { finishPolicy({ status: "blocked" }); return { block: true, reason: gate.message }; }
 		const action = { taskId: bound.taskId, inputRevision: bound.revision, actionId: String(event.toolCallId), operation: String(event.toolName), target: crypto.createHash("sha256").update(JSON.stringify(event.input)).digest("hex"), cwd: ctx.cwd };
 		const observeAction = (status: TaskTriageActionObservation) => {
 			try { const record = taskTriageActionAuditRecord(action, status); if (record) pi.appendEntry("agent-hub-task-triage-action-observation", record); }
@@ -2130,15 +2142,17 @@ export default function (pi: ExtensionAPI) {
 		observeAction("requested");
 		const grant = await confirmTaskTriageAction(action, {
 			taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
-			ask: (id, question, askCtx, signal) => requestRuntimeAsk(pi.events, id, question, askCtx, signal),
+			ask: (id, question, askCtx, signal) => requestRuntimeAsk(pi.events, id, question, askCtx, signal, { parentId: action.actionId, source: "task-triage" }),
 			startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } },
 		}, ctx, contract => { pi.appendEntry("agent-hub-task-triage-action-grant", contract); return true; }, undefined, { input: event.input, cwd: ctx.cwd });
 		if (processBlock() || ctx.cwd !== action.cwd || String(event.toolName) !== action.operation || String(event.toolCallId) !== action.actionId
 			|| noProgress.taskId() !== action.taskId || taskTriage?.current?.revision !== action.inputRevision
-			|| crypto.createHash("sha256").update(JSON.stringify(event.input)).digest("hex") !== action.target) return { block: true, reason: "Action changed while confirmation was pending; effect refused." };
-		if (!grant || !consumeActionGrant(grant, action)) { observeAction("not_granted"); return { block: true, reason: gate.message }; }
+			|| crypto.createHash("sha256").update(JSON.stringify(event.input)).digest("hex") !== action.target) { finishPolicy({ status: "blocked" }); return { block: true, reason: "Action changed while confirmation was pending; effect refused." }; }
+		if (!grant || !consumeActionGrant(grant, action)) { observeAction("not_granted"); finishPolicy({ status: "blocked" }); return { block: true, reason: gate.message }; }
 		try { pi.appendEntry("agent-hub-task-triage-action-consumed", action); }
-		catch { observeAction("consumption_failed"); return { block: true, reason: "One-use authorization consumption could not be persisted; effect refused." }; }
+		catch { observeAction("consumption_failed"); finishPolicy({ status: "blocked" }); return { block: true, reason: "One-use authorization consumption could not be persisted; effect refused." }; }
+		} catch (error) { finishPolicy({ status: "failed" }); throw error; }
+		finally { finishPolicy({ status: "allowed" }); }
 	});
 	pi.on("tool_execution_start", async event => turnHandlers.toolStart(event));
 	observeAskUserResults(({ params, result, phase }) => {
@@ -2286,6 +2300,7 @@ export default function (pi: ExtensionAPI) {
             if(hubTaskText && isTaskContinuation(text))return;
 			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) { pendingTaskTransition = true; transitionDiversions = 0; transitionHintDelivered = false; transitionBatchRefused = false; try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: true }); } catch { processPersistenceBlocked = true; } }
 			hubTaskText = text;
+            executionTrace.input(crypto.randomUUID());
             try { noProgress.persistTaskIdentity(); acceptDamageGuardInput(pi, text); bindSemanticScope(noProgress.taskId(), createHash("sha256").update(text).digest("hex")); } catch { processPersistenceBlocked = true; }
 			taskTriage?.input(text, "interactive");
 		},

@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDamageHubSession} from './damage-guard-hub.ts';
 import {normalizeSystem1Config} from '../lib/system1/config-v2.js';
+import {resetIdenticalDialogs} from '../lib/identical-dialog.ts';
+// Each test creates a fresh logical Pi session without emitting session_start.
+test.beforeEach(()=>resetIdenticalDialogs());
 const root={version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{damageGuard:{mode:'active',remoteScopes:{commands:true},include:['docs']}}};
 test('Hub adapter consumes exact human denial, persists identity, and honors off durable denies',async()=>{
  const records:{customType:string;data:unknown}[]=[],append=(type:string,data:unknown)=>records.push({customType:type,data});let calls=0;

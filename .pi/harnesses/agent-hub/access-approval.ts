@@ -1,4 +1,5 @@
 import {sharedApprovalWait} from './approval-wait.ts';
+import {beginRuntimeTrace,type TraceBus} from '../lib/execution-trace.ts';
 import {
 	accessDecisionChoices,
 	accessRequestCacheKey,
@@ -23,6 +24,7 @@ type ReplySocket = {
 };
 
 type AccessApprovalDeps = {
+	traceBus?: TraceBus;
 	getContext(): ApprovalContext | null | undefined;
 	getExemptionsFile(): string | null | undefined;
 	appendLog(entry: Record<string, unknown>): void;
@@ -59,10 +61,13 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 		const existing = pending.get(cacheKey);
 		if (existing) return existing;
 
+		const finishQueue=beginRuntimeTrace(deps.traceBus,{kind:'queue',id:request.msg_id,parentId:request.toolCallId,owner:request.traceOwner,source:'access-escalation',reason:'approval_queue'});
 		const ask = askQueue.run(async (waitSignal): Promise<AccessDecisionChoice> => {
+			finishQueue({status:'completed'});
 			if (requestGeneration !== generation) return "deny";
 			const ctx = deps.getContext();
 			if (!ctx?.hasUI) return "deny";
+			const finishTrace=beginRuntimeTrace(deps.traceBus,{kind:'approval',id:request.msg_id,parentId:request.toolCallId,owner:request.traceOwner,source:'access-escalation',tool:request.tool,rule:request.pattern,reason:request.category});
 
 			const labels = new Map<AccessDecisionChoice, string>([
 				["deny", "Deny (keep blocked)"],
@@ -82,14 +87,16 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 					options,
 					{ timeout: 600_000, signal: waitSignal },
 				);
-				if (requestGeneration !== generation) return "deny";
+				if (requestGeneration !== generation) { finishTrace({status:'cancelled'});return "deny"; }
 				const selected = allowed.find((decision) => labels.get(decision) === choice) ?? "deny";
+				finishTrace({status:choice===undefined?'cancelled':selected==='deny'?'denied':'allowed'});
 				if (selected === "deny" && choice === labels.get("deny")) denyCache.add(cacheKey);
 				return selected;
 			} catch {
+				finishTrace({status:'failed'});
 				return "deny";
 			}
-		}).then(value=>value??'deny' as AccessDecisionChoice);
+		}).then(value=>value??'deny' as AccessDecisionChoice).finally(()=>finishQueue({status:'cancelled'}));
 		pending.set(cacheKey, ask);
 		void ask.finally(() => pending.delete(cacheKey));
 		return ask;

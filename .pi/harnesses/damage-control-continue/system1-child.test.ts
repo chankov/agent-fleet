@@ -58,9 +58,9 @@ test('missing assignment preserves parent registration; malformed forged and rev
 test('baseline hard deny never assesses; all local allow branches remain baseline-first',async t=>{
  const f=await broker(t);const x=fixture(t,f.assignment,{bashToolPatterns:[{pattern:'DENY',reason:'hard'},{pattern:'ASK',reason:'confirm',ask:true}],zeroAccessPaths:['secret']});await x.start();
  assert.equal((await x.call({...event('deny'),input:{command:'DENY'}})).block,true);assert.equal(f.calls(),0);
- await x.call(event('normal'));await x.commands.get('af-allow').handler('secret session',x.ctx);await x.call({...event('exempt'),input:{command:'echo secret'}});
+ await x.call(event('normal'));await x.commands.get('af-allow').handler('secret session',x.ctx);await x.call({...event('exempt'),input:{command:'cat secret'}});
  await x.commands.get('af-revoke').handler('secret',x.ctx);x.ctx.hasUI=true;
- for(const choice of ['Allow once','Allow for this turn','Allow for this session']){x.ctx.ui.select=async()=>choice;await x.call({...event(choice),input:{command:'echo secret'}});await x.commands.get('af-revoke').handler('secret',x.ctx);}
+ for(const choice of ['Allow once','Allow for this turn','Allow for this session']){x.ctx.ui.select=async()=>choice;await x.call({...event(choice),input:{command:'cat secret'}});await x.commands.get('af-revoke').handler('secret',x.ctx);}
  await x.call({...event('confirm'),input:{command:'ASK'}});assert.equal(f.calls(),6);
  await x.call({toolName:'read',toolCallId:'read',input:{path:'public'}});assert.equal(f.calls(),6);
 });
@@ -98,18 +98,18 @@ test('SDK cancelled before-switch retains adapter; shutdown and startup invalida
  const f=await broker(t,async()=>{release();await wait;return 'no_hold';});const x=fixture(t,f.assignment);await x.start();await x.runner.emit({type:'session_before_switch',reason:'new'});
  const p=x.call(event());await ready;await x.runner.emit({type:'session_shutdown'});finish();assert.equal((await p).block,true);
  await x.start();assert.equal((await x.call(event('fresh'))).block,false);
- let selectFinish:any;x.ctx.hasUI=true;x.ctx.ui.select=()=>new Promise(r=>selectFinish=r);
+ let selectFinish:any,selectEntered!:()=>void;const selecting=new Promise<void>(r=>selectEntered=r);x.ctx.hasUI=true;x.ctx.ui.select=()=>new Promise(r=>{selectFinish=r;selectEntered();});
  // Separate synthetic path-policy startup; replacement during a baseline approval is blocked.
  const y=fixture(t,f.assignment,{zeroAccessPaths:['secret']});await y.start();y.ctx.hasUI=true;y.ctx.ui.select=x.ctx.ui.select;
- const pending=y.call({...event('once'),input:{command:'echo secret'}});await pause(5);await y.runner.emit({type:'session_shutdown'});selectFinish('Allow once');assert.equal((await pending).block,true);
+ const pending=y.call({...event('once'),input:{command:'cat secret'}});await selecting;await y.runner.emit({type:'session_shutdown'});selectFinish('Allow once');assert.equal((await pending).block,true);
 });
 test('registered exemption revocation and exact allow-once replay block after parent held approval',async t=>{
  let release:any;let ready=new Promise<void>(r=>release=r);let finish:any;let wait=new Promise<void>(r=>finish=r);
  const f=await broker(t,async(_i:any,_e:any,c:any)=>{c.held();release();await wait;return 'granted';});
  const x=fixture(t,f.assignment,{zeroAccessPaths:['secret']});await x.start();await x.commands.get('af-allow').handler('secret session',x.ctx);
- const p=x.call({...event('exemption'),input:{command:'echo secret'}});await ready;await x.commands.get('af-revoke').handler('secret',x.ctx);finish();assert.equal((await p).block,true);
+ const p=x.call({...event('exemption'),input:{command:'cat secret'}});await ready;await x.commands.get('af-revoke').handler('secret',x.ctx);finish();assert.equal((await p).block,true);
  ready=new Promise<void>(r=>release=r);wait=new Promise<void>(r=>finish=r);x.ctx.hasUI=true;
- const e={...event('once'),input:{command:'echo secret'}};const once=x.call(e);await ready;finish();assert.equal((await once).block,false);assert.equal((await x.call(e)).block,true);assert.equal(f.calls(),2);
+ const e={...event('once'),input:{command:'cat secret'}};const once=x.call(e);await ready;finish();assert.equal((await once).block,false);assert.equal((await x.call(e)).block,true);assert.equal(f.calls(),2);
 });
 test('SDK overlapping and replacement startup cancels old work; repeated and stale cleanup preserve new owner',async t=>{
  let release:any;const ready=new Promise<void>(r=>release=r);let finish:any;const wait=new Promise<void>(r=>finish=r);
@@ -125,7 +125,7 @@ test('assigned headless baseline escalation allows each branch through D6 exactl
  try{
   const x=fixture(t,f.assignment,{zeroAccessPaths:['secret']});await x.start();
   x.ctx.ui.select=async()=>{throw Error('headless must not ask local UI');};
-  for(const d of ['allow_once','allow_agent','allow_all']){decision=d;await x.commands.get('af-revoke').handler('secret',x.ctx);assert.equal((await x.call({...event(d),input:{command:'echo secret'}})).block,false);}
+  for(const d of ['allow_once','allow_agent','allow_all']){decision=d;await x.commands.get('af-revoke').handler('secret',x.ctx);assert.equal((await x.call({...event(d),input:{command:'cat secret'}})).block,false);}
   assert.equal(requests,3);assert.equal(f.calls(),3);
  }finally{if(saved===undefined)delete process.env.AGENT_HUB_ASK_ENDPOINT;else process.env.AGENT_HUB_ASK_ENDPOINT=saved;await new Promise<void>(r=>server.close(()=>r()));rmSync(root,{recursive:true,force:true});}
 });

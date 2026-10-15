@@ -10,6 +10,7 @@ export type TaskTriageAuditInput = Omit<TaskTriageProjectionInput, "process"> & 
 import { createNoProgressGuard, projectRecoveryRows } from './no-progress.ts';
 import { createHash } from "node:crypto";
 import { taskTriageActionAuditRecord, type TaskTriageActionAuditRecord } from "./task-triage-authorization.ts";
+import { projectExecutionTrace, type ExecutionTraceSnapshot } from "./execution-trace.ts";
 
 const RESULT_SCHEMA = "agent-fleet.runtime-result/v1";
 const PROTOCOL_SCHEMA = "agent-fleet.tool-protocol-diagnostic/v1";
@@ -56,6 +57,7 @@ export interface SessionAuditSummary {
 		snapshots: Array<{ snapshotId: string }>;
 	};
 	events: SessionAuditEvent[];
+	executionTrace: ReturnType<typeof projectExecutionTrace>;
 	proactive: ReturnType<typeof buildProactiveReport> | ReturnType<typeof readProactiveReport>;
 	taskTriage: TaskTriageSessionView & { metrics: ReturnType<typeof readTaskTriageReport>; actions: ReturnType<typeof projectTaskTriageActions> };
 	unavailable: string[];
@@ -141,7 +143,7 @@ export function projectTaskTriageActions(entries: readonly unknown[], binding?: 
 }
 
 /** Build an allowlisted audit from runtime-owned records. Prompt, output, payload, paths and environment values are never copied. */
-export function buildSessionAudit(input: { entries: readonly unknown[]; sessionDir: string; proactive?: ProactiveReportInput; taskTriage?: TaskTriageAuditInput }): SessionAuditSummary {
+export function buildSessionAudit(input: { entries: readonly unknown[]; sessionDir: string; proactive?: ProactiveReportInput; taskTriage?: TaskTriageAuditInput; executionTrace?: ExecutionTraceSnapshot }): SessionAuditSummary {
 	const unavailable = new Set<string>(), meta = readJson(join(input.sessionDir, "session.json"));
 	const rootSessionId = runtimeId(meta?.sessionId) ?? runtimeId(basename(input.sessionDir));
 	if (!meta) unavailable.add("root_session_metadata");
@@ -302,12 +304,12 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 	return {
 		schema: "agent-fleet.session-audit/v1", readOnly: true,
 		identity: { rootSessionId, children: [...children].map(([dispatchId, sessionId]) => ({ dispatchId, sessionId })), snapshots: [...snapshots].map(snapshotId => ({ snapshotId })) },
-		events: [...deduped.values()], proactive: input.proactive ? buildProactiveReport(input.proactive) : readProactiveReport(input.sessionDir), taskTriage, unavailable: [...unavailable].sort(),
+		events: [...deduped.values()], executionTrace: projectExecutionTrace(input.entries, input.executionTrace), proactive: input.proactive ? buildProactiveReport(input.proactive) : readProactiveReport(input.sessionDir), taskTriage, unavailable: [...unavailable].sort(),
 	};
 }
 
 export function formatSessionAudit(summary: SessionAuditSummary): string { return JSON.stringify(summary, null, 2); }
 
-export async function showSessionAudit(ctx: ExtensionContext, sessionDir: string, proactive?: ProactiveReportInput, taskTriage?: TaskTriageAuditInput): Promise<void> {
-	ctx.ui.notify(formatSessionAudit(buildSessionAudit({ entries: ctx.sessionManager.getEntries(), sessionDir, proactive, taskTriage })), "info");
+export async function showSessionAudit(ctx: ExtensionContext, sessionDir: string, proactive?: ProactiveReportInput, taskTriage?: TaskTriageAuditInput, executionTrace?: ExecutionTraceSnapshot): Promise<void> {
+	ctx.ui.notify(formatSessionAudit(buildSessionAudit({ entries: ctx.sessionManager.getEntries(), sessionDir, proactive, taskTriage, executionTrace })), "info");
 }

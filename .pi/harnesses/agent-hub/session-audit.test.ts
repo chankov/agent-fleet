@@ -3,6 +3,7 @@ import { appendFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "n
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { createExecutionTrace } from "./execution-trace.ts";
 import { buildRuntimeResult } from "./acceptance.ts";
 import { buildBudgetContinuationAudit } from "./hub-state-audit.js";
 import { buildSessionAudit, formatSessionAudit, showSessionAudit, projectTaskTriageActions } from "./session-audit.ts";
@@ -20,6 +21,15 @@ function triageRecord(review: string = "waived") {
   additions: [{ id: "b".repeat(64), taskId: triageTask, evaluationId: triageEvaluation, inputRevision: "a".repeat(64), reason: "security_change", status: "waived", waiverReason: "PRIVATE_REASON" }],
   auditScope: ["PRIVATE_PATH"], explanation: "PRIVATE_EXPLANATION", state: { lastReason: "PRIVATE_TASK" } };
 }
+test("session audit includes the chronological trace and honest degraded persistence coverage", t => {
+ const sessionDir=fixture(t),entries:any[]=[];let fail=false;
+ const trace=createExecutionTrace({identity:()=>({taskId:"PRIVATE_TASK",inputRevision:"PRIVATE_INPUT"}),persist:row=>{if(fail)throw Error("unavailable");entries.push({customType:"agent-hub-execution-trace",data:row});}});
+ trace.start({kind:"tool",id:"PRIVATE_ID",tool:"read"});fail=true;trace.endTool("PRIVATE_ID",{status:"completed",durationMs:1});
+ const audit=buildSessionAudit({entries,sessionDir,executionTrace:trace.snapshot()});
+ assert.equal(audit.executionTrace.coverage.availability,"live_degraded");assert.equal(audit.executionTrace.spans[0].status,"completed");
+ assert.doesNotMatch(formatSessionAudit(audit),/PRIVATE_/);
+});
+
 test("task-triage audit exposes persisted waived additions and per-effect confirmation separately", t => {
  const sessionDir = fixture(t);
  const audit = buildSessionAudit({ entries: [{ customType: "agent-hub-process-state", data: triageRecord() }], sessionDir });

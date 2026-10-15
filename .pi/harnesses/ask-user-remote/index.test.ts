@@ -615,6 +615,7 @@ test("subprocess smoke: default export registers ask_user into configured and ac
 	for (const [source, destination] of [
 		["../lib/semantic-approval.ts", "lib/semantic-approval.ts"],
 		["../lib/identical-dialog.ts", "lib/identical-dialog.ts"],
+		["../lib/execution-trace.ts", "lib/execution-trace.ts"],
 		["../lib/approval-wait.ts", "lib/approval-wait.ts"],
 		["../agent-hub/approval-wait.ts", "agent-hub/approval-wait.ts"],
 	] as const) {

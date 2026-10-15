@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createExecutionTrace, createNativeExecutionTrace, projectExecutionTrace } from "./execution-trace.ts";
 import { linuxUserNamespaceSandboxAvailable } from "./write-isolation.ts";
 import { createDispatchComs, createDispatchNative, createDispatchObservability, type ComsDispatchState, type DelegationObservableState, type NativeDispatchState } from "./dispatch-core.ts";
 import { PROFILE_ENV } from "./policy/profile-runtime.ts";
@@ -485,6 +486,27 @@ test("native completion preserves trusted tool events for parent protocol correl
  }));
  const result = await native.dispatchAgent("builder", "task", extensionContext);
  assert.deepEqual((result as any).toolEvents, toolEvents);
+});
+
+test("native dispatch exports correlated tool timing and blocked policy without transporting output",async()=>{
+ const entries:any[]=[],trace=createExecutionTrace({identity:()=>({taskId:"task",inputRevision:"input"}),persist:row=>entries.push({customType:"agent-hub-execution-trace",data:row})});
+ trace.start({kind:"tool",id:"dispatch",tool:"dispatch_agent"});
+ const state=nativeState(),native=createDispatchNative(nativeDeps(state,{
+  traceNative:(owner:string)=>createNativeExecutionTrace(trace,owner),
+  spawnPiAgentWithModelFallback:async(_options:any,_fallback:any,callbacks:any)=>{
+   _options.attemptLifecycle.beforePhysicalSpawn({generation:1});
+   callbacks.onToolStart('read','PRIVATE_PAYLOAD','read');callbacks.onToolEnd('read','read',false,'PRIVATE_OUTPUT',4);
+   callbacks.onToolStart('bash','PRIVATE_COMMAND','blocked');callbacks.onToolEnd('bash','blocked',true,'Damage-Control: bash blocked — PRIVATE_PATH',undefined);
+   return {output:'done',exitCode:0,stderr:'',toolCallsStarted:2,modelUsed:'provider/model'};
+  },
+ }));
+ const result=await native.dispatchAgent('builder','task',extensionContext);
+ trace.endTool('dispatch',{status:'completed',childId:result.dispatchId,durationMs:10});
+ const view=projectExecutionTrace(entries),child=view.spans.find(s=>s.kind==='child');assert.ok(child);
+ assert.equal(child.parentSpanId,view.spans.find(s=>s.tool==='dispatch_agent')?.spanId);
+ assert.equal(view.spans.find(s=>s.tool==='read')?.executionMs,4);
+ assert.equal(view.spans.find(s=>s.tool==='bash'&&s.kind==='tool')?.status,'blocked');
+ assert.doesNotMatch(JSON.stringify(view),/PRIVATE_/);
 });
 
 test("native retries preserve complete per-dispatch evidence and previous raw session", async t => {

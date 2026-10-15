@@ -1,4 +1,5 @@
 import { resetIdenticalDialogs } from "../lib/identical-dialog.ts";
+import { beginRuntimeTrace, traceAskResult, type TraceBus } from "../lib/execution-trace.ts";
 // ask-user-remote harness
 //
 // Captures the stock pi-ask-user `ask_user` tool, then registers a wrapper with
@@ -28,6 +29,7 @@ interface ExtensionLike {
 }
 
 interface InstallOptions {
+	traceBus?: TraceBus;
 	stockFactory?: (pi: ExtensionLike) => void;
 	startRemote?: (params: any, ctx?: any) => Promise<{ qid: string; result: Promise<any> } | null> | { qid: string; result: Promise<any> } | null;
 	cancelRemote?: (qid: string, reason: string) => Promise<void> | void;
@@ -394,9 +396,14 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 		async execute(toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: any, ctx?: any) {
 			const stockParams = compactAskUserParams(params);
 			const approvalScope = semanticScope();
+			const finishTrace = beginRuntimeTrace(options.traceBus, { kind: "approval", id: toolCallId, parentId: toolCallId });
+			const traceResult = (result: unknown) => finishTrace(traceAskResult(result, Array.isArray(stockParams.options) ? stockParams.options : []));
+			try {
 			const reused = semanticAskUserAnswer(stockParams);
 			if (reused) {
 				const result = stockResultFromRemote(stockParams, { kind: "selection", selections: [reused] });
+				result.details.semanticApprovalReused = true;
+				traceResult(result);
 				emitAskUserObservation({ params: stockParams, result, phase: "result" });
 				return result;
 			}
@@ -422,6 +429,7 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 			if (!remoteStart && !addressed) {
 				const result = await stockTool.execute?.(toolCallId, stockParams, signal, onUpdate, ctx);
 				noteSettledAskUser(stockParams, result, approvalScope);
+				traceResult(result);
 				emitAskUserObservation({ params: stockParams, result, phase: "result" });
 				return result;
 			}
@@ -444,12 +452,14 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 					onSettled: addressed?.onSettled,
 				});
 				noteSettledAskUser(stockParams, result, approvalScope);
+				traceResult(result);
 				emitAskUserObservation({ params: stockParams, result, phase: "result" });
 				return result;
 			} finally {
 				signal?.removeEventListener("abort", expire);
 				expire();
 			}
+			} catch (error) { finishTrace({ status: signal?.aborted ? "cancelled" : "failed" }); throw error; }
 		},
 	};
 }
@@ -469,6 +479,7 @@ export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions 
 	const stockTool = captureAskUserTool(options.stockFactory, pi);
 	const wrapped = wrapAskUserTool(stockTool, {
 		...options,
+		traceBus: options.traceBus ?? pi.events,
 		remoteProject: options.remoteProject ?? (() => resolveRemoteProject(pi)),
 	});
 	try {

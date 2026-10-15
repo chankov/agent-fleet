@@ -758,6 +758,49 @@ and restart stop future calls without deleting resumed obligations. Detailed
 schema, saved desired selection, role/budget recovery, narrow waiver and rollback
 are in [Project Files](agent-fleet-setup.md#task-triage-active-experimental-off-by-default).
 
+### Execution tracing and baseline policy classification
+
+The Hub records `agent-hub-execution-trace` custom entries in the existing Pi
+session JSONL journal. The default repository journal directory is
+`~/.pi/agent/sessions/--home-nchankov-repos-agent-fleet--/`; a configured Pi session
+directory may differ. These entries complement the Fleet session directory under
+`.pi/agent-sessions/sessions/<fleet-session-id>/` and existing coms/Herdr logs.
+`/af-audit` exposes their sanitized chronological `executionTrace` projection.
+
+Root Pi hooks record input, turns, model rounds and tool requests/results. Existing
+native callbacks link children to their dispatch and report child tool activity.
+The shared Pi event bus connects process/baseline/semantic guard decisions and
+runtime/model questions across isolated extension loaders. Native semantic-broker
+requests join a tool only for one exact input fingerprint, owner and time range;
+ambiguous requests stay visibly unlinked. Remote peers without these callbacks do
+not acquire complete telemetry automatically.
+
+Pi emits tool start before permission hooks. A denied request therefore has tool
+activity but no fabricated execution duration. Actual execution duration comes
+from the SDK; human waits and queue waits are separate observations. Overlapping
+intervals count once. Model-round timing includes preparation and is not provider
+latency alone. All aggregates cover only the retained 5,000-row trace window;
+dropped, open, interrupted, invalid and unlinked records remain explicit. Old
+journals without trace return `not_recorded` and unknown timing. Persistence
+failure cannot block work: the live audit uses available memory and reports
+`live_degraded`. Session shutdown releases the bus listener and fences late
+completions; a proposed switch that is subsequently cancelled keeps its spans.
+
+Only allowlisted metadata and hashed task/input/call/rule identities are stored
+in the new trace. Commands, paths, user prose, answers, results and credentials
+are excluded. Other existing Pi/session/coms logs retain their own payload rules.
+Trace never grants permission, proves progress or accepts a task.
+
+Baseline Bash policy now distinguishes supported static operands from literal
+data. This fixes repository-relative `/bin/` collisions, read-only inspection of
+`dist/` or lockfiles and quoted cat/tee heredoc fixtures containing protected-path
+or deletion examples. Real redirects, writes, deletion and compound effects stay
+guarded. Expanding shell syntax, interpreters, `sed`, `file` and ambiguous attached
+short options retain conservative text checks; the trace labels which analysis was
+used. This is a narrow classifier, not a shell sandbox or a guarantee against all
+future false positives. Reload/restart the harness to activate updated sources;
+separate copied installations still need their normal workspace update.
+
 ## Repository module map
 
 ### Agent Hub composition

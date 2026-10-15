@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {resetIdenticalDialogs} from '../lib/identical-dialog.ts';
+test.beforeEach(()=>resetIdenticalDialogs());
 import {createDamageState} from './damage-guard-state.ts';
 import {createDamageApproval} from './damage-guard-approval.ts';
 import {createDamageGuard} from '../damage-control-continue/system1-guard.ts';
@@ -16,10 +18,11 @@ test('matching override is one attempt, not durable erasure of an explicit deny 
  const restored=createDamageState(()=>{});restored.restore(rows);assert.equal(restored.denied(action),true);
  assert.equal((await guard.call({...event,toolCallId:'retry'},ctx)).block,true);guard.dispose();
 });
-test('a newer denial invalidates grants across independent call IDs and factories even after a later override',async()=>{
- const state=createDamageState(()=>{}),input={command:'echo hello'},base={taskId:'task',inputRevision:'rev',operation:'bash' as const,target:createHash('sha256').update(JSON.stringify(input)).digest('hex'),cwd:process.cwd(),owner:'hub',attempt:'run'},a={...base,actionId:'a'},b={...base,actionId:'b'};
+test('a newer denial invalidates grants across independent owners and factories even after a later override',async()=>{
+ // A different owner asks a distinct question; identical same-owner dialogs reuse by policy.
+ const state=createDamageState(()=>{}),input={command:'echo hello'},base={taskId:'task',inputRevision:'rev',operation:'bash' as const,target:createHash('sha256').update(JSON.stringify(input)).digest('hex'),cwd:process.cwd(),owner:'hub',attempt:'run'},a={...base,actionId:'a'},b={...base,actionId:'b',owner:'second-owner'};
  const make=(action:typeof a,selection:string)=>createDamageApproval({state,current:()=>action,baseline:()=>true,ask:async id=>({details:{runtimeAsk:{requestId:id},response:{kind:'selection',selections:[selection]}}})});
- const first=make(a,'Allow once'),old=await first.request(a,input);assert.equal(old.status,'allowed');await make(b,'Deny').request(b,input);
+ const first=make(a,'Allow once'),old=await first.request(a,input);assert.equal(old.status,'allowed');assert.equal((await make(b,'Deny').request(b,input)).status,'denied');
  const second=make(b,'Allow once'),next=await second.request(b,input);assert.equal(next.status,'allowed');if(next.status==='allowed')assert.equal(second.consume(next.grant,b),true);
  if(old.status==='allowed')assert.equal(first.consume(old.grant,a),false);assert.equal(state.denied(a),true);
 });

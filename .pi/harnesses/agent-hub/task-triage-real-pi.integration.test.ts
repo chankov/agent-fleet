@@ -1096,3 +1096,21 @@ test("real Pi new session does not inherit an exact-action approval", {timeout:9
  assert.deepEqual(session.decisions().map(d=>d.value),["Yes","No"],"fresh session asks again, rather than inheriting old allow");
  assert.equal(existsSync(target),true,"fresh denial is enforced without a second runtime question");
 });
+
+test("real Pi execution trace correlates a model question, process policy and actual delete without payloads", {timeout:90_000},async t=>{
+ const {projectExecutionTrace}=await import('./execution-trace.ts');
+ const dir=setupWorkspace(t);mkdirSync(join(dir,'docs'));const target=join(dir,'docs/trace-target.txt');writeFileSync(target,'');
+ const session=await startSession(t,dir,{fake:'irreversible',persistSession:true,decisions:['Yes'],script:[
+  {tool:'set_task_tier',args:{tier:'small',risk:'low',scope:'small',reason:'exact confirmed deletion'}},
+  {tool:'ask_user',args:{question:'Delete "docs/trace-target.txt"?',options:['Yes','No']}},
+  {tool:'bash',args:{command:'rm -- docs/trace-target.txt'}},{text:'done'},
+ ]});
+ await session.request('Delete exactly "docs/trace-target.txt", with confirmation.');assert.equal(existsSync(target),false);
+ const entries=(await session.rpc({type:'get_entries'})).data.entries,trace=projectExecutionTrace(entries);
+ const question=trace.spans.find(s=>s.kind==='approval'),askTool=trace.spans.find(s=>s.kind==='tool'&&s.tool==='ask_user'),bash=trace.spans.find(s=>s.kind==='tool'&&s.tool==='bash');
+ assert.ok(question,'the actual model-facing human question is traced across the extension boundary');
+ assert.equal(question.parentSpanId,askTool?.spanId);assert.equal(question.decision,'selected_first');
+ assert.ok(bash?.executionMs!==null&&bash?.executionMs!==undefined,'real execution duration comes from Pi, not an approval');
+ assert.ok(trace.spans.some(s=>s.kind==='policy'&&s.parentSpanId===bash.spanId));
+ assert.doesNotMatch(JSON.stringify(trace),/trace-target|exact confirmed deletion|with confirmation/);
+});

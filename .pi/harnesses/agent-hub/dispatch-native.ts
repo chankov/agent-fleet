@@ -119,6 +119,7 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 	};
 
 	return {
+		trace: deps.traceNative?.(dispatchId, agentKey),
 		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, watchdogParam, launchIdentity:deps.launchIdentity?.(),
 		key: normalizeAgentInput(args.agentName),
 		personaKey: state.def.name.toLowerCase(),
@@ -213,6 +214,7 @@ async function dispatchNative(deps: NativeDispatchDeps, args: Omit<NativeDispatc
 	let result: NativeDispatchResult;
 	try { result = await execute(); }
 	catch (error) { result = await run.finishRun(`Dispatch exception: ${error instanceof Error ? error.stack : String(error)}`, 1); }
+	run.trace?.finish(result);
 	deps.flushTimelineStore(run.state);
 	return finishExecutionEvidence(run.evidenceDir, result);
 }

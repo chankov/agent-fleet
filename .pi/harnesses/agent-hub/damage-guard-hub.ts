@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {beginRuntimeTrace,type TraceBus} from '../lib/execution-trace.ts';
 import {realpathSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createDamageBroker,type DamageOutcome} from './damage-guard-broker.ts';
@@ -23,7 +24,7 @@ import {createDamageState,validDamageDecision,damageDenyKey,type DamageAction} f
 import {createDamageApproval} from './damage-guard-approval.ts';
 import {requestRuntimeAsk,type RuntimeQuestion} from '../ask-user-remote/runtime-ask.ts';
 export const DAMAGE_INPUT_ENTRY='damage-guard-input',DAMAGE_DENY_ENTRY='damage-guard-denial';
-interface HubSessionOptions {root:string;snapshot:ReturnType<typeof normalizeSystem1Config>;taskId():string;childAuthority?:{taskToken():unknown;admit(identity:DamageOwnerIdentity):boolean};append(type:string,data:unknown):void;entries():unknown[];canRead(path:string):boolean;selected:boolean;service?:System1Service;ask(id:string,question:RuntimeQuestion,signal:AbortSignal):Promise<unknown>;}
+interface HubSessionOptions {root:string;snapshot:ReturnType<typeof normalizeSystem1Config>;taskId():string;childAuthority?:{taskToken():unknown;admit(identity:DamageOwnerIdentity):boolean};append(type:string,data:unknown):void;entries():unknown[];canRead(path:string):boolean;selected:boolean;service?:System1Service;traceBus?:TraceBus;ask(id:string,question:RuntimeQuestion,signal:AbortSignal,action?:DamageAction):Promise<unknown>;}
 export function createDamageHubSession(options:HubSessionOptions){
  const controller=new AbortController();let revoked=false;
  // A decision must follow its authoritative input hash in the same append-only history.
@@ -89,9 +90,10 @@ export function createDamageHubSession(options:HubSessionOptions){
    if(!revision)return rows(DAMAGE_DENY_ENTRY).length?{block:true,reason:'Damage-Control: accepted-input identity unavailable'}:{block:false};
    let action:DamageAction;try{action=guard.action(event,ctx);}catch{return {block:true,reason:'Damage-Control: exact action authority unavailable'};}
    const key=JSON.stringify(action);noteAction(action);
+   const finishTrace=beginRuntimeTrace(options.traceBus,{kind:'policy',id:action.actionId,parentId:action.actionId,owner:action.owner,source:'damage-guard',tool:event.toolName,rule:'semantic_exact_action'});
    remember(action,event.input);
    if(!contexts.has(key))contexts.set(key,checkedCtx);
-   try{const result=await guard.call(event,checkedCtx);if(result.block)remember(action,event.input);return !result.block&&(!current()||signal.aborted||ctx.revalidateBaseline?.()===false)?{block:true,reason:'Damage-Control: authority changed before admission'}:result;}finally{contexts.delete(key);}
+   try{const result=await guard.call(event,checkedCtx);if(result.block)remember(action,event.input);const final=!result.block&&(!current()||signal.aborted||ctx.revalidateBaseline?.()===false)?{block:true,reason:'Damage-Control: authority changed before admission'}:result;finishTrace({status:final.block?'blocked':'allowed'});return final;}catch(error){finishTrace({status:'failed'});throw error;}finally{contexts.delete(key);}
   },
   dispose(){guard.dispose();},
  };
@@ -145,7 +147,11 @@ export function createDamageHubSession(options:HubSessionOptions){
    if(!current())return {version:1 as const,status:'not_evaluated' as const,coverage:'none' as const,reason:'cancelled' as const,warning:false,sourceTrusted:false as const};
    const original=captureDamageResult(event);
    return resultScreen.evaluate(original,owner.cwd,{owner:owner.owner,signal:AbortSignal.any([context.signal,owner.signal]),deadlineAt:Date.now()+context.remainingMs,current});
-  })()),assess:(owner,event,context)=>track(assess(owner,event,context))});
+  })()),assess:(owner,event,context)=>track((async()=>{
+   const finish=beginRuntimeTrace(options.traceBus,{kind:'policy',id:event.toolCallId,owner:owner.owner,source:'damage-guard',tool:event.toolName,rule:'semantic_exact_action',fingerprint:JSON.stringify(event.input)});
+   try{const result=await assess(owner,event,context);finish({status:result==='granted'||result==='no_hold'?'allowed':result==='blocked'?'blocked':result==='cancelled'||result==='revoked'?'cancelled':'unavailable'});return result;}
+   catch(error){finish({status:'failed'});throw error;}
+  })())});
   if(revoked){await opened.close();throw Error('damage_session_revoked');}broker=opened;
  })();}
  function dispose(){
@@ -230,7 +236,7 @@ export async function configureDamageGuardHub(pi:ExtensionAPI,options:{snapshot:
  const generation={};generations.set(pi,generation);if(sessions.has(pi)||closures.has(pi))await closeSession(pi);if(generations.get(pi)!==generation)return;
  if(process.env.AGENT_HUB_AGENT_ID||process.env.AGENT_FLEET_AGENTIC_CHILD)return;
  registerDamageGuardHub(pi);
- const runtime=createDamageHubSession({root:options.ctx.cwd,snapshot:options.snapshot,taskId:options.taskId,childAuthority:options.childAuthority,append:(type,data)=>pi.appendEntry(type,data),entries:()=>options.ctx.sessionManager.getEntries(),canRead:path=>currentFileAccessAllowed(options.ctx.cwd,path),selected:readSystem1Selected(options.ctx.cwd),service:options.service,ask:(id,q,signal)=>requestRuntimeAsk(pi.events,id,q,options.ctx,signal)});
+ const runtime=createDamageHubSession({root:options.ctx.cwd,snapshot:options.snapshot,taskId:options.taskId,childAuthority:options.childAuthority,append:(type,data)=>pi.appendEntry(type,data),entries:()=>options.ctx.sessionManager.getEntries(),canRead:path=>currentFileAccessAllowed(options.ctx.cwd,path),selected:readSystem1Selected(options.ctx.cwd),service:options.service,traceBus:pi.events,ask:(id,q,signal,action)=>requestRuntimeAsk(pi.events,id,q,options.ctx,signal,{parentId:action?.actionId,parentKind:'policy',owner:action?.owner,source:'damage-guard'})});
  const entry={runtime,revoke:registerDamageGuard(runtime)};sessions.set(pi,entry);
  try{await runtime.start();if(generations.get(pi)!==generation||sessions.get(pi)!==entry){await runtime.dispose();return;}}
  catch(error){

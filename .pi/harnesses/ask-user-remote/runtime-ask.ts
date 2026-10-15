@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {sharedApprovalWait} from '../agent-hub/approval-wait.ts';
+import { beginRuntimeTrace, traceAskResult, type TraceStart } from '../lib/execution-trace.ts';
 
 export interface RuntimeQuestion {
 	question: string;
@@ -56,10 +57,18 @@ export function registerRuntimeAsk(bus: RuntimeAskBus, execute: ExecuteAsk): () 
 }
 
 /** Missing wrapper falls back to an explicit local dialog, never to model prose. */
-export async function requestRuntimeAsk(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal?: AbortSignal): Promise<unknown> {
+export async function requestRuntimeAsk(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal?: AbortSignal, relation?: Pick<TraceStart, 'parentId' | 'parentKind' | 'owner' | 'source' | 'rule'>): Promise<unknown> {
  validateSingleDecision(id,params);
- const result=await sharedApprovalWait.run(waitSignal=>requestRuntimeAskUnqueued(bus,id,params,ctx,waitSignal),signal);
- return result??correlateResult(id,{details:{cancelled:true}});
+ const finishQueue=beginRuntimeTrace(bus,{kind:'queue',id,...relation,rule:'approval_queue'});
+ try{
+  const result=await sharedApprovalWait.run(async waitSignal=>{
+   finishQueue({status:'completed'});
+   const finish=beginRuntimeTrace(bus,{kind:'approval',id,...relation});
+   try{const value=await requestRuntimeAskUnqueued(bus,id,params,ctx,waitSignal);finish(traceAskResult(value,params.options));return value;}
+   catch(error){finish({status:waitSignal.aborted?'cancelled':'failed'});throw error;}
+  },signal);
+  return result??correlateResult(id,{details:{cancelled:true}});
+ }finally{finishQueue({status:'cancelled'});}
 }
 async function requestRuntimeAskUnqueued(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal?: AbortSignal): Promise<unknown> {
 	validateSingleDecision(id, params);

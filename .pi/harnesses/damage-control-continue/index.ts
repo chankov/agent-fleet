@@ -34,6 +34,8 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
+import { beginRuntimeTrace, policyTraceReason, TRACE_OWNER_ENV } from "../lib/execution-trace.ts";
+import { analyzeBashCommand, bashReferencesProtectedPath } from "../lib/bash-policy-analysis.ts";
 import { parse as yamlParse } from "yaml";
 import * as crypto from "crypto";
 import * as fs from "fs";
@@ -302,6 +304,9 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
+	 const finishPolicy=beginRuntimeTrace(pi.events,{kind:'policy',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',tool:event.toolName});
+	 let policyAnalysis:'static_operands'|'conservative_text'|undefined;
+	 const evaluate=async()=>{
   // Capture loaded policy before baseline dialogs, not after the user waits.
   const policySnapshot=JSON.stringify(rules),epoch=baselineEpoch;
   const exactCall=JSON.stringify(event),cwd=ctx.cwd;
@@ -384,10 +389,12 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 		if (!violationReason) {
 			if (isToolCallEventType("bash", event)) {
 				const command = event.input.command;
+				const analysis = analyzeBashCommand(command);
+				policyAnalysis = analysis ? 'static_operands' : 'conservative_text';
 
 				for (const rule of rules.bashToolPatterns) {
 					const regex = new RegExp(rule.pattern);
-					if (regex.test(command)) {
+					if (regex.test(analysis?.patternText ?? command)) {
 						violationReason = rule.reason;
 						shouldAsk = !!rule.ask;
 						break;
@@ -396,7 +403,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 
 				if (!violationReason) {
 					for (const zap of rules.zeroAccessPaths) {
-						if (command.includes(zap)) {
+						if (analysis ? bashReferencesProtectedPath(analysis, "zero_access", zap, ctx.cwd) : command.includes(zap)) {
 							violationReason = `Bash command references zero-access path: ${zap}`;
 							matchedPattern = zap;
 							matchedCategory = "zero_access";
@@ -407,7 +414,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 
 				if (!violationReason) {
 					for (const rop of rules.readOnlyPaths) {
-						if (command.includes(rop) && (/[\s>|]/.test(command) || command.includes("rm") || command.includes("mv") || command.includes("sed"))) {
+						if (analysis ? bashReferencesProtectedPath(analysis, "read_only", rop, ctx.cwd) : command.includes(rop) && (/[\s>|]/.test(command) || command.includes("rm") || command.includes("mv") || command.includes("sed"))) {
 							violationReason = `Bash command may modify read-only path: ${rop}`;
 							matchedPattern = rop;
 							matchedCategory = "read_only";
@@ -417,11 +424,11 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 				}
 
 				if (!violationReason) {
-					const hasDeleteOrMove = /\brm\b/.test(command) || /\bmv\b/.test(command);
+					const hasDeleteOrMove = analysis || /\brm\b/.test(command) || /\bmv\b/.test(command);
 					if (hasDeleteOrMove) {
 						for (const ndp of rules.noDeletePaths) {
 							const expanded = expandTilde(ndp);
-							const matched = commandReferencesPath(command, ndp) || (expanded !== ndp && commandReferencesPath(command, expanded));
+							const matched = analysis ? bashReferencesProtectedPath(analysis, "no_delete", ndp, ctx.cwd) : commandReferencesPath(command, ndp) || (expanded !== ndp && commandReferencesPath(command, expanded));
 							if (matched) {
 								violationReason = `Bash command attempts to delete/move protected path: ${ndp}`;
 								matchedPattern = ndp;
@@ -473,11 +480,17 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					const choices = matchedCategory === "no_delete"
 						? [KEEP, ONCE]
 						: [KEEP, ONCE, TURN, SESSION];
-					const choice = await sharedApprovalWait.run(signal=>ctx.ui.select(
+					const finishQueue=beginRuntimeTrace(pi.events,{kind:'queue',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',reason:'approval_queue'});
+					const choice = await sharedApprovalWait.run(async signal=>{
+					 finishQueue({status:'completed'});
+					 const finish=beginRuntimeTrace(pi.events,{kind:'approval',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',rule:matchedPattern!});
+					 try{const selected=await ctx.ui.select(
 						`🛡️ Blocked: ${event.toolName} — ${violationReason}`,
 						choices,
 						{ timeout: PROMPT_TIMEOUT_MS, signal },
-					));
+					 );finish({status:selected===KEEP?'denied':selected?'allowed':'cancelled'});return selected;
+					 }catch(error){finish({status:'failed'});throw error;}
+					}).finally(()=>finishQueue({status:'cancelled'}));
 					if (choice === ONCE) {
 						pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "allowed_once", pattern: matchedPattern });
 						return semanticAllow();
@@ -510,6 +523,8 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 						timestamp: new Date().toISOString(),
 						agent: agentId(),
 						tool: event.toolName,
+						toolCallId: event.toolCallId,
+						traceOwner: process.env[TRACE_OWNER_ENV],
 						rule: violationReason,
 						pattern: matchedPattern,
 						category: matchedCategory!,
@@ -540,11 +555,17 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 		}
 
 		if (shouldAsk) {
-			const confirmed = await sharedApprovalWait.run(signal=>ctx.ui.confirm(
+			const finishQueue=beginRuntimeTrace(pi.events,{kind:'queue',id:`destructive:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',reason:'approval_queue'});
+			const confirmed = await sharedApprovalWait.run(async signal=>{
+			 finishQueue({status:'completed'});
+			 const finish=beginRuntimeTrace(pi.events,{kind:'approval',id:`destructive:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',rule:violationReason!});
+			 try{const selected=await ctx.ui.confirm(
 				"🛡️ Damage-Control Confirmation",
 				`Dangerous command detected: ${violationReason}\n\nCommand: ${invocation}\n\nDo you want to proceed?`,
 				{ timeout: 30000, signal },
-			));
+			 );finish({status:selected?'allowed':'denied'});return selected;
+			 }catch(error){finish({status:'failed'});throw error;}
+			}).finally(()=>finishQueue({status:'cancelled'}));
 
 			if (!confirmed) {
 				ctx.ui.setStatus("damage-control", `⚠️ Last Violation Blocked: ${violationReason.slice(0, 30)}...`);
@@ -563,5 +584,8 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 			pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "blocked" });
 			return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, note) };
 		}
+	 };
+	 try{const result=await evaluate();finishPolicy({status:result?.block?'blocked':'allowed',analysis:policyAnalysis,...(result?.reason?{rule:result.reason.split('\n',1)[0],reason:policyTraceReason(result.reason)}:{})});return result;}
+	 catch(error){finishPolicy({status:'failed'});throw error;}
 	});
 }

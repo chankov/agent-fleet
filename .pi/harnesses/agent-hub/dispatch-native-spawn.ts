@@ -1,4 +1,5 @@
 import { relative } from "node:path";
+import { TRACE_OWNER_ENV } from "../lib/execution-trace.ts";
 import { mkdirSync, watch } from "node:fs";
 import { ingestObserverManifests } from "./proactive-runtime.ts";
 import { contextPct, overWindowDiagnostic } from "./context-window.js";
@@ -83,6 +84,7 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 			state.zoomRender?.();
 		}),
 		onToolStart: (toolName, argStr, callId) => live(() => {
+			run.trace?.toolStart(toolName, argStr, callId);
 			state.toolCount++;
 			deps.appendTimelineEvent(state, {
 				kind: "tool-start",
@@ -97,6 +99,7 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 			if (violation) drift.escalate(violation);
 		}),
 		onToolEnd: (toolName, callId, isError, resultText, durationMs) => live(() => {
+			run.trace?.toolEnd(toolName, callId, isError, resultText, durationMs);
 			deps.appendTimelineEvent(state, {
 				kind: "tool-result",
 				title: `Result: ${toolName}`,
@@ -176,7 +179,7 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		prompt: runPrompt,
 		cwd: run.admittedCwd,
 		extensions,
-		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}) },
+		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}), [TRACE_OWNER_ENV]: run.dispatchId },
 		attemptLifecycle: {
    ...drift.attemptLifecycle,
    beforePhysicalSpawn: info=>{
