@@ -40,3 +40,13 @@ for(const blocked of [false,true])test(`small explicit session skips without com
  assert.ok(entries.some(e=>e.data.phase==="skipped"));assert.ok(!notices.some(n=>n.includes("started") || n.includes("completed")));
  assert.equal(lifecycle.input({source:"interactive",text:"Next ordinary request"},ctx).action,blocked?"handled":"continue");
 });
+
+test("80% ceiling blocks work after insufficient recovery without starting a compaction loop",async()=>{
+ const s=setup();let aborts=0;s.ctx.abort=()=>{aborts++;};
+ s.lifecycle.messageEnd({message:{role:"toolResult",content:"output"}},s.ctx);
+ const run=s.lifecycle.agentSettled(s.ctx);s.complete();await run;
+ const before=aborts;s.lifecycle.context(s.ctx);
+ assert.equal(aborts,before+1);
+ assert.ok(s.entries.some((e:any)=>e.type==="agent-hub-compaction-monitor" && e.data.phase==="ceiling_blocked"));
+ assert.equal(s.root.automaticPending,false);
+});

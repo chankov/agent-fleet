@@ -196,13 +196,15 @@ model window even while every standing prompt ceiling remains green.
 The Hub samples live provider usage and projects each finalized tool result before another model
 request:
 
-- Below **80%**, pressure is `normal`.
-- At **80%**, pressure becomes `warning`; the compact recovery surface is exposed transiently and
+- Below **60%**, pressure is `normal`. Automatic semantic compaction never starts below **50%**.
+- At **60%**, pressure becomes `warning`; the compact recovery surface is exposed transiently and
   ordinary work may continue.
-- At **90%**, the Hub aborts the next same-turn provider request, waits until the tool result and
+- At **70%**, the Hub aborts the next same-turn provider request, waits until the tool result and
   aborted turn are persisted, and starts one automatic Pi compaction. Only one recovery may run at
   a time. Input received while startup or same-turn recovery is active is retained in memory,
   including images, then replayed once after compaction succeeds.
+
+At **80%**, further model work is blocked if recovery has not reduced pressure; a single large tool result can overshoot before its result is observed.
 
 The status line and `/af-context` show the pressure phase, measured usage, both thresholds, episode,
 and last recovery outcome. Persisted pressure diagnostics contain numeric/enumerated metadata only;
@@ -1418,7 +1420,7 @@ privacy boundaries, evaluation commands and outstanding live acceptance.
 
 The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract and per-consumer usage](../../../docs/system1-config.md) and the inert, all-consumer [system1.example.json](../../../docs/system1.example.json) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change.
 
-D7 `consumers.contextCompaction` adds optional automatic early-boundary advice. The verified Pi 1.1.0 Hub keeps deterministic 80% warning / 90% compact-and-continue recovery independent of System1. Early advice requires separate consent, compactable history, Pi-owned reserve headroom and provider confidence; unavailable/unaccepted advice never removes the pressure fallback. Explicit compaction of a too-small session is honestly skipped while any continuation remains gated. Shared native children load the pressure adapter, but coms task-description binding and root System1 forwarding through nested/workflow processes remain incomplete. See [D7 usage, live evidence and limits](../../../docs/system1-context-continuity.md); configuration examples do not activate these features.
+D7 `consumers.contextCompaction` adds optional automatic early-boundary advice. The verified Pi 1.3.0 Hub keeps deterministic 60% early opportunity / 70% compact-and-continue (80% ceiling) recovery independent of System1. Early advice requires separate consent, compactable history, Pi-owned reserve headroom and provider confidence; unavailable/unaccepted advice never removes the pressure fallback. Explicit compaction of a too-small session is honestly skipped while any continuation remains gated. Shared native children load the pressure adapter, but coms task-description binding and root System1 forwarding through nested/workflow processes remain incomplete. See [D7 usage, live evidence and limits](../../../docs/system1-context-continuity.md); configuration examples do not activate these features.
 
 ## Automatic System 1 file discovery
 
@@ -1427,3 +1429,42 @@ D9 `consumers.fileDiscovery` is separately consented and off by default. In both
 ## Agentic System 1 advisory tool
 
 `ask_system1` is an opt-in parent-only Hub consumer configured by `consumers.agenticAsk` in the shared `.ai/system1.json`. It batches typed questions over minimal state, selected files/ranges and opted-in recorded bash refs, without executing shell or changing process gates. `recommended` makes it the first route for suitable semantic judgments across all task tiers; `advisory` keeps optional consultation. Default installs remain off. Start a new Hub session after changing the mode. See [configuration, examples, bounds and safe readback](../../../docs/system1-agentic.md).
+
+### Clarification routing
+
+Routine technical choices inside approved scope are resolved by the working model,
+with their rationale recorded. Existing decisions are reused and discoverable facts
+are researched. Unresolved material decisions (requirements, public compatibility,
+consequential trade-offs, new permissions or scope) use `ask_user`; without the tool,
+ask in chat and wait for an explicit answer.
+
+Specialist `ASK_USER` returns go to the orchestrator first. It resolves questions
+from approved decisions, repository facts or routine engineering judgment, then
+escalates what it cannot resolve. A parent-only answer uses a single task line:
+
+```text
+ORCHESTRATOR_ANSWER: {"dispatchId":"ask-1","answers":[{"question":"Which local pattern?","answer":"Use the adjacent helper convention","basis":"routine_technical","evidence":"Same internal contract as the adjacent helper"}]}
+```
+
+Allowed bases are `existing_decision`, `repository_fact`, and `routine_technical`.
+Every returned question must appear exactly once, with a nonempty answer and basis
+evidence. The grant is one-use, task- and scope-bound. Actual human responses retain
+`USER_ANSWER: <dispatchId> :: <question>` and the actual answers in the task. For a
+mixed round, obtain the needed human answers before re-dispatching and label the
+source of each answer honestly.
+
+`blocked_on_user` remains the compatibility status for a paused clarification; it
+does not itself mandate human escalation. Neither marker grants action permissions,
+clears cancellation or bypasses unknown-effect recovery. Semantic classification of
+a decision remains model-guided; validation checks the clarification envelope and
+scope, not the truth of the model's reasoning. Historical pauses without recorded
+questions cannot use the new parent-answer path.
+
+
+Automatic recovery monitoring adds `Auto compaction` and `Last compaction` rows to
+`/af-context`. Local `agent-hub-compaction-monitor` events record start, restoration,
+continuation, failure and ceiling blocking; native children use
+`agent-fleet-compaction-monitor`. Before/after percentages stay unknown when Pi has
+not yet provided a post-compaction usage measurement. See
+[context continuity](../../../docs/system1-context-continuity.md) for the 50/60/70/80
+policy, diagnostics, real CLI test coverage and provider-fixture limitations.

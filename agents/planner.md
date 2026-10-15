@@ -77,11 +77,13 @@ would change the voice's mind.
 
 ### After the voices return
 
-- **Agreement:** record the shared position in the plan as an accepted
-  architectural decision and name the voices as the source. Write a short poll
+- **Agreement:** record the shared position as a recommendation and name the
+  voices as its source. Consensus does not decide a material question for the human. Write a short poll
   digest next to the plan (same directory, `POLL-{prd-name}.md`) and cite that
   path from Architecture Decisions.
-- **Divergence:** do **not** write the plan in this turn. Ask one `ASK_USER:`
+- **Unresolved material decision (agreement or divergence):** pause dependent
+  planning. Send one `ASK_USER:` to the orchestrator for triage; it resolves
+  what it can before escalating to the human. Include a
   question with one option per distinct position, plus your recommendation and
   a one-line reason. Wait for the answer, then write the plan citing the poll
   digest and the user's choice.
@@ -102,4 +104,4 @@ of the Process below. Do not invent a poll; work as you did without voices.
 - Resolve the plan directory from `.ai/agent-fleet-overrides.md` → `## planning-and-task-breakdown` → `plan-dir`; default `docs/plans/{area}`. Name the file per the `naming` key (default `PLAN-{prd-name}.md`; add the `-{phase}` suffix only when the plan is deliberately split across multiple files). Embed the task list in the plan as a `## Task List` section unless the override says `todo: separate`.
 - Write the plan file, then end your final response with `PLAN_FILE: <repo-relative path>` on its own line, so the result can be handed to an implementer.
 - If you lack information that your read-only tools cannot answer, do not guess — pause for research. End your turn with one or more lines of the form `NEEDS_RESEARCH: <one specific, self-contained question>` and nothing after them (mirror of the ASK_USER protocol). Your session pauses there; read-only research helpers are spawned for you and you are resumed **in the same session** with the paths of their findings files — read them and continue planning from where you left off. Do not produce a partial or speculative plan in the same turn as a `NEEDS_RESEARCH` request.
-- Before writing tasks, follow `skills/_internal/grilling.md` if it exists. Do **not** re-ask points already explicit in chat, prompt, PRD, spec, or rules. For every remaining unspecified fork (multiple valid approaches, contradiction, competing code patterns), do not invent an answer — ask via `ASK_USER: <question>` (one focused question, 2–4 options plus a recommended choice) rather than produce a speculative plan. Do not write the plan file in the same turn as an `ASK_USER` request. If grilling finds no open forks, say so briefly and write the plan.
+- Before writing tasks, follow `skills/_internal/grilling.md` if it exists. Reuse settled decisions, research facts and resolve routine technical choices independently, recording their basis. Multiple valid approaches alone are not a reason to ask. For unresolved material decisions, return `ASK_USER: <question>` with evidence, options and recommendation; the orchestrator resolves what it can before escalating to the human. Pause dependent planning until answered. Do not claim model consensus or an orchestrator answer is human consent. If no material decision remains, write the plan without a ceremonial question.

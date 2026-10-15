@@ -33,3 +33,29 @@ test("low confidence, stale response, outage and timeout leave deterministic bas
  assert.equal((await new ContextCompactionRuntime().assess(input,{evaluate:async()=>{throw Error("outage");}},config)).compact,false);
  assert.equal((await new ContextCompactionRuntime().assess(input,{evaluate:()=>new Promise(()=>{})},config)).compact,false);
 });
+
+test("uncertain retention uses standard summary only when boundary is confidently safe",async()=>{
+ const s={evaluate:async()=>{const r=await service().evaluate();r.evaluation.answers[1].uncertainty.confidence=0.3;return r;}};
+ const result=await new ContextCompactionRuntime().assess(input,s,config);
+ assert.equal(result.compact,true);assert.match(result.instructions!,/goal, requirements/);
+ assert.equal(result.reason,"safe_boundary_default_retention");
+});
+
+test("unknown usage immediately after compaction rearms only after measured growth",async()=>{
+ const r=new ContextCompactionRuntime(),s=service();r.compacted(null);
+ assert.equal((await r.assess(input,s,config)).reason,"growth_not_rearmed");
+ assert.equal(s.calls,0);
+ assert.equal((await r.assess({...input,tokens:input.tokens+1000},s,config)).reason,"growth_not_rearmed");
+ assert.equal((await r.assess({...input,tokens:input.tokens+17000},s,config)).compact,true);
+});
+
+test("automatic semantic evaluation cannot start below 50 even with an unchecked legacy threshold",async()=>{
+ const s=service();const result=await new ContextCompactionRuntime().assess({...input,tokens:49999},s,{...config,earlyOpportunityPercent:10});
+ assert.equal(result.reason,"below_early_threshold");assert.equal(s.calls,0);
+});
+
+test("retention fallback does not accept a malformed duplicate-answer response",async()=>{
+ const malformed={evaluate:async()=>{const r=await service().evaluate();r.evaluation.answers[1]=r.evaluation.answers[0];return r;}};
+ const result=await new ContextCompactionRuntime().assess(input,malformed,config);
+ assert.equal(result.compact,false);assert.equal(result.reason,"invalid_response");
+});

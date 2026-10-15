@@ -40,7 +40,7 @@ test("pressure diagnostics expose thresholds and metadata-only recovery outcome"
 	assert.doesNotMatch(JSON.stringify(failed), /credential-shaped|secret/);
 });
 
-test("context pressure boundaries expose recovery at 80% and request one compaction at 90%", () => {
+test("context pressure boundaries expose recovery at 60% and request one compaction at 70%", () => {
 	let state = createContextPressureState();
 
 	let decision = sample(state, CONTEXT_WARNING_PERCENT - 0.01);
@@ -81,9 +81,9 @@ test("unknown usage is observable and does not block ordinary work", () => {
 test("token and window measurements derive pressure when a provider omits percent", () => {
 	const decision = transitionContextPressure(createContextPressureState(), {
 		type: "usage",
-		usage: { tokens: 85_000, contextWindow: 100_000, percent: null },
+		usage: { tokens: 65_000, contextWindow: 100_000, percent: null },
 	});
-	assert.equal(decision.state.usage.percent, 85);
+	assert.equal(decision.state.usage.percent, 65);
 	assert.equal(decision.state.pressure, "approaching");
 	assert.equal(decision.action, "expose-compaction");
 });
@@ -155,9 +155,16 @@ test("the historical same-turn growth pattern requests recovery before an over-w
 	}
 
 	assert.deepEqual(actions, [
-		"turn_end:expose-compaction",
 		"turn_end:compact-now",
 	]);
 	assert.equal(state.episode, 1);
 	assert.equal(state.phase, "compacting");
+});
+
+test("approved automatic policy starts at 70%, never below 50%, and exposes a ceiling of 80%", () => {
+ assert.equal(AUTO_COMPACT_PERCENT,70);
+ assert.equal(CONTEXT_WARNING_PERCENT,60);
+ for(const percent of [0,49,49.99,50,59]) assert.equal(sample(createContextPressureState(),percent).action,"none");
+ assert.equal(sample(createContextPressureState(),70).action,"compact-now");
+ assert.equal(sample(createContextPressureState(),80).action,"compact-now");
 });

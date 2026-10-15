@@ -1312,6 +1312,9 @@ test("ASK_USER blocks the dispatch without a verification failure", async () => 
  assert.ok(details.orchestration.manifest);
  assert.equal(calls, 1);
  assert.deepEqual(details.questions, ["Which file should be edited?"]);
+ assert.match(result.content[0].text, /Orchestrator triage required/);
+ assert.match(result.content[0].text, /ORCHESTRATOR_ANSWER:/);
+ assert.doesNotMatch(result.content[0].text, /MUST call ask_user for each/);
 });
 
 test("missing report stays a contract gap when ASK_USER is also present", async () => {

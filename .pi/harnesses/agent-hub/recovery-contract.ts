@@ -61,7 +61,7 @@ export function recoveryDecision(category: RecoveryCategory, conditions: Recover
 		case "verification_failed":
 			return { ...base, allowed: explicit && changed, nextStep: "correct_and_reinvoke", reason: "the checked state or evidence must have changed" };
 		case "blocked_on_user":
-			return { ...base, allowed: explicit && conditions.freshOneUseAuthorization === true, nextStep: "authorize_once_and_reinvoke", reason: "one recorded user answer may resume only the same task and scope; prose or a model switch is not authorization" };
+			return { ...base, allowed: explicit && conditions.freshOneUseAuthorization === true, nextStep: "authorize_once_and_reinvoke", reason: "one sourced clarification answer may resume only the same task and scope; unstructured prose or a model switch is not authorization" };
 		case "tool_protocol_error":
 			return { ...base, allowed: explicit && changed && conditions.effectsEstablished === true, nextStep: "correct_and_reinvoke", reason: "requires the T3 trusted event/readback effects artifact plus corrected conditions; /af-retry cannot authorize this failure and already-observed effects must not be replayed blindly" };
 		case "unknown_tool":

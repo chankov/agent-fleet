@@ -39,7 +39,13 @@ A small, reversible correction can take a short path; a broad or consequential
 change needs proportionate research, verification, and review. Planner and plan
 review are optional assistance, never prerequisites triggered by size or risk.
 An existing plan can be executed directly; factual gaps call for focused research,
-and additional unresolved decisions call for separate grilling with `ask_user`.
+and unresolved material decisions call for separate grilling with `ask_user`.
+Routine technical choices within approved scope belong to the implementing model,
+which records its reasoning. Specialist questions go to the orchestrator first:
+it reuses approved decisions, researches facts and resolves routine choices before
+escalating what it cannot answer. This decision boundary is model guidance; runtime
+clarification grants permit a scoped retry, never new action permissions or an
+override of cancellation. This distinction was approved on 2026-10-15.
 Short paths preserve the
 applicable requirements and evidence without adding ceremony for its own sake.
 

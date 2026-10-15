@@ -1,3 +1,4 @@
+import { COMPACTION_TARGET_PERCENT } from "../lib/context-compaction-policy.js";
 import {createServer} from "node:net";
 import {mkdtempSync,chmodSync,rmSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -23,7 +24,7 @@ export async function createContextContinuityBroker() {
    if(body.operation==="context_status") {
     if(!validContextStatus(body.payload) || body.payload.episode<owner.status.episode)return send(400,{status:"denied"});
     owner.status={...body.payload};
-    const pressure=owner.status.tokens!==null && owner.status.window!==null && owner.status.window>0 && owner.status.tokens/owner.status.window>=0.9;
+    const pressure=owner.status.tokens!==null && owner.status.window!==null && owner.status.window>0 && owner.status.tokens/owner.status.window>=COMPACTION_TARGET_PERCENT/100;
     return send(200,{status:"ok",directive:pressure && owner.status.phase==="pending"?{type:"compact",owner:owner.owner,attempt:owner.attempt,episode:owner.status.episode}:null});
    }
    if(body.operation!=="context_assessment")return send(400,{status:"denied"});

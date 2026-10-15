@@ -1,3 +1,4 @@
+import { SPECIALIST_CLARIFICATION } from "../lib/clarification-policy.ts";
 import { profileService } from './policy/profile-runtime.ts';
 import { randomUUID } from "node:crypto";
 import { buildDeliverableProtocol } from "../lib/context-budget-child-prompt.ts";
@@ -110,7 +111,7 @@ async function dispatchViaComs(
 ---
 ## Dispatch protocol (agent-hub)
 You are serving a dispatched task as a standing peer; the dispatcher only receives this reply, so make it your complete final answer.
-- Clarification: if you need a HUMAN decision (ambiguity, missing input, contradiction, or a destructive/irreversible next step), do NOT guess — include line(s) of the form \`ASK_USER: <one clear English question>\`; you will be re-dispatched with the answers.
+${SPECIALIST_CLARIFICATION}
 ${externalBlockedProtocol()}
 ${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSessionDir(), "artifacts"), state.dispatchId ?? randomUUID())}
 - If the task includes acceptance assertions (A1, A2, ...), include the structured return from skills/orchestration-verification/SKILL.md.` +

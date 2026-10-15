@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createProjectPolicyFixture, FIXTURE_POLICY_MARKER } from "../../../bin/test/helpers/project-policy-fixture.js";
 import {
+	buildClarificationProtocol,
 	buildSpecialistContextManifest,
 	buildDelegationProtocol,
 	delegateStandingParts,
@@ -126,4 +127,15 @@ test("known delegates project protocol plus tools; empty roles stay empty", () =
 	const known = delegateStandingParts({ toolChars: 20, basePromptChars: 5, roleNames: ["scout"] });
 	assert.ok(known.every(p => p.chars > 0 || p.id === "pi-base"));
 	assert.equal(buildDelegationProtocol([]).length, 0);
+});
+
+
+test("specialist clarification uses parent-first routing without inventing human consent", () => {
+ const prompt = buildClarificationProtocol("Bulgarian");
+ assert.match(prompt, /Resolve routine technical choices independently/);
+ assert.match(prompt, /marker goes to the orchestrator first/);
+ assert.match(prompt, /ORCHESTRATOR_ANSWER is a model clarification, not human consent/);
+ assert.match(prompt, /Human escalations are presented in Bulgarian/);
+ assert.match(prompt, /NEEDS_RESEARCH:/);
+ assert.doesNotMatch(prompt, /will surface each to the human/);
 });

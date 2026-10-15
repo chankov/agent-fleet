@@ -1,29 +1,21 @@
+import { DECISION_ROUTING, ORCHESTRATOR_CLARIFICATION } from "../../lib/clarification-policy.ts";
 import type { CapabilityResolution } from "../capability-packs.ts";
 import type { HubPromptState } from "./context.ts";
 
 export function askUserFragment(askUserAvailable: boolean, userLanguage: string): string {
-	return askUserAvailable
-		? `## When to call \`ask_user\` (non-negotiable triggers)
-Ask for ambiguous/incomplete/contradictory requirements; preference-dependent choices (architecture, library, naming, scope); every specialist ASK_USER; conflicting specialist outputs or conflicts with requirements; costly-to-undo dispatches (destructive edits, migrations, mass renames, production changes, secrets/credentials); or unspecified path/version/flag/threshold values.
-Read the tool's current schema. Pass question and helpful 1–3 line context. Offer 2–6 choices when enumerable. Ask exactly one focused question per call; never bundle unrelated questions.`
-		: `## ask_user is NOT available in this session
-The \`pi-ask-user\` package is not installed, so you have no interactive way to
-ask the human. You MUST instead:
-- State every assumption explicitly in ${userLanguage} before dispatching.
-- Phrase it as: "Assuming X (because Y) — say STOP/correct if wrong, otherwise I'll proceed."
-- Wait for the user's next message before continuing on anything destructive.
-- For \`ASK_USER:\` markers raised by specialists, relay the question verbatim to
-  the user in ${userLanguage} and wait for their reply in the next turn.`;
+	return `## Decision routing
+${DECISION_ROUTING}
+${askUserAvailable
+ ? `For unresolved material decisions use \`ask_user\` in ${userLanguage}. Read its current schema; give helpful context and 2–6 options when enumerable. Ask one focused question per call and wait.`
+ : `The ask_user tool is unavailable. Resolve routine choices normally. For unresolved material decisions ask in chat in ${userLanguage} and wait for an explicit answer; silence is not approval.`}`;
 }
 
 export function dispatchFragment(fleetActive: boolean, askUserAvailable: boolean, userLanguage: string): string {
 	if (!fleetActive) return "";
-	const questions = askUserAvailable
-		? `Ask \`ask_user\` in ${userLanguage} for preferences, contradictions, costly/destructive scope or user-only values. For every returned ASK_USER/details.questions item, ask the human, then re-dispatch with \`USER_ANSWER: <dispatchId> :: <question>\`; prose alone cannot authorize resume.`
-		: `For unresolved preferences, contradictions, costly choices or user-only values, state assumptions in ${userLanguage} and wait for correction. Relay every ASK_USER/details.questions item verbatim in ${userLanguage}; wait for the reply before re-dispatch.`;
+	const questions = `${ORCHESTRATOR_CLARIFICATION} ${askUserAvailable ? `Use ask_user in ${userLanguage} for the human escalation.` : `Use chat in ${userLanguage} for the human escalation and wait for an explicit reply.`}`;
 	return `- Missing repository facts are not ambiguities: use \`spawn_research\` or listed \`filesystem\` stat/inventory/excerpt/readback. Stat first. Above 64 KiB/file or 64 KiB read this turn, do not self-read a too_large refusal: request a research summary or dispatch the path only. Never invent constraints. ${questions}
 - Reuse completed independent review of unchanged scope and requirements. A new review focus needs an explicit review_reason; rewording alone is not a reason for another auditor. Older successful coordination results and inspection pages become references to exact originals. Recent working pages, questions and failures remain complete; retrieve originals when details matter. Requirements stay in the current task capsule.
-- Planner and plan review are optional at every task size and risk. Follow an existing plan directly. Resolve factual gaps with focused research; grill additional decisions with ask_user before dependent work. Never start a planning/review pipeline merely because the task is wide, high-risk or lacks a plan.
+- Planner and plan review are optional at every task size and risk. Follow an existing plan directly. Resolve factual gaps with focused research; resolve routine technical choices independently and grill unresolved material decisions with ask_user before dependent work. Never start a planning/review pipeline merely because the task is wide, high-risk or lacks a plan.
 - Trivial/small refuses architect, security-auditor and deep-researcher without charging. Use the working specialist, or raise tier with an honest reason first. Never repeat an unchanged refusal.
 - Only use an assertion ledger/proven status when \`set_assertions\` is active; its absence means the tier has not opened verification, not acceptance.
 - Use \`dispatch_agent\` for one focused task; clarification/research and file-deliverable protocols are added automatically. Pass optional \`artifacts\` paths, never full plan/review/inventory bodies.
@@ -31,9 +23,7 @@ export function dispatchFragment(fleetActive: boolean, askUserAvailable: boolean
 }
 
 export function ambiguityFragment(askUserAvailable: boolean, userLanguage: string): string {
-	return askUserAvailable
-		? `- NEVER proceed past an ambiguity by guessing. A fact about the repository is not an ambiguity: inspect it with \`filesystem\` or \`spawn_research\`. Stat before excerpt; above 64 KiB, do not self-read — spawn_research or dispatch the path. Call \`ask_user\` for a preference, contradiction, or costly choice; otherwise state the assumption explicitly in ${userLanguage} and say you'll proceed unless corrected.`
-		: `- NEVER proceed past an ambiguity by guessing. A fact about the repository is not an ambiguity: inspect it with \`filesystem\` or \`spawn_research\`. Stat before excerpt; above 64 KiB, do not self-read — spawn_research or dispatch the path. State every remaining assumption explicitly in ${userLanguage} and wait for the user to confirm or correct.`;
+	return `- Resolve facts by inspection/research and routine technical choices independently. Record the basis in ${userLanguage}; do not request confirmation for routine choices. Unresolved material decisions require ${askUserAvailable ? "ask_user" : "a chat question"} and an explicit answer before dependent work.`;
 }
 
 export function languageFragment(askUserAvailable: boolean, userLanguage: string): string {
@@ -41,12 +31,12 @@ export function languageFragment(askUserAvailable: boolean, userLanguage: string
 	return askUserAvailable
 		? `- All user-facing messages, \`ask_user\` questions/context: **${userLanguage}**.
 - \`dispatch_agent\` tasks/personas remain **English**, never translated.
-- Translate specialists' English \`ASK_USER:\` to ${userLanguage} before \`ask_user\`.${englishNoOp}`
+- Translate escalated specialists' English \`ASK_USER:\` to ${userLanguage} before \`ask_user\`.${englishNoOp}`
 		: `- ALWAYS communicate with the human user in **${userLanguage}**. Every message you
   write to the user is ${userLanguage}.
 - Task strings you send via \`dispatch_agent\` stay in **English**. The specialist
   personas are written in English; do not translate task descriptions for them.
-- When a specialist emits an \`ASK_USER:\` line in English, translate it to
+- When an unresolved specialist question needs human escalation, translate its \`ASK_USER:\` line from English to
   ${userLanguage} before relaying to the user.${englishNoOp}`;
 }
 

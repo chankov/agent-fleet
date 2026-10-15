@@ -85,3 +85,12 @@ test("empty and error snapshots still render fixed height", () => {
 test("ANSI truncation never splits an escape sequence", () => {
 	assert.equal(ansiTruncate("\x1b[31mabcdef\x1b[0m", 3), "\x1b[31mabc\x1b[0m");
 });
+
+test("existing context overlay includes compaction policy and measured recovery without replacing budget rows",()=>{
+ const withMonitor={...snapshot,pressure:{...snapshot.pressure!,monitor:{version:1,episode:2,phase:"continued" as const,beforePercent:65.2,afterPercent:null,minimumPercent:50,earlyPercent:60,targetPercent:70,maximumPercent:80}}};
+ const rows=contextBudgetRows(withMonitor);
+ assert.match(rows.find(r=>r.key==="compaction/policy")!.detail,/min 50%.*target 70%.*ceiling 80%/);
+ assert.match(rows.find(r=>r.key==="compaction/recovery")!.detail,/continued.*65.2% → after unknown%/);
+ assert.ok(rows.some(r=>r.key==="group/tools"));
+ assert.equal(renderContextBudget(withMonitor,state(),80,8).length,8);
+});

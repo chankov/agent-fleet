@@ -65,7 +65,7 @@ export default function(pi: any) {
         const summary = summarizing;
         if(taskReset && !summary)taskStep++;
         record({event:"provider", call:++calls, summary, hasResult:inbound.includes("write-once"), compactionToolAvailable:pi.getActiveTools().includes("request_compaction"), continuation:inbound.includes("Continue the same permitted task") || inbound.includes("Continue the same authorized task") || inbound.includes("Continue the same authorized physical attempt")});
-        const msg: any = {role:"assistant",content:[],api:model.api,provider:model.provider,model:model.id,usage:{input:semantic?180000:hub || native ? (explicit?1000:58000):20000,output:20,cacheRead:0,cacheWrite:0,totalTokens:semantic?180020:hub || native ? (explicit?1020:58020):20020,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:"stop",timestamp:Date.now()};
+        const msg: any = {role:"assistant",content:[],api:model.api,provider:model.provider,model:model.id,usage:{input:semantic?166000:hub || native ? (explicit?1000:Number(process.env.D7_PRESSURE_TOKENS??45000)):20000,output:20,cacheRead:0,cacheWrite:0,totalTokens:semantic?166020:hub || native ? (explicit?1020:Number(process.env.D7_PRESSURE_TOKENS??45000)+20):20020,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:"stop",timestamp:Date.now()};
         stream.push({type:"start",partial:msg});
         if (summary && process.env.D7_CANCEL === "3") {
           record({event:"cancelled_inflight"});
@@ -101,9 +101,9 @@ export default function(pi: any) {
 }
 `;
 
-async function run(cancel: boolean | "during" | "inflight", hub=false, explicit=false, native=false, readOnly=false, localOnly=false, smallSession=false, semantic=false) {
+async function run(cancel: boolean | "during" | "inflight", hub=false, explicit=false, native=false, readOnly=false, localOnly=false, smallSession=false, semantic=false, pressureTokens=45000) {
   assert.ok(existsSync(join(runtime, "dist/cli.js")), `Pi runtime missing: ${runtime}`);
-  assert.equal(JSON.parse(readFileSync(join(runtime, "package.json"), "utf8")).version, "1.1.0");
+  assert.equal(JSON.parse(readFileSync(join(runtime, "package.json"), "utf8")).version, "1.3.0");
   const dir = mkdtempSync(join(tmpdir(), "d7-contract-"));
   try {
     mkdirSync(join(dir, "agent"));
@@ -121,7 +121,7 @@ async function run(cancel: boolean | "during" | "inflight", hub=false, explicit=
     const launcher=join(dir,"pi");symlinkSync(bundled,launcher);
     const result = spawnSync(launcher, [ "--mode","json","-p","--no-extensions",...(hub ? ["-e",join(root,".pi/harnesses/agent-hub/index.ts"),"--solo","--work-mode","operator"] : []),...(explicit ? ["-e",join(root,".pi/extensions/compact-and-continue/index.ts")] : []),...(localOnly ? ["-e",join(root,".pi/harnesses/agent-hub/context-continuity-child.ts")] : []),"--session-dir",join(dir,"sessions"),"-e",join(dir,"probe.ts"),"--model","d7-fixture/m",explicit ? "Complete write-once fixture, then use request_compaction and continue." : "Complete write-once fixture."], {
       cwd:dir, timeout:20000, encoding:"utf8", maxBuffer:4*1024*1024,
-      env:{PATH:process.env.PATH!, HOME:dir, PI_CODING_AGENT_DIR:join(dir,"agent"), PI_OFFLINE:"1", AGENT_SKILLS_NO_UPDATE_CHECK:"1", D7_EVENTS:join(dir,"events.jsonl"), D7_HUB:hub?"1":"0",D7_SEMANTIC:semantic?"1":"0",...(semantic?{TYPESAFE_API_KEY:"synthetic-offline-only",AGENT_HUB_TASK_TRIAGE_FAKE:"context-safe",AGENT_HUB_TASK_TRIAGE_FAKE_RECORD:join(dir,"fake-calls.jsonl")} : {}), D7_NATIVE:localOnly?"1":"0", D7_EXPLICIT:explicit?"1":"0", D7_CANCEL:cancel === "inflight" ? "3" : cancel === "during" ? "2" : cancel?"1":"0", NODE_OPTIONS:`--import=${join(root,"bin/test/helpers/system1-no-network.js")}`},
+      env:{PATH:process.env.PATH!, HOME:dir, PI_CODING_AGENT_DIR:join(dir,"agent"), PI_OFFLINE:"1", AGENT_SKILLS_NO_UPDATE_CHECK:"1", D7_EVENTS:join(dir,"events.jsonl"), D7_PRESSURE_TOKENS:String(pressureTokens), D7_HUB:hub?"1":"0",D7_SEMANTIC:semantic?"1":"0",...(semantic?{TYPESAFE_API_KEY:"synthetic-offline-only",AGENT_HUB_TASK_TRIAGE_FAKE:"context-safe",AGENT_HUB_CONTEXT_FAKE_DELAY_MS:"100",AGENT_HUB_TASK_TRIAGE_FAKE_RECORD:join(dir,"fake-calls.jsonl")} : {}), D7_NATIVE:localOnly?"1":"0", D7_EXPLICIT:explicit?"1":"0", D7_CANCEL:cancel === "inflight" ? "3" : cancel === "during" ? "2" : cancel?"1":"0", NODE_OPTIONS:`--import=${join(root,"bin/test/helpers/system1-no-network.js")}`},
     });
     let effectiveResult=result;
     if(native) {
@@ -129,7 +129,7 @@ async function run(cancel: boolean | "during" | "inflight", hub=false, explicit=
      // Reset first probe effects; native physical spawn owns the actual acceptance run.
      rmSync(join(dir,"events.jsonl"),{force:true});rmSync(join(dir,"effect.txt"),{force:true});
      if(readOnly)writeFileSync(join(dir,"large.txt"),"write-once ".repeat(500));
-     const nativeResult=await spawnPiAgent({model:"d7-fixture/m",tools:readOnly?"read":"bash",thinking:"off",sessionFile:join(dir,"native.jsonl"),prompt:"Complete write-once fixture.",cwd:dir,turnDeadlineMs:20000,env:{PATH:`${join(dir,"bin")}:${process.env.PATH}`,HOME:dir,PI_CODING_AGENT_DIR:join(dir,"agent"),PI_OFFLINE:"1",D7_EVENTS:join(dir,"events.jsonl"),D7_NATIVE:"1",D7_READ_ONLY:readOnly?"1":"0",D7_CANCEL:"0",NODE_OPTIONS:`--import=${join(root,"bin/test/helpers/system1-no-network.js")}`}});
+     const nativeResult=await spawnPiAgent({model:"d7-fixture/m",tools:readOnly?"read":"bash",thinking:"off",sessionFile:join(dir,"native.jsonl"),prompt:"Complete write-once fixture.",cwd:dir,turnDeadlineMs:20000,env:{PATH:`${join(dir,"bin")}:${process.env.PATH}`,HOME:dir,PI_CODING_AGENT_DIR:join(dir,"agent"),PI_OFFLINE:"1",D7_EVENTS:join(dir,"events.jsonl"),D7_PRESSURE_TOKENS:String(pressureTokens),D7_NATIVE:"1",D7_READ_ONLY:readOnly?"1":"0",D7_CANCEL:"0",NODE_OPTIONS:`--import=${join(root,"bin/test/helpers/system1-no-network.js")}`}});
      effectiveResult={...result,stdout:nativeResult.output,stderr:nativeResult.stderr,status:nativeResult.exitCode,error:nativeResult.assistantError?new Error(nativeResult.assistantError):undefined};
     }
     const events = existsSync(join(dir,"events.jsonl")) ? readFileSync(join(dir,"events.jsonl"),"utf8").trim().split("\n").map(line=>JSON.parse(line)) : [];
@@ -140,7 +140,7 @@ async function run(cancel: boolean | "during" | "inflight", hub=false, explicit=
   } finally { rmSync(dir,{recursive:true,force:true}); }
 }
 
-test("Pi 1.1.0 real -p CLI compacts, restores and continues exactly once", async () => {
+test("Pi 1.3.0 real -p CLI compacts, restores and continues exactly once", async () => {
   const {result,events,effect} = await run(false);
   assert.equal(result.error, undefined, JSON.stringify({events,stderr:result.stderr,error:String(result.error)}));
   assert.equal(result.status,0,result.stderr);
@@ -182,14 +182,20 @@ test("cancelled eligibility never sends a continuation", async () => {
   assert.equal(events.filter(e=>e.event==="cancelled").length,1);
 });
 
-test("production Hub resumes pressure-interrupted work without a new user turn", async () => {
-  const {result,events,effect}=await run(false,true);
+test("production Hub resumes pressure-interrupted work without a new user turn", async t => {
+  const {result,events,effect,runtimeEntries}=await run(false,true);
   assert.equal(result.error,undefined,JSON.stringify({events,error:String(result.error),stderr:result.stderr}));
   assert.equal(result.status,0,result.stderr);
   assert.equal(effect,"write-once\n");
   assert.equal(events.filter(e=>e.event==="restored").length,1,JSON.stringify(events));
   assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,1,JSON.stringify(events));
-  assert.equal(events.filter(e=>e.event==="before_agent_start").length,1);
+  assert.equal(events.filter(e=>e.event==="before_agent_start").length,2);
+  const monitor=runtimeEntries.filter(e=>e.customType==="agent-hub-compaction-monitor").map(e=>e.data);
+  assert.deepEqual(monitor.slice(0,3).map(e=>e.phase),["started","restored","continuation_requested"]);
+  assert.ok(monitor[0].beforePercent>=70 && monitor[0].beforePercent<=80,JSON.stringify(monitor));
+  assert.equal(monitor[0].targetPercent,70);
+  assert.ok(monitor.some(e=>e.phase==="continued" && e.measurement==="first_post_compaction"),JSON.stringify(monitor));
+  t.diagnostic(JSON.stringify({scenario:"deterministic-target",beforePercent:monitor[0].beforePercent,phases:monitor.slice(0,3).map(e=>e.phase),effects:1}));
   assert.match(result.stdout,/D7_FINAL/);
 });
 
@@ -202,7 +208,7 @@ test("low-pressure explicit request_compaction remains available through reads v
   assert.equal(events.filter(e=>e.event==="tool_result" && e.name==="request_compaction" && !e.error).length,1,JSON.stringify(events));
   assert.equal(events.filter(e=>e.event==="restored").length,1,JSON.stringify(events));
   assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,1,JSON.stringify(events));
-  assert.equal(events.filter(e=>e.event==="before_agent_start").length,1);
+  assert.equal(events.filter(e=>e.event==="before_agent_start").length,2);
   assert.match(result.stdout,/D7_FINAL/);
 });
 
@@ -212,7 +218,7 @@ test("native physical spawn adapter compacts and continues write-once in the sam
  assert.equal(result.status,0,result.stderr);assert.equal(effect,"write-once\n");
  assert.equal(events.filter(e=>e.event==="restored").length,1,JSON.stringify(events));
  assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,1,JSON.stringify(events));
- assert.equal(events.filter(e=>e.event==="before_agent_start").length,1);
+ assert.equal(events.filter(e=>e.event==="before_agent_start").length,2);
  assert.match(result.stdout,/D7_FINAL/);
 });
 
@@ -260,7 +266,7 @@ test("two tasks in one Pi session: authorized new_task keeps current explicit co
   assert.equal(records.filter(e=>e.event==="tool_result" && e.name==="request_compaction" && !e.error).length,1);
   assert.equal(records.filter(e=>e.event==="restored").length,1);
   assert.equal(records.filter(e=>e.event==="provider" && e.continuation).length,2); // read and final output within one continuation
-  assert.equal(records.filter(e=>e.event==="before_agent_start").length,2,"custom continuation must not create a third user task/turn");
+  assert.equal(records.filter(e=>e.event==="before_agent_start").length,3,"Pi 1.3 emits before_agent_start for the continuation run too");
   assert.equal(records.filter(e=>e.event==="tool_result" && e.name==="read" && !e.error).length,3,JSON.stringify({records,results:messages.filter(m=>m.type==="tool_execution_end")}));
   assert.ok(JSON.stringify(messages).includes("D7_TASK_RESET_FINISHED"));
  } finally {child.kill("SIGTERM");if(!closed)await new Promise<void>(resolve=>{const timer=setTimeout(()=>{child.kill("SIGKILL");resolve();},1000);child.once("close",()=>{clearTimeout(timer);resolve();});});}
@@ -272,13 +278,13 @@ test("default Pi retention: small explicit request is honestly skipped and conti
  assert.equal(events.filter(e=>e.event==="restored").length,0);
  assert.equal(events.filter(e=>e.event==="provider" && e.summary).length,0);
  assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,1);
- assert.equal(events.filter(e=>e.event==="before_agent_start").length,1);
+ assert.equal(events.filter(e=>e.event==="before_agent_start").length,2);
  assert.ok(runtimeEntries.some(e=>e.customType==="agent-hub-context-continuity" && e.data.phase==="skipped"));
  assert.ok(!runtimeEntries.some(e=>e.type==="compaction" || e.customType==="agent-hub-context-pressure" && e.data.phase==="failed"));
  assert.match(result.stdout,/D7_FINAL/);
 });
 
-test("automatic System1 hook at 66% works with 272k window / 128k max output and default Pi reserve",async()=>{
+test("delayed System1 hook compacts within 60–70% with default Pi reserve",async t=>{
  const {result,events,runtimeEntries,fakeCalls}=await run(false,true,false,false,false,false,false,true);
  assert.equal(result.error,undefined,result.stderr);assert.equal(result.status,0,result.stderr);
  assert.ok(fakeCalls.some(e=>e.questions.includes("boundary") && e.questions.includes("retention")),JSON.stringify({events,diagnostics:runtimeEntries.filter(e=>e.customType==="agent-hub-context-assessment")}));
@@ -286,7 +292,34 @@ test("automatic System1 hook at 66% works with 272k window / 128k max output and
  assert.equal(events.filter(e=>e.event==="restored").length,1,JSON.stringify(events));
  const accepted=runtimeEntries.find(e=>e.customType==="agent-hub-context-assessment" && e.data.status==="accepted");
  assert.ok(accepted,JSON.stringify(runtimeEntries.filter(e=>e.customType==="agent-hub-context-assessment")));
- assert.equal(accepted.data.responseReservedTokens,16384);assert.ok(accepted.data.percent>=60 && accepted.data.percent<80);assert.equal(accepted.data.inferenceRequested,true);
+ assert.equal(accepted.data.responseReservedTokens,16384);assert.ok(accepted.data.percent>=60 && accepted.data.percent<=70);assert.equal(accepted.data.inferenceRequested,true);
+ const workRequests=events.filter(e=>e.event==="provider" && !e.summary);
+ assert.equal(workRequests.at(-1)?.continuation,true,"early assessment must finish before the next work request, then continue after real compaction");
+ t.diagnostic(JSON.stringify({scenario:"delayed-semantic",percent:accepted.data.percent,boundaryConfidence:accepted.data.boundaryConfidence,compactions:events.filter(e=>e.event==="restored").length}));
  assert.ok(runtimeEntries.some(e=>e.customType==="agent-hub-context-continuity" && e.data.phase==="compacting"));
  assert.match(result.stdout,/D7_FINAL/);
+});
+
+
+test("automatic Hub does not compact below 50%, while a tool-result overshoot above 80% recovers before another work request",async()=>{
+ const low=await run(false,true,false,false,false,false,false,false,25000);
+ assert.equal(low.result.status,0,low.result.stderr);
+ assert.equal(low.events.filter(e=>e.event==="restored").length,0);
+ const high=await run(false,true,false,false,false,false,false,false,52000);
+ assert.equal(high.result.status,0,high.result.stderr);assert.equal(high.effect,"write-once\n");
+ assert.equal(high.events.filter(e=>e.event==="restored").length,1);
+ assert.equal(high.events.filter(e=>e.event==="provider" && e.continuation).length,1);
+ const start=high.runtimeEntries.find(e=>e.customType==="agent-hub-compaction-monitor" && e.data.phase==="started");
+ assert.equal(start?.data.ceilingExceeded,true);
+ const work=high.events.filter(e=>e.event==="provider" && !e.summary);
+ assert.equal(work.length,2);assert.equal(work[1].continuation,true,"no ordinary work request before recovery");
+});
+
+for(const owner of ["hub","child"])test(`real ${owner} cancellation at compaction boundary never auto-continues`,async()=>{
+ const {result,events,effect}=await run("during",owner==="hub",false,false,false,owner==="child");
+ assert.equal(result.error,undefined,result.stderr);assert.equal(result.status,0,result.stderr);
+ assert.equal(effect,"write-once\n");
+ assert.equal(events.filter(e=>e.event==="restored").length,0);
+ assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,0);
+ assert.equal(events.filter(e=>e.event==="cancelled_during_compact").length,1);
 });

@@ -127,7 +127,7 @@ import { paneTail, peerManifest, peerPersonaExists, registerFleetTools, spawnDel
 import type { ToolContext } from "./tools/context.ts";
 import { createToolExecutionOrchestration } from "./tools/execution-orchestration.ts";
 import { latestPersistedCapabilityState, type ContextState, type PendingOperation } from "./capability-packs.ts";
-import { contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
+import { AUTO_COMPACT_PERCENT, contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
 import { confirmRecoverAction, confirmTaskSupersession, createBudgetRecovery, createReservedTaskIdentityReset } from "./budget-recovery.ts";
 import { requestRuntimeAsk } from "../ask-user-remote/runtime-ask.ts";
@@ -228,6 +228,10 @@ function resolveTaskTriageTestTransport(): JevTransport | undefined {
 		if (recordPath) {
 			try { fs.appendFileSync(recordPath, JSON.stringify({ at: Date.now(), profile, instanceId, pid: process.pid, questions: Object.keys(wire.questions), stateFingerprint: createHash("sha256").update(JSON.stringify(wire.state)).digest("hex"), questionFingerprint: createHash("sha256").update(JSON.stringify(wire.questions)).digest("hex"), stack: (new Error("fake-transport").stack ?? "").split("\n").slice(1, 6) }) + "\n"); } catch { /* evidence best-effort */ }
 		}
+        if(profile === "context-safe" && wire.questions.boundary && process.env.AGENT_HUB_CONTEXT_FAKE_DELAY_MS) {
+            const delay=Number(process.env.AGENT_HUB_CONTEXT_FAKE_DELAY_MS);
+            if(Number.isFinite(delay) && delay>0 && delay<=500) await new Promise(resolve=>setTimeout(resolve,delay));
+        }
 		if (profile === "timeout") {
 			return new Promise((_, reject) => {
 				if (request.signal.aborted) return reject(new Error("guarded fake transport deadline"));
@@ -974,7 +978,7 @@ export default function (pi: ExtensionAPI) {
 		if (contextPressureState.phase !== "normal" || contextPressureState.pressure === "imminent") return "imminent-compaction";
 		if (contextPressureState.pressure === "approaching") return "approaching-compaction";
 		const percent = currentCtx?.getContextUsage?.()?.percent;
-		if (typeof percent === "number" && percent >= 90) return "imminent-compaction";
+		if (typeof percent === "number" && percent >= AUTO_COMPACT_PERCENT) return "imminent-compaction";
 		if (typeof percent === "number" && percent >= 80) return "approaching-compaction";
 		return "normal";
 	}
@@ -2318,7 +2322,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("turn_end", async (event, ctx) => {
 		if (transitionBatchRefused && pendingTaskTransition) transitionHintDelivered = true;
 		transitionBatchRefused = false;
-		pressureLifecycle.turnEnd(ctx);
+		await pressureLifecycle.turnEnd(ctx);
 		const text = event.message.role === "assistant" ? event.message.content.filter(c => c.type === "text").map(c => c.text).join("") : "";
 		hubCapture.end(event.turnIndex, text);
 	});

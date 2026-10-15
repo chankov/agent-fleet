@@ -135,7 +135,7 @@ that change consent. Keep other sections off if you do not need them.
 | Agentic Ask (D10) | `agenticAsk.mode: advisory` or `recommended`, `remoteContextApproved: true`, reviewed `include`; keep `allowToolOutputs: false` unless separately approved | Ask a focused typed question, e.g. `ask_system1` with a choice about the relevance of a selected `docs/` range. `recommended` encourages first-use routing; answers never execute work or satisfy gates. |
 | File discovery (D9) | `fileDiscovery.mode: active`, `remoteContextApproved: true`, approved nonempty prefix `include` | Use normal permitted `filesystem` inventory/find/ls/grep or native pre-spawn discovery. Runtime ranks candidates while retaining every display-permitted result, not only top-K. |
 | Semantic reads (D8) | Additionally `fileDiscovery.semanticReads.mode: active` | Normal eligible single-file stat/discovery receives orientation through the same D9 service/consent. It is not another root consumer or a replacement for reading evidence. |
-| Context compaction (D7) | `contextCompaction.mode: automatic`, `remoteContextApproved: true`; keep 60% early opportunity and bounded limits initially | Continue a normal long task. Runtime asks System1 at eligible changed turn boundaries; a safe/confident retained answer can request early compact. Deterministic 80% warning / 90% recovery does not require System1. |
+| Context compaction (D7) | `contextCompaction.mode: automatic`, `remoteContextApproved: true`; keep 60% early opportunity and bounded limits initially | Continue a normal long task. Runtime asks System1 at eligible changed turn boundaries; a safe/confident retained answer can request early compact. Deterministic 70% recovery (80% ceiling) does not require System1. |
 
 ### D7 opt-in fragment
 
@@ -153,9 +153,9 @@ Merge only this reviewed section under `consumers`:
 ```
 
 D7 uses Pi's effective compaction reserve for headroom, not the entire model
-maximum output. `boundary = safe` and a known retention choice must both have
-provider confidence at least 0.80; timeout/low confidence/stale advice leaves
-pressure recovery available. Pi writes the summary; System1 does not compact,
+maximum output. `boundary = safe` must have provider confidence at least 0.80. Uncertain retention
+uses standard preservation instructions; timeout/low confidence/stale advice leaves
+the deterministic 70% pressure recovery available. Pi writes the summary; System1 does not compact,
 delete history, reset budgets or grant permission.
 
 Open the existing Fleet communication view (`1`, then enable capture with `e`)

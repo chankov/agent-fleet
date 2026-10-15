@@ -102,7 +102,7 @@ Writing a spec without reading what already exists leads to duplication, contrad
 
 Then start with a high-level vision. Ask the human clarifying questions until requirements are concrete.
 
-**Grilling (required before locking the spec):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Skip anything already explicit in chat, prompt, PRD, or rules — do not re-confirm it. Grill every remaining unconfirmed design choice (multiple valid ways, contradiction, competing code patterns) one question at a time, with a recommended option. Fold each answer into Success Criteria, Boundaries, Proposed decisions, or Open Questions. If nothing is open, note that grilling found no unspecified forks and continue.
+**Grilling (required before locking the spec):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Skip anything already explicit in chat, prompt, PRD, or rules — do not re-confirm it. Research discoverable facts and resolve routine technical choices independently, recording their basis. Grill only unresolved material decisions one question at a time with a recommended option; specialists route questions through the orchestrator first. Multiple valid ways or competing local patterns alone do not require human input. Fold each answer into Success Criteria, Boundaries, Proposed decisions, or Open Questions. If nothing is open, note that grilling found no unspecified forks and continue.
 
 **Surface assumptions immediately.** Before writing any spec content, classify what you would otherwise assume:
 

@@ -44,6 +44,11 @@ export function contextBudgetRows(snapshot: ContextBudgetSnapshot, expanded: Set
 		});
 	}
 	const rows: ContextBudgetRow[] = [];
+ const monitor=snapshot.pressure?.monitor;
+ if(monitor) {
+  rows.push({key:"compaction/policy",label:"Auto compaction",detail:`min ${monitor.minimumPercent}% · early ${monitor.earlyPercent}% · target ${monitor.targetPercent}% · ceiling ${monitor.maximumPercent}%`});
+  rows.push({key:"compaction/recovery",label:"Last compaction",detail:`${monitor.phase} · episode ${monitor.episode} · before ${monitor.beforePercent?.toFixed(1)??"unknown"}% → after ${monitor.afterPercent?.toFixed(1)??"unknown"}%`});
+ }
 	for (const key of order) {
 		const group = groups.get(key);
 		if (!group) continue;

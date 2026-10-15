@@ -40,7 +40,7 @@ export function buildSessionStartNotice(data: SessionStartNoticeData): string {
 		"Native roster sets loaded from: .pi/agents/teams.yaml",
 		`Dispatch backends: ${data.dispatchLabel}`,
 		`User-facing language: ${data.userLanguage} (override in .ai/agent-fleet-overrides.md)`,
-		`ask_user: ${data.askUserLabel}; specialists bubble up via ASK_USER:`,
+		`ask_user: ${data.askUserLabel}; specialist questions go to orchestrator triage via ASK_USER:`,
 		`Coms: ${data.comsLabel}`,
 		`Fleet: ${data.fleetLabel}`,
 		"",

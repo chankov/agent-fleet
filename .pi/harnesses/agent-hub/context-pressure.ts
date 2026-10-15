@@ -1,5 +1,8 @@
-export const CONTEXT_WARNING_PERCENT = 80;
-export const AUTO_COMPACT_PERCENT = 90;
+import type { createCompactionMonitor } from "./context-compaction-monitor.ts";
+type CompactionMonitorSnapshot = ReturnType<ReturnType<typeof createCompactionMonitor>["snapshot"]>;
+import { COMPACTION_EARLY_PERCENT, COMPACTION_TARGET_PERCENT } from "../lib/context-compaction-policy.js";
+export const CONTEXT_WARNING_PERCENT = COMPACTION_EARLY_PERCENT;
+export const AUTO_COMPACT_PERCENT = COMPACTION_TARGET_PERCENT;
 
 export type ContextPressure = "unknown" | "normal" | "approaching" | "imminent";
 export type ContextPressurePhase = "normal" | "warning" | "compacting" | "recovered" | "failed";
@@ -23,6 +26,7 @@ export interface ContextUsageMeasurement {
 export type ContextRecoveryOutcome = "none" | "succeeded" | "failed";
 
 export interface ContextPressureState {
+    monitor?: CompactionMonitorSnapshot;
 	phase: ContextPressurePhase;
 	pressure: ContextPressure;
 	episode: number;
@@ -34,6 +38,7 @@ export interface ContextPressureState {
 }
 
 export interface ContextPressureDiagnostic {
+    monitor?: CompactionMonitorSnapshot;
 	phase: ContextPressurePhase;
 	pressure: ContextPressure;
 	episode: number;
@@ -95,6 +100,7 @@ function pressureFor(percent: number | null): ContextPressure {
 
 export function contextPressureDiagnostic(state: ContextPressureState): ContextPressureDiagnostic {
 	return {
+		...(state.monitor ? {monitor: state.monitor} : {}),
 		phase: state.phase,
 		pressure: state.pressure,
 		episode: state.episode,

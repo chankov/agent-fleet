@@ -105,9 +105,9 @@ test("recommended instructions track current mode and active tool availability",
 test("full extracted Hub prompt preserves exact text, ordering, and ledger", () => {
 	const built = buildHubSystemPrompt(fixture());
 	// Intentional prose compaction; semantic guards below remain independently asserted.
-	assert.equal(digest(built.systemPrompt), "7e6e2a965a955e6fa229fc40d1a01f460ab364eb3660f88cca9d71e14e21bd77");
+	assert.equal(digest(built.systemPrompt), "c8403858e4e8d540362048ac00ac1c726cfcf5784c74c5d6050cfaefce4d4346");
 	assert.match(built.systemPrompt, /Optionally use `dispatch_triage`/);
-	assert.match(built.systemPrompt, /re-dispatch with `USER_ANSWER: <dispatchId> :: <question>`; prose alone cannot authorize resume/);
+	assert.match(built.systemPrompt, /For actual human answers use USER_ANSWER: <dispatchId> :: <question>/);
 	assert.match(built.systemPrompt, /Stat first\. Above 64 KiB\/file or 64 KiB read this turn, do not self-read/);
 	assert.match(built.systemPrompt, /Never repeat an unchanged refusal/);
 	assert.match(built.systemPrompt, /absence means the tier has not opened verification, not acceptance/);
@@ -146,8 +146,8 @@ test("trusted tool catalog producer and refusal state survive the production pro
 
 test("language and unavailable ask_user branch preserve exact prompt text", () => {
 	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "9e58ec7c05a2a9f82cde7f3fa6571ae13b6a618896c2dfdc5f05202c16b8bbba");
-	assert.match(built.systemPrompt, /ask_user is NOT available/);
+	assert.equal(digest(built.systemPrompt), "92406578d22802416b5417f5dab35fb975183db139c569ac70b3a8e9964f97b3");
+	assert.match(built.systemPrompt, /ask_user tool is unavailable/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);
 });
@@ -222,4 +222,19 @@ test('D8 delivered orientation is reused without replacing exact evidence, expli
  const prompt=buildHubSystemPrompt(ctx).systemPrompt;
  for(const text of ['Use current delivered typed answers','not a free-form summary','Explicit proposition/risk','Unknown, insufficient, partial or stale','pre-edit reads remain mandatory','Off/unavailable continues via ordinary tools'])assert.ok(prompt.includes(text));
  ctx.getActiveTools=()=>[];assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/When D8 semanticReads is active/);
+});
+
+
+test("decision routing retains material questions but triages specialists first in both modes", () => {
+ for (const askUser of [true, false]) for (const mode of ["operator", "orchestrator"] as const) {
+  const ctx = fixture({ askUser }); ctx.getWorkMode = () => mode;
+  const prompt = buildHubSystemPrompt(ctx).systemPrompt;
+  assert.match(prompt, /Resolve routine technical choices independently within the approved scope/);
+  assert.match(prompt, /public compatibility contract/);
+  assert.match(prompt, /Triage every ASK_USER\/details.questions item before escalating/);
+  assert.match(prompt, /ORCHESTRATOR_ANSWER:/);
+  assert.match(prompt, /Never fabricate a human answer/);
+  assert.doesNotMatch(prompt, /For every returned ASK_USER.*ask the human|Relay every ASK_USER/);
+  if (!askUser) assert.match(prompt, /wait for an explicit answer; silence is not approval/);
+ }
 });

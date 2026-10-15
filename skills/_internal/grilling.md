@@ -1,59 +1,59 @@
 # Grilling (Internal Helper)
 
-Use this helper from a parent skill whenever a plan, spec, design, or
-implementation must take a decision. Explicit invocation ("grill this",
-"stress-test this") still triggers it; so does any unspecified fork. Do not
-wait for the user to ask.
+Use this helper in planning, specification and implementation, and when explicitly
+asked to grill or stress-test a proposal. Inventory decisions; do not turn every
+implementation choice into a human interview.
 
-Interview until each **open** decision is explicitly accepted, rejected, or
-deferred. Walk the design tree one dependency at a time: choose the next
-question from prior answers, and skip questions made irrelevant by earlier
-decisions.
+## Decision routing
 
-## Do not re-ask what is already settled
+1. **Already settled:** follow the current chat, approved plan/spec and applicable
+   project rules. Do not re-confirm accepted decisions or scope.
+2. **Discoverable fact:** inspect the repository, docs, tests or runtime evidence;
+   use focused research when needed. Missing knowledge is not a user preference.
+3. **Routine technical choice:** decide independently within approved scope and
+   record the choice and reason in the plan or implementation summary. Examples:
+   local helper names, equivalent existing code patterns, test fixtures, and
+   reversible implementation details that preserve the public contract. Multiple
+   valid approaches alone do not justify a question.
+4. **Unresolved material decision:** ask the human before dependent work. Examples:
+   changing requirements or acceptance criteria, public compatibility, consequential
+   product/architecture trade-offs, new cost or external exposure, destructive
+   effects requiring new permission, or conflicting authoritative instructions
+   that research cannot reconcile. Explicit user boundaries remain binding even
+   for a small edit. If you cannot establish that a choice is within the accepted
+   scope, investigate first, then ask about the remaining uncertainty.
 
-Do **not** grill a point that is already explicit in any of:
+Do not infer permission from silence, model consensus or a specialist report.
+Internal technical autonomy does not authorize a new dependency, public interface,
+external action or scope expansion simply because it is easy to implement.
 
-- the current chat, user prompt, or spoken/written instruction
-- a PRD, spec, plan, ticket, or other written requirement
-- a project rule, skill, or standing instruction
+## Specialist → orchestrator → human
 
-Treat those as accepted. Re-asking wastes attention and implies the agent did
-not read the source of truth.
+A specialist first uses its instructions and tools to resolve settled, factual and
+routine questions. If it still cannot answer, it pauses dependent work and emits
+`ASK_USER: <question>`, with evidence checked, options and a recommendation.
+The marker is a handoff to the orchestrator, not a mandatory human interruption.
+The orchestrator first checks the approved decisions and available evidence,
+researches facts, and resolves routine choices itself. It asks the human only for
+remaining material decisions or questions it still cannot answer.
 
-## Must grill — unspecified forks
-
-Grill every remaining point that is load-bearing and still open:
-
-- **Multiple valid ways** — architecture, library, naming, scope cut, data
-  model, error behavior, where two or more approaches would all work and the
-  trade-off is preference-dependent
-- **Doubt or contradiction** — sources disagree (chat vs code, spec vs tests,
-  two rules, two existing implementations)
-- **Code variants** — the codebase already has several patterns and one must
-  be chosen for this change; propose one recommended option among them
-
-If a question can be answered by reading the codebase, docs, tests, or runtime
-evidence, investigate first and ask only about the remaining decision.
-
-If grilling produces **zero** questions (everything load-bearing was already
-settled), say so briefly and proceed. Do not invent questions to look thorough.
+Under Agent Hub, parent-resolved questions resume with `ORCHESTRATOR_ANSWER` using
+the runtime's documented JSON format (all questions, answers, basis and evidence).
+Use `USER_ANSWER` only for actual human answers; never relabel the orchestrator's
+judgment as user consent. Clarification does not override permission gates or
+cancellation. Without a dispatcher, the agent applies the same decision boundary
+and asks the human directly when escalation is needed.
 
 ## How to ask
 
-Ask one focused question at a time. Offer 2-4 concrete options plus your
-recommended answer and a brief reason, then wait for the user's decision
-before continuing. This should feel like guided architectural interrogation,
-not a questionnaire dump.
+Use `ask_user` or the available structured question tool. If unavailable, ask in
+chat and wait for an explicit reply. Ask one focused question with 2–4 concrete
+options, a recommendation and its reason. Explain what remains undecided and why
+it matters. Do not present a routine choice as a required preference.
 
-## When it applies
-
-Planning, spec writing, **and implementation** — whenever a decision must be
-taken. A plan that silently picks a library, and an implementer that silently
-picks among existing code patterns, are the same failure.
-
-Keep grilling until shared understanding is strong enough to write or revise
-the downstream artifact. Record each accepted, rejected, or deferred choice in
-that artifact (Architecture Decisions, Boundaries, or the slice summary).
-When review exposes gaps later, convert each gap into one targeted follow-up
-question.
+Walk material decisions in dependency order; skip questions made irrelevant by
+previous answers. Record accepted, rejected or deferred decisions and their source
+in the relevant artifact. A deferred decision does not authorize dependent work.
+If there are no unresolved material decisions, proceed without a ceremonial question.
+Review findings require investigation first; only remaining material decisions
+become grilling questions.

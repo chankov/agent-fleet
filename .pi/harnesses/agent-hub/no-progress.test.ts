@@ -483,3 +483,61 @@ test('actual invocation storage exception is safe no-launch history, never indet
  assert.equal(guard.isIdle(op.executor), true);
  fail = false; await run('two', params, undefined, undefined, { cwd } as any); assert.equal(launches, 1);
 });
+
+
+test("orchestrator resolves all specialist questions without impersonating a user", async () => {
+ const cwd = mkdtempSync(join(tmpdir(), "orchestrator-answer-"));
+ try {
+  execFileSync("git", ["init", cwd], { stdio: "ignore" });
+  writeFileSync(join(cwd, "a.ts"), "a");
+  let calls = 0;
+  const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
+  const run = withNoProgress(d, "dispatch", async () => ({ content: [], details: {
+   status: "blocked_on_user", recoveryCategory: "blocked_on_user", questions: ["Which file?", "Which pattern?"], exitCode: 0, dispatchId: `ask-${++calls}`,
+  } }), () => ({ model: "m" }));
+  const base: any = { agent: "builder", task: "edit", scope: ["a.ts"] };
+  const invoke = (task: string, scope = base.scope) => run("id", { ...base, task, scope }, undefined, undefined, { cwd } as any);
+  await invoke("edit");
+  const answers = [
+   { question: "Which file?", answer: "a.ts", basis: "repository_fact", evidence: "Repository inventory contains a.ts" },
+   { question: "Which pattern?", answer: "Use the adjacent helper convention", basis: "routine_technical", evidence: "Local implementation detail; unchanged public contract" },
+  ];
+  const marker = (value: unknown) => `ORCHESTRATOR_ANSWER: ${JSON.stringify(value)}`;
+  for (const value of [
+   { dispatchId: "unknown", answers },
+   { dispatchId: "ask-1", answers: answers.slice(0, 1) },
+   { dispatchId: "ask-1", answers: answers.map(a => ({ ...a, answer: "" })) },
+   { dispatchId: "ask-1", answers: answers.map(a => ({ ...a, basis: "new_permission" })) },
+  ]) {
+   assert.equal((await invoke(marker(value))).details.status, "no_progress_refused");
+  }
+  assert.equal((await invoke("ORCHESTRATOR_ANSWER: not-json")).details.status, "no_progress_refused");
+  assert.equal(calls, 1);
+  const valid = marker({ dispatchId: "ask-1", answers });
+  assert.equal((await invoke(valid)).details.status, "blocked_on_user");
+  assert.equal(calls, 2, "parent answer resumes the specialist");
+  assert.equal((await invoke(valid)).details.status, "no_progress_refused", "old answer cannot resume a new question round");
+  assert.deepEqual(d.noProgress.userAnswerCapabilities(), { filesystem: false, network: false, cloud: false, secrets: false });
+ } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("parent clarification is scoped, cancellable, task-bound and cannot clear effect fences", () => {
+ const scope = ["a.ts"];
+ const answer = (dispatchId: string) => ({ dispatchId, answers: [{ question: "Pattern?", answer: "Adjacent convention", basis: "routine_technical", evidence: "Same local contract" }] });
+ const block = (g: ReturnType<typeof createNoProgressGuard>, id: string, category = "blocked_on_user") => {
+  const ticket = g.begin("edit", "same", "builder", scope);
+  g.finish(ticket, "same", { ...failed(id, category), questions: ["Pattern?"] });
+ };
+ const g = createNoProgressGuard(); block(g, "ask");
+ assert.equal(g.recordOrchestratorAnswer(answer("ask"), ["other.ts"]), false);
+ assert.equal(g.recordOrchestratorAnswer(answer("ask"), scope), true);
+ assert.equal(g.cancelUserAnswer("ask"), true);
+ assert.equal(g.begin("edit", "same", "builder", scope).allowed, false);
+ g.adopt("new-task");
+ assert.equal(g.recordOrchestratorAnswer(answer("ask"), scope), false, "old questions cannot be re-granted in a new task");
+ for (const category of ["operator_cancelled", "indeterminate", "tool_protocol_error"]) {
+  const fenced = createNoProgressGuard(); block(fenced, "fence", category);
+  assert.equal(fenced.recordOrchestratorAnswer(answer("fence"), scope), false);
+  assert.equal(fenced.begin("edit", "changed", "builder", scope).allowed, false);
+ }
+});

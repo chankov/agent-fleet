@@ -19,10 +19,11 @@ export function currentPiRuntimeVersion(entry = process.argv[1]): string {
   return "unknown";
 }
 export function contextContinuityCompatibility(version: string): ContextContinuityCompatibility {
+  const supported = ["1.1.0", "1.2.0", "1.3.0"].includes(version);
   return {
-    supported: version === "1.1.0",
+    supported,
     version,
-    reason: version === "1.1.0"
+    reason: supported
       ? "verified real CLI settled/compact/continuation contract"
       : "unsupported settled continuation contract; preserve native baseline",
   };

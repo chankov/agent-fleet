@@ -1,6 +1,6 @@
 ---
 name: planning-and-task-breakdown
-description: Breaks work into a sequential implementation plan and grills unspecified design forks before writing tasks. Use when you have a spec or clear requirements and need locally verifiable implementation tasks. A plan is an implementation plan unless the human explicitly asks for another kind. Close one task before starting the next. Do not include environment, operator, deploy, publish, activation, or rollout work.
+description: Breaks work into a sequential implementation plan and grills unresolved material design decisions before writing tasks. Use when you have a spec or clear requirements and need locally verifiable implementation tasks. A plan is an implementation plan unless the human explicitly asks for another kind. Close one task before starting the next. Do not include environment, operator, deploy, publish, activation, or rollout work.
 ---
 
 # Planning and Task Breakdown
@@ -13,7 +13,7 @@ Unless the human explicitly asks for another kind of plan (research, migration d
 
 Tasks are a sequence, not a parallel batch. Close task N — its acceptance criteria met and its local verification done — before starting task N+1. A checkpoint is a gate after closed tasks, not permission to run several tasks at once. Vertical slices describe the shape of each task (one complete, locally testable path). They are not permission to execute slices in parallel. Parallel execution is allowed only when the human explicitly asks for it.
 
-Do not choose how the plan will be executed. Do not ask whether to run it slice by slice or at once, and do not infer that from plan size or a worktree. Do not write `Execution: whole-plan` yourself. At execution time, `incremental-implementation` keeps per-slice human review unless the operator explicitly requests whole-plan execution. A checkpoint's human review applies only to that default. When the operator has already opted in, a checkpoint is local verification only. An unresolved plan or PRD problem during execution still interrupts and is grilled with `ask_user`. This skill does not waive that.
+Do not choose how the plan will be executed. Do not ask whether to run it slice by slice or at once, and do not infer that from plan size or a worktree. Do not write `Execution: whole-plan` yourself. At execution time, `incremental-implementation` keeps per-slice human review unless the operator explicitly requests whole-plan execution. A checkpoint's human review applies only to that default. When the operator has already opted in, a checkpoint is local verification only. An unresolved material plan or PRD decision during execution still interrupts and is grilled with `ask_user`. This skill does not waive that.
 
 ## When to Use
 
@@ -21,9 +21,9 @@ Do not choose how the plan will be executed. Do not ask whether to run it slice 
 - A task feels too large or vague to start
 - You need to communicate scope to a human
 - The implementation order isn't obvious
-- More than one valid approach, a contradiction, or competing code patterns must be locked before tasks are written
+- An unresolved material decision must be settled before dependent tasks are written; equivalent local patterns are routine technical choices
 
-**When NOT to use:** Single-file changes with obvious scope, or when the spec already contains well-defined tasks. Skipping a plan file does **not** skip grilling: if the change can be done several ways and none is mandated, ask before coding.
+**When NOT to use:** Single-file changes with obvious scope, or when the spec already contains well-defined tasks. Skipping a plan file does **not** skip grilling: resolve routine technical choices independently; ask before coding only when an unresolved material decision affects the work.
 
 ## Proportionality gate (check before writing anything)
 
@@ -89,9 +89,9 @@ Before writing any code, operate in read-only mode:
 
 **Do NOT write code during planning.** The output is a plan document and a task list recorded in the task list target (see Output Location), not implementation.
 
-**Grilling (required before writing tasks):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Inventory load-bearing decisions. Skip anything already explicit in chat, prompt, PRD, spec, or rules. Grill every remaining fork (multiple valid ways, contradiction, competing code patterns) one question at a time, with a recommended option. Do not write tasks while a load-bearing choice is still silently assumed. Update Architecture Decisions, Risks, and Open Questions with accepted, rejected, or deferred choices. If nothing is open, note that grilling found no unspecified forks and continue.
+**Grilling (required before writing tasks):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Inventory load-bearing decisions. Skip anything already explicit in chat, prompt, PRD, spec, or rules. Research facts and decide routine implementation choices independently, recording their basis. Grill only unresolved material decisions one question at a time, with a recommended option; specialists route questions through the orchestrator first. Multiple valid ways alone do not require human input. Do not write tasks while a load-bearing choice is still silently assumed. Update Architecture Decisions, Risks, and Open Questions with accepted, rejected, or deferred choices. If nothing is open, note that grilling found no unspecified forks and continue.
 
-**Model poll (planner, when `delegate` is available):** On an unresolved architectural fork at task tier `feature` or `project`, run `voice-1`, `voice-2`, and `voice-3` **after** recon (`scout`/`rules`), never in the same message, with a character-for-character identical instruction. Do not poll on `trivial`/`small` (delegation is off) and do not invent a poll if `delegate` is missing. Agreement becomes an accepted architectural decision in the plan, naming the voices; write a `POLL-{prd-name}.md` digest next to the plan and cite it. Divergence becomes one `ASK_USER:` question with one option per position plus a recommendation and reason — do not write the plan in that same turn. The optional communication contract at [`../../references/communication-contract.md`](../../references/communication-contract.md) is not loaded automatically; enable it with `append-prompt: references/communication-contract.md` in `## agent-hub`.
+**Model poll (planner, when `delegate` is available):** On an unresolved architectural fork at task tier `feature` or `project`, run `voice-1`, `voice-2`, and `voice-3` **after** recon (`scout`/`rules`), never in the same message, with a character-for-character identical instruction. Do not poll on `trivial`/`small` (delegation is off) and do not invent a poll if `delegate` is missing. Agreement informs a recommendation; it does not settle a material decision on behalf of the human. Record the voices; write a `POLL-{prd-name}.md` digest next to the plan and cite it. An unresolved material decision becomes one `ASK_USER:` question for orchestrator triage with one option per position plus a recommendation and reason — do not write the plan in that same turn. The optional communication contract at [`../../references/communication-contract.md`](../../references/communication-contract.md) is not loaded automatically; enable it with `append-prompt: references/communication-contract.md` in `## agent-hub`.
 
 ### Step 2: Identify the Dependency Graph
 
@@ -283,7 +283,7 @@ Do not plan tasks for parallel agents or sessions unless the human explicitly as
 - Dependency order isn't considered
 - Writing tasks that silently pick a library, pattern, or behavior not mandated in chat/PRD/rules
 - Re-asking a requirement already explicit in chat, prompt, PRD, spec, or rules
-- Leaving an unspecified fork as an Open Question without asking
+- Leaving an unresolved material decision as an Open Question while proceeding with dependent work
 - Planning tasks as a parallel batch without an explicit human request to parallelize
 - Asking, during planning, whether to execute the plan at once
 - Writing `Execution: whole-plan` into the plan to waive the human review gate

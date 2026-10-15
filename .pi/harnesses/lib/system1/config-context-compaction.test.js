@@ -18,3 +18,14 @@ test('invalid D7 section disables only this consumer',()=>{
  }
  assert.throws(()=>parseContextCompactionConfig({mode:'automatic',limits:{maxStateBytes:8193}}));
 });
+
+test('early opportunity configuration stays inside approved 50–70 band',()=>{
+ for(const earlyOpportunityPercent of [49,0,71,80]) {
+  const n=normalizeSystem1Config({...root,consumers:{contextCompaction:{mode:'automatic',remoteContextApproved:true,earlyOpportunityPercent}}});
+  assert.equal(n.consumers.contextCompaction.status,'invalid');
+ }
+ for(const earlyOpportunityPercent of [50,60,70]) {
+  const n=normalizeSystem1Config({...root,consumers:{contextCompaction:{mode:'automatic',remoteContextApproved:true,earlyOpportunityPercent}}});
+  assert.equal(n.consumers.contextCompaction.status,'ready');
+ }
+});

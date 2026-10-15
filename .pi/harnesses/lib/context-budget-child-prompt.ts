@@ -1,3 +1,4 @@
+import { SPECIALIST_CLARIFICATION } from "./clarification-policy.ts";
 import { isAbsolute } from "node:path";
 import { DELEGATE_TREE_SPAWN_BUDGET } from "../agent-hub/helpers.ts";
 import { externalBlockedProtocol } from "../agent-hub/external-blocker.js";
@@ -13,15 +14,8 @@ export function buildClarificationProtocol(userLanguage: string, maxQuestions = 
 	return `
 
 ## Clarification protocol
-If at any point you need a decision from the human user (ambiguity, missing input,
-contradiction, or a destructive/irreversible next step), DO NOT guess. Stop and
-return a single line of the form:
-
-  ASK_USER: <your question in one clear English sentence>
-
-You may emit multiple ASK_USER lines if you have several questions. The dispatcher
-will surface each to the human user in ${userLanguage} and re-dispatch you with the
-answers. Do not invent values, do not pick "reasonable defaults" silently — ask.
+${SPECIALIST_CLARIFICATION}
+Human escalations are presented in ${userLanguage}.
 
 ## External-blocker protocol
 ${externalBlockedProtocol()}
@@ -37,8 +31,7 @@ form
 with nothing after them. Your session pauses there; read-only research helpers are
 spawned for you, each helper's findings are saved to a file, and you are resumed in
 this same session with the file paths — read them and continue from where you left
-off. Ask at most ${maxQuestions} questions per pause. Use ASK_USER only
-for decisions a human must make; use NEEDS_RESEARCH for facts that can be looked up.`;
+off. Ask at most ${maxQuestions} questions per pause. Use ASK_USER for unresolved decisions routed through the orchestrator; use NEEDS_RESEARCH for facts that can be looked up.`;
 }
 
 export function buildDelegationProtocol(roleNames: readonly string[], spawnBudget = DELEGATE_TREE_SPAWN_BUDGET): string {

@@ -1,6 +1,6 @@
 ---
 name: incremental-implementation
-description: Delivers changes incrementally in thin, verifiable slices and grills unspecified forks instead of silently picking among them. Use when implementing any feature or change that touches more than one file, or when picking up the next task from a plan, including when the operator explicitly asks to execute the whole plan at once. Use when rolling a change out behind a feature flag, when you're about to write a large amount of code at once, or when a task feels too big to land in one step.
+description: Delivers changes incrementally in thin, verifiable slices and resolves routine technical choices independently and grills unresolved material decisions. Use when implementing any feature or change that touches more than one file, or when picking up the next task from a plan, including when the operator explicitly asks to execute the whole plan at once. Use when rolling a change out behind a feature flag, when you're about to write a large amount of code at once, or when a task feels too big to land in one step.
 ---
 
 # Incremental Implementation
@@ -9,7 +9,7 @@ description: Delivers changes incrementally in thin, verifiable slices and grill
 
 Build in thin vertical slices — implement one piece, test it, verify it, then expand. Avoid implementing an entire feature in one pass unless the operator explicitly requested whole-plan execution. Even then, verify each task before the next. Each increment should leave the system in a working, testable state. This is the execution discipline that makes large features manageable.
 
-Each increment ends at a **user review gate**, not an auto-commit. The agent presents a standard summary and waits for explicit approval before starting the next slice. That gate is the default. It is waived only under [Whole-plan execution](#whole-plan-execution-explicit-opt-in-only). An unresolved problem in the plan or the PRD still interrupts the run and is grilled with `ask_user`. Staging and committing are the user's responsibility — the agent never runs `git add` or `git commit` on its own.
+Each increment ends at a **user review gate**, not an auto-commit. The agent presents a standard summary and waits for explicit approval before starting the next slice. That gate is the default. It is waived only under [Whole-plan execution](#whole-plan-execution-explicit-opt-in-only). An unresolved material decision in the plan or the PRD still interrupts the run and is grilled with `ask_user`. Staging and committing are the user's responsibility — the agent never runs `git add` or `git commit` on its own.
 
 ## When to Use
 
@@ -67,7 +67,7 @@ Prefer the `AskUserQuestion` tool with these options:
 - **Compact & continue** *(pi only, when the `compact-and-continue` extension is installed)* — call `request_compaction` with a self-contained `continuationPrompt` summarizing the remaining slices; the turn terminates, pi compacts context, then auto-resumes from the continuation prompt
 - **Stop here** — end the session without modifying git state
 
-These options are the default path. Do not use them between tasks when whole-plan execution was explicitly requested. An unresolved problem still uses `ask_user`, one question at a time — that is grilling, not slice approval.
+These options are the default path. Do not use them between tasks when whole-plan execution was explicitly requested. An unresolved material decision still uses `ask_user`, one question at a time — that is grilling, not slice approval.
 
 If the `request_compaction` tool is not registered (e.g. running outside pi, or the extension is not installed), omit "Compact & continue" — the other three options are the universal fallback. If `AskUserQuestion` or `ask_user` is not available, ask the same question in chat and **wait** — do not proceed on silence or ambiguous responses. On "Request changes", revise inside the current slice and re-present the summary. On "Stop here", leave the working tree untouched and end.
 
@@ -90,13 +90,13 @@ Those phrases waive slice approval only. They do not waive `ask_user`. If the op
 - Still execute tasks in plan order. Close task N — acceptance criteria and local verification — before starting task N+1. Do not parallelize unless the operator separately asked.
 - After the last task, present one plan summary using the Standard Slice Summary fields, covering the whole run. It is a report, not an approval question.
 - Git does not change: never run `git add`, `git commit`, `git reset`, `git restore`, or `git stash`.
-- If you call `request_compaction`, the `continuationPrompt` must restate that whole-plan execution was already authorized, list the remaining tasks, and repeat that an unresolved problem still interrupts for grilling and `ask_user`. Compaction is not a new approval gate. Do not ask permission to compact solely because a slice ended.
+- If you call `request_compaction`, the `continuationPrompt` must restate that whole-plan execution was already authorized, list the remaining tasks, and repeat that an unresolved material decision still interrupts for grilling and `ask_user`. Compaction is not a new approval gate. Do not ask permission to compact solely because a slice ended.
 
 **What does not change — `ask_user` stays**
 
 The operator should have prepared the plan so execution has no surprises. That expectation does not waive questions.
 
-If an unresolved problem appears, interrupt execution immediately and grill it. Unresolved means a load-bearing choice not already explicit in the task, plan, PRD, chat, prompt, or rules; a contradiction between those sources; competing code patterns; or a plan or PRD requirement that cannot be implemented as written. Read [`../_internal/grilling.md`](../_internal/grilling.md) and ask one question at a time with `ask_user` or `AskUserQuestion` (or `ASK_USER` / chat, whichever exists), with 2–4 options and a recommendation. Wait. Do not pick silently. Do not continue later tasks in the same turn as the question. Already-stated requirements are not re-asked. If grilling produces zero questions, continue the run.
+Apply [`../_internal/grilling.md`](../_internal/grilling.md): reuse settled decisions, research facts, and resolve routine technical choices independently within approved scope, recording the basis. Multiple valid approaches or competing code patterns alone do not interrupt execution. Pause dependent work only for an unresolved material decision: requirements or acceptance changes, public compatibility, consequential product/architecture trade-offs, new permission or scope, or conflicting authoritative instructions research cannot reconcile. Specialists send `ASK_USER` to the orchestrator first; it resolves what it can and escalates remaining decisions through `ask_user` (or chat if unavailable), with options and a recommendation. Wait for the answer before dependent work. Never treat an orchestrator answer as human consent. If no material question remains, continue the run.
 
 A failed verification also interrupts the run. Follow `debugging-and-error-recovery`. Do not skip ahead. A verification failure is not itself an `ask_user` unless recovery needs a decision the sources do not settle — then grill and ask, and do not continue past it.
 
@@ -193,7 +193,7 @@ NOTICED BUT NOT TOUCHING:
 
 ### Rule 0.6: Grill unspecified forks; do not re-ask settled ones
 
-A plan does not freeze every decision. Before (and during) a slice, if a load-bearing choice is **not** already explicit in the task, plan, PRD, chat, prompt, or rules — multiple valid approaches, a contradiction, or several existing code patterns — read [`../_internal/grilling.md`](../_internal/grilling.md) and ask one question at a time, with a recommended option. Wait. Do not pick silently and do not re-confirm what those sources already stated.
+A plan does not freeze every implementation detail. Apply the shared grilling decision ladder: resolve routine choices independently and record the reason; research facts; ask only about unresolved material decisions. Specialists route questions to the orchestrator first. Do not re-confirm settled requirements or infer new permissions.
 
 This rule applies during whole-plan execution too. A question interrupts the run. An explicit request to execute the whole plan does not permit a silent pick, and it does not permit skipping `ask_user`.
 
@@ -307,8 +307,8 @@ should you discover the stack yourself (see the `test-driven-development` skill'
 | "This refactor is small enough to include" | Refactors mixed with features make both harder to review and debug. Separate them. |
 | "I'll just stage it to make their life easier" | Don't. The user explicitly controls staging and commits. Do not run any git state-changing command — and do not "tidy up" by unstaging or resetting what the user staged between slices. |
 | "They didn't answer but it's obviously fine, I'll continue" | No. Silence is not approval, and it is not an answer to a grilling question. Wait. |
-| "The plan didn't specify which existing pattern to follow, I'll just pick one" | That is an unspecified fork. Grill it with `ask_user`. The programmer needs to know which variant was chosen and why. |
-| "They asked for the whole plan, so I won't ask if something is unclear" | Whole-plan skips slice approval only. An unresolved plan or PRD problem interrupts the run and is grilled with `ask_user`. |
+| "The plan didn't specify which existing pattern to follow, I'll just pick one" | Choose an equivalent local pattern independently and report why. Ask only if the choice changes a material contract or exceeds approved scope. |
+| "They asked for the whole plan, so I won't ask if something is unclear" | Whole-plan skips slice approval only. An unresolved material plan or PRD decision interrupts the run and is grilled with `ask_user`. |
 | "This plan is small, or we're on a worktree, so I'll run it all at once" | Not a trigger. Wait for an explicit request. |
 | "I'll skip per-task tests because they wanted it in one pass" | No. Verify each task. A failure stops the run. |
 | "They didn't answer the grilling question, but the rest of the plan is clear" | No. The question interrupts execution. Do not continue later tasks. |

@@ -23,7 +23,7 @@ const noticeData = {
 
 test("session-start notice remains an exact data-oriented template", () => {
 	const notice = buildSessionStartNotice(noticeData);
-	assert.equal(createHash("sha256").update(notice).digest("hex"), "088a8c0422d5cff085e66f58a75c30a098e54ca9de4a2bd339545aec4b648877");
+	assert.equal(createHash("sha256").update(notice).digest("hex"), "7490c96b202aa84ce749c7cc2d85d3e02771a2cd9faaa4a6282ea840fe1939bb");
 	assert.match(notice, /^Work Mode: orchestrator \(delegate-only\)/);
 	assert.match(notice, /\/af-poll \[--panel NAME\].*same question/);
 	assert.match(notice, /\/af-debate \[--panel NAME\].*model panel$/);

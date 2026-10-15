@@ -3,13 +3,16 @@
 ## Runtime behavior
 
 D7 adds a runtime-owned recovery coordinator and shared native child adapter.
-The real `Pi 1.1.0 --mode json -p --no-extensions` contract is verified offline
+The real `Pi 1.3.0 --mode json -p --no-extensions` contract is verified offline
+(previously verified Pi 1.1.0 and 1.2.0 remain admitted)
 with fake inference, actual Pi compaction, persisted tool results, and subsequent
 continuation. Runtime detection resolves npm-bin symlink launchers before reading
 the owning Pi package version. Other runtime versions remain on their native baseline; a method
 called `compact` alone is not a capability proof.
 
-Hub retains the 80% warning / 90% automatic-pressure baseline. At a safe boundary,
+Automatic compaction has a 50% minimum, 60% early opportunity, deterministic 70%
+target and 80% ceiling (operator-approved 2026-10-15). Explicit manual requests
+remain independent of the automatic minimum. At a safe boundary,
 the coordinator awaits compaction and successful runtime restoration before
 sending at most one custom continuation. It does not send synthetic user input,
 reset task/turn budgets, grant permissions, restart a child or replay tool effects.
@@ -50,7 +53,7 @@ physical attempt, measurement, episode and last phase without exposing channel t
 
 Deterministic pressure recovery does **not** require System1 selection, keys,
 fileDiscovery or any semantic consumer. Launch the normal Agent Fleet Hub on the
-verified Pi 1.1.0 runtime; no extra user `continue` is required for an interrupted,
+verified Pi 1.3.0 runtime; no extra user `continue` is required for an interrupted,
 still-authorized step after successful recovery.
 
 Optional early semantic advice uses the existing **single** `.ai/system1.json`
@@ -80,7 +83,9 @@ consent/config/key, invalid consumer config, unavailable service or timeout disa
 only semantic assistance. No config, consent, runtime upgrade or activation is
 automatically performed by D7 implementation.
 
-The initial semantic opportunity policy is 60%, not a measured optimum. Eligibility
+The semantic opportunity defaults to 60% and may be configured only within 50–70%.
+The 70% deterministic target does not wait for System1. These are operator policy
+thresholds, not a measured optimum. Eligibility
 also requires compactable history beyond Pi `keepRecentTokens`, response headroom,
 a changed snapshot and actual growth after the previous compact. Headroom uses
 Pi's effective `compaction.reserveTokens` (default 16,384), capped by the model's
@@ -92,7 +97,11 @@ validated locally with provider provenance; its unsupported optional
 `provider_confidence` capability is not required to admit the request.
 Unknown usage
 never becomes a guessed percentage. Provider-reported confidence must be at least
-**0.80** (explicit operator decision). Advice cannot defer mandatory pressure recovery.
+**0.80** for the safe-boundary decision. Uncertain or unknown retention uses the
+standard preservation instructions rather than vetoing a confidently safe boundary.
+Both confidence values are recorded as numbers (or null), without provider text.
+Advice cannot defer mandatory pressure recovery. The production turn-end handler
+awaits the bounded assessment before another model request.
 
 ## Use
 
@@ -124,8 +133,8 @@ restored the Hub state and received a runtime custom continuation. It then read
 a new user/coms request and finished with `D7_AUTO_COMPACTION_AND_CONTINUATION_FINISHED`.
 The session recorded 16 early assessment requests: 15 rejected as `low_confidence`
 and one as `snapshot_changed`. This proves live pressure fallback + continuation,
-**not** a live compact selected by accepted semantic advice. Numeric confidence
-and which answer failed are not currently preserved in the metadata projection.
+**not** a live compact selected by accepted semantic advice. This historical trace predates per-answer confidence diagnostics; current local
+assessment records include boundaryConfidence and retentionConfidence.
 
 | Managed path | Local pressure adapter | Early semantic assistance / proof |
 | --- | --- | --- |
@@ -179,3 +188,31 @@ with 272k context / 128k max output and default Pi reserve); 428 fast tests pass
 file-discovery suite exceeded the command's 120-second timeout and is **not**
 reported as passed. The plan and canonical Hub/architecture documentation still
 need final acceptance reconciliation once the remaining integration cases close.
+
+
+## Automatic compaction monitoring
+
+`/af-context` retains the existing context-budget overlay and adds automatic policy
+and last-recovery rows. The status line shows the target and ceiling. Hub records
+`agent-hub-compaction-monitor`; native children record `agent-fleet-compaction-monitor`.
+Events distinguish `started`, `restored`, `continuation_requested`, `continued`,
+`failed`, and `ceiling_blocked`,
+with an episode, before/after percentages and ceiling overshoot. Since Pi reports
+unknown usage immediately after compaction, the reduction stays unknown until the
+first subsequent measured response; that event is marked `first_post_compaction`.
+A queued continuation becomes `continued` only on that post-summary measurement.
+Assessment skips and low confidence remain in `agent-hub-context-assessment`.
+The monitors are local to execution, not a separate polling model or user approval.
+
+A single large tool result can jump over a threshold. The runtime observes that
+result, records the overshoot and interrupts before the next ordinary model request.
+It cannot guarantee that every received result fits below 80%. If usage is still
+at/above 80% after an unsuccessful or insufficient recovery, it blocks further work
+instead of repeatedly compacting or silently exceeding the ceiling. Recovery never
+replays effects, fabricates new user input, or overrides cancellation/permissions.
+
+Current acceptance uses the installed Pi 1.3.0 CLI, actual tools, actual Pi summary
+preparation and persisted compaction entries. Provider responses and usage are
+controlled offline fixtures, including delayed System1 advice, so threshold tests
+are reproducible without external inference. This verifies runtime behavior, not
+live-provider summary quality or confidence calibration.

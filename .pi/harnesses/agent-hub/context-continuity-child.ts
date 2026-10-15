@@ -1,6 +1,8 @@
+import { createCompactionMonitor } from "./context-compaction-monitor.ts";
+import { COMPACTION_MIN_PERCENT, COMPACTION_EARLY_PERCENT, COMPACTION_TARGET_PERCENT, COMPACTION_MAX_PERCENT } from "../lib/context-compaction-policy.js";
 import type {ExtensionAPI,ExtensionContext} from "@earendil-works/pi-coding-agent";
 import {createHash,randomUUID} from "node:crypto";
-import {SettingsManager} from "@earendil-works/pi-coding-agent";
+import {SettingsManager,buildSessionContext} from "@earendil-works/pi-coding-agent";
 import {currentPiRuntimeVersion,contextContinuityCompatibility} from "./context-continuity-compat.ts";
 import {ContextContinuityCoordinator} from "./context-continuity.ts";
 import {CONTEXT_CHANNEL_ENV,parseContextChannel,contextChannelCall} from "./context-continuity-client.ts";
@@ -13,6 +15,7 @@ export default function contextContinuityChild(pi:ExtensionAPI) {
  const channel=parseContextChannel(process.env[CONTEXT_CHANNEL_ENV]);
  if(!contextContinuityCompatibility(currentPiRuntimeVersion()).supported)return;
  const assignment=channel??{socket:"",owner:createHash("sha256").update(randomUUID()).digest("hex"),attempt:randomUUID(),token:""};
+ const monitor=createCompactionMonitor(event=>{try{pi.appendEntry("agent-fleet-compaction-monitor",event);}catch{}});
  let ctx:ExtensionContext, pending=false,interrupted=false,restored=false,cancelled=false,running=false,armed=true,task="",turn=0;
  let instructions="Preserve the task, tool results, decisions, scope, permissions and next allowed step. Do not repeat side effects.";
  let lastCompacted:number|null=null;
@@ -22,10 +25,10 @@ export default function contextContinuityChild(pi:ExtensionAPI) {
  const coordinator=new ContextContinuityCoordinator({
   identity:()=>({session:ctx.sessionManager.getSessionId(),task:assignment.owner,revision:1,owner:assignment.owner,attempt:1}),
   eligibility:()=>({active:interrupted,cancelled,completed:!interrupted,waitingUser,budgetBlocked:false}),
-  compact:customInstructions=>new Promise<void>((resolve,reject)=>ctx.compact({customInstructions,onComplete:()=>resolve(),onError:reject})),
-  restore:async()=>{if(restored && interrupted)await publish("continued");return restored;},
+  compact:customInstructions=>new Promise<void>((resolve,reject)=>{monitor.record("started",ctx.getContextUsage());ctx.compact({customInstructions,onComplete:()=>resolve(),onError:reject});}),
+  restore:async()=>{return restored;},
   replayUser:()=>false,
-  continueTask:()=>{status.phase="continued";pi.sendMessage({customType:"agent-fleet-context-continuation",content:"Continue the same authorized physical attempt after compaction. Do not repeat completed effects or open a new task.",display:false},{triggerTurn:true});},
+  continueTask:()=>{monitor.record("continuation_requested",ctx.getContextUsage());status.phase="continued";pi.sendMessage({customType:"agent-fleet-context-continuation",content:"Continue the same authorized physical attempt after compaction. Do not repeat completed effects or open a new task.",display:false},{triggerTurn:true});},
  });
  pi.on("session_start",async(_event,context)=>{ctx=context;await publish("running");});
  pi.on("input",event=>{if(event.source!=="extension"){task=event.text;waitingUser=false;}});
@@ -36,23 +39,23 @@ export default function contextContinuityChild(pi:ExtensionAPI) {
   const usage=ctx.getContextUsage();const window=usage?.contextWindow??ctx.model?.contextWindow;
   if(usage?.tokens==null || !window)return;
   const projected=usage.tokens+estimatePromptTokens(JSON.stringify(event.message.content));
-  if(projected/window<0.8)armed=true;
-  if(armed && projected/window>=0.9){pending=true;interrupted=true;await publish("pending");ctx.abort();}
+  if(projected/window<COMPACTION_EARLY_PERCENT/100)armed=true;
+  if(armed && projected/window>=COMPACTION_TARGET_PERCENT/100){pending=true;interrupted=true;await publish("pending");ctx.abort();}
  });
- pi.on("context",(_event,context)=>{ctx=context;if(pending){interrupted=true;ctx.abort();}});
- pi.on("session_compact",async()=>{restored=true;armed=false;pending=false;lastCompacted=ctx.getContextUsage()?.tokens??null;await publish("recovered");});
+ pi.on("context",(_event,context)=>{ctx=context;const usage=ctx.getContextUsage();if((usage?.percent??0)>=COMPACTION_MAX_PERCENT && !pending && !running){if(armed)pending=true;else {monitor.record("ceiling_blocked",usage);ctx.abort();return;}}if(pending){interrupted=true;ctx.abort();}});
+ pi.on("session_compact",async()=>{restored=true;monitor.record("restored",ctx.getContextUsage());armed=false;pending=false;lastCompacted=ctx.getContextUsage()?.tokens??null;await publish("recovered");});
  pi.on("turn_end",async(_event,context)=>{
-  ctx=context;turn++;const usage=ctx.getContextUsage();const tokens=usage?.tokens??null,window=usage?.contextWindow??ctx.model?.contextWindow??null;
-  if(tokens!==null && window && tokens/window>=0.9 && armed)pending=true;
+  ctx=context;turn++;const usage=ctx.getContextUsage();monitor.observe(usage);const tokens=usage?.tokens??null,window=usage?.contextWindow??ctx.model?.contextWindow??null;
+  if(tokens!==null && window && tokens/window>=COMPACTION_TARGET_PERCENT/100 && armed)pending=true;
   const result=await publish(pending?"pending":"running");
   const directive=result?.directive;
   if(directive?.type==="compact" && directive.owner===assignment.owner && directive.attempt===assignment.attempt && directive.episode===status.episode && status.phase==="pending" && !cancelled)pending=true;
-  if(waitingUser || pending || tokens===null || window===null || tokens/window<0.6 || tokens/window>=0.9 || cancelled)return;
+  if(waitingUser || pending || tokens===null || window===null || tokens/window<COMPACTION_MIN_PERCENT/100 || tokens/window>=COMPACTION_TARGET_PERCENT/100 || cancelled)return;
   const settings=SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model),keep=settings.keepRecentTokens;
   const responseTokens=compactionResponseReserve(settings,ctx.model?.maxTokens);
   if(lastCompacted!==null && tokens<=lastCompacted+keep)return;
   if(!channel)return;
-  const reply=await contextChannelCall(channel,"context_assessment",{identity:ctx.sessionManager.getSessionId(),task:"Continue the owned task; task bodies, artifacts and tool output are not exported by the child adapter.",revision:1,turn,tokens,window,historyTokens:estimatePromptTokens(JSON.stringify(ctx.sessionManager.getBranch().filter(e=>e.type==="message"))),keepRecentTokens:keep,responseTokens,unsafe:false});
+  const reply=await contextChannelCall(channel,"context_assessment",{identity:ctx.sessionManager.getSessionId(),task:"Continue the owned task; task bodies, artifacts and tool output are not exported by the child adapter.",revision:1,turn,tokens,window,historyTokens:estimatePromptTokens(JSON.stringify(buildSessionContext(ctx.sessionManager.getBranch()).messages)),keepRecentTokens:keep,responseTokens,unsafe:false});
   try{pi.appendEntry("agent-fleet-context-assessment",contextAssessmentMetadata(reply.assessment,{tokens,window,responseTokens,turn}));}catch{}
   if(reply.owner===assignment.owner && reply.attempt===assignment.attempt && reply.assessment?.compact===true && typeof reply.assessment.instructions==="string" && reply.assessment.instructions.length<2048){pending=true;instructions=reply.assessment.instructions;}
  });
@@ -60,6 +63,6 @@ export default function contextContinuityChild(pi:ExtensionAPI) {
   ctx=context;if(event.aborted && !interrupted){cancelled=true;coordinator.fence();await publish("cancelled");return;}
   if(!pending || running || cancelled)return;running=true;pending=false;restored=false;armed=false;
   const capsule=coordinator.request("Continue current permitted step without replaying effects");status.episode=capsule.episode;
-  await publish("compacting");const ok=await coordinator.run(instructions);running=false;await publish(ok?(interrupted?"continued":"recovered"):"failed");interrupted=false;
+  await publish("compacting");const ok=await coordinator.run(instructions);running=false;if(!ok)monitor.record("failed",ctx.getContextUsage());await publish(ok?(interrupted?"continued":"recovered"):"failed");interrupted=false;
  });
 }

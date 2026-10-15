@@ -13,6 +13,8 @@ import { renderRecoverCommands, renderNextInvocation } from './recover-policy.ts
 import type { ToolExecutor, DispatchAgentParams, SpawnResearchParams } from "./tools/context.ts";
 
 interface Failure {
+	questions?: string[];
+    clarificationContext?: { taskId: string; scope: string[] };
 	dispatchId: string;
 	reason: string;
 	category: RecoveryCategory;
@@ -145,7 +147,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
     const dispatchEvidence = new Map<string, DispatchEvidence>();
     const invocations = new Map<string, NonNullable<GuardHistory['invocation']>>();
 	const cancellations = new Map<string, { executorKey: string; scope: string[]; entry: RecordedFailure }>();
-	const userGrants: { dispatchId: string; question: string; taskId: string; scope: string[]; used: boolean; cancelled: boolean }[] = [];
+	const clarificationGrants: { dispatchId: string; question: string; taskId: string; scope: string[]; used: boolean; cancelled: boolean }[] = [];
 	const sameScope = (left: string[], right: string[]) => JSON.stringify([...left].map(path => path.replace(/\\/g, "/")).sort()) === JSON.stringify([...right].map(path => path.replace(/\\/g, "/")).sort());
 	return {
 		taskToken: () => generation,
@@ -158,7 +160,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 			taskIdentityPersisted = true;
 		},
 		begin(key: string, fingerprint: string, executorKey = key, scope: string[] = [], currentRevision?: string): Ticket {
-			let userGrant: (typeof userGrants)[number] | undefined;
+			let clarificationGrant: (typeof clarificationGrants)[number] | undefined;
 			const cancelled = [...cancellations.values()].filter(item => item.executorKey === executorKey);
 			const old = cancelled.find(item => !item.entry.authorized)?.entry ?? cancelled[0]?.entry ?? failures.get(key), id = {};
 			if (pendingExecutors.has(executorKey)) return { allowed: false, key, executorKey, scope, generation, id, refusal: "busy" };
@@ -177,11 +179,11 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 			if (old) {
 				const category = old.failure.category ?? "indeterminate";
 				const changed = old.fingerprint !== fingerprint || old.failure.noLaunchEstablished === true || (category === "unknown_tool" && old.failure.toolStateChanged === true);
-				userGrant = category === "blocked_on_user" ? userGrants.find(grant => grant.dispatchId === old.failure.dispatchId && !grant.used && !grant.cancelled && grant.taskId === taskId && sameScope(grant.scope, scope)) : undefined;
+				clarificationGrant = category === "blocked_on_user" ? clarificationGrants.find(grant => grant.dispatchId === old.failure.dispatchId && !grant.used && !grant.cancelled && grant.taskId === taskId && sameScope(grant.scope, scope)) : undefined;
 				const decision = recoveryDecision(category, {
 					explicitInvocation: true,
 					relevantConditionsChanged: changed || category === "busy" || (category === 'verification_failed' && !!currentRevision && recovery.findContract(key)?.technical?.status === 'cleared' && recovery.findContract(key)?.technical?.revision === currentRevision),
-					freshOneUseAuthorization: old.authorized || !!userGrant || (category === 'indeterminate' && recovery.findContract(key)?.grantedAttemptId === recovery.findContract(key)?.attempts.at(-1)?.attemptId),
+					freshOneUseAuthorization: old.authorized || !!clarificationGrant || (category === 'indeterminate' && recovery.findContract(key)?.grantedAttemptId === recovery.findContract(key)?.attempts.at(-1)?.attemptId),
 					processSettled: category === 'indeterminate' && !!recovery.findContract(key)?.attempts.at(-1)?.settled,
 					indeterminateGrantUsed: category === 'indeterminate' && recovery.findContract(key)?.grantedAttemptId === recovery.findContract(key)?.attempts.at(-1)?.attemptId,
 					effectsEstablished: old.failure.effectsEstablished === true,
@@ -200,7 +202,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 			const lineageTaskId = phantomFromOtherTask ? taskId : (existing?.taskId ?? taskId);
 			const lineage = recovery.start(lineageTaskId, key, executorKey, randomUUID());
 			if (!lineage) return { allowed: false, key, executorKey, scope, generation, id, refusal: 'recovery' };
-			if (userGrant) userGrant.used = true;
+			if (clarificationGrant) clarificationGrant.used = true;
             for (const item of cancelled) {
                 const failedKey = [...failures].find(([, entry]) => entry === item.entry)?.[0];
                 if (failedKey) persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'consume', key: failedKey, dispatchId: item.entry.failure.dispatchId } satisfies GuardHistory });
@@ -243,6 +245,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 				return;
 			}
 			if (failure) {
+                if (failure.category === "blocked_on_user") failure = { ...failure, clarificationContext: { taskId, scope: [...ticket.scope] } };
 				const entry = { fingerprint, failure, authorized: false };
 				failures.set(ticket.key, entry);
 				if (failure.category === "operator_cancelled") cancellations.set(failure.dispatchId, { executorKey: ticket.executorKey, scope: ticket.scope, entry });
@@ -404,14 +407,36 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             const op = recovery.inspect(operationId), attempt = op?.attempts.at(-1);
             return !!op && op.taskId === taskId && !op.abandoned && attempt?.attemptId === attemptId && !!attempt.category && !pendingExecutors.has(op.executor) && (attempt.category === 'indeterminate' ? !!attempt.settled && !op.indeterminateGrantUsed : attempt.category === 'operator_cancelled' && !!cancellations.get(attempt.dispatchId) && !cancellations.get(attempt.dispatchId)!.entry.authorized);
         },
-		recordUserAnswer(input: { dispatchId: string; question: string; scope: string[]; prose?: string }): boolean {
+		recordOrchestratorAnswer(input: unknown, scope: string[]): boolean {
+            if (!input || typeof input !== "object") return false;
+            const { dispatchId, answers } = input as Record<string, unknown>;
+            if (typeof dispatchId !== "string") return false;
+            const failure = [...failures.values()].find(entry => entry.failure.dispatchId === dispatchId && entry.failure.category === "blocked_on_user");
+            const questions = failure?.failure.questions;
+            if (failure?.failure.clarificationContext?.taskId !== taskId || !sameScope(failure.failure.clarificationContext.scope, scope)) return false;
+            if (!questions?.length || !Array.isArray(answers) || answers.length !== questions.length) return false;
+            const remaining = new Set(questions);
+            for (const answer of answers) {
+                if (!answer || typeof answer.question !== "string" || !remaining.delete(answer.question) ||
+                    typeof answer.answer !== "string" || !answer.answer.trim() ||
+                    typeof answer.evidence !== "string" || !answer.evidence.trim() ||
+                    !["existing_decision", "repository_fact", "routine_technical"].includes(answer.basis)) return false;
+            }
+            if (remaining.size || clarificationGrants.some(grant => grant.dispatchId === dispatchId && !grant.used && !grant.cancelled)) return false;
+            // Clarification-only: this does not touch permission or effect-fence grants.
+            // The caller passes this sourced answer to the specialist in its task;
+            // it never becomes a human action-authorization event.
+            clarificationGrants.push({ dispatchId, question: questions.join("\n"), taskId, scope: [...scope], used: false, cancelled: false });
+            return true;
+        },
+        recordUserAnswer(input: { dispatchId: string; question: string; scope: string[]; prose?: string }): boolean {
 			const failure = [...failures.values()].find(entry => entry.failure.dispatchId === input.dispatchId && entry.failure.category === "blocked_on_user");
-			if (!failure || !input.question.trim() || userGrants.some(grant => grant.dispatchId === input.dispatchId && !grant.used && !grant.cancelled)) return false;
-			userGrants.push({ dispatchId: input.dispatchId, question: input.question.trim(), taskId, scope: [...input.scope], used: false, cancelled: false });
+			if (!failure || !input.question.trim() || clarificationGrants.some(grant => grant.dispatchId === input.dispatchId && !grant.used && !grant.cancelled)) return false;
+			clarificationGrants.push({ dispatchId: input.dispatchId, question: input.question.trim(), taskId, scope: [...input.scope], used: false, cancelled: false });
 			return true;
 		},
 		cancelUserAnswer(dispatchId: string): boolean {
-			const grant = userGrants.find(item => item.dispatchId === dispatchId && !item.used && !item.cancelled);
+			const grant = clarificationGrants.find(item => item.dispatchId === dispatchId && !item.used && !item.cancelled);
 			if (!grant) return false;
 			grant.cancelled = true;
 			return true;
@@ -499,7 +524,12 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 		const executorKey = canonicalExecutor(cwd, actor);
 		const userAnswer = "agent" in params ? params.task.match(/^USER_ANSWER:\s*(\S+)\s*::\s*(.+)$/m) : null;
 		if (userAnswer) d.noProgress.recordUserAnswer({ dispatchId: userAnswer[1], question: userAnswer[2].trim(), scope, prose: params.task });
-		const ticket = d.noProgress.begin(key, fingerprint(), executorKey, scope, worktreeRevision(cwd, []));
+		const parentAnswer = "agent" in params ? params.task.match(/^ORCHESTRATOR_ANSWER:[ \t]*(.+)$/m) : null;
+        if (parentAnswer) {
+            try { d.noProgress.recordOrchestratorAnswer(JSON.parse(parentAnswer[1]), scope); }
+            catch { /* Invalid clarification never authorizes retry. */ }
+        }
+        const ticket = d.noProgress.begin(key, fingerprint(), executorKey, scope, worktreeRevision(cwd, []));
         // Persist before executor launch. False and throwing ports are both no-launch
         // failures; release the reservation even when storage itself is unavailable.
         if (ticket.allowed && ticket.operationId) {
@@ -571,6 +601,7 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 				evidencePath: details.evidencePath ?? details.failurePath ?? details.protocolEvidencePath ?? undefined,
 				reason: details.diagnostics?.reason ?? details.reason ?? details.status ?? "execution_failure",
 				category,
+                questions: category === "blocked_on_user" && Array.isArray(details.questions) ? details.questions.filter((q: unknown): q is string => typeof q === "string") : undefined,
 				catalogVersion: category === "unknown_tool" ? d.getToolCatalogVersion?.() : undefined,
 			};
 			return result;
