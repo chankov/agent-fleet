@@ -1,3 +1,4 @@
+import { SPECIALIST_RESULT_INSTRUCTION } from "./specialist-result.ts";
 import {appendDiscoveryContext} from './file-discovery/native-context.ts';
 import { fileURLToPath } from "node:url";
 import { isCaptureEnabled } from "./proactive-config.ts";
@@ -198,7 +199,9 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		+ (stageConfirmation ? "\n\nActive exact-action confirmation: this stage run has inspection tools only. Return the full plan/review in your final response; the Hub saves that response as the stage artifact. Do not use bash, write, edit, delegate or remote execution. No stage result authorizes a later effect." : "");
 	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 	const wantThinking = thinkingLevel !== "off";
-	let runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs);
+	extensions.push(fileURLToPath(new URL("./specialist-result.ts", import.meta.url)));
+ effectiveTools = [...new Set([...effectiveTools.split(","), "submit_result"])].join(",");
+ let runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs) + "\n\n" + SPECIALIST_RESULT_INSTRUCTION;
 	let writeIsolation: WriteIsolationRequest | undefined;
 	let writeIsolationPolicy;
 	if (assist['write-isolation']) {

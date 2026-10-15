@@ -207,7 +207,7 @@ test("child dispatch and writes refuse unbound action even after plan; read-only
 test("stage child can inspect for plan/review without shell, writes or delegation", () => {
  assert.equal(stageProducerTools("read,grep,find,ls,bash,write,edit,delegate,filesystem"), "read,grep,find,ls");
  for (const name of ["bash", "edit", "write", "delegate", "filesystem"]) assert.match(stageProducerToolGate(name)!, /refused/);
- for (const name of ["read", "grep", "find", "ls"]) assert.equal(stageProducerToolGate(name), null);
+ for (const name of ["read", "grep", "find", "ls", "submit_result"]) assert.equal(stageProducerToolGate(name), null);
 });
 test("confirmation is per-effect, not a task-level proof gate or a waiver", () => {
  const s = applyTaskTriageAdditions(applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "declared" }).state, assessment("irreversible_execution"), binding);

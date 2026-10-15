@@ -39,9 +39,10 @@ export function buildDelegationProtocol(roleNames: readonly string[], spawnBudge
 	return `
 
 ## Delegation protocol
-You have a \`delegate\` tool with pre-configured sub-agents on cheaper models
-(roles: ${roleNames.join(", ")}). Prefer delegating scoped, self-contained
-sub-tasks to them over doing everything yourself. A child shares NONE of your
+You have a \`delegate\` tool with sub-agents on configured models
+(roles: ${roleNames.join(", ")}). Delegate scoped, self-contained
+sub-tasks when specialization or measured capability adds value. Routine reasoning
+and bounded reads can proceed directly; delegation is optional. A child shares NONE of your
 context — put everything it needs into its instruction/context. You may run up
 to ${spawnBudget} delegate calls for this dispatch; parallel children are forced read-only.
 Children are terminal workers: they do not receive delegate tooling at remaining depth 0.`;

@@ -91,6 +91,8 @@ export interface NativeExecutionDiagnostics {
 }
 
 export interface NativeDispatchResult {
+ specialistResult?: import("./specialist-result.ts").SpecialistResult;
+ specialistResultTool?: boolean;
  runtimeTests?: import("./runtime-test-check.ts").RuntimeTestRecord[];
  writeIsolation?: Pick<WriteIsolationResult, "applied" | "failClosed" | "mechanism" | "permissionExpansion" | "rollsBackUserEdits" | "protectsConcurrentUserWrites">;
  toolEvents?: import("./tool-protocol.ts").ToolExecutionEvent[];

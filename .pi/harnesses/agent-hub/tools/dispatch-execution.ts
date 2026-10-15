@@ -1,3 +1,4 @@
+import { captureReviewBaseline, retainReviewHistory, reviewContinuation, type ReviewBaseline } from "../review-continuity.ts";
 import { ORCHESTRATOR_CLARIFICATION } from "../../lib/clarification-policy.ts";
 import { reviewInput, retainReview, reusableReview, type ReviewInput } from "../review-reuse.ts";
 import { retainDeliverable } from "../execution-evidence.ts";
@@ -78,7 +79,7 @@ export interface DispatchExecutorDeps {
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
+interface PreparedDispatch { reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; autoResearchTaskCapped: boolean; }
 interface Tracking { writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
 interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
@@ -302,17 +303,20 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const ids = extractAssertionIds(p.task); const disposition = deliveryDisposition(result.exitCode, result.pending === true);
 	// Observe immediately at logical child completion, before Hub-owned artifacts are written.
 	const observation = tracking.writable ? observeWorktree(d, tracking, ctx) : null;
-	const deliveredReturn = parseDeliveredReturn(result.output, ids, disposition.delivered);
+	const submission = disposition.delivered ? result.specialistResult : undefined;
+ const deliveredReturn = submission
+  ? { parsed: submission, notices: crossCheck(submission, ids) }
+  : parseDeliveredReturn(result.output, ids, disposition.delivered);
 	let parsedReturn: any = deliveredReturn.parsed; let contractNotices: any[] = deliveredReturn.notices;
 	const shouldUseDigest = ids.length > 0 || !!parsedReturn; const state = sameTaskNow() ? s.getAgentStates().get(p.agent.toLowerCase()) : undefined;
 	const key = safeAgentKey(state?.def.name ?? p.agent); const backendUsed = state?.lastBackend ?? null;
 	const failureMetadata = { dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null,
 		agent: p.agent, task: p.task, scope: p.scopeGlobs, exitCode: result.exitCode, diagnostics: result.diagnostics ?? null };
-	const artifactOutput = disposition.delivered ? result.output
+	const artifactOutput = disposition.delivered ? (submission ? result.output + "\n\n## Submitted result\n\n" + JSON.stringify(submission, null, 2) : result.output)
 		: `# Dispatch failure\n\n\`\`\`json\n${JSON.stringify(failureMetadata, null, 2)}\n\`\`\`\n\n## Output\n\n${result.output}`;
 	const runPath = disposition.artifactKind ? d.artifacts.writeRunArtifact(key, state?.runCount ?? 0, artifactOutput, disposition.artifactKind as any, result.dispatchId, p.sessionDir) : null;
 	const returnPath = disposition.delivered ? runPath : null; const failurePath = disposition.delivered ? null : runPath; let returnExtracted = false;
-	if (returnPath && shouldExtractReturn(parsedReturn, ids)) {
+	if (returnPath && !result.specialistResultTool && shouldExtractReturn(parsedReturn, ids)) {
 		onUpdate?.({ content: [{ type: "text", text: `${p.agent} returned no structured block — extracting it from the report...` }], details: { agent: p.agent, task: p.task, status: "extracting_return" } });
 		const recovered = await d.runReturnExtraction(returnPath, ids, ctx);
 		if (recovered) { parsedReturn = recovered; contractNotices = crossCheck(recovered, ids); returnExtracted = true; }
@@ -407,7 +411,11 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		changes, requirements: p.requirements, deliverables: readback, checks,
 		evidenceRefs: [returnPath ?? undefined, failurePath ?? undefined, compilerEvidencePath ?? undefined, protocolEvidencePath ?? undefined].filter((value): value is string => !!value),
 	});
-	let processVerdict: ProcessVerdict | null = null;
+	if (submission && (submission.status !== "completed" || submission.requires_user_decision.some(question => question.trim().toLowerCase() !== "none"))) {
+  runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...runtimeResult.acceptance.reasons, "specialist_" + submission.status] };
+  runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };
+ }
+ let processVerdict: ProcessVerdict | null = null;
 	if (s.getProcessState) {
 		let processState = s.getProcessState();
 		const taskChanges = (paths: string[]) => reviewableChangedPaths(paths, cwd, p.sessionDir, p.scopeGlobs, p.contract.files.map(file => file.path));
@@ -419,7 +427,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
         const completedReviewInput = stage === "review" ? reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,processState,s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.()) : null;
         const reviewComplete = !protocolDiagnostic && runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"
-            && countReviewFindings(result.output).blocking === 0 && !(parsedReturn?.assertions_failed ?? []).length
+            && (!submission || submission.status === "completed") && countReviewFindings(result.output).blocking === 0 && !(parsedReturn?.assertions_failed ?? []).length
             && !d.extractAskUserQuestions(result.output).length && !d.extractNeedsResearch(result.output).length
             && !(parsedReturn?.requires_user_decision ?? []).some((entry:unknown)=>String(entry).trim().toLowerCase()!=="none")
             && (!p.reviewInput || JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput));
@@ -427,7 +435,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		// A declared plan must read back successfully; a refusal or unresolved
 		// decision is not plan evidence. No declaration still permits a retained
 		// nonempty plan return. The Hub cannot judge its semantic adequacy.
-		const planProduced = stage !== "plan" || (result.output.trim().length > 0
+		const planProduced = stage !== "plan" || ((!submission || submission.status === "completed") && result.output.trim().length > 0
 			&& runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"
 			&& !(parsedReturn?.requires_user_decision ?? []).some((entry: unknown) => String(entry).trim().toLowerCase() !== "none")
 			&& d.extractNeedsResearch(result.output).length === 0 && d.extractAskUserQuestions(result.output).length === 0);
@@ -436,6 +444,15 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
             if(stage === "review" && !tracking.writable && !tracking.concurrentAtStart && !s.getActiveWritableDispatches() && tracking.overlapBaseline === s.getWritableOverlapCounter()
                 && p.reviewInput && JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput)) processState=retainReview(processState,completedReviewInput,runPath,cwd);
 		}
+        if(stage === "review" && disposition.delivered && sameTask && runPath && p.reviewInput && p.reviewBaseline
+            && !tracking.writable && !tracking.concurrentAtStart && !s.getActiveWritableDispatches()
+            && tracking.overlapBaseline === s.getWritableOverlapCounter()
+            && JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput)){
+            try {
+             const baselineRef=d.artifacts.writeRunArtifact(key+"-review-baseline",state?.runCount??0,JSON.stringify(p.reviewBaseline),"returns",result.dispatchId,p.sessionDir);
+             if(baselineRef)processState=retainReviewHistory(processState,p.reviewInput,runPath,baselineRef,cwd);
+            } catch { /* Missing optional baseline forces a full review next time. */ }
+        }
 		const planDeliverable = p.contract.files.map(file => file.path).find(path => /plan/i.test(path));
 		if (p.agent === "builder" && planDeliverable && runPath && authorizePlanStatusUpdate({ planPath: planDeliverable, allowedScope: p.scopeGlobs, evidenceRefs: [runPath] }).allowed && sameTask) {
 			processState = noteProcessStage(processState, "plan", { evidenceRef: runPath, revision: afterRevision });
@@ -470,7 +487,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
     }
 	const accepted = runtimeResult.acceptance.accepted;
 	const acceptanceStatus = runtimeResult.compatibility.hubAcceptanceStatus;
-	const questions = d.extractAskUserQuestions(result.output);
+	const questions = [...new Set([...d.extractAskUserQuestions(result.output), ...(submission?.requires_user_decision ?? []).filter(question => question.trim().toLowerCase() !== "none")])];
 	const contractGap = acceptanceStatus === "deliverable_failed" ? "missing_deliverable" : !parsedReturn && questions.length ? "missing_structured_return" : null;
 	const blockedOnUser = questions.length > 0 && !protocolDiagnostic && executionStatus === "completed";
 	const status = protocolDiagnostic ? "tool_protocol_error" : blockedOnUser ? "blocked_on_user" : accepted ? "accepted" : executionStatus === "completed" && (runtimeResult.verification.status === "failed" || acceptanceStatus === "deliverable_failed") ? "verification_failed" : executionStatus === "completed" ? "completed_unverified" : disposition.status;
@@ -511,7 +528,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const docs = docsLaneNotice(p.agent, p.scopeGlobs, processVerdict?.obligations?.review?.status === "open"); if (docs) notices.push(docs);
 	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
 	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
-	return { content: [{ type: "text", text: `[${p.agent}] ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+	return { content: [{ type: "text", text: `[${p.agent}] Specialist: ${submission?.status ?? executionStatus}; task accepted: ${accepted ? "yes" : "no"}. ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, specialistCompletion: submission?.status ?? (executionStatus === "completed" ? "reported_unstructured" : executionStatus), resultProtocol: submission ? "submit_result" : result.specialistResultTool ? "submission_missing" : "legacy", taskAccepted: accepted, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
 }
 
 function dispatchExecutionConditions(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): Record<string, unknown> {
@@ -579,6 +596,14 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
             }
         }
 		const prepared = prepareDispatch(d, params, ctx); if (!("agent" in prepared)) return prepared;
+        if (isReviewPersona(agent) && d.state.getProcessState) {
+            const state=d.state.getProcessState();
+            prepared.reviewBaseline=captureReviewBaseline(ctx.cwd,prepared.reviewInput??null,state);
+            const continuation=reviewContinuation(state,prepared.reviewInput??null,prepared.reviewBaseline,ctx.cwd,!!params.review_reason);
+            prepared.task+=continuation;
+            if(continuation)prepared.task+="\nRecorded verification evidence (check its revision and applicability; not automatic proof of a fix): "+JSON.stringify(state.acceptance);
+            prepared.resumeContract.instructions=prepared.task;
+        }
 		const tracking = startTracking(d, prepared, ctx);
 		try { onUpdate?.({ content: [{ type: "text", text: `Dispatching to ${prepared.agent}...` }], details: { agent: prepared.agent, task: prepared.task, status: "dispatching" } }); return await finishDispatch(d, prepared, params, await runWithAutoResearch(d, prepared, params, ctx, onUpdate), tracking, ctx, onUpdate); }
 		catch (err: any) { return { content: [{ type: "text", text: `Error dispatching to ${prepared.agent}: ${err?.message || err}` }], details: { agent: prepared.agent, task: prepared.task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
@@ -619,5 +644,5 @@ function scopeNoticeText(v: any): string {
  const overlap = v.concurrentWritableOverlap ? " Concurrent writable dispatches overlapped this run, so attribution is approximate." : "";
  return `${gaps}\n\n⚠ Scope advisory: changed outside declared scope: ${v.outOfScope.join(", ")}. Review these paths and decide whether to accept them or explicitly order cleanup; the hub did not revert anything.${overlap}`;
 }
-function structuredReturnDigest(parsed: any): string { if (!parsed) return ""; const lines = ["Structured return (parsed):"]; for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) { const entries = parsed[key] || []; if (!entries.length) continue; lines.push(`${key}:`); for (const entry of entries) { const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : ""; const reason = entry.reason ? ` — reason: ${entry.reason}` : ""; const note = entry.note || (entry.evidence ? "" : "(no note)"); lines.push(`- ${entry.id}${note ? `: ${note}` : ""}${evidence}${reason}`); } } for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) { const entries = parsed[key] || []; if (entries.length) lines.push(`${key}: ${entries.slice(0, 5).join("; ")}${entries.length > 5 ? " …" : ""}`); } return lines.join("\n"); }
+function structuredReturnDigest(parsed: any): string { if (!parsed) return ""; const lines = ["Structured return (parsed):"]; if(parsed.summary)lines.push(parsed.summary); if(parsed.evidence?.length)lines.push("Evidence references: "+parsed.evidence.map((ref:any)=>ref.path).join(", ")); for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) { const entries = parsed[key] || []; if (!entries.length) continue; lines.push(`${key}:`); for (const entry of entries) { const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : ""; const reason = entry.reason ? ` — reason: ${entry.reason}` : ""; const note = entry.note || (entry.evidence ? "" : "(no note)"); lines.push(`- ${entry.id}${note ? `: ${note}` : ""}${evidence}${reason}`); } } for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) { const entries = parsed[key] || []; if (entries.length) lines.push(`${key}: ${entries.slice(0, 5).join("; ")}${entries.length > 5 ? " …" : ""}`); } return lines.join("\n"); }
 function contractNoticeText(notices: any[]): string { if (!notices?.length) return ""; const lines = ["⚠ Structured return contract notices:"]; const missing = notices.filter(n => n.type === "missing").map(n => n.id); const noStructured = notices.find(n => n.type === "no_structured_return"); if (noStructured) lines.push(`- no_structured_return: no parseable structured return for dispatched assertions ${(noStructured.ids || []).join(", ")} — treat all as unproven; full output is on disk.`); if (missing.length) lines.push(`- missing: return does not cover ${missing.join(", ")} — treat as unproven.`); for (const n of notices.filter(n => n.type === "proven_without_evidence")) lines.push(`- proven_without_evidence: ${n.id} claimed proven without named evidence — demoted to unproven.`); for (const n of notices.filter(n => n.type === "compiler_diagnostics")) lines.push(`- compiler_diagnostics: ${n.id} was claimed proven but a completed compiler check found an error in an observed changed file — demoted to unproven with original evidence retained.`); return lines.join("\n"); }

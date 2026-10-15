@@ -1500,3 +1500,32 @@ for(const condition of ["question","blocking-finding","source-changed-during-rev
  await createDispatchExecutor(d as any)("review",{agent:"code-reviewer",task:"Review code",scope:["src/api.ts"]},undefined,undefined,{cwd} as any);
  assert.equal(process().review.evidenceRef,null);assert.equal(process().reviews?.length??0,0);
 });
+
+test("fresh review receives prior rejection and actual delta without inheriting approval",async t=>{
+ const {cwd,d,process}=await highRiskChangedFixture(t);const prompts:string[]=[];
+ d.budget.currentBudget=()=>({maxDispatches:null,maxResearch:null}) as any;
+ d.dispatchAgent=async(_agent:string,task:string)=>{prompts.push(task);return {output:"verdict: REJECT\nBlocking finding: wrong constant",exitCode:0,elapsed:1,dispatchId:"history-"+prompts.length};};
+ const execute=createDispatchExecutor(d as any),params={agent:"code-reviewer",task:"Review current code",scope:["src/api.ts"]};
+ await execute("first",params,undefined,undefined,{cwd} as any);
+ assert.equal(process().review.evidenceRef,null);
+ writeFileSync(join(cwd,"src/api.ts"),"export const value=123;\n");
+ await execute("second",{...params,task:"Review the fixed constant"},undefined,undefined,{cwd} as any);
+ assert.match(prompts[1],/Incremental review context/);
+ assert.match(prompts[1],/Previous findings\/report/);
+ assert.match(prompts[1],/\+export const value=123/);
+ assert.equal(process().review.evidenceRef,null);
+});
+
+test("native structured report bypasses extraction but does not replace task evidence",async t=>{
+ const {cwd,d}=await gitDiagnosticsFixture(t);let extracted=0;
+ d.runReturnExtraction=async()=>{extracted++;throw new Error("must not extract");};
+ const report={status:"completed",summary:"Specialist finished",changed_files:[],assertions_proven:[],assertions_unproven:[{id:"A1",reason:"not checked"}],assertions_failed:[],tests_run:[],open_risks:[],requires_user_decision:[],evidence:[]};
+ d.dispatchAgent=async()=>({output:"Short final",exitCode:0,elapsed:1,dispatchId:"structured",specialistResultTool:true,specialistResult:report});
+ const result=await createDispatchExecutor(d as any)("call",{agent:"builder",task:"A1 inspect"},undefined,undefined,{cwd} as any);
+ const details=result.details as any;
+ assert.equal(extracted,0);
+ assert.equal(details.resultProtocol,"submit_result");
+ assert.equal(details.specialistCompletion,"completed");
+ assert.equal(details.taskAccepted,false);
+ assert.equal(details.structuredReturn.assertions_unproven[0].id,"A1");
+});

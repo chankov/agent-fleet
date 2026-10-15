@@ -348,7 +348,15 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 			inputPaths.push(event.input.path);
 		} else if (isToolCallEventType("grep", event) || isToolCallEventType("find", event) || isToolCallEventType("ls", event)) {
 			inputPaths.push(event.input.path || ".");
-		} else if (event.toolName === "filesystem") {
+		} else if (event.toolName === "submit_result") {
+   // Submission hashes evidence files; enforce the same read policy first.
+   for (const ref of Array.isArray((event.input as any).evidence) ? (event.input as any).evidence : []) {
+    if (typeof ref?.path === "string") {
+     inputPaths.push(ref.path);
+     try { inputPaths.push(fs.realpathSync(path.resolve(ctx.cwd,ref.path))); } catch { /* submission validates missing files */ }
+    }
+   }
+  } else if (event.toolName === "filesystem") {
 			// Reuse the same path-policy/exemption/approval pipeline as built-in reads.
 			// Handle decoding is metadata-only: policy runs before any source bytes are read.
 			if (typeof (event.input as any).path === "string") inputPaths.push((event.input as any).path);

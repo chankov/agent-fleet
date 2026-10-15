@@ -165,6 +165,7 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
    open:physical=>run.damageRegistration!.open(physical),
   }:undefined,
   discoveryRegistration:run.discoveryContext?.registration?{...run.discoveryContext.registration,admit:run.discoveryAdmitted}:undefined,
+        specialistResultTool: extensions.some(path => path.endsWith("/specialist-result.ts")),
         runtimeTestObserver: extensions.some(path => path.endsWith("/runtime-test-check.ts")),
 		model,
 		activeProfileSnapshot: run.activeProfileSnapshot,

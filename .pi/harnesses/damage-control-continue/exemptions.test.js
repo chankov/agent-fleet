@@ -8,7 +8,7 @@ process.env.AGENT_HUB_ASK_TIMEOUT_MS = "300";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -365,4 +365,20 @@ for(const outcome of ['not-severe','unavailable','throw','held'])test(`continue:
   else finish({status:'ok',evaluation:{answers:[{questionId:'effect',type:'choice',value:outcome==='held'?'severe':'not_severe',uncertainty:{provenance:'provider'}},{questionId:'evidence',type:'choice',value:'sufficient',uncertainty:{provenance:'provider'}}],metadata:{provider:'typesafe',requestedModel:'jev-1.13.0',returnedModel:'jev-1.13.0',questionSetVersion:'damage-guard/v1',latencyMs:1,attempts:1}}});
   assert.equal((await pending).block,true);assert.equal((await h.toolCall({...event,toolCallId:'fresh'})).block,true);
  }finally{guard.dispose();revoke();rmSync(cwd,{recursive:true,force:true});}
+});
+
+test("continue: submit_result evidence cannot bypass zero-access policy",async()=>{
+ const h=await boot(continueExt,fixtureCwd());
+ const event={type:"tool_call",toolName:"submit_result",input:{evidence:[{path:".env"}]}};
+ assert.equal((await h.toolCall(event)).block,true);
+ await h.commands["af-allow"].handler(".env turn",h.ctx);
+ assert.equal((await h.toolCall(event)).block,false);
+ await h.agentEnd();
+ assert.equal((await h.toolCall(event)).block,true);
+});
+
+test("continue: submit_result checks the physical evidence path too",async()=>{
+ const cwd=fixtureCwd();writeFileSync(join(cwd,".env"),"secret");symlinkSync(".env",join(cwd,"proof.txt"));
+ const h=await boot(continueExt,cwd);
+ assert.equal((await h.toolCall({type:"tool_call",toolName:"submit_result",input:{evidence:[{path:"proof.txt"}]}})).block,true);
 });

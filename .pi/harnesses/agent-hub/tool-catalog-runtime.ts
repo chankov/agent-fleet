@@ -30,7 +30,8 @@ export interface ToolCatalogCompactionInput {
 /** Runtime-owned catalog state. The active turn is latched before model input. */
 export function createToolCatalogRuntime(initial: ToolCatalogSnapshot) {
 	let currentCatalog = restoreToolCatalogAfterCompaction(initial);
-	let activeTurnCatalog: ToolCatalogSnapshot | null = null;
+	let persistedSnapshot: string | null = null;
+ let activeTurnCatalog: ToolCatalogSnapshot | null = null;
 
 	function reconcile(input: ToolCatalogReconcileInput): { snapshot: ToolCatalogSnapshot; delta: ToolCatalogDelta } {
 		const delta = emitToolCatalogDelta({ ...input, previousCatalogVersion: currentCatalog.catalogVersion });
@@ -38,9 +39,17 @@ export function createToolCatalogRuntime(initial: ToolCatalogSnapshot) {
 		return { snapshot: currentCatalog, delta };
 	}
 
-	return {
-		current: () => currentCatalog,
-		restore(snapshot: ToolCatalogSnapshot) { currentCatalog = restoreToolCatalogAfterCompaction(snapshot); return currentCatalog; },
+ function persist(result: { snapshot: ToolCatalogSnapshot; delta: ToolCatalogDelta }, write: (type:string,data:unknown)=>void, reason:string): boolean {
+  const key=JSON.stringify(result.snapshot);
+  if(key===persistedSnapshot)return false;
+  write(TOOL_CATALOG_ENTRY_TYPE,{...result,reason});
+  persistedSnapshot=key;
+  return true;
+ }
+ return {
+  persist,
+  current: () => currentCatalog,
+		restore(snapshot: ToolCatalogSnapshot) { persistedSnapshot=null; currentCatalog = restoreToolCatalogAfterCompaction(snapshot); return currentCatalog; },
 		reconcile,
 		beginTurn() { activeTurnCatalog = currentCatalog; return activeTurnCatalog; },
 		endTurn() { activeTurnCatalog = null; },
@@ -51,7 +60,7 @@ export function createToolCatalogRuntime(initial: ToolCatalogSnapshot) {
 				const restored = restoreToolCatalogAfterCompaction(currentCatalog);
 				const result = reconcile({ fromMode: restored.mode, toMode: input.mode, previous: restored.tools, next: input.getEffectiveTools() });
 				const evidenceRef = `session-entry:${TOOL_CATALOG_ENTRY_TYPE}:${result.delta.catalogVersion}`;
-				input.persist(TOOL_CATALOG_ENTRY_TYPE, { snapshot: result.snapshot, delta: result.delta, reason: 'compaction_restore' });
+				persist(result, input.persist, 'compaction_restore');
 				input.persist(UNKNOWN_TOOL_COUNTER_ENTRY_TYPE, { snapshot: input.counterSnapshot(), reason: 'compaction_restore' });
 				if (result.delta.evidence.changed) input.establishToolStateChange(result.delta.evidence.previousCatalogVersion, result.delta.evidence.catalogVersion, evidenceRef);
     restoredSuccessfully=true;

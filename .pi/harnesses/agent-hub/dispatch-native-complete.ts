@@ -32,7 +32,7 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 		const combined = result.output + diagnosticText;
 		const parent = res.boundedOutput ? boundOutput({ content: combined, retentionDir: safePathWithin(run.evidenceDir, "bounded-output", "parent"), label: "parent-summary" }) : null;
 		return {
-			...result, runtimeTests: res.runtimeTests, toolEvents: res.toolEvents, writeIsolation: res.writeIsolation, dispatchId: run.dispatchId, transcriptPath: run.transcriptPath, diagnostics, sessionReset,
+			...result, specialistResult: res.specialistResult, specialistResultTool: res.specialistResultTool, runtimeTests: res.runtimeTests, toolEvents: res.toolEvents, writeIsolation: res.writeIsolation, dispatchId: run.dispatchId, transcriptPath: run.transcriptPath, diagnostics, sessionReset,
 			// T3: pass through explicit launch/close facts only. Missing lifecycle stays unknown.
 			...(lifecycle ? { lifecycle } : {}),
 			output: parent?.reply ?? combined,

@@ -7,13 +7,13 @@ import type { ProcessObligationState } from "./process-obligations.ts";
 const reviewers=new Set(["code-reviewer","plan-reviewer","security-auditor"]);
 const digest=(value:string|Uint8Array)=>createHash("sha256").update(value).digest("hex");
 export interface ReviewInput { taskId:string; agent:string; scope:string[]; scopeRevision:string; contractHash:string; }
-export interface ReviewEvidence extends ReviewInput { evidenceRef:string; evidenceHash:string; }
+export interface ReviewEvidence extends ReviewInput { evidenceRef:string; evidenceHash:string; baselineRef?:string; baselineHash?:string; }
 export function normalizeReviewEvidence(value:unknown):ReviewEvidence[] {
  if(!Array.isArray(value))return [];
  const valid=new Map<string,ReviewEvidence>();
  for(const row of value){
   if(!row||!reviewers.has(row.agent)||typeof row.taskId!=="string"||!row.taskId||!Array.isArray(row.scope)||!row.scope.length||!row.scope.every((s:unknown)=>typeof s==="string"&&s.length>0)||typeof row.evidenceRef!=="string"||!row.evidenceRef||![row.scopeRevision,row.contractHash,row.evidenceHash].every(v=>typeof v==="string"&&/^[a-f0-9]{64}$/.test(v)))continue;
-  valid.set(row.agent,{taskId:row.taskId,agent:row.agent,scope:[...row.scope],scopeRevision:row.scopeRevision,contractHash:row.contractHash,evidenceRef:row.evidenceRef,evidenceHash:row.evidenceHash});
+  valid.set(row.agent,{taskId:row.taskId,agent:row.agent,scope:[...row.scope],scopeRevision:row.scopeRevision,contractHash:row.contractHash,evidenceRef:row.evidenceRef,evidenceHash:row.evidenceHash,...(typeof row.baselineRef==="string" && /^[a-f0-9]{64}$/.test(row.baselineHash) ? {baselineRef:row.baselineRef,baselineHash:row.baselineHash} : {})});
  }
  return [...valid.values()];
 }

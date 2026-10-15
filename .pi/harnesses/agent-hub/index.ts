@@ -970,7 +970,7 @@ export default function (pi: ExtensionAPI) {
 		unknownToolCounter.noteCatalogChange(delta.catalogVersion);
 		const evidenceRef = `session-entry:${TOOL_CATALOG_ENTRY_TYPE}:${delta.catalogVersion}`;
 		let persisted = false;
-		try { pi.appendEntry(TOOL_CATALOG_ENTRY_TYPE, { snapshot, delta, reason: change.reason }); persisted = true; } catch {}
+		try { persisted = toolCatalogRuntime.persist({ snapshot, delta }, (type, data) => pi.appendEntry(type, data), change.reason); } catch {}
 		if (persisted && delta.evidence.changed) noProgress.establishToolStateChange(delta.evidence.previousCatalogVersion, delta.evidence.catalogVersion, evidenceRef);
 	}
 	function capabilityContextState(): ContextState {

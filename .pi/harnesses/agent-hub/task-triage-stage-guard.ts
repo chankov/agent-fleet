@@ -9,7 +9,7 @@ export function stageProducerTools(declared: string): string {
 }
 
 export function stageProducerToolGate(tool: string): string | null {
- return ["read", "grep", "find", "ls"].includes(tool)
+ return ["read", "grep", "find", "ls", "submit_result"].includes(tool)
   ? null : "Unbound stage producer effect refused; use the Hub's exact action confirmation for effects.";
 }
 

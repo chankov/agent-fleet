@@ -139,7 +139,7 @@ These are independent runtime axes:
   two-option picker. Operator keeps `read`, `bash`, `edit`, `write`, approved extension tools, and
   orchestration. Orchestrator withholds direct coding tools but keeps dispatch, research, assertions,
   roster controls, `ask_user`, read-only `filesystem` stat/inventory/excerpt/readback, ready coms, and ready Herdr tools.
-  Self-read stops above 64 KiB for one file or for the turn; use research or a specialist and pass the path.
+  Large files support bounded excerpts with byte offset/max_bytes. Self-read output remains limited to 64 KiB per turn; choose smaller pages or a helper when useful.
   `dispatch_triage` is listed only when that consumer can evaluate. Snapshot stays profile-gated.
   In orchestrator work mode, raw Herdr panes are auxiliary-process orchestration—not a route around delegation for reading,
   editing, testing, or implementing code.
@@ -1428,7 +1428,7 @@ D9 `consumers.fileDiscovery` is separately consented and off by default. In both
 
 ## Agentic System 1 advisory tool
 
-`ask_system1` is an opt-in parent-only Hub consumer configured by `consumers.agenticAsk` in the shared `.ai/system1.json`. It batches typed questions over minimal state, selected files/ranges and opted-in recorded bash refs, without executing shell or changing process gates. `recommended` makes it the first route for suitable semantic judgments across all task tiers; `advisory` keeps optional consultation. Default installs remain off. Start a new Hub session after changing the mode. See [configuration, examples, bounds and safe readback](../../../docs/system1-agentic.md).
+`ask_system1` is an opt-in parent-only Hub consumer configured by `consumers.agenticAsk` in the shared `.ai/system1.json`. It batches typed questions over minimal state, selected files/ranges and opted-in recorded bash refs, without executing shell or changing process gates. `recommended` reminds the operator to consult it for a concrete unresolved question when useful; `advisory` keeps optional consultation. Default installs remain off. Start a new Hub session after changing the mode. See [configuration, examples, bounds and safe readback](../../../docs/system1-agentic.md).
 
 ### Clarification routing
 
@@ -1468,3 +1468,39 @@ continuation, failure and ceiling blocking; native children use
 not yet provided a post-compaction usage measurement. See
 [context continuity](../../../docs/system1-context-continuity.md) for the 50/60/70/80
 policy, diagnostics, real CLI test coverage and provider-fixture limitations.
+
+### Coordination efficiency
+
+Native specialists receive `submit_result`. It validates a bounded report with
+`status` (`completed`, `partial`, `blocked`), `summary`, the existing assertion/
+changed-file/test/risk/decision arrays, and `evidence: [{path}]`. Evidence files
+must be inside the workspace and pass Damage-Control read policy; the tool records
+their SHA-256 and size. A proven-assertion declaration must reference one of these
+paths. Hashing a file confirms its identity, **not** the truth of the assertion.
+Further tool work invalidates an earlier submission; submit again after that work.
+
+The parent consumes only a matching, successful executed tool result. Native runs
+with this tool do not invoke a model to reconstruct a missing report. Missing
+submissions stay visibly `submission_missing`; legacy/coms text parsing and its
+extraction fallback remain supported. `details.specialistCompletion` describes
+the worker's report, while `details.taskAccepted` remains the runtime acceptance
+verdict. Partial/blocked reports and unresolved decisions cannot accept the task.
+
+A fresh review receives the previous report, recorded verification reference and
+a bounded exact diff of the previously reviewed files. The reviewer must check
+fixes and affected dependencies. History never grants approval. Changed requirements,
+scope, HEAD, file set, explicit new focus, stale/missing artifacts, binary/oversized
+files or incomplete Git observation require a full review. Baselines are local
+managed artifacts (up to 100 text files / 512 KiB total); journal state stores only
+references and hashes. Native and coms dispatches share this parent-side context.
+
+System 1 advice is optional for a concrete unresolved question. Direct reasoning,
+search and bounded excerpts are permitted at every tier. Choose configured helpers
+using measured task accuracy, latency and tool reliability; unknown suitability
+stays unknown. The harness does not invent benchmarks or switch configured models
+automatically. Source/export permissions remain authoritative.
+
+Catalog/capability journals record an initial snapshot and actual state changes,
+rather than every refresh. Session restoration resets suppression; failed writes
+are retried. Catalog reconciliation, recovery and active-tool enforcement still run
+on every refresh.

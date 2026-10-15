@@ -64,17 +64,8 @@ function bindHandles<T extends Record<string, any>>(payload: T, rootId: string |
  }
  return bound as T;
 }
-function fileBytes(path: string): number | null {
- if (!existsSync(path)) return null;
- const size = statSync(path);
- return size.isFile() ? size.size : null;
-}
-function tooLarge(path: string): { path: string; bytes: number } | null {
- const bytes = fileBytes(path);
- return bytes != null && bytes > CONTENT_REPLY_BYTES ? { path, bytes } : null;
-}
 function tooLargeRefusal(path: string, bytes: number) {
- return { refused: true, reason: "too_large", path, bytes, limitBytes: CONTENT_REPLY_BYTES, content: null, instruction: "Do not pull this into the dispatcher context. The orchestrator self-read ceiling is 64 KiB for one file and 64 KiB for the turn. Call spawn_research for a summary, or dispatch_agent with the path only. Do not paste contents and do not retry excerpt, readback, or inventory." };
+ return { refused: true, reason: "too_large", path, bytes, limitBytes: CONTENT_REPLY_BYTES, content: null, instruction: "Do not pull this into the dispatcher context. The aggregate read budget for this turn is exhausted or this page is too large. Request a smaller bounded excerpt, continue next turn, or use a research helper when useful. Do not retry an unchanged request." };
 }
 function admit(ports: FilesystemToolPorts, readOnly: boolean, path: string, payload: any) {
  const body = payload?.content && Buffer.isBuffer(payload.content) ? { ...payload, content: payload.content.toString("utf8"), contentEncoding: "utf8", exactBytesOnDisk: payload.path } : payload;
@@ -95,13 +86,14 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
  pi.registerTool({
   name: "filesystem",
   label: "Deterministic Filesystem",
-  description: "Deterministically stat, inventory, or excerpt repository files, or read back an opaque handle. Orchestrator may use those read-only operations without assist.deterministic-tools. In orchestrator mode, stat before excerpt; files above 64 KiB return no body and must go to spawn_research or dispatch_agent by path. Snapshot into this session's managed artifacts requires that profile. No network, shell, or arbitrary write.",
+  description: "Deterministically stat, inventory, or excerpt repository files, or read back an opaque handle. Orchestrator may use those read-only operations without assist.deterministic-tools. Stat to locate bounded excerpts of large files; use offset and max_bytes. Per-page and aggregate turn output limits apply. Snapshot into this session's managed artifacts requires that profile. No network, shell, or arbitrary write.",
   parameters: Type.Object({
    operation: Type.Union([Type.Literal("stat"),Type.Literal("inventory"),Type.Literal("excerpt"),Type.Literal("readback"),Type.Literal("snapshot")]),
    path: Type.Optional(Type.String({description:"Path inside the checkout or an explicitly configured read-only rules/docs grant; required except for readback. Snapshot sources remain checkout-local."})),
    handle: Type.Optional(Type.String({description:"Opaque handle returned by inventory, excerpt, snapshot, or prior readback."})),
    origin: Type.Optional(Type.Literal("file",{description:"Snapshots accept local file sources only."})),
    page_size: Type.Optional(Type.Integer({minimum:1})),
+   offset: Type.Optional(Type.Integer({minimum:0,description:"Byte offset for a targeted excerpt; cannot combine with handle."})),
    max_bytes: Type.Optional(Type.Integer({minimum:1})),
   }, { additionalProperties: false }),
   async execute(_id, raw, _signal, _update, ctx) {
@@ -121,7 +113,7 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
      if (!existsSync(target)) throw new Error(`Not found: ${params.path}`);
      const followed = statSync(target);
      const bytes = followed.isFile() ? followed.size : null;
-     return result({ path: target, type: followed.isDirectory() ? "directory" : followed.isFile() ? "file" : "other", bytes, limitBytes: CONTENT_REPLY_BYTES, selfRead: bytes != null && bytes <= CONTENT_REPLY_BYTES });
+     return result({ path: target, type: followed.isDirectory() ? "directory" : followed.isFile() ? "file" : "other", bytes, limitBytes: CONTENT_REPLY_BYTES, selfRead: bytes != null });
     }
     case "inventory": {
      if(!params.path) throw new Error("inventory requires path");
@@ -138,13 +130,8 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
      if(!params.path) throw new Error("excerpt requires path");
      const source = policyReadPath(params.path,cwd,table), target = source.path;
      const handle = sourceHandle(params.handle,source.rootId);
-     if (readOnly) {
-      const oversized = tooLarge(target);
-      if (oversized) return result(tooLargeRefusal(oversized.path, oversized.bytes));
-      const bytes = fileBytes(target) ?? 0;
-      if (ports.noteSelfReadBytes && bytes > (ports.remainingSelfReadBytes?.() ?? 0)) return result(tooLargeRefusal(target, bytes));
-     }
-     const body = excerpt({path:target,allowedRoot:source.allowedRoot,handle,maxBytes:params.max_bytes,boundedOutput:true});
+     if (params.offset !== undefined && params.handle) throw new Error("Use offset or handle, not both");
+     const body = excerpt({path:target,allowedRoot:source.allowedRoot,handle,offset:params.offset,maxBytes:params.max_bytes,boundedOutput:true});
      return result(admit(ports, readOnly, target, bindHandles(body,source.rootId)));
     }
     case "readback": {
@@ -157,12 +144,6 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
       ? { path: workspacePath(bound,session), allowedRoot: session, rootId: undefined }
       : policyReadPath(bound,cwd,table);
      const handle = sourceHandle(params.handle,source.rootId)!;
-     if (readOnly) {
-      const oversized = tooLarge(source.path);
-      if (oversized) return result(tooLargeRefusal(oversized.path, oversized.bytes));
-      const bytes = fileBytes(source.path) ?? 0;
-      if (ports.noteSelfReadBytes && bytes > (ports.remainingSelfReadBytes?.() ?? 0)) return result(tooLargeRefusal(source.path, bytes));
-     }
      return result(admit(ports,readOnly,source.path,bindHandles(readback({handle,allowedRoot:source.allowedRoot,maxBytes:params.max_bytes,boundedOutput:true}),source.rootId)));
     }
     case "snapshot":

@@ -15,6 +15,7 @@ export interface ProcessObligationState {
  reassessments: number; lastReason: string | null; appliedRuleIds: string[]; changedFiles: string[];
  additions?: ProcessAddition[];
  reviews?: ReviewEvidence[];
+ reviewHistory?: ReviewEvidence[];
 }
 export interface ProcessClassificationInput { risk?: string; scope?: string; reason?: string; newTask?: boolean; }
 export interface ProcessVerdict {
@@ -35,6 +36,7 @@ export function normalizeProcessState(value: unknown): ProcessObligationState {
  // Review/acceptance remain independent of S1. Planning is optional under the current policy; retain old evidence and source additions.
  if (Array.isArray(row.additions) && (row.additions.length > 300 || Buffer.byteLength(JSON.stringify(row.additions)) > 64 * 1024)) throw new Error("Process additions exceed the persistence limit; dependent effects are blocked.");
  if(Array.isArray(row.reviews))state.reviews=normalizeReviewEvidence(row.reviews);
+ if(Array.isArray(row.reviewHistory))state.reviewHistory=normalizeReviewEvidence(row.reviewHistory);
  state.additions = Array.isArray(row.additions) ? row.additions.map((a: any) => {
   if (!a || a.source !== "system1" || typeof a.id !== "string" || !a.id || !["taskId", "evaluationId", "inputRevision", "policyVersion", "questionVersion", "provider", "model"].every(k => typeof a[k] === "string" && a[k]) || !["security_change", "wide_change", "irreversible_execution"].includes(a.reason) || !["active", "waived"].includes(a.status) || a.status === "waived" && (typeof a.waiverReason !== "string" || !a.waiverReason)) throw new Error("Invalid process addition; dependent effects are blocked.");
   return { id: a.id, source: "system1" as const, taskId: a.taskId, evaluationId: a.evaluationId, inputRevision: a.inputRevision, policyVersion: a.policyVersion, questionVersion: a.questionVersion, provider: a.provider, model: a.model, reason: a.reason, status: a.status, waiverReason: a.status === "waived" ? a.waiverReason : null };

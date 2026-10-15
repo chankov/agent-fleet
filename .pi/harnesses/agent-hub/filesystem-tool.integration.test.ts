@@ -188,28 +188,24 @@ test("orchestrator read-only filesystem inspects and refuses snapshot", async ()
  } finally {rmSync(root,{recursive:true,force:true});rmSync(session,{recursive:true,force:true});}
 });
 
-test("orchestrator read-only filesystem stats size and refuses self-read above 64 KiB", async () => {
- const root=temp(), session=temp(), readOnlyTools:any[]=[], enabledTools:any[]=[];
+test("orchestrator reads bounded windows of large files without delegating", async () => {
+ const root=temp(), session=temp(), tools:any[]=[], used={bytes:0};
  try {
   const big=join(root,"big.txt");
-  writeFileSync(big, Buffer.alloc(CONTENT_REPLY_BYTES + 1, 0x61));
-  registerFilesystemTool({registerTool:(tool:any)=>readOnlyTools.push(tool)} as any,{enabled:()=>false,readOnly:()=>true,sessionDir:()=>session});
-  const sized=await invoke(readOnlyTools[0],{operation:"stat",path:big},root);
-  assert.equal(sized.details.result.bytes, CONTENT_REPLY_BYTES + 1);
-  assert.equal(sized.details.result.selfRead, false);
-  const refused=await invoke(readOnlyTools[0],{operation:"excerpt",path:big},root);
-  assert.equal(refused.details.result.refused, true);
-  assert.equal(refused.details.result.reason, "too_large");
-  assert.equal(refused.details.result.content, null);
-  assert.match(refused.details.result.instruction, /spawn_research/);
-  const handle=`t5:${Buffer.from(JSON.stringify({v:1,kind:"file",path:big,hash:"ab".repeat(32),offset:0})).toString("base64url")}`;
-  const readRefused=await invoke(readOnlyTools[0],{operation:"readback",handle},root);
-  assert.equal(readRefused.details.result.content, null);
-  assert.equal(readRefused.details.result.reason, "too_large");
-  registerFilesystemTool({registerTool:(tool:any)=>enabledTools.push(tool)} as any,{enabled:()=>true,sessionDir:()=>session});
-  const paged=await invoke(enabledTools[0],{operation:"excerpt",path:big},root);
-  assert.equal(paged.details.result.refused, undefined);
-  assert.equal(paged.details.result.contentBytes, CONTENT_REPLY_BYTES);
+  writeFileSync(big,"a".repeat(CONTENT_REPLY_BYTES)+"TARGET"+"z".repeat(1000));
+  registerFilesystemTool({registerTool:(tool:any)=>tools.push(tool)} as any,{
+   enabled:()=>false,readOnly:()=>true,sessionDir:()=>session,
+   remainingSelfReadBytes:()=>CONTENT_REPLY_BYTES-used.bytes,noteSelfReadBytes:n=>{used.bytes+=n;},
+  });
+  const sized=await invoke(tools[0],{operation:"stat",path:big},root);
+  assert.equal(sized.details.result.selfRead,true);
+  const page=await invoke(tools[0],{operation:"excerpt",path:big,offset:CONTENT_REPLY_BYTES,max_bytes:6},root);
+  assert.equal(page.details.result.content,"TARGET");
+  assert.ok(used.bytes<2000);
+  const next=await invoke(tools[0],{operation:"readback",handle:page.details.result.nextHandle,max_bytes:10},root);
+  assert.equal(next.details.result.content,"z".repeat(10));
+  writeFileSync(big,"changed");
+  await assert.rejects(()=>invoke(tools[0],{operation:"readback",handle:page.details.result.nextHandle},root),/stale|changed/i);
  } finally {rmSync(root,{recursive:true,force:true});rmSync(session,{recursive:true,force:true});}
 });
 

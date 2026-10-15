@@ -63,6 +63,7 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 	let provisionalPacks: CapabilityPack[] = [];
 	let confirmation: CapabilityConfirmationState = {};
 	let currentExplicitCompaction = false;
+ let persistedState: string | null = null;
 	let resolution = resolveCapabilityPacks({ workMode, userText: "", taskPacks: [], comsReady: false, herdrReady: false, pendingOperations: [], contextState: "normal" });
 
 	function resolveIncomingCapabilities(userText: string, newTask = false, refresh = false): void {
@@ -87,7 +88,11 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 		}
 		taskPacks = resolution.nextTaskPacks = CAPABILITY_PACKS.filter(pack => pack !== "core" && pack !== "compaction" && resolution.active.includes(pack));
 		provisionalPacks = resolution.provisional.filter(pack => confirmation[pack as ConfirmableCapabilityPack] !== "declined");
-		try { ports.persist("agent-hub-capability-packs", persistedCapabilityState(resolution, confirmation)); } catch { /* best effort */ }
+		const snapshot = persistedCapabilityState(resolution, confirmation);
+  const key = JSON.stringify(snapshot);
+  if (key !== persistedState) {
+   try { ports.persist("agent-hub-capability-packs", snapshot); persistedState = key; } catch { /* retry next refresh */ }
+  }
 	}
 	function applyWorkModeTools(fromMode: WorkMode = workMode, reason: "refresh" | "mode_switch" = "refresh"): void {
 		const previous = [...(ports.getActiveTools?.() ?? [])];
@@ -125,8 +130,8 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 		getWorkMode: () => workMode, setRestoredWorkMode: mode => { workMode = mode; },
 		getCapabilityResolution: () => resolution, getCapabilityConfirmation: () => confirmation,
 		setCapabilityConfirmation: (pack, status) => { if (status) confirmation[pack] = status; else delete confirmation[pack]; },
-		restoreCapabilities: state => { taskPacks = [...state.taskPacks]; provisionalPacks = [...state.provisional]; confirmation = { ...state.confirmation }; currentExplicitCompaction = false; },
-		resetCapabilities: () => { taskPacks = []; provisionalPacks = []; confirmation = {}; currentExplicitCompaction = false; },
+		restoreCapabilities: state => { persistedState = null; taskPacks = [...state.taskPacks]; provisionalPacks = [...state.provisional]; confirmation = { ...state.confirmation }; currentExplicitCompaction = false; },
+		resetCapabilities: () => { persistedState = null; taskPacks = []; provisionalPacks = []; confirmation = {}; currentExplicitCompaction = false; },
 		resolveIncomingCapabilities, refreshCapabilities: () => resolveIncomingCapabilities("", false, true),
 		provisionalCapabilityRefusal: pack => { const gate = confirmationGate(confirmation, pack, resolution.provisional.includes(pack)); return gate.allowed ? null : { content: [{ type: "text", text: gate.message }], details: { status: "provisional_confirmation_required", confirmation: gate.status, pack } }; },
 		applyWorkModeTools, updateStatus: ctx => ctx.ui.setStatus("hub-work-mode", `Work Mode: ${workMode}`), statusText,

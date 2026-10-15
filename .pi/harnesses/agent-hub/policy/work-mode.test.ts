@@ -138,3 +138,21 @@ test("capability confirmation promotes provisional packs and operation leases ke
 	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
 	assert.equal(f.policy.provisionalCapabilityRefusal("fleet"), null);
 });
+
+test("capability journal records initial state and changes, not repeated refreshes", () => {
+ const f=fixture();
+ f.policy.resolveIncomingCapabilities("");
+ const initial=f.entries.length;
+ for(let i=0;i<100;i++)f.policy.refreshCapabilities();
+ // The first refresh may change an activation reason to task-retained.
+ const settled=f.entries.length;
+ for(let i=0;i<100;i++)f.policy.refreshCapabilities();
+ assert.equal(f.entries.length,settled);
+ assert.ok(settled <= initial+1);
+ f.policy.setCapabilityConfirmation("fleet","declined");
+ f.policy.refreshCapabilities();
+ assert.equal(f.entries.length,settled+1);
+ f.policy.resetCapabilities();
+ f.policy.resolveIncomingCapabilities("");
+ assert.equal(f.entries.length,settled+2);
+});

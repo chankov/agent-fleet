@@ -1,3 +1,5 @@
+import { resultFromToolEvent } from "./specialist-result-receipt.ts";
+import type { SpecialistResult } from "./specialist-result.ts";
 import { createContextContinuityBroker } from './context-continuity-broker.ts';
 import { openContextOwner, revokeContextOwner } from './context-continuity-owners.ts';
 import { CONTEXT_CHANNEL_ENV, parseContextChannel } from './context-continuity-client.ts';
@@ -66,6 +68,7 @@ export interface SpawnPiAgentOptions {
  damageRegistration?: DamageSpawnRegistration;
  /** Enabled only by native preparation with the runtime observer extension. */
  runtimeTestObserver?: boolean;
+ specialistResultTool?: boolean;
  /** Snapshotted at dispatch start; presence prevents a mid-run profile switch changing this launch. */
  activeProfileSnapshot?: ActiveModelProfile;
  /** Native-only whole-process write boundary. Omission preserves the legacy launch. */
@@ -130,6 +133,8 @@ export interface SpawnPiAgentCallbacks {
 }
 
 export interface SpawnPiAgentResult {
+ specialistResult?: SpecialistResult;
+ specialistResultTool?: boolean;
  runtimeTests?: RuntimeTestRecord[];
  toolEvents?: ToolExecutionEvent[];
 	output: string;
@@ -390,6 +395,8 @@ async function spawnPiAgentUnchecked(
   let recoveryAbortEpisode: number | undefined;
 		let toolCallsStarted = 0;
  const runtimeTests: RuntimeTestRecord[] = [];
+ let specialistResult: SpecialistResult | undefined;
+ const resultStarts = new Map<string,unknown>();
  const runtimeTestStarts = new Map<string, string>();
  const toolEventRecorder = createToolEventRecorder();
  const toolEvents: ToolExecutionEvent[] = toolEventRecorder.events;
@@ -411,7 +418,7 @@ async function spawnPiAgentUnchecked(
 				// never mark a provider/model error as successful.
 				exitCode: assistantError && code === 0 ? 1 : code,
 				stderr: stderrChunks.join(""),
-				toolCallsStarted, runtimeTests, toolEvents,
+				toolCallsStarted, runtimeTests, toolEvents, specialistResult, specialistResultTool: opts.specialistResultTool,
 				modelUsed: opts.model,
 				// T3: explicit lifecycle facts travel with every settlement.
 				// Missing close or an unconfirmed process tree stays uncertain downstream.
@@ -486,7 +493,9 @@ async function spawnPiAgentUnchecked(
 					? JSON.stringify(Object.fromEntries(["path", "file", "filePath"].filter(key => typeof event.args[key] === "string").map(key => [key, event.args[key]])))
 					: "{}";
 				toolEventRecorder.start(name, protocolArgs, id || undefined);
-				if (opts.runtimeTestObserver && event.toolName === "bash" && typeof event.args?.command === "string" && toolId(event)) runtimeTestStarts.set(toolId(event), event.args.command);
+				if(opts.specialistResultTool){specialistResult=undefined;resultStarts.clear();} // Further or overlapping tool work invalidates the handoff.
+                if(opts.specialistResultTool && event.toolName==="submit_result" && id && toolStarts.size===1)resultStarts.set(id,event.args);
+                if (opts.runtimeTestObserver && event.toolName === "bash" && typeof event.args?.command === "string" && toolId(event)) runtimeTestStarts.set(toolId(event), event.args.command);
                 cbs.onToolStart?.(name, argStr, id || undefined);
 				if (timeoutMs != null && id && watchedTools.has(name) && !calls.has(id)) {
 					const startedAt = Date.now();
@@ -503,6 +512,9 @@ async function spawnPiAgentUnchecked(
 				toolEventRecorder.end(id || undefined, typeof rawIsError === "boolean" ? rawIsError : undefined);
 				const startedCommand = id ? runtimeTestStarts.get(id) : undefined;
                 if (id) runtimeTestStarts.delete(id);
+                const submitted=resultFromToolEvent(opts.specialistResultTool,resultStarts.get(id),event.toolName,event.result,rawIsError);
+                if(submitted)specialistResult=submitted;
+                resultStarts.delete(id);
                 const check = runtimeTestFromResult(opts.runtimeTestObserver, startedCommand, event.toolName, event.result);
                 if (check) runtimeTests.push(check);
 				const startedAt = id ? toolStarts.get(id) : undefined;
