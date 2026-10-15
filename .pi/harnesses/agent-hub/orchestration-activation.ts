@@ -85,25 +85,6 @@ export function activeOrchestrationHandoff(input: {
 	return { route, manifest, closure, rerun, observation, routingChanged: false as const };
 }
 
-const REVIEWERS = new Set(["code-reviewer", "plan-reviewer", "security-auditor"]);
-
-export function plannerRequiredRefusal(task: string, agent: string, state?: { scope?: string; risk?: string; plan?: { evidenceRef?: string | null } }): string | null {
-	if (agent === "planner" || REVIEWERS.has(agent)) return null;
-	const { secret, cloud } = sensitiveWorkSignals(task);
-	const approvedPlan = !!state?.plan?.evidenceRef;
-	const highWithoutPlan = state?.risk === "high" && !approvedPlan;
-	if (!secret && !cloud && !highWithoutPlan) return null;
-	const decision = selectSpecialists({
-		scopeBreadth: state?.scope === "wide" ? "wide" : "narrow",
-		risk: state?.risk === "high" ? "high" : "low",
-		reversible: true,
-		approvedPlan,
-		unresolvedForks: [],
-		selfDeclaredSmall: state?.scope === "small" || /small/i.test(task),
-	}, { secret, cloud });
-	return decision.stages[0] === "planner" ? decision.reason : null;
-}
-
 export function reviewMayClose(input: { revision: string; scope: string[]; output: string; evidenceRef?: string; declared: boolean; wide: boolean }): boolean {
 	const rerun = chooseReviewerRerun({
 		impact: input.wide ? "wide" : "narrow",

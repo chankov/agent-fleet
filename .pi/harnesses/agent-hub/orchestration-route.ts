@@ -11,7 +11,7 @@ export interface RouteInputs {
 }
 
 export interface RouteDecision {
-	route: "builder-reviewer" | "planner-required";
+	route: "builder-reviewer";
 	reason: string;
 	reclassified: boolean;
 	record: {
@@ -34,14 +34,12 @@ function recordOf(input: RouteInputs): RouteDecision["record"] {
 }
 
 export function selectSpecialists(input: RouteInputs, signals: { secret?: boolean; cloud?: boolean; contradiction?: boolean } = {}) {
-	if ((signals.secret || signals.cloud) && input.risk === "low") {
-		return { stages: ["planner", "builder", "reviewer"] as const, reason: "risk was not lowered to bypass a secret or cloud signal" };
-	}
 	const decision = classifyOrchestrationRoute(input);
-	if (signals.contradiction || decision.route === "planner-required") {
-		return { stages: ["planner", "builder", "reviewer"] as const, reason: signals.contradiction ? "contradiction requires a planner" : decision.reason };
-	}
-	return { stages: ["builder", "reviewer"] as const, reason: decision.reason };
+	const clarification = signals.contradiction || input.unresolvedForks.length > 0;
+	return { stages: ["builder", "reviewer"] as const, reason: [decision.reason,
+		clarification ? "Resolve gaps with focused research; use ask_user grilling for additional decisions." : "",
+		signals.secret || signals.cloud ? "Sensitive-action authorization and independent review remain separate." : "",
+	].filter(Boolean).join(" ") };
 }
 
 export function authorizePlanStatusUpdate(input: { planPath: string; allowedScope: string[]; evidenceRefs: string[] }): { allowed: boolean; reason: string } {
@@ -54,12 +52,6 @@ export function authorizePlanStatusUpdate(input: { planPath: string; allowedScop
 
 export function classifyOrchestrationRoute(input: RouteInputs, previous?: RouteDecision): RouteDecision {
 	const record = recordOf(input);
-	const blockers: string[] = [];
-	if (input.scopeBreadth !== "narrow") blockers.push(`scope is ${input.scopeBreadth}`);
-	if (input.risk !== "low") blockers.push(`risk is ${input.risk}`);
-	if (!input.reversible) blockers.push("change is not reversible");
-	if (!input.approvedPlan) blockers.push("approved plan is missing");
-	if (input.unresolvedForks.length) blockers.push(`unresolved forks: ${input.unresolvedForks.join(", ")}`);
 	const changes = previous
 		? (["scopeBreadth", "risk", "reversible", "approvedPlan"] as const).flatMap(key => previous.record[key] === record[key] ? [] : [`${key} ${String(previous.record[key])} → ${String(record[key])}`])
 		: [];
@@ -68,9 +60,9 @@ export function classifyOrchestrationRoute(input: RouteInputs, previous?: RouteD
 		: "";
 	const reclassified = changes.length > 0 || !!forkChange;
 	const reason = [
-		blockers.length ? `planner required: ${blockers.join("; ")}` : "narrow reversible approved plan with no unresolved forks",
+		"Execute the authorized task; Planner and plan review are optional, never admission prerequisites",
 		input.selfDeclaredSmall ? "self-declared small was ignored" : "",
 		reclassified ? `reclassified because ${[...changes, forkChange].filter(Boolean).join("; ")}` : "",
 	].filter(Boolean).join(". ");
-	return { route: blockers.length ? "planner-required" : "builder-reviewer", reason, reclassified, record };
+	return { route: "builder-reviewer", reason, reclassified, record };
 }

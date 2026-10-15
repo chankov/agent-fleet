@@ -31,3 +31,13 @@ test('concurrent identical dialogs share one question',async()=>{
  assert.equal(asks,1);release();
  assert.deepEqual(await pending,['allow','allow']);
 });
+
+test('reset fences late answers and rejected questions can be asked again',async()=>{
+ resetIdenticalDialogs();let release!:(value:'allow')=>void;
+ const old=decideIdenticalDialog('reset',()=>new Promise(resolve=>{release=resolve;}));
+ resetIdenticalDialogs();release('allow');await old;
+ let asks=0;
+ assert.equal(await decideIdenticalDialog('reset',async()=>{asks++;return 'deny';}),'deny');assert.equal(asks,1);
+ await assert.rejects(decideIdenticalDialog('failed',async()=>{throw Error('dialog failed');}),/dialog failed/);
+ assert.equal(await decideIdenticalDialog('failed',async()=> 'allow'),'allow');
+});

@@ -7,8 +7,8 @@ for (const only of ['plan', 'acceptance', 'review'] as const) test(`${only} alon
  const state = noteProcessStage(base, only, { evidenceRef: `${only}:evidence`, revision: 'current' });
  const verdict = evaluateProcessObligations(state, { writable: true, budgetTier: 'trivial', currentRevision: 'current' });
  assert.equal(verdict.accepted, false);
- for (const stage of ['plan', 'acceptance', 'review'] as const) assert.equal(verdict.obligations[stage].status, stage === only ? 'satisfied' : 'open');
- assert.equal(processPreEffectGate(state, 'prove', '', 'current')?.reason, only === 'acceptance' || only === 'plan' || only === 'review' ? 'process_obligations_open' : undefined);
+ for (const stage of ['plan', 'acceptance', 'review'] as const) assert.equal(verdict.obligations[stage].status, stage === 'plan' || stage === only ? 'satisfied' : 'open');
+ assert.equal(processPreEffectGate(state, 'prove', '', 'current')?.reason, only === 'review' ? undefined : 'process_obligations_open');
 });
 test('current verification and independent review are revision bound, plan is occurrence only', () => {
  let state = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide work' }).state;

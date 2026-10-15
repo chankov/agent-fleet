@@ -326,6 +326,7 @@ test("A1/A3 prepared native run fences replacement callbacks and does not report
 	let requested = 0;
 	const state: any = { def: { name: "builder" }, toolCount: 0, timeline: [] };
 	const run: any = {
+   nativeAdmitted: () => true,
 		dispatchId: "dispatch-9",
 		deps: {
 			displayName: (name: string) => name,
@@ -398,6 +399,7 @@ test("assembled native spawn preserves watchdog authority and fences killed obse
   const assignment: ObserverAssignment = { root, directory, session: "session", owner: "builder", attempt, config, context };
   const state: any = { def: { name: "builder" }, toolCount: 0, timeline: [], killedByOperator: false, restarting: false };
   const run: any = {
+   nativeAdmitted: () => true,
    dispatchId: attempt, state, proactiveAssignment: assignment, ctx: { cwd: root, ui: { notify() {} } },
    watchdogParam: true, key: "builder", scopeGlobs: ["src/**"], task: "task", agentKey: "builder",
    model: "fake/model", effectiveTools: "read", thinkingLevel: "off", replacementSystemPrompt: "",
@@ -693,6 +695,7 @@ test("P13a B5 proactive aligned leaves a real watchdog stop intact; review recor
   const attempt = "stop-case", directory = join(root, attempt);
   const assignment: ObserverAssignment = { root, directory, session: "session", owner: "builder", attempt, config, context };
   const run: any = {
+   nativeAdmitted: () => true,
    dispatchId: attempt, state, proactiveAssignment: assignment, ctx: { cwd: root, ui: { notify() {} } },
    watchdogParam: true, key: "builder", scopeGlobs: ["src/**"], task: "task", agentKey: "builder",
    model: "fake/model", effectiveTools: "read", thinkingLevel: "off", replacementSystemPrompt: "",

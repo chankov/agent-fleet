@@ -833,7 +833,7 @@ async function highRiskChangedFixture(t: any) {
  return { cwd, d, process: () => process };
 }
 
-test("T4 wide small: actual dispatch artifacts close plan then covered review without changing the two-dispatch cap", async t => {
+test("T4 wide small: optional plan artifact and covered review preserve accounting", async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  const binding = { taskId: d.noProgress.taskId(), evaluationId: "evaluation", inputRevision: "input" };
  const revision = worktreeRevision(cwd, []);
@@ -849,7 +849,7 @@ test("T4 wide small: actual dispatch artifacts close plan then covered review wi
  let output = "Plan: inspect and update src/api.ts, then test and independently review the changed scope.";
  d.dispatchAgent = async () => ({ output, exitCode: 0, elapsed: 1, dispatchId: output.startsWith("Plan") ? "plan-run" : "review-run" });
  const execute = createDispatchExecutor(d as any);
- assert.equal(processPreEffectGate(process, "child", "builder")?.reason, "process_plan_open");
+ assert.equal(processPreEffectGate(process, "child", "builder")?.reason, undefined);
  const plan = await execute("plan", { agent: "planner", task: "Produce a plan" }, undefined, undefined, { cwd } as any);
  assert.ok((plan.details as any).returnPath, "the Hub persisted the actual producer response");
  assert.equal(process.plan.evidenceRef, (plan.details as any).returnPath);
@@ -886,7 +886,7 @@ test("T4 human refusal at spent small dispatch cap leaves S1 review and proof op
  assert.equal(evaluateProcessObligations(process, { writable: true, budgetTier: "small", t2Accepted: true }).accepted, false);
 });
 
-test("T4 an empty planner result cannot close the wide-small pre-effect gate", async t => {
+test("T4 an empty optional planner result cannot fabricate plan evidence", async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  let process = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" });
  d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
@@ -895,11 +895,11 @@ test("T4 an empty planner result cannot close the wide-small pre-effect gate", a
  const result = await createDispatchExecutor(d as any)("plan", { agent: "planner", task: "Plan" }, undefined, undefined, { cwd } as any);
  assert.ok((result.details as any).returnPath, "the empty dispatch still has a run artifact");
  assert.equal(process.plan.evidenceRef, null, "artifact existence alone is not plan evidence");
- assert.equal(processPreEffectGate(process, "write")?.reason, "process_plan_open");
+ assert.equal(processPreEffectGate(process, "write")?.reason, undefined);
  assert.equal((result.details as any).accepted, false);
 });
 
-test("T4 planner refusal with a missing declared plan cannot close the pre-effect gate", async t => {
+test("T4 optional planner refusal and missing artifact cannot fabricate plan evidence", async t => {
  const { cwd, sessionDir, d } = await gitDiagnosticsFixture(t);
  let process = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" });
  d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
@@ -913,7 +913,7 @@ test("T4 planner refusal with a missing declared plan cannot close the pre-effec
  assert.equal(details.acceptanceStatus, "deliverable_failed");
  assert.deepEqual(details.structuredReturn.requires_user_decision, ["Grant permission to create the plan artifact"]);
  assert.equal(process.plan.evidenceRef, null);
- assert.equal(processPreEffectGate(process, "write")?.reason, "process_plan_open");
+ assert.equal(processPreEffectGate(process, "write")?.reason, undefined);
 });
 
 test("T4 planner substantive parsed user decision blocks even without a declared deliverable", async t => {
@@ -925,7 +925,7 @@ test("T4 planner substantive parsed user decision blocks even without a declared
  const result = await createDispatchExecutor(d as any)("plan", { agent: "planner", task: "Plan" }, undefined, undefined, { cwd } as any);
  assert.deepEqual((result.details as any).structuredReturn.requires_user_decision, ["Which file should be edited?"]);
  assert.equal(process.plan.evidenceRef, null);
- assert.equal(processPreEffectGate(process, "write")?.reason, "process_plan_open");
+ assert.equal(processPreEffectGate(process, "write")?.reason, undefined);
 });
 
 test("T4 fenced empty planner decision closes only with a readback plan and no real question", async t => {
@@ -948,8 +948,8 @@ test("T4 fenced empty planner decision closes only with a readback plan and no r
   assert.equal(details.deliverableReadback[0].status, scenario === "missing" ? "missing" : "read", scenario);
   assert.deepEqual(details.structuredReturn.requires_user_decision, scenario === "question" ? ["Which file should be edited?"] : [], scenario);
   assert.equal(process.plan.evidenceRef, scenario === "empty" ? details.returnPath : null, scenario);
-  assert.equal(details.processVerdict.obligations.plan.status, scenario === "empty" ? "satisfied" : "open", scenario);
-  assert.equal(processPreEffectGate(process, "write")?.reason, scenario === "empty" ? undefined : "process_plan_open", scenario);
+  assert.equal(details.processVerdict.obligations.plan.status, "satisfied", scenario);
+  assert.equal(processPreEffectGate(process, "write")?.reason, undefined, scenario);
  }
 });
 
@@ -1153,17 +1153,17 @@ for (const task of [
  assert.deepEqual(handoff.route.stages, ["builder", "reviewer"]);
 });
 
-test("post-plan-admission: affirmative ambiguous and missing-plan work remains gated", () => {
+test("post-plan-admission: sensitive wording and missing plans do not require Planner", () => {
  for (const bound of [true, false]) for (const task of [
   "rotate the cloud credential", "Do not expose credentials; rotate the cloud credential",
   "no cloud/deploy, then read credentials", "without not copying credentials",
   "No need to avoid AWS", "No cloud calls unless needed", "Small change: rotate the cloud credential",
  ]) {
   const d = planningGateDeps(bound);
-  assert.equal((prepareDispatch(d as any, { agent: "builder", task }, { cwd: tmpdir() } as any) as any).details.status, "planner_required", task);
+  assert.ok(!("details" in (prepareDispatch(d as any, { agent: "builder", task }, { cwd: tmpdir() } as any) as any)), task);
  }
  const d = planningGateDeps(false);
- assert.equal((prepareDispatch(d as any, { agent: "builder", task: "no cloud/deploy/SQL/commits" }, { cwd: tmpdir() } as any) as any).details.status, "planner_required");
+ assert.ok(!("details" in (prepareDispatch(d as any, { agent: "builder", task: "no cloud/deploy/SQL/commits" }, { cwd: tmpdir() } as any) as any)));
 });
 
 for (const scenario of ["complete", "gap", "compiler-failure", "compiler-skipped", "compiler-incomplete", "late-edit"] as const) test(`post-plan-admission: nested dispatch observes and compiles each declared repository: ${scenario}`, async t => {
@@ -1232,31 +1232,31 @@ for (const task of [
  "No cloud operations, read credentials instead",
  "Do not avoid reading secrets", "Not no cloud operations", "No need to avoid AWS",
  "Do not read secrets unless needed", "Avoid credentials", "No secrets?",
-]) test(`planning-gate: affirmative or ambiguous sensitive intent retains planner: ${task}`, () => {
+]) test(`planning-gate: affirmative or ambiguous sensitive intent does not mandate a planner: ${task}`, () => {
  for (const classification of ["bound-high", "small-low"] as const) {
   const d = classification === "bound-high" ? planningGateDeps() : prepareDeps();
   if (classification === "small-low") d.state.setProcessState(noteProcessStage(d.state.getProcessState(), "plan", { evidenceRef: "plan:bound", revision: "input" }));
   const result = prepareDispatch(d as any, { agent: "builder", task }, { cwd: tmpdir() } as any) as any;
-  assert.equal(result.details.status, "planner_required", classification);
-  assert.equal(d._task(), 0);
+  assert.ok(!("details" in result), classification);
+  assert.equal(d._task(), 1);
  }
 });
 
-test("planning-gate: negative directives do not waive missing plan or open process obligations", () => {
+test("planning-gate: missing plan does not add a pre-effect obligation", () => {
  for (const highRisk of [true, false]) {
   const d = planningGateDeps(false);
   if (!highRisk) d.state.setProcessState(applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" }));
   const result = prepareDispatch(d as any, { agent: "builder", task: "Do not read secrets; no AWS operations" }, { cwd: tmpdir() } as any) as any;
-  assert.equal(result.details.status, highRisk ? "planner_required" : "process_plan_open");
-  assert.equal(d._task(), 0);
+  assert.ok(!("details" in result));
+  assert.equal(d._task(), 1);
  }
 });
 
 test("planning-gate: handoff shares conservative signals without weakening general route policy", () => {
  const handoff = (task: string, risk: "low" | "high" = "low", scopeBreadth: "narrow" | "wide" = "narrow") => activeOrchestrationHandoff({ agent: "builder", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk, scopeBreadth, sharedCode: false });
  assert.deepEqual(handoff("Do not read secrets or credentials; no cloud or AWS operations").route.stages, ["builder", "reviewer"]);
- for (const task of ["Read secrets", "Do not expose credentials; rotate the cloud credential", "Do not avoid secrets", "No cloud operations and use AWS"]) assert.equal(handoff(task).route.stages[0], "planner");
- assert.equal(handoff("Do not read secrets", "high", "wide").route.stages[0], "planner");
+ for (const task of ["Read secrets", "Do not expose credentials; rotate the cloud credential", "Do not avoid secrets", "No cloud operations and use AWS"]) assert.equal(handoff(task).route.stages[0], "builder");
+ assert.equal(handoff("Do not read secrets", "high", "wide").route.stages[0], "builder");
 });
 
 test("planning-gate: real planner readback binds only a delivered plan before builder", async t => {
@@ -1280,22 +1280,22 @@ test("planning-gate: real planner readback binds only a delivered plan before bu
    assert.equal(d.state.getProcessState().plan.evidenceRef, (result.details as any).returnPath);
   } else assert.equal(d.state.getProcessState().plan.evidenceRef, null);
   await execute("build", { agent: "builder", task: "Do not read secrets or credentials; no cloud or AWS operations" }, undefined, undefined, { cwd } as any);
-  assert.equal(runs, scenario === "delivered" ? 2 : 1);
+  assert.equal(runs, 2);
  }
 });
 
-test("high-risk work without an approved plan cannot skip the planner", async () => {
+test("high-risk work without an approved plan can execute directly", async () => {
  const d = prepareDeps({ agents: ["builder"] });
  let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive" }).state;
  d.state.getProcessState = () => process;
  const result = await createDispatchExecutor(d as any)("high", { agent: "builder", task: "change the boundary" }, undefined, undefined, { cwd: "/tmp" } as any);
- assert.equal((result.details as any).status, "planner_required");
+ assert.notEqual((result.details as any).status, "planner_required");
 });
 
-test("secret work cannot skip the planner by calling itself small", async () => {
+test("sensitive wording does not require a planner", async () => {
  const d = prepareDeps({ agents: ["builder"] });
  const result = await createDispatchExecutor(d as any)("secret", { agent: "builder", task: "small change to the cloud credential" }, undefined, undefined, { cwd: "/tmp" } as any);
- assert.equal((result.details as any).status, "planner_required");
+ assert.notEqual((result.details as any).status, "planner_required");
 });
 
 test("ASK_USER blocks the dispatch without a verification failure", async () => {
@@ -1342,7 +1342,7 @@ for (const backend of ['native', 'coms'] as const) test(`${backend} planner decl
   const details = result.details as any;
   assert.equal(routed, backend);
   assert.equal(details.accepted, false);
-  assert.equal(details.processVerdict.obligations.plan.status, scenario === 'valid' ? 'satisfied' : 'open');
+  assert.equal(details.processVerdict.obligations.plan.status, 'satisfied');
   assert.equal(process.acceptance.evidenceRef, null); assert.equal(process.review.evidenceRef, null);
   if (scenario === 'echo' || scenario === 'handoff') assert.equal(details.deliverableReadback[0].status, 'missing');
   if (scenario === 'valid') { assert.equal(details.deliverableReadback[0].status, 'read'); assert.ok(details.returnPath); }
@@ -1369,7 +1369,7 @@ function successorFixture(root: string, serviceOverride?: any) {
  } as any);
  return { runtime, entries, counters, assertionArchive, result, get state() { return state; }, get taskId() { return taskId; }, get assertions() { return assertions; }, get physical() { return physical; },
   pending: () => { pendingTransition = true; }, deny: () => { denied = true; }, fail: (n: number) => { failWrite = writes + n; },
-  seed: async () => { runtime.input("Change many modules", "interactive"); runtime.scope("wide"); const c = await runtime.evaluate(taskId); assert.ok(c); state = applyTaskTriageAdditions(state, c.assessment, { taskId, evaluationId: c.evaluationId, inputRevision: c.revision }); persist(state); assert.equal(processPreEffectGate(state, "write")?.reason, "process_plan_open"); },
+  seed: async () => { runtime.input("Change many modules", "interactive"); runtime.scope("wide"); const c = await runtime.evaluate(taskId); assert.ok(c); state = applyTaskTriageAdditions(state, c.assessment, { taskId, evaluationId: c.evaluationId, inputRevision: c.revision }); persist(state); assert.equal(processPreEffectGate(state, "write")?.reason, undefined); },
   set: (new_task = true) => tools.executeSetTaskTier("set", { tier: "feature", risk: "high", scope: "read-only", reason: "Different read-only task", new_task }, undefined, undefined, {} as any),
   hook: async () => { const c = await runtime.evaluate(taskId); if (c) state = applyTaskTriageAdditions(state, c.assessment, { taskId, evaluationId: c.evaluationId, inputRevision: c.revision }); },
  };
@@ -1388,7 +1388,7 @@ test("planning-gate: authorized successor retires consumed assessment and next-h
  assert.equal(processPreEffectGate(f.state, "write"), null); assert.equal(f.physical, 1); assert.equal(f.runtime.calls, 1);
  // Explicit fresh input may legitimately reuse the durable cache, not stale ownership/scope.
  f.runtime.input("Change many modules", "interactive"); f.pending(); await f.set();
- assert.equal(processPreEffectGate(f.state, "write")?.reason, "process_plan_open"); assert.equal(f.physical, 2);
+ assert.equal(processPreEffectGate(f.state, "write")?.reason, undefined); assert.equal(f.physical, 2);
  f.runtime.input("Change many modules", "interactive"); f.pending(); await f.set();
  assert.equal(f.physical, 2, "explicit fresh input reuses the successor-scope cache");
  assert.ok(f.state.additions?.every(a => a.taskId === f.taskId));
@@ -1401,7 +1401,7 @@ test("planning-gate: denied and failed successor persistence leave predecessor b
   if (mode === "denied") f.deny(); else f.fail(1);
   const r = await f.set(); assert.equal(r.details?.status, "refused"); assert.equal(f.taskId, "predecessor"); assert.equal(f.runtime.current, c);
   assert.deepEqual(f.entries, before); assert.deepEqual(f.assertions, [{ id: "D6", status: "open" }]);
-  await f.hook(); assert.equal(processPreEffectGate(f.state, "write")?.reason, "process_plan_open"); assert.equal(f.physical, 1);
+  await f.hook(); assert.equal(processPreEffectGate(f.state, "write")?.reason, undefined); assert.equal(f.physical, 1);
  }
 });
 
@@ -1410,7 +1410,7 @@ test("planning-gate: fresh successor input is bound to reserved identity and sam
  const f = successorFixture(root); await f.seed(); const old = structuredClone(f.entries[0]);
  f.runtime.input("New wide successor work", "interactive"); f.pending(); assert.equal((await f.set()).details?.status, "ok");
  assert.ok(f.state.additions?.length); assert.ok(f.state.additions?.every(a => a.taskId === f.taskId && a.inputRevision === f.runtime.inputRevision));
- assert.equal(f.runtime.current?.taskId, f.taskId); assert.equal(processPreEffectGate(f.state, "write")?.reason, "process_plan_open"); assert.deepEqual(f.entries[0], old);
+ assert.equal(f.runtime.current?.taskId, f.taskId); assert.equal(processPreEffectGate(f.state, "write")?.reason, undefined); assert.deepEqual(f.entries[0], old);
  const bound = structuredClone(f.state.additions); await f.set(false); await f.hook(); assert.deepEqual(f.state.additions, bound); assert.equal(f.physical, 2);
 });
 
@@ -1437,7 +1437,63 @@ test("planning-gate: failed fresh successor append never commits staged runtime 
   f.fail(failedWrite); assert.equal((await f.set()).details?.status, "refused");
   assert.equal(f.taskId, "predecessor"); assert.equal(f.runtime.current, current); assert.equal(f.runtime.inputRevision, revision);
   assert.deepEqual(f.state, state); assert.deepEqual(latestProcessState(f.entries), latestProcessState(before));
-  assert.deepEqual(f.assertions, [{ id: "D6", status: "open" }]); assert.equal(processPreEffectGate(f.state, "write")?.reason, "process_plan_open");
+  assert.deepEqual(f.assertions, [{ id: "D6", status: "open" }]); assert.equal(processPreEffectGate(f.state, "write")?.reason, undefined);
   assert.deepEqual(f.entries[0], before[0]);
  }
+});
+
+test("review reuse: unchanged covered scope survives rewording and restoration without another child",async t=>{
+ const {cwd,d,process}=await highRiskChangedFixture(t);let runs=0;
+ d.budget.currentBudget=()=>({maxDispatches:null,maxResearch:null}) as any;
+ d.dispatchAgent=async()=>({output:"verdict: APPROVE",exitCode:0,elapsed:1,dispatchId:`review-${++runs}`});
+ const execute=createDispatchExecutor(d as any),params={agent:"code-reviewer",task:"Review changed code",scope:["src/api.ts"]};
+ const first=await execute("first",params,undefined,undefined,{cwd} as any);assert.ok(process().review.evidenceRef);
+ const charged=d._task();
+ d.state.setProcessState(latestProcessState([{customType:"agent-hub-process-state",data:processAuditRecord(process(),evaluateProcessObligations(process(),{writable:true,budgetTier:"small"}))}]));
+ writeFileSync(join(cwd,"README.md"),"unrelated follow-up\n");
+ const second=await execute("second",{...params,task:"Independently check the completed change again"},undefined,undefined,{cwd} as any);
+ assert.equal((second.details as any).status,"review_reused");assert.equal(runs,1);assert.equal(d._task(),charged);
+ assert.equal((second.details as any).returnPath,(first.details as any).returnPath);
+ assert.equal((second.details as any).started,false);
+});
+
+for(const change of ["source","requirements","accepted-input","evidence","new-task","explicit-reason","new-scope"] as const) test(`review reuse: ${change} requires fresh review`,async t=>{
+ const {cwd,d,process}=await highRiskChangedFixture(t);let runs=0;
+ d.budget.currentBudget=()=>({maxDispatches:null,maxResearch:null}) as any;
+ d.dispatchAgent=async()=>({output:"verdict: APPROVE",exitCode:0,elapsed:1,dispatchId:`review-${++runs}`});
+ const execute=createDispatchExecutor(d as any),params:any={agent:"code-reviewer",task:"Review code",scope:["src/api.ts"]};
+ await execute("first",params,undefined,undefined,{cwd} as any);
+ if(change==="source")writeFileSync(join(cwd,"src/api.ts"),"export const value = 10;\n");
+ if(change==="requirements")d.state.getAssertions=()=>[{id:"NEW",tag:"test",text:"New security requirement",source:"user",status:"open"}] as any;
+ if(change==="accepted-input")(d.state as any).getAcceptedUserInput=()=>"Also inspect the newly requested concurrency behavior";
+ if(change==="evidence")writeFileSync(process().review.evidenceRef!,"changed review artifact");
+ if(change==="new-task")d.noProgress.reset();
+ if(change==="explicit-reason")params.review_reason="Inspect a new concurrency concern";
+ if(change==="new-scope")params.scope=["src/api.ts","README.md"];
+ const second=await execute("second",{...params,task:"Fresh independent review"},undefined,undefined,{cwd} as any);
+ assert.notEqual((second.details as any).status,"review_reused",change);assert.equal(runs,2,change);
+});
+
+test("review reuse: security audit is reused only as security coverage, and a fresh rejection invalidates it",async t=>{
+ const {cwd,d,process}=await highRiskChangedFixture(t);let runs=0,reject=false;
+ d.budget.currentBudget=()=>({maxDispatches:null,maxResearch:null}) as any;
+ d._agents.set("security-auditor",{def:{name:"security-auditor",tools:"read"},runCount:0,lastBackend:"native"});
+ d.dispatchAgent=async()=>({output:`verdict: ${reject?"REJECT":"APPROVE"}`,exitCode:0,elapsed:1,dispatchId:`audit-${++runs}`});
+ const execute=createDispatchExecutor(d as any),params={agent:"security-auditor",task:"Audit security",scope:["src/api.ts"]};
+ await execute("audit",params,undefined,undefined,{cwd} as any);
+ const cached=await execute("cached",{...params,task:"Check security once more"},undefined,undefined,{cwd} as any);
+ assert.equal((cached.details as any).status,"review_reused");assert.equal(runs,1);
+ await execute("code",{...params,agent:"code-reviewer",task:"Review code"},undefined,undefined,{cwd} as any);assert.equal(runs,2,"a security audit does not replace a different review role");
+ reject=true;
+ await execute("reject",{...params,task:"Fresh audit",review_reason:"New concern"},undefined,undefined,{cwd} as any);
+ assert.equal(process().review.evidenceRef,null,"fresh rejection cannot leave old approval active");
+ assert.equal(process().reviews?.some(r=>r.agent==="security-auditor"),false);
+});
+
+for(const condition of ["question","blocking-finding","source-changed-during-review"] as const) test(`review reuse: ${condition} never records reusable approval`,async t=>{
+ const {cwd,d,process}=await highRiskChangedFixture(t);
+ if(condition==="question")d.extractAskUserQuestions=()=>["Which behavior is required?"];
+ d.dispatchAgent=async()=>{if(condition==="source-changed-during-review")writeFileSync(join(cwd,"src/api.ts"),"export const value=42;\n");return {output:"verdict: APPROVE"+(condition==="blocking-finding"?"\n### Blocking findings\n- An unresolved correctness defect remains.":""),exitCode:0,elapsed:1,dispatchId:"review"};};
+ await createDispatchExecutor(d as any)("review",{agent:"code-reviewer",task:"Review code",scope:["src/api.ts"]},undefined,undefined,{cwd} as any);
+ assert.equal(process().review.evidenceRef,null);assert.equal(process().reviews?.length??0,0);
 });

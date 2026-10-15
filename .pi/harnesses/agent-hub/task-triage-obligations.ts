@@ -102,7 +102,6 @@ export function applyTaskTriageAdditions(state: ProcessObligationState, assessme
   const addition: ProcessAddition = { id, source: "system1", ...binding, policyVersion: TASK_TRIAGE_POLICY_VERSION, questionVersion: TASK_TRIAGE_QUESTION_VERSION, provider: TASK_TRIAGE_PROVIDER, model: TASK_TRIAGE_MODEL, reason: reason as TriageReason, status: "active", waiverReason: null };
   next.additions!.push(addition); existing.add(id);
   // A newly required stage cannot inherit unrelated, uncovered old evidence.
-  if (reason === "wide_change") next.plan = { ...next.plan, evidenceRef: null, revision: null };
   if (reason === "wide_change" || reason === "security_change") next.review = { ...next.review, evidenceRef: null, revision: null };
  }
  // Never persist a partial union or silently discard the last active requirement.

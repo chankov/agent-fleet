@@ -37,15 +37,16 @@ does not refill the allowance. No file bodies/tool outputs/environment are sent
 by this consumer; sensitive/oversized input is refused, not silently truncated.
 
 Independent predicates add review for requested security changes (p ≥0.80),
-plan/review for broad changes (p ≥0.85), and exact-action one-use confirmation for
+review for broad changes (p ≥0.85), and exact-action one-use confirmation for
 requested potentially irreversible execution (p ≥0.80). They do not change the
 tier/model/roster, increase spend or authorize effects. Review is before task
 acceptance, not a blanket authoring ban. Low probability is never safety clearance.
 Baseline and source additions persist through failures, disable and resume.
 
-Missing roles require the human `/af-agents-add planner`, `/af-agents-add
-code-reviewer` (or a permitted reviewer), or `/af-agents-team` path. Budget
-exhaustion needs existing explicit continuation, not automatic escalation.
+Missing review roles require the human `/af-agents-add code-reviewer` (or a
+permitted reviewer), or `/af-agents-team` path. Planner and plan review are optional;
+wide/high-risk tasks can start without them. Gaps use focused research and
+additional decisions use `ask_user` grilling. Usage does not require renewal.
 `/af-task-triage-waive <addition-id> <reason>` uses a correlated human answer for
 one current addition; it remains waived rather than satisfied and cannot erase
 baseline/other additions. `/af-task-triage-recover` performs checked process
@@ -264,6 +265,28 @@ sequenceDiagram
 ```
 
 Every borrowed idea from another harness passes one test before it lands: *does this persistently enter the dispatcher context?* If yes, it goes to disk or a one-line status instead.
+
+### Avoiding repeated coordination
+
+- Exact-action confirmation and identical-dialog memory are shared across isolated
+  extension loaders. Decisions stay bound to the task/input revision, reset at
+  session boundaries and cannot be populated by a late answer from an older task.
+  Runtime effects still require and consume their own one-use authorization.
+- `dispatch_agent` reuses successful review evidence only for the same reviewer,
+  task, requirements, covered scope, input artifacts and unchanged reviewed files.
+  This includes `security-auditor`. The reply reports `review_reused`, retains the
+  original evidence path and starts no child. Use `review_reason` for a fresh focus;
+  changed accepted input, relevant files/requirements, missing evidence, blocking findings or unresolved decisions
+  require fresh review. Test and acceptance evidence remain separate.
+- Older successful tool bodies are projected to compact references for the model.
+  Full originals remain in the session journal and private
+  `artifacts/context-history/` files. Failures, questions, images, the latest tool
+  batch and recent inspection working pages remain complete. Current sourced
+  requirements/critical conditions stay visible in the task capsule. This reduces
+  repeated history; it makes no provider-token or latency guarantee.
+- Plain `continue`/`resume`/`продължи` retains the accepted task input. An identical
+  `set_task_tier` declaration returns unchanged without another assessment or
+  process write. A changed request still requires the existing task binding.
 
 `agent-hub` is the supported home for the former standalone dispatcher features:
 
@@ -676,95 +699,21 @@ and forward parent cancellation, avoiding detached-orphan processes. Caller
 cancellation follows the same bounded cleanup path but is reported as `cancelled`, not
 `tool_timeout`.
 
-### Task-tier budgets
+### Usage accounting without continuation quotas
 
-The hub runs **per-user-turn budgets enforced in code**, not prose, keyed off the current
-**task tier**. This is the guardrail against runaway orchestration (the observed failure
-mode: 100+ dispatches and 100M+ tokens for one task, most of it re-billed stale specialist
-context).
-
-| Budget (per user turn)            | trivial | small | feature | project |
-|-----------------------------------|---------|-------|---------|---------|
-| `dispatch_agent` calls            | 1       | 2     | 8       | 12      |
-| `spawn_research` calls            | 1       | 2     | 4       | 6       |
-| Turn wall clock                   | 15 min  | 15 min| 60 min  | 90 min  |
-| Per-run deadline (specialist/research/delegate) | 10 min | 10 min | 30 min | 30 min |
-| Specialist session recycled after | 3 runs  | 3 runs| 5 runs  | 5 runs  |
-| Nested delegation                 | off     | off   | on      | on      |
-
-When a budget is exhausted, the runtime pauses `dispatch_agent`/`spawn_research` and opens
-one localized Yes/No confirmation through the existing `ask-user-remote` wrapper. If the wrapper
-is unavailable, it uses a local dialog; without either channel it stops. **Yes** renews the budget
-and continues the original operation without another model call. Concurrent refusals share one
-question and one renewal. **No**, cancellation, or confirmation failure latches a task-scoped stop
-and aborts the parent loop. Only the human's `/af-budget-continue` command reopens that question;
-the command itself neither grants budget nor dispatches work. Prose and magic-marker tool calls
-cannot authorize renewal. A normal new user message still opens a fresh turn window, but cannot
-clear a declined confirmation. Time blocked in any `ask_user` question is
-excluded from the turn wall clock, so a slow human answer cannot exhaust the next dispatch.
-Raise the task with `set_task_tier` when the work outgrew the current envelope. Override keys
-in `.ai/agent-fleet-overrides.md` are a **ceiling** (`min` with the tier); `off` stays at the
-tier rather than lifting the cap. A leftover `mode:` key is ignored with a warning.
+Dispatch, research and review-round counts and active time remain visible for each
+turn/task. No tier imposes a continuation quota, and authorized work does not ask
+periodically whether to continue. Legacy `max-dispatches-per-turn`,
+`max-research-per-turn` and `turn-wall-time-s` keys are ignored with warnings.
+Auto-research is still counted. Cancellation and individual child deadlines remain.
 
 ```markdown
 ## agent-hub
-max-dispatches-per-turn: 8    # integer ceiling, or off (stays at the tier)
-max-research-per-turn: 4      # integer ceiling, or off (stays at the tier)
-turn-wall-time-s: 3600        # integer ceiling, or off (stays at the tier)
-agent-turn-timeout-s: 1800    # whole-run deadline per spawned run; integer or off
-session-recycle-runs: 5       # recycle a specialist session after N resumed runs; integer or off
-run-history-keep: 10          # previous sessions' artifact archives to retain; integer or off
+watchdog: auto               # default; root operator and native specialists
+agent-turn-timeout-s: 1800    # tightens the individual run deadline
+session-recycle-runs: 5      # tightens the recycle threshold
+run-history-keep: 10         # previous artifact archives to retain
 ```
-
-#### Task budget (the bound a turn window cannot provide)
-
-A per-message allowance cannot bound a task. In the run this guardrail comes from, every
-steering message opened a fresh window of 8 dispatches and 60 minutes, so no counter ever
-bound: one workspace stayed open **47 hours**, while the same change made in a narrow
-workspace took **13 minutes**.
-
-So there is a second envelope, **`TASK_BUDGET_MULTIPLIER` (3) × the turn envelope**, whose
-counters are **not** reset by a user message:
-
-| | per turn (`feature`) | per task |
-|---|---|---|
-| `dispatch_agent` | 8 | 24 |
-| `spawn_research` | 4 | 12 |
-| clock | 60 min wall | 180 min **active** |
-
-Exhausting it is a **hard stop**: the refusal says so, and another user message does not
-reopen it. The hub asks one localized Yes/No `ask_user` question. **Yes** opens one audited
-continuation tranche and resumes directly; it resets the task dispatch/research counters,
-active-time clock, review allowance, and the current turn budget while preserving the task
-tier, assertion ledger, capability packs, label, blockers, and accumulated progress. **No**
-(or cancellation) stops. Each accepted tranche appends `agent-hub-budget-continuation` with
-bounded prior usage, allowlisted process/session/pane identity, and runtime task/tranche/request
-correlation. A reset invalidates pending answers; late or repeated answers cannot renew another task.
-`/af-poll` and `/af-debate` use the same runtime confirmation gate for task and turn budgets.
-
-`set_task_tier` with `new_task: true` remains the lifecycle action for genuinely different work.
-It clears task identity/state as well as counters and appends an `agent-hub-task-reset` audit
-entry. Do not use it merely to continue the same task. The status chip still shows both turn and
-task usage (`… · task 4/18`).
-
-The reasoning: three full envelopes still require an explicit human decision, but that decision
-is now a single confirmation rather than a fake new task followed by a second message.
-
-Both turn and task clocks charge **active time only** — turns that actually ran, minus the
-time the dispatcher sat blocked on `ask_user`. Inter-turn idle costs nothing, because no turn
-is open across it. Raw wall clock would bill a lunch break, an overnight pause, and every long
-human answer against the task; at `fast` mode's 45-minute envelope a coffee break would
-hard-stop a task with two dispatches spent. A false stop is worse than no stop — it teaches
-people to reset the task window reflexively, and that reset is the one thing that has to
-stay deliberate. Dispatch and research counts remain the honest hard stops.
-
-The **auto-research pipe** (specialist emits `NEEDS_RESEARCH`, the hub fans out read-only
-helpers in code) stays exempt from the TURN budget — it is hub mechanics, not a dispatcher
-decision, and it must not steal the dispatcher's slots — but it **is** charged against the
-task envelope. At 2 rounds × 4 questions per dispatch and 18 dispatches per task, leaving it
-uncounted would have put 144 research runs inside the bound that is supposed to be the outer
-one. When the task's research envelope is spent the pipe does not spawn and the specialist is
-not resumed; the dispatch result says so.
 
 Two related always-on behaviors: specialist **context pressure is measured over
 input + cacheRead + cacheWrite** (resumed sessions re-send their whole accumulated context
@@ -811,19 +760,13 @@ can no longer hold its parent for hours.
 ### Task triage (complexity tiers)
 
 The dispatcher classifies the current TASK with the `set_task_tier` tool BEFORE its first
-dispatch — `trivial` / `small` / `feature` / `project` — and that classification *is* the
-budget envelope (see the table above). The tier shows in the `hub-tier` status chip
+dispatch — `trivial` / `small` / `feature` / `project` — to select resource and
+delegation policy. The tier shows in the `hub-tier` status chip
 (`Tier: small · …`), with a trailing `?` while it is only assumed.
 
-Skipping the call makes the hub assume **`small`**, not `feature`. Because the tier is
-task-scoped, a skipped triage latches for the whole task — and skipped triage is precisely
-the case where the dispatcher was not thinking about proportionality. Assuming `feature`
-there would unlock planner/plan-reviewer/security-auditor, loosen the review caps, and hand
-out the full feature envelope: the over-apparatus failure mode, granted by forgetting a tool
-call. Assuming `small` costs one explicit escalation when the work really is bigger, which
-is the cheap direction to be wrong in. An assumed tier is not a ratchet baseline either: the
-dispatcher's own first `set_task_tier` is treated as an initial declaration, so it never
-needs a `reason` it had no way to know it needed.
+Skipping classification assumes **small**. This retains conservative delegation,
+role and child-deadline defaults, without limiting task duration or invocation counts.
+Planner and plan-reviewer remain available on request at every tier.
 
 The tier is **task-scoped and ratcheted**. It survives the user's next message, and it
 moves in one direction cheaply: **lowering it is always free, raising it requires a
@@ -832,19 +775,15 @@ turn-scoped tier could not bind on a steered run — every correction reset it t
 next dispatch re-assumed `feature`, and the effective tier drifted to the ceiling, because
 nobody ever re-declares `trivial` after a steering message.
 
-Three guards are enforced in code, not prose:
+The remaining policy separates admission, review and usage:
 
 - **Duplicate-dispatch guard** — refuses re-dispatching the same agent with a
   near-identical task inside one turn.
-- **Tier persona gate** — at `trivial`/`small`, `dispatch_agent`/`spawn_research` refuse
-  `planner`, `plan-reviewer`, `architect`, `security-auditor` and `deep-researcher`
-  (`run-budget.js`). Each opens a document/finding loop whose output then has to be
-  executed and re-reviewed; the escape hatch is raising the tier *with a reason*, not a
-  flag. The refusal costs no budget slot.
-- **Review round cap** — review dispatches per TASK are capped by tier (trivial/small 1,
-  feature 2, project uncapped) and the (N+1)-th is refused without spending a budget slot.
-  This is where the review ratchet is actually cut: findings become requirements and the
-  enlarged requirement set justifies the next round, so the round is the thing to bound.
+- **Tier persona gate** — at trivial/small, architect, security-auditor and
+  deep-researcher still require an appropriate classification. Planner/plan-reviewer
+  are optional and are never required to admit implementation.
+- **Review rounds** — counted without a hard quota. Review quality and current
+  changed-scope evidence remain required where the process calls for them.
 - **Review finding budget** — a review persona's dispatch carries a blocking-finding cap
   tied to the tier (trivial 1, small 2, feature 5, project uncapped) plus the rule that a
   blocking finding may only enforce an invariant the task/plan/rules already state. The hub
@@ -907,6 +846,14 @@ is not archived. If archiving fails the artifacts are **left in place** rather t
 a stale tree is recoverable, a deleted one is not.
 
 ### Drift watchdog (in-flight observation)
+
+The root operator is supervised too (`operator-watchdog.ts`): identical calls or
+consecutive failures use the existing drift judge, cooldown and cancellation fence.
+Root tool volume alone does not trigger a quota. Late judges cannot stop a later
+turn/session. Root audit entries record abort requests without claiming that all
+in-flight side effects stopped. There is no root wall-time heartbeat or visibility
+into an external coms peer's own tool stream. Explicit watchdog off is respected.
+
 
 An armed dispatch is observed **while it runs**, from the same JSON event stream that
 drives the cards — not post-hoc:
@@ -1168,14 +1115,11 @@ in `peers.yaml`; this file only decides WHEN the hub prefers a peer over a nativ
 
 ### Planner recovery and completion evidence
 
-An open plan obligation requires `dispatch_agent` with the planner persona, declared
-scope/deliverable and the applicable backend policy. Direct `coms_send` has no planner
-dispatch contract: a peer named planner, prompt claims, work-mode changes or repeated
-attempts do not bypass the gate. The refusal occurs before target resolution/send and
-preserves handoff tokens. If planner is absent, the human can use `/af-agents-add planner`
-or `/af-agents-team`; do not reset the task, downgrade its tier or invent an alternate lane.
-Read-only `coms_list`, `coms_get` and `coms_await` can inspect an existing pending message
-without resending it.
+No plan occurrence is an admission prerequisite. Existing saved plan requirements
+normalize to optional while preserving their artifacts and source history. A direct
+operator, native builder or coms peer can execute authorized work without a Planner.
+Independent review, task-transition fencing and exact-action authorization remain.
+Resolve factual gaps with focused research and additional decisions with `ask_user`.
 
 A current declared plan artifact readback proves plan occurrence only. Exit 0, echoed
 instructions, `PLAN_FILE` text without the declared file, or a pending reply do not close
@@ -1391,15 +1335,15 @@ duplicate grant, stale response, or unavailable original contract is not permiss
 to replay. T3 protocol errors still need trusted effects evidence and corrected conditions;
 unknown-tool needs a catalog change. `reconcile` requires attributable unchanged-current-
 revision readback and independent nonblocking review; it clears a technical block only,
-retaining failed delivery and every open AF-MIN-CHANGE/test/review/plan obligation. `abandon`
+retaining failed delivery and every open AF-MIN-CHANGE/test/review obligation. `abandon`
 does not satisfy dependent work. Audit exports IDs/statuses only, never prompts, nonces,
 raw contracts or evidence paths.
 
 Non-busy recovery refusals use separate accounting and never consume turn/task launch
 counters. A `not_started` preflight refusal (runtime-owned, `started:false`, `effects:none`)
 records 0 launches and 0 indeterminate attempts; correcting the prerequisite and re-invoking
-explicitly needs no slash reset, grant, or reconcile. Exhaustion
-returns budget_refused; no new limit, parent abort, retry, wait or queue is added.
+explicitly needs no slash reset, grant, or reconcile. Usage does not impose a
+continuation quota; recovery adds no automatic retry, wait or queue.
 Busy operations that never started spend no allowance and record no failure. Turn reports no
 longer charge refusals as dispatches; refusal totals count every refusal while launch
 counters count only real child executions. Session execution totals

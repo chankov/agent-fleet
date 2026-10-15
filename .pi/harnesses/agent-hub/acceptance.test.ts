@@ -190,7 +190,7 @@ test("T11 scope expansion requires an explicit reason and risk reassessment; wid
  const expanded = applyProcessClassification(state, { scope: "wide", risk: "high", reason: "new cross-package dependency" });
  assert.equal(expanded.ok, true); state = expanded.state;
  const verdict = evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: true });
- assert.equal(verdict.obligations.plan.status, "open"); assert.equal(verdict.obligations.review.status, "open");
+ assert.equal(verdict.obligations.plan.status, "satisfied"); assert.equal(verdict.obligations.review.status, "open");
  assert.match(verdict.explanation, /budget tier small/i); assert.match(verdict.explanation, /risk high/i);
  state = noteProcessStage(noteProcessStage(state, "plan", { evidenceRef: "plan:run-1", revision: "rev-1" }), "review", { evidenceRef: "review:run-2", revision: "rev-1" });
  assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: true }).accepted, true);
@@ -215,8 +215,8 @@ test("T11 read-only work stays lightweight while unknown writable work cannot be
 
 test("T11 open plan refuses operator writes and dependent children before effect", () => {
  const wide = applyProcessClassification(createProcessState(), { risk: "high", scope: "wide", reason: "cross-package change" }).state;
- assert.equal(processPreEffectGate(wide, "write")?.reason, "process_plan_open");
- assert.equal(processPreEffectGate(wide, "child", "builder")?.reason, "process_plan_open");
+ assert.equal(processPreEffectGate(wide, "write")?.reason, undefined);
+ assert.equal(processPreEffectGate(wide, "child", "builder")?.reason, undefined);
  assert.equal(processPreEffectGate(wide, "child", "planner"), null);
 });
 

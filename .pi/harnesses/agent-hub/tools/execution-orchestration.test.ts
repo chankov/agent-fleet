@@ -30,13 +30,11 @@ function dispatchDeps(overrides: Record<string, unknown> = {}): any {
 	};
 }
 
-test("both Herdr spawn effects refuse an open transition, plan or unsupported confirmation before touching Herdr", async () => {
- const plan = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "task", evaluationId: "eval", inputRevision: "rev" });
+test("both Herdr spawn effects refuse an open transition or unsupported confirmation before touching Herdr", async () => {
  const action = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["irreversible_execution"] }, { taskId: "task", evaluationId: "eval", inputRevision: "rev" });
  for (const [state, block, expected] of [
   [createProcessState(), () => ({ reason: "task_transition_pending", message: "transition" }), "task_transition_pending"],
   [createProcessState(), () => ({ reason: "process_state_corrupt", message: "persistence failed" }), "process_state_corrupt"],
-  [plan, () => null, "process_plan_open"],
   [action, () => null, "action_confirmation_unsupported"],
  ] as const) {
   let effects = 0;

@@ -18,6 +18,7 @@ export interface HubPromptResearchPersona {
 }
 
 export interface HubPromptState {
+ requirements?: readonly {id:string;text:string;source?:string;reference?:string;criticalConditions?:readonly string[];recordedStatus:string;evidenceRevision?:string;evidenceTaskId?:string}[];
 	taskTier: string;
 	taskTierAssumed: boolean;
 	processRisk?: string;

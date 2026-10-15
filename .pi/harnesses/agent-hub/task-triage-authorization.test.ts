@@ -75,7 +75,7 @@ test("durable one-use action confirmation closes acceptance without becoming a w
 test("waiver prompt identifies obligation and effect, rejects excess reason before asking; audit says waived", async () => {
  for (const [reason, label, released] of [
   ["security_change", "security-sensitive change", "security review"],
-  ["wide_change", "wide change", "plan and review"],
+  ["wide_change", "wide change", "independent review"],
   ["irreversible_execution", "potentially irreversible execution", "exact-action human confirmation"],
  ] as const) {
   let s = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: [reason] }, bind);
@@ -86,7 +86,7 @@ test("waiver prompt identifies obligation and effect, rejects excess reason befo
   const waived = await confirmTaskTriageWaiver(s, input, f.ports, ctx);
   assert.equal(waived?.additions![0].status, "waived"); assert.equal(f.writes(), 1);
   assert.match(f.question(), new RegExp(label)); assert.ok(f.question().includes(released)); assert.match(f.question(), /NOT baseline or other-source/);
-  const stage = reason === "irreversible_execution" ? "confirmation" : reason === "wide_change" ? "plan" : "review";
+  const stage = reason === "irreversible_execution" ? "confirmation" : "review";
   assert.equal(effectiveProcessStage(waived!, stage), false);
   const verdict = evaluateProcessObligations(waived!, { writable: true, budgetTier: "small", t2Accepted: true });
   assert.equal(verdict.obligations[stage].status, "waived");
@@ -104,7 +104,7 @@ test("one waived source does not remove another input's source or baseline requi
  const f = fixture(); const first = await confirmTaskTriageWaiver(s2, { ...bind, additionId: s1.additions![0].id, reason: "false positive" }, f.ports, ctx);
  assert.equal(first?.additions?.[0].status, "waived"); assert.equal(first?.additions?.[1].status, "active"); assert.equal(effectiveProcessStage(first!, "review"), true);
  const high = { ...first!, risk: "high" as const, scope: "wide" as const };
- assert.equal(effectiveProcessStage(high, "review"), true); assert.equal(effectiveProcessStage(high, "plan"), true);
+ assert.equal(effectiveProcessStage(high, "review"), true); assert.equal(effectiveProcessStage(high, "plan"), false);
 });
 test("exact action confirmation presents complete bash/edit/write inputs and refuses missing or hidden details", async () => {
  const { createHash } = await import("node:crypto");

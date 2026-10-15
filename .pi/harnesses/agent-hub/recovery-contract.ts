@@ -135,6 +135,7 @@ export function recoveryCategoryFromDetails(details: any): RecoveryCategory | nu
 	// Runtime-owned preflight refusals carry started:false and never had a process.
 	// They must not become indeterminate attempts. Explicit cancellation stays
 	// cancellation even before launch; unknown_tool keeps its own lane.
+	if (details.status === "review_reused" && details.reused === true && details.exitCode === 0) return null;
 	if (details.started === false) {
 		if (values.some(value => value.includes("unknown_tool"))) return "unknown_tool";
 		return "not_started";

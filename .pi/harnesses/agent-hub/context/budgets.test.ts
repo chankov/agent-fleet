@@ -121,9 +121,9 @@ test("orchestrator turn floor is visible without inflating the task envelope", (
 	const { context, values } = fixture();
 	values.tier = "small";
 	values.workMode = "orchestrator";
-	assert.equal(context.currentBudget().maxDispatches, 3);
-	assert.equal(context.currentBudget().maxResearch, 2);
-	assert.equal(context.currentTaskBudget().maxDispatches, 6);
+	assert.equal(context.currentBudget().maxDispatches, null);
+	assert.equal(context.currentBudget().maxResearch, null);
+	assert.equal(context.currentTaskBudget().maxDispatches, null);
 	values.workMode = "operator";
-	assert.equal(context.currentBudget().maxDispatches, 2);
+	assert.equal(context.currentBudget().maxDispatches, null);
 });

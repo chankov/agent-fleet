@@ -53,7 +53,7 @@ test("cancelled new-task binding retains prior obligations in the persisted jour
  await assert.rejects(adoption, /pending input was not evaluated/);
  assert.deepEqual(latestProcessState(entries), latestProcessState(entries.slice(0, 1)), "resume must retain both baseline and S1 obligations");
  assert.deepEqual(latestProcessState(entries).additions?.map(a => a.reason), ["security_change"]);
- assert.equal(latestProcessState(entries).plan.required, true);
+ assert.equal(latestProcessState(entries).plan.required, false);
 });
 test("new-task persistence failures cannot reset a rejected adoption's durable obligations", async () => {
  const prior = applyTaskTriageAdditions(applyProcessClassification(createProcessState(), { risk: "high", scope: "wide", reason: "baseline" }).state, assessment("security_change"), binding);
@@ -86,9 +86,9 @@ test("in-session recovery persists full baseline/addition union and checks readb
  const entries: any[] = [{ customType: "agent-hub-process-state", data: processAuditRecord(state, evaluateProcessObligations(state, { writable: true, budgetTier: "small" })) }];
  const opts = { state, current: { ...binding, assessment: assessment("wide_change") }, taskId: binding.taskId, budgetTier: "small", append: (record: any) => entries.push({ customType: "agent-hub-process-state", data: record }), entries: () => entries };
  const next = recoverTaskTriageProcessState(opts);
- assert.equal(next.risk, "high"); assert.equal(next.plan.required, true); assert.equal(next.review.required, true);
+ assert.equal(next.risk, "high"); assert.equal(next.plan.required, false); assert.equal(next.review.required, true);
  assert.deepEqual(next.additions?.map(a => a.reason), ["irreversible_execution", "security_change", "wide_change"]);
- assert.equal(processPreEffectGate(next, "write")?.reason, "process_plan_open");
+ assert.equal(processPreEffectGate(next, "write")?.reason, "action_confirmation_unsupported");
  assert.equal(processPreEffectGate(noteProcessStage(next, "plan", { evidenceRef: "plan", revision: "rev" }), "write")?.reason, "action_confirmation_unsupported");
  const count = entries.length;
  assert.throws(() => recoverTaskTriageProcessState({ ...opts, state: next, append: () => { throw Error("full"); } }), /full/);
@@ -102,7 +102,7 @@ test("recovery accepts a monotonic stage-evidence successor after failed append"
  const entries: any[] = [{ customType: "agent-hub-process-state", data: processAuditRecord(state, evaluateProcessObligations(state, { writable: true, budgetTier: "small" })) }];
  const newer = noteProcessStage(state, "plan", { evidenceRef: "run:plan", revision: "rev" });
  const recovered = recoverTaskTriageProcessState({ state: newer, current: null, taskId: binding.taskId, budgetTier: "small", append: record => entries.push({ customType: "agent-hub-process-state", data: record }), entries: () => entries });
- assert.equal(recovered.plan.evidenceRef, "run:plan"); assert.equal(recovered.plan.required, true);
+ assert.equal(recovered.plan.evidenceRef, "run:plan"); assert.equal(recovered.plan.required, false);
  assert.equal(processPreEffectGate(recovered, "write")?.reason, "action_confirmation_unsupported");
  assert.throws(() => recoverTaskTriageProcessState({ state: newer, current: null, taskId: "another-task", budgetTier: "small", append: () => assert.fail("must not append"), entries: () => entries }), /different task/);
 });
@@ -120,11 +120,11 @@ test("recovery refuses stale in-memory union and oversized additions without cle
 test("partial roster yields exact missing-role recovery, not a substitute agent", () => {
  const state = applyTaskTriageAdditions(createProcessState(), assessment("wide_change"), binding);
  const hint = missingProcessRoleRecoveryHints(state, new Set(["builder"]));
- assert.match(hint, /\/af-agents-add planner/);
+ assert.doesNotMatch(hint, /\/af-agents-add planner/);
  assert.match(hint, /\/af-agents-add code-reviewer/);
  assert.match(hint, /\/af-agents-team/);
  assert.equal(missingProcessRoleRecoveryHints(state, new Set(["builder", "planner", "security-auditor"])), "");
- assert.match(missingProcessRoleRecoveryHints(state, new Set()), /\/af-agents-add planner/);
+ assert.match(missingProcessRoleRecoveryHints(state, new Set()), /\/af-agents-add code-reviewer/);
 });
 test("active additions expose exact waiver IDs, plain obligations and transition instructions", () => {
  const state = applyTaskTriageAdditions(createProcessState(), assessment("security_change", "wide_change", "irreversible_execution"), binding);
@@ -134,7 +134,7 @@ test("active additions expose exact waiver IDs, plain obligations and transition
   assert.match(hint, new RegExp(`/af-task-triage-waive ${addition.id} <reason>`));
  }
  assert.match(hint, /security-sensitive change.*review before acceptance/i);
- assert.match(hint, /wide change.*plan before effects.*review before acceptance/i);
+ assert.match(hint, /wide change.*research.*ask_user/i);
  assert.match(hint, /irreversible execution.*exact.*human confirmation before each effect/i);
  assert.match(taskTransitionRecoveryHint, /pending task transition.*set_task_tier.*new_task: true.*human supersession/i);
  const firstDiversion = transitionDiversionDecision(0, taskTransitionRecoveryHint);
@@ -166,20 +166,20 @@ test("independent source union, durable provenance, unchanged spend and idempote
  const baseline = applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "declared" }).state;
  let s = applyTaskTriageAdditions(baseline, assessment("security_change", "wide_change", "irreversible_execution"), binding);
  assert.equal(s.risk, "low"); assert.equal(s.scope, "small"); assert.equal(s.additions?.length, 3);
- assert.equal(effectiveProcessStage(s, "plan"), true); assert.equal(effectiveProcessStage(s, "review"), true); assert.equal(pendingActionConfirmation(s).length, 1);
- assert.equal(processPreEffectGate(s, "write")?.reason, "process_plan_open");
+ assert.equal(effectiveProcessStage(s, "plan"), false); assert.equal(effectiveProcessStage(s, "review"), true); assert.equal(pendingActionConfirmation(s).length, 1);
+ assert.equal(processPreEffectGate(s, "write")?.reason, "action_confirmation_unsupported");
  assert.equal(processActionGate(s)?.reason, "action_confirmation_unsupported");
  assert.equal(processActionGate(s, { actionId: "a", taskId: "task-1", inputRevision: "input-1", operation: "migration", target: "production" }, true as any)?.reason, "action_confirmation_unsupported");
  const verdict = evaluateProcessObligations(s, { writable: true, budgetTier: "small", t2Accepted: true, currentRevision: "rev-1" });
- assert.equal(verdict.accepted, false); assert.equal(verdict.obligations.plan.status, "open"); assert.equal(verdict.obligations.review.status, "open"); assert.equal(verdict.obligations.confirmation?.status, "open");
- assert.equal(processPreEffectGate(s, "write")?.reason, "process_plan_open");
+ assert.equal(verdict.accepted, false); assert.equal(verdict.obligations.plan.status, "satisfied"); assert.equal(verdict.obligations.review.status, "open"); assert.equal(verdict.obligations.confirmation?.status, "open");
+ assert.equal(processPreEffectGate(s, "write")?.reason, "action_confirmation_unsupported");
  s = noteProcessStage(noteProcessStage(s, "plan", { evidenceRef: "plan:1", revision: "rev-1" }), "review", { evidenceRef: "review:1", revision: "rev-1" });
  assert.deepEqual(applyTaskTriageAdditions(s, assessment("security_change", "wide_change"), binding), s, "identical evaluation cannot reopen stages");
  const entry = { type: "custom", customType: "agent-hub-process-state", data: processAuditRecord(s, verdict) };
  assert.deepEqual(latestProcessState([entry, { type: "compaction" }]), s);
  assert.equal(evaluateProcessObligations(s, { writable: true, budgetTier: "trivial", t2Accepted: true, currentRevision: "rev-2" }).obligations.review.status, "open");
  const expanded = applyProcessClassification(s, { risk: "low", scope: "wide", reason: "expanded" });
- assert.equal(expanded.ok, true); assert.equal(expanded.state.plan.evidenceRef, null); assert.equal(expanded.state.review.evidenceRef, null);
+ assert.equal(expanded.ok, true); assert.equal(expanded.state.plan.evidenceRef, "plan:1"); assert.equal(expanded.state.review.evidenceRef, null);
 });
 test("waiver releases exactly one S1 source, never baseline or other S1 sources", () => {
  let s = applyTaskTriageAdditions(createProcessState(), assessment("security_change"), binding);
@@ -188,7 +188,7 @@ test("waiver releases exactly one S1 source, never baseline or other S1 sources"
  for (const b of [{ ...binding, additionId: first.id, reason: "" }, { ...binding, additionId: first.id, reason: "error", inputRevision: "old" }, { ...binding, additionId: first.id, reason: "human correction" }]) assert.equal(waiveTaskTriageAddition(s, b, true as any), null);
  assert.equal(s.additions![0].status, "active"); assert.equal(s.additions![1].status, "active");
  const high = applyProcessClassification(s, { risk: "high", scope: "wide", reason: "independent baseline" }).state;
- assert.equal(effectiveProcessStage(high, "review"), true); assert.equal(effectiveProcessStage(high, "plan"), true);
+ assert.equal(effectiveProcessStage(high, "review"), true); assert.equal(effectiveProcessStage(high, "plan"), false);
  assert.equal(evaluateProcessObligations(high, { writable: true, budgetTier: "small", t2Accepted: true }).accepted, false);
 });
 test("child dispatch and writes refuse unbound action even after plan; read-only proof cannot satisfy it", () => {
@@ -196,7 +196,7 @@ test("child dispatch and writes refuse unbound action even after plan; read-only
  for (const persona of ["builder", ""]) assert.equal(processPreEffectGate(s, "child", persona)?.reason, "action_confirmation_unsupported");
  for (const persona of ["planner", "code-reviewer"]) assert.equal(processPreEffectGate(s, "child", persona)?.reason, "action_confirmation_unsupported", "a role name alone cannot bypass confirmation");
  const withStages = applyTaskTriageAdditions(s, assessment("wide_change"), { ...binding, evaluationId: "eval-2", inputRevision: "input-2" });
- assert.equal(processPreEffectGate(withStages, "child", "planner"), null, "required plan producer remains executable");
+ assert.equal(processPreEffectGate(withStages, "child", "planner")?.reason, "action_confirmation_unsupported", "optional planner cannot bypass exact action authorization");
  const planned = noteProcessStage(withStages, "plan", { evidenceRef: "plan", revision: "rev-1" });
  assert.equal(processPreEffectGate(planned, "child", "code-reviewer"), null, "required review producer remains executable");
  assert.equal(processPreEffectGate(planned, "child", "planner")?.reason, "action_confirmation_unsupported", "a completed plan cannot become a generic exemption");
@@ -270,5 +270,5 @@ test("large baseline acceptance evidence without additions still evaluates, gate
 test("legacy booleans cannot drop checks on normalization or a S1 waiver", () => {
  const legacy: any = { ...createProcessState(), risk: "high", scope: "wide", plan: { required: false, evidenceRef: null, revision: null }, review: { required: false, evidenceRef: null, revision: null }, acceptance: { required: false, evidenceRef: null, revision: null } };
  const s = latestProcessState([{ customType: "agent-hub-process-state", data: { schema: legacy.schema, state: legacy } }]);
- assert.equal(s.acceptance.required, true); assert.equal(s.review.required, true); assert.equal(s.plan.required, true);
+ assert.equal(s.acceptance.required, true); assert.equal(s.review.required, true); assert.equal(s.plan.required, false);
 });

@@ -1,6 +1,8 @@
 # Agent Fleet Philosophy
 
-Status: project direction agreed with the maintainer on 2026-09-17.
+Status: project direction agreed with the maintainer on 2026-09-17. Optional
+Planner assistance and supervised execution without continuation quotas were
+approved by the maintainer on 2026-10-15.
 This is the canonical statement of intent for Agent Fleet's development. It
 records the methodology discussed with the maintainer; it is not a claim that
 every existing runtime path already enforces these principles.
@@ -34,7 +36,11 @@ and accepted before dependent work proceeds.
 
 Task scope and risk determine the appropriate process through documented rules.
 A small, reversible correction can take a short path; a broad or consequential
-change needs more planning, verification, and review. Short paths preserve the
+change needs proportionate research, verification, and review. Planner and plan
+review are optional assistance, never prerequisites triggered by size or risk.
+An existing plan can be executed directly; factual gaps call for focused research,
+and additional unresolved decisions call for separate grilling with `ask_user`.
+Short paths preserve the
 applicable requirements and evidence without adding ceremony for its own sake.
 
 The reason for choosing a path must be visible. A model's unsupported label of
@@ -74,7 +80,11 @@ Errors have distinct causes and permitted next steps. Busy workers, invalid inpu
 failed verification, protocol errors, resource failures, and operator cancellation
 must not collapse into the same retry behavior. Recovery is bounded and responds
 to changed conditions or authorized decisions; repeating equivalent attempts
-must not consume the budget indefinitely. Cancellation is respected.
+must not repeat indefinitely without supervision. Dispatch/research counts and
+active time remain visible accounting, without fixed continuation quotas or
+periodic permission to keep working on an authorized task. The runtime watchdog
+supervises repeated work and failures; individual process deadlines remain.
+Cancellation is respected.
 
 Tool-like text is data, not an executed action. Budget and permission changes
 are explicit. The system should stop with an accurate explanation when progress

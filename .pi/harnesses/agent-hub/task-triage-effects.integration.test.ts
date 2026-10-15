@@ -56,7 +56,7 @@ test("review is pre-acceptance, not pre-authoring; plan and action confirmation 
   const finished = noteProcessStage(reviewed, "review", { evidenceRef: "review:1", revision: "rev-1" });
   assert.equal(evaluateProcessObligations(finished, { writable: true, budgetTier: "small", t2Accepted: true, currentRevision: "rev-1" }).accepted, true);
   const wide = applyTaskTriageAdditions(base, { status: "applied", reasons: ["wide_change"] }, bind);
-  assert.equal(processPreEffectGate(wide, "write")?.reason, "process_plan_open");
+  assert.equal(processPreEffectGate(wide, "write")?.reason, undefined);
   assert.equal(processPreEffectGate(wide, "child", "planner"), null);
   const action = applyTaskTriageAdditions(base, { status: "applied", reasons: ["irreversible_execution"] }, bind);
   assert.equal(processPreEffectGate(action, "write")?.reason, "action_confirmation_unsupported");

@@ -1,15 +1,20 @@
 export type SemanticDecision='allow'|'deny';
-const decisions=new Map<string,SemanticDecision>();
-let scope:{taskId:string;revision:string}|null=null;
+interface SemanticState { decisions: Map<string,SemanticDecision>; scope: {taskId:string;revision:string}|null; }
+// Pi's isolated extension loaders share a JS runtime, not module-local bindings.
+const storeKey=Symbol.for('agent-fleet.semantic-approval.v1');
+const runtime=globalThis as typeof globalThis & {[key:symbol]:SemanticState|undefined};
+const state=runtime[storeKey]??= {decisions:new Map(),scope:null};
+const decisions=state.decisions;
+export const semanticScope=()=>state.scope;
 const key=(taskId:string,revision:string,path:string)=>JSON.stringify([taskId,revision,path]);
 
 export function resetSemanticApprovals():void {
- decisions.clear();scope=null;
+ decisions.clear();state.scope=null;
 }
 export function bindSemanticScope(taskId:string,revision:string):void {
- if(!taskId||!revision){scope=null;return;}
- if(scope?.taskId===taskId&&scope.revision===revision)return;
- scope={taskId,revision};
+ if(!taskId||!revision){resetSemanticApprovals();return;}
+ if(state.scope?.taskId===taskId&&state.scope.revision===revision)return;
+ decisions.clear();state.scope={taskId,revision};
 }
 export function noteSemanticDecision(taskId:string,revision:string,path:string,decision:SemanticDecision):void {
  const normalized=normalizeDecisionPath(path);
@@ -72,8 +77,10 @@ const deletion=(value:string)=>/изтри|delete|remove|\brm\b/i.test(value);
 function pathsIn(value:string):string[] {
  const found=new Set<string>();
  for(const match of value.matchAll(/`([^`]+)`|"([^"]+)"|'([^']+)'|(\S+)/g)){
-  const normalized=normalizeDecisionPath(match[1]??match[2]??match[3]??match[4]??'');
-  if(normalized)found.add(normalized);
+  const quoted=match[1]??match[2]??match[3];
+  const token=quoted??match[4]??'';
+  const normalized=normalizeDecisionPath(token);
+  if(normalized&&(quoted!==undefined||/[/.]/.test(token)))found.add(normalized);
  }
  return [...found];
 }
@@ -86,6 +93,7 @@ export function deleteConfirmation(question:string,context:string|undefined,sele
  return paths.length===1?{path:paths[0],decision}:null;
 }
 export function semanticAskUserAnswer(params:{question?:unknown;context?:unknown;options?:unknown}):string|null {
+ const scope=state.scope;
  if(!scope||typeof params.question!=='string')return null;
  const options=Array.isArray(params.options)?params.options.filter((option):option is string=>typeof option==='string'):[];
  const paths=pathsIn(`${params.question}\n${typeof params.context==='string'?params.context:''}`);
@@ -94,7 +102,9 @@ export function semanticAskUserAnswer(params:{question?:unknown;context?:unknown
  if(!decision)return null;
  return options.find(option=>decision==='allow'?affirmative(option):negative(option))??null;
 }
-export function noteAskUserDecision(params:{question?:unknown;context?:unknown},selection:string):void {
+export function noteAskUserDecision(params:{question?:unknown;context?:unknown},selection:string,expectedScope=state.scope):void {
+ const scope=state.scope;
+ if(expectedScope!==scope)return;
  if(!scope||typeof params.question!=='string')return;
  const decision=deleteConfirmation(params.question,typeof params.context==='string'?params.context:undefined,selection);
  if(decision)noteSemanticDecision(scope.taskId,scope.revision,decision.path,decision.decision);

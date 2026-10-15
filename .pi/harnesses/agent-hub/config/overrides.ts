@@ -114,9 +114,9 @@ export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 		}
 		if (key === "watchdog-judge-model" && value) result.watchdogJudgeModel = value;
 		if (key === "poll-panel" && value) result.pollPanel = value;
+		if (["max-dispatches-per-turn", "max-research-per-turn", "turn-wall-time-s"].includes(key)) result.warnings.push(`${key} is ignored: continuation quotas were removed; usage remains visible and watchdog supervises progress.`);
 		const budgetKeys: Record<string, { field: keyof AgentTeamOverrides["budgetOverrides"]; scaleMs: boolean }> = {
-			"max-dispatches-per-turn": { field: "maxDispatches", scaleMs: false }, "max-research-per-turn": { field: "maxResearch", scaleMs: false },
-			"turn-wall-time-s": { field: "wallMs", scaleMs: true }, "agent-turn-timeout-s": { field: "agentTurnMs", scaleMs: true }, "session-recycle-runs": { field: "recycleRuns", scaleMs: false },
+			"agent-turn-timeout-s": { field: "agentTurnMs", scaleMs: true }, "session-recycle-runs": { field: "recycleRuns", scaleMs: false },
 		};
 		if (budgetKeys[key] && value) {
 			const { field, scaleMs } = budgetKeys[key];

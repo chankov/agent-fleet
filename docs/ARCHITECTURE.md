@@ -47,9 +47,33 @@ orchestrator startup requires a roster. `/af-work-mode` and **Alt+M** switch
 only work mode in the live session, and `/af-agents-*` changes
 only the native roster. Dispatch, research, nested delegation, and Verification
 Contract rigor follow the **task tier** (`trivial`/`small`/`feature`/`project`),
-not a session execution mode. One orchestrator exception: the turn dispatch
-allowance is at least 3 unless `max-dispatches-per-turn` sets a lower ceiling.
-The task envelope stays 3× the tier turn budget, not 3× that floor.
+not a session execution mode. Dispatch/research counts and active duration are
+accounting metrics without turn or task continuation quotas. Planner and plan
+review are optional; wide/high-risk work retains independent review and applicable
+exact-action authorization without a pre-effect planning gate.
+
+Approval memory is shared across Pi's isolated extension loaders within the
+runtime. Semantic decisions remain bound to the accepted task/input revision and
+exact path; task/session changes fence late answers. Remembered confirmation is
+not a reusable effect grant: actual irreversible effects still consume their
+runtime authorization. Identical concurrent dialogs coalesce, and cancellation
+does not become consent.
+
+Successful independent reviews retain role-specific evidence, reviewed file
+revision, coverage, requirement declarations and input-artifact hashes in the
+process journal. An identical covered review returns the retained evidence without
+starting another child. Changed accepted input, source, requirements, task, scope, evidence,
+concurrent writes or an explicit `review_reason` require a fresh review; unresolved
+questions, blocking findings and rejected reviews cannot supply reusable approval.
+
+The model's context hook projects older successful coordination/inspection bodies
+to short references backed by exact local originals. It leaves the session journal,
+user/assistant messages, questions, failures, images and latest tool batch intact,
+and retains a recent inspection working set. The prompt capsule carries current
+sourced requirements and critical conditions without treating recorded status as
+fresh proof. Plain continue/resume inputs retain the accepted task; identical
+classification declarations avoid new triage, revision hashing and journal writes.
+Changed intent still uses the existing task-transition fence.
 
 All Hub-owned slash commands remain registered in both work modes. Capability packs are resolved automatically from explicit task intent, work mode, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain.
 
@@ -220,46 +244,30 @@ drain, and reports timeout separately from cancellation. Research helpers and ne
 are each given safe process-group ownership; delegates forward parent termination so no detached
 child is orphaned. Full pattern catalog: [references/orchestration-patterns.md](../references/orchestration-patterns.md).
 
-### Task-tier budgets
+### Usage accounting and supervision
 
-The hub enforces per-user-turn budgets in code (`run-budget.js`): the current **task tier**
-caps `dispatch_agent` calls, `spawn_research` calls, and active time per turn, sets the
-per-run deadline above, and controls nested delegation (`off` at trivial/small). Exhausted
-budgets make the dispatch tools refuse and request one Yes/No `ask_user` confirmation; Yes
-renews the turn in the same tool loop. A normal new user message also opens a fresh turn
-window.
-Specialist context pressure is measured over input + cacheRead + cacheWrite against **that
-agent's own** model window, resolved from pi's model registry with the source recorded
-(`context-window.js`) — measuring a 49k local model against the dispatcher's window is what
-made readings like "315%" unactionable; anything over 100% now emits a one-time diagnostic
-naming the window and where it came from. Specialist sessions are recycled (fresh spawn
-instead of `-c` resume) after `session-recycle-runs` runs, at ≥60% measured context, and
-unconditionally at a full window; a resumed session whose *projected* prompt would overflow
-is recycled before the spawn rather than after the run. Requests to one provider are capped
-per process (`provider-semaphore.js`: 2 in flight for `custom/*` by default, unlimited
-elsewhere, `AGENT_HUB_PROVIDER_LIMITS` to override) — the cap is per level of the delegation
-tree, and a nested spawn reuses its parent's permit so it can never wait on its own ancestor.
-Configured under `## agent-hub` (`max-dispatches-per-turn`,
-`max-research-per-turn`, `turn-wall-time-s`, `agent-turn-timeout-s`, `session-recycle-runs`,
-`run-history-keep`) as ceilings (`min` with the tier). A leftover `mode:` key is ignored with
-a warning.
+The hub records dispatches, research, review rounds and active time across turns and
+saved tasks (`run-budget.js`). None imposes a continuation quota. Legacy
+`max-dispatches-per-turn`, `max-research-per-turn` and `turn-wall-time-s` overrides
+are ignored with migration warnings. Usage remains visible with unlimited caps.
+Task tiers still select delegation, specialist deadlines, recycling and role policy.
+Planner and plan-reviewer are optional at every tier. Wide or high-risk classification
+and System 1 additions retain independent review and action authorization, not a
+Planner admission requirement. Gaps use research; new decisions use `ask_user` grilling.
 
-A per-message allowance cannot bound a task, so a second envelope sits above the turn one:
-the **task budget** (`run-budget.js`, `3×` the turn envelope) counts dispatches, research
-runs and **active** time across the WHOLE task and is *not* reset by a user message. Both turn
-and task active time exclude `ask_user` waits — billing human idle false-stops a normal steered
-session and teaches people to reset reflexively. The auto-research pipe is exempt from the turn
-budget but charged against the task envelope, so it cannot smuggle 8 helpers per dispatch past
-the outer bound.
+The root operator and native specialists use the drift runtime. Repeated identical
+calls or consecutive failures trigger a bounded judge; a current stuck/drifting
+verdict requests cancellation. Root productive call volume alone never triggers it.
+Judges are fenced at turn/input/session boundaries; an unavailable judge cannot
+fabricate a stop. Root audit entries distinguish an abort request from a confirmed
+physical child stop. This is tool-stream supervision, not a wall-time heartbeat or
+visibility into an external coms peer's own tools. `watchdog: auto` arms it by default;
+an explicit human `off` setting is respected.
 
-Either envelope stops before another dispatch/research call and asks one localized Yes/No
-`ask_user` question. A confirmed turn continuation renews its counters/clock in the same tool
-loop. A confirmed task continuation opens one audited tranche, also renews the turn, and
-preserves task tier, assertions, capability packs, label, blockers, and progress. No typed
-`continue` message or slash command is required. `set_task_tier` with `new_task: true` is only
-for genuinely different work and clears task identity/state. This is the guardrail the
-post-mortem run never hit: every steering message reopened the turn window,
-so one workspace stayed open 47 hours on a change that took 13 minutes in a narrow one.
+Individual child deadlines and operator cancellation remain effective. Session
+recycling at run-count/context thresholds and provider concurrency limits remain
+independent resource controls. `agent-turn-timeout-s` and `session-recycle-runs`
+can tighten their tier defaults. Active-time accounting excludes human waits.
 
 ### Runtime acceptance and recovery
 
@@ -446,44 +454,32 @@ effective-catalog event can establish `toolStateChanged` evidence for the existi
 `unknown_tool` `recoveryDecision`, but still requires explicit reinvocation and existing general
 budgets; it never schedules an automatic retry.
 
-On top of the tier envelope sit several qualitative guardrails. **Task triage**: the dispatcher
-classifies the current TASK via the `set_task_tier` tool (`trivial`/`small`/`feature`/`project`)
-and that classification *is* the budget. The tier is task-scoped and **ratcheted** — it survives
-the user's next message, lowering is free, raising needs a stated `reason` — because a
-turn-scoped tier reset to `feature` on every correction. Three refusals enforce
-proportionality in code rather than prose: a duplicate-dispatch guard (near-identical
-re-dispatches within a turn), a **tier persona gate** (`planner`, `plan-reviewer`,
-`architect`, `security-auditor`, `deep-researcher` are refused at trivial/small — each opens
-a document/finding loop), and a **review round cap** (review dispatches per task, by tier).
-Skipping triage assumes `small`, not `feature`: the tier latches for the task, and the case
-where it was never declared is exactly the case where proportionality was not being
-considered. The review **finding** budget is the one thing deliberately left advisory — the
-hub counts blocking findings (`review-findings.js`) and reports an over-budget return, but
-never reclassifies one, because no rule it can evaluate separates an invented manifest from
-a leaked credential; the round cap is what carries the enforcement.
+Qualitative guardrails remain separate from usage accounting. **Task triage** classifies
+the current task (`trivial`/`small`/`feature`/`project`) for delegation, role and
+individual-process resource policy. It survives follow-ups; lowering is free and
+raising needs a recorded reason. Skipped triage assumes small. Near-identical
+dispatches retain the duplicate guard. Architect, security-auditor and deep-researcher
+retain the trivial/small persona gate; Planner and plan-reviewer are optional at
+every tier. Review rounds are uncapped. Review findings retain their advisory
+budget and source-invariant rule; findings are never silently demoted by position.
 **Process obligations (T11)** are task-scoped and independent of that budget tier. The
 `set_task_tier` tool accepts explicit `risk` (`unknown | low | high`) and process `scope`
 (`read-only | small | wide`); neither is inferred from task prose. Legacy/omitted risk is
 `unknown`, risk changes require a reason, and scope expansion requires a reason plus an
 explicit risk reassessment. Unknown permits read-only research but cannot accept changed
 work. Confirmed low-risk small work uses the existing T2 minimal acceptance path; high risk
-adds a separate review stage, while wide work adds plan and review stages. These obligations
-ratchet within a task, so lowering spend cannot erase them. Completed stage records name an
-artifact and revision but only prove that the stage occurred—not that model-authored review
-is semantically adequate. Planner dispatch must use the persona-bearing `dispatch_agent`
-contract with declared scope/deliverable and applicable backend policy. Direct `coms_send`
-remains an anonymous child effect even when its target is named planner; an open plan
-obligation refuses it before target resolution/send. Refusal points to planner dispatch
-and human roster recovery; read-only coms inspection remains available. Declared plan
-readback can satisfy plan occurrence, not independent acceptance or review. Exit 0,
-prompt echoes, `PLAN_FILE` prose without the artifact, pending transport and stale-revision
-verification/review cannot substitute for the separate current-evidence gates.
+adds a separate review stage; wide work also requires independent review. Planning
+is optional and never a pre-effect gate. Current stage evidence names an artifact
+and revision, without claiming that a model review is semantically adequate. A
+requested Planner still needs genuine declared artifact readback to record plan
+occurrence. Missing optional planning cannot block an authorized builder, direct
+operator or coms peer. Exact-action authorization, independent review, current
+verification and task-transition fencing still govern their respective effects.
+Exit 0, prompt echoes, pending transport and stale evidence cannot replace them.
 
-Builder admission uses the bound plan evidence without treating explicit sensitive-work
-prohibitions as positive requests. The refusal and handoff paths share a closed prohibition
-grammar, including operation lists and `without printing or copying credentials`.
-Positive or ambiguous sensitive requests still require Planner admission; general route
-classification and the independent process gates retain their existing rules.
+Sensitive-work prohibitions remain distinct from positive requests in handoff
+advice; neither positive nor ambiguous wording mandates a Planner. Resolve factual
+gaps with focused research and additional decisions with `ask_user` grilling.
 
 Dispatch observation preserves the existing snapshot when the session cwd is a Git
 worktree. For a non-Git parent it resolves only the literal anchors of declared scopes to
@@ -722,7 +718,7 @@ bind input/scope/version; task adoption and compaction/resume cannot refill the
 allowance. Physical attempts and unknown usage remain distinct from logical calls.
 
 Independent intent-aware predicates at inclusive thresholds add review
-(`security_change` ≥0.80), plan/review (`wide_change` ≥0.85), or exact-action human
+(`security_change` ≥0.80), review (`wide_change` ≥0.85), or exact-action human
 confirmation (`irreversible_execution` ≥0.80). They do not set risk/tier, select
 a model/roster, increase spend or weaken baseline protections. Low probabilities
 are not clearance; missing/invalid/provider-failed results add nothing while
@@ -734,7 +730,7 @@ requirements. New scope invalidates uncovered evidence. A narrow correlated
 human waiver releases one bound addition as `waived`, not `satisfied`; baseline
 and other-source requirements survive. Pending task transition and authoritative
 state/grant/consumption persistence refusal fence dependent effects. While that fence is up, `set_task_tier` and `ask_user` remain callable; any other tool is a diversion. The first assistant step that calls another tool is refused with the bind hint on every tool in that step and is not aborted, so the model can call `set_task_tier` next. A later step that still does not bind stops the turn, including its parallel batch, by aborting the run instead of repeating the same retryable refusal. The fence is persisted and restored on resume until `set_task_tier` clears it. Supported
-native planner/reviewer stages use the existing evidence path; exact-action
+Optional native planning and required review use the existing evidence path; exact-action
 confirmation supports Hub direct bash/edit/write, not arbitrary child/remote/coms
 execution. The human question shows complete tool inputs as JSON and cwd with
 an **8 KiB (8192 bytes)** full-detail cap: invalid, missing, sensitive,

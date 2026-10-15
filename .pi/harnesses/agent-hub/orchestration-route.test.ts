@@ -21,20 +21,20 @@ test("narrow planned fix can skip a new planner", () => {
 	assert.equal(decision.reclassified, false);
 });
 
-test("self-declared small is not enough", () => {
+test("missing plan does not require a planner", () => {
 	const decision = classifyOrchestrationRoute({ ...narrow, approvedPlan: false, selfDeclaredSmall: true });
-	assert.equal(decision.route, "planner-required");
-	assert.match(decision.reason, /approved plan/i);
+	assert.equal(decision.route, "builder-reviewer");
+	assert.match(decision.reason, /optional/i);
 });
 
-test("cross-cutting, secret, cloud, and a new fork require a planner", () => {
+test("cross-cutting, secret, cloud, and a new fork do not mandate a planner", () => {
 	for (const input of [
 		{ ...narrow, scopeBreadth: "cross-cutting" as const },
 		{ ...narrow, risk: "secret" as const },
 		{ ...narrow, risk: "cloud" as const },
 		{ ...narrow, unresolvedForks: ["adapter ownership"] },
 	]) {
-		assert.equal(classifyOrchestrationRoute(input).route, "planner-required");
+		assert.equal(classifyOrchestrationRoute(input).route, "builder-reviewer");
 	}
 });
 
@@ -45,10 +45,10 @@ test("table-adapter fix skips planner and documenter", () => {
 	assert.equal(stages.stages.includes("documenter"), false);
 });
 
-test("wide or high-impact work still includes a planner", () => {
-	assert.equal(selectSpecialists({ ...narrow, scopeBreadth: "wide" }).stages[0], "planner");
-	assert.equal(selectSpecialists({ ...narrow, risk: "high" }).stages[0], "planner");
-	assert.match(selectSpecialists({ ...narrow, risk: "low" }, { secret: true }).reason, /not lowered/);
+test("wide or high-impact work keeps a direct implementation route", () => {
+	assert.equal(selectSpecialists({ ...narrow, scopeBreadth: "wide" }).stages[0], "builder");
+	assert.equal(selectSpecialists({ ...narrow, risk: "high" }).stages[0], "builder");
+	assert.match(selectSpecialists({ ...narrow, risk: "low" }, { secret: true }).reason, /authorization/);
 });
 
 test("builder updates plan status only inside scope with evidence", () => {
@@ -61,7 +61,7 @@ test("scope or risk change reclassifies with a visible reason", () => {
 	const previous = classifyOrchestrationRoute(narrow);
 	const next = classifyOrchestrationRoute({ ...narrow, scopeBreadth: "wide", risk: "high" }, previous);
 	assert.equal(next.reclassified, true);
-	assert.equal(next.route, "planner-required");
+	assert.equal(next.route, "builder-reviewer");
 	assert.match(next.reason, /scopeBreadth narrow → wide/);
 	assert.match(next.reason, /risk low → high/);
 });

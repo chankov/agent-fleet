@@ -97,7 +97,7 @@ test("operator gets actionable fleet tools only when transition or S1 stage need
   assert.equal(packs.reasons.fleet, "pending-operation");
   assert.ok(active.includes("set_task_tier") && active.includes("dispatch_agent"), stage);
   assert.deepEqual(active.filter(name => baseline.includes(name)), baseline, "operator tools unchanged");
-  assert.equal(processPreEffectGate(state, "write")?.reason === "process_plan_open", stage === "wide_change");
+  assert.equal(processPreEffectGate(state, "write"), null);
  }
  const transition = tools([{ pack: "fleet", kind: "task-transition" }]);
  assert.ok(transition.active.includes("set_task_tier") && transition.active.includes("dispatch_agent"));
@@ -274,7 +274,7 @@ test("same-turn pressure aborts after a large tool result and compacts only afte
 	assert.match(pressureLifecycleSource, /context\(ctx\)[\s\S]*?automaticPending[\s\S]*?ctx\.abort\(\)/);
 	assert.match(indexSource, /pi\.on\("agent_settled"[\s\S]*?pressureLifecycle\.agentSettled/);
 	assert.match(pressureLifecycleSource, /const runCompaction[\s\S]*?ctx\.compact\(/);
-	assert.match(indexSource, /pi\.on\("session_compact", async[\s\S]*?toolCatalogRuntime\.compact\(\{[\s\S]*?retainCounter: \(\) => unknownToolCounter\.noteCompaction\(\)[\s\S]*?settle: \(\) => pressureLifecycle\.sessionCompact\(\)/);
+	assert.match(indexSource, /pi\.on\("session_compact", async[\s\S]*?toolCatalogRuntime\.compact\(\{[\s\S]*?retainCounter: \(\) => unknownToolCounter\.noteCompaction\(\)[\s\S]*?settle: restored => pressureLifecycle\.sessionCompact\(restored\)/);
 });
 
 test("T4 real lifecycle paths record mode deltas, unknown calls, compaction restore, and explicit new-task reset", () => {

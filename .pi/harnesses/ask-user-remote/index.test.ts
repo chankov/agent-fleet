@@ -614,6 +614,7 @@ test("subprocess smoke: default export registers ask_user into configured and ac
 	const harnessRoot = path.join(packageRoot, ".pi", "harnesses");
 	for (const [source, destination] of [
 		["../lib/semantic-approval.ts", "lib/semantic-approval.ts"],
+		["../lib/identical-dialog.ts", "lib/identical-dialog.ts"],
 		["../lib/approval-wait.ts", "lib/approval-wait.ts"],
 		["../agent-hub/approval-wait.ts", "agent-hub/approval-wait.ts"],
 	] as const) {

@@ -654,7 +654,7 @@ test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, 
   assert.match(proofGate.text, /review/, `review remains an actual open obligation; ${registeredProof()}`);
 });
 
-test("real Pi T4 wide-small empty-roster operator: plan blocks effects, inspection works, both role recoveries stay human-owned", { timeout: 180_000 }, async t => {
+test("real Pi T4 wide-small empty-roster operator: direct effects proceed without Planner and review recovery stays human-owned", { timeout: 180_000 }, async t => {
   const dir = setupWorkspace(t);
   const change = join(dir, "wide-plan-gated.txt");
   writeFileSync(join(dir, "README.md"), "inspection is allowed\n");
@@ -670,24 +670,20 @@ test("real Pi T4 wide-small empty-roster operator: plan blocks effects, inspecti
   const response = await session.request("rework the fleet workspace layout across components");
   assert.equal(response.success, true, JSON.stringify(response));
   assert.ok(session.fakeCalls().some(c => c.profile === "wide"), "real hooks used the shared fake Jev transport");
-  assert.equal(existsSync(change), false, "the pre-plan operator effect never reached the filesystem");
+  assert.equal(existsSync(change), true, "authorized direct work executes without a plan");
   const calls = session.contexts();
   assert.ok(calls.length >= 7);
   const after = (i: number) => String(calls[i].inbound).replaceAll('\\"', '"');
   assert.match(after(1), /"tier":"small"/, "declaration returned the same spend tier");
   const firstWrite = toolResult(session, 2);
-  assert.equal(firstWrite?.isError, true, "Pi reports the blocked write as a tool error");
-  assert.match(firstWrite.text, /Process gate refused the dependent effect: the wide-task plan obligation is open/);
-  assert.match(firstWrite.text, /\/af-agents-add planner|\/af-agents-team/, "plan gate names the human role recovery");
+  assert.notEqual(firstWrite?.isError, true, "Pi executes the authorized direct write");
   assert.match(after(3), /inspection is allowed/, "read-only tool remained usable while plan was open");
   assert.match(after(4), /Unknown agent "planner"/, "missing planner has an actionable human recovery path");
-  assert.match(after(4), /\/af-agents-add planner|\/af-agents-team/);
   assert.match(after(5), /Unknown agent "code-reviewer"/, "missing reviewer is not silently added");
   assert.match(after(5), /\/af-agents-add code-reviewer|\/af-agents-team/);
   const secondWrite = toolResult(session, 6);
-  assert.equal(secondWrite?.isError, true, "the second attempted write is blocked too");
-  assert.match(secondWrite.text, /wide-task plan obligation is open/, "human roster recovery did not erase the plan obligation");
-  assert.equal(existsSync(change), false, "neither denied write created a file");
+  assert.notEqual(secondWrite?.isError, true, "missing optional Planner does not block later authoring");
+  assert.equal(readFileSync(change, "utf8"), "still must not land", "the second authorized write executed");
 });
 
 test("real Pi operator exact confirmation: deny, approve, then deny a separate write",  { timeout: 180_000 }, async t => {
@@ -763,7 +759,7 @@ test("real Pi orchestrator/populated-roster, recover command, session switch and
   assert.ok(calls[0].tools.includes("dispatch_agent"), "orchestrator turn keeps dispatch");
   const inbound = inboundText(first);
   assert.match(inbound, /Unknown agent "planner"/, "populated roster without planner still refuses unknown agent");
-  assert.match(inbound, /\/af-agents-add planner/, "populated-roster refusal carries the missing-role recovery hint");
+  assert.match(inbound, /\/af-agents-add code-reviewer|\/af-agents-team/, "missing required reviewer retains actionable recovery");
 
   // Persistence recovery command is live in the real session and reports checked state.
   const rr = await first.request("/af-task-triage-recover");
@@ -784,7 +780,7 @@ test("real Pi orchestrator/populated-roster, recover command, session switch and
   assert.equal(hookTypes(second).filter(h => h === "session_shutdown").length, 1, "second session shut down independently");
 });
 
-test("real Pi T4 spent orchestrator floor: human refusal starts no fourth child, charges nothing, and leaves review open", { timeout: 240_000 }, async t => {
+test("real Pi T4 spent orchestrator floor: fourth dispatch proceeds without budget approval while review stays open", { timeout: 240_000 }, async t => {
   const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "probe-second", "code-reviewer", "probe-correction"] });
   writeFileSync(join(dir, "README.md"), "synthetic security review scope\n");
   const session = await startSession(t, dir, { fake: "security", decisions: ["No — stop"],
@@ -803,20 +799,12 @@ test("real Pi T4 spent orchestrator floor: human refusal starts no fourth child,
   assert.ok(session.fakeCalls().some(c => c.profile === "security"), "production hooks applied the fake high-risk signal");
   const report = await session.request("/af-hub-report");
   assert.equal(report.success, true, JSON.stringify(report));
-  const budgetEvidence = () => JSON.stringify({
-    decisions: session.decisions(),
-    dispatchResults: session.contexts().flatMap(c => c.results ?? []).filter(r => /^e2e-[4-7]$/.test(r.id)).map(r => ({ id: r.id, status: r.details?.status, reason: r.details?.reason, recoveryCategory: r.details?.recoveryCategory, text: r.text.slice(0, 450) })),
-    budgetNotices: session.notifications().filter(n => /budget|dispatch|refusal|Session —/i.test(n)).map(n => n.slice(0, 450)).slice(-6),
-  });
-  assert.deepEqual(session.decisions().map(d => d.value), ["No — stop"], `a real Pi UI decision denied the one-click budget continuation; ${budgetEvidence()}`);
-  assert.match(session.decisions()[0].title, /budget window|dispatches|budget/i, "the refused decision is the budget question, not an action confirmation");
+  assert.deepEqual(session.decisions(), [], "no continuation approval is requested at the old quota");
   const calls = session.contexts();
-  // Orchestrator raises the small turn cap to 3. A denied budget calls ctx.abort():
-  // Pi persists the seventh tool result and ends the turn without an eighth model
-  // invocation to carry it in ctx.messages.
+  // All four distinct attempts use registered tools; none asks to refill a quota.
   const observedResults = session.events().filter(e => e.hook === "tool_result" && /^e2e-[1-7]$/.test(e.id));
   const observed = () => JSON.stringify({
-    expected: { modelCalls: [1, 2, 3, 4, 5, 6, 7], resultIds: ["e2e-4", "e2e-5", "e2e-6", "e2e-7"], event: "tool_result", chargedDispatches: 3 },
+    expected: { modelCalls: [1, 2, 3, 4, 5, 6, 7], resultIds: ["e2e-4", "e2e-5", "e2e-6", "e2e-7"], event: "tool_result", chargedDispatches: 4 },
     modelCalls: calls.slice(0, 8).map(c => ({ call: c.call, tool: c.step?.tool })),
     toolResults: observedResults.slice(0, 8).map(e => ({ id: e.id, tool: e.tool, status: e.details?.status, reason: e.details?.reason, exitCode: e.details?.exitCode, text: e.text.slice(0, 300) })),
     decisions: session.decisions().slice(0, 3),
@@ -832,24 +820,21 @@ test("real Pi T4 spent orchestrator floor: human refusal starts no fourth child,
     exposed: calls[2]?.tools.includes("update_assertion"),
     ledger: toolResult(session, 2), proof: toolResult(session, 3),
   });
-  assert.equal(calls[2]?.tools.includes("update_assertion"), true, `the verification pack exposes the registered proof tool; ${registeredProof()}`);
   assert.equal(toolResult(session, 2)?.details?.count, 1, `A1 was registered before the proof attempt; ${registeredProof()}`);
   assert.equal(toolResult(session, 3)?.details?.status, "refused", `registered proof tool refused the request; ${registeredProof()}`);
   assert.equal(toolResult(session, 3)?.details?.reason, "process_obligations_open", `proof is blocked by effective obligations; ${registeredProof()}`);
   assert.match(toolResult(session, 3).text, /review/, `the independent review obligation is open; ${registeredProof()}`);
   const notices = session.notifications().join("\n");
-  assert.match(notices, /Session — .*3 dispatch\(es\)/, "the refused fourth dispatch did not inflate charged session dispatches");
-  assert.match(notices, /1 refusal\(s\)/, "the human-denied budget attempt is reported as a refusal");
+  assert.match(notices, /Session — .*4 dispatch\(es\)/, "all four actual attempts are accounted");
   const refusedCorrection = observedResults.find(e => e.id === "e2e-7");
-  assert.match(refusedCorrection?.details?.status ?? "", /budget_stopped|budget_refused/, `human denial blocks the dispatch beyond the orchestrator floor, not a substitute no-progress refusal; ${observed()}`);
-  assert.equal(refusedCorrection?.details?.exitCode, 1, `refused correction reports failure rather than child success; ${observed()}`);
+  assert.doesNotMatch(refusedCorrection?.details?.status ?? "", /budget_stopped|budget_refused/, "the fourth dispatch is not refused by a continuation quota");
   assert.notEqual(toolResult(session, 3)?.details?.status, "proven", "the independent review was never marked proven");
   const sessionsRoot = join(dir, ".pi/agent-sessions/sessions");
   const dispatches = readdirSync(sessionsRoot).flatMap(id => {
     const path = join(sessionsRoot, id, "dispatches");
     return existsSync(path) ? readdirSync(path) : [];
   });
-  assert.equal(dispatches.length, 3, "only the three floor-allowed attempts launched; denied correction has no child session");
+  assert.equal(dispatches.length, 4, "all four children launched without a budget renewal");
   assert.equal(toolResult(session, 3)?.details?.reason, "process_obligations_open", `no review evidence was invented; ${registeredProof()}`);
 });
 
@@ -1008,7 +993,7 @@ test("real Pi offline native planner, verified builder and read-only reviewer cl
   assert.equal(events.find(e => e.role === "reviewer" && e.step === "return")?.readOk, true);
 });
 
-test("real Pi orchestrator G3.2 wide plan gate blocks fixture, admits producer, stays closed on producer failure", { timeout: 240_000 }, async t => {
+test("real Pi orchestrator G3.2 wide work admits fixture without planning and preserves optional producer failures", { timeout: 240_000 }, async t => {
   const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "planner", "code-reviewer"] });
   const session = await startSession(t, dir, { fake: "wide", script: [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator wide bind" } },
@@ -1022,22 +1007,92 @@ test("real Pi orchestrator G3.2 wide plan gate blocks fixture, admits producer, 
   const calls = session.contexts();
   assert.ok(calls.length >= 5, `all staged dispatches execute, got ${calls.length}`);
   assert.ok(session.fakeCalls().length >= 1, "wide input was evaluated through the real hooks");
-  const inboundAt = (i: number) => String(calls[i]?.inbound ?? "").replaceAll('\\"', '"');
-  const tailAfter = (i: number, marker: string) => {
-    const full = inboundAt(i);
-    const cut = full.lastIndexOf(marker);
-    assert.ok(cut >= 0, `expected tool call ${marker} in inbound history`);
-    return full.slice(cut);
+  const resultFor = (call: number) => {
+    const event = session.events().find(e => e.hook === "tool_result" && e.id === `e2e-${call}`);
+    assert.ok(event, `registered tool result e2e-${call} exists`);
+    return event;
   };
-  assert.match(tailAfter(2, "e2e-2"), /process_plan_open/, "pre-plan fixture dispatch is refused while the plan obligation is open");
-  // The required plan producer passes the process gate: the Hub really spawns it
-  // (the spawn itself fails here because the fixture model triage-e2e/m exists
-  // only in the parent session, which is exactly why a failed producer must
-  // not close the stage).
-  const plannerTail = tailAfter(3, "e2e-3");
-  assert.match(plannerTail, /\[planner\]/, "planner stage dispatch runs as the required plan producer");
-  assert.doesNotMatch(plannerTail, /"status":"process_plan_open"/, "planner stage dispatch is not refused by the plan gate");
-  assert.match(plannerTail, /"status":"error"/, "producer dispatch attempted a real spawn and reports its execution status");
-  assert.match(plannerTail, /triage-e2e\/m" not found/, "producer failure is the missing fixture model in the child, not a gate refusal");
-  assert.match(tailAfter(4, "e2e-4"), /process_plan_open/, "a failed producer run leaves the plan gate closed for the next fixture dispatch");
+  for (const call of [2, 4]) assert.notEqual(resultFor(call).details?.status, "process_plan_open", "wide implementation does not need a Planner");
+  const planner = resultFor(3);
+  assert.notEqual(planner.details?.status, "process_plan_open");
+  assert.equal(planner.details?.exitCode, 1, "optional planner still reports its real spawn failure");
+  assert.match(planner.text, /triage-e2e\/m|error/i);
+});
+
+test("real Pi direct operator leaves a watchdog audit without a continuation approval", { timeout: 90_000 }, async t => {
+ const dir = setupWorkspace(t);
+ const file = join(dir, "authorized-direct-work.txt");
+ const session = await startSession(t, dir, { fake: "plain", persistSession: true, script: [
+  { tool: "write", args: { path: file, content: "authorized work" } },
+  { text: "done" },
+ ] });
+ const response = await session.request("Write the authorized direct work file");
+ assert.equal(response.success, true, JSON.stringify(response));
+ assert.equal(readFileSync(file, "utf8"), "authorized work");
+ assert.deepEqual(session.decisions(), [], "productive direct work asks no continuation approval");
+ const entries = (await session.rpc({ type: "get_entries" })).data.entries;
+ const audit = entries.filter((entry: any) => entry.customType === "agent-hub-operator-watchdog").at(-1);
+ assert.ok(audit, "production index registers the root watchdog and persists its turn outcome");
+ assert.equal(audit.data.abortRequested, false);
+ assert.deepEqual(audit.data.attributions, []);
+});
+
+test("real Pi cross-extension semantic approval asks once and consumes the exact delete", {timeout:90_000},async t=>{
+ const dir=setupWorkspace(t);mkdirSync(join(dir,"docs"));const target=join(dir,"docs/empty.txt");writeFileSync(target,"");
+ const session=await startSession(t,dir,{fake:"irreversible",persistSession:true,decisions:["Yes"],script:[
+  {tool:"set_task_tier",args:{tier:"small",risk:"low",scope:"small",reason:"exact user-authorized file deletion"}},
+  {tool:"ask_user",args:{question:'Delete "docs/empty.txt"?',options:["Yes","No"]}},
+  {tool:"bash",args:{command:"rm -- docs/empty.txt"}},
+  {text:"done"},
+ ]});
+ const response=await session.request('Delete exactly "docs/empty.txt", with confirmation.');assert.equal(response.success,true,JSON.stringify(response));
+ assert.equal(existsSync(target),false,"authorized delete actually executed");
+ assert.deepEqual(session.decisions().map(d=>d.value),["Yes"],"model ask and runtime authorization share one exact scoped decision");
+ const entries=(await session.rpc({type:"get_entries"})).data.entries;
+ assert.equal(entries.filter((e:any)=>e.customType==="agent-hub-task-triage-action-consumed").length,1,"runtime still consumes a one-use action grant");
+});
+
+test("real Pi continuation retains accepted input without repeated triage or process declarations", {timeout:90_000},async t=>{
+ const dir=setupWorkspace(t);const args={tier:"small",risk:"low",scope:"small",reason:"same authorized task"};
+ const session=await startSession(t,dir,{fake:"security",persistSession:true,script:[
+  {tool:"set_task_tier",args},{text:"first done"},{tool:"set_task_tier",args},{text:"continued"},
+ ]});
+ await session.request("Fix the synthetic workspace typo");const calls=session.fakeCalls().length;
+ const before=(await session.rpc({type:"get_entries"})).data.entries.filter((e:any)=>e.customType==="agent-hub-process-state").length;
+ await session.request("Continue.");assert.equal(session.fakeCalls().length,calls,"continuation does not replace and re-evaluate accepted task input");
+ const entries=(await session.rpc({type:"get_entries"})).data.entries;
+ assert.equal(entries.filter((e:any)=>e.customType==="agent-hub-process-state").length,before,"unchanged continuation and classification append no redundant process state");
+ const repeated=session.events().find(e=>e.hook==="tool_result"&&e.id==="e2e-3");
+ assert.equal(repeated?.details?.unchanged,true,JSON.stringify({result:repeated,calls:session.contexts().map(c=>({call:c.call,step:c.step}))}));
+ assert.deepEqual(session.decisions(),[]);
+ await session.request("Change a different permission boundary too");
+ assert.ok(session.fakeCalls().length>calls,"new substantive requirements still get evaluated");
+ const changed=(await session.rpc({type:"get_entries"})).data.entries;
+ assert.equal(changed.filter((e:any)=>e.customType==="agent-hub-task-transition").at(-1)?.data.pending,true,"dependent effects remain fenced until the new input is bound");
+});
+
+test("real Pi projects historical coordination for the model while preserving its saved journal", {timeout:90_000},async t=>{
+ const dir=setupWorkspace(t);
+ const session=await startSession(t,dir,{fake:"wide",persistSession:true,script:[
+  {tool:"set_task_tier",args:{tier:"feature",risk:"high",scope:"wide",reason:"declared broad verification"}},
+  {tool:"set_assertions",args:{assertions:[{id:"A1",tag:"test",text:"Synthetic check",source:"user",test_command:"node --test fixture"}]}},
+  {text:"done"},
+ ]});
+ const response=await session.request("Verify the broad synthetic workspace change");assert.equal(response.success,true,JSON.stringify(response));
+ const projected=session.contexts().at(-1)?.results.find((r:any)=>r.id==="e2e-1");assert.ok(projected?.details?.historicalReference,"real model context uses the historical projection");
+ const original=JSON.parse(readFileSync(projected.details.historicalReference,"utf8"));assert.equal(original.toolCallId,"e2e-1");assert.ok(original.details.process);
+ const entries=(await session.rpc({type:"get_entries"})).data.entries;
+ const saved=entries.find((e:any)=>e.type==="message"&&e.message?.role==="toolResult"&&e.message.toolCallId==="e2e-1");
+ assert.ok(saved?.message.details.process);assert.equal(saved.message.details.historicalReference,undefined,"raw session remains unchanged");
+});
+
+test("real Pi new session does not inherit an exact-action approval", {timeout:90_000},async t=>{
+ const dir=setupWorkspace(t);mkdirSync(join(dir,"docs"));const target=join(dir,"docs/empty.txt");writeFileSync(target,"");
+ const steps=[{tool:"set_task_tier",args:{tier:"small",risk:"low",scope:"small",reason:"exact file deletion"}},{tool:"ask_user",args:{question:'Delete "docs/empty.txt"?',options:["Yes","No"]}},{tool:"bash",args:{command:"rm -- docs/empty.txt"}},{text:"done"}];
+ const session=await startSession(t,dir,{fake:"irreversible",decisions:["Yes","No"],script:[...steps,...steps]});
+ await session.request('Delete exactly "docs/empty.txt", with confirmation.');assert.equal(existsSync(target),false);
+ const reset=await session.rpc({type:"new_session"});assert.equal(reset.success,true,JSON.stringify(reset));writeFileSync(target,"");
+ await session.request('Delete exactly "docs/empty.txt", with confirmation.');
+ assert.deepEqual(session.decisions().map(d=>d.value),["Yes","No"],"fresh session asks again, rather than inheriting old allow");
+ assert.equal(existsSync(target),true,"fresh denial is enforced without a second runtime question");
 });

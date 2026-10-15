@@ -26,3 +26,14 @@ test('an affirmative delete question records one path and a repeat is not asked'
  noteSemanticDecision("task","rev","docs/d6-activation-smoke-empty.txt","deny");
  assert.equal(semanticAskUserAnswer({question,options:["Да, изтрий файла","Не, запази файла"]}),"Не, запази файла");
 });
+
+test('English prose is not a path and late questions cannot authorize a newer scope',async()=>{
+ const {semanticScope,noteAskUserDecision}=await import('./semantic-approval.ts');
+ resetSemanticApprovals();bindSemanticScope('task','one');const original=semanticScope();
+ noteAskUserDecision({question:'Delete "docs/empty.txt"?'},'Yes',original);
+ assert.equal(semanticAskUserAnswer({question:'Delete "docs/empty.txt"?',options:['Yes','No']}),'Yes');
+ bindSemanticScope('task','two');
+ noteAskUserDecision({question:'Delete "docs/empty.txt"?'},'Yes',original);
+ assert.equal(semanticDecision('task','two','docs/empty.txt'),undefined);
+ resetSemanticApprovals();assert.equal(semanticAskUserAnswer({question:'Delete "docs/empty.txt"?',options:['Yes','No']}),null);
+});

@@ -1,3 +1,4 @@
+import { reviewInput, retainReview, reusableReview, type ReviewInput } from "../review-reuse.ts";
 import { retainDeliverable } from "../execution-evidence.ts";
 import { buildRuntimeResult, minimalChangeRequirement, preflightDeliverables, readBackDeliverables, type AcceptanceRequirement, type DeliverableContract, type VerificationCheckInput } from "../acceptance.ts";
 import { normalizeResearchContract, withNoProgress, canonicalExecutor, type NoProgressGuard } from "../no-progress.ts";
@@ -23,7 +24,7 @@ import type { AgentState } from "../types.ts";
 import { diagnoseToolProtocol, type ToolProtocolDiagnostic } from "../tool-protocol.ts";
 import type { TaskResumeInput } from "../task-resume-contract.ts";
 import { evaluateProcessObligations, noteProcessStage, processAllowsPersona, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "../process-obligations.ts";
-import { activeOrchestrationHandoff, plannerRequiredRefusal, reviewMayClose } from "../orchestration-activation.ts";
+import { activeOrchestrationHandoff, reviewMayClose } from "../orchestration-activation.ts";
 import { authorizePlanStatusUpdate } from "../orchestration-route.ts";
 
 type Gate = { reason: string; message: string } | null;
@@ -36,6 +37,7 @@ export interface DispatchExecutionState {
 	getTaskResearchCount(): number; setTaskResearchCount(value: number): void;
 	getTaskReviewRounds(): number; setTaskReviewRounds(value: number): void;
 	getTaskTier(): string | null;
+	getAcceptedUserInput?(): string | undefined;
 	getTurnReport(): TurnReport;
 	getSessionTotals(): SessionTotals;
 	getTurnDispatchFingerprints(): Set<string>;
@@ -75,7 +77,7 @@ export interface DispatchExecutorDeps {
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
+interface PreparedDispatch { reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; autoResearchTaskCapped: boolean; }
 interface Tracking { writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
 interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
@@ -178,8 +180,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	if (rosterRefusal) return rosterRefusal;
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 	d.budget.ensureTaskTier();
-	const routeReason = plannerRequiredRefusal(task, agent, s.getProcessState?.());
-	const processGate = routeReason ? { reason: "planner_required", message: routeReason } : s.processBlock?.() ?? (s.getProcessState ? processPreEffectGate(s.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });
+	const processGate = s.processBlock?.() ?? (s.getProcessState ? processPreEffectGate(s.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });
 	const preflight = preflightGate(d, agent) ?? processGate ?? checkReviewRoundCap(s.getTaskTier(), agent, s.getTaskReviewRounds()) ?? (s.getProcessState && processAllowsPersona(s.getProcessState(), agent) ? null : checkDocsLane(agent, scope || [], review_reason));
 	if (preflight) return refusal(d, agent, task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx as any)}`, preflight.reason);
 	const taskRefusal = checkTaskBudget("dispatch", d.budget.taskCounters(), d.budget.currentTaskBudget(), d.budget.taskActiveElapsedMs(), s.getTaskTier());
@@ -189,7 +190,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	let contract: DeliverableContract;
 	try { contract = preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: s.getSessionDir() }); }
 	catch (error) { return refusal(d, agent, task, "scope_preflight_failed", String(error)); }
-	const fingerprint = taskFingerprint(agent, task);
+	const fingerprint = taskFingerprint(agent, isReviewPersona(agent) ? `${task}\n${review_reason ?? ""}\n${JSON.stringify(scope ?? [])}` : task);
 	if (s.getTurnDispatchFingerprints().has(fingerprint)) return refusal(d, agent, task, "duplicate_refused", `⚠ Duplicate dispatch refused: you already dispatched ${agent} with this task (or a trivial rewording of it) THIS turn. Use the earlier result — re-read its digest/returnPath — or change the task materially (new instructions, corrected inputs) before re-dispatching.`);
 	let inputArtifacts: InputArtifactPreview[];
 	try { inputArtifacts = d.artifacts.loadInputArtifacts(artifacts, ctx); }
@@ -208,12 +209,12 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
 		permissions: agentState?.def.tools ?? "",
 	};
-	return { taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: worktreeRevision(ctx.cwd || process.cwd(), [], scopeGlobs), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
+	return { reviewInput: s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, s.getProcessState(), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: worktreeRevision(ctx.cwd || process.cwd(), [], scopeGlobs), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
 	const s = d.state; const state = s.getAgentStates().get(prepared.agent.toLowerCase()); const canWrite = !!state && hasWriteCapability(state.def.tools);
-	const tracking = { writable: canWrite, snapshot: null as any, overlapBaseline: s.getWritableOverlapCounter(), concurrentAtStart: false };
+	const tracking = { writable: canWrite, snapshot: null as any, overlapBaseline: s.getWritableOverlapCounter(), concurrentAtStart: s.getActiveWritableDispatches() > 0 };
 	if (canWrite) {
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
 		if (tracking.concurrentAtStart) s.setWritableOverlapCounter(s.getWritableOverlapCounter() + 1);
@@ -415,7 +416,13 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		const stage = p.agent === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
 		const affirmativeReview = /(?:^|\n)\s*(?:verdict\s*:\s*)?APPROVE\b/im.test(result.output) && !/(?:^|\n)\s*(?:verdict\s*:\s*)?REJECT\b/im.test(result.output);
 		const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
-		const reviewAuthorized = stage !== "review" || (affirmativeReview && processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0 && reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath ?? undefined, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") }));
+        const completedReviewInput = stage === "review" ? reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,processState,s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.()) : null;
+        const reviewComplete = !protocolDiagnostic && runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"
+            && countReviewFindings(result.output).blocking === 0 && !(parsedReturn?.assertions_failed ?? []).length
+            && !d.extractAskUserQuestions(result.output).length && !d.extractNeedsResearch(result.output).length
+            && !(parsedReturn?.requires_user_decision ?? []).some((entry:unknown)=>String(entry).trim().toLowerCase()!=="none")
+            && (!p.reviewInput || JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput));
+		const reviewAuthorized = stage !== "review" || (reviewComplete && affirmativeReview && processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0 && reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath ?? undefined, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") }));
 		// A declared plan must read back successfully; a refusal or unresolved
 		// decision is not plan evidence. No declaration still permits a retained
 		// nonempty plan return. The Hub cannot judge its semantic adequacy.
@@ -425,6 +432,8 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 			&& d.extractNeedsResearch(result.output).length === 0 && d.extractAskUserQuestions(result.output).length === 0);
 		if (stage && planProduced && reviewAuthorized && disposition.delivered && result.exitCode === 0 && sameTask && runPath) {
 			processState = noteProcessStage(processState, stage, { evidenceRef: runPath, revision: afterRevision });
+            if(stage === "review" && !tracking.writable && !tracking.concurrentAtStart && !s.getActiveWritableDispatches() && tracking.overlapBaseline === s.getWritableOverlapCounter()
+                && p.reviewInput && JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput)) processState=retainReview(processState,completedReviewInput,runPath,cwd);
 		}
 		const planDeliverable = p.contract.files.map(file => file.path).find(path => /plan/i.test(path));
 		if (p.agent === "builder" && planDeliverable && runPath && authorizePlanStatusUpdate({ planPath: planDeliverable, allowedScope: p.scopeGlobs, evidenceRefs: [runPath] }).allowed && sameTask) {
@@ -547,6 +556,27 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		const budgetBlock = await d.budgetRecovery.ensure("dispatch", `${agent}: ${params.task}`, ctx, signal);
 		if (budgetBlock) return refusal(d, agent, params.task, budgetBlock.reason, budgetBlock.message);
 		if (signal?.aborted) return refusal(d, agent, params.task, "cancelled", "Operation cancelled before dispatch.");
+        if (isReviewPersona(agent) && !params.review_reason && !params.deliverables?.length && !/USER_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && d.state.getProcessState) {
+            const state=d.state.getProcessState();
+            let cached=null;
+            try { cached=reusableReview(state,reviewInput(ctx.cwd,d.noProgress.taskId(),agent,params.scope??[],state,d.state.getAssertions(),d.artifacts.loadInputArtifacts(params.artifacts,ctx),d.state.getAcceptedUserInput?.()),ctx.cwd); } catch { /* incomplete evidence must run the normal path */ }
+            if(cached){
+                const revision=worktreeRevision(ctx.cwd,[],params.scope??[]);
+                const next=noteProcessStage(state,"review",{evidenceRef:cached.evidenceRef,revision});
+                const verdict=evaluateProcessObligations(next,{writable:true,budgetTier:d.state.getTaskTier()??"small",currentRevision:revision});
+                d.state.setProcessState?.(next);d.state.persistProcessVerdict?.(next,verdict);
+                if(d.state.processBlock?.())return refusal(d,agent,params.task,"process_state_corrupt","Review reuse could not persist current evidence.");
+                return {content:[{type:"text",text:`Independent ${agent} review already covers this unchanged scope and requirements. Reused evidence: ${cached.evidenceRef}. No child launched. New review focus requires review_reason.`}],details:{status:"review_reused",reused:true,started:false,notStarted:true,exitCode:0,elapsed:0,returnPath:cached.evidenceRef,processVerdict:verdict,accepted:verdict.accepted}};
+            }
+        }
+        if(isReviewPersona(agent) && d.state.getProcessState){
+            const state=d.state.getProcessState();
+            if(state.review.evidenceRef){
+                const next={...state,review:{...state.review,evidenceRef:null,revision:null},reviews:(state.reviews??[]).filter(r=>r.agent!==agent)};
+                d.state.setProcessState?.(next);d.state.persistProcessVerdict?.(next,evaluateProcessObligations(next,{writable:true,budgetTier:d.state.getTaskTier()??"small"}));
+                if(d.state.processBlock?.())return refusal(d,agent,params.task,"process_state_corrupt","Fresh review invalidation could not be persisted.");
+            }
+        }
 		const prepared = prepareDispatch(d, params, ctx); if (!("agent" in prepared)) return prepared;
 		const tracking = startTracking(d, prepared, ctx);
 		try { onUpdate?.({ content: [{ type: "text", text: `Dispatching to ${prepared.agent}...` }], details: { agent: prepared.agent, task: prepared.task, status: "dispatching" } }); return await finishDispatch(d, prepared, params, await runWithAutoResearch(d, prepared, params, ctx, onUpdate), tracking, ctx, onUpdate); }

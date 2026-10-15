@@ -139,7 +139,7 @@ export async function confirmTaskTriageWaiver(state: ProcessObligationState, bin
  if (binding.taskId !== ports.taskId() || binding.inputRevision !== ports.inputRevision() || !binding.reason?.trim() || binding.reason.length > 512 || !state.additions?.some(a => a.id === binding.additionId && a.evaluationId === binding.evaluationId && a.taskId === binding.taskId && a.inputRevision === binding.inputRevision && a.status === "active")) return null;
  const addition = state.additions!.find(a => a.id === binding.additionId)!;
  const category = { security_change: "security-sensitive change", wide_change: "wide change", irreversible_execution: "potentially irreversible execution" }[addition.reason];
- const released = { security_change: "the System 1 security review", wide_change: "the System 1 wide-change plan and review", irreversible_execution: "the System 1 exact-action human confirmation" }[addition.reason];
+ const released = { security_change: "the System 1 security review", wide_change: "the System 1 wide-change independent review", irreversible_execution: "the System 1 exact-action human confirmation" }[addition.reason];
  const key = `${binding.taskId}:${binding.additionId}`;
  if (!await authorize(key, `Assessment: ${category}\nThis releases only ${released} for this addition, NOT baseline or other-source requirements.\nAddition: ${binding.additionId}\nEvaluation: ${binding.evaluationId}\nReason: ${binding.reason}`, ports, ctx, signal)) return null;
  if (signal?.aborted || binding.taskId !== ports.taskId() || binding.inputRevision !== ports.inputRevision()) return null;

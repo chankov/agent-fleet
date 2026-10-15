@@ -95,7 +95,7 @@ import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { showSessionAudit } from "./session-audit.ts";
 import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
-import { createProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionToolDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
+import { createProcessState, normalizeProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionToolDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
 import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
@@ -169,6 +169,10 @@ import { applySessionOverrides, registerSessionOrchestration, resetHubSession } 
 import { openZoom, type TimelineEntry, type Zoomable } from "./ui/zoom.ts";
 import { openHistory } from "./ui/history.ts";
 import { createExecutionHistoryStore, type HistoryEntry } from "./ui/history-store.ts";
+import { projectCoordinationHistory } from "./history-projection.ts";
+import { isTaskContinuation } from "./task-continuation.ts";
+import { registerOperatorWatchdog } from "./operator-watchdog.ts";
+import type { DriftJudgeInput } from "./dispatch-coms.ts";
 import { createDispatchComs, createDispatchNative, createDispatchObservability, type DelegationChild } from "./dispatch-core.ts";
 import type { FleetRow } from "../lib/fleet-read-model.ts";
 import { gridColumnsForSize } from "../lib/fleet-dashboard-ops.ts";
@@ -800,6 +804,7 @@ export default function (pi: ExtensionAPI) {
 		spawnPiAgent,
 	});
 	const { dispatchViaComs, runDriftJudge, runReturnExtraction } = dispatchComs;
+	registerOperatorWatchdog(pi, { setting: () => watchdogSetting, taskId: () => noProgress.taskId(), task: () => hubTaskText, runDriftJudge: (input, ctx) => runDriftJudge(input as unknown as DriftJudgeInput, ctx as ExtensionContext) });
 
 	const nativeDispatch = createDispatchNative({
   prepareDamageGuard:input=>prepareDamageGuardNative(pi,input),
@@ -998,6 +1003,7 @@ export default function (pi: ExtensionAPI) {
 	const toolCtx: ToolContext = createToolExecutionOrchestration({
 		dispatch: {
 			state: {
+				getAcceptedUserInput: () => hubTaskText,
 				getTurnDispatchCount: () => turnDispatchCount, setTurnDispatchCount: value => { turnDispatchCount = value; },
 				getTurnResearchCount: () => turnResearchCount, setTurnResearchCount: value => { turnResearchCount = value; },
 				getTaskDispatchCount: () => taskDispatchCount, setTaskDispatchCount: value => { taskDispatchCount = value; },
@@ -1045,7 +1051,7 @@ export default function (pi: ExtensionAPI) {
 			getTaskDispatchCount: () => taskDispatchCount, getTaskResearchCount: () => taskResearchCount,
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
 			currentTaskId: () => noProgress.taskId(), currentRevision: ctx => worktreeRevision(ctx.cwd || process.cwd(), []),
-			adoptReservedTaskId: (id, resetTaskWindow) => taskIdentityReset.run(id, resetTaskWindow),
+			adoptReservedTaskId: (id, resetTaskWindow) => { taskIdentityReset.run(id, resetTaskWindow); bindSemanticScope(id, hubTaskText ? createHash("sha256").update(hubTaskText).digest("hex") : ""); },
 			confirmTaskSupersession: (input, ctx, signal) => confirmTaskSupersession(input, ctx, { language: () => userLanguage, currentTaskId: () => noProgress.taskId(), ask: (id, params, askCtx, askSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, askSignal), startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } } }, signal),
 			getAgentStates: () => agentStates, rosterAdd, rosterDrop,
 			getIdentity: () => identity, getComs: () => coms, resolveTarget,
@@ -2174,6 +2180,7 @@ export default function (pi: ExtensionAPI) {
 			thinking: resolveThinkingLevel(resolvedThinking(def)),
 		})),
 		getPromptState: () => ({
+            requirements: assertions.map(a=>({id:a.id,text:a.text,source:a.source,reference:a.reference,criticalConditions:a.criticalConditions,recordedStatus:a.status,evidenceRevision:a.evidenceRevision,evidenceTaskId:a.evidenceTaskId})),
 			taskTier: taskTier ?? DEFAULT_TASK_TIER,
 			taskTierAssumed,
 			processRisk: processState.risk,
@@ -2251,8 +2258,10 @@ export default function (pi: ExtensionAPI) {
 			if (assessment && !pendingTaskTransition && !processPersistenceBlocked) {
 				try {
 					const next = applyTaskTriageAdditions(processState, assessment.assessment, { taskId: assessment.taskId, evaluationId: assessment.evaluationId, inputRevision: assessment.revision });
-					pi.appendEntry("agent-hub-process-state", processAuditRecord(next, evaluateProcessObligations(next, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER })));
-					processState = next;
+                    if(JSON.stringify(next)!==JSON.stringify(normalizeProcessState(processState))) {
+                        pi.appendEntry("agent-hub-process-state", processAuditRecord(next, evaluateProcessObligations(next, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER })));
+                        processState = next;
+                    }
 				} catch { processPersistenceBlocked = true; }
 			}
 		}
@@ -2274,6 +2283,7 @@ export default function (pi: ExtensionAPI) {
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		onAcceptedInput: (text, source, replayed) => {
 			if ((source === "extension" && !replayed) || !text.trim()) return;
+            if(hubTaskText && isTaskContinuation(text))return;
 			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) { pendingTaskTransition = true; transitionDiversions = 0; transitionHintDelivered = false; transitionBatchRefused = false; try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: true }); } catch { processPersistenceBlocked = true; } }
 			hubTaskText = text;
             try { noProgress.persistTaskIdentity(); acceptDamageGuardInput(pi, text); bindSemanticScope(noProgress.taskId(), createHash("sha256").update(text).digest("hex")); } catch { processPersistenceBlocked = true; }
@@ -2298,10 +2308,13 @@ export default function (pi: ExtensionAPI) {
 		hubCapture.end(event.turnIndex, text);
 	});
 	pi.on("context", async (event, ctx) => {
+        const projection=projectCoordinationHistory(event.messages,sessionDir);
+        if(projection.projected)try{pi.appendEntry("agent-hub-context-projection",{projected:projection.projected,savedBytes:projection.savedBytes});}catch{/* diagnostics cannot alter the model view */}
 		pressureLifecycle.context(ctx);
 		const context = hubCapture.hubContext();
 		const text = context && proactiveRuntime?.feedback?.take("hub", "direct", context);
-		if (text) { proactiveHubDeliveries++; return { messages: [...event.messages, { role: "custom" as const, customType: "agent-fleet.proactive-advisory", content: text, display: false, timestamp: Date.now() }] }; }
+		if (text) { proactiveHubDeliveries++; return { messages: [...projection.messages, { role: "custom" as const, customType: "agent-fleet.proactive-advisory", content: text, display: false, timestamp: Date.now() }] }; }
+        if(projection.projected)return {messages:projection.messages};
 	});
 	pi.on("agent_settled", async (_event, ctx) => pressureLifecycle.agentSettled(ctx));
 	pi.on("session_compact", async (_event, ctx) => {

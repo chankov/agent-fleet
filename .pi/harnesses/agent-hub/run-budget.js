@@ -1,12 +1,6 @@
-// Task-tier budgets — the pure policy core behind the hub's runaway-orchestration
-// guardrails. Budgets are PER USER TURN: a new user message opens a fresh window,
-// so "budget exhausted" naturally means "stop, summarize, ask the user". Everything
-// here is data + pure functions so the policy is unit-testable away from the
-// 7k-line harness.
-//
-// A budget value of `null` means "off"/unlimited for that axis. Live envelopes
-// never use null: every tier has explicit numbers. Override `off` cannot lift a
-// tier cap — it stays bounded by the tier.
+// Usage accounting and task-tier policy. Dispatch/research counts and task/turn
+// duration are observable, never continuation quotas. Individual child deadlines,
+// cancellation and context recycling still bound a physical run.
 
 // Task tiers — the dispatcher's complexity triage AND the budget envelope.
 // Unset/junk tier is treated as DEFAULT_TASK_TIER (`small`).
@@ -40,33 +34,33 @@ export const HARD_RECYCLE_CONTEXT_PCT = 100;
 
 export const TIER_BUDGETS = {
 	trivial: {
-		maxDispatches: 1,
-		maxResearch: 1,
-		wallMs: 15 * 60_000,
+		maxDispatches: null,
+		maxResearch: null,
+		wallMs: null,
 		agentTurnMs: 10 * 60_000,
 		recycleRuns: 3,
 		delegation: false,
 	},
 	small: {
-		maxDispatches: 2,
-		maxResearch: 2,
-		wallMs: 15 * 60_000,
+		maxDispatches: null,
+		maxResearch: null,
+		wallMs: null,
 		agentTurnMs: 10 * 60_000,
 		recycleRuns: 3,
 		delegation: false,
 	},
 	feature: {
-		maxDispatches: 8,
-		maxResearch: 4,
-		wallMs: 60 * 60_000,
+		maxDispatches: null,
+		maxResearch: null,
+		wallMs: null,
 		agentTurnMs: 30 * 60_000,
 		recycleRuns: 5,
 		delegation: true,
 	},
 	project: {
-		maxDispatches: 12,
-		maxResearch: 6,
-		wallMs: 90 * 60_000,
+		maxDispatches: null,
+		maxResearch: null,
+		wallMs: null,
 		agentTurnMs: 30 * 60_000,
 		recycleRuns: 5,
 		delegation: true,
@@ -81,13 +75,7 @@ export const TIER_CAPS = Object.fromEntries(
 	}]),
 );
 
-/**
- * Effective budget for a task tier with per-project overrides applied as a ceiling.
- * Override fields (all optional): maxDispatches, maxResearch, wallMs,
- * agentTurnMs, recycleRuns — a number is min()'d with the tier; `null`/`off`
- * stays bounded by the tier; `undefined` keeps the tier default. `delegation`
- * is tier-owned and never overridable. Unset/junk tier → DEFAULT_TASK_TIER.
- */
+/** Legacy quota overrides are ignored. Only child deadlines and recycling are configurable. */
 export function resolveTurnBudget(tier, overrides = {}) {
 	const base = TIER_BUDGETS[normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER];
 	const ceiling = (key) => {
@@ -97,9 +85,9 @@ export function resolveTurnBudget(tier, overrides = {}) {
 		return Math.min(base[key], override);
 	};
 	return {
-		maxDispatches: ceiling("maxDispatches"),
-		maxResearch: ceiling("maxResearch"),
-		wallMs: ceiling("wallMs"),
+		maxDispatches: null,
+		maxResearch: null,
+		wallMs: null,
 		agentTurnMs: ceiling("agentTurnMs"),
 		recycleRuns: ceiling("recycleRuns"),
 		delegation: base.delegation,
@@ -441,7 +429,7 @@ export function remainingTaskResearch(taskBudget, counters) {
 // plan), so at trivial/small tiers they are refused in code. The escape hatch is
 // the honest one: raise the tier with a reason.
 
-export const HEAVY_PERSONAS = ["planner", "plan-reviewer", "architect", "security-auditor", "deep-researcher"];
+export const HEAVY_PERSONAS = ["architect", "security-auditor", "deep-researcher"];
 export const REVIEW_PERSONAS = ["code-reviewer", "plan-reviewer", "security-auditor"];
 const GATED_TIERS = new Set(["trivial", "small"]);
 
@@ -479,15 +467,9 @@ export function checkTierPersonaGate(tier, persona) {
 
 export const BLOCKING_FINDING_CAPS = { trivial: 1, small: 2, feature: 5, project: null };
 
-// Review ROUNDS per task. The finding cap is an instruction to the reviewer, and
-// an instruction is exactly what this whole change exists to stop relying on —
-// but the finding cap is also the wrong thing to enforce mechanically: no rule
-// the hub can evaluate distinguishes "invents a new manifest" from "this leaks a
-// credential", and silently demoting the second is worse than tolerating the
-// first. What the hub CAN own is its own action. The ratchet needs a second
-// round to close, so the round count is where it is cut — deterministically,
-// with no judgement about finding content.
-export const REVIEW_ROUND_CAPS = { trivial: 1, small: 1, feature: 2, project: null };
+// Review rounds are observable, never a continuation quota. Keep the existing
+// query API for result/status consumers; independent review evidence is unchanged.
+export const REVIEW_ROUND_CAPS = { trivial: null, small: null, feature: null, project: null };
 
 /** Review rounds allowed on one task at this tier; null = uncapped. */
 export function reviewRoundCap(tier) {
@@ -496,26 +478,9 @@ export function reviewRoundCap(tier) {
 	return REVIEW_ROUND_CAPS[t] ?? null;
 }
 
-/**
- * Refuse an (N+1)-th review dispatch on the same task.
- * Returns null when allowed, else { reason, message }.
- */
-export function checkReviewRoundCap(tier, persona, roundsSoFar) {
-	if (!isReviewPersona(persona)) return null;
-	const cap = reviewRoundCap(tier);
-	if (cap == null || roundsSoFar < cap) return null;
-	const t = normalizeTaskTier(tier);
-	return {
-		reason: "review_round_cap",
-		message: `⚠ Review round cap reached: ${roundsSoFar} of ${cap} review dispatch${cap === 1 ? "" : "es"} ` +
-			`already spent on this task at tier "${t}" — and this dispatch was NOT counted against any budget.\n` +
-			`A review is a GATE, not a loop. The findings from the round you already have are the gate: fix them, ` +
-			`re-verify only the assertions the fix touched, and close. Re-reviewing the same work to see whether ` +
-			`the fix produced new findings is the ratchet — each round's findings become requirements, and the ` +
-			`enlarged requirement set justifies the next round.\n` +
-			`If this genuinely is a different review (a different subsystem, or work the earlier round never saw), ` +
-			`raise the tier with a reason via set_task_tier, or call it with new_task: true for genuinely different work.`,
-	};
+/** Compatibility query: no round count blocks a review. */
+export function checkReviewRoundCap(_tier, _persona, _roundsSoFar) {
+ return null;
 }
 
 /** Blocking-finding cap for a tier; null = uncapped (project / unset tier). */

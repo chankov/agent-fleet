@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createNoProgressGuard, canonicalExecutor } from "./no-progress.ts";
 import { recoveryCategoryFromDetails } from "./recovery-contract.ts";
 import { createResearchExecutor, createDispatchExecutor } from "./tools/dispatch-execution.ts";
-import { applyProcessClassification, createProcessState, processPreEffectGate, readOnlyInspectionRoute } from "./process-obligations.ts";
+import { evaluateProcessObligations, applyProcessClassification, createProcessState, processPreEffectGate, readOnlyInspectionRoute } from "./process-obligations.ts";
 import { resolveWorkModeTools } from "./work-mode.ts";
 
 function researchDeps(tierRef: { current: string }) {
@@ -136,15 +136,10 @@ test("T3: safety refusal, spawn failure, and timeout-without-close stay distinct
 
 test("T5: wide/low operator keeps read inspection without planner; arbitrary shell stays refused with a usable route", () => {
   const wide = applyProcessClassification(createProcessState(), { risk: "low", scope: "wide", reason: "planning task" }).state;
-  // Planner may pass the child gate while the plan is open; other children may not.
   assert.equal(processPreEffectGate(wide, "child", "planner"), null);
-  const refused = processPreEffectGate(wide, "child", "builder");
-  assert.equal(refused?.reason, "process_plan_open");
-  assert.match(refused!.message, /read\/grep\/find\/ls/);
-  // Arbitrary shell is a write effect even in operator mode: no exemption, but inspection needs no planner.
-  const shell = processPreEffectGate(wide, "write");
-  assert.ok(shell);
-  assert.match(shell!.message, new RegExp(readOnlyInspectionRoute().slice(0, 24)));
+  assert.equal(processPreEffectGate(wide, "child", "builder"), null);
+  assert.equal(processPreEffectGate(wide, "write"), null);
+  assert.equal(evaluateProcessObligations(wide, { writable: true, budgetTier: "small" }).accepted, false);
   // Orchestrator never receives generic direct tools.
   const orchestrator = resolveWorkModeTools({ workMode: "orchestrator" as any, baselineTools: ["read", "bash", "edit"], comsReady: false, herdrReady: false, askUserAvailable: true } as any);
   assert.ok(!orchestrator.includes("bash") && !orchestrator.includes("edit"));

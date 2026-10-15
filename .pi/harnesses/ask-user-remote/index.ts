@@ -1,3 +1,4 @@
+import { resetIdenticalDialogs } from "../lib/identical-dialog.ts";
 // ask-user-remote harness
 //
 // Captures the stock pi-ask-user `ask_user` tool, then registers a wrapper with
@@ -13,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { raceAskUser } from "./race-core.js";
 import { questionChannel, type QuestionChannel } from "./questions.ts";
 import { registerRuntimeAsk } from "./runtime-ask.ts";
-import { noteAskUserDecision, semanticAskUserAnswer } from "../lib/semantic-approval.ts";
+import { noteAskUserDecision, semanticAskUserAnswer, semanticScope, resetSemanticApprovals } from "../lib/semantic-approval.ts";
 
 interface ToolRegistration {
 	name: string;
@@ -378,9 +379,9 @@ export function compactAskUserParams(params: any): any {
 	};
 }
 
-function noteSettledAskUser(params: { question?: unknown; context?: unknown }, result: any): void {
+function noteSettledAskUser(params: { question?: unknown; context?: unknown }, result: any, scope: ReturnType<typeof semanticScope>): void {
  const selection = result?.details?.response?.selections?.[0];
- if (typeof selection === "string") noteAskUserDecision(params, selection);
+ if (typeof selection === "string") noteAskUserDecision(params, selection, scope);
 }
 
 export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOptions = {}): ToolRegistration {
@@ -392,6 +393,7 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 		parameters: COMPACT_ASK_USER_PARAMETERS,
 		async execute(toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: any, ctx?: any) {
 			const stockParams = compactAskUserParams(params);
+			const approvalScope = semanticScope();
 			const reused = semanticAskUserAnswer(stockParams);
 			if (reused) {
 				const result = stockResultFromRemote(stockParams, { kind: "selection", selections: [reused] });
@@ -419,7 +421,7 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 			};
 			if (!remoteStart && !addressed) {
 				const result = await stockTool.execute?.(toolCallId, stockParams, signal, onUpdate, ctx);
-				noteSettledAskUser(stockParams, result);
+				noteSettledAskUser(stockParams, result, approvalScope);
 				emitAskUserObservation({ params: stockParams, result, phase: "result" });
 				return result;
 			}
@@ -441,7 +443,7 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 					registerAnswer: addressed?.registerAnswer,
 					onSettled: addressed?.onSettled,
 				});
-				noteSettledAskUser(stockParams, result);
+				noteSettledAskUser(stockParams, result, approvalScope);
 				emitAskUserObservation({ params: stockParams, result, phase: "result" });
 				return result;
 			} finally {
@@ -474,8 +476,8 @@ export function installAskUserRemote(pi: ExtensionLike, options: InstallOptions 
 		if (pi.events?.on && wrapped.execute) registerRuntimeAsk(pi.events, (...args) => wrapped.execute!(...args));
 		const channel = options.questionChannel ?? questionChannel;
 		channel.enabled = true;
-		pi.on?.("session_start", () => { channel.reset(); channel.enabled = true; });
-		pi.on?.("session_shutdown", () => { channel.reset(); channel.enabled = false; });
+		pi.on?.("session_start", () => { resetSemanticApprovals(); resetIdenticalDialogs(); channel.reset(); channel.enabled = true; });
+		pi.on?.("session_shutdown", () => { resetSemanticApprovals(); resetIdenticalDialogs(); channel.reset(); channel.enabled = false; });
 		return { registered: true, tool: wrapped };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

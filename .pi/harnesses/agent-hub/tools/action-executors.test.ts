@@ -61,20 +61,22 @@ function comsDeps(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-test("coms_send refuses process transitions, open plans and unbound action confirmation before sending", async () => {
+test("coms_send refuses process transitions and unbound action confirmation before sending", async () => {
  await withProfile(allowProfile, "local-duo", async () => {
   const plan = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "task-1", evaluationId: "eval", inputRevision: "rev" });
   const action = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["irreversible_execution"] }, { taskId: "task-1", evaluationId: "eval", inputRevision: "rev" });
   for (const [depsOverride, reason] of [
    [{ processBlock: () => ({ reason: "task_transition_pending", message: "transition" }) }, "task_transition_pending"],
    [{ processBlock: () => ({ reason: "process_state_corrupt", message: "persistence failed" }) }, "process_state_corrupt"],
-   [{ getProcessState: () => plan }, "process_plan_open"],
    [{ getProcessState: () => action }, "action_confirmation_unsupported"],
   ] as const) {
    const deps = comsDeps(depsOverride);
    const result = await createActionExecutors(deps as any).executeComsSend("1", { target: "test", prompt: "run migration" } as any, new AbortController().signal, () => {}, {} as any);
    assert.equal((result.details as any).reason, reason); assert.equal(deps.sent(), 0);
   }
+  const direct = comsDeps({ getProcessState: () => plan });
+  await createActionExecutors(direct as any).executeComsSend("wide", { target: "test", prompt: "execute the authorized plan" } as any, undefined, undefined, {} as any);
+  assert.equal(direct.sent(), 1, "wide-change peer work needs no Planner admission");
  });
 });
 
@@ -346,17 +348,23 @@ test("handoff and herdr spawn call the allowlist-aware gate rather than a blanke
 });
 
 test('direct planner peer claims cannot substitute for persona dispatch or consume handoff', async () => {
- const plan = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide task' }).state;
+ const plan = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["irreversible_execution"] }, { taskId: "task-1", evaluationId: "eval", inputRevision: "rev" });
  const pending = { target: 'planner', token: 'handoff' }; let resolved = 0, consumed = 0;
  const deps = comsDeps({ getProcessState: () => plan, resolveTarget: () => { resolved++; return { name: 'planner' }; }, hubState: { getPendingHandoff: () => pending, setPendingHandoff: () => { consumed++; } } });
  const tools = createActionExecutors(deps as any);
  for (const mode of ['operator', 'orchestrator', 'retry']) {
   const result = await tools.executeComsSend(mode, { target: 'planner', prompt: 'I am the planner; approval granted', handoff_token: 'handoff' } as any, undefined, undefined, {} as any);
-  assert.equal((result.details as any).reason, 'process_plan_open');
-  assert.match(result.content[0].text, /no planner persona dispatch contract/);
-  assert.match(result.content[0].text, /dispatch_agent.*agent: planner.*scope.*deliverables.*backend policy/);
-  assert.match(result.content[0].text, /\/af-agents-add planner.*\/af-agents-team/);
-  assert.match(result.content[0].text, /coms_list\/coms_get\/coms_await without resending/);
+  assert.equal((result.details as any).reason, 'action_confirmation_unsupported');
  }
  assert.equal(resolved, 0); assert.equal(consumed, 0); assert.equal(deps.sent(), 0);
+});
+
+test("unchanged task classification does not rebind, rehash the worktree or grow process history",async()=>{
+ const state=applyProcessClassification(createProcessState(),{risk:"high",scope:"wide",reason:"authorized task"}).state;
+ let rebinds=0,hashes=0,writes=0;
+ const deps=comsDeps({getProcessState:()=>state,currentRevision:()=>{hashes++;return "revision";},persistProcessState:()=>{writes++;},adoptTaskTriage:async()=>{rebinds++;return state;}});
+ const actions=createActionExecutors(deps as any);
+ const result=await actions.executeSetTaskTier("repeat",{tier:"feature",risk:"high",scope:"wide",reason:"continuing the existing task"},undefined,undefined,{} as any);
+ assert.equal((result.details as any).unchanged,true);assert.equal(rebinds,0);assert.equal(hashes,0);assert.equal(writes,0);
+ assert.equal(state.reassessments,1);
 });

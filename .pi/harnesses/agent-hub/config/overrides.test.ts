@@ -68,3 +68,14 @@ test("legacy watchdog-system1 Markdown is ignored; v2 owns runtime configuration
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+
+test("legacy continuation quota keys warn and cannot reintroduce periodic approval", t => {
+ const dir = mkdtempSync(join(tmpdir(), "overrides-supervised-"));
+ t.after(() => rmSync(dir, { recursive: true, force: true }));
+ mkdirSync(join(dir, ".ai"), { recursive: true });
+ writeFileSync(join(dir, ".ai/agent-fleet-overrides.md"), "## agent-hub\nmax-dispatches-per-turn: 1\nmax-research-per-turn: 1\nturn-wall-time-s: 1\nagent-turn-timeout-s: 60\n");
+ const parsed = parseAgentTeamOverrides(dir);
+ assert.deepEqual(parsed.budgetOverrides, { agentTurnMs: 60_000 });
+ assert.equal(parsed.warnings.filter(w => w.includes("continuation quotas were removed")).length, 3);
+});

@@ -56,23 +56,23 @@ test("resolveTurnBudget falls back to small on junk or omitted tier", () => {
 	assert.deepEqual(resolveTurnBudget(null), TIER_BUDGETS[DEFAULT_TASK_TIER]);
 });
 
-test("resolveTurnBudget treats overrides as a ceiling; off stays bounded by the tier", () => {
+test("legacy quota overrides are ignored while child deadlines stay bounded", () => {
 	const b = resolveTurnBudget("feature", { maxDispatches: 3, agentTurnMs: null });
-	assert.equal(b.maxDispatches, 3);
+	assert.equal(b.maxDispatches, null);
 	assert.equal(b.agentTurnMs, TIER_BUDGETS.feature.agentTurnMs);
 	assert.equal(b.maxResearch, TIER_BUDGETS.feature.maxResearch);
 	assert.equal(b.delegation, true);
-	assert.equal(resolveTurnBudget("small", { maxDispatches: 99 }).maxDispatches, 2);
-	assert.equal(resolveTurnBudget("small", { maxDispatches: null }).maxDispatches, 2);
+	assert.equal(resolveTurnBudget("small", { maxDispatches: 99 }).maxDispatches, null);
+	assert.equal(resolveTurnBudget("small", { maxDispatches: null }).maxDispatches, null);
 });
 
 test("orchestrator turn dispatch floor does not raise feature, task math, or an explicit ceiling", () => {
 	const small = resolveTurnBudget("small");
-	assert.equal(orchestratorTurnBudget(small, "orchestrator", undefined).maxDispatches, 3);
-	assert.equal(orchestratorTurnBudget(small, "operator", undefined).maxDispatches, 2);
-	assert.equal(orchestratorTurnBudget(resolveTurnBudget("feature"), "orchestrator", undefined).maxDispatches, 8);
-	assert.equal(orchestratorTurnBudget(resolveTurnBudget("small", { maxDispatches: 1 }), "orchestrator", 1).maxDispatches, 1);
-	assert.equal(resolveTaskBudget(small).maxDispatches, 6);
+	assert.equal(orchestratorTurnBudget(small, "orchestrator", undefined).maxDispatches, null);
+	assert.equal(orchestratorTurnBudget(small, "operator", undefined).maxDispatches, null);
+	assert.equal(orchestratorTurnBudget(resolveTurnBudget("feature"), "orchestrator", undefined).maxDispatches, null);
+	assert.equal(orchestratorTurnBudget(resolveTurnBudget("small", { maxDispatches: 1 }), "orchestrator", 1).maxDispatches, null);
+	assert.equal(resolveTaskBudget(small).maxDispatches, null);
 });
 
 test("delegation is tier-owned and never overridable", () => {
@@ -87,8 +87,8 @@ test("every tier has a full envelope and TIER_CAPS covers exactly TASK_TIERS", (
 	assert.deepEqual(Object.keys(TIER_BUDGETS).sort(), [...TASK_TIERS].sort());
 	assert.deepEqual(Object.keys(TIER_CAPS).sort(), [...TASK_TIERS].sort());
 	for (const tier of TASK_TIERS) {
-		assert.equal(typeof TIER_BUDGETS[tier].maxDispatches, "number");
-		assert.equal(typeof TIER_BUDGETS[tier].wallMs, "number");
+		assert.equal(TIER_BUDGETS[tier].maxDispatches, null);
+		assert.equal(TIER_BUDGETS[tier].wallMs, null);
 	}
 });
 
@@ -99,7 +99,7 @@ test("checkTurnBudget allows calls under every limit", () => {
 });
 
 test("checkTurnBudget refuses on dispatch cap with one-click continuation guidance", () => {
-	const budget = resolveTurnBudget("small");
+	const budget = { maxDispatches: 2, maxResearch: 2, wallMs: 900000 };
 	const r = checkTurnBudget("dispatch", { dispatches: 2, research: 0 }, budget, 0, "small");
 	assert.equal(r.reason, "dispatches");
 	assert.match(r.message, /Do NOT retry/);
@@ -110,24 +110,22 @@ test("checkTurnBudget refuses on dispatch cap with one-click continuation guidan
 });
 
 test("checkTurnBudget refuses on research cap only for research calls", () => {
-	const budget = resolveTurnBudget("trivial");
+	const budget = { maxDispatches: 1, maxResearch: 1, wallMs: 900000 };
 	const counters = { dispatches: 0, research: 1 };
 	assert.equal(checkTurnBudget("research", counters, budget, 0, "trivial").reason, "research");
 	assert.equal(checkTurnBudget("dispatch", counters, budget, 0, "trivial"), null);
 });
 
 test("checkTurnBudget wall clock wins over per-kind caps", () => {
-	const budget = resolveTurnBudget("feature");
+	const budget = { maxDispatches: 8, maxResearch: 4, wallMs: 3600000 };
 	const r = checkTurnBudget("dispatch", { dispatches: 99, research: 0 }, budget, budget.wallMs, "feature");
 	assert.equal(r.reason, "wall");
 });
 
-test("checkTurnBudget does not honor off (null) overrides past the tier cap", () => {
-	const budget = resolveTurnBudget("small", { maxDispatches: null, wallMs: null });
-	assert.equal(budget.maxDispatches, 2);
-	assert.equal(budget.wallMs, TIER_BUDGETS.small.wallMs);
-	assert.equal(checkTurnBudget("dispatch", { dispatches: 2, research: 0 }, budget, 0, "small").reason, "dispatches");
-	assert.equal(checkTurnBudget("dispatch", { dispatches: 0, research: 0 }, budget, budget.wallMs, "small").reason, "wall");
+test("legacy off overrides keep live continuation quotas disabled", () => {
+ const budget = resolveTurnBudget("small", { maxDispatches: null, wallMs: null });
+ assert.equal(budget.maxDispatches, null); assert.equal(budget.wallMs, null);
+ assert.equal(checkTurnBudget("dispatch", { dispatches: 200, research: 0 }, budget, 99999999, "small"), null);
 });
 
 test("shouldRecycleSession triggers on run count or context pressure", () => {
@@ -173,15 +171,15 @@ test("contextOverflowDiagnostic fires only for a fresh session over the window",
 test("budgetStatusLine renders caps and assumed-tier markers", () => {
 	assert.equal(
 		budgetStatusLine({ dispatches: 3, research: 1 }, resolveTurnBudget("project"), "project"),
-		"Tier: project · 3/12 disp · 1/6 res",
+		"Tier: project · 3/∞ disp · 1/∞ res",
 	);
 	assert.equal(
 		budgetStatusLine({ dispatches: 1, research: 0 }, resolveTurnBudget("small"), "small"),
-		"Tier: small · 1/2 disp · 0/2 res",
+		"Tier: small · 1/∞ disp · 0/∞ res",
 	);
 	assert.equal(
 		budgetStatusLine({ dispatches: 1, research: 0 }, resolveTurnBudget("small"), "small?"),
-		"Tier: small? · 1/2 disp · 0/2 res",
+		"Tier: small? · 1/∞ disp · 0/∞ res",
 	);
 });
 
@@ -242,7 +240,7 @@ test("TIER_RANK orders every declared tier", () => {
 // ── Task-scoped budget (B2) ──────────────────────────────────────────────────
 
 test("resolveTaskBudget multiplies each axis and keeps disabled axes off", () => {
-	const turn = resolveTurnBudget("feature");
+	const turn = { maxDispatches: 8, maxResearch: 4, wallMs: 3600000 };
 	const task = resolveTaskBudget(turn);
 	assert.equal(task.maxDispatches, 24);
 	assert.equal(task.maxResearch, 12);
@@ -264,7 +262,7 @@ test("checkTaskBudget allows calls inside the envelope", () => {
 });
 
 test("checkTaskBudget stops the task on dispatches, research and wall clock", () => {
-	const task = resolveTaskBudget(resolveTurnBudget("small")); // 6 / 6 / 45min
+	const task = { maxDispatches: 6, maxResearch: 6, wallMs: 45 * 60_000 }; // 6 / 6 / 45min
 	const disp = checkTaskBudget("dispatch", { dispatches: 6, research: 0 }, task, 0, "small");
 	assert.equal(disp.reason, "task_dispatches");
 	const res = checkTaskBudget("research", { dispatches: 0, research: 6 }, task, 0, "small");
@@ -274,7 +272,7 @@ test("checkTaskBudget stops the task on dispatches, research and wall clock", ()
 });
 
 test("a task-budget refusal requires one-click continuation rather than a fake new task", () => {
-	const task = resolveTaskBudget(resolveTurnBudget("small"));
+	const task = { maxDispatches: 6, maxResearch: 6, wallMs: 45 * 60_000 };
 	const refusal = checkTaskBudget("dispatch", { dispatches: 99, research: 0 }, task, 0, "trivial");
 	assert.match(refusal.message, /HARD STOP/);
 	assert.match(refusal.message, /does\s+NOT reopen it/);
@@ -320,11 +318,11 @@ test("checkTierPersonaGate does not gate feature/project or an unset tier", () =
 });
 
 test("checkTierPersonaGate is case- and whitespace-insensitive", () => {
-	assert.ok(checkTierPersonaGate("small", " Plan-Reviewer "));
+	assert.ok(checkTierPersonaGate("small", " Architect "));
 });
 
 test("the gate names the escape hatch instead of just refusing", () => {
-	const gate = checkTierPersonaGate("trivial", "planner");
+	const gate = checkTierPersonaGate("trivial", "architect");
 	assert.match(gate.message, /set_task_tier/);
 	assert.match(gate.message, /reason/);
 	assert.match(gate.message, /Do not raise the tier merely to unlock a persona/);
@@ -372,7 +370,7 @@ test("budgetStatusLine appends task usage when a task envelope is passed", () =>
 		counters: { dispatches: 4, research: 1 },
 		budget: resolveTaskBudget(turn),
 	});
-	assert.equal(line, "Tier: small · 1/2 disp · 0/2 res · task 4/6");
+	assert.equal(line, "Tier: small · 1/∞ disp · 0/∞ res · task 4/∞");
 });
 
 // ── Task clock charges ACTIVE time only (finding 2) ──────────────────────────
@@ -412,7 +410,7 @@ test("a long ask_user answer inside one turn costs no task clock", () => {
 });
 
 test("the task clock still stops a genuinely long-running task", () => {
-	const task = resolveTaskBudget(resolveTurnBudget("small"));
+	const task = { maxDispatches: 6, maxResearch: 6, wallMs: 45 * 60_000 };
 	const refusal = checkTaskBudget("dispatch", { dispatches: 0, research: 0 }, task, 46 * 60_000, "small");
 	assert.equal(refusal.reason, "task_wall");
 	assert.match(refusal.message, /ACTIVE time/);
@@ -482,7 +480,7 @@ test("the lifecycle clock still trips the small-tier task gate after genuine act
 	const start = 1_000_000;
 	let clock = openTaskClock(createTaskClock(), start);
 	clock = closeTaskClock(clock, start + 46 * 60_000);
-	const task = resolveTaskBudget(resolveTurnBudget("small"));
+	const task = { maxDispatches: 6, maxResearch: 6, wallMs: 45 * 60_000 };
 	assert.equal(
 		checkTaskBudget("dispatch", { dispatches: 0, research: 0 }, task, taskClockElapsedMs(clock, start + 2 * 60 * 60_000), "small")?.reason,
 		"task_wall",
@@ -492,7 +490,7 @@ test("the lifecycle clock still trips the small-tier task gate after genuine act
 // ── Auto-research counts against the task envelope (finding 3) ───────────────
 
 test("remainingTaskResearch reports what the task envelope still allows", () => {
-	const task = resolveTaskBudget(resolveTurnBudget("small")); // 6
+	const task = { maxDispatches: 6, maxResearch: 6, wallMs: 45 * 60_000 }; // 6
 	assert.equal(remainingTaskResearch(task, { research: 0 }), 6);
 	assert.equal(remainingTaskResearch(task, { research: 4 }), 2);
 	assert.equal(remainingTaskResearch(task, { research: 6 }), 0);
@@ -512,7 +510,7 @@ test("the assumed tier is small, so a skipped triage cannot unlock the apparatus
 		assert.ok(checkTierPersonaGate(DEFAULT_TASK_TIER, persona), `${persona} must stay gated on a skipped triage`);
 	}
 	const budget = resolveTurnBudget(DEFAULT_TASK_TIER);
-	assert.equal(budget.maxDispatches, 2);
+	assert.equal(budget.maxDispatches, null);
 	assert.equal(blockingFindingCap(DEFAULT_TASK_TIER), 2);
 });
 
@@ -526,22 +524,16 @@ test("escalating from the assumed tier is a normal ratchet raise (needs a reason
 
 // ── Review round cap (finding 1) ────────────────────────────────────────────
 
-test("reviewRoundCap tightens with the tier", () => {
-	assert.equal(reviewRoundCap("trivial"), 1);
-	assert.equal(reviewRoundCap("small"), 1);
-	assert.equal(reviewRoundCap("feature"), 2);
+test("reviewRoundCap is uncapped for every tier", () => {
+	assert.equal(reviewRoundCap("trivial"), null);
+	assert.equal(reviewRoundCap("small"), null);
+	assert.equal(reviewRoundCap("feature"), null);
 	assert.equal(reviewRoundCap("project"), null);
 	assert.equal(reviewRoundCap(null), null);
 });
 
-test("checkReviewRoundCap refuses the round after the cap", () => {
-	assert.equal(checkReviewRoundCap("feature", "code-reviewer", 0), null);
-	assert.equal(checkReviewRoundCap("feature", "code-reviewer", 1), null);
-	const gate = checkReviewRoundCap("feature", "code-reviewer", 2);
-	assert.equal(gate.reason, "review_round_cap");
-	assert.match(gate.message, /NOT counted against any budget/);
-	assert.match(gate.message, /A review is a GATE, not a loop/);
-	assert.match(gate.message, /set_task_tier.*new_task: true/);
+test("review counts never require a quota renewal", () => {
+ for (const tier of TASK_TIERS) assert.equal(checkReviewRoundCap(tier, "code-reviewer", 999), null);
 });
 
 test("checkReviewRoundCap only applies to review personas and capped tiers", () => {
@@ -550,9 +542,9 @@ test("checkReviewRoundCap only applies to review personas and capped tiers", () 
 	assert.equal(checkReviewRoundCap(null, "code-reviewer", 99), null);
 });
 
-test("at trivial/small one review round is the whole gate", () => {
+test("trivial/small review rounds remain uncapped", () => {
 	for (const tier of ["trivial", "small"]) {
 		assert.equal(checkReviewRoundCap(tier, "code-reviewer", 0), null);
-		assert.ok(checkReviewRoundCap(tier, "code-reviewer", 1));
+		assert.equal(checkReviewRoundCap(tier, "code-reviewer", 1), null);
 	}
 });

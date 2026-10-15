@@ -77,7 +77,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 			taskId: d.currentTaskId(),
 			tier: d.getTaskTier(),
 			tierAssumed: d.getTaskTierAssumed(),
-			revision: (() => { try { return d.currentRevision(ctx); } catch { return "unavailable"; } })(),
+			revision: "unavailable",
 			process: getProcessState(),
 			acceptedUserInput: new_task ? d.getAcceptedUserInput?.() ?? "" : "",
 		};
@@ -89,6 +89,10 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		if (d.processBlock?.()?.reason === "process_state_corrupt") return { content: [{ type: "text", text: d.processBlock()!.message }], details: { status: "refused", reason: "process_state_corrupt" } };
 		const processChange = applyProcessClassification(snapshot.process, { risk, scope, reason, newTask: !!new_task });
 		if (!processChange.ok) return { content: [{ type: "text", text: processChange.message }], details: { status: "error", reason: "process_classification", tier: change.tier, risk: processChange.state.risk, scope: processChange.state.scope } };
+        if(!new_task && !snapshot.tierAssumed && change.tier === snapshot.tier && processChange.state.risk === snapshot.process.risk && processChange.state.scope === snapshot.process.scope && !d.processBlock?.()) {
+            return {content:[{type:"text",text:`Classification unchanged: tier ${snapshot.tier}, risk ${snapshot.process.risk}, scope ${snapshot.process.scope}. Continue the current bound task; no new triage or process transition.`}],details:{status:"ok",unchanged:true,tier:snapshot.tier,risk:snapshot.process.risk,scope:snapshot.process.scope,newTask:false}};
+        }
+        try { snapshot.revision=d.currentRevision(ctx); } catch { /* unchanged unavailable revision remains explicit */ }
 		let reservedNewTaskId: string | undefined;
 		if (new_task) reservedNewTaskId = reserveActualTaskId();
 		if (new_task && processOpenObligations(snapshot.process).length) {
@@ -187,10 +191,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 	const executeComsSend: ToolExecutor<ComsSendParams> = async (_id, params) => {
 		const gate = d.processBlock?.() ?? processPreEffectGate(getProcessState(), "child", "");
 		if (gate) {
-   const recovery = gate.reason === "process_plan_open"
-    ? " Direct coms_send has no planner persona dispatch contract; peer names and prompt claims cannot supply it. Use dispatch_agent with agent: planner, declared scope and deliverables, and the applicable backend policy. If planner is missing, ask the human to use /af-agents-add planner or /af-agents-team. Inspect an existing message with coms_list/coms_get/coms_await without resending."
-    : "";
-   return { content: [{ type: "text", text: gate.message + recovery }], details: { status: "refused", reason: gate.reason } };
+   return { content: [{ type: "text", text: gate.message }], details: { status: "refused", reason: gate.reason } };
   }
 		const target = d.resolveTarget(params.target);
 		const profileRefusal = profilePeerGate({ peerModel: target?.model, targetResolved: !!target }); if (profileRefusal) return profileRefusal;
