@@ -6,6 +6,8 @@ import { waiveTaskTriageAddition, type EvaluationBinding } from "./task-triage-o
 import type { ProcessObligationState } from "./process-obligations.ts";
 import { isAbsolute } from "node:path";
 import { containsCommunicationSecret } from "./system1-communication-store.ts";
+import { decideIdenticalDialog, identicalDialogKey } from "../lib/identical-dialog.ts";
+import { coveredDeletePath, inspectionBash, noteBashDecision, semanticDecision } from "../lib/semantic-approval.ts";
 
 const grantBrand: unique symbol = Symbol("trusted triage grant");
 export type ActionGrant = OneUseAuthority;
@@ -30,12 +32,32 @@ function affirmative(value: unknown, id: string, option: string): boolean {
 /** Human response alone does not authorize an effect: the exact task/revision/action and durable grant must also match. */
 async function authorize(key: string, context: string, ports: TriageHumanPorts, ctx: ExtensionContext, signal?: AbortSignal): Promise<boolean> {
  if (pending.has(key) || signal?.aborted) return false;
- const task = ports.taskId(), revision = ports.inputRevision(), id = randomUUID(), controller = new AbortController();
- const abort = () => controller.abort(); signal?.addEventListener("abort", abort, { once: true }); pending.add(key);
- const question: RuntimeQuestion = { question: "Authorize this exact task-triage decision once?", context: `Task: ${task}\nInput revision: ${revision}\n${context}\nNonce: ${id}`, options: ["Yes — authorize once", "No — deny"], allowMultiple: false, allowFreeform: false, allowComment: false };
- try { ports.startWait(id); const result = await ports.ask(id, question, ctx, controller.signal); return !controller.signal.aborted && task === ports.taskId() && revision === ports.inputRevision() && affirmative(result, id, question.options[0]); }
- catch { return false; }
- finally { ports.endWait(id, task === ports.taskId()); pending.delete(key); signal?.removeEventListener("abort", abort); }
+ const task = ports.taskId(), revision = ports.inputRevision();
+ const question: RuntimeQuestion = { question: "Authorize this exact task-triage decision once?", context: `Task: ${task}\nInput revision: ${revision}\n${context}`, options: ["Yes — authorize once", "No — deny"], allowMultiple: false, allowFreeform: false, allowComment: false };
+ const dialogKey = identicalDialogKey(["task-triage", task, revision, question.question, question.options, question.context]);
+ const outcome = await decideIdenticalDialog(dialogKey, async () => {
+  if (pending.has(key) || signal?.aborted || task !== ports.taskId() || revision !== ports.inputRevision()) return "cancel";
+  const id = randomUUID(), controller = new AbortController(), abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true }); pending.add(key);
+  try {
+   ports.startWait(id); const result = await ports.ask(id, question, ctx, controller.signal);
+   if (controller.signal.aborted || task !== ports.taskId() || revision !== ports.inputRevision()) return "cancel";
+   if (affirmative(result, id, question.options[0])) { noteContextDecision(task, revision, question.context, "allow"); return "allow"; }
+   if (affirmative(result, id, question.options[1])) { noteContextDecision(task, revision, question.context, "deny"); return "deny"; }
+   return "cancel";
+  } catch { return "cancel"; }
+  finally { ports.endWait(id, task === ports.taskId()); pending.delete(key); signal?.removeEventListener("abort", abort); }
+ });
+ return outcome === "allow" && !signal?.aborted && task === ports.taskId() && revision === ports.inputRevision();
+}
+function noteContextDecision(task: string, revision: string, context: string, decision: "allow" | "deny"): void {
+ const start = context.indexOf("BEGIN ACTION INPUT JSON\n"), end = context.indexOf("\nEND ACTION INPUT JSON");
+ if (start < 0 || end < start) return;
+ try { const command = JSON.parse(context.slice(start + "BEGIN ACTION INPUT JSON\n".length, end))?.command; if (typeof command === "string") noteBashDecision(task, revision, command, decision); } catch { /* Unparseable presentation cannot widen approval. */ }
+}
+function issueWithoutDialog(contract: ActionContract, persistOneUse: (contract: ActionContract) => boolean, key: string): ActionGrant | null {
+ try { if (!persistOneUse(contract)) return null; } catch { return null; }
+ return actionGrants.issue(key);
 }
 export interface ActionContract { taskId: string; inputRevision: string; actionId: string; operation: string; target: string; cwd?: string; }
 export interface ActionPresentation { input: unknown; cwd: string; }
@@ -98,7 +120,14 @@ export async function confirmTaskTriageAction(action: ActionContract, ports: Tri
  const detail = actionPresentation(contract, presentation);
  if (!detail) return null;
  const key = actionKey(contract);
- if (!await authorize(key, `Operation: ${contract.operation}\nTarget: ${contract.target}\nAction: ${contract.actionId}\n${detail}`, ports, ctx, signal)) return null;
+ const command = contract.operation === "bash" && presentation?.input && typeof (presentation.input as { command?: unknown }).command === "string" ? (presentation.input as { command: string }).command : "";
+ const deletion = command ? coveredDeletePath(command) : null;
+ const prior = deletion ? semanticDecision(contract.taskId, contract.inputRevision, deletion) : undefined;
+ if (signal?.aborted) return null;
+ if (command && inspectionBash(command)) return issueWithoutDialog(contract, persistOneUse, key);
+ if (prior === "allow") return issueWithoutDialog(contract, persistOneUse, key);
+ if (prior === "deny") return null;
+ if (!await authorize(key, `Operation: ${contract.operation}\nTarget: ${contract.target}\n${detail}`, ports, ctx, signal)) return null;
  const stillCurrent = () => !signal?.aborted && contract.taskId === ports.taskId() && contract.inputRevision === ports.inputRevision()
   && actionKey(action) === key && actionPresentation(contract, presentation) === detail;
  if (!stillCurrent()) return null;

@@ -1,5 +1,6 @@
 import { registerDiscoveryHub, configureDiscoveryHub, resetDiscoveryHub, discoveryHubEnabled, discoveryManagedReadbackAllowed, prepareDiscoveryNative } from './file-discovery/hub.ts';
 import { registerDamageGuardHub, configureDamageGuardHub, resetDamageGuardHub, acceptDamageGuardInput, prepareDamageGuardNative } from './damage-guard-hub.ts';
+import { bindSemanticScope } from '../lib/semantic-approval.ts';
 import { registerAgenticHub, configureAgenticHub, agenticHubEnabled, agenticHubRuntime, resetAgenticHub } from './agentic-hub.ts';
 import { loadSystem1Snapshot } from "../lib/system1/config-loader.js";
 import { normalizeSystem1Config } from "../lib/system1/config-v2.js";
@@ -2275,7 +2276,7 @@ export default function (pi: ExtensionAPI) {
 			if ((source === "extension" && !replayed) || !text.trim()) return;
 			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) { pendingTaskTransition = true; transitionDiversions = 0; transitionHintDelivered = false; transitionBatchRefused = false; try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: true }); } catch { processPersistenceBlocked = true; } }
 			hubTaskText = text;
-            try { noProgress.persistTaskIdentity(); acceptDamageGuardInput(pi, text); } catch { processPersistenceBlocked = true; }
+            try { noProgress.persistTaskIdentity(); acceptDamageGuardInput(pi, text); bindSemanticScope(noProgress.taskId(), createHash("sha256").update(text).digest("hex")); } catch { processPersistenceBlocked = true; }
 			taskTriage?.input(text, "interactive");
 		},
 	});

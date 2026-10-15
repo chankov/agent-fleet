@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { raceAskUser } from "./race-core.js";
 import { questionChannel, type QuestionChannel } from "./questions.ts";
 import { registerRuntimeAsk } from "./runtime-ask.ts";
+import { noteAskUserDecision, semanticAskUserAnswer } from "../lib/semantic-approval.ts";
 
 interface ToolRegistration {
 	name: string;
@@ -377,6 +378,11 @@ export function compactAskUserParams(params: any): any {
 	};
 }
 
+function noteSettledAskUser(params: { question?: unknown; context?: unknown }, result: any): void {
+ const selection = result?.details?.response?.selections?.[0];
+ if (typeof selection === "string") noteAskUserDecision(params, selection);
+}
+
 export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOptions = {}): ToolRegistration {
 	return {
 		...stockTool,
@@ -386,6 +392,12 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 		parameters: COMPACT_ASK_USER_PARAMETERS,
 		async execute(toolCallId: string, params: any, signal?: AbortSignal, onUpdate?: any, ctx?: any) {
 			const stockParams = compactAskUserParams(params);
+			const reused = semanticAskUserAnswer(stockParams);
+			if (reused) {
+				const result = stockResultFromRemote(stockParams, { kind: "selection", selections: [reused] });
+				emitAskUserObservation({ params: stockParams, result, phase: "result" });
+				return result;
+			}
 			emitAskUserObservation({ params: stockParams, phase: "start" });
 			const configuredProject = typeof options.remoteProject === "function" ? options.remoteProject() : options.remoteProject;
 			const remoteProject = configuredProject ?? process.env.PI_COMS_PROJECT?.trim() ?? "default";
@@ -407,6 +419,7 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 			};
 			if (!remoteStart && !addressed) {
 				const result = await stockTool.execute?.(toolCallId, stockParams, signal, onUpdate, ctx);
+				noteSettledAskUser(stockParams, result);
 				emitAskUserObservation({ params: stockParams, result, phase: "result" });
 				return result;
 			}
@@ -428,6 +441,7 @@ export function wrapAskUserTool(stockTool: ToolRegistration, options: InstallOpt
 					registerAnswer: addressed?.registerAnswer,
 					onSettled: addressed?.onSettled,
 				});
+				noteSettledAskUser(stockParams, result);
 				emitAskUserObservation({ params: stockParams, result, phase: "result" });
 				return result;
 			} finally {

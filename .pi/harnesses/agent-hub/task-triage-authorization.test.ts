@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { confirmTaskTriageAction, confirmTaskTriageWaiver } from "./task-triage-authorization.ts";
+import { resetIdenticalDialogs } from "../lib/identical-dialog.ts";
+import { noteSemanticDecision, resetSemanticApprovals } from "../lib/semantic-approval.ts";
 import * as authorization from "./task-triage-authorization.ts";
 import { applyTaskTriageAdditions } from "./task-triage-obligations.ts";
 import { applyProcessClassification, createProcessState, effectiveProcessStage, evaluateProcessObligations, latestProcessState, noteProcessStage, processActionGate, processAuditRecord, processPreEffectGate } from "./process-obligations.ts";
@@ -18,6 +20,7 @@ test("action audit metadata fingerprints exact contract without raw targets, cal
 
 const ctx = {} as any;
 function fixture(response: "yes" | "no" | "forged" | "missing" = "yes") {
+ resetIdenticalDialogs(); resetSemanticApprovals();
  let task = "t1", revision = "r1", writes = 0, calls = 0, question = "";
  const ports = { taskId: () => task, inputRevision: () => revision, startWait() {}, endWait() {}, persist: () => { writes++; }, ask: async (id: string, q: any) => { calls++; question = q.context; if (response === "missing") return null; return { details: { runtimeAsk: { requestId: response === "forged" ? "wrong" : id }, response: { kind: "selection", selections: [q.options[response === "no" ? 1 : 0]] } } }; } };
  return { ports, setTask: (v: string) => { task = v; }, setRevision: (v: string) => { revision = v; }, writes: () => writes, calls: () => calls, question: () => question };
@@ -44,7 +47,7 @@ test("action grant is exact, one-use and bound to an active addition; forged boo
  assert.equal(processActionGate(createProcessState(), action), null);
  assert.equal(processActionGate(applyTaskTriageAdditions(s, { status: "applied", reasons: ["irreversible_execution"] }, { ...bind, inputRevision: "r2" }), action, grant)?.reason, "action_confirmation_unsupported");
  assert.equal(await confirmTaskTriageAction(action, f.ports, ctx, persistOnce, undefined, presentation), null);
- assert.equal(f.calls(), 2); f.setRevision("r2"); assert.equal(await confirmTaskTriageAction(action, f.ports, ctx, persistOnce, undefined, presentation), null);
+ assert.equal(f.calls(), 1, "an identical dialog is not shown again"); f.setRevision("r2"); assert.equal(await confirmTaskTriageAction(action, f.ports, ctx, persistOnce, undefined, presentation), null);
  const failed = fixture(); assert.equal(await confirmTaskTriageAction(action, failed.ports, ctx, () => { throw Error("disk"); }, undefined, presentation), null);
 });
 test("durable one-use action confirmation closes acceptance without becoming a waiver or reusable grant", async () => {
@@ -162,6 +165,38 @@ test("action presentation refuses ambiguous edit forms, malformed fields and con
  assert.equal(persisted, 0);
 });
 
+test("identical task-triage dialog is not repeated; a different command or revision still asks", async () => {
+ const f = fixture(); const persist = () => true;
+ assert.ok(await confirmTaskTriageAction(action, f.ports, ctx, persist, undefined, presentation));
+ assert.ok(await confirmTaskTriageAction({ ...action, actionId: "two" }, f.ports, ctx, persist, undefined, presentation));
+ assert.equal(f.calls(), 1);
+ const otherInput = { command: "printf 'different'", timeout: 30 };
+ const other = { ...action, actionId: "three", target: createHash("sha256").update(JSON.stringify(otherInput)).digest("hex") };
+ assert.ok(await confirmTaskTriageAction(other, f.ports, ctx, persist, undefined, { input: otherInput, cwd: presentation.cwd }));
+ assert.equal(f.calls(), 2);
+ f.setRevision("r2");
+ assert.ok(await confirmTaskTriageAction({ ...action, inputRevision: "r2", actionId: "four" }, f.ports, ctx, persist, undefined, presentation));
+ assert.equal(f.calls(), 3);
+ const denied = fixture("no");
+ assert.equal(await confirmTaskTriageAction(action, denied.ports, ctx, persist, undefined, presentation), null);
+ assert.equal(await confirmTaskTriageAction({ ...action, actionId: "retry" }, denied.ports, ctx, persist, undefined, presentation), null);
+ assert.equal(denied.calls(), 1);
+});
+test("one delete approval covers the same file; inspection does not ask and another file still does", async () => {
+ const f = fixture(), persist = () => true, hash = (input: unknown) => createHash("sha256").update(JSON.stringify(input)).digest("hex");
+ const listing = { command: "pwd; ls -l docs/d6-activation-smoke-empty.txt 2>/dev/null", timeout: 10 };
+ assert.ok(await confirmTaskTriageAction({ ...action, target: hash(listing) }, f.ports, ctx, persist, undefined, { input: listing, cwd: presentation.cwd }));
+ noteSemanticDecision(action.taskId, action.inputRevision, "docs/d6-activation-smoke-empty.txt", "allow");
+ const removal = { command: "rm -- docs/d6-activation-smoke-empty.txt && test ! -e docs/d6-activation-smoke-empty.txt", timeout: 10 };
+ assert.ok(await confirmTaskTriageAction({ ...action, actionId: "rm", target: hash(removal) }, f.ports, ctx, persist, undefined, { input: removal, cwd: presentation.cwd }));
+ const other = { command: "rm -- docs/other.txt", timeout: 10 };
+ assert.ok(await confirmTaskTriageAction({ ...action, actionId: "other", target: hash(other) }, f.ports, ctx, persist, undefined, { input: other, cwd: presentation.cwd }));
+ assert.equal(f.calls(), 1);
+ const denied = fixture();
+ noteSemanticDecision(action.taskId, action.inputRevision, "docs/d6-activation-smoke-empty.txt", "deny");
+ assert.equal(await confirmTaskTriageAction({ ...action, target: hash(removal) }, denied.ports, ctx, persist, undefined, { input: removal, cwd: presentation.cwd }), null);
+ assert.equal(denied.calls(), 0);
+});
 test("human reply racing task change is stale", async () => {
  const f = fixture(); const ports = { ...f.ports, ask: async (id: string, q: any) => { f.setTask("t2"); return { details: { runtimeAsk: { requestId: id }, response: { kind: "selection", selections: [q.options[0]] } } }; } };
  assert.equal(await confirmTaskTriageAction(action, ports, ctx, () => true, undefined, presentation), null);

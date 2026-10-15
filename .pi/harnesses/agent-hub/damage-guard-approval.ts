@@ -3,6 +3,7 @@ import {createOneUseAuthority,type OneUseAuthority} from './action-authorization
 import {actionPresentation} from './task-triage-authorization.ts';
 import {createDamageState,type DamageAction} from './damage-guard-state.ts';
 import type {RuntimeQuestion} from '../ask-user-remote/runtime-ask.ts';
+import {decideIdenticalDialog,identicalDialogKey} from '../lib/identical-dialog.ts';
 const key=(a:DamageAction)=>JSON.stringify([a.taskId,a.inputRevision,a.actionId,a.owner,a.attempt,a.operation,a.target,a.cwd]);
 export type DamageApprovalProof=Readonly<{allowed:boolean;denialEpoch:number;overrideDenied:boolean}>;
 export type DamageApprovalResult={status:'allowed';grant:OneUseAuthority}|{status:'denied'|'expired'|'cancelled'|'unpresentable'|'persistence_failed'};
@@ -37,14 +38,18 @@ export function createDamageApproval(deps:{state:ReturnType<typeof createDamageS
     const id=randomUUID(),controller=new AbortController(),abort=()=>controller.abort();waitSignal.addEventListener('abort',abort,{once:true});
     const timer=setTimeout(()=>controller.abort(),deps.timeoutMs??600000);
     try{
-     const question:RuntimeQuestion={question:'Approve this exact Damage-Control action once?',context:`Task: ${snapshot.taskId}\nRevision: ${snapshot.inputRevision}\nOwner: ${snapshot.owner}\nAttempt: ${snapshot.attempt}\n${detail}`,options:['Allow once','Deny'],allowMultiple:false,allowFreeform:false,allowComment:false};
-     const response=await deps.ask(id,question,controller.signal) as {isError?:boolean;details?:{cancelled?:boolean;runtimeAsk?:{requestId?:string};response?:{kind?:string;selections?:unknown[]}}};
+     const question:RuntimeQuestion={question:'Approve this exact Damage-Control action once?',context:`Task: ${snapshot.taskId}\nRevision: ${snapshot.inputRevision}\nOwner: ${snapshot.owner}\n${detail}`,options:['Allow once','Deny'],allowMultiple:false,allowFreeform:false,allowComment:false};
+     const dialogKey=identicalDialogKey(['damage',snapshot.taskId,snapshot.inputRevision,snapshot.owner,snapshot.operation,snapshot.target,snapshot.cwd,question.question,question.options,detail]);
+     const decision=await decideIdenticalDialog(dialogKey,async()=>{
+      const response=await deps.ask(id,question,controller.signal) as {isError?:boolean;details?:{cancelled?:boolean;runtimeAsk?:{requestId?:string};response?:{kind?:string;selections?:unknown[]}}};
+      if(!current(snapshot,waitSignal)||key(action)!==binding||controller.signal.aborted)return 'cancel';
+      const row=response?.details,choice=row?.response?.selections?.[0];
+      if(response?.isError||row?.cancelled||row?.runtimeAsk?.requestId!==id||row.response?.kind!=='selection'||row.response.selections?.length!==1)return 'cancel';
+      return choice==='Allow once'?'allow':choice==='Deny'?'deny':'cancel';
+     },{fresh:deps.state.needsArm(snapshot)});
      if(!current(snapshot,waitSignal)||key(action)!==binding)return {status:'cancelled'};
-     if(controller.signal.aborted)return {status:'expired'};
-     const row=response?.details;if(response?.isError||row?.cancelled||row?.runtimeAsk?.requestId!==id||row.response?.kind!=='selection'||row.response.selections?.length!==1)return {status:'expired'};
-     const choice=row.response.selections[0];
-     if(choice!=='Allow once'&&choice!=='Deny')return {status:'expired'};
-     try{if(choice==='Deny'){deps.state.deny(snapshot);return {status:'denied'};}if(denialEpoch!==deps.state.denialEpoch(snapshot))return {status:'cancelled'};deps.state.allow(snapshot);}catch{return {status:'persistence_failed'};}
+     if(decision==='cancel')return controller.signal.aborted?{status:'expired'}:{status:'cancelled'};
+     try{if(decision==='deny'){deps.state.deny(snapshot);return {status:'denied'};}if(denialEpoch!==deps.state.denialEpoch(snapshot))return {status:'cancelled'};deps.state.allow(snapshot);}catch{return {status:'persistence_failed'};}
      if(!current(snapshot,waitSignal)||key(action)!==binding)return {status:'cancelled'};
      const grant=authority.issue(binding);issued.set(grant,{binding,generation,denialEpoch,overrideDenied:deps.state.denied(snapshot)});return {status:'allowed',grant};
     }catch{return {status:waitSignal.aborted?'cancelled':'expired'};}finally{clearTimeout(timer);waitSignal.removeEventListener('abort',abort);}

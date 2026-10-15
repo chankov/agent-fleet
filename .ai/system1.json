@@ -8,7 +8,9 @@
     "agenticAsk": {
       "mode": "recommended",
       "remoteContextApproved": true,
-      "include": ["git:tracked"],
+      "include": [
+        "git:tracked"
+      ],
       "allowToolOutputs": false
     },
     "watchdog": {
@@ -101,10 +103,27 @@
       }
     },
     "contextCompaction": {
-         "mode": "automatic",
-         "remoteContextApproved": true,
-         "earlyOpportunityPercent": 60,
-         "limits": { "timeoutMs": 1000, "maxStateBytes": 8192 }
-       }
+      "mode": "automatic",
+      "remoteContextApproved": true,
+      "earlyOpportunityPercent": 60,
+      "limits": {
+        "timeoutMs": 1000,
+        "maxStateBytes": 8192
+      }
+    },
+    "damageGuard": {
+      "mode": "active",
+      "remoteScopes": {
+        "commands": true,
+        "edits": true,
+        "results": true
+      },
+      "include": [
+        ".pi/harnesses",
+        "docs",
+        "skills",
+        "bin"
+      ]
+    }
   }
 }
